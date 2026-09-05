@@ -1,0 +1,36 @@
+# ---- Planning & non-runtime artifacts (per project policy) ----
+docs/
+*.local.md
+scratch/
+
+# ---- Environment ----
+.env
+.env.*
+!.env.example
+
+# ---- PHP / Symfony ----
+/backend/vendor/
+/backend/var/
+/backend/public/bundles/
+/backend/config/jwt/*.pem
+
+# ---- Node / Next.js ----
+node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/next-env.d.ts
+
+# ---- Test & build output ----
+coverage/
+.phpunit.result.cache
+/frontend/playwright-report/
+/frontend/test-results/
+
+# ---- Infra ----
+docker-compose.override.yml
+/infra/data/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
