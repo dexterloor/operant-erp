@@ -1,9 +1,12 @@
-# ADR-002 §1 — three roles, three DSNs. Which role a connection uses is a
+# ADR-002 §1 as amended by A1.3 / ADR-006 — six principals, six DSNs. Which role a connection uses is a
 # security control, not a convenience:
 #
-#   owner  direct + unpooled, owns the schema, runs migrations, never serves requests
-#   app    through PgBouncer as erp_app  — what the application and the isolation suite use
-#   ai     through PgBouncer as erp_ai   — SELECT only, for the NL query agent
+#   owner      direct + unpooled, owns the schema, runs migrations, never serves requests
+#   app        through PgBouncer as erp_app  — the application and the isolation suite
+#   ai         through PgBouncer as erp_ai   — SELECT only, for the NL query agent
+#   auth       erp_auth      — pre-auth slug + credential read, no write anywhere
+#   authlog    erp_authlog   — INSERT on audit_log only, cannot read it back
+#   ratelimit  erp_ratelimit — the two pre-auth counter tables and nothing else
 #
 # `owner` is the DBAL default purely so that doctrine:migrations picks it up without
 # a flag. The ORM entity manager is pinned to `app`, so no application code can
@@ -14,17 +17,88 @@ doctrine:
             # Postgres writes microseconds; DBAL's built-in parser does not read
             # them. Overridden globally rather than per column.
             datetimetz_immutable: App\Doctrine\Type\TimestampTzImmutableType
+            # audit_log.ip_address. Registered rather than declared as a string,
+            # so that the ORM emits INET and the schema comparison stays silent.
+            inet: App\Doctrine\Type\InetType
         default_connection: owner
         connections:
             owner:
                 url: '%env(resolve:DATABASE_URL)%'
                 profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
             app:
                 url: '%env(resolve:APP_DATABASE_URL)%'
                 profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
             ai:
                 url: '%env(resolve:AI_DATABASE_URL)%'
                 profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
+            # ADR-006 §2 — the pre-authentication principals. Separate
+            # credentials on separate connections is the property: no SQL the
+            # application emits can undo the separation, where a missing
+            # `SET LOCAL ROLE` on one shared connection would restore full
+            # privilege silently.
+            auth:
+                url: '%env(resolve:AUTH_DATABASE_URL)%'
+                profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
+            authlog:
+                url: '%env(resolve:AUTHLOG_DATABASE_URL)%'
+                profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
+            ratelimit:
+                url: '%env(resolve:RATELIMIT_DATABASE_URL)%'
+                profiling_collect_backtrace: '%kernel.debug%'
+                # Postgres network types have no DBAL equivalent, and without a
+                # mapping any introspection of the whole schema aborts with
+                # "Unknown database type cidr" -- which takes the ORM/DB
+                # divergence pin with it, since that pin introspects everything.
+                # Mapped to string for reverse engineering only; the columns stay
+                # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
     orm:
         default_entity_manager: default
         entity_managers:
@@ -45,6 +119,14 @@ doctrine:
                 filters:
                     tenant:
                         class: App\Tenancy\TenantFilter
+                        enabled: true
+                    # ADR-007 §2. Deliberately configured next to the tenant
+                    # filter and deliberately not described as its equal:
+                    # forgetting this one shows a user a row they deleted,
+                    # forgetting the other shows them nothing they should not
+                    # see, because RLS is underneath it.
+                    soft_delete:
+                        class: App\Tenancy\SoftDeleteFilter
                         enabled: true
                 # ADR-002 "Open items": DDC-3174 reported the query cache not keying
                 # on SQLFilter state. Not confirmed for ORM 3.x, so both caches stay

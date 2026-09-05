@@ -31,7 +31,7 @@ final class TenantIdentityMapTest extends TenancyTestCase
     public function anEntityLoadedForOneTenantIsNotServedFromTheIdentityMapToTheNext(): void
     {
         $id = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $item = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'SKU-A');
+            $item = $this->newItem(self::TENANT_A, 'SKU-A');
             $this->em()->persist($item);
             $this->em()->flush();
 
@@ -51,7 +51,7 @@ final class TenantIdentityMapTest extends TenancyTestCase
     public function entitiesFromThePreviousTenantAreDetachedBeforeTheNextUnitOfWork(): void
     {
         $item = $this->tenantContext()->run(self::TENANT_A, function (): InventoryItem {
-            $item = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'SKU-A');
+            $item = $this->newItem(self::TENANT_A, 'SKU-A');
             $this->em()->persist($item);
             $this->em()->flush();
 
@@ -72,7 +72,7 @@ final class TenantIdentityMapTest extends TenancyTestCase
     public function consecutiveUnitsOfWorkForTheSameTenantKeepTheirManagedEntities(): void
     {
         $item = $this->tenantContext()->run(self::TENANT_A, function (): InventoryItem {
-            $item = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'SKU-A');
+            $item = $this->newItem(self::TENANT_A, 'SKU-A');
             $this->em()->persist($item);
             $this->em()->flush();
 

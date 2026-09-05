@@ -1,5 +1,13 @@
 #!/bin/bash
-# ADR-002 §1 — the three roles.
+# ADR-002 §1 as amended by A1.3 / ADR-006 — the five principals, plus a sixth.
+#
+# The two ADR-006 roles (erp_auth, erp_authlog) bound the authority of the
+# pre-authentication path by making it a grant fact rather than a code rule.
+# They do NOT close ADR-006's Condition 2: §2.1 step 1 runs the rate limiter on
+# erp_app, which holds DML on every table with no tenant_id — including
+# messenger_messages, where an INSERT is worker code execution by another name.
+# erp_ratelimit exists to take the limiter off erp_app entirely. Its whole
+# footprint is two counter tables.
 #
 # Created here, in SQL, and never through a provider console/API/CLI. On Neon
 # those paths auto-grant neon_superuser, which carries BYPASSRLS, and a role with
@@ -16,6 +24,12 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     CREATE ROLE "${ERP_APP_USER}"  LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_APP_PASSWORD}';
     CREATE ROLE "${ERP_AI_USER}"   LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_AI_PASSWORD}';
 
+    -- ADR-006 §2. Neither is ever named by ALTER DEFAULT PRIVILEGES, so no
+    -- future migration can widen them the way S-11(c) widens erp_app.
+    CREATE ROLE "${ERP_AUTH_USER}"      LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_AUTH_PASSWORD}';
+    CREATE ROLE "${ERP_AUTHLOG_USER}"   LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_AUTHLOG_PASSWORD}';
+    CREATE ROLE "${ERP_RATELIMIT_USER}" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_RATELIMIT_PASSWORD}';
+
     -- The owner role owns the database and the schema, so migrations run as a
     -- non-superuser exactly as they will on Neon.
     ALTER DATABASE "${POSTGRES_DB}" OWNER TO "${DB_OWNER}";
@@ -28,8 +42,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- Not part of ADR-002 §1; do not carry this to staging or production.
     GRANT pg_read_all_stats TO "${DB_OWNER}";
 
-    -- Neither application role may create objects. If they could, they would own
-    -- what they create, and ownership plus a missing FORCE would void isolation.
+    -- No application role may create objects. If one could, it would own what it
+    -- creates, and ownership plus a missing FORCE would void isolation.
     REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-    GRANT USAGE ON SCHEMA public TO "${ERP_APP_USER}", "${ERP_AI_USER}";
+    GRANT USAGE ON SCHEMA public TO "${ERP_APP_USER}", "${ERP_AI_USER}",
+                                    "${ERP_AUTH_USER}", "${ERP_AUTHLOG_USER}", "${ERP_RATELIMIT_USER}";
 EOSQL

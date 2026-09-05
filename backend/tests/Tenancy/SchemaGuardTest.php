@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Tenancy\DatabaseRoles;
+use App\Tenancy\SchemaManifest;
+use Doctrine\DBAL\ArrayParameterType;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -18,16 +21,58 @@ final class SchemaGuardTest extends TenancyTestCase
     #[Test]
     public function neitherApplicationRoleCarriesBypassRlsOrSuperuser(): void
     {
+        $roles = DatabaseRoles::APPLICATION_ROLES;
         $rows = $this->owner()->fetchAllAssociative(
-            'SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN (?, ?) ORDER BY rolname',
-            ['erp_ai', 'erp_app'],
+            'SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN (?) ORDER BY rolname',
+            [$roles],
+            [ArrayParameterType::STRING],
         );
 
-        self::assertCount(2, $rows, 'Both ADR-002 §1 application roles must exist.');
+        self::assertCount(\count($roles), $rows,
+            'Every role in DatabaseRoles::APPLICATION_ROLES must exist: expected '
+            .implode(', ', $roles).', found '.implode(', ', array_column($rows, 'rolname')));
         foreach ($rows as $r) {
             self::assertFalse($r['rolsuper'], $r['rolname'].' is a superuser -- it bypasses row security unconditionally.');
             self::assertFalse($r['rolbypassrls'], $r['rolname'].' carries BYPASSRLS -- every policy is inert for it.');
         }
+    }
+
+    /**
+     * The list is not trusted; it is reconciled.
+     *
+     * D-9's blocking condition is that the guards above must derive from a role
+     * list rather than from `['erp_app', 'erp_ai']`. A list alone only moves the
+     * hardcoding one file to the left: a role created in
+     * infra/postgres/init/10-roles.sh and never added to DatabaseRoles would be
+     * just as invisible as before. So the real set is read from pg_roles and the
+     * two must agree exactly.
+     *
+     * The owner is excluded by name rather than by attribute: it is the one
+     * login role that legitimately owns the schema, and it is identified by
+     * asking the owner connection who it is rather than by trusting a constant.
+     */
+    #[Test]
+    public function theRoleListCoversEveryLoginRoleInTheDatabase(): void
+    {
+        $owner = (string) $this->owner()->fetchOne('SELECT current_user');
+
+        $actual = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT rolname FROM pg_roles
+            WHERE rolcanlogin
+              AND NOT rolsuper
+              AND rolname <> ?
+              AND rolname NOT LIKE 'pg\_%'
+            ORDER BY 1
+            SQL, [$owner]);
+
+        $declared = DatabaseRoles::APPLICATION_ROLES;
+        sort($declared);
+
+        self::assertSame($declared, $actual,
+            "The database's login roles and DatabaseRoles::APPLICATION_ROLES disagree. "
+            .'Every guard in this class iterates that constant, so a role missing from it is '
+            .'uncovered by the BYPASSRLS closure, the membership check and the grant manifest '
+            .'-- which is exactly the condition ADR-006 attaches to landing new principals.');
     }
 
     /**
@@ -56,7 +101,7 @@ final class SchemaGuardTest extends TenancyTestCase
     #[Test]
     public function neitherApplicationRoleCanReachBypassRlsThroughRoleMembership(): void
     {
-        foreach (['erp_app', 'erp_ai'] as $role) {
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
             $reachable = $this->owner()->fetchAllAssociative(<<<'SQL'
                 SELECT r.rolname, r.rolsuper, r.rolbypassrls
                 FROM pg_roles r
@@ -93,7 +138,7 @@ final class SchemaGuardTest extends TenancyTestCase
     #[Test]
     public function theApplicationRolesHoldNoRoleMembershipsAtAll(): void
     {
-        foreach (['erp_app', 'erp_ai'] as $role) {
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
             $memberships = $this->owner()->fetchFirstColumn(<<<'SQL'
                 SELECT r.rolname FROM pg_roles r
                 WHERE pg_has_role(?, r.oid, 'MEMBER') AND r.rolname <> ?
@@ -138,16 +183,21 @@ final class SchemaGuardTest extends TenancyTestCase
     }
 
     /**
-     * ADR-002 "Verification" #4, the CI drift check, verbatim. New tables default
-     * to RLS off, so without this every future migration can silently ship an
+     * ADR-002 "Verification" #4, the CI drift check. New tables default to RLS
+     * off, so without this every future migration can silently ship an
      * unprotected table.
+     *
+     * One correction to the published query, found by executing it: it filters
+     * `relkind='r'`. A partitioned table is relkind 'p', so a tenant-scoped
+     * table partitioned for retention or volume would be invisible to the check
+     * written to catch exactly that. Widened here and in SchemaManifestTest.
      */
     #[Test]
     public function everyTenantScopedTableHasRowLevelSecurityEnabledAndForced(): void
     {
         $unprotected = $this->owner()->fetchFirstColumn(<<<'SQL'
             SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname='public' AND c.relkind='r'
+            WHERE n.nspname='public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
               AND EXISTS (SELECT 1 FROM information_schema.columns
                           WHERE table_name = c.relname AND column_name = 'tenant_id')
               AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)
@@ -162,13 +212,15 @@ final class SchemaGuardTest extends TenancyTestCase
         // A guard that returns "all clear" against an empty set is not a guard.
         $tenantTables = $this->owner()->fetchFirstColumn(<<<'SQL'
             SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname='public' AND c.relkind='r'
+            WHERE n.nspname='public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
               AND EXISTS (SELECT 1 FROM information_schema.columns
                           WHERE table_name = c.relname AND column_name = 'tenant_id')
             ORDER BY 1
             SQL);
 
-        self::assertSame(['inventory_item', 'stock_movement', 'supplier'], $tenantTables);
+        self::assertSame(SchemaManifest::tenantScopedTables(), $tenantTables,
+            'The set of tenant-scoped tables the guard actually inspects has drifted from the declared one. '
+            .'A guard that returns "all clear" against a set it does not cover is worse than no guard.');
     }
 
     #[Test]
@@ -183,7 +235,7 @@ final class SchemaGuardTest extends TenancyTestCase
             WHERE n.nspname = 'public' ORDER BY 1
             SQL);
 
-        self::assertCount(3, $rows);
+        self::assertCount(\count(SchemaManifest::tenantScopedTables()), $rows);
         foreach ($rows as $r) {
             self::assertNotNull($r['using_expr'], $r['tbl'].' policy has no USING clause.');
             self::assertNotNull($r['check_expr'], $r['tbl'].' policy has no WITH CHECK clause -- writes are unguarded (ADR-002 §4).');
@@ -257,7 +309,9 @@ final class SchemaGuardTest extends TenancyTestCase
             ORDER BY 1
             SQL);
 
-        self::assertCount(3, $pks);
+        self::assertCount(\count(SchemaManifest::tenantScopedTables()), $pks,
+            'Derived from the manifest, not written down: bumping a literal here is the path of least '
+            .'resistance and it silently stops covering the table that was added.');
         foreach ($pks as $pk) {
             self::assertSame(1, (int) $pk['cols'], $pk['tbl'].' primary key is not a single column.');
             self::assertSame('uuid', $pk['keytype'],
@@ -289,19 +343,36 @@ final class SchemaGuardTest extends TenancyTestCase
         self::assertSame([], $offenders, "Index not led by tenant_id:\n".json_encode($offenders, JSON_PRETTY_PRINT));
     }
 
-    /** ADR-002 §5's composite foreign key, read back from the catalogue. */
+    /**
+     * ADR-002 §5's composite foreign key, read back from the catalogue.
+     *
+     * W0-a wrote this as a bare `fetchOne` over every foreign key on
+     * `inventory_item`, which was unambiguous while there was exactly one. There
+     * are now four, `pg_constraint` has no inherent order, and the test passed
+     * or failed depending on physical row order -- green three runs in a row and
+     * red on the first run against a freshly built database. Fixed by naming the
+     * constraint and asserting the whole set, so a foreign key appearing or
+     * vanishing is a failure rather than a coin toss.
+     */
     #[Test]
     public function theSupplierForeignKeyIsCompositeAndTenantScoped(): void
     {
-        $def = $this->owner()->fetchOne(<<<'SQL'
-            SELECT pg_get_constraintdef(oid) FROM pg_constraint
+        $keys = $this->owner()->fetchAllKeyValue(<<<'SQL'
+            SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
             WHERE conrelid = 'inventory_item'::regclass AND contype = 'f'
+            ORDER BY conname
             SQL);
 
-        self::assertSame(
-            'FOREIGN KEY (tenant_id, supplier_id) REFERENCES supplier(tenant_id, id)',
-            $def,
-        );
+        self::assertSame([
+            // ADR-002 §5's shape: the tenant travels in the key itself, so a
+            // parent from another tenant is refused by Postgres rather than by
+            // whatever the ORM believes.
+            'inventory_item_currency_fk' => 'FOREIGN KEY (currency_code) REFERENCES currency(code)',
+            'inventory_item_supplier_fk' => 'FOREIGN KEY (tenant_id, supplier_id) REFERENCES supplier(tenant_id, id)',
+            // Reference data (ADR-002 §6) is never the tenant side of a key.
+            'inventory_item_tenant_fk' => 'FOREIGN KEY (tenant_id) REFERENCES tenant(id)',
+            'inventory_item_uom_fk' => 'FOREIGN KEY (unit_of_measure_code) REFERENCES unit_of_measure(code)',
+        ], $keys);
     }
 
     /**
@@ -323,17 +394,36 @@ final class SchemaGuardTest extends TenancyTestCase
         self::assertSame([], $rows, "SECURITY DEFINER objects found:\n".json_encode($rows, JSON_PRETTY_PRINT));
     }
 
-    /** Extension from RED via LEAD, test 2 -- erp_ai must not have gained write rights. */
+    /**
+     * Extension from RED via LEAD, test 2 -- erp_ai must not have gained write
+     * rights. Derived over every table in the schema rather than three of them,
+     * and stated as the property that survives the schema growing: the query
+     * agent writes nothing, anywhere, ever.
+     *
+     * What it can *read* is deliberately not "everything": app_user and
+     * audit_log are withheld outright rather than column-scoped, because a
+     * grant that excludes password_hash today is one widening away from a
+     * model-driven query reading it. GrantFootprintTest asserts that footprint
+     * exactly; this asserts the half that must never change.
+     */
     #[Test]
-    public function theAgentRoleHoldsSelectOnlyOnTenantTables(): void
+    public function theAgentRoleCanWriteNowhereInTheSchema(): void
     {
-        foreach (['supplier', 'inventory_item', 'stock_movement'] as $table) {
-            self::assertTrue((bool) $this->owner()->fetchOne(
-                'SELECT has_table_privilege(?, ?, ?)', ['erp_ai', $table, 'SELECT']), "erp_ai cannot SELECT $table");
-            foreach (['INSERT', 'UPDATE', 'DELETE'] as $priv) {
+        foreach (SchemaManifest::allTables() as $table) {
+            foreach (['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] as $priv) {
                 self::assertFalse((bool) $this->owner()->fetchOne(
-                    'SELECT has_table_privilege(?, ?, ?)', ['erp_ai', $table, $priv]), "erp_ai holds $priv on $table");
+                    'SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::AI, $table, $priv]),
+                    "erp_ai holds $priv on $table");
+            }
+            foreach (['INSERT', 'UPDATE', 'REFERENCES'] as $priv) {
+                self::assertFalse((bool) $this->owner()->fetchOne(
+                    'SELECT has_any_column_privilege(?, ?, ?)', [DatabaseRoles::AI, $table, $priv]),
+                    "erp_ai holds a column-level $priv on $table");
             }
         }
+
+        // Not vacuous: it really can read the business tables it exists for.
+        self::assertTrue((bool) $this->owner()->fetchOne(
+            'SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::AI, 'inventory_item', 'SELECT']));
     }
 }

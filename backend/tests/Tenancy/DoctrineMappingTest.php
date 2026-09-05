@@ -88,10 +88,44 @@ final class DoctrineMappingTest extends TenancyTestCase
             $allowed[] = '/^CREATE INDEX \w+ ON '.$t.' \('.$c.'\)$/';
         }
 
+        // The second unmappable constraint, and it is not a composite key.
+        // Every tenant-scoped table carries FOREIGN KEY (tenant_id) REFERENCES
+        // tenant (id), which is single-column and so invisible to the query
+        // above -- and just as unmappable, because mapping it would make
+        // tenantId an association, which is A1.6 exactly.
+        $registryKeys = $this->registryForeignKeysOnMappedTables();
+        foreach ($registryKeys as $table => $conname) {
+            $allowed[] = '/^ALTER TABLE '.preg_quote($table, '/').' DROP CONSTRAINT '.preg_quote($conname, '/').'$/';
+        }
+
         [$mappedDiff, $unmappedDiff] = $this->partitionSchemaDiff();
 
-        fwrite(STDERR, "\n  [ORM/DB divergence] ".count($compositeKeys)." composite tenant FK(s), "
-            .count($mappedDiff)." statement(s) on mapped tables:\n    ".implode("\n    ", $mappedDiff ?: ['(none)'])."\n");
+        fwrite(STDERR, "\n  [ORM/DB divergence] ".count($compositeKeys)." composite tenant FK(s) + "
+            .count($registryKeys)." registry FK(s), ".count($mappedDiff)." statement(s) on mapped tables\n");
+
+        // DBAL synthesises an index for every foreign key no declared index
+        // exactly fulfils, during introspection, and names it IDX_<hash>. Each
+        // of the constraints above therefore drags one of these along. They are
+        // not indexes -- nothing in the catalogue has these names -- so the
+        // pattern is allowed only after that is checked, rather than trusted.
+        $syntheticDrops = [];
+        foreach ($mappedDiff as $sql) {
+            if (preg_match('/^DROP INDEX (IDX_[0-9A-F]+)$/', $sql, $m)) {
+                $syntheticDrops[] = $m[1];
+            }
+        }
+
+        if ([] !== $syntheticDrops) {
+            $real = $this->owner()->fetchFirstColumn(
+                'SELECT indexname FROM pg_indexes WHERE schemaname = \'public\' AND indexname = ANY(string_to_array(?, \',\'))',
+                [implode(',', $syntheticDrops)]);
+
+            self::assertSame([], $real,
+                "A DROP INDEX in the diff names an index that really exists, so it is not a DBAL artefact:\n  "
+                .implode("\n  ", $real));
+
+            $allowed[] = '/^DROP INDEX IDX_[0-9A-F]+$/';
+        }
 
         $unexplained = array_values(array_filter($mappedDiff, static function (string $sql) use ($allowed): bool {
             foreach ($allowed as $pattern) {
@@ -104,13 +138,24 @@ final class DoctrineMappingTest extends TenancyTestCase
         }));
 
         self::assertSame([], $unexplained,
-            "Divergence between the mapping and the schema that is not the composite foreign key:\n  "
+            "Divergence between the mapping and the schema that is not an unmappable tenant foreign key:\n  "
             .implode("\n  ", $unexplained));
 
-        // Both directions: every allowed shape must actually be present, so a
-        // silently dropped constraint cannot pass as "nothing diverged".
-        self::assertCount(3 * $mappedCompositeKeys, $mappedDiff,
-            "Expected exactly three statements per composite foreign key:\n  ".implode("\n  ", $mappedDiff));
+        // Both directions, counted by statement class rather than by a single
+        // total: a total would let a silently dropped constraint be masked by an
+        // extra synthetic index. Every unmappable constraint must produce
+        // exactly one DROP, and every mapped association exactly one ADD and one
+        // CREATE INDEX.
+        $count = static function (array $diff, string $pattern): int {
+            return \count(array_filter($diff, static fn (string $sql): bool => 1 === preg_match($pattern, $sql)));
+        };
+
+        self::assertSame(
+            $mappedCompositeKeys + \count($registryKeys),
+            $count($mappedDiff, '/^ALTER TABLE \w+ DROP CONSTRAINT /'),
+            'A constraint that should be in the diff is missing, which means it is missing from the database.');
+        self::assertSame($mappedCompositeKeys, $count($mappedDiff, '/^ALTER TABLE \w+ ADD CONSTRAINT /'));
+        self::assertSame($mappedCompositeKeys, $count($mappedDiff, '/^CREATE INDEX /'));
 
         // An unmapped table may only ever be proposed for removal. SchemaTool
         // drops its foreign keys before the table itself, so DROP CONSTRAINT
@@ -120,6 +165,30 @@ final class DoctrineMappingTest extends TenancyTestCase
                 '/^(DROP (TABLE|SEQUENCE|INDEX)|ALTER TABLE \\w+ DROP CONSTRAINT)/i', $sql,
                 "An unmapped asset produced something other than a removal:\n$sql");
         }
+    }
+
+    /**
+     * The single-column tenant_id -> tenant (id) key on every mapped
+     * tenant-scoped table.
+     *
+     * @return array<string, string> table => constraint name
+     */
+    private function registryForeignKeysOnMappedTables(): array
+    {
+        $rows = $this->owner()->fetchAllKeyValue(<<<'SQL'
+            SELECT c.relname, con.conname
+            FROM pg_constraint con
+            JOIN pg_class c ON c.oid = con.conrelid
+            JOIN pg_class p ON p.oid = con.confrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND con.contype = 'f'
+              AND array_length(con.conkey, 1) = 1
+              AND p.relname = 'tenant'
+            ORDER BY 1
+            SQL);
+
+        return array_filter($rows, fn (string $conname, string $table): bool => $this->isMappedTable($table),
+            ARRAY_FILTER_USE_BOTH);
     }
 
     /** @return list<array{tbl:string,parent:string,conname:string,cols:list<string>,refcols:list<string>,child_column:string}> */
@@ -155,6 +224,27 @@ final class DoctrineMappingTest extends TenancyTestCase
                 'child_column' => end($cols),
             ];
         }, $rows);
+    }
+
+    /**
+     * Every table in the schema that no entity maps.
+     *
+     * @return list<string>
+     */
+    private function unmappedTables(): array
+    {
+        $mapped = [];
+        foreach ($this->em()->getMetadataFactory()->getAllMetadata() as $meta) {
+            $mapped[] = $meta->getTableName();
+        }
+
+        $all = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+            ORDER BY 1
+            SQL);
+
+        return array_values(array_diff($all, $mapped));
     }
 
     private function isMappedTable(string $table): bool
@@ -201,12 +291,14 @@ final class DoctrineMappingTest extends TenancyTestCase
     /** @return array{0: list<string>, 1: list<string>} */
     private function partitionSchemaDiff(): array
     {
-        // Two tables here deliberately have no ORM mapping: stock_movement proves
-        // ALTER DEFAULT PRIVILEGES reaches later migrations, and
-        // messenger_messages belongs to the transport. SchemaTool proposes to drop
-        // whatever it does not know about, so those are separated rather than
-        // silently tolerated.
-        $unmapped = ['stock_movement', 'messenger_messages', 'doctrine_migration_versions'];
+        // Derived, not listed. Some tables deliberately have no ORM mapping --
+        // the Messenger transport's own table, the migration ledger, and the two
+        // pre-authentication counter tables, which are reached through DBAL on a
+        // different principal entirely. SchemaTool proposes to drop whatever it
+        // does not know about, so those are separated rather than silently
+        // tolerated; but a hardcoded list of them would need editing every time
+        // a module lands, which is how a check stops being read.
+        $unmapped = $this->unmappedTables();
         $mappedDiff = [];
         $unmappedDiff = [];
 
@@ -223,12 +315,65 @@ final class DoctrineMappingTest extends TenancyTestCase
         return [$mappedDiff, $unmappedDiff];
     }
 
+    /**
+     * A1.6 as an invariant over every entity, rather than over the two the
+     * slice happened to have.
+     *
+     * The rejected mapping is seductive precisely because it validates cleanly:
+     * `doctrine:schema:validate` is green, the DDL it emits is exactly ADR-002
+     * §5's, and only then does it write the wrong tenant. So the check cannot be
+     * "does the mapping validate" -- it has to be the three structural facts
+     * that distinguish the shape that works from the shape that does not, and it
+     * has to run over all twenty-nine classes, because it takes one to reopen it.
+     */
+    #[Test]
+    public function noEntityAnywhereMakesTenantIdPartOfAnIdentifierOrAJoin(): void
+    {
+        $checked = 0;
+
+        foreach ($this->em()->getMetadataFactory()->getAllMetadata() as $meta) {
+            if (!$meta->hasField('tenantId')) {
+                continue;
+            }
+            ++$checked;
+            $entity = $meta->getName();
+
+            // 1. The identifier is scalar and is not tenant_id.
+            self::assertSame(['id'], $meta->getIdentifierFieldNames(),
+                "$entity has a composite or non-standard identifier. A composite ORM identifier validates "
+                .'cleanly, emits exactly ADR-002 §5\'s DDL, and then silently writes the wrong tenant -- and it '
+                .'propagates into every find(), every DQL bind and every API Platform IRI.');
+
+            // 2. tenant_id is a real mapped column, not a shadow of an association.
+            self::assertSame('tenant_id', $meta->getColumnName('tenantId'), "$entity does not map tenantId to tenant_id.");
+
+            foreach ($meta->getAssociationMappings() as $association) {
+                // 3. No association owns the tenant column, and none is composite.
+                foreach ($association->joinColumns ?? [] as $joinColumn) {
+                    self::assertNotSame('tenant_id', $joinColumn->name,
+                        "$entity::{$association->fieldName} owns the tenant_id column. The association then wins "
+                        .'over the field, so a parent in another tenant overrides an explicitly-set tenantId and '
+                        .'the INSERT is accepted storing the wrong one (A1.6).');
+                }
+
+                if ($association->isOwningSide() && $meta->isSingleValuedAssociation($association->fieldName)) {
+                    self::assertCount(1, $association->joinColumns ?? [],
+                        "$entity::{$association->fieldName} is a multi-column association. The composite key is "
+                        .'the migration\'s job; the ORM keeps single-column joins.');
+                }
+            }
+        }
+
+        self::assertGreaterThan(20, $checked,
+            'Too few tenant-scoped entities were inspected for this to be covering the schema.');
+    }
+
     #[Test]
     public function anEntityRoundTripsThroughTheOrmInsideATenantTransaction(): void
     {
         $id = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $s = new Supplier(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'Acme');
-            $i = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'SKU-1');
+            $s = $this->newSupplier(self::TENANT_A, 'Acme', 'ACME');
+            $i = $this->newItem(self::TENANT_A, 'SKU-1');
             $i->setSupplier($s);
             $this->em()->persist($s);
             $this->em()->persist($i);
@@ -255,7 +400,7 @@ final class DoctrineMappingTest extends TenancyTestCase
     public function aChildWithNoParentStillCarriesItsOwnTenantId(): void
     {
         $id = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $i = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'ORPHAN');
+            $i = $this->newItem(self::TENANT_A, 'ORPHAN');
             $this->em()->persist($i);
             $this->em()->flush();
 
@@ -283,8 +428,8 @@ final class DoctrineMappingTest extends TenancyTestCase
     public function touchingALazyAssociationAfterTheTenantTransactionClosesFails(): void
     {
         $itemId = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $s = new Supplier(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'Acme');
-            $i = new InventoryItem(Uuid::v4(), Uuid::fromString(self::TENANT_A), 'LAZY');
+            $s = $this->newSupplier(self::TENANT_A, 'Acme', 'ACME');
+            $i = $this->newItem(self::TENANT_A, 'LAZY');
             $i->setSupplier($s);
             $this->em()->persist($s);
             $this->em()->persist($i);

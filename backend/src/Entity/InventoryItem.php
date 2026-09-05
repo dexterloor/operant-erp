@@ -42,9 +42,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Entity]
 #[ORM\Table(name: 'inventory_item')]
 #[ORM\UniqueConstraint(name: 'inventory_item_tenant_id_id_key', columns: ['tenant_id', 'id'])]
-#[ORM\UniqueConstraint(name: 'inventory_item_tenant_sku_key', columns: ['tenant_id', 'sku'])]
+#[ORM\UniqueConstraint(name: 'inventory_item_tenant_sku_live', columns: ['tenant_id', 'sku'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\Index(name: 'inventory_item_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id'])]
-#[ORM\Index(name: 'inventory_item_tenant_created_idx', columns: ['tenant_id', 'created_at'])]
 class InventoryItem
 {
     #[ORM\Id]
@@ -57,8 +56,35 @@ class InventoryItem
     #[ORM\Column(type: Types::TEXT)]
     private string $sku;
 
-    #[ORM\Column(name: 'qty_on_hand', type: Types::INTEGER, options: ['default' => 0])]
-    private int $qtyOnHand = 0;
+    #[ORM\Column(type: Types::TEXT)]
+    private string $name;
+
+    // Reference data: no tenant_id, no RLS, single-column association.
+    #[ORM\ManyToOne(targetEntity: UnitOfMeasure::class)]
+    #[ORM\JoinColumn(name: 'unit_of_measure_code', referencedColumnName: 'code', nullable: false)]
+    private UnitOfMeasure $unitOfMeasure;
+
+    #[ORM\Column(name: 'unit_cost', type: Types::DECIMAL, precision: 19, scale: 4, options: ['default' => '0'])]
+    private string $unitCost = '0';
+
+    #[ORM\ManyToOne(targetEntity: Currency::class)]
+    #[ORM\JoinColumn(name: 'currency_code', referencedColumnName: 'code', nullable: false)]
+    private Currency $currency;
+
+    // ADR-004's reorder policy parameters. Quantities are numeric(19,6) (S-12):
+    // a reorder point of 2.5 kg is ordinary, and a float would make the forecast
+    // non-deterministic, which ADR-004 forbids outright.
+    #[ORM\Column(name: 'reorder_point', type: Types::DECIMAL, precision: 19, scale: 6, options: ['default' => '0'])]
+    private string $reorderPoint = '0';
+
+    #[ORM\Column(name: 'reorder_quantity', type: Types::DECIMAL, precision: 19, scale: 6, options: ['default' => '0'])]
+    private string $reorderQuantity = '0';
+
+    #[ORM\Column(name: 'safety_stock', type: Types::DECIMAL, precision: 19, scale: 6, options: ['default' => '0'])]
+    private string $safetyStock = '0';
+
+    #[ORM\Column(name: 'is_active', type: Types::BOOLEAN, options: ['default' => true])]
+    private bool $isActive = true;
 
     #[ORM\ManyToOne(targetEntity: Supplier::class)]
     #[ORM\JoinColumn(name: 'supplier_id', referencedColumnName: 'id', nullable: true)]
@@ -67,12 +93,28 @@ class InventoryItem
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
-    public function __construct(Uuid $id, Uuid $tenantId, string $sku)
-    {
+    #[ORM\Column(name: 'updated_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
+    private \DateTimeImmutable $updatedAt;
+
+    #[ORM\Column(name: 'deleted_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $deletedAt = null;
+
+    public function __construct(
+        Uuid $id,
+        Uuid $tenantId,
+        string $sku,
+        string $name,
+        UnitOfMeasure $unitOfMeasure,
+        Currency $currency,
+    ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->sku = $sku;
+        $this->name = $name;
+        $this->unitOfMeasure = $unitOfMeasure;
+        $this->currency = $currency;
         $this->createdAt = new \DateTimeImmutable();
+        $this->updatedAt = $this->createdAt;
     }
 
     public function getId(): Uuid
@@ -98,5 +140,36 @@ class InventoryItem
     public function setSupplier(?Supplier $supplier): void
     {
         $this->supplier = $supplier;
+    }
+
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    public function getUnitOfMeasure(): UnitOfMeasure
+    {
+        return $this->unitOfMeasure;
+    }
+
+    public function getCurrency(): Currency
+    {
+        return $this->currency;
+    }
+
+    public function getReorderPoint(): string
+    {
+        return $this->reorderPoint;
+    }
+
+    public function isDeleted(): bool
+    {
+        return null !== $this->deletedAt;
+    }
+
+    public function delete(): void
+    {
+        $this->deletedAt = new \DateTimeImmutable();
+        $this->updatedAt = $this->deletedAt;
     }
 }

@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Entity\Currency;
+use App\Entity\InventoryItem;
+use App\Entity\Supplier;
+use App\Entity\UnitOfMeasure;
+use App\Tenancy\SchemaManifest;
 use App\Tenancy\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
@@ -33,6 +38,27 @@ abstract class TenancyTestCase extends KernelTestCase
         self::bootKernel();
         $this->clearLeakedTenantContext();
         $this->truncateTenantTables();
+        $this->seedTenantRegistry();
+    }
+
+    /**
+     * Every tenant-scoped table now carries FOREIGN KEY (tenant_id) REFERENCES
+     * tenant (id), so a fixture that invents a tenant id no longer works. That
+     * is the point of the key -- R-33 in the register is the same problem from
+     * the other side -- but it means the registry has to exist before anything
+     * else is written.
+     *
+     * Seeded as the owner: `tenant` is not RLS'd, and erp_app holds SELECT on it
+     * and nothing more.
+     */
+    protected function seedTenantRegistry(): void
+    {
+        $this->owner()->executeStatement(<<<'SQL'
+            INSERT INTO tenant (id, slug, name, status) VALUES
+                (?::uuid, 'tenant-a', 'Tenant A', 'active'),
+                (?::uuid, 'tenant-b', 'Tenant B', 'active')
+            ON CONFLICT (id) DO NOTHING
+            SQL, [self::TENANT_A, self::TENANT_B]);
     }
 
     /**
@@ -125,12 +151,69 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
+     * The write-side twin of countAsOwnerForTenant, and it exists for the same
+     * reason: FORCE ROW LEVEL SECURITY binds the owner, so a seeding path has to
+     * declare a tenant like anyone else (ADR-006 §6.7).
+     *
+     * Here rather than in the test that needs it, so that
+     * TenantContextContainmentTest's list of files touching the tenant GUC stays
+     * short -- that list is a control, and every entry added to it is a place
+     * the sanctioned API was bypassed.
+     */
+    protected function insertAsOwnerForTenant(string $tenantId, string $sql, array $params = []): void
+    {
+        $c = $this->owner();
+        $c->beginTransaction();
+        try {
+            $c->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [$tenantId]);
+            $c->executeStatement($sql, $params);
+            $c->commit();
+        } catch (\Throwable $e) {
+            $c->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * TRUNCATE, not DELETE. As the owner under FORCE ROW LEVEL SECURITY a DELETE
      * would itself be filtered by the policy and quietly remove nothing.
      */
     protected function truncateTenantTables(): void
     {
-        $this->owner()->executeStatement('TRUNCATE inventory_item, supplier, stock_movement RESTART IDENTITY CASCADE');
+        // Derived from the manifest rather than listed: a new tenant-scoped
+        // table that is not truncated leaves rows behind, and the failure shows
+        // up two tests later as an unrelated uniqueness violation.
+        $tables = implode(', ', SchemaManifest::tenantScopedTables());
+        $this->owner()->executeStatement("TRUNCATE $tables RESTART IDENTITY CASCADE");
+    }
+
+    /**
+     * Entity factories, so that a change to a constructor is one edit rather
+     * than twenty. Both must be called inside a tenant context: the reference
+     * rows they look up are non-tenant tables, but the entities they build are
+     * not.
+     */
+    protected function newSupplier(string $tenantId, string $name, string $code): Supplier
+    {
+        return new Supplier(
+            Uuid::v4(),
+            Uuid::fromString($tenantId),
+            $name,
+            $code,
+            $this->em()->find(Currency::class, 'EUR'),
+        );
+    }
+
+    protected function newItem(string $tenantId, string $sku, ?string $name = null): InventoryItem
+    {
+        return new InventoryItem(
+            Uuid::v4(),
+            Uuid::fromString($tenantId),
+            $sku,
+            $name ?? $sku,
+            $this->em()->find(UnitOfMeasure::class, 'EA'),
+            $this->em()->find(Currency::class, 'EUR'),
+        );
     }
 
     /** @return string the new row's id */
@@ -138,9 +221,12 @@ abstract class TenancyTestCase extends KernelTestCase
     {
         $id = Uuid::v4()->toRfc4122();
         $this->tenantContext()->run($tenantId, function () use ($id, $tenantId, $name): void {
+            // `code` and `currency_code` are NOT NULL with no usable default:
+            // a supplier without a currency cannot be priced, and Output 2
+            // declines to invent one.
             $this->app()->executeStatement(
-                'INSERT INTO supplier (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
-                [$id, $tenantId, $name],
+                "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
+                [$id, $tenantId, $name, strtoupper(substr(md5($name), 0, 8))],
             );
         });
 
@@ -153,8 +239,9 @@ abstract class TenancyTestCase extends KernelTestCase
         $id = Uuid::v4()->toRfc4122();
         $this->tenantContext()->run($tenantId, function () use ($id, $tenantId, $sku, $supplierId): void {
             $this->app()->executeStatement(
-                'INSERT INTO inventory_item (id, tenant_id, sku, supplier_id) VALUES (?::uuid, ?::uuid, ?, ?::uuid)',
-                [$id, $tenantId, $sku, $supplierId],
+                "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code, supplier_id)
+                 VALUES (?::uuid, ?::uuid, ?, ?, 'EA', 'EUR', ?::uuid)",
+                [$id, $tenantId, $sku, $sku, $supplierId],
             );
         });
 

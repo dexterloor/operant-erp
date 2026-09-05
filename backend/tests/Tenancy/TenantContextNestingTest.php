@@ -52,7 +52,8 @@ final class TenantContextNestingTest extends TenancyTestCase
             // would now be running as B and this row -- explicitly tenant A --
             // would be rejected: "new row violates row-level security policy".
             $this->app()->executeStatement(
-                'INSERT INTO inventory_item (id, tenant_id, sku) VALUES (gen_random_uuid(), ?::uuid, ?)',
+                "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code)
+                 VALUES (gen_random_uuid(), ?::uuid, ?, 'x', 'EA', 'EUR')",
                 [self::TENANT_A, 'AFTER-NESTED'],
             );
 
@@ -99,14 +100,14 @@ final class TenantContextNestingTest extends TenancyTestCase
         $affected = $this->tenantContext()->run(self::TENANT_A, function (): int {
             $this->attemptNested(self::TENANT_B);
 
-            return $this->app()->executeStatement('UPDATE inventory_item SET qty_on_hand = 999');
+            return $this->app()->executeStatement('UPDATE inventory_item SET reorder_point = 999');
         });
 
         self::assertSame(1, $affected);
         self::assertSame(1, $this->countAsOwnerForTenant(
-            self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE qty_on_hand = 999'));
+            self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE reorder_point = 999'));
         self::assertSame(0, $this->countAsOwnerForTenant(
-            self::TENANT_B, 'SELECT count(*) FROM inventory_item WHERE qty_on_hand = 999'),
+            self::TENANT_B, 'SELECT count(*) FROM inventory_item WHERE reorder_point = 999'),
             'A tenant-predicate-free UPDATE silently rewrote another tenant\'s rows.');
     }
 
@@ -147,7 +148,8 @@ final class TenantContextNestingTest extends TenancyTestCase
             $outerAfter = $this->app()->fetchOne("SELECT current_setting('app.tenant_id', true)");
 
             $this->app()->executeStatement(
-                'INSERT INTO inventory_item (id, tenant_id, sku) VALUES (gen_random_uuid(), ?::uuid, ?)',
+                "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code)
+                 VALUES (gen_random_uuid(), ?::uuid, ?, 'x', 'EA', 'EUR')",
                 [self::TENANT_A, 'STILL-A'],
             );
 

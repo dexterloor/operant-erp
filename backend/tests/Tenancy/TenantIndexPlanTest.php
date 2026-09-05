@@ -25,10 +25,14 @@ final class TenantIndexPlanTest extends TenancyTestCase
     {
         foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
             $this->tenantContext()->run($tenant, function () use ($tenant): void {
+                // gen_random_uuid() emits a version 4 UUID, which is what
+                // D-12's CHECK constraint requires -- a bulk seed using a
+                // time-ordered generator would now be refused, which is the
+                // point of the constraint.
                 $this->app()->executeStatement(
-                    'INSERT INTO inventory_item (id, tenant_id, sku, qty_on_hand)
-                     SELECT gen_random_uuid(), ?::uuid, ?::text || g, g
-                     FROM generate_series(1, ?) g',
+                    "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code, reorder_point)
+                     SELECT gen_random_uuid(), ?::uuid, ?::text || g, 'Item ' || g, 'EA', 'EUR', g
+                     FROM generate_series(1, ?) g",
                     [$tenant, substr($tenant, 0, 4).'-SKU-', self::ROWS_PER_TENANT],
                 );
             });
@@ -50,12 +54,49 @@ final class TenantIndexPlanTest extends TenancyTestCase
     {
         $this->seedBulk();
 
-        $plan = $this->plan(self::TENANT_A, 'SELECT id FROM inventory_item WHERE sku = ?', [substr(self::TENANT_A, 0, 4).'-SKU-1500']);
-        fwrite(STDERR, "\n  [EXPLAIN] WHERE sku = ?  (".(2 * self::ROWS_PER_TENANT)." rows, 2 tenants)\n    ".str_replace("\n", "\n    ", $plan)."\n");
+        // The predicate is not decoration: the index is partial on
+        // `deleted_at IS NULL` (ADR-007 §1), so a query that omits it cannot use
+        // it. SoftDeleteFilter emits exactly this clause on every ORM read,
+        // which is what makes the live-row indexes reachable at all --
+        // theSameLookupWithoutTheDeletionPredicateCannotUseTheLiveIndex below is
+        // the other half of that statement.
+        $plan = $this->plan(self::TENANT_A,
+            'SELECT id FROM inventory_item WHERE sku = ? AND deleted_at IS NULL',
+            [substr(self::TENANT_A, 0, 4).'-SKU-1500']);
+        fwrite(STDERR, "\n  [EXPLAIN] WHERE sku = ? AND deleted_at IS NULL  (".(2 * self::ROWS_PER_TENANT)." rows, 2 tenants)\n    ".str_replace("\n", "\n    ", $plan)."\n");
 
-        self::assertStringContainsString('inventory_item_tenant_sku_key', $plan,
-            'The (tenant_id, sku) index was not used, so ADR-002 §5\'s index guidance buys nothing.');
+        self::assertStringContainsString('inventory_item_tenant_sku_live', $plan,
+            'The (tenant_id, sku) live index was not used, so ADR-002 §5\'s index guidance buys nothing.');
         self::assertStringNotContainsString('Seq Scan', $plan);
+        // ADR-007 §3's explicit requirement: the RLS predicate must still be an
+        // index condition once the partial predicate is added, not a filter
+        // applied after rows are read.
+        self::assertMatchesRegularExpression('/Index Cond:.*tenant_id/s', $plan,
+            'The RLS predicate stopped being an index condition once the index became partial.');
+    }
+
+    /**
+     * The cost side of ADR-007 §3, measured rather than assumed.
+     *
+     * Making every business index partial buys smaller indexes and the
+     * re-creatable-SKU behaviour, and it hands the whole benefit back to any
+     * query that forgets the predicate. That is the concrete reason the
+     * deletion filter is enabled by default rather than opt-in, and the reason
+     * a raw DBAL query written by hand in a repository is a performance hazard
+     * in a way it was not before this decision.
+     */
+    #[Test]
+    public function theSameLookupWithoutTheDeletionPredicateCannotUseTheLiveIndex(): void
+    {
+        $this->seedBulk();
+
+        $plan = $this->plan(self::TENANT_A, 'SELECT id FROM inventory_item WHERE sku = ?',
+            [substr(self::TENANT_A, 0, 4).'-SKU-1500']);
+        fwrite(STDERR, "\n  [EXPLAIN] WHERE sku = ?  (no deletion predicate -- the partial index is unusable)\n    "
+            .str_replace("\n", "\n    ", $plan)."\n");
+
+        self::assertStringNotContainsString('inventory_item_tenant_sku_live', $plan,
+            'A partial index was used for a query that does not carry its predicate, which cannot happen.');
     }
 
     /**
@@ -86,7 +127,7 @@ final class TenantIndexPlanTest extends TenancyTestCase
     {
         $this->seedBulk();
 
-        $plan = $this->plan(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE qty_on_hand > ?', [1900]);
+        $plan = $this->plan(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE reorder_point > ?', [1900]);
         fwrite(STDERR, "\n  [EXPLAIN] no tenant predicate written by the application\n    ".str_replace("\n", "\n    ", $plan)."\n");
 
         self::assertStringContainsString('tenant_id', $plan,

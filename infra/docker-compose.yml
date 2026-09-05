@@ -26,6 +26,12 @@ services:
       ERP_APP_PASSWORD: ${ERP_APP_PASSWORD}
       ERP_AI_USER: ${ERP_AI_USER}
       ERP_AI_PASSWORD: ${ERP_AI_PASSWORD}
+      ERP_AUTH_USER: ${ERP_AUTH_USER}
+      ERP_AUTH_PASSWORD: ${ERP_AUTH_PASSWORD}
+      ERP_AUTHLOG_USER: ${ERP_AUTHLOG_USER}
+      ERP_AUTHLOG_PASSWORD: ${ERP_AUTHLOG_PASSWORD}
+      ERP_RATELIMIT_USER: ${ERP_RATELIMIT_USER}
+      ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - erp_pgdata:/var/lib/postgresql/data
@@ -49,6 +55,12 @@ services:
       ERP_APP_PASSWORD: ${ERP_APP_PASSWORD}
       ERP_AI_USER: ${ERP_AI_USER}
       ERP_AI_PASSWORD: ${ERP_AI_PASSWORD}
+      ERP_AUTH_USER: ${ERP_AUTH_USER}
+      ERP_AUTH_PASSWORD: ${ERP_AUTH_PASSWORD}
+      ERP_AUTHLOG_USER: ${ERP_AUTHLOG_USER}
+      ERP_AUTHLOG_PASSWORD: ${ERP_AUTHLOG_PASSWORD}
+      ERP_RATELIMIT_USER: ${ERP_RATELIMIT_USER}
+      ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
       DB_OWNER: ${DB_OWNER}
       DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
     volumes:
@@ -62,6 +74,9 @@ services:
         {
           printf '"%s" "%s"\n' "$$ERP_APP_USER" "$$ERP_APP_PASSWORD"
           printf '"%s" "%s"\n' "$$ERP_AI_USER"  "$$ERP_AI_PASSWORD"
+          printf '"%s" "%s"\n' "$$ERP_AUTH_USER"      "$$ERP_AUTH_PASSWORD"
+          printf '"%s" "%s"\n' "$$ERP_AUTHLOG_USER"   "$$ERP_AUTHLOG_PASSWORD"
+          printf '"%s" "%s"\n' "$$ERP_RATELIMIT_USER" "$$ERP_RATELIMIT_PASSWORD"
           printf '"%s" "%s"\n' "$$DB_OWNER"     "$$DB_OWNER_PASSWORD"
         } > /run/pgbouncer/userlist.txt
         exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini

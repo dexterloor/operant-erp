@@ -26,8 +26,11 @@ use Symfony\Component\Uid\Uuid;
 // does not know about, SchemaTool proposes to drop, which would bury the one
 // divergence that actually matters under a pile of noise.
 #[ORM\UniqueConstraint(name: 'supplier_tenant_id_id_key', columns: ['tenant_id', 'id'])]
-#[ORM\UniqueConstraint(name: 'supplier_tenant_name_key', columns: ['tenant_id', 'name'])]
-#[ORM\Index(name: 'supplier_tenant_created_idx', columns: ['tenant_id', 'created_at'])]
+// ADR-007 §1: business uniqueness goes partial the moment the row can be
+// soft-deleted, or "remove a supplier, re-add it with the same code" collides
+// with a row the caller cannot see. UNIQUE (tenant_id, id) above stays total.
+#[ORM\UniqueConstraint(name: 'supplier_tenant_name_live', columns: ['tenant_id', 'name'], options: ['where' => '(deleted_at IS NULL)'])]
+#[ORM\UniqueConstraint(name: 'supplier_tenant_code_live', columns: ['tenant_id', 'code'], options: ['where' => '(deleted_at IS NULL)'])]
 class Supplier
 {
     #[ORM\Id]
@@ -40,15 +43,43 @@ class Supplier
     #[ORM\Column(type: Types::TEXT)]
     private string $name;
 
+    #[ORM\Column(type: Types::TEXT)]
+    private string $code;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $email = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $phone = null;
+
+    #[ORM\Column(name: 'payment_terms_days', type: Types::INTEGER, options: ['default' => 30])]
+    private int $paymentTermsDays = 30;
+
+    #[ORM\ManyToOne(targetEntity: Currency::class)]
+    #[ORM\JoinColumn(name: 'currency_code', referencedColumnName: 'code', nullable: false)]
+    private Currency $currency;
+
+    #[ORM\Column(name: 'is_active', type: Types::BOOLEAN, options: ['default' => true])]
+    private bool $isActive = true;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
-    public function __construct(Uuid $id, Uuid $tenantId, string $name)
+    #[ORM\Column(name: 'updated_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
+    private \DateTimeImmutable $updatedAt;
+
+    #[ORM\Column(name: 'deleted_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $deletedAt = null;
+
+    public function __construct(Uuid $id, Uuid $tenantId, string $name, string $code, Currency $currency)
     {
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->name = $name;
+        $this->code = $code;
+        $this->currency = $currency;
         $this->createdAt = new \DateTimeImmutable();
+        $this->updatedAt = $this->createdAt;
     }
 
     public function getId(): Uuid
@@ -64,5 +95,31 @@ class Supplier
     public function getName(): string
     {
         return $this->name;
+    }
+
+    public function getCode(): string
+    {
+        return $this->code;
+    }
+
+    public function getCurrency(): Currency
+    {
+        return $this->currency;
+    }
+
+    public function getPaymentTermsDays(): int
+    {
+        return $this->paymentTermsDays;
+    }
+
+    public function isDeleted(): bool
+    {
+        return null !== $this->deletedAt;
+    }
+
+    public function delete(): void
+    {
+        $this->deletedAt = new \DateTimeImmutable();
+        $this->updatedAt = $this->deletedAt;
     }
 }

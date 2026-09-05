@@ -109,7 +109,8 @@ final class TenantIsolationTest extends TenancyTestCase
         try {
             $this->tenantContext()->run(self::TENANT_A, function (): void {
                 $this->app()->executeStatement(
-                    'INSERT INTO inventory_item (id, tenant_id, sku) VALUES (gen_random_uuid(), ?::uuid, ?)',
+                    "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code)
+             VALUES (gen_random_uuid(), ?::uuid, ?, 'x', 'EA', 'EUR')",
                     [self::TENANT_B, 'SMUGGLED'],
                 );
             });
@@ -187,7 +188,8 @@ final class TenantIsolationTest extends TenancyTestCase
 
         $this->expectException(DriverException::class);
         $ai->executeStatement(
-            'INSERT INTO inventory_item (id, tenant_id, sku) VALUES (gen_random_uuid(), ?::uuid, ?)',
+            "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code)
+             VALUES (gen_random_uuid(), ?::uuid, ?, 'x', 'EA', 'EUR')",
             [self::TENANT_A, 'AI-WRITE'],
         );
     }

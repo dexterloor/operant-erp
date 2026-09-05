@@ -4,67 +4,127 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Tenancy\DatabaseRoles;
+use App\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Uid\Uuid;
 
 /**
- * Extension from RED via LEAD, tests 1 and 2 -- R-34.
+ * R-34, and the policy reversal Output 2 makes.
  *
- * ADR-002 §1 grants with `GRANT ... ON ALL TABLES IN SCHEMA public`. That is
- * point-in-time. It runs when the roles are created, which is before any table
- * exists, so it grants nothing; and every later migration adds a table neither
- * application role can touch.
+ * W0-a proved the mechanism A1.1 describes: `GRANT … ON ALL TABLES` is
+ * point-in-time and ran before any table existed, and `ALTER DEFAULT
+ * PRIVILEGES` is what carries rights to tables a later migration creates. That
+ * finding stands. The *policy* it implemented does not: default privileges
+ * cannot tell a tenant-scoped table from `messenger_messages`, so every future
+ * table arrived pre-granted to erp_app — which is precisely ADR-006 V-10 /
+ * ARCHITECTURE S-13, the exposure Condition 2 promotes to equal priority.
  *
- * `stock_movement` and `messenger_messages` are created by Version20260905000200,
- * which contains no GRANT of its own. If these tests pass, ALTER DEFAULT
- * PRIVILEGES is what carried the rights across, and the ordering defect is closed.
+ * Version20260906000100 therefore withdraws the default privileges and grants
+ * every table explicitly. This class asserts the new property in the only way
+ * that is not circular: it creates a table and looks.
+ *
+ * R-34 does not come back. A migration that forgets a grant now fails
+ * GrantFootprintTest loudly instead of producing a runtime 500 in a wave's
+ * time — and a missing grant is a far better failure than an inherited one.
  */
 final class GrantPropagationTest extends TenancyTestCase
 {
+    /**
+     * The proof that deny-by-default is real, rather than an intention recorded
+     * in a migration comment.
+     *
+     * If any `ALTER DEFAULT PRIVILEGES … GRANT` survives anywhere in the schema,
+     * this table picks the privileges up at CREATE time and the test fails.
+     */
     #[Test]
-    public function aTableCreatedByALaterMigrationIsReadableByErpAppWithoutAnyExplicitGrant(): void
+    public function aTableCreatedWithNoExplicitGrantIsReachableByNoApplicationRole(): void
     {
-        // Deliberately NOT information_schema.table_privileges. That view resolves
-        // neither PUBLIC grants nor role inheritance: after
-        // GRANT INSERT ON stock_movement TO PUBLIC it returned zero rows naming
-        // erp_ai while erp_ai could in fact insert. has_table_privilege resolves
-        // both. (SEC, verified on this PG17 container.)
-        foreach (['TRUNCATE', 'REFERENCES', 'TRIGGER'] as $priv) {
-            self::assertFalse((bool) $this->owner()->fetchOne(
-                'SELECT has_table_privilege(?, ?, ?)', ['erp_app', 'stock_movement', $priv]),
-                "erp_app unexpectedly holds $priv on stock_movement.");
-        }
+        $this->owner()->executeStatement('CREATE TABLE grant_probe (id uuid NOT NULL PRIMARY KEY)');
 
-        foreach (['SELECT', 'INSERT', 'UPDATE', 'DELETE'] as $priv) {
-            self::assertTrue((bool) $this->owner()->fetchOne(
-                'SELECT has_table_privilege(?, ?, ?)', ['erp_app', 'stock_movement', $priv]),
-                "erp_app lost $priv on a table added after the grant block (R-34).");
-        }
+        try {
+            $held = [];
+            foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+                foreach (SchemaManifest::TABLE_PRIVILEGES as $priv) {
+                    if ((bool) $this->owner()->fetchOne('SELECT has_table_privilege(?, ?, ?)', [$role, 'grant_probe', $priv])) {
+                        $held[] = "$role holds $priv";
+                    }
+                }
+            }
 
-        self::assertTrue((bool) $this->owner()->fetchOne(
-            'SELECT has_table_privilege(?, ?, ?)', ['erp_ai', 'stock_movement', 'SELECT']));
-        self::assertFalse((bool) $this->owner()->fetchOne(
-            'SELECT has_table_privilege(?, ?, ?)', ['erp_ai', 'stock_movement', 'INSERT']));
+            self::assertSame([], $held,
+                "A table created with no GRANT of any kind was still reachable:\n  ".implode("\n  ", $held)
+                ."\nSome ALTER DEFAULT PRIVILEGES is still in force, which means the next migration to add a "
+                .'non-tenant table hands it to erp_app before anyone decides whether it should.');
+        } finally {
+            $this->owner()->executeStatement('DROP TABLE grant_probe');
+        }
     }
 
+    /** And the same for sequences, which R-34's original form also missed. */
     #[Test]
-    public function erpAppCanActuallyReadAndWriteThatLaterTable(): void
+    public function aSequenceCreatedWithNoExplicitGrantIsReachableByNoApplicationRole(): void
     {
-        $written = $this->tenantContext()->run(self::TENANT_A, function (): int {
+        $this->owner()->executeStatement('CREATE SEQUENCE grant_probe_seq');
+
+        try {
+            foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+                foreach (['USAGE', 'SELECT', 'UPDATE'] as $priv) {
+                    self::assertFalse((bool) $this->owner()->fetchOne(
+                        'SELECT has_sequence_privilege(?, ?, ?)', [$role, 'grant_probe_seq', $priv]),
+                        "$role holds $priv on a sequence created with no grant.");
+                }
+            }
+        } finally {
+            $this->owner()->executeStatement('DROP SEQUENCE grant_probe_seq');
+        }
+    }
+
+    /**
+     * The positive half: the explicit grants actually work, end to end, as the
+     * role the application really uses.
+     *
+     * `audit_log` is the interesting case because its footprint is deliberately
+     * asymmetric — erp_app may append and read and may not edit or remove
+     * (S-9) — so a single test exercises both the grant and the revoke.
+     */
+    #[Test]
+    public function erpAppCanAppendToAndReadTheAuditLogAndCannotChangeIt(): void
+    {
+        $id = Uuid::v4()->toRfc4122();
+
+        $count = $this->tenantContext()->run(self::TENANT_A, function () use ($id): int {
             $this->app()->executeStatement(
-                'INSERT INTO stock_movement (id, tenant_id, quantity) VALUES (gen_random_uuid(), ?::uuid, ?)',
-                [self::TENANT_A, 7],
+                "INSERT INTO audit_log (id, tenant_id, event_type, actor_label) VALUES (?::uuid, ?::uuid, 'test.event', 'system')",
+                [$id, self::TENANT_A],
             );
 
-            return (int) $this->app()->fetchOne('SELECT sum(quantity) FROM stock_movement');
+            return (int) $this->app()->fetchOne('SELECT count(*) FROM audit_log');
         });
 
-        self::assertSame(7, $written);
+        self::assertSame(1, $count);
+
+        foreach (['UPDATE audit_log SET event_type = %s', 'DELETE FROM audit_log'] as $sql) {
+            $thrown = null;
+            try {
+                $this->tenantContext()->run(self::TENANT_A, function () use ($sql): void {
+                    $this->app()->executeStatement(sprintf($sql, "'tampered'"));
+                });
+            } catch (\Throwable $e) {
+                $thrown = $e;
+            }
+
+            self::assertNotNull($thrown, "erp_app was able to run: $sql");
+            self::assertStringContainsString('permission denied', $thrown->getMessage(),
+                'The audit log was protected by something other than a grant: '.$thrown->getMessage());
+        }
     }
 
     /**
      * Sequence grants. `messenger_messages` uses a BIGSERIAL id, so without
      * USAGE on its sequence erp_app cannot enqueue anything at all -- the whole
-     * of ADR-002 §7 would be dead on arrival.
+     * of ADR-002 §7 would be dead on arrival. Under deny-by-default that grant
+     * is now written out by name rather than inherited.
      */
     #[Test]
     public function erpAppCanInsertIntoABigserialTableAndSoHoldsUsageOnItsSequence(): void
@@ -77,18 +137,40 @@ final class GrantPropagationTest extends TenancyTestCase
 
         self::assertSame(1, (int) $this->app()->fetchOne('SELECT count(*) FROM messenger_messages'));
         self::assertTrue((bool) $this->owner()->fetchOne(
-            'SELECT has_sequence_privilege(?, ?, ?)', ['erp_app', 'messenger_messages_id_seq', 'USAGE']));
+            'SELECT has_sequence_privilege(?, ?, ?)', [DatabaseRoles::APP, 'messenger_messages_id_seq', 'USAGE']));
     }
 
+    /**
+     * ADR-002 §7 propagates tenancy through a TenantIdStamp, not a column, and
+     * ARCHITECTURE S-8 corrects that to say M-6 will add a real `tenant_id`
+     * column so mismatches are loud and the rows are queryable -- while the
+     * queue stays outside RLS, because a worker must select the next message
+     * before it knows the tenant.
+     *
+     * Those two facts pull in opposite directions, and W0-a asserted the queue
+     * has no tenant_id, which would fail the moment M-6 lands. The property that
+     * actually matters is neither: it is that the exemption is **declared**.
+     * A table that carries a tenant_id and is not RLS'd has to be a decision
+     * someone wrote down, and SchemaManifestTest asserts the manifest and the
+     * catalogue agree in both directions.
+     */
     #[Test]
-    public function messengerMessagesIsNotTenantScopedAndSoIsNotSubjectToTheDriftCheck(): void
+    public function theQueueIsExemptFromRowLevelSecurityByDeclarationRatherThanByAccident(): void
     {
-        // ADR-002 §7 propagates tenancy through a TenantIdStamp, not a column.
-        // Recording that here so a future migration cannot quietly add tenant_id
-        // to the queue table and inherit an unenforced policy.
+        self::assertFalse(SchemaManifest::TABLES['messenger_messages']['tenant'],
+            'messenger_messages must be declared non-tenant-scoped, with S-8\'s reason attached.');
+
         self::assertFalse((bool) $this->owner()->fetchOne(<<<'SQL'
-            SELECT EXISTS (SELECT 1 FROM information_schema.columns
-                           WHERE table_name = 'messenger_messages' AND column_name = 'tenant_id')
+            SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relname = 'messenger_messages'
+            SQL));
+
+        // And the consequence that makes S-8's M-2 rule load-bearing rather than
+        // stylistic: with no policy, the only thing keeping another tenant's
+        // identifiers out of a payload is the code rule.
+        self::assertSame([], $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+            WHERE c.relname = 'messenger_messages'
             SQL));
     }
 }

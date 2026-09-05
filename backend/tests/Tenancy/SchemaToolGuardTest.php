@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Tenancy\DatabaseRoles;
+use App\Tenancy\SchemaManifest;
+use Doctrine\DBAL\ArrayParameterType;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Event\ConsoleCommandEvent;
@@ -70,11 +73,12 @@ final class SchemaToolGuardTest extends TenancyTestCase
         [$exitCode] = $this->runCommand(['command' => 'doctrine:schema:drop', '--force' => true]);
 
         self::assertSame(ConsoleCommandEvent::RETURN_CODE_DISABLED, $exitCode);
-        self::assertSame(3, (int) $this->owner()->fetchOne(<<<'SQL'
+        // Every tenant-scoped table, derived. A literal here would keep passing
+        // while covering a shrinking fraction of the schema.
+        self::assertSame(\count(SchemaManifest::tenantScopedTables()), (int) $this->owner()->fetchOne(<<<'SQL'
             SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public' AND c.relkind = 'r'
-              AND c.relname IN ('supplier', 'inventory_item', 'stock_movement')
-            SQL));
+            WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname IN (?)
+            SQL, [SchemaManifest::tenantScopedTables()], [ArrayParameterType::STRING]));
     }
 
     /**
@@ -89,11 +93,15 @@ final class SchemaToolGuardTest extends TenancyTestCase
         // Only an owner may ALTER or DROP a table. erp_app owns nothing.
         self::assertSame([], $this->owner()->fetchFirstColumn(<<<'SQL'
             SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public' AND c.relkind = 'r'
-              AND pg_get_userbyid(c.relowner) IN ('erp_app', 'erp_ai')
-            SQL));
+            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+              AND pg_get_userbyid(c.relowner) IN (?)
+            SQL, [DatabaseRoles::APPLICATION_ROLES], [ArrayParameterType::STRING]));
 
-        self::assertFalse((bool) $this->owner()->fetchOne(
-            'SELECT has_schema_privilege(?, ?, ?)', ['erp_app', 'public', 'CREATE']));
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+            self::assertFalse((bool) $this->owner()->fetchOne(
+                'SELECT has_schema_privilege(?, ?, ?)', [$role, 'public', 'CREATE']),
+                $role.' can create objects in public, so it could own one -- and ownership plus a missing '
+                .'FORCE voids isolation.');
+        }
     }
 }
