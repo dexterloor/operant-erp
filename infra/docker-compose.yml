@@ -1,0 +1,80 @@
+# W0-a tenancy slice — the stack that makes R-28 testable.
+#
+# PgBouncer runs in pool_mode=transaction with default_pool_size=1 on purpose:
+# a pool of one FORCES every client session onto a single shared Postgres backend,
+# which is the exact condition ADR-002 §C-3 is about. With a larger pool the
+# "leak into the next tenant's request" scenario becomes probabilistic and the
+# test suite would be fake-green (R-3).
+#
+# Run from the repo root:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: erp_postgres
+    environment:
+      # Bootstrap superuser. Never used by the application or the test suite.
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Roles created by init/10-roles.sh, read from the environment so that no
+      # credential is ever written into a committed file (Standing Rule 10).
+      DB_OWNER: ${DB_OWNER}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      ERP_APP_USER: ${ERP_APP_USER}
+      ERP_APP_PASSWORD: ${ERP_APP_PASSWORD}
+      ERP_AI_USER: ${ERP_AI_USER}
+      ERP_AI_PASSWORD: ${ERP_AI_PASSWORD}
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - erp_pgdata:/var/lib/postgresql/data
+    ports:
+      # Direct, unpooled access. Migrations run here as the owner role.
+      - "${POSTGRES_DIRECT_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p3
+    container_name: erp_pgbouncer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ERP_APP_USER: ${ERP_APP_USER}
+      ERP_APP_PASSWORD: ${ERP_APP_PASSWORD}
+      ERP_AI_USER: ${ERP_AI_USER}
+      ERP_AI_PASSWORD: ${ERP_AI_PASSWORD}
+      DB_OWNER: ${DB_OWNER}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    # The auth file is rendered at start-up from the environment and written to
+    # a tmpfs path, so passwords never reach a committed file or the log stream.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        umask 077
+        {
+          printf '"%s" "%s"\n' "$$ERP_APP_USER" "$$ERP_APP_PASSWORD"
+          printf '"%s" "%s"\n' "$$ERP_AI_USER"  "$$ERP_AI_PASSWORD"
+          printf '"%s" "%s"\n' "$$DB_OWNER"     "$$DB_OWNER_PASSWORD"
+        } > /run/pgbouncer/userlist.txt
+        exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+    tmpfs:
+      - /run/pgbouncer:mode=700,uid=70,gid=70
+    ports:
+      # Pooled access. The application and the isolation suite connect here.
+      - "${PGBOUNCER_PORT}:6432"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432 || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  erp_pgdata:

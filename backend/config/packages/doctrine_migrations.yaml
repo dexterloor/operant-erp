@@ -1,0 +1,6 @@
+doctrine_migrations:
+    migrations_paths:
+        'DoctrineMigrations': '%kernel.project_dir%/migrations'
+    enable_profiler: false
+    # Migrations run as the owner role, never as erp_app.
+    connection: owner
