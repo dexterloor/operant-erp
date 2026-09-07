@@ -25,7 +25,17 @@ class Permission
     #[ORM\Column(type: Types::TEXT)]
     private string $code;
 
-    /** The module the permission belongs to -- `purchasing`, `inventory`, ... */
+    /**
+     * The owning module, in the shape `SchemaManifest` writes it on all 33 tables:
+     * `Modules\Purchasing`, `Modules\Inventory`, `Platform\Tenancy`, `SharedKernel\Reference`.
+     * Namespace-shaped and capitalised, never lowercase -- flattening it would discard the
+     * `Platform\` vs `Modules\` distinction that A-10 and S-7 are written against.
+     * PC-1a states the rule; the manifest is the domain it derives from.
+     *
+     * Not settled: a module that owns no table -- `Ai`, `Analytics` -- has no manifest value to
+     * copy and no namespace on disk, so its form here is open (SEC-O-12, owner ARCH). That has
+     * to be answered before this catalogue is seeded; after that it is a data migration.
+     */
     #[ORM\Column(type: Types::TEXT)]
     private string $module;
 
