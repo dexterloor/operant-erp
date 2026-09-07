@@ -29,10 +29,24 @@ use PHPUnit\Framework\Attributes\Test;
  */
 final class IdentifierGenerationTest extends TenancyTestCase
 {
-    /** Every UUID factory that produces something predictable from a clock or a name. */
+    /**
+     * Every UUID factory that produces something predictable from a clock or a
+     * name.
+     *
+     * The two halves have to agree, and they did not. The static-factory half
+     * listed v1, v2, v3, v5, v6 and v7; the class-name half listed only V1, V6
+     * and V7, so `new UuidV3($ns, $name)` and `new UuidV5($ns, $name)` walked
+     * past a list whose whole purpose is to be exhaustive -- and the SQL half
+     * named `uuid_generate_v1` while `uuid_generate_v3` and `uuid_generate_v5`
+     * are equally name-derived. V8 is worse than either: it is the
+     * caller-supplies-the-bits version, so it can be anything at all. Neither
+     * gap was reachable (nothing in the tree used them), which is exactly how a
+     * list like this rots. Closed 2026-09-07.
+     */
     private const FORBIDDEN = [
-        'Uuid::v1(', 'Uuid::v2(', 'Uuid::v3(', 'Uuid::v5(', 'Uuid::v6(', 'Uuid::v7(',
-        'UuidV1', 'UuidV6', 'UuidV7', 'uuidv7(', 'uuid_generate_v1',
+        'Uuid::v1(', 'Uuid::v2(', 'Uuid::v3(', 'Uuid::v5(', 'Uuid::v6(', 'Uuid::v7(', 'Uuid::v8(',
+        'UuidV1', 'UuidV3', 'UuidV5', 'UuidV6', 'UuidV7', 'UuidV8', 'uuidv7(',
+        'uuid_generate_v1', 'uuid_generate_v3', 'uuid_generate_v5',
     ];
 
     #[Test]
