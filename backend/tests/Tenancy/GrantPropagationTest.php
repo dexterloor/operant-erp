@@ -95,7 +95,13 @@ final class GrantPropagationTest extends TenancyTestCase
 
         $count = $this->tenantContext()->run(self::TENANT_A, function () use ($id): int {
             $this->app()->executeStatement(
-                "INSERT INTO audit_log (id, tenant_id, event_type, actor_label) VALUES (?::uuid, ?::uuid, 'test.event', 'system')",
+                // B-4: 'test.event' was a placeholder from before event_type had a
+                // domain. This test is about the grant, not the value, but the value
+                // now has to be a real one -- audit_log_event_type_values refuses
+                // anything else. The UPDATE below still fails on the grant and not on
+                // the CHECK: PostgreSQL raises the ACL denial before it evaluates any
+                // constraint, which was verified against this database, not assumed.
+                "INSERT INTO audit_log (id, tenant_id, event_type, actor_label) VALUES (?::uuid, ?::uuid, 'purchase_order.placed', 'system')",
                 [$id, self::TENANT_A],
             );
 

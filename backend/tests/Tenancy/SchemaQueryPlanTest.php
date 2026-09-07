@@ -136,7 +136,13 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 $c->executeStatement(<<<'SQL'
                     INSERT INTO audit_log (id, tenant_id, event_type, actor_label, occurred_at)
                     SELECT gen_random_uuid(), ?::uuid,
-                           CASE WHEN g % 50 = 0 THEN 'auth.login.failure' ELSE 'purchase_order.updated' END,
+                           -- B-4: both literals are now App\Audit\AuditEvent values, because
+                           -- audit_log_event_type_values constrains the column. The 1-in-50
+                           -- distribution is unchanged, so the plan this file measures is
+                           -- unchanged; 'purchase_order.updated' was a placeholder naming no
+                           -- specified write path, and 'purchase_order.placed' is FLOWS.md's
+                           -- F-2 -- Raise a purchase order, step 8.
+                           CASE WHEN g % 50 = 0 THEN 'auth.login.failure' ELSE 'purchase_order.placed' END,
                            'system', now() - (g || ' seconds')::interval
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::EVENTS]);

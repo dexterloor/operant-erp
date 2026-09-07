@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Audit\AuditEvent;
 use App\Doctrine\Type\InetType;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -33,6 +34,13 @@ use Symfony\Component\Uid\Uuid;
  * (tenant_id, actor_user_id) REFERENCES app_user (tenant_id, id) is written by
  * hand in Version20260906000100 and deliberately not mapped (ADR-002
  * Amendment 1 §A1.6).
+ *
+ * `eventType` is not free text. It is constrained to App\Audit\AuditEvent's
+ * enumerated catalogue by `audit_log_event_type_values` (B-4,
+ * Version20260907000200) and by the constructor, because
+ * `security-audit-log-design` requires an enumerated taxonomy defined in code
+ * and because PC-11's `.view_record` allowlist and any retention predicate both
+ * have to classify this column.
  *
  * `subjectType`/`subjectId` are a nullable pair held together by a CHECK: both
  * or neither. They are a deliberate polymorphic reference with no foreign key,
@@ -125,6 +133,20 @@ class AuditLogEntry
         $this->eventType = $eventType;
         $this->actorLabel = $actorLabel;
         $this->actorUser = $actorUser;
+        // B-4: the same argument the subject-pair guard below already makes.
+        // `audit_log_event_type_values` refuses this at the database; enforcing
+        // it here means an unclassified event fails at construction rather than
+        // at flush, where the failure is a raw constraint violation carrying no
+        // hint that a catalogue exists or how to extend it.
+        if (!AuditEvent::isKnown($eventType)) {
+            throw new \InvalidArgumentException(sprintf(
+                '"%s" is not in the audit event catalogue. Add it to App\\Audit\\AuditEvent '
+                .'(constant, ALL, SECURITY or BUSINESS, and a subject declaration) and to a '
+                .'forward migration; see that class for the whole process and why every step '
+                .'of it is required.',
+                $eventType,
+            ));
+        }
         // Both or neither, matching audit_log_subject_pair. Enforced here too so
         // the half-populated pair fails at construction rather than at flush.
         if ((null === $subjectType) !== (null === $subjectId)) {
