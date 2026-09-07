@@ -154,8 +154,8 @@ final class SchemaManifest
             'module' => 'Platform\\Messaging',
             'tenant' => false,
             'deletion' => self::NA,
-            'why' => 'ARCHITECTURE S-8. A worker must select the next message before it knows the tenant, so a policy would make the queue unreadable. Tenancy travels as a TenantIdStamp. This is the one place isolation rests on a code rule (M-2) rather than on Postgres — which is exactly why no pre-authentication principal is allowed to reach it.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE', 'DELETE']],
+            'why' => 'ARCHITECTURE S-8. A worker must select the next message before it knows the tenant, so a policy would make the queue unreadable. Tenancy travels as a TenantIdStamp. This is the one place isolation rests on a code rule (M-2) rather than on Postgres — which is exactly why no pre-authentication principal is allowed to reach it. B-1: erp_app holds SELECT and no write. An INSERT here is worker code execution by another name, and symfony/messenger is not installed, so the write half of this grant served nothing and was withdrawn by Version20260907000100 rather than left to ship by default the moment it is. The remaining SELECT does NOT preserve consumption — the transport consumes with UPDATE and DELETE (DELIVERY_LEDGER.md:113) — it is a declared residual: a cross-tenant read of serialized payloads on a table with no RLS, pinned here so it cannot drift, and left to B-1 action 4 where the worker principal is decided.',
+            'grants' => [DatabaseRoles::APP => ['SELECT']],
         ],
         'doctrine_migration_versions' => [
             'module' => 'Platform',

@@ -65,6 +65,122 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * B-1's exit criterion, encoded. `ROADMAP.md` states it as a query to run at
+     * Output 4's exit; a query someone runs is not a gate, and "a ruling is not
+     * a migration" is the exact reason this took three reports to notice was
+     * never executed. So it lives here and runs every build.
+     *
+     * Two domains, intersected separately and never merged.
+     * `has_any_column_privilege()` raises `unrecognized privilege type` for
+     * DELETE, TRUNCATE and TRIGGER (measured; ADR-006 V-1, and the reason
+     * `COLUMN_PRIVILEGES` exists as a second constant), so a merged list makes
+     * CI **error** rather than fail -- a different way of not being a check.
+     *
+     * Both domains are derived from the manifest and neither is restated, and
+     * both constants are themselves reconciled against the server by
+     * theCoverageConstantsNameEveryPrivilegePostgresHas, which GRANTs ALL on a
+     * probe table and reads the ACL back through aclexplode. So
+     * COLUMN_PRIVILEGES cannot be shrunk to hide a column grant either.
+     *
+     * The column half is not decoration. `has_table_privilege()` answers *false*
+     * for a column-level grant, so
+     * `GRANT INSERT (body) ON messenger_messages TO erp_app` leaves a
+     * table-level-only check green while the queue stays writable -- the whole
+     * of the V-10 exposure B-1 exists to close, and the third instance in this
+     * project of a check that answers about less than you think
+     * (`information_schema`, ADR-002 A1.5; the unchecked privilege constant,
+     * S-17; this). The second half of this test plants exactly that grant and
+     * proves the check fires on it.
+     *
+     * What this test does NOT catch, stated so it is not mistaken for cover:
+     * a `SECURITY DEFINER` function owned by the schema owner that inserts into
+     * the queue, with `EXECUTE` granted to `erp_app`. The query below returns
+     * zero rows throughout while that holds. It is B-1 action 2 and is unbuilt;
+     * `noSecurityDefinerFunctionExistsAnywhere` below is what keeps it from
+     * arriving unreviewed.
+     *
+     * *Correction, measured.* An earlier draft of this docblock said that shape
+     * was "already precedent in the tree", citing `cascade_deletion_to_lines`,
+     * and `ROADMAP.md` says the same. **It is false**: that function is
+     * `prosecdef = f` — owner-owned with `EXECUTE` to `erp_app`, which is a
+     * different and much weaker thing than `SECURITY DEFINER`. There is no
+     * definer precedent here, so action 2 would be establishing one.
+     */
+    #[Test]
+    public function noApplicationRoleHoldsAnyWritePrivilegeOnTheQueueAtEitherLevel(): void
+    {
+        // TRUNCATE is in the table domain and deliberately not in the column
+        // one: has_any_column_privilege() raises `unrecognized privilege type`
+        // for it. On the queue it is message destruction rather than code
+        // execution, so it sits outside V-10 proper -- but this test's name says
+        // "any write privilege", and a domain that quietly excludes one is the
+        // defect class (S-17) this project has already been burned by.
+        $tableWrite = ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'];
+        $columnWrite = ['INSERT', 'UPDATE', 'DELETE'];
+        $tablePrivs = array_values(array_intersect(SchemaManifest::TABLE_PRIVILEGES, $tableWrite));
+        $columnPrivs = array_values(array_intersect(SchemaManifest::COLUMN_PRIVILEGES, $columnWrite));
+
+        self::assertNotSame([], $tablePrivs, 'TABLE_PRIVILEGES names no write privilege, so this test proves nothing.');
+        self::assertNotSame([], $columnPrivs, 'COLUMN_PRIVILEGES names no write privilege, so this test proves nothing.');
+
+        // The ::text[] casts are load-bearing: an untyped bind parameter to
+        // unnest() raises `could not determine data type of parameter`, which is
+        // CI erroring rather than failing -- the same non-check this exists to
+        // remove. Both lists are catalogue identifiers, so a literal array
+        // constructor is safe and keeps the SQL identical to ROADMAP's form.
+        $held = fn (string $role): array => $this->owner()->fetchAllAssociative(<<<'SQL'
+            SELECT 'table' AS level, p FROM unnest(?::text[]) AS p
+             WHERE has_table_privilege(?, 'messenger_messages', p)
+            UNION ALL
+            SELECT 'column' AS level, p FROM unnest(?::text[]) AS p
+             WHERE has_any_column_privilege(?, 'messenger_messages', p)
+            SQL, [
+                '{'.implode(',', $tablePrivs).'}', $role,
+                '{'.implode(',', $columnPrivs).'}', $role,
+            ]);
+
+        // Read once per role: evaluating $held() again inside the failure
+        // message would issue a second query and could report a different state
+        // than the one asserted.
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+            $actual = $held($role);
+
+            self::assertSame([], $actual, sprintf(
+                "%s can write the message queue: %s\nAn INSERT into messenger_messages is worker code execution "
+                ."by another name (ADR-006 V-10 / ARCHITECTURE S-13).", $role,
+                implode(', ', array_map(static fn (array $r): string => "{$r['level']}/{$r['p']}", $actual))));
+        }
+
+        // The mutation. Without this the assertion above is a check nobody has
+        // shown can fail -- and a column grant is precisely the shape that
+        // slipped past its previous form. Rolled back, never committed.
+        $this->owner()->beginTransaction();
+
+        try {
+            $this->owner()->executeStatement(
+                sprintf('GRANT INSERT (body) ON messenger_messages TO %s', DatabaseRoles::APP));
+
+            // Flattened to strings rather than compared as associative rows:
+            // assertSame on arrays is sensitive to both row order (the UNION ALL
+            // has no ORDER BY) and key order, neither of which is the property
+            // under test.
+            $planted = array_map(static fn (array $r): string => "{$r['level']}/{$r['p']}", $held(DatabaseRoles::APP));
+            sort($planted);
+
+            self::assertSame(['column/INSERT'], $planted,
+                'A column-level INSERT on the queue did not make this check fail, so it is not a check. '
+                .'Expected exactly the column row: has_table_privilege() answers false for a column grant, '
+                .'which is the defect the column half exists to close.');
+        } finally {
+            $this->owner()->rollBack();
+        }
+
+        // And the rollback left nothing behind, on a connection later tests share.
+        self::assertSame([], $held(DatabaseRoles::APP),
+            'The planted column grant survived the rollback.');
+    }
+
+    /**
      * The coverage of every other test in this class, checked against the
      * server rather than against itself.
      *
@@ -170,17 +286,18 @@ final class GrantFootprintTest extends TenancyTestCase
             'A sequence appeared that nothing accounts for. Every other identifier in this schema is a UUID; '
             .'the only sequence is the one Symfony Messenger\'s own transport creates.');
 
+        // B-1. This loop previously expected erp_app to hold USAGE and SELECT on
+        // the queue sequence, because erp_app held INSERT on the queue. It no
+        // longer does, and the sequence went with it: the grant existed only to
+        // serve nextval() on an INSERT that is now denied, so what remains is a
+        // live privilege whose justification has been deleted.
         foreach ($sequences as $sequence) {
             foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
-                $expected = DatabaseRoles::APP === $role;
-                foreach (['USAGE', 'SELECT'] as $priv) {
-                    self::assertSame($expected, (bool) $this->owner()->fetchOne(
+                foreach (['USAGE', 'SELECT', 'UPDATE'] as $priv) {
+                    self::assertFalse((bool) $this->owner()->fetchOne(
                         'SELECT has_sequence_privilege(?, ?, ?)', [$role, $sequence, $priv]),
-                        "$role and $priv on $sequence disagree with the queue being erp_app's alone.");
+                        "$role holds $priv on $sequence. No application role writes the queue, so none needs its sequence.");
                 }
-                // Nobody ever needs to reset a sequence.
-                self::assertFalse((bool) $this->owner()->fetchOne(
-                    'SELECT has_sequence_privilege(?, ?, ?)', [$role, $sequence, 'UPDATE']));
             }
         }
 
@@ -199,17 +316,91 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * ADR-001 check 3 (T-5), which was specified and only partly implemented.
+     *
+     * Stated precisely, because the first version of this docblock said "nothing
+     * in this suite read `prosecdef` before now" and that is false:
+     * `SchemaGuardTest` has read it since `ba33403`. What was missing is
+     * narrower — that check is scoped to `nspname = 'public'` and carries no
+     * mutation proof, so T-5 *as ADR-001 documents it* (any schema, proven able
+     * to fail) was unasserted. `prosecdef` itself was not unread.
+     *
+     * This also bounds the B-1 coupling honestly: a definer function written the
+     * obvious way lands in `public`, where the older check already saw it. What
+     * this method adds is the un-scoped domain and the mutation proof, not first
+     * coverage.
+     *
+     * It becomes load-bearing with B-1. Version20260907000100 revokes the
+     * queue's DML from `erp_app` and its docblock claims that Messenger cannot
+     * now be installed without B-1 action 2 also being done. That claim is only
+     * true if the definer route is itself watched: a `SECURITY DEFINER` function
+     * owned by the schema owner, inserting into `messenger_messages`, with
+     * `EXECUTE` to `erp_app`, restores V-10 in full while every privilege
+     * assertion in this class stays green. The revoke makes the loud path loud
+     * and leaves the quiet path quiet; this is the difference.
+     *
+     * Deliberately a blanket refusal rather than a queue-specific one. A definer
+     * function is a privilege-escalation primitive whatever it touches, and a
+     * check scoped to the queue would be satisfied by a definer function that
+     * writes `tenant`. When action 2 lands, this test is where its allowlist
+     * entry and its reason go — which is the point: it cannot land silently.
+     *
+     * ADR-006 §5.2 (a): not filtered to `public`. A definer function in any
+     * other schema is the blind spot that finding names.
+     */
+    #[Test]
+    public function noSecurityDefinerFunctionExistsInAnyNonSystemSchema(): void
+    {
+        $definers = <<<'SQL'
+            SELECT n.nspname||'.'||p.proname
+            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY 1
+            SQL;
+
+        self::assertSame([], $this->owner()->fetchFirstColumn($definers),
+            'A SECURITY DEFINER function exists. It runs with its owner\'s privileges, so it can write anything '
+            .'the owner can — including messenger_messages, which B-1 just closed to erp_app. If this is B-1 '
+            .'action 2, it needs an allowlist entry here naming its reason and proving it takes typed parameters '
+            .'rather than a caller-supplied message body.');
+
+        // The mutation, for the same reason the queue check carries one: an
+        // assertion over an empty catalogue passes whether or not it works.
+        $this->owner()->beginTransaction();
+
+        try {
+            $this->owner()->executeStatement(
+                'CREATE FUNCTION definer_probe() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$');
+
+            self::assertSame(['public.definer_probe'], $this->owner()->fetchFirstColumn($definers),
+                'A SECURITY DEFINER function was created and this check did not see it.');
+        } finally {
+            $this->owner()->rollBack();
+        }
+
+        self::assertSame([], $this->owner()->fetchFirstColumn($definers),
+            'The probe function survived the rollback.');
+    }
+
+    /**
      * `RED`'s MAJOR-5, stated as the property that actually holds rather than as
      * the one I would like to claim.
      *
      * V-10/S-13 is closed by grant on the registry: no application role can
-     * write `tenant` at all. It is **not** closed on the queue, because
-     * `erp_app` legitimately needs full DML there for the worker, and the
-     * Symfony EntityManager is pinned to that connection. There is no login path
-     * yet, so nothing today binds the pre-authentication route to
-     * `erp_ratelimit`; if Output 4 wires it to the default connection, the
-     * queue is reachable again. That residual is real and is recorded in
-     * docs/SCHEMA.md rather than argued away.
+     * write `tenant` at all.
+     *
+     * **Superseded on the queue by B-1 (Version20260907000100).** This docblock
+     * previously read: *"It is not closed on the queue, because `erp_app`
+     * legitimately needs full DML there for the worker … if Output 4 wires the
+     * pre-auth route to the default connection, the queue is reachable again."*
+     * That premise is gone. `erp_app` holds `SELECT` and nothing else on
+     * `messenger_messages`, so wiring the pre-auth route to the default
+     * connection no longer makes the queue *writable* — it would still be
+     * wrong, and this test is still the thing that makes it loud, but the
+     * consequence is now a cross-tenant payload **read** rather than queue
+     * injection. The write residual this paragraph described no longer exists;
+     * the read residual is declared in `SchemaManifest` and owned by B-1
+     * action 4.
      *
      * What the schema *can* guarantee, and this asserts, is that the mistake is
      * loud rather than silent: `erp_app` holds nothing whatsoever on the two
@@ -364,6 +555,21 @@ final class GrantFootprintTest extends TenancyTestCase
                     'SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::APP, $table, $priv]),
                     "erp_app holds $priv on $table -- append-only enforced by a grant is a control, enforced by a "
                     .'convention is a hope.');
+
+                // has_table_privilege() answers false for a column-level grant
+                // (see noRoleHoldsAnyPrivilegeOnAnIndividualPartition), so the
+                // three assertions above would stay green under
+                // `GRANT UPDATE (metadata) ON audit_log TO erp_app` -- append-only
+                // broken, S-9 still reporting a control. Only UPDATE is
+                // column-grantable of the three; the domain comes from
+                // COLUMN_PRIVILEGES rather than a restated list because
+                // has_any_column_privilege() errors on DELETE and TRUNCATE.
+                if (\in_array($priv, SchemaManifest::COLUMN_PRIVILEGES, true)) {
+                    self::assertFalse((bool) $this->owner()->fetchOne(
+                        'SELECT has_any_column_privilege(?, ?, ?)', [DatabaseRoles::APP, $table, $priv]),
+                        "erp_app holds a column-level $priv on $table, so the table-level assertion above is "
+                        .'fake-green and the append-only guarantee is not a guarantee.');
+                }
             }
         }
     }
@@ -410,6 +616,33 @@ final class GrantFootprintTest extends TenancyTestCase
      * partition's ACL. They are asserted empty because ALTER DEFAULT PRIVILEGES
      * would have granted them, which is the same defect V-10 describes, wearing
      * a relkind nobody checks.
+     *
+     * **Why this test is about to become load-bearing, and why the table-level
+     * loop alone was not enough.** Measured while scoping SEC-O-3: a partition
+     * does *not* inherit its parent's row security. `ALTER TABLE … ENABLE/FORCE
+     * ROW LEVEL SECURITY` on a partitioned parent leaves every child at
+     * `relrowsecurity = false`, and policies are checked against the table named
+     * in the query. So a privilege on a partition is not merely surplus — on a
+     * *tenant-scoped* partitioned table it is a total bypass of tenant
+     * isolation. Reproduced: one `GRANT SELECT` on one partition, and `erp_app`
+     * holding tenant A's context read both tenants' rows.
+     *
+     * `auth_attempt` is partitioned already but carries no policy to bypass, so
+     * nothing here was load-bearing yet. It becomes so the moment any
+     * tenant-scoped table is partitioned, which is what SEC-O-3 proposes for
+     * `audit_log`. This test is that design's whole safety argument, so it has
+     * to actually hold.
+     *
+     * It did not. `has_table_privilege()` answers *false* for a column-level
+     * grant, so `GRANT SELECT (tenant_id, occurred_at, event_type) ON <partition>`
+     * was invisible to every one of the eight table privileges above while still
+     * returning other tenants' rows. Same defect class the project has already
+     * been burned by twice — a check that answers, and answers about less than
+     * you think (A1.5's `information_schema`, S-17's unchecked constant). The
+     * column loop below closes it; `COLUMN_PRIVILEGES` is the correct domain
+     * because `has_any_column_privilege()` raises `unrecognized privilege type`
+     * for DELETE, TRUNCATE and TRIGGER, and it is itself reconciled against the
+     * server by theCoverageConstantsNameEveryPrivilegePostgresHas.
      */
     #[Test]
     public function noRoleHoldsAnyPrivilegeOnAnIndividualPartition(): void
@@ -428,6 +661,14 @@ final class GrantFootprintTest extends TenancyTestCase
                     self::assertFalse((bool) $this->owner()->fetchOne(
                         'SELECT has_table_privilege(?, ?, ?)', [$role, $partition, $priv]),
                         "$role holds $priv directly on the partition $partition.");
+                }
+
+                foreach (SchemaManifest::COLUMN_PRIVILEGES as $priv) {
+                    self::assertFalse((bool) $this->owner()->fetchOne(
+                        'SELECT has_any_column_privilege(?, ?, ?)', [$role, $partition, $priv]),
+                        "$role holds a column-level $priv on the partition $partition. A partition does not "
+                        .'inherit its parent\'s row security, so on a tenant-scoped partitioned table this '
+                        .'reads every tenant\'s rows regardless of app.tenant_id.');
                 }
             }
         }

@@ -121,23 +121,79 @@ final class GrantPropagationTest extends TenancyTestCase
     }
 
     /**
-     * Sequence grants. `messenger_messages` uses a BIGSERIAL id, so without
-     * USAGE on its sequence erp_app cannot enqueue anything at all -- the whole
-     * of ADR-002 §7 would be dead on arrival. Under deny-by-default that grant
-     * is now written out by name rather than inherited.
+     * B-1, as behaviour rather than as a catalogue reading.
+     *
+     * This test previously asserted the opposite. It was called
+     * `erpAppCanInsertIntoABigserialTableAndSoHoldsUsageOnItsSequence` and it
+     * existed to prove that under deny-by-default the BIGSERIAL enqueue path
+     * still worked -- because ADR-002 §7 would otherwise be dead on arrival.
+     * That reasoning assumed the queue would be written by `erp_app` directly.
+     * ADR-006 V-10 says it must not be: an INSERT into `messenger_messages` is
+     * worker code execution by another name, and the grant reached `erp_app`
+     * from the blanket `ALTER DEFAULT PRIVILEGES` rather than from a decision.
+     *
+     * `symfony/messenger` is not installed -- 14 packages in composer.json,
+     * nothing in vendor/symfony, no messenger.yaml -- so nothing dispatches and
+     * nothing consumes. The grant was dead, which is what made it cheap to
+     * close and expensive to defer: deferring means it ships by default the
+     * moment Messenger is installed.
+     *
+     * Whatever replaces it is B-1 action 2 and is deliberately not built here:
+     * a `SECURITY DEFINER` dispatch function owned by the schema owner, with
+     * `EXECUTE` to `erp_app` and typed parameters rather than a caller-supplied
+     * body. Revoking now means Messenger cannot be installed without that
+     * design being done, which is the point.
+     *
+     * `SELECT` stays, and not because it keeps consumption working -- it does
+     * not. `DELIVERY_LEDGER.md:113`: the transport dispatches with `INSERT` and
+     * consumes with `SELECT … FOR UPDATE`, `UPDATE` and `DELETE`, so revoking
+     * the writes already makes `messenger:consume` impossible for `erp_app`.
+     * The retained `SELECT` is a **named residual** -- a cross-tenant read of
+     * serialized payloads on a table with no RLS -- declared in the manifest so
+     * it is pinned rather than drifting, and left to B-1 action 4, which is
+     * where the worker's principal is decided. This test asserts it is still
+     * there for that reason, not as a claim that consumption survives.
      */
     #[Test]
-    public function erpAppCanInsertIntoABigserialTableAndSoHoldsUsageOnItsSequence(): void
+    public function erpAppCannotEnqueueAndHoldsNoPrivilegeOnTheQueueSequence(): void
     {
+        // The anti-vacuous half: the table and its sequence exist and work, so
+        // this test cannot pass because the queue was quietly dropped.
         $this->owner()->executeStatement('TRUNCATE messenger_messages RESTART IDENTITY');
-
-        $this->app()->executeStatement(
+        $this->owner()->executeStatement(
             "INSERT INTO messenger_messages (body, headers, queue_name) VALUES ('{}', '{}', 'default')"
         );
+        self::assertSame(1, (int) $this->owner()->fetchOne('SELECT id FROM messenger_messages'),
+            'The BIGSERIAL default did not fire, so nothing below is about privileges.');
 
+        // The declared residual, asserted as present so it cannot drift away
+        // unnoticed -- and so that B-1 action 4 has something concrete to close.
         self::assertSame(1, (int) $this->app()->fetchOne('SELECT count(*) FROM messenger_messages'));
-        self::assertTrue((bool) $this->owner()->fetchOne(
-            'SELECT has_sequence_privilege(?, ?, ?)', [DatabaseRoles::APP, 'messenger_messages_id_seq', 'USAGE']));
+
+        $thrown = null;
+        try {
+            $this->app()->executeStatement(
+                "INSERT INTO messenger_messages (body, headers, queue_name) VALUES ('{}', '{}', 'default')"
+            );
+        } catch (\Throwable $e) {
+            $thrown = $e;
+        }
+
+        self::assertNotNull($thrown, 'erp_app enqueued a message, which is worker code execution by another name.');
+        self::assertStringContainsString('permission denied', $thrown->getMessage(),
+            'The queue was protected by something other than a grant: '.$thrown->getMessage());
+
+        // And the sequence goes with the INSERT. A sequence grant without table
+        // INSERT is useless but not harmless -- it is a live privilege on a
+        // dead path, and it is exactly what a reintroduced INSERT would ride on
+        // without anyone noticing the sequence had never been reviewed.
+        foreach (['USAGE', 'SELECT', 'UPDATE'] as $priv) {
+            self::assertFalse((bool) $this->owner()->fetchOne(
+                'SELECT has_sequence_privilege(?, ?, ?)', [DatabaseRoles::APP, 'messenger_messages_id_seq', $priv]),
+                "erp_app still holds $priv on messenger_messages_id_seq.");
+        }
+
+        $this->owner()->executeStatement('TRUNCATE messenger_messages RESTART IDENTITY');
     }
 
     /**
