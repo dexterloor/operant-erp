@@ -1,0 +1,157 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Api;
+
+use App\Api\Idempotency\IdempotencyKeyGuard;
+use App\Api\Problem\ProblemType;
+use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Routing\RouterInterface;
+
+/**
+ * The three configuration rules the recipe contradicts: API-2 (one versioned
+ * base path), API-3 (JSON, Hydra off) and API-4 (problem+json on every non-2xx).
+ */
+final class ApiConfigurationTest extends ApiTestCase
+{
+    /** API-2 / P-1. The expected prefix is the parameter, not a string here — one declaration, two readers. */
+    #[Test]
+    public function everyContractRouteIsUnderTheVersionedBasePath(): void
+    {
+        $basePath = self::getContainer()->getParameter('app.api_base_path');
+        self::assertSame(self::BASE, $basePath);
+
+        $router = self::getContainer()->get(RouterInterface::class);
+        \assert($router instanceof RouterInterface);
+
+        $checked = [];
+        foreach ($router->getRouteCollection() as $name => $route) {
+            $resourceClass = $route->getDefault('_api_resource_class');
+            if (!\is_string($resourceClass) || !str_starts_with($resourceClass, 'App\\')) {
+                continue;
+            }
+
+            $checked[(string) $name] = $route->getPath();
+            self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
+        }
+
+        self::assertCount(6, $checked, 'The route set changed. This slice declares six operations: '.implode(', ', array_keys($checked)));
+    }
+
+    /**
+     * API-3 — Hydra off. Asserted on what the recipe actually leaves behind:
+     * the entrypoint and the JSON-LD context route, both of which are Hydra
+     * documents, and the enabled format list.
+     */
+    #[Test]
+    public function hydraAndJsonLdAreOff(): void
+    {
+        $router = self::getContainer()->get(RouterInterface::class);
+        \assert($router instanceof RouterInterface);
+
+        foreach (['api_entrypoint', 'api_jsonld_context'] as $recipeRoute) {
+            self::assertNull($router->getRouteCollection()->get($recipeRoute), $recipeRoute.' is still registered.');
+        }
+
+        // Asserted over every format list API Platform keeps, and on the
+        // media types rather than on the format keys: a format named something
+        // else that still emits `application/ld+json` is the same defect.
+        $lists = ['api_platform.formats', 'api_platform.patch_formats', 'api_platform.error_formats', 'api_platform.docs_formats'];
+        $mediaTypes = [];
+
+        foreach ($lists as $parameter) {
+            /** @var array<string, list<string>> $formats */
+            $formats = self::getContainer()->getParameter($parameter);
+            self::assertNotSame([], $formats, $parameter.' is empty, which would make the assertion below vacuous.');
+            self::assertArrayNotHasKey('jsonld', $formats, $parameter.' still registers the jsonld format.');
+
+            foreach ($formats as $types) {
+                $mediaTypes = [...$mediaTypes, ...$types];
+            }
+        }
+
+        self::assertNotContains('application/ld+json', $mediaTypes);
+        self::assertNotContains('application/vnd.api+json', $mediaTypes);
+        self::assertSame(['json' => ['application/json']], self::getContainer()->getParameter('api_platform.formats'));
+    }
+
+    /** A client that asks for JSON-LD is refused rather than served it. */
+    #[Test]
+    public function aRequestForJsonLdIsRefused(): void
+    {
+        $this->seedItem(self::TENANT_A, 'SKU-1');
+
+        foreach (['application/ld+json', 'application/vnd.api+json', 'application/xml'] as $mediaType) {
+            $this->send('GET', '/items', null, [], $mediaType);
+
+            self::assertSame(406, $this->httpStatus(), $mediaType.' was served.');
+            self::assertStringStartsWith('application/problem+json', $this->contentType());
+            self::assertSame(ProblemType::NotAcceptable->uri(), $this->json()['type']);
+        }
+    }
+
+    /**
+     * API-4 / P-2 — every non-2xx is `application/problem+json`, and API-13 —
+     * every `type` is a `urn:erp:problem:` URN.
+     *
+     * The cases are the ones this slice can reach, and they deliberately span
+     * both routes into the problem shape: the four raised inside an operation
+     * (API Platform's error pipeline) and the two raised during routing, which
+     * API Platform hands to Symfony's error controller unless something
+     * intervenes.
+     */
+    #[Test]
+    public function everyNonSuccessResponseIsProblemJsonWithAUrnType(): void
+    {
+        $id = $this->seedItem(self::TENANT_A, 'SKU-1');
+
+        $cases = [
+            'not found (in an operation)' => fn () => $this->send('GET', '/items/00000000-0000-4000-8000-000000000000'),
+            'not found (no route at all)' => fn () => $this->send('GET', '/nothing-is-here'),
+            'method not allowed (routing)' => fn () => $this->send('PUT', '/items/'.$id, ['name' => 'x']),
+            'not acceptable' => fn () => $this->send('GET', '/items', null, [], 'application/ld+json'),
+            'unsupported media type' => fn () => $this->sendRaw('POST', '/items', '{}', 'text/plain'),
+            'validation failed' => fn () => $this->send('GET', '/items?nope=1'),
+            'business rule violated' => fn () => $this->send('POST', '/items/'.$id.'/restoration', null, [IdempotencyKeyGuard::HEADER => 'k']),
+            'idempotency key required' => fn () => $this->send('POST', '/items', ['sku' => 'x', 'name' => 'x', 'unit_of_measure_code' => 'EA']),
+        ];
+
+        foreach ($cases as $label => $drive) {
+            $drive();
+
+            self::assertGreaterThanOrEqual(400, $this->httpStatus(), $label);
+            self::assertStringStartsWith('application/problem+json', $this->contentType(), $label.' is not problem+json.');
+
+            $body = $this->json();
+            self::assertArrayHasKey('type', $body, $label);
+            self::assertStringStartsWith(ProblemType::URN_PREFIX, $body['type'], $label.' carries a type that is not a urn:erp:problem: URN.');
+            self::assertSame($this->httpStatus(), $body['status'], $label);
+            self::assertArrayNotHasKey('trace', $body, $label.' leaked a stack trace.');
+            self::assertArrayNotHasKey('class', $body, $label.' leaked the exception class.');
+        }
+    }
+
+    /** ST-8a/ST-8b — `Retry-After` is the remaining time, and the remaining time is reconnaissance. */
+    #[Test]
+    public function noResponseCarriesRetryAfter(): void
+    {
+        $this->send('GET', '/items');
+        self::assertFalse($this->client()->getResponse()->headers->has('Retry-After'));
+
+        $this->send('GET', '/items?nope=1');
+        self::assertFalse($this->client()->getResponse()->headers->has('Retry-After'));
+    }
+
+    private function sendRaw(string $method, string $path, string $content, string $contentType): void
+    {
+        $this->client()->request(
+            $method,
+            self::BASE.$path,
+            [],
+            [],
+            ['HTTP_ACCEPT' => 'application/json', 'CONTENT_TYPE' => $contentType, 'HTTP_IDEMPOTENCY_KEY' => 'k'],
+            $content,
+        );
+    }
+}

@@ -1,4 +1,10 @@
+# API-2 / P-1 — one versioned base path. The recipe mounted this at `/api`;
+# `docs/API.md` §2.1 requires `/api/v1`, and every path in its §4.2 operation
+# table is written with that prefix omitted.
+#
+# The AI layer (`/api/v1/ai/*`) is routed by the reverse proxy to a second
+# process and is deliberately not a route here.
 api_platform:
     resource: .
     type: api_platform
-    prefix: /api
+    prefix: /api/v1

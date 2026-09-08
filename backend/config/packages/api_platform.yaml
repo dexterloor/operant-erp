@@ -1,7 +1,68 @@
+# The recipe's defaults contradict `docs/API.md` in three places, and each
+# override below is one of them. Nothing here is a preference.
 api_platform:
-    title: Hello API Platform
-    version: 1.0.0
+    title: 'ERP API'
+    description: 'Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.'
+    version: '1.0.0'
+
+    # ------------------------------------------------------------------
+    # API-3 — request and response bodies are application/json.
+    # JSON-LD and Hydra are disabled.
+    # ------------------------------------------------------------------
+    # The recipe leaves `jsonld` as the ONLY entry in `formats`, which makes it
+    # the default representation. Hydra's collection vocabulary is page-shaped
+    # (`hydra:view`, `hydra:totalItems`) and TB-2b forbids a total on a keyset
+    # list, so emitting it would mean either omitting the members that make it
+    # Hydra or computing the COUNT(*) TB-2b exists to prevent.
+    formats:
+        json: ['application/json']
+
+    # PATCH bodies are application/json too. The bundle default is
+    # `application/merge-patch+json`, which would make §5.2's 415 row
+    # ("a request body that is not application/json") describe the opposite of
+    # what the server does.
+    patch_formats:
+        json: ['application/json']
+
+    # ------------------------------------------------------------------
+    # API-4 — every non-2xx is application/problem+json (RFC 9457).
+    # ------------------------------------------------------------------
+    # The bundle default registers three error formats: `jsonld` (which wins on
+    # `Accept: */*` because it is first), `jsonproblem`, and a `json` format
+    # whose mime list is ['application/problem+json', 'application/json'].
+    # Only `jsonproblem` is kept, and it claims `application/json` as a second
+    # mime type so that a client asking for plain JSON still gets a document
+    # whose Content-Type is problem+json rather than a second error shape.
+    error_formats:
+        jsonproblem: ['application/problem+json', 'application/json']
+
+    # The docs endpoint keeps only the OpenAPI JSON representation. `jsonld`
+    # here is what registers the `api_jsonld_context` route; `html` is Swagger
+    # UI, which is not part of this contract.
+    docs_formats:
+        jsonopenapi: ['application/vnd.openapi+json']
+
+    # The entrypoint is a Hydra document by construction (it lists resources as
+    # IRIs). API-11 gives the API no grouping segment and no discovery surface.
+    enable_entrypoint: false
+
+    graphql:
+        enabled: false
+
+    # The MCP integration serialises through `jsonld`, which no longer exists.
+    mcp:
+        enabled: false
+
     defaults:
         stateless: true
+        # API-8 / API-22 — a declared field list means every declared field is
+        # *present*. API Platform drops nulls by default, which would make
+        # `next_cursor` vanish on the last page: the one member API-22 says a
+        # client pages until, gone at exactly the moment it becomes meaningful.
+        # The same rule keeps `archived_at` and `supplier` visible as null rather
+        # than absent, so "this field is null" and "this operation does not
+        # return this field" stay different answers.
+        normalization_context:
+            skip_null_values: false
         cache_headers:
             vary: ['Content-Type', 'Authorization', 'Origin']

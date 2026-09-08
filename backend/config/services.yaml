@@ -4,6 +4,17 @@
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
+    # API-2 / P-1. Declared once, here, because two things need it and neither
+    # may carry its own copy: the route prefix in config/routes/api_platform.yaml
+    # and the scope of the problem+json translator. `ApiRoutingTest` asserts the
+    # router agrees with this value rather than trusting that it was kept in step.
+    app.api_base_path: '/api/v1'
+
+    # inventory_item.currency_code is NOT NULL with its default dropped
+    # (Version20260906000100), and §4.2's `CreateItem` row -- which is exhaustive
+    # -- does not accept a currency. See the finding in the Output 4 phase-2
+    # report: this is a stand-in with a name, not a design.
+    app.inventory.default_currency_code: 'EUR'
 
 services:
     # default configuration for services in *this* file
@@ -15,15 +26,60 @@ services:
     # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
+        # Data, not services. An `#[ErrorResource]` exception and a set of
+        # request/response DTOs are constructed by the serializer and by named
+        # factories; registering them as services would have the container try to
+        # autowire constructors that take a SKU.
+        # Data, not services. These are constructed by the serializer or by
+        # named factories, and registering them would have the container try to
+        # autowire a constructor that takes a SKU.
+        #
+        # `ItemResource`, `ItemCollection` and `ApiProblem` are deliberately NOT
+        # excluded: API Platform discovers resources through the container's
+        # attribute autoconfiguration, so a resource class the container never
+        # sees has no routes at all. It marks them abstract, so nothing tries to
+        # instantiate them.
+        exclude:
+            - '../src/Api/Pagination/'
+            - '../src/Api/Problem/ProblemType.php'
+            - '../src/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
+            - '../src/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
 
+    # Fails closed until the JWT claim reader of §7 exists. Deliberately an
+    # explicit binding rather than an autowired default: an interface with one
+    # implementation resolves silently, and the day a second one appears the
+    # choice should be an edit somebody makes on purpose.
+    App\Api\Tenancy\CurrentTenant: '@App\Api\Tenancy\UnauthenticatedTenant'
+
 when@test:
     services:
+        # T-1 / API-7: nothing in the request may carry a tenant. The test rig
+        # therefore sets the tenant on the container, which is the same place
+        # the JWT claim reader will set it once §7 is built.
+        App\Api\Tenancy\CurrentTenant:
+            class: App\Api\Tenancy\FixedTenant
+            public: true
+
         App\Tenancy\TenantContext:
             autowire: true
             public: true
         test.doctrine.dbal.ai_connection:
             alias: doctrine.dbal.ai_connection
             public: true
+
+        # Four of this contract's rules are properties of the SQL rather than of
+        # the response body. This records it at the driver layer.
+        # B-3's phase-2 check regenerates the spec; the factory is private.
+        test.api_platform.openapi.factory:
+            alias: api_platform.openapi.factory
+            public: true
+
+        App\Tests\Support\SqlRecorder:
+            public: true
+
+        App\Tests\Support\RecordingMiddleware:
+            arguments: ['@App\Tests\Support\SqlRecorder']
+            tags: ['doctrine.middleware']
