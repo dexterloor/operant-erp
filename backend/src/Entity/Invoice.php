@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Domain\GuardsStatusTransitions;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -54,6 +55,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'invoice_tenant_customer_idx', columns: ['tenant_id', 'customer_id', 'issued_at'])]
 class Invoice
 {
+    use GuardsStatusTransitions;
+
     public const STATUS_ISSUED = 'issued';
     public const STATUS_PAID = 'paid';
     public const STATUS_OVERDUE = 'overdue';
@@ -188,13 +191,21 @@ class Invoice
      */
     public function markPaid(\DateTimeImmutable $paidAt): void
     {
+        // L-9: there is no un-pay. `void()` voids the invoice, not the payment,
+        // so a `void` invoice that could be marked paid would leave a settled
+        // receivable with no way back. §8.3: `issued` or `overdue`.
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED, self::STATUS_OVERDUE]);
+
         $this->status = self::STATUS_PAID;
         $this->paidAt = $paidAt;
         $this->updatedAt = new \DateTimeImmutable();
     }
 
+    /** §8.3: `issued` only — a `paid` or `void` invoice does not become overdue. */
     public function markOverdue(): void
     {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED]);
+
         $this->status = self::STATUS_OVERDUE;
         $this->updatedAt = new \DateTimeImmutable();
     }
@@ -202,6 +213,10 @@ class Invoice
     /** The cancellation. Not a delete — see the class docblock. */
     public function void(): void
     {
+        // Voiding a `paid` invoice silently removes a settled receivable from
+        // `invoice_tenant_due_idx`'s complement. §8.3: `issued` or `overdue`.
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED, self::STATUS_OVERDUE]);
+
         $this->status = self::STATUS_VOID;
         $this->updatedAt = new \DateTimeImmutable();
     }

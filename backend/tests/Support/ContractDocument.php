@@ -43,6 +43,42 @@ final class ContractDocument
     }
 
     /**
+     * The document text between two headings, so a check whose subject is a
+     * section's prose rather than a table has one accessor to reach it through.
+     * The scan `SkipInvariantTest` clause (ii) runs looks for `ContractDocument::`,
+     * so every such read stays visible to it.
+     */
+    public static function sectionBetween(string $startPrefix, string $endPrefix): string
+    {
+        $inside = false;
+        $closed = false;
+        $collected = [];
+
+        foreach (self::lines() as $line) {
+            if (!$inside && str_starts_with($line, $startPrefix)) {
+                $inside = true;
+
+                continue;
+            }
+            if ($inside && str_starts_with($line, $endPrefix)) {
+                $closed = true;
+                break;
+            }
+            if ($inside) {
+                $collected[] = $line;
+            }
+        }
+
+        // **An unmatched end heading returns nothing, never the rest of the
+        // document.** `RED`: a caller asking "does §8.3 name this operation?"
+        // would otherwise be asking it of every section below §8.3 the day that
+        // heading is renamed, and a containment check that widens its own haystack
+        // turns vacuous rather than red. The missing-start direction is already
+        // safe, because it collects nothing.
+        return $closed ? implode("\n", $collected) : '';
+    }
+
+    /**
      * §4.2's rows. The field-count rule is §3.3's own: with `-F'|'` a
      * well-formed row has 11 fields, so the columns are $2 … $10.
      *

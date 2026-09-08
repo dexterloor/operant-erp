@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Api\Problem;
 
+use App\Domain\IllegalTransition;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
@@ -40,6 +41,18 @@ use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
  * future non-API controller -- Symfony's own error handling is left alone; a
  * translator that fires on every 404 in the process is one that turns an
  * unrelated bug into a problem+json document.
+ *
+ * ---------------------------------------------------------------------------
+ * One arm here is not a framework exception, and that is deliberate
+ * ---------------------------------------------------------------------------
+ * `App\Domain\IllegalTransition` is raised by an entity. API-15 requires the
+ * status refusal to reach the caller as `business-rule-violated`, and §8.2 requires
+ * the guard to sit on the entity -- so something has to join the two, and the
+ * alternatives are worse: `ApiProblem` thrown from `App\Entity` inverts the
+ * dependency, and a second `ExceptionEvent` listener adds a priority ordering
+ * nobody would think to look at. **It is here because the day the first operation
+ * calls `place()` is Output 9's, and its author has no reason to read §8.2:**
+ * without this arm an entirely correct guard answers a legal request with a 500.
  */
 #[AsEventListener(event: ExceptionEvent::class, priority: 0)]
 final readonly class FrameworkProblemTranslator
@@ -103,6 +116,9 @@ final readonly class FrameworkProblemTranslator
     {
         return match (true) {
             $e instanceof ApiProblem => null,
+
+            // --- API-15, the one application refusal translated here ---------
+            $e instanceof IllegalTransition => ApiProblem::businessRuleViolated($e->rule(), $e->clientMessage()),
 
             // --- the catalogue's framework-produced rows ---------------------
             $e instanceof MethodNotAllowedHttpException => ApiProblem::methodNotAllowed(

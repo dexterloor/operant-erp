@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Domain\IllegalTransition;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -108,10 +109,102 @@ class Tenant
         return self::STATUS_ACTIVE === $this->status;
     }
 
+    /**
+     * API-O-16, ruled here rather than left open.
+     *
+     * -----------------------------------------------------------------------
+     * What is constrained, and what deliberately is not
+     * -----------------------------------------------------------------------
+     * `docs/API.md` §8.3 excludes `tenant` from API-15's domain **in writing**,
+     * on a reachability argument: §4.3's first bullet says nothing in that
+     * contract creates a tenant or changes its status, so no API operation can
+     * call this. The exclusion is from API-15, not from having a rule — §8.3
+     * says so in terms, and routes it as API-O-16.
+     *
+     * Two rules are enforced. Neither is a lifecycle policy.
+     *
+     * **1. The target must be a status this class declares**, derived by
+     * reflection over its own `STATUS_*` constants and never restated. This is
+     * the same value space `tenant_status_values` already encodes; all it does
+     * is move the refusal from a deferred 23514 at `flush()` — opaque, far from
+     * the call site, and rendered as a 500 — to the call itself. It cannot
+     * refuse a caller the `CHECK` would have accepted, so it is free.
+     *
+     * **2. Nothing moves into or out of `sentinel`.** ADR-006 §2.1 step 2's
+     * sentinel is a fixed registry row, seeded by Version20260906000100 with
+     * `status = 'sentinel'` — it is not reached through this method by anything,
+     * ever. The `CHECK` cannot see this rule: `sentinel` is one of its five
+     * accepted values, so `changeStatus(self::STATUS_ACTIVE)` on the sentinel is
+     * accepted by the database and makes `permitsLogin()` true for a tenant that
+     * owns no `app_user` rows (`app_user_not_sentinel_tenant` guarantees it never
+     * will), while the reverse turns a real tenant into a second sentinel and
+     * breaks the V-8 slug-resolution invariant. That is a security rule, not a
+     * lifecycle one, which is why it is taken here and the rest is not.
+     *
+     * **What is not enforced, and why that is a decision.** No legal-pair matrix
+     * over `pending`/`active`/`suspended`/`closed` — in particular
+     * `closed → active` is left open. `STATUS_CLOSED`'s own docblock records that
+     * retention and purge after termination are *"a W6 decision, deliberately not
+     * taken"*, and whether a terminated tenant can be resurrected is that
+     * decision, not this one. Inventing the matrix inside a defect fix would be
+     * `BE-LEAD` taking a `PO`/`ARCH` ruling by implication. It stays with
+     * API-O-16, whose owners are `SEC` + `ARCH`.
+     */
     public function changeStatus(string $status): void
     {
+        if (!\in_array($status, self::declaredStatuses(), true)) {
+            throw IllegalTransition::because(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                \sprintf('"%s" is not a status this entity declares.', $status),
+            );
+        }
+
+        if (self::STATUS_SENTINEL === $status || self::STATUS_SENTINEL === $this->status) {
+            throw IllegalTransition::because(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                'ADR-006 §2.1 step 2\'s sentinel is a fixed registry row; no tenant moves into or out of it.',
+            );
+        }
+
         $this->status = $status;
         $this->statusChangedAt = new \DateTimeImmutable();
         $this->updatedAt = $this->statusChangedAt;
+    }
+
+    /**
+     * The declared value space, read off this class rather than written down a
+     * second time. A sixth status added above is admitted by this method the
+     * moment it exists — and refused by `tenant_status_values` until a migration
+     * catches up, which is the right order for the two to fail in.
+     *
+     * Typed `list<string>` rather than `non-empty-list<string>`: the `assert()`
+     * below is a no-op under `zend.assertions=-1`, so the non-emptiness is a
+     * development-time check and not a guarantee the type can carry. The
+     * degradation is fail-closed — an empty set refuses every status — and
+     * `TenantStatusTest::everyDeclaredStatusExceptTheSentinelIsAccepted` is what
+     * would catch it.
+     *
+     * @return list<string>
+     */
+    private static function declaredStatuses(): array
+    {
+        $statuses = [];
+
+        /** @var array<string, mixed> $constants */
+        $constants = (new \ReflectionClass(self::class))->getConstants();
+
+        foreach ($constants as $name => $value) {
+            if (str_starts_with($name, 'STATUS_') && \is_string($value)) {
+                $statuses[] = $value;
+            }
+        }
+
+        \assert([] !== $statuses);
+
+        return $statuses;
     }
 }

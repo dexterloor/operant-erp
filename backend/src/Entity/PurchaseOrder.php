@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Domain\GuardsStatusTransitions;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -45,6 +46,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'purchase_order_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
 class PurchaseOrder
 {
+    use GuardsStatusTransitions;
+
     public const STATUS_DRAFT = 'draft';
     public const STATUS_ORDERED = 'ordered';
     public const STATUS_PARTIALLY_RECEIVED = 'partially_received';
@@ -173,8 +176,15 @@ class PurchaseOrder
         return $this->totalAmount;
     }
 
+    /**
+     * E-19's *"guarded call"*, and until now it was guarded by nothing: it would
+     * re-open a `cancelled` or a `received` order, and `purchase_order_ordered_at_set`
+     * is satisfied by that write. §8.3's matrix makes `draft` the only legal source.
+     */
     public function place(\DateTimeImmutable $orderedAt, ?\DateTimeImmutable $expectedAt = null): void
     {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
+
         $this->status = self::STATUS_ORDERED;
         $this->orderedAt = $orderedAt;
         $this->expectedAt = $expectedAt;

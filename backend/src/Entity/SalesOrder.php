@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Domain\GuardsStatusTransitions;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -52,6 +53,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'sales_order_tenant_customer_idx', columns: ['tenant_id', 'customer_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
 class SalesOrder
 {
+    use GuardsStatusTransitions;
+
     public const STATUS_DRAFT = 'draft';
     public const STATUS_CONFIRMED = 'confirmed';
     public const STATUS_PARTIALLY_FULFILLED = 'partially_fulfilled';
@@ -219,8 +222,15 @@ class SalesOrder
         $this->updatedAt = new \DateTimeImmutable();
     }
 
+    /**
+     * PC-4 calls this *"structurally the mirror of `place()`"*, and the mirror of
+     * `place()`'s missing guard came with it: unguarded it re-opens a `cancelled`
+     * or `fulfilled` order. §8.3: `draft` only.
+     */
     public function confirm(\DateTimeImmutable $orderedAt): void
     {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
+
         $this->status = self::STATUS_CONFIRMED;
         $this->orderedAt = $orderedAt;
         $this->updatedAt = new \DateTimeImmutable();
