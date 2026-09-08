@@ -222,9 +222,19 @@ final class ItemListTest extends ApiTestCase
     }
 
     /**
-     * API-19 — an unlisted `sort` is refused, not ignored. A server that
+     * API-19 — an unserved `sort` is refused, not ignored. A server that
      * silently ignored it would return rows in an order the screen claims and
      * the database did not produce.
+     *
+     * **The refusal is the same; which limb produces it moved.** `IA.md` §5.6
+     * offers `/items` no alternate order — `by name` is `⛔ D-b` — so `sort` is
+     * no longer a declared parameter at all, and API-19b's exhaustiveness rule
+     * refuses it before API-19's enum is consulted. The `code` is asserted for
+     * exactly that reason: without it this test passes on either limb and would
+     * not notice the surface changing under it. When D-b closes and
+     * `ItemOperationContractTest::itemsOffersSortIfAndOnlyIfItsOrderingIndexIsMigrated`
+     * forces the parameter back, this assertion is what has to be re-pointed at
+     * `unserved_sort` — and it will be red until somebody does.
      */
     #[Test]
     public function anUnservedSortIsRefusedRatherThanIgnored(): void
@@ -234,6 +244,7 @@ final class ItemListTest extends ApiTestCase
         self::assertSame(422, $this->httpStatus());
         self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
         self::assertSame('?sort', $this->json()['errors'][0]['pointer']);
+        self::assertSame('undeclared_parameter', $this->json()['errors'][0]['code']);
     }
 
     /** API-19b — the `Query parameters` cell is exhaustive; anything else is refused. */

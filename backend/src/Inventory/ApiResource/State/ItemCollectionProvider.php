@@ -21,7 +21,7 @@ use Symfony\Component\Uid\Uuid;
  * The **accepted** parameter set is read off the operation's own declared
  * parameters, never from a list in this class. §4.2's `Query parameters` column
  * is exhaustive, `ItemCollection` declares exactly that column, and the spec
- * documents the same six -- so a parameter accepted here but undocumented, or
+ * documents the same set -- so a parameter accepted here but undocumented, or
  * documented and refused, is not expressible.
  *
  * @implements ProviderInterface<ItemCollection>
@@ -29,8 +29,17 @@ use Symfony\Component\Uid\Uuid;
 final readonly class ItemCollectionProvider implements ProviderInterface
 {
     /**
-     * The sort manifest gives `/items` one order and no alternates. API-19
-     * **refuses** an unlisted value rather than ignoring it: a server that
+     * The one order the sort manifest gives `/items`, and the order
+     * `ItemReader` writes into its `ORDER BY`.
+     *
+     * **`sort` is not a declared parameter today**, so a request carrying one is
+     * refused by `refuseUndeclaredParameters()` below and the `unserved_sort`
+     * branch in `criteria()` is not reached. That branch is kept rather than
+     * deleted because it is the half that has to be right on the day D-b closes:
+     * `/items` acquires `inventory_item_tenant_name_live`, the parameter comes
+     * back (`ItemOperationContractTest::itemsOffersSortIfAndOnlyIfItsOrderingIndexIsMigrated`
+     * makes that unavoidable), and API-19's rule -- **refuse** an unserved value
+     * rather than ignore it -- has to hold from the first request. A server that
      * silently ignores an unserved sort returns rows in an order the screen
      * claims and the database did not produce.
      */
@@ -109,6 +118,8 @@ final readonly class ItemCollectionProvider implements ProviderInterface
             }
         }
 
+        // Unreachable while `sort` is undeclared -- see `SORT_SKU`. Kept as the
+        // refusal that has to be in place the moment D-b re-arms the parameter.
         if (isset($query['sort']) && self::SORT_SKU !== $query['sort']) {
             $errors[] = self::error('sort', 'unserved_sort', \sprintf('The only order this list offers is "%s".', self::SORT_SKU));
         }

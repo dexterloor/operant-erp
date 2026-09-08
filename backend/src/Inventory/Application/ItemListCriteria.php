@@ -7,7 +7,7 @@ namespace App\Inventory\Application;
 use App\Api\Pagination\Cursor;
 
 /**
- * The parsed, validated form of `ListItems`' six query parameters.
+ * The parsed, validated form of `ListItems`' query parameters.
  *
  * Exactly one of `$after` and `$before` may be set (API-17). Both null is the
  * first page.

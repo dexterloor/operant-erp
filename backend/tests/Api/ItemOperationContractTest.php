@@ -29,7 +29,7 @@ use PHPUnit\Framework\Attributes\Test;
 final class ItemOperationContractTest extends ApiTestCase
 {
     /**
-     * The six rows §4.2 declares for `inventory_item`, transcribed once.
+     * The rows §4.2 declares for `inventory_item`, transcribed once.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
@@ -42,14 +42,14 @@ final class ItemOperationContractTest extends ApiTestCase
         'RestoreItem' => ['method' => 'POST', 'path' => '/items/{id}/restoration', 'idem' => true],
     ];
 
-    /** §4.2's `Accepted request fields` for both write rows. They are the same seven. */
+    /** §4.2's `Accepted request fields` for both write rows. They are the same set. */
     private const PINNED_ACCEPTED_FIELDS = [
         'sku', 'name', 'unit_of_measure_code', 'supplier_id',
         'reorder_point', 'reorder_quantity', 'safety_stock',
     ];
 
     /** §4.2's `Query parameters` cell for `ListItems`. */
-    private const PINNED_QUERY_PARAMETERS = ['supplier_id', 'q', 'sort', 'limit', 'after', 'before'];
+    private const PINNED_QUERY_PARAMETERS = ['supplier_id', 'q', 'limit', 'after', 'before'];
 
     /** The pin against the registry: method, path and the `Idem` flag. */
     #[Test]
@@ -109,6 +109,87 @@ final class ItemOperationContractTest extends ApiTestCase
         }
 
         self::assertSame(self::PINNED_QUERY_PARAMETERS, $declared);
+    }
+
+    /**
+     * **D-b's tie: `/items` offers `sort` if and only if the index that would
+     * serve an alternate order exists in the committed migrations.**
+     *
+     * §10.3's derivation step 4 adds `sort` only *where the manifest offers an
+     * alternate order*, and `IA.md` §5.6 offers none for `/items`: the one live
+     * row is `sku`, and `/items` by `name` is `⛔ D-b` — the owed index
+     * `inventory_item_tenant_name_live ON inventory_item (tenant_id, name)
+     * WHERE deleted_at IS NULL`. Revision 3 of §4.2 declared `sort` anyway,
+     * which is the contract written against a world where D-b is already closed.
+     *
+     * **Why this is a test and not a note in the ledger.** D-b will be closed by
+     * a migration, by somebody who has no reason to be reading this file, and
+     * the surface it unlocks would then stay off until a person remembered a
+     * routed decision. Tying the parameter list to the migration text makes the
+     * re-arming automatic in the only sense that survives: the day the index is
+     * created, this goes red and stays red until the parameter comes back.
+     *
+     * **The domain is the migrations, and it is parsed rather than grepped.**
+     * The names come from `CREATE [UNIQUE] INDEX <name> ON inventory_item`, so a
+     * comment naming the index — and this file's own docblock is one — does not
+     * satisfy it. Migrations are committed, so this runs on a clean checkout.
+     *
+     * **Mutations, both run.** Plant the `CREATE INDEX` in a migration with
+     * `sort` absent; red. Restore `sort` to `ItemCollection` with the index
+     * absent; also red. A one-directional check would let either half drift.
+     */
+    #[Test]
+    public function itemsOffersSortIfAndOnlyIfItsOrderingIndexIsMigrated(): void
+    {
+        $indexes = self::indexesCreatedOnInventoryItem();
+        self::assertNotSame([], $indexes, 'No index on inventory_item was parsed out of backend/migrations, so the condition below would be decided by a broken reader.');
+
+        $operation = TransactionBoundaryTest::contractOperations()['ListItems'];
+        \assert($operation instanceof HttpOperation);
+
+        $declared = [];
+        foreach ($operation->getParameters() ?? [] as $key => $parameter) {
+            $declared[] = (string) ($parameter->getKey() ?? $key);
+        }
+
+        self::assertSame(
+            \in_array('inventory_item_tenant_name_live', $indexes, true),
+            \in_array('sort', $declared, true),
+            'D-b: `/items` must offer `sort` exactly when inventory_item_tenant_name_live is migrated. '
+            .'Indexes found on inventory_item: '.implode(', ', $indexes),
+        );
+    }
+
+    /**
+     * Every index name the migrations create on `inventory_item`, derived from
+     * the DDL itself. `IF NOT EXISTS` and `UNIQUE` are both optional in the
+     * form, so both are optional in the pattern.
+     *
+     * **One imprecision, stated rather than hidden:** the scan does not separate
+     * `up()` from `down()`, so an index created only by a `down()` would read as
+     * present. It fails in the loud direction — the check would demand a `sort`
+     * the schema does not serve — and closing D-b creates the index in `up()`,
+     * which is the case this exists for.
+     *
+     * @return list<string>
+     */
+    private static function indexesCreatedOnInventoryItem(): array
+    {
+        $directory = \dirname(__DIR__, 2).'/migrations';
+        $files = glob($directory.'/*.php');
+        self::assertNotSame([], $files, 'No migration was found under '.$directory.'.');
+
+        $names = [];
+        foreach ($files as $file) {
+            preg_match_all(
+                '/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?([a-z0-9_]+)\s+ON\s+inventory_item\b/i',
+                (string) file_get_contents($file),
+                $matches,
+            );
+            $names = [...$names, ...$matches[1]];
+        }
+
+        return array_values(array_unique($names));
     }
 
     // -----------------------------------------------------------------------

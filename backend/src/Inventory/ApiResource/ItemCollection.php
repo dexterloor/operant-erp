@@ -28,11 +28,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * read rather than a collection wrapper this contract does not use.
  *
  * The `Query parameters` cell of §4.2's `ListItems` row is exhaustive, and the
- * six parameters below are that cell. `archived` is deliberately absent:
+ * parameters below are that cell. `archived` is deliberately absent:
  * API-19c offers it only where the sort manifest gives the route an archived row
  * that is not `⛔`, or where the list is a bounded sub-list of a `soft` table.
  * `/items` Archived is `⛔ D-a` and `/items` is not bounded, so neither limb is
  * satisfied.
+ *
+ * **`sort` is absent too, and for a reason that is checked rather than
+ * remembered.** §10.3's derivation step 4 adds `sort` only *where the manifest
+ * offers an alternate order*, and `IA.md` §5.6 offers none for `/items`: the
+ * **Alternate orders** cell of its row is `—`, its default order is `sku`, and
+ * the separate `/items` by `name` row is `⛔ D-b` — the owed index
+ * `inventory_item_tenant_name_live`, which no migration creates. A parameter
+ * whose only legal value is the order the list already returns is a control that
+ * cannot change anything.
+ *
+ * The **only** thing that gets it back is closing D-b, and that is not left to
+ * whoever reads this comment:
+ * `ItemOperationContractTest::itemsOffersSortIfAndOnlyIfItsOrderingIndexIsMigrated`
+ * ties this parameter list to the migrations, in both directions, so the day
+ * that index is created the suite goes red until the parameter returns.
  */
 #[ApiResource(
     shortName: 'ItemCollection',
@@ -50,10 +65,6 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 'q' => new QueryParameter(
                     description: 'Free-text search. TB-5 names exactly one searchable column on this table, inventory_item.sku; inventory_item.name is not searched (D-b).',
                     schema: ['type' => 'string'],
-                ),
-                'sort' => new QueryParameter(
-                    description: 'The sort manifest offers one order for /items.',
-                    schema: ['type' => 'string', 'enum' => [ItemCollectionProvider::SORT_SKU]],
                 ),
                 'limit' => new QueryParameter(
                     description: 'Page size. API-17: default 50, maximum 200.',
