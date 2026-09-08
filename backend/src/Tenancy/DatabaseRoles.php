@@ -64,9 +64,17 @@ final class DatabaseRoles
     ];
 
     /**
-     * The two principals reachable before authentication, and the reason the
+     * The principals reachable before authentication, and the reason the
      * list exists separately: their privilege footprint is asserted to be
      * minimal, which is a stronger claim than the one made about erp_app.
+     *
+     * The count is deliberately absent. This docblock read "The two
+     * principals" while the list held three -- erp_ratelimit was added as the
+     * sixth role and the prose was not, so the constant defining the pre-auth
+     * boundary carried a stale count of it. Deleted rather than corrected
+     * (Rule 15): a number here has no reader that a consumer of the list does
+     * not already have, and GrantFootprintTest derives its domain from the
+     * array, never from this text.
      *
      * @var list<string>
      */
