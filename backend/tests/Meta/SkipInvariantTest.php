@@ -79,13 +79,20 @@ use PHPUnit\Framework\TestCase;
 final class SkipInvariantTest extends TestCase
 {
     /**
-     * The three names the scan looks for, held as **strings** so that this file
-     * is not a subject of its own check by accident. `PhpToken` reports a
-     * string literal as `T_CONSTANT_ENCAPSED_STRING`; every match below is on
-     * `T_STRING`, so these three lines are invisible to it.
+     * The two names the scan looks for, held as **strings** so that this file is
+     * not a subject of its own check by accident. `PhpToken` reports a string
+     * literal as `T_CONSTANT_ENCAPSED_STRING`; every match below is on
+     * `T_STRING`, so these lines are invisible to it.
+     *
+     * **There is deliberately no `DOCUMENT_CLASS` constant.** It was
+     * `'ContractDocument'` until Output 4 §7 added a second gitignored-document
+     * reader — `SecurityModelDocument`, for `SECURITY_MODEL.md`'s `E-*` register
+     * — and clause (i) then reported that reader's two entirely legitimate skips
+     * as unguarded. A second constant would have made this invariant a list of
+     * document classes, and *the next* one would fail the same way. The set is
+     * derived instead: see `documentClasses()`.
      */
     private const SKIP_CALL = 'markTestSkipped';
-    private const DOCUMENT_CLASS = 'ContractDocument';
     private const AVAILABILITY_PROBE = 'isAvailable';
 
     /** Clause (i). */
@@ -154,7 +161,7 @@ final class SkipInvariantTest extends TestCase
             }
         }
 
-        self::assertGreaterThan(0, $subjects, 'No test method reaches the contract document, so this clause had no subject.');
+        self::assertGreaterThan(0, $subjects, 'No test method reaches a gitignored-document reader, so this clause had no subject.');
         self::assertSame([], array_values(array_unique($ungated)), 'A test method reads the contract document without a guard that can skip.');
     }
 
@@ -555,6 +562,66 @@ final class SkipInvariantTest extends TestCase
         return $files = $found;
     }
 
+    /**
+     * Every gitignored-document reader in the scanned tree, **derived**.
+     *
+     * A reader is a class that declares the availability probe — a
+     * `function isAvailable` — which is the whole of what makes a
+     * `!X::isAvailable()` guard meaningful: it is the thing that can be false on
+     * a clean checkout. `ContractDocument` (`docs/API.md`) and
+     * `SecurityModelDocument` (`docs/SECURITY_MODEL.md`) are the two today, and
+     * a third added tomorrow is covered without this file being edited — which
+     * is the property the constant it replaced did not have.
+     *
+     * The set is asserted non-empty by every caller's own subject count: if this
+     * returned nothing, clause (i) would report every skip in the suite and
+     * clause (ii) would fail its *"no test method reaches the contract document"*
+     * assertion. It cannot go quietly vacuous in either direction.
+     *
+     * @return list<string> class short names
+     */
+    private function documentClasses(): array
+    {
+        static $classes = null;
+
+        if (null !== $classes) {
+            return $classes;
+        }
+
+        $found = [];
+
+        foreach ($this->sourceFiles() as $tokens) {
+            $name = null;
+            $declaresProbe = false;
+
+            foreach ($tokens as $index => $token) {
+                if (\T_CLASS === $token->id && null === $name) {
+                    $at = $this->next($tokens, $index);
+                    if (null !== $at && \T_STRING === $tokens[$at]->id) {
+                        $name = $tokens[$at]->text;
+                    }
+
+                    continue;
+                }
+
+                if (\T_FUNCTION === $token->id) {
+                    $at = $this->next($tokens, $index);
+                    if (null !== $at && $this->isName($tokens[$at], self::AVAILABILITY_PROBE)) {
+                        $declaresProbe = true;
+                    }
+                }
+            }
+
+            if (null !== $name && $declaresProbe) {
+                $found[] = $name;
+            }
+        }
+
+        sort($found);
+
+        return $classes = array_values(array_unique($found));
+    }
+
     private function isName(\PhpToken $token, string $name): bool
     {
         return \T_STRING === $token->id && $token->text === $name;
@@ -586,7 +653,7 @@ final class SkipInvariantTest extends TestCase
         }
 
         $segments = explode('\\', $token->text);
-        if (end($segments) !== self::DOCUMENT_CLASS) {
+        if (!\in_array(end($segments), $this->documentClasses(), true)) {
             return false;
         }
 

@@ -175,6 +175,35 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
+     * The read-many twin of `countAsOwnerForTenant`, and it is here for the
+     * reason `insertAsOwnerForTenant` is: `TenantContextContainmentTest`'s list
+     * of files touching the tenant GUC is a control, and every entry added to it
+     * is a place the sanctioned API was bypassed. Output 4 §7 needs to read the
+     * trail and the effective permission set back as ground truth -- `audit_log`
+     * is written by a principal that cannot read it, and `role_permission` is
+     * RLS'd -- and doing that in each test file would have added two entries.
+     *
+     * @param list<mixed> $params
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function fetchAsOwnerForTenant(string $tenantId, string $sql, array $params = []): array
+    {
+        $c = $this->owner();
+        $c->beginTransaction();
+        try {
+            $c->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [$tenantId]);
+            $rows = $c->fetchAllAssociative($sql, $params);
+            $c->commit();
+
+            return $rows;
+        } catch (\Throwable $e) {
+            $c->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * TRUNCATE, not DELETE. As the owner under FORCE ROW LEVEL SECURITY a DELETE
      * would itself be filtered by the policy and quietly remove nothing.
      */

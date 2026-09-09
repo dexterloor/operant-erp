@@ -33,7 +33,7 @@ final class ItemOperationContractTest extends ApiTestCase
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
-    private const PINNED_ITEM_OPERATIONS = [
+    public const PINNED_ITEM_OPERATIONS = [
         'ListItems' => ['method' => 'GET', 'path' => '/items', 'idem' => false],
         'GetItem' => ['method' => 'GET', 'path' => '/items/{id}', 'idem' => false],
         'CreateItem' => ['method' => 'POST', 'path' => '/items', 'idem' => true],
@@ -51,16 +51,33 @@ final class ItemOperationContractTest extends ApiTestCase
     /** §4.2's `Query parameters` cell for `ListItems`. */
     private const PINNED_QUERY_PARAMETERS = ['supplier_id', 'q', 'limit', 'after', 'before'];
 
-    /** The pin against the registry: method, path and the `Idem` flag. */
+    /**
+     * The pin against the registry: method, path and the `Idem` flag.
+     *
+     * **The domain is this resource's own path prefix**, which is what
+     * `thePinsMatchTheContractDocument` below has always done on the document
+     * side. Until Output 4 §7 landed it was the *whole* registry, and that made
+     * this one method two claims — these six rows, and *"nothing else exists"*.
+     * The second claim is not this file's, and it has not been dropped: it is
+     * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`,
+     * which compares the union of both pins against the whole registry, so an
+     * operation nobody pinned still fails.
+     */
     #[Test]
     public function theRegistryDeclaresExactlyThePinnedOperations(): void
     {
         $declared = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $path = str_replace(self::BASE, '', (string) $operation->getUriTemplate());
+
+            if (1 !== preg_match('#^/items(/|$)#', $path)) {
+                continue;
+            }
+
             $declared[$name] = [
                 'method' => $operation->getMethod(),
-                'path' => str_replace(self::BASE, '', (string) $operation->getUriTemplate()),
+                'path' => $path,
                 'idem' => true === ($operation->getExtraProperties()[IdempotencyKeyGuard::OPERATION_FLAG] ?? null),
             ];
         }

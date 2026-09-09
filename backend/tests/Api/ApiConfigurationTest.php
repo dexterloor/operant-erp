@@ -26,9 +26,25 @@ final class ApiConfigurationTest extends ApiTestCase
         \assert($router instanceof RouterInterface);
 
         $checked = [];
+        $notExposed = [];
+
         foreach ($router->getRouteCollection() as $name => $route) {
             $resourceClass = $route->getDefault('_api_resource_class');
             if (!\is_string($resourceClass) || !str_starts_with($resourceClass, 'App\\')) {
+                continue;
+            }
+
+            // API Platform mints a `NotExposed` operation at
+            // `/.well-known/genid/{id}` for any resource that declares no item
+            // `GET` -- `Token` is one, because a token has no row and no id --
+            // and there is no opt-out short of declaring an operation this
+            // contract does not have. It is separated rather than filtered by
+            // name: the assertion below is that every excluded route is the
+            // vendor's not-exposed action, so a real route cannot hide here.
+            if ('api_platform.action.not_exposed' === $route->getDefault('_controller')) {
+                $notExposed[(string) $name] = $resourceClass;
+                self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
+
                 continue;
             }
 
@@ -36,7 +52,14 @@ final class ApiConfigurationTest extends ApiTestCase
             self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
         }
 
-        self::assertCount(6, $checked, 'The route set changed. This slice declares six operations: '.implode(', ', array_keys($checked)));
+        self::assertSame(['_api_/.well-known/genid/{id}{._format}_get' => \App\Auth\ApiResource\TokenResource::class], $notExposed,
+            'A route was excluded from the count as "not exposed" that is not the one API Platform mints for `Token`.');
+
+        // Six for the `/items` slice, two for Output 4 §7's token path
+        // (`IssueToken`, `GetCurrentUser`). The count is a floor against a route
+        // appearing that nobody declared; which operations those are is pinned
+        // by name in ItemOperationContractTest and AuthOperationContractTest.
+        self::assertCount(8, $checked, 'The route set changed. This slice declares eight operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

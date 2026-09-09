@@ -20,12 +20,12 @@ use Symfony\Component\Console\Output\BufferedOutput;
 final class OpenApiContractTest extends ApiTestCase
 {
     /**
-     * The write operations this slice authors. Not a description of the whole
-     * contract — it is the anti-vacuity floor: if the `ApiResource` classes are
-     * deleted the count drops and this file goes red, which is the second
-     * mutation API-10a names.
+     * The write operations this slice authors: four on `/items`, plus
+     * `IssueToken`. Not a description of the whole contract — it is the
+     * anti-vacuity floor: if the `ApiResource` classes are deleted the count
+     * drops and this file goes red, which is the second mutation API-10a names.
      */
-    private const AUTHORED_WRITE_OPERATIONS = 4;
+    private const AUTHORED_WRITE_OPERATIONS = 5;
 
     /** @return array<string, mixed> */
     private function regenerate(): array

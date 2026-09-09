@@ -89,6 +89,47 @@ final class ApiProblem extends \RuntimeException implements ProblemExceptionInte
         return new self(ProblemType::NotFound);
     }
 
+    /**
+     * §7.3 — **every** sign-in refusal, and the one object that makes E-7's
+     * first four observables true by construction.
+     *
+     * It takes no arguments and it never will. `detail` is null, there is no
+     * `instance`, no request id, no timestamp and no `attempts_remaining`: *"a
+     * member that varies is a channel"*, and body length follows from the body
+     * being a constant. The unknown-workspace, unknown-email, wrong-password,
+     * non-active-tenant and deactivated-user branches all reach this method, so
+     * there is no per-branch shape for a later change to diverge.
+     *
+     * `WWW-Authenticate` is sent because RFC 9110 makes it mandatory on a 401,
+     * and its value is a constant for the same reason the body is. **No
+     * `Retry-After`, here or on either 429** (§5.2a): `Retry-After` is the
+     * remaining time, and ST-8a withholds it.
+     */
+    public static function authenticationFailed(): self
+    {
+        return new self(ProblemType::AuthenticationFailed, headers: ['WWW-Authenticate' => 'Bearer']);
+    }
+
+    /** §5.2 — either E-21 budget is exhausted. No count and no window: both are reconnaissance (ST-8a). */
+    public static function tooManyAttempts(): self
+    {
+        return new self(ProblemType::TooManyAttempts);
+    }
+
+    /**
+     * §5.2 — `auth_lockout` holds a live `locked_until` for this
+     * `(workspace, email)` pair.
+     *
+     * The **policy** duration ST-8b publishes belongs on the sign-in screen, not
+     * in this body: the remaining time is what a `Retry-After` or a `detail`
+     * would carry, and ST-8b discloses the constant while withholding the
+     * remainder.
+     */
+    public static function signInPaused(): self
+    {
+        return new self(ProblemType::SignInPaused);
+    }
+
     /** @param array<string, mixed> $current */
     public static function staleRecord(array $current): self
     {

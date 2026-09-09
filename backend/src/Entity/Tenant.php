@@ -106,7 +106,32 @@ class Tenant
     /** ADR-006 V-11's only consumer: a tenant that is not active cannot be logged into. */
     public function permitsLogin(): bool
     {
-        return self::STATUS_ACTIVE === $this->status;
+        return self::statusPermitsLogin($this->status);
+    }
+
+    /**
+     * The same rule, over a status read as a scalar.
+     *
+     * `API.md` §7.1 step 4 reads `tenant.status` on the **`erp_auth`** connection,
+     * which holds a column grant and no entity mapping — the pre-authentication
+     * path never hydrates a `Tenant`, and it must not: step 6 *"costs no
+     * statement"* precisely because the status came out of step 4's transaction
+     * as a value, and an implementation that re-read the row to build an object
+     * would add a statement to one branch and break E-7 by the clock.
+     *
+     * So V-11's rule needs a second *entry point* and must not acquire a second
+     * *definition*: `permitsLogin()` delegates here, `TenantStatusTest` asserts
+     * the two agree over every declared status, and there is exactly one
+     * comparison in the codebase.
+     *
+     * **There is deliberately no `sentinel` branch, here or above.** ST-7.3
+     * requires the sentinel to be routed to the unresolved-slug answer rather
+     * than to the status answer, and a special case here is the one place that
+     * routing could be quietly moved to the wrong side.
+     */
+    public static function statusPermitsLogin(string $status): bool
+    {
+        return self::STATUS_ACTIVE === $status;
     }
 
     /**

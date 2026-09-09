@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tenancy;
 
+use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
@@ -102,6 +103,66 @@ final class TenantContext
         }
 
         return $this->openContext($tenantId, $work);
+    }
+
+    /**
+     * The same rule, on a connection this class does not own.
+     *
+     * -----------------------------------------------------------------------
+     * Why this is here and not in the pre-authentication code that needs it
+     * -----------------------------------------------------------------------
+     * `API.md` §7.1 establishes tenant context twice on connections that have no
+     * entity manager: step 4 on **`erp_auth`**, and step 8 on **`erp_authlog`**.
+     * `run()` cannot serve either — it goes through `$this->em`, which is pinned
+     * to `app` — so without this method the pre-authentication path would issue
+     * `set_config` by hand, in two files, outside `src/Tenancy/`.
+     *
+     * `TenantContextContainmentTest` states the rule that forbids that in terms:
+     * *"Exactly one production file may write tenant context"*, and *"no
+     * allow-list, because an allow-list here is the thing that erodes."* This
+     * method is the alternative to eroding it — the sanctioned writer grows a
+     * second entry point rather than the rule growing an exception, and the
+     * containment test needed no edit.
+     *
+     * -----------------------------------------------------------------------
+     * The caller owns the transaction, and that is the one real difference
+     * -----------------------------------------------------------------------
+     * `run()` opens its own, because a unit of work over mapped entities has no
+     * other natural boundary. Step 4's does not: ADR-006 §2.1 step 2 is a
+     * **single** transaction reading `tenant`, then setting the context the
+     * *first read produced*, then reading `app_user` — so the context cannot be
+     * established before the transaction opens, and splitting it in two would
+     * change the statement sequence V-8 requires to be identical on every miss
+     * path.
+     *
+     * What is enforced instead is the part that actually protects anything: a
+     * transaction **must** already be open, or `set_config(..., true)` binds to
+     * an implicit single-statement transaction and is gone before the next
+     * statement — the failure mode is silent, and under PgBouncer's transaction
+     * pooling the connection goes back to the pool between the two reads. The
+     * value is bound, never interpolated, exactly as in `openContext()`.
+     *
+     * No re-entrancy tracking, no identity map, no `TenantFilter`: those three
+     * exist for the ORM, and a pre-authentication read is DBAL against a
+     * principal that holds column grants and no mapping.
+     */
+    public function establishOn(Connection $connection, string $tenantId): void
+    {
+        // Parameter-bound below, so this is not what stops injection. It enforces
+        // ADR-002's assumption that a tenant id is a UUID, and it fails here
+        // rather than inside the ::uuid cast in the policy.
+        if (!Uuid::isValid($tenantId)) {
+            throw new \InvalidArgumentException('Tenant id must be a UUID.');
+        }
+
+        if (0 === $connection->getTransactionNestingLevel()) {
+            throw TenantContextViolation::noTransactionToBindTo();
+        }
+
+        $connection->executeStatement(
+            "SELECT set_config('app.tenant_id', ?, true)",
+            [Uuid::fromString($tenantId)->toRfc4122()],
+        );
     }
 
     /**
