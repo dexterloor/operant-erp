@@ -42,8 +42,15 @@ use Symfony\Component\Uid\Uuid;
  * `app_user.is_active` is the sign-in path's branch (`API.md` §7.6) and adding
  * it here would change `/me`'s behaviour, which is not this slice's to change.
  * Named rather than left implicit: a live token held by a **deactivated but not
- * deleted** principal still authenticates. UNVERIFIED whether §7.6 intends that;
- * raised as a §14.1 item rather than decided here.
+ * deleted** principal still authenticates — probed, not inferred: with
+ * `is_active` set false and read back, an authenticated request answers 200,
+ * while setting `deleted_at` answers 401.
+ *
+ * Whether §7.6's sign-in ruling is meant to extend to a session that already
+ * exists is **`API.md` §14.1 API-O-22**, owner `SEC`. This docblock previously
+ * said the question was *"raised as a §14.1 item"* when §14.1 ended at API-O-19
+ * and no such item had been filed — the citation named nothing, which is the
+ * failure mode this project records as error #1. It names the row now.
  */
 final readonly class IdentityReader
 {

@@ -40,9 +40,50 @@ final class AuthorizationOrderTest extends ApiTestCase
      *
      * Three ids, chosen to be the three cases that could differ — one real row in
      * the caller's own tenant, one real row in another tenant, one that exists
-     * nowhere. Every byte of every response is compared, not just the status:
-     * §5.2's `permission-denied` carries `required_permission` and nothing
-     * instance-specific, so a difference anywhere in the body is a channel.
+     * nowhere. §5.2's `permission-denied` carries `required_permission` and
+     * nothing instance-specific, so a difference anywhere in the response is a
+     * channel.
+     *
+     * ---------------------------------------------------------------------------
+     * What is compared, stated exactly, because the previous wording overclaimed
+     * ---------------------------------------------------------------------------
+     * This docblock said *"every byte of every response is compared"* while the
+     * comparison built three keys — status, content type and body. It now compares
+     * the **status, the full response header map and the body**, with the body's
+     * length carried as its own key so a length difference is named in the failure
+     * rather than inferred from a diff. Measured on this server before the
+     * comparison was widened: all three responses are 403, 129 bytes, and carry an
+     * identical header map (`vary`, `x-content-type-options`, `x-frame-options`,
+     * `content-type`, `cache-control`, `date`, `x-robots-tag`) — so widening it
+     * cost nothing and closed the gap between what the file claimed and what it
+     * checked.
+     *
+     * **`date` is compared for presence and not for value, and it is the only
+     * exemption.** Its value is a clock reading, so three requests that straddle a
+     * second boundary would differ in it for a reason that carries no information
+     * about the id — pinning it would make this a flaky clock test rather than a
+     * stronger oracle check. Its **absence** on one response and not another would
+     * still be a difference, and the key is kept in the compared map to catch that.
+     *
+     * ---------------------------------------------------------------------------
+     * The one observable that is NOT compared here, and why it is not a defect
+     * ---------------------------------------------------------------------------
+     * **Statement counts on the `erp_app` connection differ across the three ids —
+     * `{6, 6, 5}` — and that is E-3a, not an existence channel.** `RED` measured it
+     * and then permuted the request order: the **5 follows the last request**, not
+     * the invented id. It is the denial cap declining to write a third row for one
+     * `(tenant, actor, code)` key in one UTC day (`DenialAuditWriter`), so the
+     * short request is whichever one runs third.
+     *
+     * The consequence is structural: **a statement-count clause cannot be added to
+     * this test without changing the cap**, because the cap makes the count a
+     * function of request *order* rather than of the id. E-7's sixth observable —
+     * the KDF invocation count, which `CountingPasswordVerifier` exists to expose
+     * on the sign-in path — has **no analogue here by construction**: no password
+     * is verified on an authenticated request, so there is no per-request
+     * work counter for this path to be constant in. `theRowLoaderIsNotReachedOnADenial`
+     * below is what covers the work side instead, and it asserts on *which* tables
+     * were touched rather than on how many statements ran.
      *
      * **Mutation, run:** the permission check moved into `ItemProvider`, after
      * `ItemReader::get()` — i.e. §5.3's own suggested mutation. Result: the
@@ -71,10 +112,21 @@ final class AuthorizationOrderTest extends ApiTestCase
 
         foreach (['mine' => $mine, 'another tenant' => $theirs, 'nowhere' => $nowhere] as $label => $id) {
             $this->send('GET', '/items/'.$id);
+            $response = $this->client()->getResponse();
+            $body = (string) $response->getContent();
+
+            $headers = $response->headers->all();
+            ksort($headers);
+            // The clock, reduced to its presence. See the docblock.
+            if (\array_key_exists('date', $headers)) {
+                $headers['date'] = ['<present>'];
+            }
+
             $observed[$label] = [
-                'status' => $this->httpStatus(),
-                'content_type' => $this->contentType(),
-                'body' => (string) $this->client()->getResponse()->getContent(),
+                'status' => $response->getStatusCode(),
+                'headers' => $headers,
+                'body_length' => \strlen($body),
+                'body' => $body,
             ];
         }
 
@@ -90,6 +142,13 @@ final class AuthorizationOrderTest extends ApiTestCase
         self::assertSame('urn:erp:problem:permission-denied', $mineBody['type']);
         self::assertSame(self::VIEW, $mineBody['required_permission'],
             '§5.2: `permission-denied` carries `required_permission`, and ST-4b\'s screen needs it to say what is missing.');
+
+        // Anti-vacuity on the exemption: the header the comparison stops short of
+        // pinning by value must at least be there on all three, or "identical
+        // headers" would be satisfied by a response that carries none.
+        foreach ($observed as $label => $seen) {
+            self::assertArrayHasKey('date', $seen['headers'], $label.' carries no date header.');
+        }
 
         self::assertCount(1, array_unique(array_map(json_encode(...), $observed)),
             "The three ids are distinguishable to a caller with no permission — this is E-1's intra-tenant "
@@ -249,7 +308,7 @@ final class AuthorizationOrderTest extends ApiTestCase
     public function theRuleThisFileIsWrittenAgainstIsStillTheOneTheContractStates(): void
     {
         if (!ContractDocument::isAvailable()) {
-            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout, so the assertions above are checked against the code only. See the enforcement-slice report.');
+            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout, so the assertions above are checked against the code only. §5.3\'s three clauses are quoted in this class\'s own docblock, which is in the checkout, and each test method names the mutation it was proved with.');
         }
 
         $section = ContractDocument::sectionBetween('### 5.3 ', '## 6.');

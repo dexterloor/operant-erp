@@ -46,7 +46,16 @@ final class PermissionDenialCapTest extends ApiTestCase
      * closed by weakening the assertion. The changeover is between 150 and 200
      * rows; §9.4a's own cited plan A reports `Rows Removed by Filter: 9997`, i.e.
      * a 10,000-row fixture, so the contract's evidence and its stated size already
-     * disagree. Raised as API-O-20.
+     * disagree.
+     *
+     * **This measurement is already on the register: `API.md` §14.1 API-O-10,
+     * clause (a)**, raised by `DATA` when the column landed and stating the same
+     * two heap pages, the same fake-*red*, the same 150–200 changeover and the
+     * same disagreement between §9.4a's stated size and its own cited plan. The
+     * citation here read *"Raised as API-O-20"* and **API-O-20 did not exist** —
+     * `grep -c 'API-O-20' docs/API.md` → 0. Repointed rather than filed: a second
+     * item for one measurement is the drift Rule 16 is about, and API-O-10 is
+     * where it was raised first.
      *
      * 2,000 is an order of magnitude above the changeover and an order of
      * magnitude below `DenialCapStorageTest`'s, which is deliberate: this file
@@ -352,10 +361,20 @@ final class PermissionDenialCapTest extends ApiTestCase
                 $column." is not an index condition, so it is applied after rows are read:\n".$scan['Index Cond']);
         }
 
+        // Ordered ahead of the key assertion **because it could not fail behind
+        // it**: `assertArrayNotHasKey` stops the method the moment a `Filter`
+        // exists, so the `??` below only ever evaluated `0 === 0`. In front of
+        // it, a plan that filters reports how many rows it read and threw away —
+        // which is E-3a's actual bound — before the shape assertion names the
+        // key. *Mutation, run:* §9.4a's plan A (`permission_code = ?` replaced by
+        // `metadata->>'permission_code' = ?`); this assertion is now the one that
+        // goes red, and it prints the rows discarded.
+        self::assertSame(0, $scan['Rows Removed by Filter'] ?? 0,
+            'The scan read rows and discarded them. E-3a bounds the work done, so a discarded row is '
+            .'a row that was read: '.($scan['Filter'] ?? ''));
         self::assertArrayNotHasKey('Filter', $scan,
             "The scan node carries a Filter, so rows are being read and discarded rather than not read:\n"
             .($scan['Filter'] ?? ''));
-        self::assertSame(0, $scan['Rows Removed by Filter'] ?? 0);
 
         $buffers = ($scan['Shared Hit Blocks'] ?? 0) + ($scan['Shared Read Blocks'] ?? 0);
         self::assertLessThan(100, $buffers,
@@ -380,7 +399,7 @@ final class PermissionDenialCapTest extends ApiTestCase
             'The read-back stops at a different number of matches from the one the writer caps at.');
 
         if (!SecurityModelDocument::isAvailable()) {
-            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the figure is checked against the code only. See the enforcement-slice report.');
+            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the ceiling is checked against the code only: the assertions above still hold `DenialAuditWriter::DAILY_ROWS_PER_KEY` against this file\'s own literal 2, and E-3a\'s row is the third side that is unavailable here.');
         }
 
         $row = SecurityModelDocument::enforcementRow('E-3a');

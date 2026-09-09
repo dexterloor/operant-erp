@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\HttpOperation;
 use App\Api\Security\PermissionGate;
 use App\Auth\Application\CurrentUserReader;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -24,6 +25,32 @@ use Symfony\Component\Uid\Uuid;
  */
 final class PermissionEnforcementTest extends ApiTestCase
 {
+    /**
+     * The routes under `/api/v1` that answer without a token **and have been
+     * looked at**, named individually because that is what "reviewed" means.
+     *
+     * Every one is API Platform's own: the OpenAPI document, the error and
+     * validation-error response shapes, and the two `.well-known/genid` routes
+     * the JSON-LD/Hydra formats mint identifiers on. None is an operation in
+     * §4.2's table, none carries a `Perm` cell, and neither gate acts on any of
+     * them. They are the subject of `API.md` §14.1 **API-O-20**, which is where
+     * the decision about them lives; this list is what stops a *new* one joining
+     * them in silence.
+     *
+     * @var list<string>
+     */
+    private const REVIEWED_UNAUTHENTICATED_ROUTES = [
+        'api_doc',
+        'api_genid',
+        'api_validation_errors',
+        '_api_errors',
+        '_api_validation_errors_problem',
+        '_api_validation_errors_hydra',
+        '_api_validation_errors_jsonapi',
+        '_api_validation_errors_xml',
+        '_api_/.well-known/genid/{id}{._format}_get',
+    ];
+
     /**
      * Every operation that declares a permission code refuses a caller who holds
      * nothing, with §5.2's `permission-denied` naming the code it wanted.
@@ -171,6 +198,122 @@ final class PermissionEnforcementTest extends ApiTestCase
         self::assertGreaterThan(0, $authenticated, 'No authenticated operation was examined.');
         self::assertGreaterThan(0, $preAuth,
             'No pre-authentication operation was examined, so the /auth/ branch of the rule was never exercised.');
+    }
+
+    /**
+     * **The domain here is the ROUTER, and that is the whole point of the method.**
+     *
+     * `everyOperationOutsideAuthRefusesARequestCarryingNoToken` above claims a
+     * property about *"every operation outside `/auth`"* and derives its domain
+     * from `TransactionBoundaryTest::contractOperations()`, which keeps only
+     * `App\` resource classes and drops every `_api_`-prefixed name. That is the
+     * right domain for a claim about §4.2's table and the **wrong** one for a
+     * claim about what answers under `/api/v1`: it is a domain restated smaller
+     * than the property the name asserts, and the routes it cannot see are
+     * exactly the ones neither gate acts on — `CurrentOperation::of()` returns
+     * `null` for them (no `_api_operation_name`), so both gates return without
+     * acting.
+     *
+     * So this method takes its domain from `RouterInterface::getRouteCollection()`
+     * — everything that answers, whoever declared it — and requires every path
+     * under `%app.api_base_path%` to be one of three things:
+     *
+     *   1. an operation in the registry (the set the loops above cover);
+     *   2. under `/auth/`, which §4.2 makes pre-authentication;
+     *   3. on `REVIEWED_UNAUTHENTICATED_ROUTES` — an explicit list of routes that
+     *      have been looked at and accepted as reachable without a token.
+     *
+     * **The exemption list is pinned by cardinality and reconciled both ways**, so
+     * a new exemption cannot appear silently: a route that leaves the router fails
+     * the reconciliation, and a route that arrives fails clause (3) by not being
+     * on the list. Neither can be quieted by editing one side.
+     *
+     * **What (3) currently costs is recorded, not hidden — `API.md` §14.1
+     * API-O-20.** Measured on this server rather than carried: `GET /api/v1/docs`
+     * under an `Accept` header that admits any media type answers **200** with 12,078 bytes of
+     * `application/vnd.openapi+json` and no token — the whole spec, advertising
+     * every path — and `GET /api/v1/errors/500` answers **200** unauthenticated.
+     * No tenant data is reachable through any of them today, which is why this is
+     * a residual and not a refusal.
+     *
+     * This method asserts the **domain**, not the status: what closes API-O-20 is
+     * a decision about those routes, and a status assertion written now would pin
+     * today's behaviour as if it had been decided.
+     *
+     * *Mutation, run:* a new unauthenticated route declared under the base path
+     * (`config/routes.yaml`, `GET /api/v1/probe`). This method names it and is
+     * red — **and every other test in this file stays green**, including
+     * `everyOperationOutsideAuthRefusesARequestCarryingNoToken`, which is the gap
+     * this exists to close.
+     *
+     * *Second mutation, run:* `_api_validation_errors_xml` removed from
+     * `REVIEWED_UNAUTHENTICATED_ROUTES`; red, at the unclassified clause — the
+     * route is still in the router and nothing now says it was reviewed.
+     *
+     * *Third mutation, run:* a name added to the list that no route carries; red
+     * at the reconciliation, which is the direction the other two cannot reach.
+     * A stale exemption is a route somebody reviewed and that no longer exists,
+     * and it is how a list stops describing the thing it exempts.
+     */
+    #[Test]
+    public function everyRouteUnderTheApiBasePathIsAnOperationAPreAuthPathOrAReviewedExemption(): void
+    {
+        $router = self::getContainer()->get(RouterInterface::class);
+        \assert($router instanceof RouterInterface);
+
+        $base = (string) self::getContainer()->getParameter('app.api_base_path');
+        $operations = TransactionBoundaryTest::contractOperations();
+
+        $underTheBasePath = [];
+        $unclassified = [];
+        $exempt = [];
+
+        foreach ($router->getRouteCollection() as $name => $route) {
+            $path = $route->getPath();
+
+            if (!str_starts_with($path, $base)) {
+                continue;
+            }
+
+            $underTheBasePath[(string) $name] = $path;
+
+            if (\array_key_exists((string) $name, $operations)) {
+                continue;
+            }
+
+            if (str_starts_with(substr($path, \strlen($base)), '/auth/')) {
+                continue;
+            }
+
+            if (\in_array((string) $name, self::REVIEWED_UNAUTHENTICATED_ROUTES, true)) {
+                $exempt[] = (string) $name;
+
+                continue;
+            }
+
+            $unclassified[(string) $name] = $path;
+        }
+
+        self::assertNotSame([], $underTheBasePath,
+            'The router declares no route under '.$base.', so this check had no subject.');
+
+        self::assertSame([], $unclassified,
+            "A route answers under $base and is neither an operation in the registry, nor a pre-authentication "
+            ."path, nor a reviewed exemption. Neither gate acts on a route the registry does not know — "
+            ."`CurrentOperation::of()` returns null — so this one is reachable with no token and nobody "
+            ."decided that:\n".print_r($unclassified, true));
+
+        // The pin, both ways. The list is a record of what was reviewed, so a
+        // member that no longer exists is as much a defect as one that appeared.
+        sort($exempt);
+        $declared = self::REVIEWED_UNAUTHENTICATED_ROUTES;
+        sort($declared);
+
+        self::assertSame($declared, $exempt,
+            'The reviewed-exemption list and the router disagree. Every entry is a route somebody looked at '
+            .'under API-O-20; a route that has left the router is a stale exemption, and one that has arrived '
+            .'is an unreviewed one.');
+        self::assertCount(\count(self::REVIEWED_UNAUTHENTICATED_ROUTES), $exempt);
     }
 
     /**

@@ -126,7 +126,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
     public function theCatalogueThisApiDrawsFromIsStillTheOneSecurityModelPublishes(): void
     {
         if (!SecurityModelDocument::isAvailable()) {
-            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the declared codes are checked for shape only. See the enforcement-slice report.');
+            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the declared codes are checked for shape only — by `everyDeclaredCodeIsShapedLikeACatalogueMember` in this file. §3\'s catalogue is the side that is unavailable here.');
         }
 
         $catalogue = SecurityModelDocument::permissionCodes();
@@ -156,7 +156,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
     public function thePinsMatchTheContractDocument(): void
     {
         if (!ContractDocument::isAvailable()) {
-            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout, so the pins above are checked against the code only. See the enforcement-slice report.');
+            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout, so the pins above are checked against the code only — by `everyOperationDeclaresItsRequiredPermission` in this file, which holds `self::PINNED_PERMISSIONS` against the operation registry. §4.2\'s table is the side that is unavailable here.');
         }
 
         $rows = ContractDocument::operationRows();
