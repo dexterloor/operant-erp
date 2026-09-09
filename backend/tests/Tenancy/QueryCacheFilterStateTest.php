@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Entity\InventoryItem;
+use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

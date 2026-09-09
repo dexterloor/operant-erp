@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Audit\AuditEvent;
-use App\Entity\AuditLogEntry;
+use App\SharedKernel\ValueObject\AuditEvent;
+use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -442,7 +442,7 @@ final class DenialCapStorageTest extends TenancyTestCase
      *
      * If a later pass adds the biconditional, this test goes red and its failure
      * message is where that decision gets re-argued. Requiring the code needs a
-     * per-event declaration on `App\Audit\AuditEvent`, which is a catalogue
+     * per-event declaration on `App\SharedKernel\ValueObject\AuditEvent`, which is a catalogue
      * extension, which is **E4-1's**, in five ordered steps.
      */
     #[Test]

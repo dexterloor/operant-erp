@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Security\AuthenticationGate;
-use App\Api\Security\PermissionGate;
+use App\Platform\Security\AuthenticationGate;
+use App\Platform\Security\PermissionGate;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -291,7 +291,7 @@ final class AuthorizationOrderTest extends ApiTestCase
         }
 
         $positions = [];
-        foreach ([AuthenticationGate::class, PermissionGate::class, \App\Api\Idempotency\IdempotencyKeyGuard::class] as $gate) {
+        foreach ([AuthenticationGate::class, PermissionGate::class, \App\Platform\Http\Idempotency\IdempotencyKeyGuard::class] as $gate) {
             $at = array_search($gate, $ordered, true);
             self::assertIsInt($at, $gate.' is not registered on kernel.controller at all. Listeners: '.implode(', ', $ordered));
             $positions[$gate] = $at;
@@ -299,7 +299,7 @@ final class AuthorizationOrderTest extends ApiTestCase
 
         self::assertTrue(
             $positions[AuthenticationGate::class] < $positions[PermissionGate::class]
-            && $positions[PermissionGate::class] < $positions[\App\Api\Idempotency\IdempotencyKeyGuard::class],
+            && $positions[PermissionGate::class] < $positions[\App\Platform\Http\Idempotency\IdempotencyKeyGuard::class],
             '401 -> 403 -> 428 is not the order these listeners run in: '.implode(', ', $ordered));
     }
 

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Audit\AuditEvent;
-use App\Auth\Application\ChangePassword;
-use App\Auth\Application\PasswordChangeThrottle;
-use App\Auth\Infrastructure\AuthTrailWriter;
-use App\Entity\Tenant;
+use App\SharedKernel\ValueObject\AuditEvent;
+use App\Modules\UserManagement\Application\ChangePassword;
+use App\Modules\UserManagement\Application\PasswordChangeThrottle;
+use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
+use App\Platform\Tenancy\Entity\Tenant;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

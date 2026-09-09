@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Auth\Infrastructure\EmailHasher;
+use App\Modules\UserManagement\Infrastructure\EmailHasher;
 use App\Tests\Api\ApiTestCase;
 use App\Tests\Support\CountingPasswordVerifier;
 use App\Tests\Support\SqlRecorder;

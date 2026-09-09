@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Tenancy\DatabaseRoles;
+use App\Platform\Tenancy\DatabaseRoles;
 use Doctrine\DBAL\Tools\DsnParser;
 use PHPUnit\Framework\Attributes\Test;
 

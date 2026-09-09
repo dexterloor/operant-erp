@@ -51,15 +51,15 @@ services:
         # sees has no routes at all. It marks them abstract, so nothing tries to
         # instantiate them.
         exclude:
-            - '../src/Api/Pagination/'
-            - '../src/Api/Problem/ProblemType.php'
+            - '../src/Platform/Http/Pagination/'
+            - '../src/Platform/Http/Problem/ProblemType.php'
             # The resolved caller. Data, not a service: it is built per request
             # by `IdentityReader` and held by `RequestIdentity`, and registering
             # it would have the container try to autowire a constructor that
             # takes a tenant id.
-            - '../src/Api/Security/Identity.php'
-            - '../src/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
-            - '../src/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
+            - '../src/Platform/Security/Identity.php'
+            - '../src/Modules/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
+            - '../src/Modules/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would
@@ -70,10 +70,10 @@ services:
             # discovers resources through the container's attribute
             # autoconfiguration, so a resource class the container never sees has
             # no routes at all.
-            - '../src/Auth/Domain/PreAuthKeys.php'
-            - '../src/Auth/ApiResource/{IssueTokenInput.php,ChangePasswordInput.php,RoleReference.php}'
-            - '../src/Auth/Application/{SignInCommand.php,SignInResult.php,ChangePasswordCommand.php,ChangePasswordResult.php,ChangePasswordOutcome.php}'
-            - '../src/Auth/Infrastructure/{CredentialRow.php,IssuedToken.php}'
+            - '../src/Modules/UserManagement/Domain/PreAuthKeys.php'
+            - '../src/Modules/UserManagement/ApiResource/{IssueTokenInput.php,ChangePasswordInput.php,RoleReference.php}'
+            - '../src/Modules/UserManagement/Application/{SignInCommand.php,SignInResult.php,ChangePasswordCommand.php,ChangePasswordResult.php,ChangePasswordOutcome.php}'
+            - '../src/Modules/UserManagement/Infrastructure/{CredentialRow.php,IssuedToken.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
@@ -84,7 +84,7 @@ services:
     # implementation resolves silently, and the day a second one appears the
     # choice should be an edit somebody makes on purpose. It still fails closed:
     # with no identity resolved, `RequestIdentity::authenticated()` throws.
-    App\Api\Tenancy\CurrentTenant: '@App\Api\Tenancy\AuthenticatedTenant'
+    App\Platform\Tenancy\CurrentTenant: '@App\Platform\Tenancy\AuthenticatedTenant'
 
     # E-1's collaborators are on `erp_app`, and the binding is explicit for the
     # reason the §7 block below gives: the ORM's entity manager is pinned to
@@ -93,11 +93,11 @@ services:
     # else -- `IdentityReader` reads `app_user`/`user_role`/`role_permission`
     # under RLS, and `DenialAuditWriter` needs the `SELECT, INSERT` on
     # `audit_log` that only `erp_app` holds (S-9, `API.md` §9.2).
-    App\Api\Security\IdentityReader:
+    App\Platform\Security\IdentityReader:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 
-    App\Audit\DenialAuditWriter:
+    App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 
@@ -108,11 +108,11 @@ services:
     # `SELECT, INSERT` on `audit_log` and needs no new grant -- and the
     # pre-authentication principals are deliberately not reachable from an
     # authenticated path.
-    App\Audit\PasswordChangeAuditWriter:
+    App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 
-    App\Auth\Application\PasswordChangeThrottle:
+    App\Modules\UserManagement\Application\PasswordChangeThrottle:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 
@@ -128,44 +128,44 @@ services:
     # statement raises `permission denied`
     # (`GrantFootprintTest::aRateLimiterWiredToTheWrongConnectionFailsImmediately`).
     # ------------------------------------------------------------------
-    App\Auth\Infrastructure\PreAuthBudgets:
+    App\Modules\UserManagement\Infrastructure\PreAuthBudgets:
         arguments:
             $rateLimit: '@doctrine.dbal.ratelimit_connection'
 
-    App\Auth\Infrastructure\LockoutStore:
+    App\Modules\UserManagement\Infrastructure\LockoutStore:
         arguments:
             $rateLimit: '@doctrine.dbal.ratelimit_connection'
 
-    App\Auth\Infrastructure\CredentialLookup:
+    App\Modules\UserManagement\Infrastructure\CredentialLookup:
         arguments:
             $auth: '@doctrine.dbal.auth_connection'
 
-    App\Auth\Infrastructure\AuthTrailWriter:
+    App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
         arguments:
             $authLog: '@doctrine.dbal.authlog_connection'
 
     # The one collaborator that IS on `erp_app`, and only because `/me` runs
     # after authentication. §7.1 step 9 and this reader are the whole of it.
-    App\Auth\Application\CurrentUserReader:
+    App\Modules\UserManagement\Application\CurrentUserReader:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 
-    App\Auth\Infrastructure\EmailHasher:
+    App\Modules\UserManagement\Infrastructure\EmailHasher:
         arguments:
             $key: '%env(AUTH_EMAIL_HASH_KEY)%'
 
-    App\Auth\Infrastructure\AccessTokens:
+    App\Modules\UserManagement\Infrastructure\AccessTokens:
         arguments:
             $signingKey: '%env(AUTH_TOKEN_SIGNING_KEY)%'
 
-    App\Auth\Infrastructure\PasswordVerifier:
+    App\Modules\UserManagement\Infrastructure\PasswordVerifier:
         arguments:
             $dummyHash: '%app.auth.dummy_password_hash%'
 
     # Explicit, like the `CurrentTenant` binding above and for the same reason:
     # an interface with one implementation resolves silently, and this one exists
     # so a test decorator can count KDF invocations (T-6, E-7).
-    App\Auth\Domain\VerifiesPasswords: '@App\Auth\Infrastructure\PasswordVerifier'
+    App\Modules\UserManagement\Domain\VerifiesPasswords: '@App\Modules\UserManagement\Infrastructure\PasswordVerifier'
 
 when@test:
     services:
@@ -176,11 +176,11 @@ when@test:
         # overwrites it from the token's own claim. The `FixedTenant` this
         # replaced was a second source of tenant that no request could contradict,
         # so a resource reading the wrong claim would still have been green.
-        App\Api\Security\RequestIdentity:
+        App\Platform\Security\RequestIdentity:
             autowire: true
             public: true
 
-        App\Tenancy\TenantContext:
+        App\Platform\Tenancy\TenantContext:
             autowire: true
             public: true
         test.doctrine.dbal.ai_connection:
@@ -232,7 +232,7 @@ when@test:
         # T-6 / E-7 — the KDF invocation count, which no response and no SQL log
         # carries. Decorates the real verifier; production never sees this class.
         App\Tests\Support\CountingPasswordVerifier:
-            decorates: App\Auth\Domain\VerifiesPasswords
+            decorates: App\Modules\UserManagement\Domain\VerifiesPasswords
             arguments: ['@.inner']
             public: true
 
@@ -240,10 +240,10 @@ when@test:
         # definition would restate its arguments here, and a second copy of a
         # connection binding or an env-var name is the drift these tests exist to
         # catch. The service under test is the one production wires.
-        test.auth.email_hasher: {alias: 'App\Auth\Infrastructure\EmailHasher', public: true}
-        test.auth.access_tokens: {alias: 'App\Auth\Infrastructure\AccessTokens', public: true}
-        test.auth.password_verifier: {alias: 'App\Auth\Infrastructure\PasswordVerifier', public: true}
-        test.auth.budgets: {alias: 'App\Auth\Infrastructure\PreAuthBudgets', public: true}
+        test.auth.email_hasher: {alias: 'App\Modules\UserManagement\Infrastructure\EmailHasher', public: true}
+        test.auth.access_tokens: {alias: 'App\Modules\UserManagement\Infrastructure\AccessTokens', public: true}
+        test.auth.password_verifier: {alias: 'App\Modules\UserManagement\Infrastructure\PasswordVerifier', public: true}
+        test.auth.budgets: {alias: 'App\Modules\UserManagement\Infrastructure\PreAuthBudgets', public: true}
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
 
     parameters:

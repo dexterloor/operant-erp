@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Support;
 
-use App\Auth\Domain\VerifiesPasswords;
+use App\Modules\UserManagement\Domain\VerifiesPasswords;
 
 /**
  * T-6 and `API.md` §7.3 make the **number of KDF invocations** an observable:
@@ -16,7 +16,7 @@ use App\Auth\Domain\VerifiesPasswords;
  * A count is not decidable from a response body, a status code or a SQL log, so
  * it is decorated here rather than inferred. Registered in `when@test` only,
  * exactly as `RecordingMiddleware` is: production wires
- * `App\Auth\Infrastructure\PasswordVerifier` directly.
+ * `App\Modules\UserManagement\Infrastructure\PasswordVerifier` directly.
  */
 final class CountingPasswordVerifier implements VerifiesPasswords
 {

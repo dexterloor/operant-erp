@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Api\Idempotency\IdempotencyKeyGuard;
-use App\Inventory\ApiResource\CreateItemInput;
-use App\Inventory\ApiResource\UpdateItemInput;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Modules\Inventory\ApiResource\CreateItemInput;
+use App\Modules\Inventory\ApiResource\UpdateItemInput;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -279,8 +279,8 @@ final class ItemOperationContractTest extends ApiTestCase
     public function theDeleteAndRestorePairFollowsTheDeclaredDeletionClass(): void
     {
         self::assertSame(
-            \App\Tenancy\SchemaManifest::SOFT,
-            \App\Tenancy\SchemaManifest::TABLES['inventory_item']['deletion'],
+            \App\Platform\Tenancy\SchemaManifest::SOFT,
+            \App\Platform\Tenancy\SchemaManifest::TABLES['inventory_item']['deletion'],
         );
 
         $declared = array_keys(TransactionBoundaryTest::contractOperations());

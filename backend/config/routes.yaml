@@ -1,5 +1,14 @@
-controllers:
-    resource:
-        path: ../src/Controller/
-        namespace: App\Controller
-    type: attribute
+# Output 5 removed the framework recipe's controller attribute loader.
+#
+# It pointed at `../src/Controller/`, a directory that held one empty
+# `.gitignore` and no class, and `ARCHITECTURE.md` §4's tree has no top-level
+# `Controller/`: the four sub-layers a module publishes are `Domain`,
+# `Application`, `Infrastructure` and `ApiResource`, and A-11 confines
+# `Symfony\Component\HttpFoundation` to `ApiResource` and `Platform\Http`. So
+# there is no directory this loader could legitimately have been repointed at.
+#
+# It registered zero routes before this change and registers zero after it —
+# every route in the application comes from API Platform, mounted at the
+# `/api/v1` prefix by `config/routes/api_platform.yaml`. `ApiRoutingTest` and
+# `ApiConfigurationTest` assert the resulting collection, which is what makes
+# "zero routes either way" a checked statement rather than a claim.

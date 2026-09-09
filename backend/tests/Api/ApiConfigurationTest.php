@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Idempotency\IdempotencyKeyGuard;
-use App\Api\Problem\ProblemType;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Problem\ProblemType;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
 
@@ -52,7 +52,7 @@ final class ApiConfigurationTest extends ApiTestCase
             self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
         }
 
-        self::assertSame(['_api_/.well-known/genid/{id}{._format}_get' => \App\Auth\ApiResource\TokenResource::class], $notExposed,
+        self::assertSame(['_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class], $notExposed,
             'A route was excluded from the count as "not exposed" that is not the one API Platform mints for `Token`.');
 
         // Six for the `/items` slice, three for Output 4 §7's authentication

@@ -149,7 +149,7 @@ use Doctrine\Migrations\AbstractMigration;
  *
  * @see SECURITY_MODEL.md §5 E-9/E-21, §5.1.2, Appendix A SEC-O-16
  * @see ADR-006 §2.3, §6.4(b); ARCHITECTURE.md S-13; ADR-006 V-10
- * @see \App\Tenancy\SchemaManifest for the allowlist entry S-13 requires
+ * @see \App\Platform\Tenancy\SchemaManifest for the allowlist entry S-13 requires
  */
 final class Version20260909000100 extends AbstractMigration
 {

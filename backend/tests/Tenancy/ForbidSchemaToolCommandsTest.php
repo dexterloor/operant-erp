@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Console\ForbidSchemaToolCommands;
+use App\Platform\Console\ForbidSchemaToolCommands;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Security\Identity;
-use App\Api\Security\PermissionGate;
-use App\Api\Security\RequestIdentity;
-use App\Auth\Infrastructure\AccessTokens;
+use App\Platform\Security\Identity;
+use App\Platform\Security\PermissionGate;
+use App\Platform\Security\RequestIdentity;
+use App\Modules\UserManagement\Infrastructure\AccessTokens;
 use App\Tests\Support\SqlRecorder;
 use App\Tests\Tenancy\TenancyTestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;

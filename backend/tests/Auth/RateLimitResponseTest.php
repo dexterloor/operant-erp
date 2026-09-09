@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Auth\Infrastructure\LockoutStore;
-use App\Auth\Infrastructure\PreAuthBudgets;
-use App\Entity\Tenant;
+use App\Modules\UserManagement\Infrastructure\LockoutStore;
+use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
+use App\Platform\Tenancy\Entity\Tenant;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Clock\ClockInterface;
 

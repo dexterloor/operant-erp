@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Problem\ProblemType;
+use App\Platform\Http\Problem\ProblemType;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Tenancy\TenantContextViolation;
+use App\Platform\Tenancy\TenantContextViolation;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

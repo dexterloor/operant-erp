@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Entity\Supplier;
-use App\Tenancy\SchemaManifest;
-use App\Tenancy\SoftDeleteFilter;
-use App\Tenancy\TenantFilter;
+use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
+use App\Platform\Tenancy\SchemaManifest;
+use App\Platform\Tenancy\SoftDeleteFilter;
+use App\Platform\Tenancy\TenantFilter;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 

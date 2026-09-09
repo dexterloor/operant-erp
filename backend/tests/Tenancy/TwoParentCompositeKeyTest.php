@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Entity\Country;
-use App\Entity\Currency;
-use App\Entity\PurchaseOrder;
-use App\Entity\Supplier;
-use App\Entity\Warehouse;
+use App\SharedKernel\Reference\Country;
+use App\SharedKernel\Reference\Currency;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
+use App\Modules\Warehouses\Infrastructure\Entity\Warehouse;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 

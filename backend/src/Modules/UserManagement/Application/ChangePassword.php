@@ -1,0 +1,249 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\UserManagement\Application;
+
+use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
+use App\Modules\UserManagement\Domain\VerifiesPasswords;
+use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
+use App\Platform\Tenancy\TenantContext;
+use Doctrine\ORM\EntityManagerInterface;
+use Psr\Clock\ClockInterface;
+use Symfony\Component\PasswordHasher\PasswordHasherInterface;
+use Symfony\Component\Uid\Uuid;
+
+/**
+ * `ChangePassword` — `POST /api/v1/me/password`, §4.2's Authentication block.
+ *
+ * ===========================================================================
+ * The sequence, and which of it is inside a transaction
+ * ===========================================================================
+ *  1  throttle probe: E-23's bound on the action     — `erp_app`, txn A (read)
+ *  2  read this principal's stored hash              — `erp_app`, txn B (read)
+ *  3  verify the current password, always, once      — **no statement, no txn**
+ *  4  the new-password checks                        — no statement
+ *  5  refuse on either, with every applicable pointer— no statement
+ *  6  hash the new password                          — **no statement, no txn**
+ *  7  `UPDATE app_user` + E-23's `audit_log` row     — `erp_app`, txn C (write)
+ *
+ * **Steps 3 and 6 are outside every transaction, and that is ADR-006 §6.1 rather
+ * than tidiness.** O-1 was closed on measurement: 1505 ms of pooled-backend
+ * pinning. This operation runs the KDF **twice** — once to verify, once to hash —
+ * so holding a PgBouncer backend across both would be twice the cost §7.1 step 5
+ * already refuses to pay on the sign-in path. `PasswordVerifier` touches no
+ * connection, which is what makes the split possible.
+ *
+ * Step 7 is **one** transaction covering both writes, because `API.md` §9.2 and
+ * `ARCHITECTURE.md` §6.1 require the audit write to be synchronous and its
+ * failure to roll back the change it records. `PasswordChangeAuditWriter` calls
+ * `TenantContext::run()`, which is re-entrant for the same tenant and therefore
+ * **joins** this transaction rather than opening a second one.
+ *
+ * ===========================================================================
+ * E-7's discipline at this endpoint — ruled, not inherited
+ * ===========================================================================
+ * Verifying the current password is a **second credential-comparison surface**,
+ * so the question has to be answered rather than skipped.
+ *
+ * **What is NOT carried over: indistinguishability.** E-7 makes every sign-in
+ * refusal one object because the caller might be anybody and the branches
+ * disclose whether a workspace, an address or a password exists. Here
+ * `AuthenticationGate` has already resolved this caller as this principal from a
+ * signed token. There is no third party to protect: the current password is a
+ * secret the caller either holds or does not, and the response has to say which
+ * of the caller's **own** two inputs was wrong or the user cannot act on it. A
+ * masked refusal would also be self-defeating — the status code already
+ * separates 200 from 422 — so it would buy silence on a channel that is not
+ * silent anyway.
+ *
+ * **What IS carried over, and it is the half with teeth: the KDF runs exactly
+ * once on every path that reaches step 3, and is never short-circuited.** Step 4
+ * cannot return ahead of step 3, and step 5 reports *both* refusals together
+ * rather than the first one found. Three things follow:
+ *
+ *   1. A wrong-current-password request costs the server exactly what a correct
+ *      one does, so this endpoint is not a cheap oracle even in aggregate, and
+ *      the throttle's arithmetic is over a constant-cost operation.
+ *   2. The obvious "optimisation" — check the new password first, it is free —
+ *      is the one that would make the branches separable by the clock, and it is
+ *      structurally unavailable rather than discouraged.
+ *   3. If anybody later rules that these branches **should** be
+ *      indistinguishable (an administrative reset arriving under API-O-12 would
+ *      be the trigger, because then the actor and the subject differ), they
+ *      inherit a path with no timing difference already built into it.
+ *
+ * `PasswordChangeTest::theKdfRunsExactlyOnceOnEveryPathThatReachesIt` drives all
+ * four combinations through `CountingPasswordVerifier`. **Mutation:** move the
+ * new-password checks ahead of the verify and return early; the two
+ * bad-new-password cases go to zero invocations; red.
+ *
+ * ===========================================================================
+ * There is no password strength policy, and inventing one here was refused
+ * ===========================================================================
+ * No document in this project carries one — grepped, not assumed. The two checks
+ * below are **structural**, derived from what the KDF and the column require
+ * rather than from a strength opinion: an empty string hashes to a perfectly
+ * valid bcrypt digest and is a credential nobody chose; and
+ * `NativePasswordHasher` **throws** above `PasswordHasherInterface::MAX_PASSWORD_LENGTH`,
+ * which would be a 500 on a request that is simply invalid, so the limit is read
+ * off the component rather than written down here.
+ *
+ * A minimum length, a character-class rule or a breach-list check are all
+ * defensible and none of them is `BE-LEAD`'s to mint: `SECURITY_MODEL.md` §5 is
+ * *"the single register for `E-*`"* and holds no such rule. Routed as
+ * **API-O-24**, together with the fact that bcrypt silently truncates at 72
+ * bytes — which is a property of the existing hasher and of every credential
+ * this project has already written, not something this endpoint introduces.
+ *
+ * ===========================================================================
+ * A password change does not kill a live token — consequence, not defect
+ * ===========================================================================
+ * There is no session store (**API-O-13**) and E-20 makes the access token an
+ * absolute eight hours with no revocation, so **the token the caller used to make
+ * this change keeps working after it, and so does any other live token for this
+ * principal** (**API-O-21** is the same window seen from tenant suspension).
+ * Nothing here closes that and nothing here should: revocation needs storage
+ * that D-14 declined to ship this wave, and an endpoint that *appeared* to
+ * revoke would be the fake-green shape this project has now found seventeen
+ * times. It is stated on `PasswordResource`, where a client reads it, and in
+ * §4.4.3's additions row.
+ *
+ * @see SECURITY_MODEL.md §5 E-23, §5.1.4; E-20; API.md §4.2, §4.4.3, §9.2, §12.4
+ */
+final readonly class ChangePassword
+{
+    /** §5.2's `errors[]` code for the branch that says the current password did not verify. */
+    public const CURRENT_PASSWORD_INVALID = 'current_password_invalid';
+
+    /** The two structural new-password codes. See the class docblock: there is no strength policy. */
+    public const NEW_PASSWORD_EMPTY = 'new_password_empty';
+
+    public const NEW_PASSWORD_TOO_LONG = 'new_password_too_long';
+
+    public function __construct(
+        private TenantContext $tenants,
+        private EntityManagerInterface $em,
+        private VerifiesPasswords $passwords,
+        private PasswordChangeThrottle $throttle,
+        private PasswordChangeAuditWriter $trail,
+        private ClockInterface $clock,
+    ) {
+    }
+
+    public function change(ChangePasswordCommand $command): ChangePasswordResult
+    {
+        // --- 1 ------------------------------------------------------------
+        // Ahead of the KDF, so a throttled caller costs nothing to refuse. It
+        // refuses the *action* and writes no row; E-23 forbids capping the
+        // record of a change that happened.
+        if (!$this->throttle->admits($command->tenantId, $command->actorUserId)) {
+            return ChangePasswordResult::throttled();
+        }
+
+        // --- 2 ------------------------------------------------------------
+        $stored = $this->storedHashFor($command->tenantId, $command->actorUserId);
+
+        // --- 3 ------------------------------------------------------------
+        // Always, exactly once, and never behind step 4. `null` is reachable —
+        // the principal was soft-deleted between the gate and here — and the
+        // verifier runs the dummy hash for it rather than short-circuiting,
+        // which is the same rule §7.1 step 5 applies on the miss paths.
+        $verified = $this->passwords->verify($stored, $command->currentPassword);
+
+        // --- 4 and 5 ------------------------------------------------------
+        $errors = $this->newPasswordErrors($command->newPassword);
+
+        if (!$verified) {
+            // Prepended rather than appended: it is the refusal a client should
+            // surface first, and both are reported together so the response does
+            // not depend on which check ran.
+            array_unshift($errors, [
+                'pointer' => '/current_password',
+                'code' => self::CURRENT_PASSWORD_INVALID,
+                'message' => 'The current password is not correct.',
+            ]);
+        }
+
+        if ([] !== $errors) {
+            return ChangePasswordResult::refused($errors);
+        }
+
+        // --- 6 ------------------------------------------------------------
+        $hash = $this->passwords->hash($command->newPassword);
+
+        // --- 7 ------------------------------------------------------------
+        $at = $this->clock->now();
+        $this->tenants->run($command->tenantId, function (EntityManagerInterface $em) use ($command, $hash): void {
+            $user = $em->find(AppUser::class, Uuid::fromString($command->actorUserId));
+
+            // Step 2 already resolved a hash for this principal inside this
+            // request, so `null` here is a row that vanished between two
+            // transactions. Refusing to write is right and refusing *loudly* is
+            // right: unlike the sign-in path there is no response that would be
+            // correct, and a silent no-op would answer 200 for a change that did
+            // not happen — which is precisely the state E-23 exists to make
+            // impossible.
+            if (!$user instanceof AppUser) {
+                throw new \RuntimeException(
+                    'The principal resolved at authentication no longer exists, so no credential was changed. '
+                    .'E-23 requires the row and the change to stand or fall together.'
+                );
+            }
+
+            $user->replacePasswordHash($hash);
+            $em->flush();
+
+            // Inside this transaction, by re-entrancy. §9.2: audit is synchronous
+            // and its failure rolls back the change it records.
+            $this->trail->record(
+                tenantId: $command->tenantId,
+                actorUserId: $command->actorUserId,
+                actorLabel: $command->actorLabel,
+                ipAddress: $command->ipAddress,
+            );
+        });
+
+        return ChangePasswordResult::changed($at);
+    }
+
+    /**
+     * @return list<array{pointer: string, code: string, message: string}>
+     */
+    private function newPasswordErrors(string $newPassword): array
+    {
+        if ('' === $newPassword) {
+            return [[
+                'pointer' => '/new_password',
+                'code' => self::NEW_PASSWORD_EMPTY,
+                'message' => 'The new password must not be empty.',
+            ]];
+        }
+
+        // The bound is the component's, read rather than restated: exceeding it
+        // makes `NativePasswordHasher::hash()` throw, and an invalid request must
+        // not be a 500.
+        if (\strlen($newPassword) > PasswordHasherInterface::MAX_PASSWORD_LENGTH) {
+            return [[
+                'pointer' => '/new_password',
+                'code' => self::NEW_PASSWORD_TOO_LONG,
+                'message' => \sprintf('The new password must be at most %d bytes.', PasswordHasherInterface::MAX_PASSWORD_LENGTH),
+            ]];
+        }
+
+        return [];
+    }
+
+    private function storedHashFor(string $tenantId, string $actorUserId): ?string
+    {
+        $hash = $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($actorUserId): ?string {
+            $user = $em->find(AppUser::class, Uuid::fromString($actorUserId));
+
+            return $user instanceof AppUser ? $user->getPasswordHash() : null;
+        });
+
+        \assert(null === $hash || \is_string($hash));
+
+        return $hash;
+    }
+}

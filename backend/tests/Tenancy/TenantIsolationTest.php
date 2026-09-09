@@ -93,7 +93,7 @@ final class TenantIsolationTest extends TenancyTestCase
         self::assertFalse($this->em()->getFilters()->isEnabled('tenant'));
 
         $rows = $this->tenantContext()->run(self::TENANT_A, fn (): array =>
-            $this->em()->getRepository(\App\Entity\InventoryItem::class)->findAll());
+            $this->em()->getRepository(\App\Modules\Inventory\Infrastructure\Entity\InventoryItem::class)->findAll());
 
         self::assertCount(1, $rows, 'With the Doctrine filter off, RLS must still return exactly tenant A.');
         self::assertSame('SKU-A', $rows[0]->getSku());

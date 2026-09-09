@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Pagination\Cursor;
+use App\Platform\Http\Pagination\Cursor;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

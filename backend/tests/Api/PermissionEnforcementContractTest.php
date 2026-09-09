@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Security\PermissionGate;
+use App\Platform\Security\PermissionGate;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;

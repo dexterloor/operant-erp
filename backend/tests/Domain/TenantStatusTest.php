@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Domain;
 
-use App\Domain\IllegalTransition;
-use App\Entity\Tenant;
+use App\Platform\Domain\IllegalTransition;
+use App\Platform\Tenancy\Entity\Tenant;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;

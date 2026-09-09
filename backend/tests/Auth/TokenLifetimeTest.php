@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Auth;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Auth\Infrastructure\AccessTokens;
-use App\Entity\Tenant;
+use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
@@ -162,7 +162,7 @@ final class TokenLifetimeTest extends AuthTestCase
     #[Test]
     public function thereIsNoSessionStoreForATokenToBeRevokedAgainst(): void
     {
-        $declared = array_keys(\App\Tenancy\SchemaManifest::TABLES);
+        $declared = array_keys(\App\Platform\Tenancy\SchemaManifest::TABLES);
         self::assertNotSame([], $declared);
 
         $sessionish = array_values(array_filter(

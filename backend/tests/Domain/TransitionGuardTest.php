@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Domain;
 
-use App\Domain\IllegalTransition;
-use App\Entity\Invoice;
-use App\Entity\PurchaseOrder;
-use App\Entity\SalesOrder;
-use App\Entity\Tenant;
+use App\Platform\Domain\IllegalTransition;
+use App\Modules\Sales\Infrastructure\Entity\Invoice;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\StatusMachines;
 use PHPUnit\Framework\Attributes\Test;
@@ -30,7 +30,7 @@ use PHPUnit\Framework\TestCase;
  *
  * Everything else is derived by reflection and nothing else is restated:
  *
- * - the **entities in the domain** — every class under `src/Entity/` that
+ * - the **entities in the domain** — every class under `src/` that
  *   declares a `STATUS_*` constant and has a method assigning to `$this->status`;
  * - the **status vocabulary** of each — its `STATUS_*` constants;
  * - the **initial status** — the default value of the mapped `status` property;
@@ -198,7 +198,7 @@ final class TransitionGuardTest extends TestCase
         $declared = array_values(array_unique([...self::matrixEntities(), ...array_keys(self::EXCLUDED)]));
         sort($declared);
 
-        self::assertSame($declared, $found, 'A status machine under src/Entity/ is neither in §8.3\'s matrix nor in its written exclusions.');
+        self::assertSame($declared, $found, 'A status machine under src/ is neither in §8.3\'s matrix nor in its written exclusions.');
     }
 
     /**

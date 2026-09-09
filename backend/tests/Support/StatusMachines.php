@@ -40,7 +40,7 @@ final class StatusMachines
      *
      * A **dynamic** assignment — `$this->{$property} = …` — is invisible to this
      * and to any other static scan, and is named as the one hole rather than
-     * papered over. Nothing under `src/Entity/` writes a property that way.
+     * papered over. Nothing under `src/` writes a property that way.
      */
     public const ASSIGNMENT = '/\$this->status\s*(?:\?\?|\.|\+|-|\*|\/)?=(?!=)/';
 
@@ -48,19 +48,34 @@ final class StatusMachines
     private const CALL = '/(?:\$this->|self::|static::)([A-Za-z_]\w*)\s*\(/';
 
     /**
-     * Every class under `src/Entity/` that declares a `STATUS_*` constant **and**
-     * has a status writer. Both halves are required: a vocabulary with no writer
-     * is not a machine.
+     * Every class under `src/` that declares a `STATUS_*` constant **and** has a
+     * status writer. Both halves are required: a vocabulary with no writer is
+     * not a machine.
+     *
+     * Output 5 moved the entities out of one `src/Entity/` directory and into
+     * the module that owns their table, so the scan walks `src/` and derives the
+     * FQCN from the path rather than gluing a fixed namespace onto a basename.
+     * That is deliberately wider than the directory it replaces: a status
+     * machine that appears anywhere in production code is now in scope, and
+     * `TransitionGuardTest` still holds the found set to §8.3's matrix, so
+     * widening the scan cannot make either side pass vacuously.
      *
      * @return list<class-string>
      */
     public static function all(): array
     {
         $found = [];
+        $src = \dirname(__DIR__, 2).'/src';
 
-        foreach (glob(\dirname(__DIR__, 2).'/src/Entity/*.php') ?: [] as $path) {
+        $files = new \RegexIterator(
+            new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($src, \FilesystemIterator::SKIP_DOTS)),
+            '/\.php$/',
+        );
+
+        foreach ($files as $file) {
+            $path = $file->getPathname();
             /** @var class-string $class */
-            $class = 'App\\Entity\\'.basename($path, '.php');
+            $class = 'App'.str_replace('/', '\\', substr($path, \strlen($src), -4));
 
             if (!class_exists($class)) {
                 continue;

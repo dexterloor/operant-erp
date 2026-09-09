@@ -40,7 +40,7 @@ use Doctrine\Migrations\AbstractMigration;
  * ---------------------------------------------------------------------------
  * The list is written out by hand, and that is the whole point
  * ---------------------------------------------------------------------------
- * **This file deliberately does not import `App\Audit\AuditEvent`.**
+ * **This file deliberately does not import `App\SharedKernel\ValueObject\AuditEvent`.**
  *
  * An earlier draft built the `IN` list from `AuditEvent::ALL`, arguing that
  * generating it "removes the transcription error; it does not remove the need
@@ -149,7 +149,7 @@ use Doctrine\Migrations\AbstractMigration;
  * is empty in every environment today, so this is a shape argument, not a
  * prediction.
  *
- * @see \App\Audit\AuditEvent for the catalogue itself and the process for extending it
+ * @see \App\SharedKernel\ValueObject\AuditEvent for the catalogue itself and the process for extending it
  * @see security-audit-log-design, Instruction 2
  */
 final class Version20260907000200 extends AbstractMigration
@@ -173,7 +173,7 @@ final class Version20260907000200 extends AbstractMigration
 
     public function up(Schema $schema): void
     {
-        // Written out, not generated from App\Audit\AuditEvent. See the docblock:
+        // Written out, not generated from App\SharedKernel\ValueObject\AuditEvent. See the docblock:
         // a constraint built from the constant cannot disagree with the constant,
         // and AuditEventCatalogueTest exists to detect exactly that disagreement.
         // Keep in the order AuditEvent::ALL declares them so a diff of the two is

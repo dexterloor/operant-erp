@@ -136,7 +136,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 $c->executeStatement(<<<'SQL'
                     INSERT INTO audit_log (id, tenant_id, event_type, actor_label, occurred_at)
                     SELECT gen_random_uuid(), ?::uuid,
-                           -- B-4: both literals are now App\Audit\AuditEvent values, because
+                           -- B-4: both literals are now App\SharedKernel\ValueObject\AuditEvent values, because
                            -- audit_log_event_type_values constrains the column. The 1-in-50
                            -- distribution is unchanged, so the plan this file measures is
                            -- unchanged; 'purchase_order.updated' was a placeholder naming no

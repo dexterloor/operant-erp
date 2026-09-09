@@ -1,0 +1,31 @@
+{
+    "//": [
+        "deptrac lives here, in its own composer project, and NOT in backend/composer.json.",
+        "",
+        "It was installed as a --dev dependency first, and that changed the published API",
+        "contract. deptrac requires phpstan/phpdoc-parser, which arrives with",
+        "phpdocumentor/type-resolver; between them they satisfy the constructor of Symfony",
+        "PropertyInfo's PhpStanExtractor, which the framework registers automatically when",
+        "the classes are present. API Platform then began emitting class docblocks as",
+        "OpenAPI `description` values, and OpenApiContractTest went red on a docblock that",
+        "explains why Hydra is disabled -- an API-3 assertion broken by a static analyser.",
+        "Measured both ways: `composer remove --dev deptrac/deptrac` restored the spec byte",
+        "for byte, on an otherwise unchanged tree.",
+        "",
+        "The hazard is bigger than the one assertion. `require-dev` is absent in production,",
+        "so the OpenAPI document the developer reads and the one the deployment serves would",
+        "have differed, and nothing would have said so. A separate project keeps the",
+        "application's autoloader free of the analyser's dependencies, which is the property",
+        "-- not the directory.",
+        "",
+        "Run it with `make deptrac`, or from backend/ as",
+        "`php tools/deptrac/vendor/bin/deptrac analyse`. DeptracRulesetTest drives the same",
+        "binary, so a missing install is a failing test rather than a skipped check."
+    ],
+    "require": {
+        "deptrac/deptrac": "^4.7"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

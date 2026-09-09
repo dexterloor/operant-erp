@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Audit;
 
-use App\Audit\AuditEvent;
-use App\Audit\DenialAuditWriter;
-use App\Audit\PasswordChangeAuditWriter;
-use App\Auth\Infrastructure\AuthTrailWriter;
+use App\SharedKernel\ValueObject\AuditEvent;
+use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
+use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
+use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Tests\Tenancy\TenancyTestCase;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -107,9 +107,9 @@ final class AuditWriterTest extends TenancyTestCase
      * @var list<string>
      */
     private const DECLARED_WRITERS = [
-        'Audit/DenialAuditWriter.php',
-        'Audit/PasswordChangeAuditWriter.php',
-        'Auth/Infrastructure/AuthTrailWriter.php',
+        'Modules/AuditLog/Infrastructure/DenialAuditWriter.php',
+        'Modules/AuditLog/Infrastructure/PasswordChangeAuditWriter.php',
+        'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
     private const PROBE_IP = '203.0.113.7';

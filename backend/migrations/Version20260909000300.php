@@ -25,7 +25,7 @@ use Doctrine\Migrations\AbstractMigration;
  * ---------------------------------------------------------------------------
  * The list is HAND-WRITTEN LITERALS, and generating it is a measured fake-green
  * ---------------------------------------------------------------------------
- * `App\Audit\AuditEvent::ALL` is **not** read here, and E4-1's *fails if* names
+ * `App\SharedKernel\ValueObject\AuditEvent::ALL` is **not** read here, and E4-1's *fails if* names
  * generating this list from it as a defect in terms. The reason is recorded in
  * `AuditEvent`'s own docblock and was measured rather than reasoned about: a
  * fabricated constant added to the class with no migration was **fully green
@@ -87,7 +87,7 @@ use Doctrine\Migrations\AbstractMigration;
  * so those rows cannot be quietly rewritten: the event has to be classified and
  * added, which is the correct outcome and is E4-1's process from the top.
  *
- * @see \App\Audit\AuditEvent for the catalogue and the six-step extension process
+ * @see \App\SharedKernel\ValueObject\AuditEvent for the catalogue and the six-step extension process
  * @see SECURITY_MODEL.md §5 E-23 and §5.1.4 for `SEC`'s ruling (E4-1 steps 1 and 2)
  * @see DELIVERY_LEDGER.md — Output 4 entry condition E4-1
  * @see \App\Tests\Tenancy\AuditEventCatalogueTest for the both-directions reconciliation
@@ -115,7 +115,7 @@ final class Version20260909000300 extends AbstractMigration
     {
         $this->addSql(sprintf('ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS %s', self::CONSTRAINT));
 
-        // Written out, not generated from App\Audit\AuditEvent. See the docblock:
+        // Written out, not generated from App\SharedKernel\ValueObject\AuditEvent. See the docblock:
         // a constraint built from the constant cannot disagree with the constant,
         // and AuditEventCatalogueTest exists to detect exactly that disagreement.
         $this->addSql(sprintf(

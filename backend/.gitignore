@@ -13,3 +13,12 @@
 /phpunit.xml
 /.phpunit.cache/
 ###< phpunit/phpunit ###
+
+###> deptrac (backend/tools/deptrac) ###
+# The analyser has its own composer project so that its dependencies never join
+# the application's autoloader. Its composer.json and composer.lock ARE
+# committed; its vendor tree is not, exactly like the application's.
+/tools/*/vendor/
+# deptrac's own AST cache, written next to deptrac.yaml on every run.
+/.deptrac.cache
+###< deptrac ###

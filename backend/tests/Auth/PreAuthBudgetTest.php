@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Auth\Infrastructure\PreAuthBudgets;
-use App\Entity\Tenant;
+use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
+use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Clock\ClockInterface;

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Problem\ApiProblem;
-use App\Domain\IllegalTransition;
-use App\Entity\PurchaseOrder;
+use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Domain\IllegalTransition;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Tests\Support\StatusMachines;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -58,10 +58,10 @@ final class DomainRefusalTest extends KernelTestCase
      * @var array<class-string, string>
      */
     private const PINNED_RULE_CODES = [
-        \App\Entity\Invoice::class => 'invoice.status_transition_is_legal',
-        \App\Entity\PurchaseOrder::class => 'purchase_order.status_transition_is_legal',
-        \App\Entity\SalesOrder::class => 'sales_order.status_transition_is_legal',
-        \App\Entity\Tenant::class => 'tenant.status_transition_is_legal',
+        \App\Modules\Sales\Infrastructure\Entity\Invoice::class => 'invoice.status_transition_is_legal',
+        \App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder::class => 'purchase_order.status_transition_is_legal',
+        \App\Modules\Sales\Infrastructure\Entity\SalesOrder::class => 'sales_order.status_transition_is_legal',
+        \App\Platform\Tenancy\Entity\Tenant::class => 'tenant.status_transition_is_legal',
     ];
 
     /**
@@ -105,7 +105,7 @@ final class DomainRefusalTest extends KernelTestCase
         self::assertStringNotContainsString('place', $detail);
 
         // `because()`'s reasons cite internal documents; none of that reaches the wire.
-        $sentinel = IllegalTransition::because(\App\Entity\Tenant::class, 'changeStatus', 'active', 'ADR-006 §2.1 step 2\'s sentinel is fixed.');
+        $sentinel = IllegalTransition::because(\App\Platform\Tenancy\Entity\Tenant::class, 'changeStatus', 'active', 'ADR-006 §2.1 step 2\'s sentinel is fixed.');
         self::assertStringNotContainsString('ADR-006', $sentinel->clientMessage());
         self::assertStringContainsString('ADR-006', $sentinel->getMessage(), 'The developer-facing message lost the reason.');
     }

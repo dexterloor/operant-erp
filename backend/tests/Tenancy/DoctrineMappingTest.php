@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Entity\InventoryItem;
-use App\Entity\Supplier;
+use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
+use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
 use Doctrine\ORM\EntityNotFoundException;
 use Doctrine\ORM\Tools\SchemaValidator;
 use PHPUnit\Framework\Attributes\Test;

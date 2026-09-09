@@ -51,7 +51,7 @@ final class TenantContextContainmentTest extends TestCase
 {
     private const GUC = 'app.tenant_id';
 
-    private const SANCTIONED = 'src/Tenancy/';
+    private const SANCTIONED = 'src/Platform/Tenancy/';
 
     /**
      * Writers outside src/ must be named here, with the reason. Every one of
@@ -167,7 +167,7 @@ final class TenantContextContainmentTest extends TestCase
     }
 
     /**
-     * The hard half: production code outside src/Tenancy/ may not establish or
+     * The hard half: production code outside src/Platform/Tenancy/ may not establish or
      * destroy tenant context. No allow-list, because an allow-list here is the
      * thing that erodes.
      */
@@ -222,7 +222,7 @@ final class TenantContextContainmentTest extends TestCase
             }
         }
 
-        self::assertSame(['src/Tenancy/TenantContext.php'], $inSrc,
+        self::assertSame(['src/Platform/Tenancy/TenantContext.php'], $inSrc,
             'Exactly one production file may write tenant context. If this fails with an empty list, '
             .'the scanner has stopped finding anything and both tests above are vacuous.');
     }

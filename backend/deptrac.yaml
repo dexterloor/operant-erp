@@ -1,0 +1,1077 @@
+# ARCHITECTURE.md §5, executed.
+#
+# Every rule below is A-1…A-15 as that section writes them. Nothing here is a
+# preference and nothing here is a rule this file invented: where §5.3's
+# "Expressed in deptrac as" column names a mechanism, that mechanism is what is
+# written; where a rule is marked "not expressible in deptrac" (A-12, A-13,
+# A-14) it is absent here and named in the header comment of the section that
+# does carry it.
+#
+# Deptrac is default-deny: an edge between two layers that no `allowed` list
+# names is a violation. So the file's negative content — which layers do NOT
+# appear in which lists — is the larger half of the ruleset, and A-1, A-4, A-5
+# and A-8 are enforced entirely by omission. Each is commented where it bites.
+#
+# The four rules that are NOT here, so that this file is not read as the whole
+# of §5:
+#   A-12  cross-module Doctrine associations. Not static-analysable as a rule
+#         about `targetEntity`; §5.3 records it as a known deviation owned by
+#         BE-LEAD. It IS visible here — see the `skip_violations` register.
+#   A-13  cross-module writes go through a command interface. Follows from A-2
+#         plus A-10; the runtime half is the §5.5 command-bus guard.
+#   A-14  cross-module command depth is 1. Runtime, not static.
+#   A-15  no `allowed` entry may use a wildcard collector. It is a lint over
+#         THIS file, so it cannot be enforced by this file. It is
+#         `DeptracRulesetTest::noAllowedEntryUsesAWildcardOrNamesAnUndeclaredLayer`.
+#
+# `Ai` and `Analytics` have layers and rules here and no classes on disk. That
+# is deliberate: §4.0 settled their namespaces as `Modules\Ai` and
+# `Modules\Analytics` (SEC-O-12) and recorded that no check executed against
+# that ruling. These layers are the first that will.
+
+deptrac:
+  paths:
+    - ./src
+
+  # ------------------------------------------------------------------------
+  # The deviation register.
+  #
+  # READ THIS BEFORE READING A GREEN DEPTRAC RUN. The ruleset above reports
+  # ZERO violations only because the 51 class-to-class edges below are skipped,
+  # and every one of them is an edge that exists in the tree TODAY. Output 5 is
+  # a relocation and a ruleset; its brief forbade it from changing behaviour, so
+  # each edge is recorded here rather than repaired. Five of the six groups were
+  # discovered by running this ruleset for the first time and are reported as
+  # findings; the sixth (A-12) was already recorded in ARCHITECTURE.md §5.3 as a
+  # known deviation with `BE-LEAD` as owner.
+  #
+  # `skip_violations` is exact: it skips the named class-to-class pair and
+  # nothing else. A NEW edge of any of these shapes is a violation and fails the
+  # build. That is the property that makes this a register rather than a
+  # suppression, and `DeptracRulesetTest` asserts both halves — zero
+  # unregistered violations, and zero warnings, a warning being deptrac's own
+  # signal that an entry here no longer matches anything and has gone stale.
+  #
+  # Each line carries the rule it deviates from:
+  #
+  #   A-1  (1 edge)   Platform depends on a module. `AuthenticationGate` takes
+  #                   `UserManagement`'s `AccessTokens` to verify a JWT. §4 splits
+  #                   the two — Platform owns "JWT verification", UserManagement
+  #                   owns "JWT minting/refresh" — and `AccessTokens` does both,
+  #                   so the class sits on the wrong side of a line §4 already
+  #                   draws. Splitting it is a design call, not a relocation.
+  #   A-5  (2 edges)  Something depends on `AuditLog`. A-5's stated mechanism is
+  #                   dispatching `Platform\Messaging\Event\AuditableAction`,
+  #                   and symfony/messenger is not installed, so the audit path
+  #                   is a direct synchronous call by necessity. One of the two
+  #                   is also A-1 (`PermissionGate` is Platform).
+  #   A-7  (19 edges) A module's `Application` layer depends "up" — on its own
+  #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
+  #                   `CurrentUserResource` are declared there and returned from
+  #                   Application) or on its own `Infrastructure` (entities and
+  #                   concrete adapters). Both are Output 4 slice shapes.
+  #   A-10 (10 edges) Module code and `Platform\Security` take
+  #                   `Doctrine\DBAL\Connection` directly. This one is not an
+  #                   oversight and should not be "fixed" without reading
+  #                   ADR-006 first: the explicit per-principal connection
+  #                   binding in config/services.yaml IS the security control
+  #                   that keeps the pre-auth path off `erp_app`. A-10 and
+  #                   ADR-006's principal separation want different things.
+  #   A-12 (19 edges) Cross-module Doctrine associations. Already recorded in
+  #                   §5.3 as a known deviation with an owner. This register is
+  #                   the first time its size has been counted: 19 edges.
+  # ------------------------------------------------------------------------
+  skip_violations:
+    App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry:
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+    App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\Inventory\Application\ItemReader:
+      - App\Modules\Inventory\ApiResource\ItemCollection   # A-7
+      - App\Modules\Inventory\ApiResource\ItemResource   # A-7
+    App\Modules\Inventory\Application\ItemRow:
+      - App\Modules\Inventory\ApiResource\ItemResource   # A-7
+      - App\Modules\Inventory\ApiResource\SupplierReference   # A-7
+    App\Modules\Inventory\Application\ItemWriter:
+      - App\Modules\Inventory\ApiResource\CreateItemInput   # A-7
+      - App\Modules\Inventory\ApiResource\ItemResource   # A-7
+      - App\Modules\Inventory\ApiResource\UpdateItemInput   # A-7
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\Inventory\Infrastructure\Entity\InventoryItem:
+      - App\Modules\Suppliers\Infrastructure\Entity\Supplier   # A-12
+    App\Modules\Inventory\Infrastructure\Entity\StockLevel:
+      - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
+    App\Modules\Inventory\Infrastructure\Entity\StockMovement:
+      - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
+    App\Modules\Purchasing\Infrastructure\Entity\GoodsReceipt:
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+      - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
+    App\Modules\Purchasing\Infrastructure\Entity\GoodsReceiptLine:
+      - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
+    App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder:
+      - App\Modules\Suppliers\Infrastructure\Entity\Supplier   # A-12
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+      - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
+    App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
+      - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Infrastructure\Entity\Fulfilment:
+      - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
+    App\Modules\Sales\Infrastructure\Entity\FulfilmentLine:
+      - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
+    App\Modules\Sales\Infrastructure\Entity\Invoice:
+      - App\Modules\Customers\Infrastructure\Entity\Customer   # A-12
+    App\Modules\Sales\Infrastructure\Entity\SalesOrder:
+      - App\Modules\Customers\Infrastructure\Entity\Customer   # A-12
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+      - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
+    App\Modules\Sales\Infrastructure\Entity\SalesOrderLine:
+      - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Suppliers\Infrastructure\Entity\SupplierProduct:
+      - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\UserManagement\Application\ChangePassword:
+      - App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\CurrentUserReader:
+      - App\Modules\UserManagement\ApiResource\CurrentUserResource   # A-7
+      - App\Modules\UserManagement\ApiResource\RoleReference   # A-7
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Application\LoginRecorder:
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\PasswordChangeThrottle:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Application\SignIn:
+      - App\Modules\UserManagement\Infrastructure\AccessTokens   # A-7
+      - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7
+      - App\Modules\UserManagement\Infrastructure\CredentialLookup   # A-7
+      - App\Modules\UserManagement\Infrastructure\CredentialRow   # A-7
+      - App\Modules\UserManagement\Infrastructure\EmailHasher   # A-7
+      - App\Modules\UserManagement\Infrastructure\LockoutStore   # A-7
+      - App\Modules\UserManagement\Infrastructure\PreAuthBudgets   # A-7
+    App\Modules\UserManagement\Application\SignInResult:
+      - App\Modules\UserManagement\Infrastructure\IssuedToken   # A-7
+    App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\CredentialLookup:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\LockoutStore:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\PreAuthBudgets:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Platform\Security\AuthenticationGate:
+      - App\Modules\UserManagement\Infrastructure\AccessTokens   # A-1
+    App\Platform\Security\IdentityReader:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Platform\Security\PermissionGate:
+      - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-1 + A-5
+
+  layers:
+    # A-10 — the one Doctrine class the rule singles out. Held in a layer of
+    # its own and excluded from `Doctrine` below, because deptrac puts a class
+    # in every layer that collects it: if both matched, allowing this one from
+    # `PlatformTenancy` would still trip the broader rule and the A-10
+    # exception could never be expressed.
+    - name: DoctrineDbalConnection
+      collectors:
+        - type: classNameRegex
+          value: '#^Doctrine\\DBAL\\Connection$#'
+    # A-8 — `Domain.allowed` omits this layer, which is the whole rule.
+    - name: Doctrine
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^Doctrine\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^Doctrine\\DBAL\\Connection$#'
+    # A-11 — allowed from `<M>ApiResource` and `Platform\Http`, nowhere else.
+    - name: HttpFoundation
+      collectors:
+        - type: classNameRegex
+          value: '#^Symfony\\Component\\HttpFoundation\\#'
+    # A-9 — specified, and NOT yet executable: this class does not exist. The
+    # layer is empty today and the rule below it is therefore vacuous today.
+    # It is written now so that creating the class turns the rule on rather
+    # than requiring somebody to remember to write it.
+    - name: PlatformAppConnection
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Tenancy\\Connection\\AppConnection$#'
+
+    # ---- L0 · Platform, by component (§4's Owns column) ----------------
+    - name: PlatformConsole
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Console\\#'
+    - name: PlatformDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Domain\\#'
+    - name: PlatformHttp
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Http\\#'
+    - name: PlatformPersistence
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Persistence\\#'
+    - name: PlatformSecurity
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Security\\#'
+    - name: PlatformTenancy
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Tenancy\\#'
+    # Symfony's own kernel. Not a module and not a Platform component; it
+    # exists as a layer so that it is covered rather than silently uncollected.
+    - name: AppKernel
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Kernel$#'
+
+    # ---- L1 · SharedKernel --------------------------------------------
+    - name: SharedKernel
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\SharedKernel\\#'
+
+    # ---- L2/L3/L4 · one module, four sub-layers, A-2's Contract split ---
+    - name: AuditLogDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\AuditLog\\Domain\\#'
+    - name: AuditLogContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\AuditLog\\Application\\Contract\\#'
+    - name: AuditLogApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\AuditLog\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\AuditLog\\Application\\Contract\\#'
+    - name: AuditLogInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\AuditLog\\Infrastructure\\#'
+    - name: AuditLogApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\AuditLog\\ApiResource\\#'
+    - name: CustomersDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Customers\\Domain\\#'
+    - name: CustomersContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Customers\\Application\\Contract\\#'
+    - name: CustomersApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Customers\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Customers\\Application\\Contract\\#'
+    - name: CustomersInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Customers\\Infrastructure\\#'
+    - name: CustomersApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Customers\\ApiResource\\#'
+    - name: InventoryDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Domain\\#'
+    - name: InventoryContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Application\\Contract\\#'
+    - name: InventoryApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Inventory\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Inventory\\Application\\Contract\\#'
+    - name: InventoryInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Infrastructure\\#'
+    - name: InventoryApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\ApiResource\\#'
+    - name: PurchasingDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Purchasing\\Domain\\#'
+    - name: PurchasingContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Purchasing\\Application\\Contract\\#'
+    - name: PurchasingApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Purchasing\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Purchasing\\Application\\Contract\\#'
+    - name: PurchasingInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Purchasing\\Infrastructure\\#'
+    - name: PurchasingApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Purchasing\\ApiResource\\#'
+    - name: SalesDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Sales\\Domain\\#'
+    - name: SalesContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Sales\\Application\\Contract\\#'
+    - name: SalesApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Sales\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Sales\\Application\\Contract\\#'
+    - name: SalesInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Sales\\Infrastructure\\#'
+    - name: SalesApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Sales\\ApiResource\\#'
+    - name: SuppliersDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Suppliers\\Domain\\#'
+    - name: SuppliersContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Suppliers\\Application\\Contract\\#'
+    - name: SuppliersApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Suppliers\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Suppliers\\Application\\Contract\\#'
+    - name: SuppliersInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Suppliers\\Infrastructure\\#'
+    - name: SuppliersApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Suppliers\\ApiResource\\#'
+    - name: UserManagementDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\UserManagement\\Domain\\#'
+    - name: UserManagementContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\UserManagement\\Application\\Contract\\#'
+    - name: UserManagementApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\UserManagement\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\UserManagement\\Application\\Contract\\#'
+    - name: UserManagementInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\UserManagement\\Infrastructure\\#'
+    - name: UserManagementApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\UserManagement\\ApiResource\\#'
+    - name: WarehousesDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Domain\\#'
+    - name: WarehousesContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Application\\Contract\\#'
+    - name: WarehousesApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Warehouses\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Warehouses\\Application\\Contract\\#'
+    - name: WarehousesInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Infrastructure\\#'
+    - name: WarehousesApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\ApiResource\\#'
+    - name: AiDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Ai\\Domain\\#'
+    - name: AiContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Ai\\Application\\Contract\\#'
+    - name: AiApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Ai\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Ai\\Application\\Contract\\#'
+    - name: AiInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Ai\\Infrastructure\\#'
+    - name: AiApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Ai\\ApiResource\\#'
+    - name: AnalyticsDomain
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Analytics\\Domain\\#'
+    - name: AnalyticsContract
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Analytics\\Application\\Contract\\#'
+    - name: AnalyticsApplication
+      collectors:
+        - type: bool
+          must:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Analytics\\Application\\#'
+          must_not:
+            - type: classNameRegex
+              value: '#^App\\Modules\\Analytics\\Application\\Contract\\#'
+    - name: AnalyticsInfrastructure
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Analytics\\Infrastructure\\#'
+    - name: AnalyticsApiResource
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Analytics\\ApiResource\\#'
+
+  ruleset:
+    # A-1 — no Platform or SharedKernel entry names a `Modules*` layer, on any
+    # line below. That is the rule; there is nothing else to write for it.
+    PlatformConsole:
+      - Doctrine
+      - HttpFoundation
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+    PlatformDomain:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+    PlatformHttp:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+    PlatformPersistence:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformSecurity
+      - PlatformTenancy
+    PlatformSecurity:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformTenancy
+    PlatformTenancy:
+      - Doctrine
+      - DoctrineDbalConnection
+      # A-9's forbidden token, named here so that its ABSENCE from every `Ai`
+      # entry is a statement rather than an oversight. The class does not exist
+      # yet, so this layer is empty and A-9 is vacuous today -- said out loud in
+      # the header rather than left for a reader to discover.
+      - PlatformAppConnection
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+    AppKernel: ~
+    # §5.1 — L1 depends downward on L0 and on nothing above it.
+    SharedKernel:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+
+    # ---- AuditLog ----
+    AuditLogDomain:
+      - SharedKernel
+    AuditLogContract:
+      - AuditLogDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AuditLogApplication:
+      - AuditLogContract
+      - AuditLogDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AuditLogApiResource:
+      - AuditLogApplication
+      - AuditLogContract
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AuditLogInfrastructure:
+      - AuditLogApplication
+      - AuditLogContract
+      - AuditLogDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+
+    # ---- Customers ----
+    CustomersDomain:
+      - SharedKernel
+    CustomersContract:
+      - CustomersDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    CustomersApplication:
+      - CustomersContract
+      - CustomersDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    CustomersApiResource:
+      - CustomersApplication
+      - CustomersContract
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    CustomersInfrastructure:
+      - CustomersApplication
+      - CustomersContract
+      - CustomersDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+
+    # ---- Inventory ----
+    InventoryDomain:
+      - SharedKernel
+    InventoryContract:
+      - Doctrine
+      - InventoryDomain
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    InventoryApplication:
+      - Doctrine
+      - InventoryContract
+      - InventoryDomain
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - UserManagementContract
+      - WarehousesContract
+    InventoryApiResource:
+      - Doctrine
+      - HttpFoundation
+      - InventoryApplication
+      - InventoryContract
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    InventoryInfrastructure:
+      - Doctrine
+      - InventoryApplication
+      - InventoryContract
+      - InventoryDomain
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+
+    # ---- Purchasing ----
+    PurchasingDomain:
+      - SharedKernel
+    PurchasingContract:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingDomain
+      - SharedKernel
+    PurchasingApplication:
+      - Doctrine
+      - InventoryContract
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingContract
+      - PurchasingDomain
+      - SharedKernel
+      - SuppliersContract
+      - UserManagementContract
+      - WarehousesContract
+    PurchasingApiResource:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingApplication
+      - PurchasingContract
+      - SharedKernel
+    PurchasingInfrastructure:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingApplication
+      - PurchasingContract
+      - PurchasingDomain
+      - SharedKernel
+
+    # ---- Sales ----
+    SalesDomain:
+      - SharedKernel
+    SalesContract:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SalesDomain
+      - SharedKernel
+    SalesApplication:
+      - CustomersContract
+      - Doctrine
+      - InventoryContract
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SalesContract
+      - SalesDomain
+      - SharedKernel
+      - UserManagementContract
+      - WarehousesContract
+    SalesApiResource:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SalesApplication
+      - SalesContract
+      - SharedKernel
+    SalesInfrastructure:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SalesApplication
+      - SalesContract
+      - SalesDomain
+      - SharedKernel
+
+    # ---- Suppliers ----
+    SuppliersDomain:
+      - SharedKernel
+    SuppliersContract:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - SuppliersDomain
+    SuppliersApplication:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - SuppliersContract
+      - SuppliersDomain
+    SuppliersApiResource:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - SuppliersApplication
+      - SuppliersContract
+    SuppliersInfrastructure:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - SuppliersApplication
+      - SuppliersContract
+      - SuppliersDomain
+
+    # ---- UserManagement ----
+    UserManagementDomain:
+      - SharedKernel
+    UserManagementContract:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - UserManagementDomain
+    UserManagementApplication:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - UserManagementContract
+      - UserManagementDomain
+    UserManagementApiResource:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - UserManagementApplication
+      - UserManagementContract
+    UserManagementInfrastructure:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - UserManagementApplication
+      - UserManagementContract
+      - UserManagementDomain
+
+    # ---- Warehouses ----
+    WarehousesDomain:
+      - SharedKernel
+    WarehousesContract:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - WarehousesDomain
+    WarehousesApplication:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - WarehousesContract
+      - WarehousesDomain
+    WarehousesApiResource:
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - WarehousesApplication
+      - WarehousesContract
+    WarehousesInfrastructure:
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+      - WarehousesApplication
+      - WarehousesContract
+      - WarehousesDomain
+
+    # ---- Ai ----
+    AiDomain:
+      - SharedKernel
+    AiContract:
+      - AiDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AiApplication:
+      - AiContract
+      - AiDomain
+      - AnalyticsContract
+      - AuditLogContract
+      - CustomersContract
+      - Doctrine
+      - InventoryContract
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingContract
+      - SalesContract
+      - SharedKernel
+      - SuppliersContract
+      - UserManagementContract
+      - WarehousesContract
+    AiApiResource:
+      - AiApplication
+      - AiContract
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AiInfrastructure:
+      - AiApplication
+      - AiContract
+      - AiDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+
+    # ---- Analytics ----
+    AnalyticsDomain:
+      - SharedKernel
+    AnalyticsContract:
+      - AnalyticsDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AnalyticsApplication:
+      - AnalyticsContract
+      - AnalyticsDomain
+      - AuditLogContract
+      - CustomersContract
+      - Doctrine
+      - InventoryContract
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - PurchasingContract
+      - SalesContract
+      - SharedKernel
+      - SuppliersContract
+      - UserManagementContract
+      - WarehousesContract
+    AnalyticsApiResource:
+      - AnalyticsApplication
+      - AnalyticsContract
+      - Doctrine
+      - HttpFoundation
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+    AnalyticsInfrastructure:
+      - AnalyticsApplication
+      - AnalyticsContract
+      - AnalyticsDomain
+      - Doctrine
+      - PlatformConsole
+      - PlatformDomain
+      - PlatformHttp
+      - PlatformPersistence
+      - PlatformSecurity
+      - PlatformTenancy
+      - SharedKernel
+

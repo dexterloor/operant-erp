@@ -16,10 +16,10 @@ doctrine:
         types:
             # Postgres writes microseconds; DBAL's built-in parser does not read
             # them. Overridden globally rather than per column.
-            datetimetz_immutable: App\Doctrine\Type\TimestampTzImmutableType
+            datetimetz_immutable: App\Platform\Persistence\Type\TimestampTzImmutableType
             # audit_log.ip_address. Registered rather than declared as a string,
             # so that the ORM emits INET and the schema comparison stays silent.
-            inet: App\Doctrine\Type\InetType
+            inet: App\Platform\Persistence\Type\InetType
         default_connection: owner
         connections:
             owner:
@@ -109,16 +109,72 @@ doctrine:
                 identity_generation_preferences:
                     Doctrine\DBAL\Platforms\PostgreSQLPlatform: identity
                 auto_mapping: true
+                # Output 5 — one mapping per module, and that is the point rather
+                # than a style. `SchemaManifest::TABLES[*]['module']` names the
+                # module that owns each table; before this output that value was a
+                # declaration nothing could contradict (`SCHEMA.md` §14 recorded it
+                # as such). Splitting the mapping makes it structural: an entity is
+                # only mapped at all if it sits under the directory of the module
+                # whose `prefix` matches its namespace, and
+                # `SchemaOwnershipTest::everyMappedEntityLivesInTheModuleTheManifestDeclaresForItsTable`
+                # then asserts the two agree for every mapped entity. Moving one
+                # entity to the wrong module fails that test; deleting a mapping
+                # block here fails `SchemaManifestTest` because the table's ORM
+                # side disappears from the divergence pin.
                 mappings:
-                    App:
+                    PlatformTenancy:
                         type: attribute
                         is_bundle: false
-                        dir: '%kernel.project_dir%/src/Entity'
-                        prefix: 'App\Entity'
-                        alias: App
+                        dir: '%kernel.project_dir%/src/Platform/Tenancy/Entity'
+                        prefix: 'App\Platform\Tenancy\Entity'
+                    SharedKernelReference:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/SharedKernel/Reference'
+                        prefix: 'App\SharedKernel\Reference'
+                    ModulesAuditLog:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/AuditLog/Infrastructure/Entity'
+                        prefix: 'App\Modules\AuditLog\Infrastructure\Entity'
+                    ModulesCustomers:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Customers/Infrastructure/Entity'
+                        prefix: 'App\Modules\Customers\Infrastructure\Entity'
+                    ModulesInventory:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Inventory/Infrastructure/Entity'
+                        prefix: 'App\Modules\Inventory\Infrastructure\Entity'
+                    ModulesPurchasing:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Purchasing/Infrastructure/Entity'
+                        prefix: 'App\Modules\Purchasing\Infrastructure\Entity'
+                    ModulesSales:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Sales/Infrastructure/Entity'
+                        prefix: 'App\Modules\Sales\Infrastructure\Entity'
+                    ModulesSuppliers:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Suppliers/Infrastructure/Entity'
+                        prefix: 'App\Modules\Suppliers\Infrastructure\Entity'
+                    ModulesUserManagement:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/UserManagement/Infrastructure/Entity'
+                        prefix: 'App\Modules\UserManagement\Infrastructure\Entity'
+                    ModulesWarehouses:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Modules/Warehouses/Infrastructure/Entity'
+                        prefix: 'App\Modules\Warehouses\Infrastructure\Entity'
                 filters:
                     tenant:
-                        class: App\Tenancy\TenantFilter
+                        class: App\Platform\Tenancy\TenantFilter
                         enabled: true
                     # ADR-007 §2. Deliberately configured next to the tenant
                     # filter and deliberately not described as its equal:
@@ -126,7 +182,7 @@ doctrine:
                     # forgetting the other shows them nothing they should not
                     # see, because RLS is underneath it.
                     soft_delete:
-                        class: App\Tenancy\SoftDeleteFilter
+                        class: App\Platform\Tenancy\SoftDeleteFilter
                         enabled: true
                 # ADR-002 "Open items": DDC-3174 reported the query cache not keying
                 # on SQLFilter state. Not confirmed for ORM 3.x, so both caches stay

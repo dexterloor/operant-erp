@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Api\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

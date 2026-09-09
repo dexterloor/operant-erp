@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Entity\Tenant;
-use App\Tenancy\DatabaseRoles;
-use App\Tenancy\SchemaManifest;
+use App\Platform\Tenancy\Entity\Tenant;
+use App\Platform\Tenancy\DatabaseRoles;
+use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Api\TransactionBoundaryTest;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -32,7 +32,7 @@ final class PreAuthPrincipalTest extends AuthTestCase
      * Recorded per connection, because the suite's shared recorder is wired to
      * every connection at once and can say what ran but not where.
      *
-     * *Mutation, run:* point `App\Auth\Infrastructure\PreAuthBudgets` at
+     * *Mutation, run:* point `App\Modules\UserManagement\Infrastructure\PreAuthBudgets` at
      * `@doctrine.dbal.app_connection` in `config/services.yaml`. `erp_app`'s log
      * becomes non-empty **and** the statement raises `permission denied` — red
      * twice over, which is the property B-1's design bought.
@@ -220,7 +220,7 @@ final class PreAuthPrincipalTest extends AuthTestCase
         if (\in_array('deleted_at', $readable, true)) {
             self::assertStringContainsString(
                 'deleted_at IS NULL',
-                (string) file_get_contents(\dirname(__DIR__, 2).'/src/Auth/Infrastructure/CredentialLookup.php'),
+                (string) file_get_contents(\dirname(__DIR__, 2).'/src/Modules/UserManagement/Infrastructure/CredentialLookup.php'),
                 'erp_auth can now read deleted_at, so §7.1 step 4 must exclude a soft-deleted user. '
                 .'The grant landed before the predicate did.',
             );

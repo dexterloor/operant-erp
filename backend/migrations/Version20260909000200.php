@@ -78,7 +78,7 @@ use Doctrine\Migrations\AbstractMigration;
  *    `authz.permission.denied` included — with no `permission_code`, and it is
  *    right to: it is testing `event_type`'s domain. A biconditional turns that
  *    green test red, and the only non-weakening repair is a per-event
- *    "requires a permission code" declaration on `App\Audit\AuditEvent`. That
+ *    "requires a permission code" declaration on `App\SharedKernel\ValueObject\AuditEvent`. That
  *    is a catalogue extension, and **E4-1 owns catalogue extensions, in five
  *    ordered steps.** E4-2 is scoped to this column and its index.
  *
@@ -87,7 +87,7 @@ use Doctrine\Migrations\AbstractMigration;
  * `authz.permission.denied` rows" is **not enforced by the database**. A denial
  * row with a `NULL` code is accepted and is invisible to the cap's key. The
  * enforcement of that half belongs to the denial writer and to E4-1's
- * catalogue declaration; `App\Entity\AuditLogEntry` refuses the direction this
+ * catalogue declaration; `App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry` refuses the direction this
  * migration constrains, for the same reason it already refuses a half-populated
  * subject pair, and it cannot refuse the other direction either without that
  * declaration.

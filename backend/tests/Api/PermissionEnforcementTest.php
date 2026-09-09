@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Api\Security\PermissionGate;
-use App\Auth\Application\CurrentUserReader;
+use App\Platform\Security\PermissionGate;
+use App\Modules\UserManagement\Application\CurrentUserReader;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Uid\Uuid;
@@ -379,7 +379,7 @@ final class PermissionEnforcementTest extends ApiTestCase
             'The tables both readers join without a deletion predicate changed class.');
         self::assertSame(
             CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
-            \App\Api\Security\IdentityReader::joinedTablesRequiringNoDeletionPredicate(),
+            \App\Platform\Security\IdentityReader::joinedTablesRequiringNoDeletionPredicate(),
             'The two readers no longer make the same assumption about the same joins.');
     }
 

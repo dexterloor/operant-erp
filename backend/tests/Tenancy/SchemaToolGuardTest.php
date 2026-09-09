@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Tenancy\DatabaseRoles;
-use App\Tenancy\SchemaManifest;
+use App\Platform\Tenancy\DatabaseRoles;
+use App\Platform\Tenancy\SchemaManifest;
 use Doctrine\DBAL\ArrayParameterType;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Console\Application;

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Auth\Application\CurrentUserReader;
-use App\Auth\Infrastructure\AccessTokens;
-use App\Entity\Tenant;
-use App\Tenancy\SchemaManifest;
+use App\Modules\UserManagement\Application\CurrentUserReader;
+use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Platform\Tenancy\Entity\Tenant;
+use App\Platform\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 

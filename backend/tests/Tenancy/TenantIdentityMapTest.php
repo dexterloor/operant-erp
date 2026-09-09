@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\Entity\InventoryItem;
-use App\Tenancy\TenantContextViolation;
+use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
+use App\Platform\Tenancy\TenantContextViolation;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
