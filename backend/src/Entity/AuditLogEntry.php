@@ -56,11 +56,20 @@ use Symfony\Component\Uid\Uuid;
  * `columnDefinition: 'inet'` does not rescue it, because DBAL nulls
  * columnDefinition out before comparing columns. Measured, not assumed.
  *
- * The four indexes each answer one screen, and none of them declares DESC: a
+ * `permissionCode` is E-3a's cap key, third column: `NULL` on every event that
+ * is not `authz.permission.denied`, and refused outright on any other event
+ * type by the constructor and by `audit_log_permission_code_scope`. The
+ * database does **not** require it on a denial row and neither does this class;
+ * Version20260909000200 records why that asymmetry is deliberate.
+ *
+ * Five of the six indexes each answer one screen, and none of them declares DESC: a
  * B-tree is scanned backwards at the same cost, so `ORDER BY occurred_at DESC`
  * within a tenant is served by the ascending index. Declaring a direction would
  * buy nothing and would put a shape into the catalogue that the ORM attributes
- * cannot express -- diff noise for no gain.
+ * cannot express -- diff noise for no gain. The sixth, `audit_log_denial_cap_idx`,
+ * answers no screen: it is E-3a's cap probe and it is partial, so the `where`
+ * option is not decoration -- a mapping without it proposes to rebuild the index
+ * as a total one on every schema comparison.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'audit_log')]
@@ -73,6 +82,10 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'audit_log_tenant_subject_idx', columns: ['tenant_id', 'subject_type', 'subject_id', 'occurred_at'])]
 // "Every failed login in the last hour" -- ADR-006 §2.2's whole point.
 #[ORM\Index(name: 'audit_log_tenant_event_idx', columns: ['tenant_id', 'event_type', 'occurred_at'])]
+// E-3a's cap key. Partial on the denial event type: the predicate has to be
+// provable from the read-back's own WHERE clause, and it keeps the index
+// proportional to the denial rows rather than to the whole table.
+#[ORM\Index(name: 'audit_log_denial_cap_idx', columns: ['tenant_id', 'actor_user_id', 'permission_code', 'occurred_at'], options: ['where' => "(event_type = 'authz.permission.denied'::text)"])]
 class AuditLogEntry
 {
     #[ORM\Id]
@@ -108,6 +121,14 @@ class AuditLogEntry
     #[ORM\Column(name: 'ip_address', type: InetType::NAME, nullable: true)]
     private ?string $ipAddress = null;
 
+    /**
+     * E-3a's cap key, third column. `NULL` on every event that is not a
+     * denial -- see `Version20260909000200` for why `NULL` and not a sentinel,
+     * and for why the database `CHECK` is one-directional.
+     */
+    #[ORM\Column(name: 'permission_code', type: Types::TEXT, nullable: true)]
+    private ?string $permissionCode = null;
+
     /** @var array<string, mixed> */
     #[ORM\Column(type: Types::JSON, options: ['jsonb' => true, 'default' => '{}'])]
     private array $metadata = [];
@@ -126,6 +147,7 @@ class AuditLogEntry
         ?Uuid $subjectId = null,
         ?string $ipAddress = null,
         array $metadata = [],
+        ?string $permissionCode = null,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
@@ -156,6 +178,26 @@ class AuditLogEntry
         $this->subjectId = $subjectId;
         $this->ipAddress = $ipAddress;
         $this->metadata = $metadata;
+        // The direction `audit_log_permission_code_scope` constrains, enforced
+        // here for the reason the subject-pair guard above gives: a code on an
+        // event that has no permission fails at construction rather than at
+        // flush, where it is a raw 23514 naming a constraint and not a cause.
+        //
+        // The other direction -- a denial that carries no code -- is
+        // deliberately NOT refused, here or in the database. E-3 requires the
+        // denial row to be written; refusing it would lose the audit record to
+        // save the cap, and the cap exists to make E-3 affordable rather than
+        // the other way round. Requiring it needs a per-event declaration on
+        // App\Audit\AuditEvent, which is a catalogue extension and E4-1's.
+        if (null !== $permissionCode && AuditEvent::AUTHZ_PERMISSION_DENIED !== $eventType) {
+            throw new \InvalidArgumentException(sprintf(
+                'permissionCode is E-3a\'s cap key and belongs only on a "%s" row; "%s" was given. '
+                .'audit_log_permission_code_scope refuses this at the database.',
+                AuditEvent::AUTHZ_PERMISSION_DENIED,
+                $eventType,
+            ));
+        }
+        $this->permissionCode = $permissionCode;
     }
 
     public function getId(): Uuid
@@ -201,6 +243,12 @@ class AuditLogEntry
     public function getIpAddress(): ?string
     {
         return $this->ipAddress;
+    }
+
+    /** E-3a's cap key, third column. Null on every event that is not a denial. */
+    public function getPermissionCode(): ?string
+    {
+        return $this->permissionCode;
     }
 
     /** @return array<string, mixed> */
