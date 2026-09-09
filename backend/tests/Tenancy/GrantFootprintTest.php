@@ -403,15 +403,32 @@ final class GrantFootprintTest extends TenancyTestCase
      * action 4.
      *
      * What the schema *can* guarantee, and this asserts, is that the mistake is
-     * loud rather than silent: `erp_app` holds nothing whatsoever on the two
+     * loud rather than silent: `erp_app` holds nothing whatsoever on the
      * counter tables, so a rate limiter pointed at the wrong connection fails
      * with `permission denied` on its first statement instead of working and
      * quietly leaving the queue exposed.
+     *
+     * **The table list was `['auth_attempt', 'auth_lockout']` until SEC-O-16
+     * (2026-09-09) and that was the fake-green shape this project keeps
+     * finding.** `auth_ip_budget` is a third counter table on the same path
+     * under the same principal, and a hardcoded pair would have said nothing
+     * about it — the check that exists to catch a limiter on the wrong
+     * connection would have been silent about the newest thing that limiter
+     * touches. The domain is now derived from the manifest: every table
+     * declared to `erp_ratelimit`. Adding a fourth needs no edit here.
      */
     #[Test]
     public function aRateLimiterWiredToTheWrongConnectionFailsImmediately(): void
     {
-        foreach (['auth_attempt', 'auth_lockout'] as $table) {
+        $counters = array_values(array_filter(
+            SchemaManifest::allTables(),
+            static fn (string $t): bool => [] !== SchemaManifest::grantsFor($t, DatabaseRoles::RATE_LIMIT),
+        ));
+
+        self::assertNotSame([], $counters,
+            'No table is declared to erp_ratelimit, so this test proves nothing.');
+
+        foreach ($counters as $table) {
             foreach ([DatabaseRoles::APP, DatabaseRoles::AI, DatabaseRoles::AUTH, DatabaseRoles::AUTH_LOG] as $role) {
                 foreach (SchemaManifest::TABLE_PRIVILEGES as $priv) {
                     self::assertFalse((bool) $this->owner()->fetchOne(

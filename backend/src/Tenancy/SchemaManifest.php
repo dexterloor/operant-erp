@@ -143,6 +143,13 @@ final class SchemaManifest
             'why' => 'ADR-006 §2.3. Pre-authentication rate-limit counters, keyed on the client-supplied slug, so there is no tenant to own the row. Retention is DROP PARTITION by the owner, which is why no application role holds DELETE.',
             'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
         ],
+        'auth_ip_budget' => [
+            'module' => 'Modules\\UserManagement',
+            'tenant' => false,
+            'deletion' => self::NA,
+            'why' => 'SEC-O-16, ruled 2026-09-09. E-21\'s second pre-auth budget — 300 attempts per fixed 15-minute window per `ip_prefix` — had nowhere to live. It cannot live in `auth_attempt`: E-9 and `API.md` §7.1 step 2 both consume it *before* the `auth_attempt` upsert, so it would be read after the write it exists to authorise, and every row of that table names a workspace because `slug_normalised` leads its primary key. A reserved sentinel slug was rejected on a fact about the column rather than on taste — `auth_attempt.slug_normalised` is client-supplied and deliberately shape-free (that is what makes a slug scrape loud, ADR-006 §2.3), so a client could send the reserved value and choose whether its request was metered at 100 or at 300. Keyed `(ip_prefix, window_start)` and nothing else, so no client-supplied value selects, shares or displaces the row that meters it. Partitioned like `auth_attempt` so retention is DROP PARTITION by the owner: an unpartitioned counter table is SEC-O-1 filed again on the day it is created, and it is what would force a DELETE grant onto the one principal whose narrowness is the point of it existing.',
+            'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
+        ],
         'auth_lockout' => [
             'module' => 'Modules\\UserManagement',
             'tenant' => false,

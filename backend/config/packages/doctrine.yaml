@@ -6,7 +6,7 @@
 #   ai         through PgBouncer as erp_ai   — SELECT only, for the NL query agent
 #   auth       erp_auth      — pre-auth slug + credential read, no write anywhere
 #   authlog    erp_authlog   — INSERT on audit_log only, cannot read it back
-#   ratelimit  erp_ratelimit — the two pre-auth counter tables and nothing else
+#   ratelimit  erp_ratelimit — the pre-auth counter tables and nothing else
 #
 # `owner` is the DBAL default purely so that doctrine:migrations picks it up without
 # a flag. The ORM entity manager is pinned to `app`, so no application code can
