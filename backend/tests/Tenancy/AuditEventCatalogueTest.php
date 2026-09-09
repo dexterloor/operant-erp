@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
  * no domain (`Version20260906000100`, the `audit_log` DDL), and no catalogue of
  * legal values existed anywhere in the project. Two rules already depended on
  * classifying this column and **one of them could not fire**: PC-11
- * (`IA.md` §6.1) forbids a `.view_record` query whose `event_type` predicate is
+ * (`SECURITY_MODEL.md` §3) forbids a `.view_record` query whose `event_type` predicate is
  * a `NOT LIKE` rather than an `IN`, and it pointed that `IN` at "§6.1's
  * catalogue" — which is the 60-permission catalogue and contains zero event
  * types.
@@ -464,7 +464,7 @@ final class AuditEventCatalogueTest extends TenancyTestCase
      *
      * `.view_record`'s only rendering surface for an `app_user` subject is the
      * History section of `/admin/users/[id]` (L-7), and every row it shows there
-     * is a **colleague's** history — the actor surveillance §6.3 withholds
+     * is a **colleague's** history — the actor surveillance `SECURITY_MODEL.md` §4 withholds
      * `audit_log.view` to prevent. This is E-13's move generalised: E-13 keeps
      * `auth.*` out structurally rather than by prefix, and (4c) does the same for
      * any event about a person.
@@ -607,9 +607,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
             // ADR-006 §2.2, the wrong-password row; SCHEMA.md's audit_log index list;
             // SchemaQueryPlanTest
             'auth.login.failure',
-            // IA.md §6.4, E-12
+            // SECURITY_MODEL.md §5, E-12
             'auth.login.tenant_inactive',
-            // IA.md §6.4, E-3
+            // SECURITY_MODEL.md §5, E-3
             'authz.permission.denied',
         ];
 

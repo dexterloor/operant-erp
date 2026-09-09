@@ -22,7 +22,7 @@ use Doctrine\Migrations\AbstractMigration;
  * `unit_of_measure.dimension`. `event_type` was the ninth and the only one
  * without.
  *
- * That was not cosmetic. **PC-11 (`IA.md` §6.1) could not fire.** It requires
+ * That was not cosmetic. **PC-11 (`SECURITY_MODEL.md` §3) could not fire.** It requires
  * `audit_log.view_record` to filter on an `IN` over "an event type added to
  * §6.1's catalogue" — but §6.1 is the 60-permission catalogue and contains zero
  * event types, so the clause watched a set that did not exist. E-12 records the

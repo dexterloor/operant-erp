@@ -28,7 +28,7 @@ namespace App\Audit;
  * Two rules already depended on classifying this column and one of them could
  * not fire:
  *
- *   PC-11 (`IA.md` §6.1)
+ *   PC-11 (`SECURITY_MODEL.md` §3)
  *     `audit_log.view_record` returns only rows whose `event_type` is on a
  *     published allowlist of business events. It forbids a `NOT LIKE` predicate
  *     — a prefix denylist "fails open on the first event somebody names outside
@@ -96,7 +96,7 @@ namespace App\Audit;
  * security events. A pattern gives neither, so B-4 would be nominally closed and
  * actually open.
  *
- * The closed list also enforces **E-17** (`IA.md` §6.4 — "the trail records
+ * The closed list also enforces **E-17** (`SECURITY_MODEL.md` §5 — "the trail records
  * actions taken, never routes visited") structurally rather than by policy: a
  * route-logging middleware cannot write a row, because no route event is on the
  * list and the database refuses the insert.
@@ -144,7 +144,7 @@ namespace App\Audit;
  *      guard exists to enforce; do not remove its independence.
  *
  * @see security-audit-log-design, Instruction 2
- * @see IA.md §6.4 E-3, E-12, E-13, E-15, E-16, E-17; §6.1 PC-11; §6.3 the default-role table
+ * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
  */
 final class AuditEvent
@@ -152,7 +152,7 @@ final class AuditEvent
     // ---------------------------------------------------------------------
     // Security events. Never readable through `audit_log.view_record` (PC-11);
     // the whole tenant trail is `audit_log.view`, which most default roles do
-    // not hold — L-7 (`IA.md` §4) names the ones that do, and §6.3's role table
+    // not hold — L-7 (`IA.md` §4) names the ones that do, and `SECURITY_MODEL.md` §4's role table
     // is the source. Not restated here: an earlier draft named two roles it is
     // withheld from, which reads as though the rest held it.
     //
@@ -178,7 +178,7 @@ final class AuditEvent
     public const AUTH_LOGIN_FAILURE = 'auth.login.failure';
 
     /**
-     * E-12 (`IA.md` §6.4): a **verified** credential presented against a
+     * E-12 (`SECURITY_MODEL.md` §5): a **verified** credential presented against a
      * non-active tenant. Written synchronously via `erp_authlog` with the same
      * statement count as the wrong-password branch, and suppressed by the same
      * daily cap on the same key, so the two branches fall silent together.
@@ -186,18 +186,18 @@ final class AuditEvent
     public const AUTH_LOGIN_TENANT_INACTIVE = 'auth.login.tenant_inactive';
 
     /**
-     * E-3 (`IA.md` §6.4): every permission denial that reaches the API. Capped
+     * E-3 (`SECURITY_MODEL.md` §5): every permission denial that reaches the API. Capped
      * by E-3a at **at most two** rows per
      * `(tenant_id, actor_user_id, permission_code)` per UTC day — the second
      * exists to record that a *second resource* was tried, and E-3a's own text
-     * records the ceiling moving 1 → 2. §6.4 is "the single register for `E-*`",
+     * records the ceiling moving 1 → 2. `SECURITY_MODEL.md` §5 is "the single register for `E-*`",
      * so E-3a is where Output 4 reads the ceiling; SEC-O-3 now states the bound's
      * existence and deliberately does not restate its value.
      */
     public const AUTHZ_PERMISSION_DENIED = 'authz.permission.denied';
 
     /**
-     * E-16 (`IA.md` §6.4): one row per bulk CSV export recording the resource,
+     * E-16 (`SECURITY_MODEL.md` §5): one row per bulk CSV export recording the resource,
      * the filter state and the row count — never the rows.
      *
      * Filed as a **security** event, not a business one, on two grounds. The
@@ -213,7 +213,7 @@ final class AuditEvent
     public const DATA_EXPORT_COMPLETED = 'data.export.completed';
 
     /**
-     * E-15 (`IA.md` §6.4): one row per `(actor, subject user, role)`. A bulk
+     * E-15 (`SECURITY_MODEL.md` §5): one row per `(actor, subject user, role)`. A bulk
      * assignment writes N rows, never one — L-9's reversal register rests on the
      * grant history living in `audit_log`, and "who made Alice an admin" cannot
      * be answered by one row naming a set.
@@ -257,7 +257,7 @@ final class AuditEvent
     // page (L-7), in addition to holding the subject row's own `.view`.
     //
     // Naming follows the project's existing two-segment `<table>.<verb>`
-    // vocabulary — the same shape as the §6.1 permission codes
+    // vocabulary — the same shape as the `SECURITY_MODEL.md` §3 permission codes
     // (`purchase_order.approve`, `stock_movement.adjust`,
     // `audit_log.view_record`) — rather than inventing a third convention.
     // ---------------------------------------------------------------------
