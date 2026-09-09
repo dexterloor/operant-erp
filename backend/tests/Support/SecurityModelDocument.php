@@ -57,4 +57,67 @@ final class SecurityModelDocument
 
         return '';
     }
+
+    /**
+     * §3's catalogue, expanded — the permission codes, not the shorthand.
+     *
+     * §3 writes a module's codes as `inventory_item.view` `.create` `.edit`
+     * `.delete`, so a backticked token beginning with a dot inherits the resource
+     * from the token before it. Expanding it here rather than in a test means the
+     * one place that understands the shorthand is the one place that reads it.
+     *
+     * §3's own heading states the total, and
+     * `PermissionEnforcementContractTest::theCatalogueThisApiDrawsFromIsStillTheOneSecurityModelPublishes`
+     * compares this parser's output against that number — so a parser that
+     * silently stopped expanding, or stopped finding the table, fails rather than
+     * returning a short list nothing checks.
+     *
+     * @return list<string>
+     */
+    public static function permissionCodes(): array
+    {
+        $codes = [];
+        $inside = false;
+        $resource = null;
+
+        foreach (explode("\n", (string) file_get_contents(self::path())) as $line) {
+            if (str_starts_with($line, '## 3. ')) {
+                $inside = true;
+
+                continue;
+            }
+            if ($inside && str_starts_with($line, '## ')) {
+                break;
+            }
+            if (!$inside || !str_starts_with($line, '| `Modules\\') && !str_starts_with($line, '| `Platform\\')) {
+                continue;
+            }
+
+            preg_match_all('/`([A-Za-z_][A-Za-z0-9_]*)?\.([a-z_]+)`/', $line, $matches, \PREG_SET_ORDER);
+
+            foreach ($matches as $match) {
+                if ('' !== $match[1]) {
+                    $resource = $match[1];
+                }
+                if (null === $resource) {
+                    continue;
+                }
+                $codes[] = $resource.'.'.$match[2];
+            }
+        }
+
+        return array_values(array_unique($codes));
+    }
+
+    /** The total §3's own heading states, so the parser above has something to be wrong against. */
+    public static function catalogueSizeFromTheHeading(): ?int
+    {
+        foreach (explode("\n", (string) file_get_contents(self::path())) as $line) {
+            if (1 === preg_match('/^## 3\. Catalogue — (\d+) permissions$/', $line, $m)) {
+                return (int) $m[1];
+            }
+        }
+
+        return null;
+    }
 }

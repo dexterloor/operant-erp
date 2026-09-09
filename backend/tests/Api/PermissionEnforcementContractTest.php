@@ -1,0 +1,218 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Api;
+
+use App\Api\Security\PermissionGate;
+use App\Tests\Support\ContractDocument;
+use App\Tests\Support\SecurityModelDocument;
+use PHPUnit\Framework\Attributes\Test;
+
+/**
+ * §4.2's `Perm` column, reconciled against what the application declares — and
+ * against §3's catalogue, which is where the codes come from.
+ *
+ * ---------------------------------------------------------------------------
+ * Three separate claims, three separate ways to go red
+ * ---------------------------------------------------------------------------
+ *   1. **Every operation declares.** The registry is the domain; an operation
+ *      with no declaration fails here rather than reaching production and
+ *      raising a 500 on its first request.
+ *   2. **What it declares is §4.2's cell.** Checked in both directions wherever
+ *      the document is present, through the `PINNED_` mechanism §12.3 uses —
+ *      `docs/` is gitignored, so the pin is what gives a clean checkout a
+ *      subject.
+ *   3. **The code exists.** A `Perm` cell naming a code §3's catalogue does not
+ *      hold is a permission nobody can be granted, so the operation is
+ *      unreachable by anyone — an outage that looks exactly like correct
+ *      enforcement.
+ *
+ * `PermissionEnforcementTest` is the behavioural half: it drives every declared
+ * code over HTTP. This file is about whether the declarations are the right ones.
+ */
+final class PermissionEnforcementContractTest extends ApiTestCase
+{
+    /**
+     * §4.2's `Perm` cell for every operation this wave ships, transcribed once.
+     * `null` is the column's `—`.
+     *
+     * @var array<string, string|null>
+     */
+    private const PINNED_PERMISSIONS = [
+        'IssueToken' => null,
+        'GetCurrentUser' => null,
+        'ListItems' => 'inventory_item.view',
+        'GetItem' => 'inventory_item.view',
+        'CreateItem' => 'inventory_item.create',
+        'UpdateItem' => 'inventory_item.edit',
+        'DeleteItem' => 'inventory_item.delete',
+        'RestoreItem' => 'inventory_item.delete',
+    ];
+
+    /**
+     * Claim 1. The domain is the registry and the pin has to cover all of it, so
+     * an operation added without a `Perm` decision fails twice — once for having
+     * no declaration, once for not being in the pin.
+     *
+     * *Mutation, run:* the `extraProperties` entry removed from `UpdateItem`. Red,
+     * naming the operation. *Second mutation, run:* `PermissionGate`'s
+     * `array_key_exists` guard changed to `?? null`, i.e. an absent declaration
+     * silently meaning "no permission required". This test is still red — which is
+     * the point of it being a separate check from the gate's own behaviour.
+     */
+    #[Test]
+    public function everyOperationDeclaresItsRequiredPermission(): void
+    {
+        $declared = [];
+
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $extra = $operation->getExtraProperties();
+
+            self::assertArrayHasKey(PermissionGate::OPERATION_PERMISSION, $extra,
+                $name.' declares no required permission. §4.2 gives every row a `Perm` cell, and an '
+                .'operation that declares nothing is one nobody decided about — PermissionGate refuses '
+                .'to guess, so this would be a 500 on its first request.');
+
+            $code = $extra[PermissionGate::OPERATION_PERMISSION];
+            self::assertTrue(null === $code || (\is_string($code) && '' !== $code),
+                $name.' declares a required permission that is neither a code nor §4.2\'s `—`.');
+
+            $declared[$name] = $code;
+        }
+
+        ksort($declared);
+        $pinned = self::PINNED_PERMISSIONS;
+        ksort($pinned);
+
+        self::assertSame($pinned, $declared,
+            'The registry and the pin disagree. Every shipped operation needs a reviewed `Perm` decision.');
+    }
+
+    /**
+     * Claim 3, and it runs on **every** checkout because its domain is the code.
+     *
+     * A declared code must be a member of §3's catalogue. Where the document is
+     * absent the check falls back to the shape §3's own rule fixes — `PC-1`'s
+     * `<resource>.<action>` — which is weaker but is not nothing, and the
+     * document-backed clause below is where the real comparison happens.
+     */
+    #[Test]
+    public function everyDeclaredCodeIsShapedLikeACatalogueMember(): void
+    {
+        $examined = 0;
+
+        foreach (self::everyDeclaredPermission() as $code) {
+            ++$examined;
+            self::assertMatchesRegularExpression('/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/', $code,
+                $code.' is not shaped like a §3 permission code.');
+        }
+
+        self::assertGreaterThan(0, $examined, 'No code was examined, so this assertion had no subject.');
+    }
+
+    /**
+     * Claim 3, against the catalogue itself.
+     *
+     * The parser is checked against §3's own stated total before anything is
+     * compared to it: a parser that found the wrong table, or stopped expanding
+     * the `.suffix` shorthand, would otherwise turn this into a check that admits
+     * everything it happens to have parsed.
+     *
+     * *Mutation, run:* `GetItem`'s declared code changed to
+     * `inventory_item.read` — a plausible name §3 does not hold. Red.
+     */
+    #[Test]
+    public function theCatalogueThisApiDrawsFromIsStillTheOneSecurityModelPublishes(): void
+    {
+        if (!SecurityModelDocument::isAvailable()) {
+            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the declared codes are checked for shape only. See the enforcement-slice report.');
+        }
+
+        $catalogue = SecurityModelDocument::permissionCodes();
+        $stated = SecurityModelDocument::catalogueSizeFromTheHeading();
+
+        self::assertNotNull($stated, '§3\'s heading no longer states a total, so the parser has nothing to be wrong against.');
+        self::assertCount($stated, $catalogue,
+            'The §3 parser produced '.\count($catalogue).' codes and the heading states '.$stated
+            .'. Every comparison below would be against a catalogue that is not the catalogue.');
+
+        foreach (self::everyDeclaredPermission() as $code) {
+            self::assertContains($code, $catalogue,
+                $code.' is declared by an operation and is not in §3\'s catalogue. Nobody can be granted it, '
+                .'so the operation is unreachable by every caller — which looks exactly like correct enforcement.');
+        }
+    }
+
+    /**
+     * Claim 2 — the pin against the document, in both directions.
+     *
+     * *Mutation, run:* `DeleteItem`'s pin changed to `inventory_item.archive`;
+     * red against §4.2's cell **and** red against the registry in
+     * `everyOperationDeclaresItsRequiredPermission`, which is the two-sided
+     * property a pin is for.
+     */
+    #[Test]
+    public function thePinsMatchTheContractDocument(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout, so the pins above are checked against the code only. See the enforcement-slice report.');
+        }
+
+        $rows = ContractDocument::operationRows();
+        self::assertGreaterThan(50, \count($rows), 'The §4.2 parser found almost nothing, so every comparison below would be vacuous.');
+
+        foreach (self::PINNED_PERMISSIONS as $operationId => $pinned) {
+            self::assertArrayHasKey($operationId, $rows, $operationId.' is shipped and §4.2 declares no row for it.');
+
+            $cell = $rows[$operationId]['perm'];
+
+            self::assertSame($pinned ?? '—', $cell,
+                $operationId.'\'s `Perm` cell is "'.$cell.'" and this suite enforces "'.($pinned ?? '—').'".');
+        }
+    }
+
+    /**
+     * §4.2's other rule about the same column, and it is the one a reader gets
+     * wrong: `—` does **not** mean public.
+     *
+     * *"Whether it also requires a JWT is decided by the row's own `Path` …
+     * `/auth/*` is pre-authentication; everything else requires a valid token."*
+     * `GetCurrentUser` holds no code and is authenticated, and that pair is
+     * exactly the case the sentence was written for.
+     */
+    #[Test]
+    public function anOperationWithNoCodeIsNotThereforePublic(): void
+    {
+        $withoutACode = [];
+
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            // `??` cannot be used to ask this question: it treats a declared
+            // `null` as an absent key, which is precisely the distinction §4.2's
+            // `—` turns on. `array_key_exists` is the whole reason the gate can
+            // tell "no code required" from "nobody decided".
+            $extra = $operation->getExtraProperties();
+
+            if (!\array_key_exists(PermissionGate::OPERATION_PERMISSION, $extra)
+                || null !== $extra[PermissionGate::OPERATION_PERMISSION]) {
+                continue;
+            }
+
+            $path = (string) $operation->getUriTemplate();
+            $path = str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+            $withoutACode[$name] = $path;
+        }
+
+        self::assertNotSame([], $withoutACode, 'No operation declares `—`, so this assertion had no subject.');
+        self::assertArrayHasKey('GetCurrentUser', $withoutACode,
+            'GetCurrentUser no longer declares `—`. It is the operation §4.2\'s sentence about `—` is written about.');
+
+        // Driven rather than reasoned about: the one that is not under /auth/
+        // still refuses an anonymous request.
+        $this->actAsNobody();
+        $this->send('GET', $withoutACode['GetCurrentUser']);
+
+        self::assertSame(401, $this->httpStatus(),
+            'An operation with no permission code was reachable without a token, so `—` is being read as "public".');
+    }
+}

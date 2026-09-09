@@ -53,6 +53,11 @@ services:
         exclude:
             - '../src/Api/Pagination/'
             - '../src/Api/Problem/ProblemType.php'
+            # The resolved caller. Data, not a service: it is built per request
+            # by `IdentityReader` and held by `RequestIdentity`, and registering
+            # it would have the container try to autowire a constructor that
+            # takes a tenant id.
+            - '../src/Api/Security/Identity.php'
             - '../src/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
             - '../src/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
@@ -73,11 +78,28 @@ services:
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
 
-    # Fails closed until the JWT claim reader of §7 exists. Deliberately an
-    # explicit binding rather than an autowired default: an interface with one
+    # T-1 / ADR-005 D-5 — the tenant is the signed claim, resolved by
+    # `AuthenticationGate` before the controller runs. Deliberately an explicit
+    # binding rather than an autowired default: an interface with one
     # implementation resolves silently, and the day a second one appears the
-    # choice should be an edit somebody makes on purpose.
-    App\Api\Tenancy\CurrentTenant: '@App\Api\Tenancy\UnauthenticatedTenant'
+    # choice should be an edit somebody makes on purpose. It still fails closed:
+    # with no identity resolved, `RequestIdentity::authenticated()` throws.
+    App\Api\Tenancy\CurrentTenant: '@App\Api\Tenancy\AuthenticatedTenant'
+
+    # E-1's collaborators are on `erp_app`, and the binding is explicit for the
+    # reason the §7 block below gives: the ORM's entity manager is pinned to
+    # `app`, so an autowired `Connection` would resolve to it by accident rather
+    # than by decision. Both of these are correct on `erp_app` and on nothing
+    # else -- `IdentityReader` reads `app_user`/`user_role`/`role_permission`
+    # under RLS, and `DenialAuditWriter` needs the `SELECT, INSERT` on
+    # `audit_log` that only `erp_app` holds (S-9, `API.md` §9.2).
+    App\Api\Security\IdentityReader:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
+
+    App\Audit\DenialAuditWriter:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
 
     # ------------------------------------------------------------------
     # Output 4 §7 — the token sign-in path.
@@ -132,11 +154,15 @@ services:
 
 when@test:
     services:
-        # T-1 / API-7: nothing in the request may carry a tenant. The test rig
-        # therefore sets the tenant on the container, which is the same place
-        # the JWT claim reader will set it once §7 is built.
-        App\Api\Tenancy\CurrentTenant:
-            class: App\Api\Tenancy\FixedTenant
+        # T-1 / API-7: nothing in the request may carry a tenant, and the test
+        # env no longer overrides the seam at all -- `CurrentTenant` is the
+        # production `AuthenticatedTenant` here too. `ApiTestCase::actAs()` mints
+        # a real token and sets the identity on this service, and an HTTP request
+        # overwrites it from the token's own claim. The `FixedTenant` this
+        # replaced was a second source of tenant that no request could contradict,
+        # so a resource reading the wrong claim would still have been green.
+        App\Api\Security\RequestIdentity:
+            autowire: true
             public: true
 
         App\Tenancy\TenantContext:

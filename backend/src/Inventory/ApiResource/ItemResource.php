@@ -11,6 +11,7 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Api\Idempotency\IdempotencyKeyGuard;
+use App\Api\Security\PermissionGate;
 use App\Inventory\ApiResource\State\CreateItemProcessor;
 use App\Inventory\ApiResource\State\DeleteItemProcessor;
 use App\Inventory\ApiResource\State\ItemProvider;
@@ -56,6 +57,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             name: 'GetItem',
             openapi: new OpenApiOperation(operationId: 'GetItem'),
             provider: ItemProvider::class,
+            // §4.2's `Perm` cell. Enforced by `PermissionGate` on
+            // `kernel.controller`, which is before `ItemProvider` runs -- E-1.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'inventory_item.view'],
         ),
         new Post(
             uriTemplate: '/items',
@@ -78,7 +82,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // interim rule is what makes the operation safe without the key
             // store that does not exist yet -- a repeat collides with
             // `inventory_item_tenant_sku_live`.
-            extraProperties: [IdempotencyKeyGuard::OPERATION_FLAG => true],
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'inventory_item.create',
+            ],
         ),
         new Patch(
             uriTemplate: '/items/{id}',
@@ -106,6 +113,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // answers with a bare `NotFoundHttpException`.
             provider: ItemProvider::class,
             processor: UpdateItemProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'inventory_item.edit'],
         ),
         new Delete(
             uriTemplate: '/items/{id}',
@@ -114,6 +122,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeleteItem'),
             provider: ItemProvider::class,
             processor: DeleteItemProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'inventory_item.delete'],
         ),
         // API-21 branch 5: a POST that creates no row this contract addresses.
         // `RestoreItem` mints nothing -- it clears `deleted_at` on a row the
@@ -128,7 +137,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             deserialize: false,
             read: false,
             processor: RestoreItemProcessor::class,
-            extraProperties: [IdempotencyKeyGuard::OPERATION_FLAG => true],
+            // §4.2 gives `RestoreItem` `inventory_item.delete`, not a `.restore`
+            // code: the catalogue has no such member, and undoing an archive is
+            // the same authority as making one.
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'inventory_item.delete',
+            ],
         ),
     ],
 )]

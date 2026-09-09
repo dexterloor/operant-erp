@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\QueryParameter;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Api\Security\PermissionGate;
 use App\Inventory\ApiResource\State\ItemCollectionProvider;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -87,6 +88,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     schema: ['type' => 'string'],
                 ),
             ],
+            // §4.2's `Perm` cell. Enforced by `PermissionGate` before
+            // `ItemCollectionProvider` runs, so a caller without the code never
+            // learns whether the list would have been empty (E-1, ST-4b).
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'inventory_item.view'],
         ),
     ],
 )]

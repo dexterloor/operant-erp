@@ -7,6 +7,7 @@ namespace App\Auth\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Api\Security\PermissionGate;
 use App\Auth\ApiResource\State\IssueTokenProcessor;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -65,6 +66,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // is a decision: a repeated sign-in is not a duplicated row, and an
             // idempotency key on a credential-bearing request would be a
             // client-supplied handle to a response containing a token.
+            //
+            // §4.2's `Perm` cell is `—`, declared rather than omitted:
+            // `PermissionGate` refuses an operation that carries no declaration
+            // at all, so "this operation needs no code" has to be said out loud.
+            // §4.2's other rule -- whether a JWT is required -- is decided by
+            // this row's own Path, and `/auth/*` is pre-authentication.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => null],
         ),
     ],
 )]

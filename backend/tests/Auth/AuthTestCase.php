@@ -36,6 +36,13 @@ abstract class AuthTestCase extends ApiTestCase
     {
         parent::setUp();
 
+        // §7's directory drives the pre-authentication path and `/me`'s own
+        // refusals, so every request here must carry exactly the `Authorization`
+        // header the test chose -- including none at all, which is the first case
+        // of `CurrentUserTest::everyTokenFailureIsTheSameRefusal`. The base rig's
+        // default bearer would make that case unwritable.
+        $this->actAsNobody();
+
         // Not tenant-scoped, so the base class's manifest-derived truncate does
         // not reach them. As the owner, because no application role holds
         // TRUNCATE on any of the three -- which is the property

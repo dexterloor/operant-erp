@@ -9,10 +9,13 @@ namespace App\Api\Tenancy;
  *
  * T-1 and API-7: no route, query parameter, header or request-body field may
  * carry a tenant identifier. The tenant comes from the signed JWT claim, read
- * server-side. There is no authentication stack in the tree yet -- no firewall,
- * no token -- so this interface is the seam the auth output (§7) fills, and it
- * exists now so that the resources written against it never grow a request-borne
- * tenant parameter that would later have to be removed.
+ * server-side.
+ *
+ * The seam is filled by `AuthenticatedTenant`, which reads the claim
+ * `App\Api\Security\AuthenticationGate` resolved before the controller ran. It
+ * stays an interface because it is the one place a reader or writer asks *which
+ * tenant*, and keeping the question behind it is what stops a request-borne
+ * tenant parameter growing onto any of them.
  */
 interface CurrentTenant
 {
