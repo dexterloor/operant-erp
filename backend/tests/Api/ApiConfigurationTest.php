@@ -55,11 +55,12 @@ final class ApiConfigurationTest extends ApiTestCase
         self::assertSame(['_api_/.well-known/genid/{id}{._format}_get' => \App\Auth\ApiResource\TokenResource::class], $notExposed,
             'A route was excluded from the count as "not exposed" that is not the one API Platform mints for `Token`.');
 
-        // Six for the `/items` slice, two for Output 4 §7's token path
-        // (`IssueToken`, `GetCurrentUser`). The count is a floor against a route
-        // appearing that nobody declared; which operations those are is pinned
-        // by name in ItemOperationContractTest and AuthOperationContractTest.
-        self::assertCount(8, $checked, 'The route set changed. This slice declares eight operations: '.implode(', ', array_keys($checked)));
+        // Six for the `/items` slice, three for Output 4 §7's authentication
+        // paths (`IssueToken`, `GetCurrentUser`, and `ChangePassword` added
+        // 2026-09-09 under E-23). The count is a floor against a route appearing
+        // that nobody declared; which operations those are is pinned by name in
+        // ItemOperationContractTest and AuthOperationContractTest.
+        self::assertCount(9, $checked, 'The route set changed. This slice declares nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

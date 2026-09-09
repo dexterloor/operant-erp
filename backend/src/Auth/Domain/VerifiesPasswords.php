@@ -30,6 +30,17 @@ interface VerifiesPasswords
     /** True when `$hash` was produced at a weaker cost than the one now configured. */
     public function needsRehash(string $hash): bool;
 
-    /** For seeding and for the credential-change path this wave does not ship. */
+    /**
+     * For seeding **and for `ChangePassword`** (E-23), which does ship — the
+     * earlier wording said *"the credential-change path this wave does not
+     * ship"* and stopped being true on 2026-09-09.
+     *
+     * Deliberately **not** counted by `CountingPasswordVerifier`: a fixture that
+     * hashes a password would otherwise move the counter, and every *"the KDF ran
+     * exactly once"* assertion would become a statement about the fixture. The
+     * consequence is worth stating, because a change-password request runs the
+     * KDF **twice** — once here and once through `verify()` — and only the second
+     * is observable to those assertions.
+     */
     public function hash(string $plaintext): string;
 }

@@ -135,7 +135,32 @@ class AppUser
         return $this->lastLoginAt;
     }
 
-    /** Rehash on login (ADR-006): the hash changes without the password changing. */
+    /**
+     * The single writer of `password_hash` after construction. **It has two
+     * callers and they are not the same thing**, so the docblock names both
+     * rather than the one it was written for.
+     *
+     * 1. **Rehash on login (ADR-006)** — the hash changes and the password does
+     *    not. This was the only caller when the method landed, and the old
+     *    one-line docblock said so; citing it afterwards as evidence that a
+     *    credential-change path was ready would have been reading a comment as a
+     *    capability.
+     * 2. **`ChangePassword` (E-23)** — the password changes too, and the change
+     *    is audited. The method itself is correct for both because it does the
+     *    same thing in both: replace the stored digest and move `updated_at`.
+     *
+     * **What it deliberately does not do**, so no caller has to guess: it does
+     * not hash (the KDF runs outside every transaction — ADR-006 §6.1, O-1's
+     * 1505 ms of pooled-backend pinning), it does not audit (E-23's row is
+     * `PasswordChangeAuditWriter`'s, written inside the caller's transaction),
+     * and it revokes nothing (there is no session store — **API-O-13** — so a
+     * live token outlives this call for up to E-20's eight hours).
+     *
+     * The class-level rule still holds over both callers: **nothing on this class
+     * may be written before authentication has succeeded.** A rehash happens
+     * after the credential verified; a change happens behind
+     * `AuthenticationGate` and costs the current password as well.
+     */
     public function replacePasswordHash(string $passwordHash): void
     {
         $this->passwordHash = $passwordHash;

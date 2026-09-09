@@ -71,8 +71,8 @@ services:
             # autoconfiguration, so a resource class the container never sees has
             # no routes at all.
             - '../src/Auth/Domain/PreAuthKeys.php'
-            - '../src/Auth/ApiResource/{IssueTokenInput.php,RoleReference.php}'
-            - '../src/Auth/Application/{SignInCommand.php,SignInResult.php}'
+            - '../src/Auth/ApiResource/{IssueTokenInput.php,ChangePasswordInput.php,RoleReference.php}'
+            - '../src/Auth/Application/{SignInCommand.php,SignInResult.php,ChangePasswordCommand.php,ChangePasswordResult.php,ChangePasswordOutcome.php}'
             - '../src/Auth/Infrastructure/{CredentialRow.php,IssuedToken.php}'
 
     # add more service definitions when explicit configuration is needed
@@ -98,6 +98,21 @@ services:
             $app: '@doctrine.dbal.app_connection'
 
     App\Audit\DenialAuditWriter:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
+
+    # E-23's writer and E-23's throttle, both on `erp_app` and both explicit for
+    # the same reason as the two above: the ORM's entity manager is pinned to
+    # `app`, so an autowired `Connection` would resolve there by accident rather
+    # than by decision. `erp_app` is the principal E-23 names -- it already holds
+    # `SELECT, INSERT` on `audit_log` and needs no new grant -- and the
+    # pre-authentication principals are deliberately not reachable from an
+    # authenticated path.
+    App\Audit\PasswordChangeAuditWriter:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
+
+    App\Auth\Application\PasswordChangeThrottle:
         arguments:
             $app: '@doctrine.dbal.app_connection'
 

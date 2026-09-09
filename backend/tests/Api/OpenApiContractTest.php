@@ -21,11 +21,20 @@ final class OpenApiContractTest extends ApiTestCase
 {
     /**
      * The write operations this slice authors: four on `/items`, plus
-     * `IssueToken`. Not a description of the whole contract — it is the
-     * anti-vacuity floor: if the `ApiResource` classes are deleted the count
-     * drops and this file goes red, which is the second mutation API-10a names.
+     * `IssueToken`, plus `ChangePassword` (E-23, 2026-09-09). Not a description
+     * of the whole contract — it is the anti-vacuity floor: if the `ApiResource`
+     * classes are deleted the count drops and this file goes red, which is the
+     * second mutation API-10a names.
+     *
+     * **Both sides of API-10a's comparison moved in that pass and they moved by
+     * the same one**, which is the property the VACUOUS branch depends on: the
+     * document gained a `ChangePassword` row in §4.2 and the tree gained a
+     * `PasswordResource`. Raising this number without authoring the operation
+     * would turn the floor into a ceiling nobody can reach; authoring it without
+     * raising this number leaves the floor below the truth. Neither is caught by
+     * the other test, so both are done here deliberately.
      */
-    private const AUTHORED_WRITE_OPERATIONS = 5;
+    private const AUTHORED_WRITE_OPERATIONS = 6;
 
     /** @return array<string, mixed> */
     private function regenerate(): array

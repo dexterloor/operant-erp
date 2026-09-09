@@ -47,6 +47,10 @@ final class AuthOperationContractTest extends ApiTestCase
     private const PINNED_AUTH_OPERATIONS = [
         'IssueToken' => ['method' => 'POST', 'path' => '/auth/token', 'idem' => false],
         'GetCurrentUser' => ['method' => 'GET', 'path' => '/me', 'idem' => false],
+        // E-23, added 2026-09-09. `idem: false` is §4.2's `Idem: no` and is a
+        // decision rather than an omission: a replay refuses itself, because the
+        // second call presents a `current_password` that is no longer current.
+        'ChangePassword' => ['method' => 'POST', 'path' => '/me/password', 'idem' => false],
     ];
 
     /** §4.2's `Accepted request fields` for `IssueToken`, which is exhaustive. */
@@ -63,7 +67,13 @@ final class AuthOperationContractTest extends ApiTestCase
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $path = str_replace(self::BASE, '', (string) $operation->getUriTemplate());
 
-            if (1 !== preg_match('#^(/auth/|/me$|/session/)#', $path)) {
+            // `/me(/|$)` rather than `/me$`: `ChangePassword` is at `/me/password`
+            // and §4.2 files it in the Authentication block, so the pattern that
+            // selects this file's domain has to reach it. A pattern that silently
+            // stopped matching a row would take that row out of the pin without
+            // anything going red — the same shape `AuthenticationGate`'s base-path
+            // note records for its own prefix check.
+            if (1 !== preg_match('#^(/auth/|/me(/|$)|/session/)#', $path)) {
                 continue;
             }
 

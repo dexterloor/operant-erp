@@ -6,6 +6,7 @@ namespace App\Tests\Audit;
 
 use App\Audit\AuditEvent;
 use App\Audit\DenialAuditWriter;
+use App\Audit\PasswordChangeAuditWriter;
 use App\Auth\Infrastructure\AuthTrailWriter;
 use App\Tests\Tenancy\TenancyTestCase;
 use PHPUnit\Framework\Attributes\Test;
@@ -80,6 +81,14 @@ final class AuditWriterTest extends TenancyTestCase
         'auth.login.success',
         'auth.login.failure',
         'auth.login.tenant_inactive',
+        // E4-1 clause (5) / API-O-18's sixth step, added 2026-09-09 with E-23's
+        // `AUTH_PASSWORD_CHANGED`. `SEC` ruled `ip_address: yes` (§5.1.4) --
+        // "the source address of a credential change is the forensic question
+        // the event exists to answer" -- and API-16's pin is two-directional, so
+        // a security event omitted here fails
+        // `thePinAndTheConstantAgreeInBothDirections` rather than silently
+        // sitting outside §9.1's layer 1a.
+        'auth.password.changed',
         'authz.permission.denied',
         'data.export.completed',
         'role.assigned',
@@ -99,6 +108,7 @@ final class AuditWriterTest extends TenancyTestCase
      */
     private const DECLARED_WRITERS = [
         'Audit/DenialAuditWriter.php',
+        'Audit/PasswordChangeAuditWriter.php',
         'Auth/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -135,6 +145,25 @@ final class AuditWriterTest extends TenancyTestCase
      * satisfied by *any* writer carrying an IP. Nulled in **both** writers it is
      * red on *"No row carries an ip_address at all"*. Recorded rather than
      * rewritten to look tidier: the first form was assumed and the second was run.
+     *
+     * **Re-measured 2026-09-09 with a third writer, and the limit got wider — so
+     * it is restated rather than left at "both".** With
+     * `PasswordChangeAuditWriter` added, nulling the address in **that writer
+     * alone** leaves this file green (measured, `OK (3 tests, 9 assertions)`);
+     * nulling it in **all three** is red on the same anti-vacuity clause
+     * (measured). The small mutation is caught, but by
+     * `PasswordChangeTest::oneChangeWritesExactlyOneSecurityRow`, which asserts
+     * that writer's address directly — **not by this file**.
+     *
+     * **The generalisation is worth more than the fix and it is the reason this
+     * paragraph exists: this clause's blind spot grows by one writer every time a
+     * writer is added.** *"At least one row carried an IP"* is satisfied by any
+     * survivor, so with N writers a mutation has to hit all N before it fires
+     * here. A mutation that does **not** fire can therefore mean the mutation was
+     * too small rather than that the check is strong, and telling those apart
+     * means running the larger one. The per-writer assertion belongs with the
+     * writer; this file's job is the *rule over the split*, and it should not be
+     * read as covering any individual writer's column.
      */
     #[Test]
     public function onlySecurityEventsCarryAnIpAddress(): void
@@ -158,13 +187,29 @@ final class AuditWriterTest extends TenancyTestCase
         self::assertNotSame([], $accepted,
             'The writer refused every event in the catalogue, so nothing below was measured on a real write.');
 
-        // The second writer, which has no event-type parameter to loop over.
+        // The two writers with no event-type parameter to loop over. Each writes
+        // one hard-coded event, so the form of the rule that applies to them is
+        // that the event they hard-code is a security event -- which the clauses
+        // below assert against the catalogue's own split, not against a list.
         $this->denialWriter()->record(
             tenantId: self::TENANT_A,
             actorUserId: $actor,
             actorLabel: 'Probe Actor',
             permissionCode: 'inventory_item.view',
             subjectId: Uuid::v4()->toRfc4122(),
+            ipAddress: self::PROBE_IP,
+        );
+
+        // E-23's writer, added 2026-09-09. `everyClassThatCanWriteTheTrailIsClassifiedHere`
+        // requires every file that can write the trail to be declared here, and
+        // its own failure message says why declaring is not enough: "a writer
+        // that is not exercised by `onlySecurityEventsCarryAnIpAddress` is a
+        // writer M0-b's ip_address rule is not being checked against." So it is
+        // driven rather than merely listed.
+        $this->passwordChangeWriter()->record(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
             ipAddress: self::PROBE_IP,
         );
 
@@ -290,6 +335,14 @@ final class AuditWriterTest extends TenancyTestCase
     {
         $writer = self::getContainer()->get(DenialAuditWriter::class);
         \assert($writer instanceof DenialAuditWriter);
+
+        return $writer;
+    }
+
+    private function passwordChangeWriter(): PasswordChangeAuditWriter
+    {
+        $writer = self::getContainer()->get(PasswordChangeAuditWriter::class);
+        \assert($writer instanceof PasswordChangeAuditWriter);
 
         return $writer;
     }

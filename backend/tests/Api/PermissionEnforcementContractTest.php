@@ -42,6 +42,13 @@ final class PermissionEnforcementContractTest extends ApiTestCase
     private const PINNED_PERMISSIONS = [
         'IssueToken' => null,
         'GetCurrentUser' => null,
+        // §4.2's `—`, ruled on `PasswordResource`: §3's catalogue is closed at
+        // sixty codes and none of them fits. `app_user.edit` is the near miss and
+        // is the administrative code behind `UpdateUser`, held by `owner` and
+        // `admin` alone — requiring it would stop most seats changing their own
+        // password. The operation is self-service by construction instead: no
+        // request field names a subject and the actor comes from the token.
+        'ChangePassword' => null,
         'ListItems' => 'inventory_item.view',
         'GetItem' => 'inventory_item.view',
         'CreateItem' => 'inventory_item.create',

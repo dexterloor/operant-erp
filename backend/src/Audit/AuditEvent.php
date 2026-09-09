@@ -132,19 +132,36 @@ namespace App\Audit;
  *      event that declares none, and `everyEventDeclaresItsSubjectExactlyOnce`
  *      is where that fails;
  *   5. write a **forward** migration that drops `audit_log_event_type_values`
- *      and re-adds it with the wider **literal** list. Never edit
- *      `Version20260907000200` in place — it is recorded in
- *      `doctrine_migration_versions` and an in-place edit is invisible to every
- *      database that already ran it. And never generate that list from this
+ *      and re-adds it with the wider **literal** list. Never edit a migration
+ *      that already re-issued this constraint in place — as of this revision
+ *      that is `Version20260907000200` **and** `Version20260909000300`, both
+ *      recorded in `doctrine_migration_versions`, where an in-place edit is
+ *      invisible to every database that already ran them. And never generate
+ *      that list from this
  *      class: `AuditEventCatalogueTest` reconciles the constraint against
  *      `ALL`, and a constraint written from `ALL` cannot disagree with `ALL`,
  *      so the reconciliation becomes a tautology. Measured — a fabricated
  *      constant added here with no migration was fully green from a clean
  *      volume while the migration generated its list. This is the step the
- *      guard exists to enforce; do not remove its independence.
+ *      guard exists to enforce; do not remove its independence;
+ *   6. **API-O-18** — if the new member is a *security* event, add it to
+ *      `AuditWriterTest::PINNED_IP_BEARING_EVENTS`, or
+ *      `thePinAndTheConstantAgreeInBothDirections` is red and the event is
+ *      outside §9.1's layer 1a. API-O-18's own wording also asks for a forward
+ *      migration re-issuing an `ip_address` `CHECK`; **that constraint does not
+ *      exist** (**API-O-23**, verified against the server), so there is nothing
+ *      to re-issue and step 6 is the pin alone until API-O-23 lands with its
+ *      own scoped entry condition.
+ *
+ * **Extension log, so the process above can be checked against what was done
+ * rather than only read.** One extension so far: **`AUTH_PASSWORD_CHANGED`**,
+ * 2026-09-09, under entry condition **E4-1** — `SEC` ruled the name and the
+ * `SECURITY` filing (`SECURITY_MODEL.md` §5.1.4, steps 1–2) before any code
+ * existed; `BE-LEAD` did steps 3–5 in that order. `PINNED_ALLOWLIST` was **not**
+ * touched, which is what makes the filing falsifiable rather than asserted.
  *
  * @see security-audit-log-design, Instruction 2
- * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17; §3 PC-11; §4 the default-role table (same file)
+ * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
  */
 final class AuditEvent
@@ -195,6 +212,54 @@ final class AuditEvent
      * existence and deliberately does not restate its value.
      */
     public const AUTHZ_PERMISSION_DENIED = 'authz.permission.denied';
+
+    /**
+     * **E-23** (`SECURITY_MODEL.md` §5, ruled in §5.1.4): a change to a principal's
+     * own credential, written **synchronously on the request that made the
+     * change**, by **`erp_app`** — which already holds `SELECT, INSERT` on
+     * `audit_log` and needed no new grant. `erp_authlog` is the pre-authentication
+     * principal and is deliberately not reachable from this path.
+     *
+     * **The `auth.` prefix is load-bearing and was `SEC`'s reason for the name.**
+     * E-13 is written over `auth.*`, so membership of `SUBJECTLESS` below is
+     * *structural* under a rule that already exists and already has a passing
+     * guard, rather than a fresh declaration somebody has to remember to make
+     * correctly. `app_user.password_changed` was rejected for the opposite
+     * reason: it puts the resource in the name and invites
+     * `subject_type = 'app_user'`, which is the shape PC-11 (4c) exists to stop.
+     *
+     * **A security event under PC-11 (4a), and it is not close** — (4a) excludes
+     * *"an event about a principal's credentials, sessions or privileges"* in its
+     * own words, and a password change is the credentials case. That filing is
+     * judgement and (4a) says so (Rule 14); what makes it *checkable* is that
+     * `AuditEventCatalogueTest::PINNED_ALLOWLIST` was **not** edited when this
+     * member landed, so moving it to the business side later is red on (4b)
+     * until somebody edits the pin deliberately.
+     *
+     * **`metadata` is empty and there is no parameter that could fill it.** E-23
+     * forbids any credential-derived value there — not the password, not a hash,
+     * a prefix, a length, a strength score or a *"same as previous"* flag —
+     * because `metadata` is free-form `jsonb` on an append-only table no role can
+     * `UPDATE` or `DELETE`, so a value written there is written permanently.
+     * `PasswordChangeAuditWriter` has no metadata parameter, and
+     * `PasswordChangeAuditTest::itsMetadataIsEmpty` pins the key set **at empty**
+     * rather than denylisting credential-shaped names.
+     *
+     * **No cap, and the asymmetry with E-3a is the point.** E-3a caps
+     * `authz.permission.denied` because the server cannot refuse the *action*; a
+     * credential change **can** be refused, so the limit belongs on the operation
+     * and the record of a change that actually happened is never suppressed. A
+     * daily cap on this event is a violation of E-23 in terms.
+     *
+     * **The re-derivation trigger, carried from §5.1.4 rather than left there:**
+     * the day an actor may change **another** principal's credential — an
+     * administrative reset, or `RedeemPasswordReset` acting on a token — actor
+     * and subject diverge and a subjectless row loses *whose* password changed.
+     * That is a **different catalogue member** whose subject is `app_user` in
+     * `SUBJECT_TYPES` on E-15's precedent, and minting it is a fresh E4-1 pass
+     * and a fresh `SEC` ruling, not an edit to this constant.
+     */
+    public const AUTH_PASSWORD_CHANGED = 'auth.password.changed';
 
     /**
      * E-16 (`SECURITY_MODEL.md` §5): one row per bulk CSV export recording the resource,
@@ -310,6 +375,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
         self::PURCHASE_ORDER_PLACED,
@@ -337,6 +403,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
         self::ROLE_ASSIGNED,
@@ -436,6 +503,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_PASSWORD_CHANGED,
         self::DATA_EXPORT_COMPLETED,
     ];
 

@@ -79,15 +79,29 @@ final readonly class AuthTrailWriter
      */
     public function record(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress): void
     {
-        // Both halves are derived from the catalogue, never from a list here:
-        // the `auth.` prefix is what E-13 binds, and `SUBJECTLESS` is where the
-        // catalogue records that this event has no subject to declare. A member
-        // that satisfies one and not the other is a catalogue defect and this
-        // refuses it rather than writing a row nobody classified.
-        if (!str_starts_with($eventType, 'auth.') || !\in_array($eventType, AuditEvent::SUBJECTLESS, true)) {
+        // `SUBJECTLESS` is derived from the catalogue and is E-13's half: it is
+        // where the catalogue records that this event has no subject to declare.
+        //
+        // **The prefix is `auth.login.` and not `auth.`, and it was narrowed on
+        // 2026-09-09 when E-23 added `auth.password.changed`.** The wider prefix
+        // was correct while every `auth.*` member was a sign-in event; it stopped
+        // being correct the moment the catalogue held an `auth.*` member that is
+        // *subjectless* and belongs to the **authenticated** path. E-23 names
+        // `erp_app` as that event's principal and says the `erp_authlog`
+        // principal "is not reachable here" -- but this class satisfied both
+        // halves of the old guard, so nothing but the absence of a caller stopped
+        // a credential-change row being written from the pre-authentication path.
+        // A guard that holds only because nobody has called it wrongly yet is not
+        // a guard.
+        //
+        // This is still an allow-list on a prefix, not the `NOT LIKE` denylist
+        // PC-11 forbids: it names what may be written and fails closed on
+        // everything else, including on every event added tomorrow.
+        if (!str_starts_with($eventType, 'auth.login.') || !\in_array($eventType, AuditEvent::SUBJECTLESS, true)) {
             throw new \InvalidArgumentException(sprintf(
-                'E-13: "%s" is not an auth.* event declared in AuditEvent::SUBJECTLESS, so the '
-                .'pre-authentication writer must not write it.',
+                'E-13: "%s" is not an auth.login.* event declared in AuditEvent::SUBJECTLESS, so the '
+                .'pre-authentication writer must not write it. A credential-change event is E-23\'s and '
+                .'is written by erp_app on the authenticated path.',
                 $eventType,
             ));
         }
