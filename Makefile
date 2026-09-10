@@ -1,7 +1,7 @@
 # W0-a tenancy slice. Everything here runs locally; no cloud account is needed.
 COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
 
-.PHONY: env up down reset migrate test tenancy verify
+.PHONY: env up down reset migrate test tenancy deptrac verify
 
 env:                ## create .env from the template (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
@@ -27,5 +27,8 @@ test:
 
 tenancy:            ## just the isolation suite
 	cd backend && php bin/phpunit --testsuite "Project Test Suite" --filter Tenancy
+
+deptrac:            ## ARCHITECTURE.md §5's module boundaries (also gated by DeptracRulesetTest in `make test`)
+	cd backend && php tools/deptrac/vendor/bin/deptrac analyse
 
 verify: up migrate test
