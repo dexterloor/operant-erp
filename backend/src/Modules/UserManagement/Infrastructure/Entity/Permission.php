@@ -32,9 +32,18 @@ class Permission
      * `Platform\` vs `Modules\` distinction that A-10 and S-7 are written against.
      * PC-1a states the rule; the manifest is the domain it derives from.
      *
-     * Not settled: a module that owns no table -- `Ai`, `Analytics` -- has no manifest value to
-     * copy and no namespace on disk, so its form here is open (SEC-O-12, owner ARCH). That has
-     * to be answered before this catalogue is seeded; after that it is a data migration.
+     * Settled 2026-09-07 by ARCH, recorded in ARCHITECTURE.md section 4.0, and this
+     * docblock asserted the opposite until 2026-09-10: a module that owns no table --
+     * `Ai`, `Analytics` -- takes the same `App\\Modules\\<Name>` form as every other,
+     * whether or not a namespace exists on disk yet. SEC-O-12 is closed.
+     *
+     * Retained rather than deleted, because the failure is worth more than the fact.
+     * The ruling was made, the register recorded it closed, and this sentence went on
+     * saying "open, owner ARCH" for three days inside committed code. The only gate
+     * aimed at it sat at M1 -- after the waves that read this file -- so the
+     * check existed and was pointed past the work it protected. It is now also gated
+     * at M0-c exit, which is where the claim stops being true rather than where it
+     * gets expensive.
      */
     #[ORM\Column(type: Types::TEXT)]
     private string $module;
