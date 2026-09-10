@@ -59,6 +59,31 @@ abstract class TenancyTestCase extends KernelTestCase
                 (?::uuid, 'tenant-b', 'Tenant B', 'active')
             ON CONFLICT (id) DO NOTHING
             SQL, [self::TENANT_A, self::TENANT_B]);
+
+        // `tenant_settings` is tenant-scoped, so the manifest-derived truncate
+        // above empties it every setUp, and it has to be re-seeded here for the
+        // same reason the registry does. It is not optional fixture furniture:
+        // `default_currency_code` has no database default and nothing in the
+        // application substitutes one (ledger E4-3), so a workspace without a
+        // settings row cannot create an inventory item at all.
+        //
+        // Both tenants get `EUR`, which is the value the deployment was
+        // actually running under the container parameter this table replaced.
+        // A test that is *about* the setting says so by seeding a different
+        // one -- and it has to, because two workspaces on `EUR` is exactly the
+        // fixture a reverted `ItemWriter` would still satisfy.
+        $this->seedTenantSettings(self::TENANT_A);
+        $this->seedTenantSettings(self::TENANT_B);
+    }
+
+    /** Replaces the workspace's settings row, so a test may re-state the currency. */
+    protected function seedTenantSettings(string $tenantId, string $currencyCode = 'EUR'): void
+    {
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO tenant_settings (id, tenant_id, default_currency_code)
+            VALUES (?::uuid, ?::uuid, ?)
+            ON CONFLICT (tenant_id) DO UPDATE SET default_currency_code = EXCLUDED.default_currency_code
+            SQL, [Uuid::v4()->toRfc4122(), $tenantId, $currencyCode]);
     }
 
     /**

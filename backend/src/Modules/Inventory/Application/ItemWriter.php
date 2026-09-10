@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Application;
 
+use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Modules\Inventory\ApiResource\CreateItemInput;
@@ -13,7 +14,6 @@ use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -26,6 +26,22 @@ use Symfony\Component\Uid\Uuid;
  * caller sent reaches the `id` column: the input DTOs have no such property, the
  * deserializer refuses undeclared fields, and there is no `PUT` that could put a
  * client-chosen id in a path.
+ *
+ * ---------------------------------------------------------------------------
+ * Where the currency comes from
+ * ---------------------------------------------------------------------------
+ * From `tenant_settings`, read inside the tenant transaction. It used to come
+ * from `app.inventory.default_currency_code`, an **instance-wide container
+ * parameter supplying a per-tenant business value** — so every tenant on the
+ * deployment was priced in euros, and nothing could see it, because a PHP
+ * constant never reaches the database. `Version20260906000100` dropped
+ * `inventory_item.currency_code`'s default precisely so a row could not be
+ * created *"with no stated currency and be silently priced in euros"*; the
+ * parameter did it anyway, one layer up. Ledger E4-3.
+ *
+ * There is no fallback. A workspace with no settings row cannot create an item,
+ * and that refusal is the point: a `?? 'EUR'` here would be the same defect
+ * with a different address.
  *
  * ---------------------------------------------------------------------------
  * Where a uniqueness refusal is caught
@@ -45,8 +61,7 @@ final readonly class ItemWriter
         private TenantContext $tenants,
         private CurrentTenant $tenant,
         private ItemReader $reader,
-        #[Autowire('%app.inventory.default_currency_code%')]
-        private string $defaultCurrencyCode,
+        private WorkspaceSettings $settings,
     ) {
     }
 
@@ -76,6 +91,13 @@ final readonly class ItemWriter
                 $connection = $em->getConnection();
                 $this->refuseUnresolvableReferences($connection, $values);
 
+                // Read INSIDE the transaction, and that is not incidental:
+                // `set_config(..., true)` and the tenant filter's parameter are
+                // both transaction-scoped, so this is the only place the read
+                // resolves to this caller's workspace. See
+                // `UserManagement\Infrastructure\TenantSettingsReader`.
+                $currencyCode = $this->settings->defaultCurrencyCode();
+
                 $connection->executeStatement(
                     <<<'SQL'
                     INSERT INTO inventory_item
@@ -95,7 +117,7 @@ final readonly class ItemWriter
                         $values['sku'],
                         $values['name'],
                         $values['unitOfMeasureCode'],
-                        $this->defaultCurrencyCode,
+                        $currencyCode,
                         $values['supplierId'] ?? null,
                         $values['reorderPoint'] ?? null,
                         $values['reorderQuantity'] ?? null,

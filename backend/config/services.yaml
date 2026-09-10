@@ -10,11 +10,15 @@ parameters:
     # router agrees with this value rather than trusting that it was kept in step.
     app.api_base_path: '/api/v1'
 
-    # inventory_item.currency_code is NOT NULL with its default dropped
-    # (Version20260906000100), and §4.2's `CreateItem` row -- which is exhaustive
-    # -- does not accept a currency. See the finding in the Output 4 phase-2
-    # report: this is a stand-in with a name, not a design.
-    app.inventory.default_currency_code: 'EUR'
+    # `app.inventory.default_currency_code` WAS DECLARED HERE AND IS GONE
+    # (2026-09-10, ledger E4-3). It was an instance-wide container parameter
+    # supplying a per-tenant business value: every tenant on the deployment
+    # priced in euros by construction, above the isolation boundary where no
+    # RLS, tenant-context or schema check could reach it. The value now lives in
+    # `tenant_settings.default_currency_code`, one row per workspace, read by
+    # `ItemWriter` inside the tenant transaction. Recorded rather than deleted
+    # silently, so that "add a default currency parameter" reads as a decision
+    # already taken and reversed.
 
     # `API.md` §7.1 step 5 — the fixed dummy the KDF runs against on either miss
     # path, and the ONE place the cost factor is configured: `PasswordVerifier`
@@ -166,6 +170,16 @@ services:
     # an interface with one implementation resolves silently, and this one exists
     # so a test decorator can count KDF invocations (T-6, E-7).
     App\Modules\UserManagement\Domain\VerifiesPasswords: '@App\Modules\UserManagement\Infrastructure\PasswordVerifier'
+
+    # E4-3 / A-2 — the first `Application\Contract` binding in this tree.
+    # `Inventory`'s item writer takes the interface, never the implementation:
+    # the deptrac ruleset lets `InventoryApplication` reach
+    # `UserManagementContract` and nothing else of this module, so the binding
+    # is what makes the sanctioned edge the only one that exists. Explicit for
+    # the same reason as the two above -- an interface with one implementation
+    # resolves silently, and the day a second appears the choice should be an
+    # edit somebody makes on purpose.
+    App\Modules\UserManagement\Application\Contract\WorkspaceSettings: '@App\Modules\UserManagement\Infrastructure\TenantSettingsReader'
 
 when@test:
     services:
