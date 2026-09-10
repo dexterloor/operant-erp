@@ -91,6 +91,20 @@ services:
             - '../src/Modules/UserManagement/ApiResource/{IssueTokenInput.php,ChangePasswordInput.php,RoleReference.php}'
             - '../src/Modules/UserManagement/Application/{SignInCommand.php,SignInResult.php,ChangePasswordCommand.php,ChangePasswordResult.php,ChangePasswordOutcome.php}'
             - '../src/Modules/UserManagement/Infrastructure/{CredentialRow.php,IssuedToken.php}'
+            # The Purchasing slice's data classes. Same rule as the two blocks
+            # above: request/response DTOs and read models the serializer or a
+            # named factory builds, plus two function-only classes the container
+            # would otherwise try to instantiate.
+            #
+            # `PurchaseOrderResource`, `PurchaseOrderCollection`,
+            # `PurchaseOrderLineResource` and `PurchaseOrderLineCollection` are
+            # deliberately NOT excluded, for the reason `ItemResource` is not:
+            # API Platform discovers resources through the container's attribute
+            # autoconfiguration, so a resource class the container never sees has
+            # no routes at all.
+            - '../src/Modules/Purchasing/ApiResource/{NamedReference.php,ActorReference.php,UpdatePurchaseOrderInput.php,ApprovePurchaseOrderInput.php,CreatePurchaseOrderLineInput.php,UpdatePurchaseOrderLineInput.php}'
+            - '../src/Modules/Purchasing/ApiResource/State/QueryParameters.php'
+            - '../src/Modules/Purchasing/Application/{PurchaseOrderRow.php,PurchaseOrderLineRow.php,PurchaseOrderListCriteria.php,PurchaseOrderViews.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

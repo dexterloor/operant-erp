@@ -49,6 +49,20 @@ final class PermissionEnforcementTest extends ApiTestCase
         '_api_validation_errors_jsonapi',
         '_api_validation_errors_xml',
         '_api_/.well-known/genid/{id}{._format}_get',
+        // Added 2026-09-10 with the purchasing slice, and it is the same vendor
+        // behaviour as `api_genid` above rather than a new class of route.
+        // `PurchaseOrderLine` declares `PATCH` and `DELETE` at
+        // `/purchase-orders/{id}/lines/{lineId}` and no item `GET` — which
+        // §4.4.1's `AssignRole` paragraph rules legitimate — so API Platform's
+        // `NotExposedOperationResourceMetadataCollectionFactory` mints an IRI
+        // route at the pluralised default path. Its controller is
+        // `api_platform.action.not_exposed`, which answers **404 for every
+        // request, authenticated or not**, so it discloses nothing: no id
+        // reaches a query and no row is read. `ApiConfigurationTest::
+        // everyContractRouteIsUnderTheVersionedBasePath` asserts that this and
+        // the genid route are the only two routes carrying that controller, and
+        // `CreatedRowLocation` is what stops `Location` naming it.
+        '_api_/purchase_order_lines/{id}{._format}_get',
     ];
 
     /**

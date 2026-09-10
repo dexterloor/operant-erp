@@ -1,5 +1,12 @@
 # W0-a tenancy slice. Everything here runs locally; no cloud account is needed.
-COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
+#
+# DOCKER_CONTEXT is pinned deliberately. On 2026-09-10 this machine had Colima
+# and Docker Desktop both running this stack: Colima published the ports on
+# IPv4, Docker Desktop on IPv6, and `127.0.0.1` resolves IPv4 first -- so
+# `make reset` destroyed one database while the suite tested another for a
+# whole session. Override it if your engine differs; do not remove it.
+DOCKER_CONTEXT ?= colima
+COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env -f infra/docker-compose.yml
 
 .PHONY: env up down reset migrate test tenancy deptrac verify
 
@@ -17,6 +24,7 @@ reset:              ## destroy the database volume and rebuild it from the roles
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d
 	@until $(COMPOSE) exec -T postgres pg_isready -q; do sleep 1; done
+	@cd backend && php bin/assert-clean-database.php
 	$(MAKE) migrate
 
 migrate:            ## runs as the owner role; erp_app has no rights to migrate

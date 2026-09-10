@@ -52,15 +52,29 @@ final class ApiConfigurationTest extends ApiTestCase
             self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
         }
 
-        self::assertSame(['_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class], $notExposed,
-            'A route was excluded from the count as "not exposed" that is not the one API Platform mints for `Token`.');
+        // Two, and each is the same vendor behaviour for a different reason.
+        // `Token` has no row and no id, so its fallback lands on the skolem
+        // path. `PurchaseOrderLine` **does** have a row-level URI -- §4.2
+        // declares `PATCH` and `DELETE` at `/purchase-orders/{id}/lines/{lineId}`
+        // -- but declares no item `GET` there, which is exactly the shape
+        // §4.4.1's `AssignRole` paragraph rules legitimate, so API Platform
+        // mints one at the pluralised default path instead. It answers 404 by
+        // construction (`NotFoundAction`) and `CreatedRowLocation` is what stops
+        // the vendor's `Location` naming it.
+        self::assertSame([
+            '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
+            '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
+        ], $notExposed,
+            'A route was excluded from the count as "not exposed" that is not one of the two API Platform mints.');
 
         // Six for the `/items` slice, three for Output 4 §7's authentication
         // paths (`IssueToken`, `GetCurrentUser`, and `ChangePassword` added
-        // 2026-09-09 under E-23). The count is a floor against a route appearing
-        // that nobody declared; which operations those are is pinned by name in
-        // ItemOperationContractTest and AuthOperationContractTest.
-        self::assertCount(9, $checked, 'The route set changed. This slice declares nine operations: '.implode(', ', array_keys($checked)));
+        // 2026-09-09 under E-23), and **nine for the purchasing slice** added
+        // 2026-09-10. The count is a floor against a route appearing that nobody
+        // declared; which operations those are is pinned by name in
+        // ItemOperationContractTest, AuthOperationContractTest and
+        // PurchaseOrderOperationContractTest.
+        self::assertCount(18, $checked, 'The route set changed. This slice declares eighteen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -101,8 +101,11 @@ final class AuthOperationContractTest extends ApiTestCase
     #[Test]
     public function theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned(): void
     {
-        $itemOperations = array_keys(\App\Tests\Api\ItemOperationContractTest::PINNED_ITEM_OPERATIONS);
-        $expected = array_merge($itemOperations, array_keys(self::PINNED_AUTH_OPERATIONS));
+        $expected = array_merge(
+            array_keys(\App\Tests\Api\ItemOperationContractTest::PINNED_ITEM_OPERATIONS),
+            array_keys(\App\Tests\Api\PurchaseOrderOperationContractTest::PINNED_PURCHASE_ORDER_OPERATIONS),
+            array_keys(self::PINNED_AUTH_OPERATIONS),
+        );
         sort($expected);
 
         $declared = array_keys(TransactionBoundaryTest::contractOperations());
@@ -117,6 +120,18 @@ final class AuthOperationContractTest extends ApiTestCase
                 $residual.' is shipped. D-14 rules it out: an endpoint named "revoke" that revokes nothing '
                 .'is the fake-green shape this project has now found fifteen times, and RefreshToken is '
                 .'bound by ADR-005 to a BFF cookie the browser half of which is deferred.');
+        }
+
+        // The purchasing block's four deliberate absences, asserted here for the
+        // reason `RefreshToken` and `RevokeSession` are: this is the one method
+        // whose domain is the **whole** registry, so it is the only place an
+        // operation's absence is a claim about the shipped surface rather than
+        // about one resource's pin.
+        foreach (\App\Tests\Api\PurchaseOrderOperationContractTest::PINNED_UNSHIPPED as $residual) {
+            self::assertNotContains($residual, $declared,
+                $residual.' is shipped and it is pinned as blocked. `CreatePurchaseOrder` is blocked on '
+                .'§6.2 against §6.1\'s columns; `CancelPurchaseOrder` on `PurchaseOrder::cancel()`, which '
+                .'§8.3 and X9-1 exist to find missing; the two restores on E9-3 / API-O-11.');
         }
     }
 

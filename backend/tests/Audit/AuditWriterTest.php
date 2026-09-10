@@ -8,6 +8,7 @@ use App\SharedKernel\ValueObject\AuditEvent;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
+use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Tests\Tenancy\TenancyTestCase;
 use PHPUnit\Framework\Attributes\Test;
@@ -137,6 +138,12 @@ final class AuditWriterTest extends TenancyTestCase
     private const DECLARED_WRITERS = [
         'Modules/AuditLog/Infrastructure/DenialAuditWriter.php',
         'Modules/AuditLog/Infrastructure/PasswordChangeAuditWriter.php',
+        // F-2 step 8's writer, added 2026-09-10 with `ApprovePurchaseOrder`. It
+        // is the **first business-event writer in the tree**, which is why it is
+        // driven below rather than only listed: every previous writer's rule was
+        // "this event may carry an address", and this one's is "this event may
+        // not", and until now that half of §9.2's table had no subject at all.
+        'Modules/AuditLog/Infrastructure/PurchaseOrderAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -246,6 +253,21 @@ final class AuditWriterTest extends TenancyTestCase
             actorUserId: $actor,
             actorLabel: 'Probe Actor',
             ipAddress: self::PROBE_IP,
+        );
+
+        // F-2 step 8's writer, added 2026-09-10. It is the first writer here
+        // that **cannot** carry an address -- §9.2's `ip_address` cell for
+        // `PURCHASE_ORDER_PLACED` is null, API-16 restricts the column to
+        // security events, and the method has no parameter that could send one.
+        // Driving it is what turns "structurally cannot" into a measurement:
+        // the row it writes appears in `$written` and must not appear in
+        // `$withIp`, which is the business half of the split the clauses below
+        // assert.
+        $this->purchaseOrderWriter()->recordPlaced(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
+            purchaseOrderId: Uuid::v4()->toRfc4122(),
         );
 
         $withIp = [];
@@ -634,6 +656,14 @@ final class AuditWriterTest extends TenancyTestCase
     {
         $writer = self::getContainer()->get(PasswordChangeAuditWriter::class);
         \assert($writer instanceof PasswordChangeAuditWriter);
+
+        return $writer;
+    }
+
+    private function purchaseOrderWriter(): PurchaseOrderAuditWriter
+    {
+        $writer = self::getContainer()->get(PurchaseOrderAuditWriter::class);
+        \assert($writer instanceof PurchaseOrderAuditWriter);
 
         return $writer;
     }

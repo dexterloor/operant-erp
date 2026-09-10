@@ -161,6 +161,21 @@ final class ContractDocument
      * declares. Prose in the cell (`*(bounded)*`, "required — exactly one of")
      * is stripped; the names are the backticked tokens.
      *
+     * ⚠ **A parenthesised group is a parameter's VALUE SET, never more
+     * parameters, and this method used to read it as more parameters.** Found
+     * 2026-09-10 building the purchasing slice: `ListPurchaseOrders`' cell reads
+     * ``` `status` (`open`·`draft`·`received`·`cancelled`); `supplier_id`; … ```
+     * and the extraction returned **eleven** names for a row that declares seven.
+     * §10.3's derivation step 2 is explicit that a `status` predicate becomes
+     * *"the `status` segment parameter, whose value set is the manifest's own
+     * segment names"* — one parameter, four values.
+     *
+     * It was invisible until now because no shipped row had a value set:
+     * `ListItems`' cell has none. It affects `ListSalesOrders` and every future
+     * segmented list identically, and in the direction that **fails loudly** — a
+     * comparison against the operation's declared parameters cannot accidentally
+     * find `open` — so nothing was silently green on it.
+     *
      * @return list<string>
      */
     public static function queryParameters(string $operationId): array
@@ -170,6 +185,11 @@ final class ContractDocument
         if ('—' === $cell || '' === $cell) {
             return [];
         }
+
+        // Value sets and prose asides both live in parentheses and neither
+        // declares a parameter. Stripped before extraction rather than filtered
+        // after it, because a filter would need to know the value names.
+        $cell = (string) preg_replace('/\([^()]*\)/', '', $cell);
 
         preg_match_all('/`([a-z_]+)`/', $cell, $matches);
 

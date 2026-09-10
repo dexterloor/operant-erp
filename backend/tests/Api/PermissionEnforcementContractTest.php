@@ -55,6 +55,23 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'UpdateItem' => 'inventory_item.edit',
         'DeleteItem' => 'inventory_item.delete',
         'RestoreItem' => 'inventory_item.delete',
+        // §4.2's Purchasing block, added 2026-09-10. Every one is the row's own
+        // `Perm` cell. Two are worth reading rather than scanning:
+        // `ApprovePurchaseOrder` is the only operation in the tree requiring
+        // `purchase_order.approve`, which is SoD-1's controlled half and the code
+        // `buyer` does not hold; and the three line operations require
+        // `purchase_order.edit` rather than a `purchase_order_line.*` code,
+        // because §3's catalogue has none — a line is not a resource anybody is
+        // separately entitled to.
+        'ListPurchaseOrders' => 'purchase_order.view',
+        'GetPurchaseOrder' => 'purchase_order.view',
+        'UpdatePurchaseOrder' => 'purchase_order.edit',
+        'DeletePurchaseOrder' => 'purchase_order.delete',
+        'ApprovePurchaseOrder' => 'purchase_order.approve',
+        'ListPurchaseOrderLines' => 'purchase_order.view',
+        'CreatePurchaseOrderLine' => 'purchase_order.edit',
+        'UpdatePurchaseOrderLine' => 'purchase_order.edit',
+        'DeletePurchaseOrderLine' => 'purchase_order.edit',
     ];
 
     /**
