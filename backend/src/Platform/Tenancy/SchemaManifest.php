@@ -196,6 +196,31 @@ final class SchemaManifest
         ],
 
         // ------------------------------------------------------------------
+        // Platform\Http — transport plumbing that is nevertheless tenant-owned.
+        // ------------------------------------------------------------------
+        'idempotency_key' => [
+            'module' => 'Platform\\Http\\Idempotency',
+            'tenant' => true,
+            'deletion' => self::NA,
+            'why' => 'API-O-1 / E9-2. The storage `Idempotency-Key` never had: API.md §6.1 records the header as required by P-5 and ROADMAP.md with nowhere in the schema to keep one, so IdempotencyKeyGuard demands it and its own docblock says it "does not deduplicate a replay". Keyed UNIQUE (tenant_id, operation_id, key) per §6.1, holding the request-body digest, the response status, the response-body digest and created_at. **It does not satisfy §6.2\'s byte-for-byte replay clause** — a digest is not a body, nothing stores the body, and adding a response_body column is a contract decision (size cap, PII at rest, retention) that is not DATA\'s; recorded as an open item rather than answered in a migration. Deletion class n/a rather than none, and it is the first tenant-scoped table to take it: n/a is "infrastructure tables nothing in the domain deletes", the domain never loads a row from here, and so the table carries no ORM entity — which is exactly the correlation SchemaOwnershipTest::everyTableTheDomainOwnsCarriesAMappedEntity derives (its expected set is every table whose class is not n/a). Classing it none would demand an entity, and an entity here would hand the domain a handle on transport plumbing. Retention is designed WITH SEC-O-3 rather than beside it, which means refusing both mechanisms §6.1 suggests: no partition (ADR-007 §A1.1; SCHEMA.md §13 records auth_attempt\'s as "structurally present and operationally inert"), no maintenance principal (SEC-O-1: none exists or can be created; ADR-007 §A1.4 rejects a purge-only one), and therefore no dated purge and no retention_column (PO\'s ruling of 2026-09-07; ROADMAP.md F-18 — a retention_column on a table with no authorised age purge is a declaration with no catalogue referent). The only authorised purge is the lifecycle purge predicated on tenant_id at tenant closure, on ADR-007 §A1.3\'s per-tenant loop under FORCE ROW LEVEL SECURITY, and idempotency_key_tenant_operation_key leads with tenant_id so it is index-supported with no second index. The residual is named, not solved: rows on a live tenant are never removed and this table has no audit value at all (§6.1\'s own words), so its growth is waste rather than a trade — an age window needs a PO ruling and does not get invented here.',
+            // SELECT and INSERT, and each omission is a decision.
+            // UPDATE: §6.1 -- a replayed key is answered from the stored row,
+            //         never rewritten. That also chooses the protocol: the row
+            //         is written once with its response already known, so the
+            //         claim-then-fill shape is unavailable and a concurrent
+            //         duplicate is refused by 23505 plus rollback.
+            // DELETE/TRUNCATE: a principal that can delete its own idempotency
+            //         records can replay anything by deleting the row that
+            //         refuses it -- the control removed by its holder. The
+            //         purge is the owner's per-tenant loop.
+            // erp_ai: no natural-language question is answered by request
+            //         digests.
+            // the pre-auth roles: no operation marked `Idem` is reachable
+            //         before a JWT exists (API.md §7).
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT']],
+        ],
+
+        // ------------------------------------------------------------------
         // SharedKernel\Reference — ADR-002 §6: no tenant_id, no RLS. Read-only
         // to the application; the owner maintains them.
         // ------------------------------------------------------------------
