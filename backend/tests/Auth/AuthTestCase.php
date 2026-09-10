@@ -6,7 +6,7 @@ namespace App\Tests\Auth;
 
 use App\Modules\UserManagement\Infrastructure\EmailHasher;
 use App\Tests\Api\ApiTestCase;
-use App\Tests\Support\CountingPasswordVerifier;
+use App\Tests\Support\CountingKdf;
 use App\Tests\Support\SqlRecorder;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
@@ -21,11 +21,12 @@ use Symfony\Component\Uid\Uuid;
  * path needs and no earlier slice did: counter tables that are **not**
  * tenant-scoped and therefore not covered by the base class's truncate, tenants
  * whose `status` is the variable under test, and `app_user` rows carrying a real
- * hash at the configured cost.
+ * hash at the configured Argon2id parameters.
  *
  * Fixtures are hashed through the **application's own** verifier rather than
- * through `password_hash()` here. A fixture that hashed at a different cost
- * would make every timing claim in this directory a claim about the fixture.
+ * through `password_hash()` here. A fixture that hashed at different Argon2id
+ * parameters would make every timing claim in this directory a claim about the
+ * fixture.
  */
 abstract class AuthTestCase extends ApiTestCase
 {
@@ -95,10 +96,10 @@ abstract class AuthTestCase extends ApiTestCase
         ], $headers);
     }
 
-    protected function hasher(): CountingPasswordVerifier
+    protected function hasher(): CountingKdf
     {
-        $hasher = self::getContainer()->get(CountingPasswordVerifier::class);
-        \assert($hasher instanceof CountingPasswordVerifier);
+        $hasher = self::getContainer()->get(CountingKdf::class);
+        \assert($hasher instanceof CountingKdf);
 
         return $hasher;
     }

@@ -7,6 +7,7 @@ namespace App\Tests\Auth;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Platform\Tenancy\Entity\Tenant;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 
 /**
  * **E-7 made concrete** — `API.md` §7.3 and §7.6.
@@ -70,9 +71,9 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
             $responses[$label] = $this->observable();
         }
 
-        self::assertGreaterThanOrEqual(12, \count($responses),
-            'The derived case set collapsed. Tenant::STATUS_* × app_user.is_active plus the three '
-            .'credential cases is twelve refusals; fewer means the derivation found less than it should '
+        self::assertGreaterThanOrEqual(14, \count($responses),
+            'The derived case set collapsed. Tenant::STATUS_* × app_user.is_active plus the five '
+            .'credential cases is fourteen refusals; fewer means the derivation found less than it should '
             .'and every comparison below would be a comparison of almost nothing.');
 
         $distinct = array_unique(array_map(
@@ -324,6 +325,28 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
             $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
             $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
             $this->signIn($slug, self::EMAIL, 'not the password');
+        };
+
+        // The two plaintexts `NativePasswordHasher::verify()` answers `false` for
+        // at **zero KDF rounds**. Until 2026-09-10 no case in this suite drove
+        // either of them, on this path or on the credential-change path, so
+        // §7.3's *"exactly one, on every path"* had a hole nothing could see —
+        // and §4.3a's specified-but-unbuilt `UserProvisioningTest` names the
+        // empty string as one of its three cases, so it would have inherited it.
+        // `PasswordVerifier::verify()` substitutes an in-range candidate; these
+        // two rows are what makes that visible.
+        $cases['empty-password'] = function (): void {
+            $slug = self::SLUG_PREFIX.'empty-password';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
+            $this->signIn($slug, self::EMAIL, '');
+        };
+
+        $cases['over-long-password'] = function (): void {
+            $slug = self::SLUG_PREFIX.'over-long-password';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
+            $this->signIn($slug, self::EMAIL, str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1));
         };
 
         $cases['unknown-email'] = function (): void {

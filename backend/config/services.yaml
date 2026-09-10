@@ -21,15 +21,28 @@ parameters:
     # already taken and reversed.
 
     # `API.md` §7.1 step 5 — the fixed dummy the KDF runs against on either miss
-    # path, and the ONE place the cost factor is configured: `PasswordVerifier`
-    # reads the cost out of this string rather than taking a second parameter,
-    # because "a dummy of the same cost factor" is a requirement about two values
-    # and two configured numbers drift.
+    # path, and the ONE place the KDF's parameters are configured:
+    # `PasswordVerifier` reads `memory_cost`, `time_cost` and `threads` out of
+    # this string rather than taking three more parameters, because "a dummy of
+    # the same cost factor" is a requirement about two values and two configured
+    # numbers drift.
     #
-    # A bcrypt hash of 32 random bytes nobody recorded. Not a secret — it matches
-    # no password by construction — so it is here rather than in the environment;
-    # hiding a non-secret makes the real ones harder to find (Standing Rule 10).
-    app.auth.dummy_password_hash: '$2y$12$SSmgiu/BdRDlOZ4lkWAsQOB93QPvGgKO1tRnozrdG1nP2U580SP0e'
+    # **Argon2id since 2026-09-10, with no bcrypt fallback** (user-approved). The
+    # hazard the switch closes is a mixed store: a bcrypt-hashed user beside an
+    # Argon2id dummy makes the miss paths measurably cheaper than the
+    # wrong-password path and rebuilds the user-existence oracle E-7 removes.
+    # `app_user` held zero rows, so there was nothing to migrate and no window to
+    # arrange. `PasswordVerifier` refuses any dummy that is not Argon2id.
+    #
+    # m=65536 KiB, t=4, p=1 — `NativePasswordHasher`'s own defaults and PHP's.
+    # Measured on this machine: 223 ms per verify, against 356 ms for the bcrypt
+    # cost 12 this replaced.
+    #
+    # An Argon2id hash of 32 random bytes nobody recorded. Not a secret — it
+    # matches no password by construction — so it is here rather than in the
+    # environment; hiding a non-secret makes the real ones harder to find
+    # (Standing Rule 10).
+    app.auth.dummy_password_hash: '$argon2id$v=19$m=65536,t=4,p=1$S1F6OVZrRTBnS2lkd3ZhMg$m0ZB1phEShmbpBMRp34kto63MuUEw8yUM3BmLe07MT0'
 
 services:
     # default configuration for services in *this* file
@@ -162,9 +175,22 @@ services:
         arguments:
             $signingKey: '%env(AUTH_TOKEN_SIGNING_KEY)%'
 
+    # The KDF itself, as a service, so the test environment can decorate it and
+    # count invocations **at the KDF boundary**. It is built by a named factory
+    # rather than with inline arguments because its three parameters are read off
+    # the dummy, and that derivation has to exist in exactly one place —
+    # `PasswordVerifier::kdfFor()`. Wiring it to a hasher that disagrees with the
+    # dummy is not a silent degradation: `PasswordVerifier::__construct()` asks
+    # the component itself (`needsRehash($dummy)`) and throws.
+    app.auth.kdf:
+        class: Symfony\Component\PasswordHasher\Hasher\NativePasswordHasher
+        factory: ['App\Modules\UserManagement\Infrastructure\PasswordVerifier', 'kdfFor']
+        arguments: ['%app.auth.dummy_password_hash%']
+
     App\Modules\UserManagement\Infrastructure\PasswordVerifier:
         arguments:
             $dummyHash: '%app.auth.dummy_password_hash%'
+            $kdf: '@app.auth.kdf'
 
     # Explicit, like the `CurrentTenant` binding above and for the same reason:
     # an interface with one implementation resolves silently, and this one exists
@@ -244,9 +270,14 @@ when@test:
             tags: [{name: 'doctrine.middleware', connection: 'ratelimit'}]
 
         # T-6 / E-7 — the KDF invocation count, which no response and no SQL log
-        # carries. Decorates the real verifier; production never sees this class.
-        App\Tests\Support\CountingPasswordVerifier:
-            decorates: App\Modules\UserManagement\Domain\VerifiesPasswords
+        # carries. It decorates the **KDF**, not `VerifiesPasswords`: the old
+        # `CountingPasswordVerifier` wrapped the verifier from outside and so
+        # counted wrapper calls rather than KDF executions, reading 1 while
+        # `NativePasswordHasher::verify()` short-circuited an empty password to
+        # false at zero rounds (fake-green eighteen). Production never sees this
+        # class.
+        App\Tests\Support\CountingKdf:
+            decorates: app.auth.kdf
             arguments: ['@.inner']
             public: true
 
@@ -261,10 +292,19 @@ when@test:
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
 
     parameters:
-        # The same dummy at bcrypt cost 4. The production cost is deliberate
-        # slowness and this suite drives the KDF several hundred times in one
-        # run (E-21's ceilings are 100 and 300), so at cost 12 the budget tests
-        # alone would take minutes. Nothing about the branch structure depends on
-        # the number — `PasswordVerifierTest` asserts the hasher's cost is read
-        # off whichever value is configured, which is what stops the two drifting.
-        app.auth.dummy_password_hash: '$2y$04$kce4oF.FRXilQx4aZL.rOevBh72CH1EfFWRG4auT/dh.TdE.oGwZa'
+        # A second Argon2id dummy at m=1024 KiB, t=3, p=1. The production
+        # parameters are deliberate slowness and this suite drives the KDF
+        # several hundred times in one run (E-21's ceilings are 100 and 300), so
+        # at m=65536 the budget tests alone would take minutes. Measured here:
+        # 2.19 ms per verify, against 1.55 ms for the bcrypt cost 4 this
+        # replaced. t=3 and m>=10 KiB are `NativePasswordHasher`'s own floors —
+        # it throws below either — so this is close to the cheapest dummy the
+        # component will build.
+        #
+        # Nothing about the branch structure depends on the numbers —
+        # `PasswordVerifierTest` asserts the KDF's parameters are read off
+        # whichever value is configured, which is what stops the two drifting.
+        # The gap the short-circuit check needs survives the reduction: 2.19 ms
+        # of KDF against 0.000 ms of short-circuit is still four orders of
+        # magnitude.
+        app.auth.dummy_password_hash: '$argon2id$v=19$m=1024,t=3,p=1$VHI3bmJZZUIudFF3MDB4Sg$eewE/E8Yvk7d/WPEVdqbJVmrVw4AyOKiQ0W4FudFr4o'

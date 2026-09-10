@@ -74,27 +74,48 @@ use Symfony\Component\Uid\Uuid;
  *      inherit a path with no timing difference already built into it.
  *
  * `PasswordChangeTest::theKdfRunsExactlyOnceOnEveryPathThatReachesIt` drives all
- * four combinations through `CountingPasswordVerifier`. **Mutation:** move the
+ * five combinations through `CountingKdf`. **Mutation:** move the
  * new-password checks ahead of the verify and return early; the two
  * bad-new-password cases go to zero invocations; red.
  *
  * ===========================================================================
- * There is no password strength policy, and inventing one here was refused
+ * The strength policy is **E-24**, and it is still not this class's to mint
  * ===========================================================================
- * No document in this project carries one — grepped, not assumed. The two checks
- * below are **structural**, derived from what the KDF and the column require
- * rather than from a strength opinion: an empty string hashes to a perfectly
- * valid bcrypt digest and is a credential nobody chose; and
+ * This docblock previously read *"there is no password strength policy, and
+ * inventing one here was refused"*, and the refusal was right: `SECURITY_MODEL.md`
+ * §5 is *"the single register for `E-*`"*. **E-24 now exists** — a minimum of
+ * **twelve characters**, the user's decision of 2026-09-10 — so the rule is
+ * enforced here and **decided there**. `PasswordChangeTest` reconciles
+ * `self::MINIMUM_LENGTH` against a literal pinned in the test file and against
+ * E-24's own row, so a figure changed in one place and not the other is red.
+ *
+ * The other two checks remain **structural**, derived from what the KDF and the
+ * column require rather than from a strength opinion: an empty string hashes to
+ * a perfectly valid digest and is a credential nobody chose; and
  * `NativePasswordHasher` **throws** above `PasswordHasherInterface::MAX_PASSWORD_LENGTH`,
  * which would be a 500 on a request that is simply invalid, so the limit is read
- * off the component rather than written down here.
+ * off the component rather than written down here. Empty keeps its own code
+ * rather than folding into *too short*: nothing sent and eleven characters sent
+ * are different mistakes, and the client's message differs.
  *
- * A minimum length, a character-class rule or a breach-list check are all
- * defensible and none of them is `BE-LEAD`'s to mint: `SECURITY_MODEL.md` §5 is
- * *"the single register for `E-*`"* and holds no such rule. Routed as
- * **API-O-24**, together with the fact that bcrypt silently truncates at 72
- * bytes — which is a property of the existing hasher and of every credential
- * this project has already written, not something this endpoint introduces.
+ * **The minimum counts characters; the maximum counts bytes**, and the asymmetry
+ * is deliberate. Twelve *characters* is what E-24 decides and what a person
+ * choosing a password understands; 4096 *bytes* is what the component refuses,
+ * so it is read in the component's own unit.
+ *
+ * **No maximum below the component's ceiling, and that was measured rather than
+ * assumed.** A 72-byte cap was proposed on the grounds that bcrypt truncates
+ * there. It does not, on this code path: `NativePasswordHasher` pre-hashes with
+ * `base64(sha512())` above 72 bytes on **both** the hash and the verify side, so
+ * an 80-byte pair sharing a 72-byte prefix returns `false` — and since
+ * 2026-09-10 the KDF is Argon2id, which does not truncate at all. The cap would
+ * have rejected working passphrases to close a hole that was already shut.
+ * **API-O-24 asserted the opposite and has been corrected as a stale-claim row.**
+ * A breach-list check and a reuse rule remain unowned by this class and unwritten.
+ *
+ * **All three checks run after the verify and none of them returns ahead of it** —
+ * see the E-7 ruling above. A length rule is the cheapest possible early return
+ * and therefore the most tempting one to hoist, which is exactly why it is not.
  *
  * ===========================================================================
  * A password change does not kill a live token — consequence, not defect
@@ -116,10 +137,25 @@ final readonly class ChangePassword
     /** §5.2's `errors[]` code for the branch that says the current password did not verify. */
     public const CURRENT_PASSWORD_INVALID = 'current_password_invalid';
 
-    /** The two structural new-password codes. See the class docblock: there is no strength policy. */
+    /** The two structural new-password codes. See the class docblock. */
     public const NEW_PASSWORD_EMPTY = 'new_password_empty';
 
     public const NEW_PASSWORD_TOO_LONG = 'new_password_too_long';
+
+    /** E-24's code. The figure below is the register's, not this class's. */
+    public const NEW_PASSWORD_TOO_SHORT = 'new_password_too_short';
+
+    /**
+     * `SECURITY_MODEL.md` §5, **E-24** — twelve **characters**, counted as UTF-8
+     * code points. The user's decision of 2026-09-10, not a derived figure.
+     *
+     * Reconciled against the register by
+     * `PasswordChangeTest::theMinimumLengthIsTheOneTheEnforcementRegisterSets`,
+     * which pins 12 as a literal of its own rather than reading this constant
+     * into its own expectation — the fake-green `PreAuthBudgetTest` and
+     * `AuthLockoutThresholdTest` shipped with first time.
+     */
+    public const MINIMUM_LENGTH = 12;
 
     public function __construct(
         private TenantContext $tenants,
@@ -220,9 +256,22 @@ final readonly class ChangePassword
             ]];
         }
 
+        // E-24. Characters, not bytes — `mb_strlen()` rather than `strlen()` —
+        // because "twelve characters" is the rule the register states and the
+        // one the person choosing the password is reading. Counting bytes would
+        // let four emoji satisfy it.
+        if (mb_strlen($newPassword, 'UTF-8') < self::MINIMUM_LENGTH) {
+            return [[
+                'pointer' => '/new_password',
+                'code' => self::NEW_PASSWORD_TOO_SHORT,
+                'message' => \sprintf('The new password must be at least %d characters.', self::MINIMUM_LENGTH),
+            ]];
+        }
+
         // The bound is the component's, read rather than restated: exceeding it
         // makes `NativePasswordHasher::hash()` throw, and an invalid request must
-        // not be a 500.
+        // not be a 500. Bytes here, deliberately, because bytes is the unit the
+        // component refuses in.
         if (\strlen($newPassword) > PasswordHasherInterface::MAX_PASSWORD_LENGTH) {
             return [[
                 'pointer' => '/new_password',

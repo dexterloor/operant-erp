@@ -78,7 +78,7 @@ final class AuthorizationOrderTest extends ApiTestCase
      * The consequence is structural: **a statement-count clause cannot be added to
      * this test without changing the cap**, because the cap makes the count a
      * function of request *order* rather than of the id. E-7's sixth observable —
-     * the KDF invocation count, which `CountingPasswordVerifier` exists to expose
+     * the KDF invocation count, which `CountingKdf` exists to expose
      * on the sign-in path — has **no analogue here by construction**: no password
      * is verified on an authenticated request, so there is no per-request
      * work counter for this path to be constant in. `theRowLoaderIsNotReachedOnADenial`

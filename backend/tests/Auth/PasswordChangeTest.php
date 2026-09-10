@@ -9,7 +9,9 @@ use App\Modules\UserManagement\Application\ChangePassword;
 use App\Modules\UserManagement\Application\PasswordChangeThrottle;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 
 /**
  * **E-23 — `POST /api/v1/me/password`.**
@@ -33,6 +35,12 @@ use PHPUnit\Framework\Attributes\Test;
  *                                                 §4.2's `—` rule
  *   `::theTokenThatMadeTheChangeStillWorksAfterwards`
  *                                                 API-O-13 / API-O-21, pinned
+ *   `::theMinimumLengthIsTheOneTheEnforcementRegisterSets`
+ *                                                 **E-24**, three-sided
+ *   `::aNewPasswordBelowTheMinimumIsRefusedInCharactersRatherThanBytes`
+ *                                                 **E-24**'s boundary and unit
+ *   `::aPassphraseLongerThanSeventyTwoBytesIsAcceptedAndIsNotTruncated`
+ *                                                 API-O-24's correction
  *
  * ===========================================================================
  * Every classification assertion reads the constants; none restates them
@@ -75,7 +83,7 @@ final class PasswordChangeTest extends AuthTestCase
         $this->userId = $this->seedUser($this->tenantId, self::EMAIL, self::PASSWORD);
         $this->token = $this->tokenFor($this->tenantId, $this->userId);
 
-        // Seeding hashed a password. `CountingPasswordVerifier` deliberately does
+        // Seeding hashed a password. `CountingKdf` deliberately does
         // not count `hash()`, but resetting here means every invocation figure
         // below is measured from the start of the request under test whatever the
         // fixture did.
@@ -281,12 +289,47 @@ final class PasswordChangeTest extends AuthTestCase
      * structurally unavailable, so a wrong-current-password probe costs the server
      * exactly what a correct one does.
      *
-     * All four combinations are driven, because a test covering only the two
+     * All seven combinations are driven, because a test covering only the two
      * *current-password* branches would stay green under precisely the mutation
      * this exists to catch.
      *
+     * ------------------------------------------------------------------------
+     * **The last two rows are new, and the correction that produced them is
+     * worth recording — fake-green eighteen**
+     * ------------------------------------------------------------------------
+     * `NativePasswordHasher::verify()` answers `false` at **zero KDF rounds** for
+     * an empty plaintext and for anything over
+     * `PasswordHasherInterface::MAX_PASSWORD_LENGTH`, and the counter this method
+     * reads used to decorate `VerifiesPasswords` from **outside**, so it counted
+     * wrapper calls rather than KDF executions.
+     *
+     * **The four original rows were nonetheless honest**, and this was checked
+     * rather than assumed: `verify()` takes the **current** password, and none of
+     * them offers an empty one — the empty string was the *new* password, which
+     * the KDF never sees on the verify side. The vacuity was **latent**, not
+     * present: grepped, **no test in this suite drove an unusable plaintext into
+     * `verify()` at all**, on this path or on the sign-in path, so nothing was
+     * green for the wrong reason and nothing would have caught the defect either.
+     * §4.3a's specified-but-unbuilt `UserProvisioningTest` names the empty string
+     * as one of its three sign-in cases and would have been the first to be
+     * vacuous.
+     *
+     * The last two rows close that: they are the only shapes here that reach the
+     * short-circuit. Both halves of the fix are what make them meaningful —
+     * `PasswordVerifier::verify()` substitutes an in-range candidate so the KDF
+     * always runs, and `CountingKdf` sits at the KDF boundary and **throws**
+     * rather than counting a call the delegate would refuse. The cost premise
+     * itself is measured separately, in
+     * `PasswordVerifierTest::theKdfIsNotShortCircuitedByAnEmptyOrOverLongPassword` —
+     * a count cannot see the difference between a call and an execution, so it is
+     * not asked to.
+     *
+     * *Mutation, run:* delete the `$usable`/`$candidate` substitution from
+     * `PasswordVerifier::verify()`. The last two rows report **0** invocations
+     * (`CountingKdf` refuses to count them) and this is red on both.
+     *
      * *Mutation, run:* in `ChangePassword`, move the `newPasswordErrors()` call
-     * above the `verify()` call and return early when it is non-empty. The two
+     * above the `verify()` call and return early when it is non-empty. The three
      * bad-new-password rows go to **0** invocations and this is red naming them.
      * *Second mutation, run — the one that shows the count is not incidental:*
      * short-circuit `verify()` when the stored hash is null. Every row here stays
@@ -303,12 +346,27 @@ final class PasswordChangeTest extends AuthTestCase
             'wrong current, valid new' => ['not-the-password', 'second-replacement-secret'],
             'correct current, empty new' => [self::PASSWORD, ''],
             'wrong current, empty new' => ['not-the-password', ''],
+            'correct current, over-long new' => [self::PASSWORD, str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1)],
+            // The two that reach the short-circuit. `verify()` is called with the
+            // **current** password, so these are the only shapes in this file
+            // that put an unusable plaintext into the KDF — which is why the
+            // `empty new` rows above never exercised it.
+            'empty current, valid new' => ['', 'third-replacement-secret'],
+            'over-long current, valid new' => [str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1), 'fourth-replacement-secret'],
         ];
 
         // The first case succeeds, so it has to run last or it would change the
-        // credential the other three present. Ordered explicitly rather than left
-        // to the array's order, because that dependency is invisible otherwise.
-        $order = ['wrong current, valid new', 'correct current, empty new', 'wrong current, empty new', 'correct current, valid new'];
+        // credential the others present. Ordered explicitly rather than left to
+        // the array's order, because that dependency is invisible otherwise.
+        $order = [
+            'wrong current, valid new',
+            'correct current, empty new',
+            'wrong current, empty new',
+            'correct current, over-long new',
+            'empty current, valid new',
+            'over-long current, valid new',
+            'correct current, valid new',
+        ];
 
         foreach ($order as $label) {
             [$current, $new] = $cases[$label];
@@ -364,6 +422,153 @@ final class PasswordChangeTest extends AuthTestCase
         // Nothing moved.
         $this->signIn(self::SLUG, self::EMAIL, self::PASSWORD);
         self::assertSame(200, $this->httpStatus(), 'The original password no longer authenticates after a refusal.');
+    }
+
+    /**
+     * **E-24's figure, pinned here and reconciled against the register.**
+     *
+     * `SECURITY_MODEL.md` §5 is the single register for `E-*`, so twelve is
+     * decided there and enforced in `ChangePassword`. The pin below is a
+     * **literal**, not `ChangePassword::MINIMUM_LENGTH`: the first versions of
+     * `PreAuthBudgetTest` and `AuthLockoutThresholdTest` drove their loops from
+     * the constants under test and **both mutations survived**, because the test
+     * moved with the constant. This is the same three-sided comparison those two
+     * were rebuilt into — literal, constant, register row.
+     *
+     * *Mutation, run:* change `ChangePassword::MINIMUM_LENGTH` to 8; red here on
+     * the first assertion and red on the boundary below.
+     *
+     * *Second mutation, run — and the first attempt at it **survived**, which is
+     * why the assertion below reads the way it does:* change E-24's headline from
+     * *"refused below twelve characters"* to *"eight characters"*. Asserting
+     * `'twelve characters'` was **green**, because the row uses that phrase a
+     * second time when it names its unit, and the second occurrence is
+     * explanatory rather than normative. The assertion now pins the **normative
+     * clause**, which occurs once. That is fake-green nineteen, found by running
+     * the mutation rather than by reading the test.
+     */
+    #[Test]
+    public function theMinimumLengthIsTheOneTheEnforcementRegisterSets(): void
+    {
+        self::assertSame(12, ChangePassword::MINIMUM_LENGTH);
+
+        if (!SecurityModelDocument::isAvailable()) {
+            self::markTestSkipped('docs/SECURITY_MODEL.md is gitignored and absent from this checkout, so the pin is checked against the code only.');
+        }
+
+        $row = SecurityModelDocument::enforcementRow('E-24');
+        self::assertNotSame('', $row, 'E-24 has left the register, so the pin above is unanchored.');
+
+        // The whole normative clause, not the figure on its own: the row also
+        // uses "twelve characters" when it explains its unit, and a substring
+        // that appears twice cannot pin the occurrence that decides the rule.
+        self::assertSame(1, substr_count($row, 'refused below twelve characters'),
+            'E-24 no longer states the figure exactly once in its normative clause.');
+
+        // And it names its unit, because characters and bytes are different
+        // rules and the row has to say which.
+        self::assertStringContainsString('not in bytes', $row);
+    }
+
+    /**
+     * **E-24 at the boundary, and in the unit the register names.**
+     *
+     * Three cases, and the third is the one that catches the plausible mistake.
+     * Eleven ASCII characters is twenty-two bytes: a check written with
+     * `strlen()` passes it, and a check written with `mb_strlen()` does not. So
+     * the third case is eleven **two-byte** characters — above the figure in
+     * bytes, below it in characters.
+     *
+     * *Mutation, run:* replace `mb_strlen($newPassword, 'UTF-8')` with
+     * `\strlen($newPassword)` in `ChangePassword::newPasswordErrors()`; the first
+     * two cases stay red-free and the third is red, which is the whole point of
+     * having it.
+     * *Second mutation, run:* change `<` to `<=`; the twelve-character case is
+     * refused and the accept half is red.
+     */
+    #[Test]
+    public function aNewPasswordBelowTheMinimumIsRefusedInCharactersRatherThanBytes(): void
+    {
+        $eleven = 'abcdefghijk';
+        self::assertSame(11, mb_strlen($eleven, 'UTF-8'), 'The fixture is not eleven characters, so the boundary below is not the boundary.');
+
+        $this->changePassword(self::PASSWORD, $eleven);
+        $this->assertRefusedAs(ChangePassword::NEW_PASSWORD_TOO_SHORT, 'eleven ASCII characters');
+
+        // Eleven characters, twenty-two bytes. `strlen()` says 22 and would let
+        // this through; `mb_strlen()` says 11 and refuses it.
+        $elevenWide = str_repeat('é', 11);
+        self::assertSame(11, mb_strlen($elevenWide, 'UTF-8'));
+        self::assertSame(22, \strlen($elevenWide), 'The wide fixture is not longer in bytes than the figure, so it proves nothing about the unit.');
+
+        $this->changePassword(self::PASSWORD, $elevenWide);
+        $this->assertRefusedAs(ChangePassword::NEW_PASSWORD_TOO_SHORT, 'eleven two-byte characters');
+
+        self::assertSame([], $this->credentialTrail(), 'A refused change wrote an audit_log row.');
+
+        // And the figure itself is admitted, so the refusals above are a boundary
+        // and not a blanket.
+        $twelve = 'abcdefghijkl';
+        self::assertSame(12, mb_strlen($twelve, 'UTF-8'));
+
+        $this->changePassword(self::PASSWORD, $twelve);
+        self::assertSame(200, $this->httpStatus(), 'A password exactly at the minimum was refused: '.$this->bodyForFailure());
+
+        $this->signIn(self::SLUG, self::EMAIL, $twelve);
+        self::assertSame(200, $this->httpStatus(), 'The password at the minimum does not authenticate.');
+    }
+
+    /**
+     * **There is no maximum below the component's ceiling, and API-O-24 said
+     * there should be.**
+     *
+     * `LEAD` proposed capping the new password at 72 bytes on the grounds that
+     * bcrypt truncates there. Measured, it does not on this code path:
+     * `NativePasswordHasher` pre-hashes with `base64(sha512())` above 72 bytes on
+     * **both** the hash and the verify side, so an 80-byte pair sharing a 72-byte
+     * prefix returns `false` — and since 2026-09-10 the KDF is Argon2id, which
+     * does not truncate at all. A cap would have rejected working passphrases to
+     * close a hole that was already shut. **API-O-24 has been corrected as a
+     * stale-claim row and this is the check that keeps the correction honest.**
+     *
+     * *Mutation, run:* add `\strlen($newPassword) > 72` to
+     * `ChangePassword::newPasswordErrors()`; the change is refused and this is
+     * red on the first assertion.
+     */
+    #[Test]
+    public function aPassphraseLongerThanSeventyTwoBytesIsAcceptedAndIsNotTruncated(): void
+    {
+        $eighty = str_repeat('correct-horse-battery-staple-', 2).str_repeat('z', 80 - 58);
+        self::assertSame(80, \strlen($eighty), 'The fixture is not 80 bytes, so it does not straddle the 72-byte claim.');
+
+        $this->changePassword(self::PASSWORD, $eighty);
+        self::assertSame(200, $this->httpStatus(), 'An 80-byte passphrase was refused: '.$this->bodyForFailure());
+
+        $this->signIn(self::SLUG, self::EMAIL, $eighty);
+        self::assertSame(200, $this->httpStatus(), 'The 80-byte passphrase does not authenticate.');
+
+        // The half API-O-24 claimed was broken: the 72-byte prefix must not be
+        // accepted as the same credential.
+        $this->signIn(self::SLUG, self::EMAIL, substr($eighty, 0, 72));
+        self::assertSame(401, $this->httpStatus(),
+            'A 72-byte prefix authenticated as the 80-byte passphrase, so the KDF really is truncating and '
+            .'API-O-24 was right after all. That would be a finding, not a test failure.');
+
+        // And the ceiling that *is* in force is still in force.
+        $this->changePassword($eighty, str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1));
+        $this->assertRefusedAs(ChangePassword::NEW_PASSWORD_TOO_LONG, 'one byte over the component ceiling');
+    }
+
+    /** The 422 shape shared by every new-password refusal, asserted once. */
+    private function assertRefusedAs(string $code, string $label): void
+    {
+        self::assertSame(422, $this->httpStatus(), \sprintf('"%s": %s', $label, $this->bodyForFailure()));
+
+        $errors = $this->json()['errors'] ?? [];
+        self::assertIsArray($errors);
+
+        self::assertContains('/new_password', array_column($errors, 'pointer'), $label);
+        self::assertContains($code, array_column($errors, 'code'), \sprintf('"%s" was not refused as %s.', $label, $code));
     }
 
     /**
