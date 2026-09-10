@@ -177,6 +177,48 @@ class AuditLogEntry
         }
         $this->subjectType = $subjectType;
         $this->subjectId = $subjectId;
+        // API.md §9.1's layer 2 -- API-16, built under E4-5 with the `CHECK`
+        // below it (`audit_log_ip_address_scope`, `Version20260910000300`).
+        //
+        // `ip_address` is personal data with forensic value on the
+        // authentication path and none on the bulk business event, which the
+        // project's own committed fixture makes the overwhelming majority of
+        // this table. §9.1 specifies three layers "in increasing strength,
+        // and all three are specified because the weakest is the one an
+        // implementer reaches for": the writer's predicate, this guard, and the
+        // database `CHECK`.
+        //
+        // **This layer is the diagnosability one and that is its whole job.**
+        // The `CHECK` alone would convert a bad pair from silently accepted into
+        // a raw 23514 at flush naming a constraint and not a cause -- the same
+        // argument the catalogue-membership and subject-pair guards above each
+        // make for themselves, and the reason §9.1 asks for this guard "in the
+        // same shape as the two guards already there".
+        //
+        // Derived from `AuditEvent::SECURITY` rather than restating it, exactly
+        // as the catalogue guard derives from `isKnown()`. The independent copy
+        // that makes this falsifiable lives in the test file, as
+        // `AuditWriterTest::PINNED_IP_BEARING_EVENTS`; a guard and a test that
+        // both read this constant would compare it against itself through one
+        // indirection, which is the tautology §9.1 records revision 1 shipping.
+        //
+        // One-directional, matching `audit_log_ip_address_scope`: a security
+        // event carrying a null `ip_address` is accepted. Refusing it would let
+        // a console command or a queued writer lose an audit record on the
+        // authentication path, and losing the record is worse than losing the
+        // field -- `Version20260909000200` makes the same trade for
+        // `permission_code` and records why.
+        if (null !== $ipAddress && !\in_array($eventType, AuditEvent::SECURITY, true)) {
+            throw new \InvalidArgumentException(sprintf(
+                'ipAddress belongs only on an App\\SharedKernel\\ValueObject\\AuditEvent::SECURITY event; '
+                .'"%s" is a business event. API.md §9.1 keeps personal data off the bulk business row, and '
+                .'audit_log_ip_address_scope refuses this at the database. If this event should carry an IP, '
+                .'that is a reclassification: it is a SEC decision under PC-11 (4a) and it needs a forward '
+                .'migration re-issuing the CHECK and a line in AuditWriterTest::PINNED_IP_BEARING_EVENTS '
+                .'(AuditEvent\'s extension process, step 6).',
+                $eventType,
+            ));
+        }
         $this->ipAddress = $ipAddress;
         $this->metadata = $metadata;
         // The direction `audit_log_permission_code_scope` constrains, enforced

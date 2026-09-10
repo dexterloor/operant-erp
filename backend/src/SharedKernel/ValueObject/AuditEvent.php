@@ -145,14 +145,20 @@ namespace App\SharedKernel\ValueObject;
  *      constant added here with no migration was fully green from a clean
  *      volume while the migration generated its list. This is the step the
  *      guard exists to enforce; do not remove its independence;
- *   6. **API-O-18** — if the new member is a *security* event, add it to
- *      `AuditWriterTest::PINNED_IP_BEARING_EVENTS`, or
+ *   6. **API-O-18** — if the new member is a *security* event, do **both** halves.
+ *      Add it to `AuditWriterTest::PINNED_IP_BEARING_EVENTS`, or
  *      `thePinAndTheConstantAgreeInBothDirections` is red and the event is
- *      outside §9.1's layer 1a. API-O-18's own wording also asks for a forward
- *      migration re-issuing an `ip_address` `CHECK`; **that constraint does not
- *      exist** (**API-O-23**, verified against the server), so there is nothing
- *      to re-issue and step 6 is the pin alone until API-O-23 lands with its
- *      own scoped entry condition.
+ *      outside §9.1's layer 1a. **And write a forward migration re-issuing
+ *      `audit_log_ip_address_scope` with the wider literal list** — the same
+ *      drop-and-re-add shape as step 5, on the same new-file rule, and with the
+ *      literals hand-written for the same reason. **This half had no subject
+ *      until 2026-09-10**: the `ip_address` `CHECK` did not exist (API-O-23),
+ *      so step 6 was the pin alone. It landed under entry condition **E4-5** as
+ *      `Version20260910000300`, and step 6 is now both halves. Skipping the
+ *      migration half leaves the new security event **silently refused an
+ *      `ip_address` at the database** while every PHP guard accepts it —
+ *      `theCheckConstraintAndTheConstantAgreeInBothDirections` is where that
+ *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
  * rather than only read.** One extension so far: **`AUTH_PASSWORD_CHANGED`**,

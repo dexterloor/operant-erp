@@ -54,6 +54,16 @@ use Doctrine\Migrations\AbstractMigration;
  *     Building it needs its own scoped entry condition; neither E4-1 nor E4-2
  *     authorises it, and adding it here on the grounds that this file is already
  *     touching `audit_log` is exactly how a scope stops meaning anything.
+ *     **⚠ Superseded 2026-09-10, docblock only — no statement in `up()` or
+ *     `down()` was touched, and this file stays as `doctrine_migration_versions`
+ *     recorded it.** The paragraph above is left unedited because it is an
+ *     accurate record of *this* migration's authorisation, and it still is. What
+ *     is no longer true is its parenthetical: the constraint now exists as
+ *     `audit_log_ip_address_scope` (`Version20260910000300`), built under its own
+ *     scoped entry condition **E4-5** exactly as this paragraph said it would
+ *     have to be. **API-O-23 is closed and API-O-18's step 5 has something to
+ *     re-issue.** Noted here so a reader of this file is not left believing a
+ *     measurement that has since been overtaken.
  *   - **No session table** (D-14, E4-1's scoping paragraph).
  *   - **No `permission_code` requirement clause.** `audit_log_permission_code_scope`
  *     is deliberately one-directional and `Version20260909000200` records why.

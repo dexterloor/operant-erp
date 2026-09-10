@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Audit;
 
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
@@ -51,19 +52,46 @@ use Symfony\Component\Uid\Uuid;
  * can quiet the other.
  *
  * ===========================================================================
- * What this file does NOT close, stated rather than left to be discovered
+ * All three layers are covered here now, and two of them arrived late
  * ===========================================================================
- * §9.1 specifies three enforcement layers. This is layers 1 and 1a. **Layer 3 —
- * `CHECK (ip_address IS NULL OR event_type IN (<the security literals>))` — does
- * not exist**: verified against the server, `audit_log` carries
- * `audit_log_event_type_values`, `audit_log_id_is_uuid_v4`,
- * `audit_log_permission_code_scope` and `audit_log_subject_pair`, and no
- * constraint mentioning `ip_address`. It needs a forward migration, which this
- * pass is not authorised to write (E4-1 and E4-2 are both scoped and neither
- * covers it), and `audit_log_permission_code_scope` is the precedent for its
- * exact shape. Until it lands, the control is PHP-side only: a writer that
- * bypasses both classes below and issues its own `INSERT` is caught by
- * `everyClassThatCanWriteTheTrailIsClassifiedHere` and by nothing at the database.
+ * §9.1 specifies three enforcement layers. This file shipped with **layers 1 and
+ * 1a only**, and said so: layer 3 did not exist and this pass was not authorised
+ * to write the migration. **Layers 2 and 3 both landed on 2026-09-10 under
+ * `DELIVERY_LEDGER.md`'s entry condition E4-5** (`Version20260910000300`,
+ * `audit_log_ip_address_scope`, and the `AuditLogEntry` constructor guard).
+ *
+ * **Layer 2 was absent and no register said so.** `API.md` §14.1's API-O-23
+ * asserted *"Layers 1 and 1a now exist"* and scoped the open gap to layer 3;
+ * `AuditLogEntry` in fact carried three constructor guards — catalogue
+ * membership, subject pair, permission-code scope — and none of them mentioned
+ * `ip_address`. That wrong claim propagated into a dispatch brief before it was
+ * caught, and API-O-23's closure note records it rather than erasing it.
+ *
+ * **The order mattered, and shipping layer 3 alone would have been a net loss.**
+ * The `CHECK` on its own converts a bad `(ip_address, event_type)` pair from
+ * *silently accepted* into a raw `23514` at flush carrying no hint that a
+ * catalogue exists — the exact failure mode layer 2 was specified to prevent.
+ *
+ * **What each of the four checks below is actually load-bearing for**, because
+ * three of them look like the same test and are not:
+ *
+ *   - `onlySecurityEventsCarryAnIpAddress` — layer 1, over the real writers.
+ *   - `thePinAndTheConstantAgreeInBothDirections` — layer 1a.
+ *   - `theConstructorRefusesAnIpAddressOnAnEventThePinDoesNotList` — **layer 2**,
+ *     and its expectation is `PINNED_IP_BEARING_EVENTS` rather than
+ *     `AuditEvent::SECURITY`. The guard reads `SECURITY`; a test that read it too
+ *     would compare a constant to itself through one indirection and stay green
+ *     the day `SECURITY` gains a business event. That is verbatim the tautology
+ *     §9.1 records revision 1 shipping for layer 1.
+ *   - `theCheckConstraintExistsOnAuditLogAndIsValidated` and
+ *     `theCheckConstraintAndTheConstantAgreeInBothDirections` and
+ *     `theDatabaseRefusesABusinessEventCarryingAnIpAddress` — **layer 3**, and
+ *     all three are needed. A `NOT VALID` constraint has byte-identical
+ *     `pg_get_constraintdef` text to a validated one and enforces nothing about
+ *     the rows already there, so the text comparison alone is a fake-green; and
+ *     a reconciliation that never inserts anything cannot tell *the migration
+ *     landed* from *only the PHP layers exist*, which is what the raw-SQL refusal
+ *     probe settles.
  */
 final class AuditWriterTest extends TenancyTestCase
 {
@@ -113,6 +141,13 @@ final class AuditWriterTest extends TenancyTestCase
     ];
 
     private const PROBE_IP = '203.0.113.7';
+
+    /**
+     * §9.1's layer 3, installed by `Version20260910000300` under E4-5. Named here
+     * rather than derived so that a *renamed* constraint fails loudly instead of
+     * this file quietly checking whatever `audit_log` happens to carry.
+     */
+    private const IP_CONSTRAINT = 'audit_log_ip_address_scope';
 
     /**
      * **The negative test M0-b's criterion asks for.**
@@ -321,6 +356,262 @@ final class AuditWriterTest extends TenancyTestCase
             'The set of files that can write `audit_log` is not the set this file drives. A writer that is '
             .'not exercised by `onlySecurityEventsCarryAnIpAddress` is a writer M0-b\'s ip_address rule is '
             .'not being checked against.');
+    }
+
+    /**
+     * **§9.1's layer 2 — the constructor guard — and its expectation is the pin,
+     * not the constant the guard reads.**
+     *
+     * The domain is `AuditEvent::ALL`, so an event added to the catalogue
+     * tomorrow is a subject of this check the same day. The expectation is
+     * `PINNED_IP_BEARING_EVENTS`, declared in this file as independent literals.
+     * A test asserting *"the constructor refuses exactly the members not in
+     * `AuditEvent::SECURITY`"* would compare that constant to itself through one
+     * indirection and stay green if `SECURITY` gained `purchase_order.placed`
+     * tomorrow -- the guard would then accept an IP on it and the test would
+     * agree. §9.1 records revision 1 shipping exactly that defect for layer 1.
+     *
+     * Both directions are asserted from one pass: an event that **accepted** an
+     * IP and is not pinned fails, and a pinned event that was **refused** fails.
+     *
+     * *Mutation, run:* the guard's condition negated to
+     * `\in_array($eventType, AuditEvent::SECURITY, true)`. Red on both directions
+     * at once -- the accepted set collapses to the two business events and all
+     * eight pinned events are refused.
+     *
+     * *Second mutation, run:* the guard short-circuited to unreachable. Every
+     * event accepts an IP; red naming `purchase_order.placed` and
+     * `stock_movement.adjusted` as *accepted but not pinned*. **This is the one
+     * that matters**,
+     * because it is the state the tree was in before E4-5 -- and
+     * `onlySecurityEventsCarryAnIpAddress` stays green through it, since nothing
+     * in `src/` constructs an `AuditLogEntry` for a business event.
+     */
+    #[Test]
+    public function theConstructorRefusesAnIpAddressOnAnEventThePinDoesNotList(): void
+    {
+        $accepted = [];
+        $refused = [];
+
+        foreach (AuditEvent::ALL as $eventType) {
+            try {
+                new AuditLogEntry(
+                    Uuid::v4(),
+                    Uuid::fromString(self::TENANT_A),
+                    new \DateTimeImmutable(),
+                    $eventType,
+                    'system',
+                    null,
+                    null,
+                    null,
+                    self::PROBE_IP,
+                );
+                $accepted[] = $eventType;
+            } catch (\InvalidArgumentException) {
+                $refused[] = $eventType;
+            }
+        }
+
+        self::assertNotSame([], AuditEvent::ALL,
+            'An empty catalogue would pass this test vacuously.');
+
+        $pinned = self::PINNED_IP_BEARING_EVENTS;
+        sort($pinned);
+        sort($accepted);
+
+        self::assertSame($pinned, $accepted,
+            "The events AuditLogEntry lets carry an ip_address and the pin disagree.\n"
+            ."  accepted but not pinned: ".implode(', ', array_diff($accepted, $pinned))."\n"
+            ."  pinned but refused:      ".implode(', ', array_diff($pinned, $accepted)));
+
+        self::assertNotSame([], $refused,
+            'No catalogue value was refused an ip_address, so §9.1 layer 2 is not enforcing anything. '
+            .'A guard that accepts everything passes a set comparison only when the pin is the whole '
+            .'catalogue, and it is not.');
+    }
+
+    /**
+     * **§9.1's layer 3, first clause: the constraint exists, is a CHECK, is on
+     * `audit_log` -- and is VALIDATED.**
+     *
+     * `AuditEventCatalogueTest::theEventTypeConstraintExistsOnAuditLogAndIs`
+     * `Validated` is the precedent and its measurement is the reason this
+     * assertion is here rather than being folded into the reconciliation below.
+     * `Version20260910000300::isTransactional()` returns `false` so that
+     * `ADD CONSTRAINT ... NOT VALID` releases its `AccessExclusiveLock` before
+     * `VALIDATE CONSTRAINT` runs; the cost is that the three statements commit
+     * independently, so a `VALIDATE` that fails -- or is dropped from `up()` --
+     * leaves a constraint that is enforced for new rows and **silent about every
+     * row already there**, with `pg_get_constraintdef` text byte-identical to the
+     * validated one.
+     *
+     * `convalidated::text` rather than the bare column, and compared against
+     * `'true'` rather than `'t'`: `boolean::text` yields the former, and psql's
+     * `t`/`f` is the type's output function, which the cast does not use. That
+     * spelling cost the precedent a draft and is not re-derived here.
+     *
+     * *Mutation, run:* the `VALIDATE CONSTRAINT` line deleted from
+     * `Version20260910000300::up()` and the volume destroyed and rebuilt. This
+     * method goes red on `convalidated`; the reconciliation below stays **green**,
+     * which is the whole reason both exist.
+     */
+    #[Test]
+    public function theCheckConstraintExistsOnAuditLogAndIsValidated(): void
+    {
+        $row = $this->owner()->fetchAssociative(
+            'SELECT pg_get_constraintdef(oid) AS definition, convalidated::text AS validated
+             FROM pg_constraint
+             WHERE conrelid = ?::regclass AND conname = ? AND contype = ?',
+            ['audit_log', self::IP_CONSTRAINT, 'c'],
+        );
+
+        self::assertIsArray($row,
+            self::IP_CONSTRAINT.' is not a CHECK constraint on audit_log. §9.1 layer 3 does not exist, '
+            .'so a writer outside backend/src/ -- a psql session, a fixture, a COPY -- can put personal '
+            .'data on a business event and nothing refuses it.');
+        self::assertStringContainsString('ip_address', (string) $row['definition'],
+            'The constraint exists but does not mention ip_address: '.$row['definition']);
+        self::assertSame('true', $row['validated'],
+            self::IP_CONSTRAINT.' is NOT VALID. It constrains new rows only, and every row written '
+            .'before it was added is unchecked -- which is exactly what the migration\'s VALIDATE '
+            .'CONSTRAINT step exists to rule out, and its text is identical either way: '
+            .$row['definition']);
+    }
+
+    /**
+     * **§9.1's layer 3, second clause: the constraint's literals and
+     * `AuditEvent::SECURITY` agree in both directions.**
+     *
+     * The `CHECK` is written with hand-typed literals precisely so it is
+     * independent of the constant -- E4-1 clause (4), for the fake-green measured
+     * on `audit_log_event_type_values`. Independence with no reconciliation is
+     * drift, so the domain is **derived from the server**: the definition is read
+     * back out of `pg_constraint` and its literals extracted, then compared with
+     * the constant set-wise. A literal the constant lacks fails, and a constant
+     * member the literal lacks fails.
+     *
+     * The literal extraction is deliberately anchored on the `event_type` half of
+     * the definition. The `ip_address IS NULL` disjunct contributes no `'...'
+     * ::text` literal today, but a future re-issue that added one would silently
+     * widen the derived set, and a check whose domain can grow without anyone
+     * editing the expectation is the shape this project keeps finding.
+     *
+     * *Mutation, run:* `'role.revoked'` dropped from the migration's list, volume
+     * destroyed and rebuilt. Red, naming `role.revoked` as *only in the code*,
+     * with no PHP change anywhere.
+     *
+     * *Reverse mutation, run:* `'purchase_order.placed'` added to the migration's
+     * list. Red, naming it as *only in the database* -- and
+     * `theDatabaseRefusesABusinessEventCarryingAnIpAddress` went red in the same
+     * run, independently, because the widened constraint really does admit the
+     * row. Two checks, two mechanisms, one defect.
+     */
+    #[Test]
+    public function theCheckConstraintAndTheConstantAgreeInBothDirections(): void
+    {
+        $definition = (string) $this->owner()->fetchOne(
+            'SELECT pg_get_constraintdef(oid) FROM pg_constraint
+             WHERE conrelid = ?::regclass AND conname = ?',
+            ['audit_log', self::IP_CONSTRAINT],
+        );
+
+        self::assertNotSame('', $definition,
+            self::IP_CONSTRAINT.' could not be read back from pg_constraint. This check derives its '
+            .'domain from the server, so with no constraint it must fail rather than pass vacuously.');
+
+        // Membership over a literal list, in the form the server stores it:
+        // PostgreSQL normalises `IN (a, b)` to `= ANY (ARRAY[a, b])` before it
+        // reaches pg_get_constraintdef. Pinned by infra/docker-compose.yml's
+        // postgres:17-alpine; `AuditEventCatalogueTest` records the same
+        // deparse-artefact caveat and it is not restated here.
+        self::assertStringContainsString('= ANY (ARRAY[', $definition,
+            'The constraint is not equality-membership over a literal list: '.$definition);
+
+        foreach ([' LIKE ', ' ~ ', 'NOT LIKE'] as $patternForm) {
+            self::assertStringNotContainsString($patternForm, $definition,
+                'A prefix or pattern predicate here fails open on the first security event somebody '
+                .'names outside it: '.$definition);
+        }
+
+        // Anchored on the event_type half rather than run over the whole
+        // definition: see the docblock.
+        $eventTypeHalf = strstr($definition, 'event_type');
+        self::assertIsString($eventTypeHalf,
+            'The constraint does not restrict event_type, so it cannot be §9.1 layer 3: '.$definition);
+
+        preg_match_all("/'([^']+)'::text/", $eventTypeHalf, $matches);
+        $fromServer = $matches[1];
+
+        self::assertNotSame([], $fromServer,
+            'No literals could be read out of '.self::IP_CONSTRAINT.'. If this test cannot read the '
+            .'server it is not deriving anything: '.$definition);
+
+        sort($fromServer);
+        $inCode = AuditEvent::SECURITY;
+        sort($inCode);
+
+        self::assertSame($inCode, $fromServer,
+            "The database's IP-bearing set and AuditEvent::SECURITY disagree. A security event the "
+            ."constraint omits is silently refused an ip_address at the database.\n"
+            ."  only in the database: ".implode(', ', array_diff($fromServer, $inCode))."\n"
+            ."  only in the code:     ".implode(', ', array_diff($inCode, $fromServer)));
+    }
+
+    /**
+     * **§9.1's layer 3, third clause -- and the only one that can tell *the
+     * migration landed* from *only the PHP layers exist*.**
+     *
+     * §9.1's own third mutation, run as a permanent check rather than once: a
+     * `purchase_order.placed` row with a non-null `ip_address`, inserted **in raw
+     * SQL as the owner**, bypassing the writer's predicate and the entity
+     * constructor entirely. That is the writer API-O-23 names -- *"a writer added
+     * outside PHP, or a direct `INSERT`"*. The `CHECK` must refuse it. **A green
+     * result here means the migration is missing and only the PHP layer exists.**
+     *
+     * The refusal is asserted to name **this constraint**, not merely to have
+     * happened: a test that only asserts "the insert failed" cannot tell a `CHECK`
+     * from a missing grant, a `NOT NULL` or a type error, and `ip_address` is
+     * `inet`, which is a type error waiting to be mistaken for enforcement.
+     * `AuditEventCatalogueTest::aValueOutsideTheCatalogueIsRejectedByTheNamed`
+     * `Constraint` is the precedent.
+     *
+     * The tenant context is not needed and is not taken: `insertAsOwnerForTenant`
+     * declares the tenant for RLS the way every other seeding path in this suite
+     * does, and a `CHECK` is evaluated before any policy could matter.
+     *
+     * *Mutation, run:* `up()`'s `ADD CONSTRAINT` and `VALIDATE` both removed,
+     * volume destroyed and rebuilt -- the state the tree was in before E4-5. The
+     * insert succeeds and this method goes red. **All three layer-3 checks go red
+     * together and that is worth stating rather than claiming this one is
+     * distinctive**: what it is distinctive about is the *other* mutations. It
+     * stayed green through the dropped `VALIDATE`, which only
+     * `theCheckConstraintExistsOnAuditLogAndIsValidated` caught -- correctly, a
+     * `NOT VALID` constraint really does still refuse this insert -- and it
+     * caught the extra-literal mutation (`purchase_order.placed` added to the
+     * `CHECK`) independently of the reconciliation, which caught it too. **What all three
+     * share, and what is the actual point: the four PHP-side checks in this file
+     * -- layers 1, 1a, 2 and the writer scan -- stayed green through every one of
+     * them.** Nothing above the database can see the database's absence.
+     */
+    #[Test]
+    public function theDatabaseRefusesABusinessEventCarryingAnIpAddress(): void
+    {
+        $thrown = null;
+
+        try {
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO audit_log (id, tenant_id, event_type, actor_label, ip_address)
+                VALUES (?::uuid, ?::uuid, ?, 'system', ?::inet)
+                SQL, [Uuid::v4()->toRfc4122(), self::TENANT_A, AuditEvent::PURCHASE_ORDER_PLACED, self::PROBE_IP]);
+        } catch (\Throwable $e) {
+            $thrown = $e;
+        }
+
+        self::assertNotNull($thrown,
+            'A business event carrying an ip_address was accepted by the database. §9.1 layer 3 is '
+            .'absent and the control is PHP-side only -- which is the state API-O-23 describes.');
+        self::assertStringContainsString(self::IP_CONSTRAINT, $thrown->getMessage(),
+            'The insert failed, but not because of '.self::IP_CONSTRAINT.': '.$thrown->getMessage());
     }
 
     private function trailWriter(): AuthTrailWriter
