@@ -161,11 +161,44 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** One extension so far: **`AUTH_PASSWORD_CHANGED`**,
- * 2026-09-09, under entry condition **E4-1** — `SEC` ruled the name and the
- * `SECURITY` filing (`SECURITY_MODEL.md` §5.1.4, steps 1–2) before any code
- * existed; `BE-LEAD` did steps 3–5 in that order. `PINNED_ALLOWLIST` was **not**
- * touched, which is what makes the filing falsifiable rather than asserted.
+ * rather than only read.** Two extensions so far.
+ *
+ *   - **`AUTH_PASSWORD_CHANGED`**, 2026-09-09, under entry condition **E4-1** —
+ *     `SEC` ruled the name and the `SECURITY` filing (`SECURITY_MODEL.md`
+ *     §5.1.4, steps 1–2) before any code existed; `BE-LEAD` did steps 3–5 in that
+ *     order. `PINNED_ALLOWLIST` was **not** touched, which is what makes the
+ *     filing falsifiable rather than asserted.
+ *
+ *   - **`PURCHASE_ORDER_CANCELLED`**, 2026-09-10, under `ADR-008` **Amendment 1**
+ *     — `SEC` ruled the extension of DSoD-1 to cancellation and the `BUSINESS`
+ *     filing under PC-11 (4a) before any code existed; `BE-LEAD` did steps 3–5 in
+ *     that order. **Step 6 does not apply**: it is a business event, so it stays
+ *     out of `audit_log_ip_address_scope` and out of
+ *     `AuditWriterTest::PINNED_IP_BEARING_EVENTS`, and no re-issue of that
+ *     constraint was written.
+ *
+ *     **The falsifiability argument is NOT the one above and must not be read as
+ *     it.** `AUTH_PASSWORD_CHANGED` turns on `PINNED_ALLOWLIST` being left alone;
+ *     for a `BUSINESS` event the pin **has** to be edited, so "untouched" is not
+ *     available and copying that sentence here would be false. What carries the
+ *     weight instead is **what the pin is made of**: it is a list of *string
+ *     literals* declared in a different file from the catalogue, deliberately not
+ *     written as `AuditEvent::` constants (`AuditEventCatalogueTest`'s own
+ *     docblock says so). So the edit that admits this event to `.view_record` is
+ *     a second, independent assertion of the string, made by hand, in a test that
+ *     cannot be quieted from this class — and had it been written as
+ *     `AuditEvent::PURCHASE_ORDER_CANCELLED` the pin would have agreed with the
+ *     catalogue by construction and (4b) would have gone silent. **The pin being
+ *     touched is not the weakness; the pin being an independent literal is the
+ *     control.**
+ *
+ *     **Observed rather than assumed**, and this is the other half of it: with
+ *     steps 1–2 done and steps 3–5 not, `everyEventIsClassifiedExactlyOnce` and
+ *     `everyEventDeclaresItsSubjectExactlyOnce` were red — and so were
+ *     `theServersLegalSetIsExactlyTheCodeCatalogue` and
+ *     `everyCatalogueValueIsAcceptedByTheDatabase`, which is the migration's
+ *     independence from `ALL` showing itself in the only direction that can prove
+ *     it.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -363,6 +396,49 @@ final class AuditEvent
     public const STOCK_MOVEMENT_ADJUSTED = 'stock_movement.adjusted';
 
     /**
+     * `ADR-008` **Amendment 1** (2026-09-10) — DSoD-1 extends to cancellation, so
+     * `CancelPurchaseOrder` is a controlled transition and the trail has to carry
+     * it. `SECURITY_MODEL.md` **E-19** is the enforcement rule; §2's table puts
+     * `purchase_order.cancel` on SoD-1's controlled half beside `.approve`, which
+     * is what makes the cancellation the *other end* of the commitment
+     * `PURCHASE_ORDER_PLACED` records rather than an ordinary edit.
+     *
+     * **A business event under PC-11 (4a), and it is the clause's central case
+     * rather than a borderline one:** it is about the subject row's own business
+     * state — a `purchase_order` moving to `cancelled` — and about no principal's
+     * credentials, sessions or privileges. `PURCHASE_ORDER_PLACED` is filed the
+     * same way on the same ground, and a trail that shows a colleague the placing
+     * and hides the cancelling would answer *"what happened to this order"* with
+     * half of it.
+     *
+     * **Subject: `purchase_order`, in `SUBJECT_TYPES`, mirroring
+     * `PURCHASE_ORDER_PLACED`.** The other two declarations were considered and
+     * neither survives: `SUBJECT_RESOLVED_AT_WRITE` can never satisfy PC-11 (4c)
+     * by that constant's own docblock, so an admitted event cannot sit there; and
+     * `SUBJECTLESS` would pass (4c) but could never surface in L-7's History,
+     * because E-5 binds `.view_record` to one `subject_id` — filing it `BUSINESS`
+     * would then buy exactly nothing. The subject is fixed by the event type and
+     * it is the order.
+     *
+     * **The cancellation's written reason lands in `audit_log.metadata`, and this
+     * is recorded here so the operation's author inherits it rather than deciding
+     * it.** The precedent is `STOCK_MOVEMENT_ADJUSTED` above: `purchase_order` has
+     * no free-text column for a reason, `status` is a five-value `CHECK` of which
+     * exactly one applies, and `metadata` is `jsonb` on an append-only table — so
+     * an operator's words live there and surface on `/purchase-orders/[id]`
+     * through L-7. **Nothing writes this event today** and this is a catalogue
+     * entry only: `CancelPurchaseOrder` does not exist, `PurchaseOrder` has no
+     * `cancel()` method, and X9-1 with §8.3's reachability clause are what find
+     * that. **Do not read this paragraph as a claim that the metadata write is
+     * built.**
+     *
+     * **Name assigned here**, on `PURCHASE_ORDER_PLACED`'s `<table>.<verb>`
+     * convention and on the entity's own `STATUS_CANCELLED` value, so the event
+     * name and the status it records read the same.
+     */
+    public const PURCHASE_ORDER_CANCELLED = 'purchase_order.cancelled';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -386,6 +462,7 @@ final class AuditEvent
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
         self::PURCHASE_ORDER_PLACED,
+        self::PURCHASE_ORDER_CANCELLED,
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
@@ -439,6 +516,7 @@ final class AuditEvent
      */
     public const BUSINESS = [
         self::PURCHASE_ORDER_PLACED,
+        self::PURCHASE_ORDER_CANCELLED,
         self::STOCK_MOVEMENT_ADJUSTED,
     ];
 
@@ -485,6 +563,7 @@ final class AuditEvent
      */
     public const SUBJECT_TYPES = [
         self::PURCHASE_ORDER_PLACED => 'purchase_order',
+        self::PURCHASE_ORDER_CANCELLED => 'purchase_order',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',

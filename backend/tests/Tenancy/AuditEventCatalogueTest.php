@@ -107,6 +107,7 @@ final class AuditEventCatalogueTest extends TenancyTestCase
      */
     private const PINNED_ALLOWLIST = [
         'purchase_order.placed',
+        'purchase_order.cancelled',
         'stock_movement.adjusted',
     ];
 
