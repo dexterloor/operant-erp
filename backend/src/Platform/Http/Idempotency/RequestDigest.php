@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Platform\Http\Idempotency;
 
+use App\Platform\Http\Rfc3339Timestamp;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -109,8 +110,9 @@ final class RequestDigest
      * `Y-m-d\TH:i:s.u\Z`. `…T00:00:00Z`, `…T00:00:00+00:00`,
      * `…T02:00:00+02:00` and `…T00:00:00.000Z` are one instant and digest alike.
      *
-     * Accepts exactly what `PurchaseOrderWriter::parseTimestamp()` accepts, so
-     * nothing the validator lets through can fail here.
+     * Parsed by `Rfc3339Timestamp`, the validator's own parser, so nothing the
+     * validator lets through can fail here — and an impossible date is refused
+     * rather than digested as the day it rolls over to.
      */
     public static function instant(?string $value): ?string
     {
@@ -118,14 +120,10 @@ final class RequestDigest
             return null;
         }
 
-        foreach ([\DateTimeInterface::RFC3339_EXTENDED, \DateTimeInterface::RFC3339] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat($format, $value);
-            if (false !== $parsed) {
-                return $parsed->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z');
-            }
-        }
+        $parsed = Rfc3339Timestamp::parse($value)
+            ?? throw new \InvalidArgumentException('Not an RFC 3339 timestamp; validate the field before digesting it.');
 
-        throw new \InvalidArgumentException('Not an RFC 3339 timestamp; validate the field before digesting it.');
+        return $parsed->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z');
     }
 
     private static function canonical(mixed $value): mixed

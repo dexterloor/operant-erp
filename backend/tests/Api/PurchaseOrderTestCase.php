@@ -85,9 +85,13 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      * raw key.** `$idempotencyKey` is the header value a test would send; the row
      * gets its hex SHA-256, and a `request_digest` equal to what the create path
      * computes for the request that would have produced this row — the same
-     * supplier, warehouse and `expected_at`, with `currency_code` **stated** as
-     * the `EUR` the insert writes. So a test that replays a seeded order with its
-     * raw key and that body gets the replay, not a conflict. The database refuses
+     * supplier, warehouse and `expected_at`, with `currency_code` **omitted**
+     * (null): the create that left the currency to an `EUR` workspace, which
+     * every fixture workspace is and which the insert writes. That matches
+     * `PurchaseOrderCreateTest::body()`, which omits the currency, so a test that
+     * replays a seeded order with its raw key and the same supplier and
+     * warehouse gets the replay. ⚠ Sending `currency_code` in that replay is a
+     * different request, and is a 409. The database refuses
      * a raw key and refuses a key without a digest (`Version20260911000300`), so
      * a fixture that did anything else would fail at the insert rather than lie.
      *
@@ -133,7 +137,7 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
                 RequestDigest::of('CreatePurchaseOrder', [
                     'supplier_id' => RequestDigest::uuid($supplierId),
                     'warehouse_id' => RequestDigest::uuid($warehouseId),
-                    'currency_code' => 'EUR',
+                    'currency_code' => null,
                     'expected_at' => RequestDigest::instant($expectedAt),
                 ]),
             ]);

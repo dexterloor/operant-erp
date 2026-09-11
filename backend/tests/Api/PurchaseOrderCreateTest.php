@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use Doctrine\DBAL\Exception\NotNullConstraintViolationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -192,6 +193,20 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
     }
 
     /**
+     * §4.2's accepted fields for `CreatePurchaseOrder`, every one of which is
+     * digested. Written out rather than derived: the point is to fail when the
+     * writer's digest and this list disagree.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function everyDigestedField(): iterable
+    {
+        foreach (['supplier_id', 'warehouse_id', 'currency_code', 'expected_at'] as $field) {
+            yield $field => [$field];
+        }
+    }
+
+    /**
      * **D-B's shipped defect, and the reason `IdempotencyKeyConflict` existed
      * for a whole step without ever being thrown.**
      *
@@ -204,18 +219,34 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
      * The row count is asserted as well as the status: a 409 that had written a
      * second order first would satisfy the response check and be the opposite
      * failure.
+     *
+     * **Run once per accepted field**, so a field silently dropped from the
+     * digest is red here by name rather than passing because the one field this
+     * test used to vary happened to still be digested.
      */
     #[Test]
-    public function theSameKeyWithADifferentBodyIsAConflictAndWritesNothing(): void
+    #[DataProvider('everyDigestedField')]
+    public function theSameKeyWithADifferentBodyIsAConflictAndWritesNothing(string $field): void
     {
         $key = Uuid::v4()->toRfc4122();
-        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $body = [
+            'supplier_id' => $this->seedSupplier(self::TENANT_A, 'Acme'),
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main'),
+            'currency_code' => 'EUR',
+            'expected_at' => '2026-10-01T00:00:00Z',
+        ];
 
-        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main')], $key);
+        $this->create($body, $key);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $first = $this->json()['id'];
 
-        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Other')], $key);
+        $body[$field] = match ($field) {
+            'supplier_id' => $this->seedSupplier(self::TENANT_A, 'Other'),
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Other'),
+            'currency_code' => 'GBP',
+            'expected_at' => '2026-10-02T00:00:00Z',
+        };
+        $this->create($body, $key);
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:idempotency-key-conflict', $this->json()['type']);
@@ -223,6 +254,54 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
 
         self::assertSame([['id' => $first]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'),
             'A conflicting reuse of a key wrote a second purchase order, or changed the first one\'s identity.');
+    }
+
+    /**
+     * **The field set the writer digests, pinned to a literal.**
+     *
+     * `RetryKeyTest::theCanonicalFormIsFixed` pins the *encoding* of an array
+     * that test builds itself, so it cannot see the array
+     * `PurchaseOrderWriter::create()` builds: rename, add or drop a field there
+     * and both sides still compute with the same code, the suite stays green, and
+     * every stored digest silently becomes a conflict on its next honest retry.
+     * This test posts a fixed request and compares the stored `request_digest`
+     * with a hex constant, worked out by hand from the canonical string
+     * `{"operation":"CreatePurchaseOrder","fields":{"currency_code":null,
+     * "expected_at":"2026-10-01T00:00:00.000000Z","supplier_id":"…0001",
+     * "warehouse_id":"…0002"}}`.
+     *
+     * ⚠ **Step 8a (`lines[]`) must keep a request that omits `lines` digesting
+     * exactly as it does today** — this constant — or every order created before
+     * 8a turns into a conflict on retry. Adding `lines` to the digested fields
+     * only when it is sent is the way to do that.
+     *
+     * *Mutation, run:* `currency_code` dropped from the writer's digest array.
+     * Red here.
+     */
+    #[Test]
+    public function theStoredDigestOfAFixedRequestIsPinned(): void
+    {
+        $supplier = '5a1e5a1e-0000-4000-8000-000000000001';
+        $warehouse = '5a1e5a1e-0000-4000-8000-000000000002';
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, 'Pinned', 'PINNED', 'EUR')",
+            [$supplier, self::TENANT_A]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, 'PINNED', 'Pinned', 'DE')",
+            [$warehouse, self::TENANT_A]);
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $warehouse, 'expected_at' => '2026-10-01T02:00:00+02:00'], 'pinned-key-1');
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $row = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT idempotency_key, request_digest FROM purchase_order WHERE id = ?::uuid', [$this->json()['id']])[0];
+
+        self::assertSame('4d40067625d6a6e4eb93bf48916957bd3772b74caa6aed5e7702b402798cac10', $row['request_digest'],
+            'The writer now digests a different field set, or spells a field differently. Every digest stored before '
+            .'this change will answer its next honest retry with a 409. If that is intended, it needs a migration '
+            .'story, not a new constant.');
+        self::assertSame('05e4fdf1bb71e1b4981e606d60e8891c765402392421870195401f81a2da87d0', $row['idempotency_key']);
     }
 
     /**
@@ -450,6 +529,35 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
             '§4.2 names `lines[]` on this row and this package does not implement the nested create. '
             .'A 201 here means the field was accepted and thrown away.');
         self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function impossibleTimestamps(): iterable
+    {
+        yield '30 February' => ['2026-02-30T00:00:00Z'];
+        yield 'hour 24' => ['2026-10-01T24:00:00Z'];
+        yield 'second 60' => ['2026-10-01T23:59:60Z'];
+    }
+
+    /**
+     * **An impossible `expected_at` is a field defect, not the day it rolls over
+     * to.** Until the fix after `1a1194b` the validator accepted 30 February and
+     * the order was raised for 2 March — `createFromFormat()` warns and rolls
+     * over, and nothing read the warning. `24:00` and `:60` roll over in Postgres
+     * too, and are refused on the same rule: `Rfc3339Timestamp` refuses any
+     * input PHP had to correct.
+     */
+    #[Test]
+    #[DataProvider('impossibleTimestamps')]
+    public function anImpossibleExpectedAtIsRefusedAndNotRolledOver(string $expectedAt): void
+    {
+        $body = $this->body();
+        $body['expected_at'] = $expectedAt;
+        $this->create($body);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('not_a_timestamp', array_column($this->json()['errors'], 'code', 'pointer')['/expected_at'] ?? null);
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
     }
 
     /** Both parents are `NOT NULL` with no default, so both are required. */

@@ -39,11 +39,17 @@ use Doctrine\Migrations\AbstractMigration;
  * It is a CHECK, not step 5's trigger shape, because it holds for historical
  * rows as written: they carry neither.
  *
- * **Existing rows.** Both CHECKs validate at add time. The dev table held **0
- * rows** when D-B was ruled (measured as superuser), and nothing has been
- * deployed, so there is nothing to rehash. A database holding raw keys would
- * make this migration fail by name, which is the correct outcome: a raw key
- * cannot be converted silently without also changing the digest it pairs with.
+ * **Existing rows.** All three CHECKs validate at add time. The dev table held
+ * **0 rows** when D-B was ruled (measured as superuser) and nothing has been
+ * deployed. **Any keyed row written by step 6's code fails this migration** —
+ * this file creates `request_digest` empty, so every such row has a key and no
+ * digest and the both-or-neither CHECK refuses it (its raw key would also fail
+ * the shape CHECK). It cannot be repaired by rehashing: the key could be
+ * hashed, but the request it arrived with was never recorded, so there is no
+ * digest to write. **Remediation, before migrating:**
+ * `UPDATE purchase_order SET idempotency_key = NULL WHERE idempotency_key IS NOT NULL;`
+ * — those orders lose replay protection, which a row older than any client's
+ * retry window no longer needs.
  *
  * **Grants: none.** A new column on a table whose grants are all table-level
  * (step 5 measured `pg_attribute.attacl` at 0 rows) inherits them. `erp_ai`
@@ -92,6 +98,22 @@ final class Version20260911000300 extends AbstractMigration
         ));
     }
 
+    /**
+     * ⚠ **A rollback past this file silently ends replay protection for every
+     * order created under it. Documented here, deliberately not "repaired".**
+     *
+     * This drops the digest and the three CHECKs and leaves the keys hashed. The
+     * code before this file looks keys up by their RAW value, so a hashed key
+     * never matches, and a late retry after the rollback mints a second order.
+     *
+     * NULLing the hashed keys here was considered and refused. It produces the
+     * same outcome — those orders lose replay protection either way, because the
+     * raw keys were never stored and cannot be recovered — and it adds an
+     * irreversible write to a reverse migration that destroys the only record of
+     * which rows carried a key. Leaving the hashes costs nothing. Re-applying
+     * `up()` afterwards needs the remediation in the class docblock first,
+     * because the keyed rows will have lost their digest.
+     */
     public function down(Schema $schema): void
     {
         foreach ([self::PAIRED, self::KEY_SHAPE, self::DIGEST_SHAPE] as $constraint) {

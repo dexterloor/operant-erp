@@ -15,6 +15,7 @@ use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
@@ -299,14 +300,16 @@ final readonly class PurchaseOrderWriter
             // catching within the block and continuing makes the following
             // COMMIT fail with an error nobody can trace back to its cause.
             if (self::violated($e, self::IDEMPOTENCY_INDEX)) {
-                // The narrow race the read above cannot cover: an identical
-                // retry committed between that SELECT and this INSERT. The
+                // The narrow race the read above cannot cover: a request with
+                // the same key committed between that SELECT and this INSERT.
+                // Its body may differ -- the next attempt reads its row and
+                // gets the replay or the 409, whichever is true. The
                 // EntityManager is closed, so the order cannot be read back
                 // here -- the client is told to try again, and the next attempt
                 // reads the committed row and gets it. Never a second order.
                 throw ApiProblem::businessRuleViolated(
                     'purchase_order.idempotency_key_is_in_flight',
-                    'An identical request for this workspace is already being processed. Try again.',
+                    'A request with this Idempotency-Key is already being processed. Try again.',
                 );
             }
 
@@ -891,20 +894,14 @@ final readonly class PurchaseOrderWriter
     }
 
     /**
-     * Accepts what `timestamptz` accepts and nothing looser. `strtotime` would
-     * take "next tuesday", which is not a value a client should be able to store
-     * in a supplier commitment.
+     * `Rfc3339Timestamp`'s, so this validator and the request digest share one
+     * idea of a timestamp. It refuses an impossible date (30 February) and the
+     * values Postgres would roll over (`24:00`, `:60`) instead of accepting the
+     * day they roll to.
      */
     private static function parseTimestamp(string $value): ?\DateTimeImmutable
     {
-        foreach ([\DateTimeInterface::RFC3339_EXTENDED, \DateTimeInterface::RFC3339] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat($format, $value);
-            if (false !== $parsed) {
-                return $parsed;
-            }
-        }
-
-        return null;
+        return Rfc3339Timestamp::parse($value);
     }
 
     private function refuseIfArchived(PurchaseOrderResource $order): void

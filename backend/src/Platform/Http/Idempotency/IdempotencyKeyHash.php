@@ -9,9 +9,12 @@ namespace App\Platform\Http\Idempotency;
  * `Idempotency-Key` header, never as the header's value.**
  *
  * API-O-32 found that `erp_ai` reads `purchase_order.idempotency_key` by
- * table-level inheritance, and the obvious fix — a column-level `REVOKE` — was
- * measured to do nothing under a table-level grant. So the column is made
- * harmless to read instead: what it holds lets a replay be *recognised* (the
+ * table-level inheritance. A single column `REVOKE` was measured to do nothing
+ * while the table-level grant stands. The form that would work — revoke the
+ * table-level `SELECT`, then grant `erp_ai` every other column — exists and was
+ * **not chosen** (it would be the first column ACL on the table and a change to
+ * ADR-006's role footprint); it was not refuted. D-B makes the column harmless
+ * to read instead: what it holds lets a replay be *recognised* (the
  * lookup hashes the incoming header and compares) and does not hand anybody a
  * key they could send.
  *
