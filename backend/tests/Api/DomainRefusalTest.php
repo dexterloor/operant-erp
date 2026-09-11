@@ -161,11 +161,78 @@ final class DomainRefusalTest extends KernelTestCase
         self::assertSame([], $reflection->getAttributes(\Doctrine\ORM\Mapping\Table::class), 'The subclass inherited the attribute, so this test proves nothing.');
 
         try {
-            $subject->place(new \DateTimeImmutable());
+            $subject->place(new \DateTimeImmutable(), 1);
             self::fail('The guard did not refuse from "received".');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
         }
+    }
+
+    /**
+     * **Step 6a: the line guard is `place()`'s, not only the approval service's**
+     * — API-15's reason for putting the status guard on the entity applies word
+     * for word: the reorder agent and a console command call `place()` directly.
+     *
+     * It is its own rule code rather than `status_transition_is_legal`, because
+     * the order is in the right status and the caller's remedy is different: add
+     * a line, not wait for a status. Dispatched through the real listener so the
+     * code that reaches the wire is asserted, not just the one the exception holds.
+     */
+    #[Test]
+    public function placingAnOrderWithNoLiveLinesIsRefusedWithItsOwnRule(): void
+    {
+        $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_DRAFT);
+
+        $refusal = null;
+        try {
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0);
+        } catch (IllegalTransition $e) {
+            $refusal = $e;
+        }
+
+        self::assertInstanceOf(IllegalTransition::class, $refusal, 'place() accepted an order with no live lines.');
+        self::assertSame(PurchaseOrder::STATUS_DRAFT, $subject->getStatus(), 'The refusal ran after the status was written.');
+        self::assertNull((new \ReflectionProperty(PurchaseOrder::class, 'orderedAt'))->getValue($subject),
+            'The refusal ran after ordered_at was written.');
+
+        $problem = $this->dispatch($refusal, '/api/v1/purchase-orders/x/approval');
+
+        self::assertInstanceOf(ApiProblem::class, $problem);
+        self::assertSame(409, $problem->getStatusCode());
+        self::assertSame('urn:erp:problem:business-rule-violated', $problem->getType());
+        self::assertSame('purchase_order.has_a_live_line', $problem->getRule());
+        self::assertStringNotContainsString('PurchaseOrder', (string) $problem->getDetail());
+        self::assertStringNotContainsString('place', (string) $problem->getDetail());
+    }
+
+    /**
+     * The order inside `place()` is fixed: the status guard first, unchanged, so
+     * a replayed approval of an order that is no longer `draft` is still told
+     * *that* — the answer §6.1's `guard:` mechanism depends on — whatever its
+     * lines are.
+     *
+     * **Mutation:** move the line guard above `refuseUnlessStatusIsOneOf()`;
+     * red — the rule is `has_a_live_line`.
+     */
+    #[Test]
+    public function theStatusGuardRunsBeforeTheLineGuard(): void
+    {
+        $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_ORDERED);
+
+        try {
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0);
+            self::fail('place() accepted an order that is not a draft.');
+        } catch (IllegalTransition $e) {
+            self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
+        }
+    }
+
+    private static function purchaseOrderIn(string $status): PurchaseOrder
+    {
+        $subject = (new \ReflectionClass(PurchaseOrder::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(PurchaseOrder::class, 'status'))->setValue($subject, $status);
+
+        return $subject;
     }
 
     /**

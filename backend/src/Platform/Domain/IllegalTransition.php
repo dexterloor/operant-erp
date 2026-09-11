@@ -50,8 +50,38 @@ final class IllegalTransition extends \DomainException
         private readonly array $legalFrom,
         string $message,
         private readonly string $clientMessage,
+        private readonly string $ruleName = self::RULE,
     ) {
         parent::__construct($message);
+    }
+
+    /**
+     * **A refusal from a status the matrix DOES allow**, because a fact about the
+     * document's content does not hold — step 6a's `place()` on an order with no
+     * live lines (product-owner ruling, 2026-09-11).
+     *
+     * It carries its own rule code, and that does not contradict `RULE`'s "one
+     * code for every status machine": `RULE` is the code for *the source status
+     * is wrong*, and here it is right. The caller's remedy differs — change the
+     * document, not wait for its status — so the code the client branches on has
+     * to differ too. The table half is still derived, never written down.
+     *
+     * @param class-string $entity
+     * @param string       $rule          the rule half only, e.g. `has_a_live_line`
+     * @param string       $clientMessage names no class, method or document — it reaches the wire
+     */
+    public static function unmetPrecondition(string $entity, string $method, string $from, string $rule, string $clientMessage): self
+    {
+        return new self(
+            $entity,
+            self::tableOf($entity),
+            $method,
+            $from,
+            [],
+            \sprintf('%s::%s() was refused from "%s": %s', self::shortNameOf($entity), $method, $from, $clientMessage),
+            $clientMessage,
+            $rule,
+        );
     }
 
     /**
@@ -129,7 +159,7 @@ final class IllegalTransition extends \DomainException
     /** The `rule` member of §5.2's `business-rule-violated` body. */
     public function rule(): string
     {
-        return $this->table.'.'.self::RULE;
+        return $this->table.'.'.$this->ruleName;
     }
 
     /** @return class-string */

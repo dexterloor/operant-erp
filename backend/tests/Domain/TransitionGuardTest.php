@@ -813,6 +813,16 @@ final class TransitionGuardTest extends TestCase
                 continue;
             }
 
+            // A count precondition (`PurchaseOrder::place()`'s live-line count,
+            // step 6a). 1 satisfies it, so clause (a) still tests the STATUS
+            // guard alone and a legal matrix cell is not refused by a rule it is
+            // not about. `DomainRefusalTest` owns the 0 case.
+            if ($type instanceof \ReflectionNamedType && 'int' === $type->getName()) {
+                $arguments[] = 1;
+
+                continue;
+            }
+
             self::fail(\sprintf(
                 '%s::%s() takes $%s, whose type this test cannot synthesise. Teach it the type rather than excluding the method.',
                 $method->getDeclaringClass()->getName(),

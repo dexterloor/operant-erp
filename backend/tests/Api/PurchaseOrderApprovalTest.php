@@ -69,6 +69,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
 
@@ -118,6 +119,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function anOwnerIsExemptByName(): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $this->grantRoleNamed(self::TENANT_A, (string) $this->actorId, self::PINNED_OWNER_ROLE);
 
         $this->approve($draft['order']);
@@ -164,6 +166,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function aNullCreatorDoesNotRefuse(): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
 
@@ -267,6 +270,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function approvingATwiceApprovedOrderIsRefusedByTheStatusGuard(): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
         self::assertSame(200, $this->httpStatus());
@@ -295,6 +299,79 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Step 6a, product-owner ruling 2026-09-11: an order with nothing on it
+     * cannot be placed with a supplier.** Until this test, `place()` checked the
+     * status alone and a manager could send an empty, zero-value order.
+     *
+     * The creator is a second person so DSoD-1 passes and the only thing left to
+     * refuse is the line guard. Three things are asserted, because a refusal that
+     * renders correctly over a row it already moved is the worse half of getting
+     * this wrong: the rule, the unchanged row, and the absent trail row.
+     */
+    #[Test]
+    public function anOrderWithNoLinesCannotBeApproved(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+
+        $this->approve($draft['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.has_a_live_line', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
+     * **"Live" is `deleted_at IS NULL`.** A draft whose lines were all archived
+     * holds rows in `purchase_order_line` and is as empty as one that never had
+     * any; a count over every row would approve it. The lines are archived
+     * through the operation rather than by a fixture, so the `deleted_at` the
+     * guard reads is the one the product writes.
+     */
+    #[Test]
+    public function anOrderWhoseLinesAreAllArchivedCannotBeApproved(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+
+        foreach ([1, 2] as $number) {
+            $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: $number);
+            $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
+            self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        }
+
+        $this->approve($draft['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.has_a_live_line', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
+     * The other half: one live line beside an archived one is enough. A guard
+     * that refused on *any* archived line would pass both tests above.
+     */
+    #[Test]
+    public function oneLiveLineBesideAnArchivedOneIsEnough(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+
+        $archived = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: 1);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: 2);
+        $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$archived);
+        self::assertSame(204, $this->httpStatus());
+
+        $this->approve($draft['order']);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(PurchaseOrder::STATUS_ORDERED, $this->json()['status']);
+    }
+
+    /**
      * **F-2 step 8 — *"writes an `audit_log` row naming the approver"*.**
      *
      * §9.2's row for `PURCHASE_ORDER_PLACED`: written by `ApprovePurchaseOrder`,
@@ -312,6 +389,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
         self::assertSame(200, $this->httpStatus());
@@ -371,6 +449,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
         $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-1'));
 
         $this->approve($order);
 
@@ -384,13 +463,16 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-1');
 
         $set = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $this->seedLine(self::TENANT_A, $set, $item);
         $this->approve($set, ['expected_at' => '2026-04-02T00:00:00+00:00']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('2026-04-02T00:00:00.000+00:00', $this->json()['expected_at']);
 
         $cleared = $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $this->seedLine(self::TENANT_A, $cleared, $item);
         $this->approve($cleared, ['expected_at' => null]);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertNull($this->json()['expected_at'],
@@ -421,6 +503,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         // test green on the wrong refusal. `aNullCreatorDoesNotRefuse` is the
         // test that establishes a null creator is approvable.
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
 
@@ -442,6 +525,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         // never be reached. The two refusals are both `business-rule-violated`,
         // so they are distinguished here by their `rule` member.
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -570,6 +654,21 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.approver_is_not_the_creator', $this->json()['rule']);
+    }
+
+    /**
+     * A refused approval moved nothing: still `draft`, still no `ordered_at`, and
+     * no `purchase_order.placed` row — the trail records what happened.
+     */
+    private function assertStillAnUnplacedDraft(string $orderId): void
+    {
+        $this->send('GET', '/purchase-orders/'.$orderId);
+        self::assertSame(PurchaseOrder::STATUS_DRAFT, $this->json()['status']);
+        self::assertNull($this->json()['ordered_at']);
+
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id FROM audit_log WHERE event_type = ?', [AuditEvent::PURCHASE_ORDER_PLACED]),
+            'A refused approval wrote a trail row.');
     }
 
     /** @param array<string, mixed> $body */

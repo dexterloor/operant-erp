@@ -32,15 +32,32 @@ use Symfony\Component\Uid\Uuid;
  *   3. **DSoD-1** — refuse when `purchase_order.created_by_user_id` equals the
  *      caller's `app_user.id`.
  *   4. **status guard** — refuse unless `status = 'draft'`.
- *   5. `place()`.
+ *   5. **line guard** — refuse when the order has no live line
+ *      (`purchase_order.has_a_live_line`; step 6a, product-owner ruling
+ *      2026-09-11).
+ *   6. `place()`'s state change.
  *
- * Steps 4 and 5 are one call: `PurchaseOrder::place()` opens with
- * `refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT])`
- * (`PurchaseOrder.php:190`, added by `6c3ed6e`), which is §8.3's matrix row for
- * this method. **That guard is not re-added or restated here.** A second copy in
+ * Steps 4 to 6 are one call: `PurchaseOrder::place()` opens with
+ * `refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT])` (added by
+ * `6c3ed6e`), which is §8.3's matrix row for this method, then refuses a live-line
+ * count below 1. **Neither guard is re-added or restated here.** A second copy in
  * this class would be a rule with two homes, and API-15 requires the guard to sit
  * on the entity precisely so that the reorder agent and a console command are
- * bound by it too.
+ * bound by it too. What this class owns is the **count**: the entity maps no
+ * lines, so the count is read here, inside the transaction and under RLS, and
+ * passed in.
+ *
+ * **Named residual: a line archived between the count and the commit.**
+ * Nothing locks the order row. This class reads it with a plain `SELECT`, and
+ * `PurchaseOrderWriter::archiveLine()` does the same before it checks `draft`,
+ * archives the line and has `recomputeTotal()` `UPDATE` the order. Under
+ * Postgres's default READ COMMITTED, whichever `UPDATE` on `purchase_order`
+ * comes second waits for the other to commit and then goes ahead without
+ * re-reading the status or the line count. So an approval racing the archiving
+ * of an order's last line can commit `ordered` with no live lines. The same race
+ * already let a line be archived on an order that had just been placed. Closing
+ * it means `SELECT … FOR UPDATE` on the order in both paths, which is a locking
+ * scheme, and step 6a deliberately does not build one.
  *
  * ===========================================================================
  * Why DSoD-1 runs AFTER the load, and why hoisting it is a named violation
@@ -185,16 +202,25 @@ final readonly class PurchaseOrderApproval
                     );
                 }
 
-                // ---- steps 4 and 5: the status guard lives inside `place()`
-                // (§8.3's matrix row), and its `IllegalTransition` is turned into
-                // §5.2's `business-rule-violated` by
-                // `FrameworkProblemTranslator`.
+                // The count step 5 decides on: live lines only, read in this
+                // transaction under RLS. A draft whose lines were all archived
+                // is as empty as one that never had any.
+                $liveLineCount = (int) $em->getConnection()->fetchOne(
+                    'SELECT count(*) FROM purchase_order_line WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL',
+                    [$id],
+                );
+
+                // ---- steps 4 to 6: both guards live inside `place()` (the
+                // status guard is §8.3's matrix row), and their
+                // `IllegalTransition` is turned into §5.2's
+                // `business-rule-violated` by `FrameworkProblemTranslator`.
                 //
                 // `place()` assigns `expectedAt` unconditionally, so an approval
                 // that named no date would erase the one F-2 step 5 recorded.
                 // The absent case passes the order's current value straight back.
                 $order->place(
                     new \DateTimeImmutable(),
+                    $liveLineCount,
                     $expectedAtSubmitted
                         ? $expectedAt
                         : (null === $row['expected_at'] ? null : new \DateTimeImmutable((string) $row['expected_at'])),
