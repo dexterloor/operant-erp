@@ -9,6 +9,7 @@ use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Domain\IllegalTransition;
 use App\SharedKernel\ValueObject\AuditEvent;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -691,17 +692,33 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
      * left to refuse is the field.
      */
     #[Test]
-    public function approvingWithAnImpossibleExpectedDateIsRefusedAndPlacesNothing(): void
+    #[DataProvider('impossibleInstants')]
+    public function approvingWithAnImpossibleExpectedDateIsRefusedAndPlacesNothing(string $expectedAt): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
-        $this->approve($draft['order'], ['expected_at' => '2026-02-30T00:00:00Z']);
+        $this->approve($draft['order'], ['expected_at' => $expectedAt]);
 
         self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
         self::assertSame('not_a_timestamp', $this->json()['errors'][0]['code']);
         self::assertSame('/expected_at', $this->json()['errors'][0]['pointer']);
         $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
+     * Each is a value PHP corrects with a warning rather than refusing, so each
+     * would be stored as a different instant from the one written: 2 March,
+     * midnight of 2 March, and 00:00 of 2 March.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function impossibleInstants(): iterable
+    {
+        yield '30 February' => ['2026-02-30T00:00:00Z'];
+        yield 'hour 24' => ['2026-03-01T24:00:00Z'];
+        yield 'second 60' => ['2026-03-01T23:59:60Z'];
     }
 
     /**

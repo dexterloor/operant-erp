@@ -39,8 +39,14 @@ use Symfony\Component\Uid\Uuid;
  * names `purchase_order` alone.
  *
  * ---------------------------------------------------------------------------
- * What it does not do
+ * What it refuses, and what it does not do
  * ---------------------------------------------------------------------------
+ * **It refuses to run outside a transaction.** There the statement is its own
+ * implicit transaction and the lock is released the moment it is granted, so
+ * a caller that forgot the transaction would get no protection and no error.
+ * `TenantContext::establishOn()` refuses a `set_config` with nothing to bind
+ * to for the same reason.
+ *
  * It does not answer "not found". Under RLS another tenant's row is invisible,
  * so the lock takes nothing, and the caller's own read answers not-found
  * exactly as before. A string that is not a UUID names no row in any tenant
@@ -54,6 +60,30 @@ use Symfony\Component\Uid\Uuid;
  * same order the `purchase_order_cascade_deletion` trigger uses (the order row,
  * then its lines), and `recomputeTotal()`'s later `UPDATE` of the order
  * re-takes a lock this transaction already holds.
+ *
+ * ---------------------------------------------------------------------------
+ * Who must call it, and what the check that says so cannot see
+ * ---------------------------------------------------------------------------
+ * `PurchaseOrderRowLockTest::everyMethodThatWritesAPurchaseOrderIsCoveredByALockFirstCheck`
+ * **derives** the writers from `src/` with PHP's tokenizer: every method whose
+ * string literals write `purchase_order` or `purchase_order_line` (`UPDATE`,
+ * `INSERT INTO`, `DELETE FROM`, or DQL on the entity), every method that names
+ * `PurchaseOrder::class` / `PurchaseOrderLine::class` and flushes, persists or
+ * removes, and every in-class caller of a private method that does either. It
+ * fails on any writer not covered by a lock-first check.
+ * `PurchaseOrderWriter::create` is allowed by name: it has no existing row to
+ * lock. **It cannot see:**
+ *
+ *   - SQL whose table name is not inside one string literal: assembled at
+ *     runtime (`sprintf('UPDATE %s', $table)`), held in a variable or a
+ *     constant, or split so `UPDATE` and the table name are separate pieces;
+ *   - an ORM write in a method that does not name either entity class: an
+ *     entity handed in, or reached through a repository or an association,
+ *     and flushed somewhere else; and a QueryBuilder `->update()` that never
+ *     spells the statement as a string;
+ *   - writes outside `src/`: migrations, scripts, `psql`, and triggers. The
+ *     cascade trigger writes lines from inside an order `UPDATE`, which
+ *     already holds the order, so it keeps the order → lines rule.
  */
 final class PurchaseOrderRowLock
 {
@@ -61,10 +91,19 @@ final class PurchaseOrderRowLock
 
     public static function holdInside(EntityManagerInterface $em, string $orderId): void
     {
+        $connection = $em->getConnection();
+
+        if (0 === $connection->getTransactionNestingLevel()) {
+            throw new \LogicException(
+                'PurchaseOrderRowLock::holdInside() needs an open transaction: outside one the lock is '
+                .'released as soon as the statement ends, which protects nothing.'
+            );
+        }
+
         if (!Uuid::isValid($orderId)) {
             return;
         }
 
-        $em->getConnection()->executeStatement(self::SQL, [$orderId]);
+        $connection->executeStatement(self::SQL, [$orderId]);
     }
 }

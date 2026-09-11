@@ -160,6 +160,11 @@ final readonly class PurchaseOrderCancellation
                     );
                 }
 
+                // Step 6c follow-up: re-read under the lock, whoever loaded the
+                // entity and when. `PurchaseOrderApproval` says why this is a
+                // refresh and not an assertion.
+                $em->refresh($order);
+
                 // ---- step 4. The guard is inside `cancel()` (§8.3's matrix
                 // row) and its `IllegalTransition` is turned into §5.2's
                 // `business-rule-violated` by `FrameworkProblemTranslator`.

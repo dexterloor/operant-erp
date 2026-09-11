@@ -219,6 +219,17 @@ final readonly class PurchaseOrderApproval
                     );
                 }
 
+                // Step 6c follow-up: `find()` answers from the identity map,
+                // without a query, when the entity is already managed, and then
+                // `place()` would check a status read BEFORE the lock. Refreshing
+                // re-reads the row under the lock whoever loaded it and when.
+                // Refresh rather than asserting "not managed": the assertion
+                // would refuse a legitimate caller (a long-lived worker, or this
+                // project's HTTP test rig, which keeps one EntityManager across
+                // requests), where the refresh is simply correct. Its cost is
+                // one primary-key SELECT.
+                $em->refresh($order);
+
                 // The count step 5 decides on: live lines only, read in this
                 // transaction under RLS. A draft whose lines were all archived
                 // is as empty as one that never had any.

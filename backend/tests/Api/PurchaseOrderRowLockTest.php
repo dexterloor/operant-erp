@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use Doctrine\ORM\EntityManagerInterface;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -48,6 +50,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 {
     /** Only a failing run reaches it; see the holder script. */
     private const HOLDER_DEADLINE_SECONDS = 10.0;
+
+    /**
+     * The status-guard half of the `rule` member, spelled independently of
+     * `IllegalTransition::RULE` so a rename there is red here rather than
+     * compared with itself.
+     */
+    private const STATUS_RULE = 'status_transition_is_legal';
 
     /**
      * **Approve vs archive-last-line — the race 6a's line guard named.** A
@@ -99,6 +108,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.'.self::STATUS_RULE, $this->json()['rule']);
         $this->assertOrderStatus($draft['order'], PurchaseOrder::STATUS_CANCELLED);
         self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT id FROM audit_log WHERE event_type = ?', [AuditEvent::PURCHASE_ORDER_PLACED]),
@@ -124,6 +134,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.'.self::STATUS_RULE, $this->json()['rule']);
         $this->assertOrderStatus($draft['order'], PurchaseOrder::STATUS_CANCELLED);
         self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT id FROM audit_log WHERE event_type = ?', [AuditEvent::PURCHASE_ORDER_CANCELLED]),
@@ -265,9 +276,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // Split the recording into transactions at each tenant-context
         // statement, which `TenantContext::run()` issues as a transaction's
         // first statement. The PATCH/DELETE operations have an API Platform
-        // provider that reads the row in its OWN earlier transaction; that read
-        // decides nothing (the write re-reads under the lock), so the pin is on
-        // the one transaction that writes.
+        // provider that reads the row in its OWN earlier transaction. That read
+        // decides only not-found, and that answer cannot go stale into a wrong
+        // write: `purchase_order` and `purchase_order_line` are both
+        // `SchemaManifest::SOFT` and nothing hard-deletes either, so a row the
+        // provider found still exists when the write locks it. Everything the
+        // write actually checks (status, `deleted_at`, the line) it re-reads
+        // under the lock. So the pin is on the one transaction that writes.
         //
         // The pattern is written so `TenantContextContainmentTest`'s writer
         // scan does not read this matcher as a writer of tenant context: this
@@ -309,6 +324,369 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 default => 200,
             }];
         }
+    }
+
+    /**
+     * **An autocommitted lock is no lock.** Outside a transaction the `SELECT
+     * … FOR NO KEY UPDATE` runs as its own implicit transaction and the lock is
+     * released when the statement ends, so a caller that forgot the
+     * transaction would get no protection and no error. The helper refuses
+     * instead, before sending anything, as `TenantContext::establishOn()`
+     * refuses a `set_config` with no transaction to bind to.
+     */
+    #[Test]
+    public function theLockRefusesToRunOutsideATransaction(): void
+    {
+        $em = $this->em();
+        self::assertSame(0, $em->getConnection()->getTransactionNestingLevel(), 'The premise: no transaction is open.');
+
+        $this->recorder()->start();
+        try {
+            PurchaseOrderRowLock::holdInside($em, Uuid::v4()->toRfc4122());
+            self::fail('The lock ran outside a transaction, where it is released as soon as it is taken.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('transaction', $e->getMessage());
+        } finally {
+            $this->recorder()->stop();
+        }
+
+        self::assertSame([], $this->recorder()->matching('/FOR NO KEY UPDATE/'), 'The refused lock was still sent.');
+    }
+
+    /**
+     * **A transition decides on the order as it is under the lock, even when
+     * the entity was already loaded.** `find()` answers from the identity map
+     * without a query when the entity is already managed, and then the status
+     * `place()` or `cancel()` checks was read before the lock, possibly before
+     * a concurrent change committed. Here the test is that earlier caller: it
+     * loads the draft, then the order is cancelled underneath it, then the
+     * transition runs in the same unit of work.
+     */
+    #[Test]
+    #[DataProvider('ormTransitions')]
+    public function aTransitionReReadsAnOrderThatWasAlreadyLoaded(string $path, string $event): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $loaded = $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em): ?PurchaseOrder => $em->find(PurchaseOrder::class, Uuid::fromString($draft['order'])));
+        self::assertInstanceOf(PurchaseOrder::class, $loaded, 'The premise: the entity is managed before the request.');
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "UPDATE purchase_order SET status = 'cancelled', updated_at = now() WHERE id = ?::uuid", [$draft['order']]);
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].$path, [], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.'.self::STATUS_RULE, $this->json()['rule']);
+        $this->assertOrderStatus($draft['order'], PurchaseOrder::STATUS_CANCELLED);
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id FROM audit_log WHERE event_type = ?', [$event]), 'A refused transition wrote a trail row.');
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function ormTransitions(): iterable
+    {
+        yield 'ApprovePurchaseOrder' => ['/approval', AuditEvent::PURCHASE_ORDER_PLACED];
+        yield 'CancelPurchaseOrder' => ['/cancellation', AuditEvent::PURCHASE_ORDER_CANCELLED];
+    }
+
+    /**
+     * Which lock-first check covers each writer: `everyWritePath()`'s case =>
+     * the method it enters. The keys must be exactly that provider's cases, so
+     * the map and the runtime check cannot drift apart.
+     */
+    private const LOCK_FIRST_CHECKED = [
+        'ApprovePurchaseOrder' => 'PurchaseOrderApproval::approve',
+        'CancelPurchaseOrder' => 'PurchaseOrderCancellation::cancel',
+        'UpdatePurchaseOrder' => 'PurchaseOrderWriter::update',
+        'DeletePurchaseOrder' => 'PurchaseOrderWriter::archive',
+        'CreatePurchaseOrderLine' => 'PurchaseOrderWriter::createLine',
+        'UpdatePurchaseOrderLine' => 'PurchaseOrderWriter::updateLine',
+        'DeletePurchaseOrderLine' => 'PurchaseOrderWriter::archiveLine',
+    ];
+
+    /** Writers that take no lock, each by name and with its reason. Keep it short. */
+    private const ALLOWED_WITHOUT_A_LOCK = [
+        'PurchaseOrderWriter::create' => 'It inserts the row, so there is no existing row to lock. Its two races '
+            .'are answered by unique indexes: purchase_order_tenant_idem_live (a replay of the same key) and '
+            .'purchase_order_tenant_number_live (two creates picking the same order number).',
+    ];
+
+    /** Statement text that writes either table. */
+    private const WRITE_SQL = '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+purchase_order(?:_line)?\b/i';
+
+    /** DQL that writes either entity. */
+    private const WRITE_DQL = '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*PurchaseOrder(?:Line)?\b/';
+
+    /**
+     * **The domain is derived from `src/`, not restated.** A new method that
+     * writes a purchase order or its lines, and is neither covered by a
+     * lock-first check nor allowed by name, is red here. That is the case step
+     * 8's goods receipt will be: it writes `purchase_order.status` and
+     * `purchase_order_line.quantity_received`.
+     *
+     * What the scan cannot see is named in `PurchaseOrderRowLock`'s docblock.
+     */
+    #[Test]
+    public function everyMethodThatWritesAPurchaseOrderIsCoveredByALockFirstCheck(): void
+    {
+        self::assertSame(
+            array_keys(iterator_to_array(self::everyWritePath())),
+            array_keys(self::LOCK_FIRST_CHECKED),
+            'LOCK_FIRST_CHECKED must name exactly the cases everyWritePath() runs.',
+        );
+
+        $derived = self::writersOfPurchaseOrders();
+        self::assertNotSame([], $derived, 'The scan found no writer at all, so it is not scanning.');
+
+        $accounted = [...array_values(self::LOCK_FIRST_CHECKED), ...array_keys(self::ALLOWED_WITHOUT_A_LOCK)];
+        sort($accounted);
+        $found = array_keys($derived);
+        sort($found);
+
+        $describe = implode("\n", array_map(
+            static fn (string $method, array $writes): string => '  '.$method.' — '.implode(' | ', array_unique($writes)),
+            array_keys($derived),
+            $derived,
+        ));
+
+        self::assertSame($accounted, $found,
+            "The methods that write a purchase order or its lines are not the ones covered by a lock-first check.\n"
+            ."A new writer must call PurchaseOrderRowLock::holdInside() first and get a case in everyWritePath() "
+            ."and LOCK_FIRST_CHECKED, or be added to ALLOWED_WITHOUT_A_LOCK with its reason.\n"
+            ."Writers found in src/:\n".$describe);
+    }
+
+    /**
+     * Every method in `src/` that writes `purchase_order` / `purchase_order_line`,
+     * reduced to the methods a caller enters by: a private or protected writer
+     * is replaced by its in-class callers, and one with no in-class caller is
+     * reported as itself.
+     *
+     * @return array<string, list<string>> `ShortClass::method` => what it writes
+     */
+    private static function writersOfPurchaseOrders(): array
+    {
+        $methods = [];
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(\dirname(__DIR__, 2).'/src', \FilesystemIterator::SKIP_DOTS));
+
+        /** @var \SplFileInfo $file */
+        foreach ($files as $file) {
+            if ('php' !== $file->getExtension()) {
+                continue;
+            }
+            foreach (self::methodsIn((string) file_get_contents($file->getPathname())) as $key => $method) {
+                if (isset($methods[$key])) {
+                    throw new \LogicException(\sprintf('Two classes in src/ share the short name in %s; key the scan by FQCN.', $key));
+                }
+                $methods[$key] = $method;
+            }
+        }
+
+        $reach = [];
+        foreach ($methods as $key => $method) {
+            $writes = $method['writes'];
+            if ($method['entity'] && [] !== array_intersect($method['calls'], ['flush', 'persist', 'remove'])) {
+                $writes[] = 'ORM: names a purchase-order entity class and flushes, persists or removes';
+            }
+            if ([] !== $writes) {
+                $reach[$key] = $writes;
+            }
+        }
+
+        // Private and protected writers are reached through their in-class
+        // callers. Repeat until nothing new is reached (a helper of a helper).
+        do {
+            $changed = false;
+            foreach (array_keys($reach) as $key) {
+                if ($methods[$key]['public']) {
+                    continue;
+                }
+                foreach (self::inClassCallersOf($methods, $key) as $caller) {
+                    if (!isset($reach[$caller])) {
+                        $reach[$caller] = ['via '.$methods[$key]['name'].'()'];
+                        $changed = true;
+                    }
+                }
+            }
+        } while ($changed);
+
+        return array_filter(
+            $reach,
+            static fn (string $key): bool => $methods[$key]['public'] || [] === self::inClassCallersOf($methods, $key),
+            \ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * @param array<string, array{public: bool, class: string, name: string, writes: list<string>, calls: list<string>, entity: bool}> $methods
+     *
+     * @return list<string>
+     */
+    private static function inClassCallersOf(array $methods, string $key): array
+    {
+        $callers = [];
+        foreach ($methods as $callerKey => $caller) {
+            if ($callerKey !== $key
+                && $caller['class'] === $methods[$key]['class']
+                && \in_array($methods[$key]['name'], $caller['calls'], true)
+            ) {
+                $callers[] = $callerKey;
+            }
+        }
+
+        return $callers;
+    }
+
+    /**
+     * The methods of every class-like in one file, each with the writes its
+     * string literals spell, the methods it calls, and whether it names a
+     * purchase-order entity class. Closures belong to the method they are in.
+     *
+     * @return array<string, array{public: bool, class: string, name: string, writes: list<string>, calls: list<string>, entity: bool}>
+     */
+    private static function methodsIn(string $source): array
+    {
+        $tokens = token_get_all($source);
+        $methods = [];
+        $depth = 0;
+        $class = null;
+        $classDepth = null;
+        $pendingClass = null;
+        $pendingMethod = null;
+        $pendingPublic = true;
+        $modifiers = [];
+        $current = null;
+        $methodDepth = null;
+
+        foreach ($tokens as $i => $token) {
+            $id = \is_array($token) ? $token[0] : null;
+            $text = \is_array($token) ? $token[1] : $token;
+
+            if (\in_array($id, [\T_CLASS, \T_TRAIT, \T_ENUM, \T_INTERFACE], true) && \T_DOUBLE_COLON !== self::idAt($tokens, self::previousMeaningful($tokens, $i))) {
+                if (\T_STRING === self::idAt($tokens, self::nextMeaningful($tokens, $i))) {
+                    $pendingClass = $tokens[self::nextMeaningful($tokens, $i)][1];
+                }
+                continue;
+            }
+
+            $atClassBody = null !== $classDepth && $depth === $classDepth && null === $current;
+
+            if ($atClassBody && \in_array($id, [\T_PUBLIC, \T_PROTECTED, \T_PRIVATE], true)) {
+                $modifiers[] = $id;
+                continue;
+            }
+
+            if ($atClassBody && \T_FUNCTION === $id) {
+                $next = self::nextMeaningful($tokens, $i);
+                if ('&' === ($tokens[$next] ?? null)) {
+                    $next = self::nextMeaningful($tokens, $next);
+                }
+                if (\T_STRING === self::idAt($tokens, $next)) {
+                    $pendingMethod = $tokens[$next][1];
+                    $pendingPublic = !\in_array(\T_PRIVATE, $modifiers, true) && !\in_array(\T_PROTECTED, $modifiers, true);
+                }
+                $modifiers = [];
+                continue;
+            }
+
+            if ('{' === $text || \T_CURLY_OPEN === $id || \T_DOLLAR_OPEN_CURLY_BRACES === $id) {
+                ++$depth;
+                if (null !== $pendingClass && null === $classDepth) {
+                    $class = $pendingClass;
+                    $classDepth = $depth;
+                    $pendingClass = null;
+                } elseif (null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
+                    $current = $class.'::'.$pendingMethod;
+                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'writes' => [], 'calls' => [], 'entity' => false];
+                    $methodDepth = $depth;
+                    $pendingMethod = null;
+                }
+                continue;
+            }
+
+            if ('}' === $text) {
+                if (null !== $current && $depth === $methodDepth) {
+                    $current = null;
+                    $methodDepth = null;
+                } elseif (null !== $classDepth && $depth === $classDepth) {
+                    $class = null;
+                    $classDepth = null;
+                }
+                --$depth;
+                continue;
+            }
+
+            if ($atClassBody && ';' === $text) {
+                // An abstract or interface method: a signature with no body.
+                $pendingMethod = null;
+                $modifiers = [];
+                continue;
+            }
+
+            if (null === $current) {
+                continue;
+            }
+
+            if (\T_CONSTANT_ENCAPSED_STRING === $id || \T_ENCAPSED_AND_WHITESPACE === $id) {
+                if (1 === preg_match(self::WRITE_SQL, $text, $m) || 1 === preg_match(self::WRITE_DQL, $text, $m)) {
+                    $methods[$current]['writes'][] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
+                }
+                continue;
+            }
+
+            if (\in_array($id, [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED], true)) {
+                $previous = self::idAt($tokens, self::previousMeaningful($tokens, $i));
+                $nextIndex = self::nextMeaningful($tokens, $i);
+                $next = null === $nextIndex ? null : $tokens[$nextIndex];
+
+                if (\in_array($previous, [\T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR, \T_DOUBLE_COLON], true) && '(' === $next) {
+                    $methods[$current]['calls'][] = $text;
+                }
+
+                $short = substr((string) strrchr('\\'.$text, '\\'), 1);
+                if (\in_array($short, ['PurchaseOrder', 'PurchaseOrderLine'], true)) {
+                    $isClassConstant = \T_DOUBLE_COLON === self::idAt($tokens, $nextIndex)
+                        && \T_CLASS === self::idAt($tokens, self::nextMeaningful($tokens, (int) $nextIndex));
+                    if ($isClassConstant || \T_NEW === $previous) {
+                        $methods[$current]['entity'] = true;
+                    }
+                }
+            }
+        }
+
+        return $methods;
+    }
+
+    /** @param list<mixed> $tokens */
+    private static function nextMeaningful(array $tokens, int $i): ?int
+    {
+        for ($j = $i + 1, $n = \count($tokens); $j < $n; ++$j) {
+            if (!\is_array($tokens[$j]) || !\in_array($tokens[$j][0], [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT], true)) {
+                return $j;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<mixed> $tokens */
+    private static function previousMeaningful(array $tokens, int $i): ?int
+    {
+        for ($j = $i - 1; $j >= 0; --$j) {
+            if (!\is_array($tokens[$j]) || !\in_array($tokens[$j][0], [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT], true)) {
+                return $j;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<mixed> $tokens */
+    private static function idAt(array $tokens, ?int $i): ?int
+    {
+        return null !== $i && \is_array($tokens[$i]) ? $tokens[$i][0] : null;
     }
 
     // -----------------------------------------------------------------------
@@ -383,6 +761,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $out = (string) stream_get_contents($pipes[1]);
             $err = (string) stream_get_contents($pipes[2]);
         } finally {
+            // A child still running here means the test failed before the
+            // holder finished (an assertion inside the wait, or the request
+            // threw). Stop it rather than let `proc_close()` wait on it.
+            if (proc_get_status($proc)['running']) {
+                proc_terminate($proc);
+            }
             foreach ($pipes as $pipe) {
                 if (\is_resource($pipe)) {
                     fclose($pipe);

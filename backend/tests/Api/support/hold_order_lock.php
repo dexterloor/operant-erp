@@ -13,7 +13,9 @@
 //   3. Wait until Postgres reports some backend blocked BY THIS ONE
 //      (`pg_blocking_pids`). That is the moment B is provably inside its
 //      transaction and waiting on a lock this transaction holds.
-//   4. Run HOLD_AFTER, then COMMIT.
+//   4. Run HOLD_AFTER, then COMMIT. If no waiter was ever seen, ROLL BACK
+//      instead: nothing raced, so HOLD_BEFORE's writes must not land and be
+//      mistaken for a result.
 //   5. Print one JSON line: whether a waiter was seen, whether the commit
 //      happened, and the SQLSTATE of anything that failed.
 //
@@ -22,22 +24,29 @@
 // timing assumption: no passing run depends on how long anything takes.
 require dirname(__DIR__, 3).'/vendor/autoload.php';
 
+use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\DriverException;
 use Doctrine\DBAL\Tools\DsnParser;
 
-$params = (new DsnParser(['postgresql' => 'pdo_pgsql', 'postgres' => 'pdo_pgsql']))->parse(getenv('APP_DIRECT_DATABASE_URL'));
-$conn = DriverManager::getConnection($params);
-
-/** @var list<array{0: string, 1: list<string>}> $before */
-$before = json_decode((string) getenv('HOLD_BEFORE'), true, flags: JSON_THROW_ON_ERROR);
-/** @var list<array{0: string, 1: list<string>}> $after */
-$after = json_decode((string) getenv('HOLD_AFTER'), true, flags: JSON_THROW_ON_ERROR);
-$deadline = microtime(true) + (float) getenv('HOLD_DEADLINE_SECONDS');
-
+$readyFile = (string) getenv('HOLD_READY_FILE');
 $result = ['waiter_seen' => false, 'committed' => false, 'sqlstate' => null, 'error' => null];
+$conn = null;
 
 try {
+    $params = (new DsnParser(['postgresql' => 'pdo_pgsql', 'postgres' => 'pdo_pgsql']))->parse((string) getenv('APP_DIRECT_DATABASE_URL'));
+    // pdo_pgsql maps ATTR_TIMEOUT to libpq's connect_timeout; DBAL's DSN
+    // builder has no connect_timeout of its own. A database that is not
+    // there is a quick failure here rather than a parent waiting on a child.
+    $params['driverOptions'] = [\PDO::ATTR_TIMEOUT => 5];
+
+    /** @var list<array{0: string, 1: list<string>}> $before */
+    $before = json_decode((string) getenv('HOLD_BEFORE'), true, flags: JSON_THROW_ON_ERROR);
+    /** @var list<array{0: string, 1: list<string>}> $after */
+    $after = json_decode((string) getenv('HOLD_AFTER'), true, flags: JSON_THROW_ON_ERROR);
+    $deadline = microtime(true) + (float) getenv('HOLD_DEADLINE_SECONDS');
+
+    $conn = DriverManager::getConnection($params);
     $conn->beginTransaction();
     $conn->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [getenv('HOLD_TENANT')]);
     $conn->executeStatement('SELECT 1 FROM purchase_order WHERE id = ?::uuid FOR NO KEY UPDATE', [getenv('HOLD_ORDER')]);
@@ -47,7 +56,7 @@ try {
     }
 
     $pid = (int) $conn->fetchOne('SELECT pg_backend_pid()');
-    file_put_contents((string) getenv('HOLD_READY_FILE'), (string) $pid);
+    file_put_contents($readyFile, (string) $pid);
 
     while (microtime(true) < $deadline) {
         if (true === $conn->fetchOne(
@@ -60,30 +69,34 @@ try {
         usleep(2000);
     }
 
-    foreach ($after as [$sql, $bind]) {
-        $conn->executeStatement($sql, $bind);
-    }
+    if ($result['waiter_seen']) {
+        foreach ($after as [$sql, $bind]) {
+            $conn->executeStatement($sql, $bind);
+        }
 
-    $conn->commit();
-    $result['committed'] = true;
+        $conn->commit();
+        $result['committed'] = true;
+    } else {
+        $conn->rollBack();
+        $result['error'] = 'No backend ever waited on this one; rolled back.';
+    }
 } catch (DriverException $e) {
     $result['sqlstate'] = $e->getSQLState();
     $result['error'] = $e->getMessage();
-    if ($conn->isTransactionActive()) {
-        $conn->rollBack();
-    }
 } catch (\Throwable $e) {
     $result['error'] = $e::class.': '.$e->getMessage();
-    if ($conn->isTransactionActive()) {
+} finally {
+    if ($conn instanceof Connection && $conn->isTransactionActive()) {
         $conn->rollBack();
     }
 }
 
-// Ready file written even on an early failure, so the parent never waits for
-// a signal that cannot come.
-if ('' === trim((string) @file_get_contents((string) getenv('HOLD_READY_FILE')))) {
-    file_put_contents((string) getenv('HOLD_READY_FILE'), 'failed');
+// Every path out of the `try` above reaches this line, so the parent always
+// gets a signal: the pid once the lock is held, or `failed` if something went
+// wrong before the lock was taken.
+if ('' === trim((string) @file_get_contents($readyFile))) {
+    file_put_contents($readyFile, 'failed');
 }
 
-$conn->close();
+$conn?->close();
 echo json_encode($result, JSON_THROW_ON_ERROR), "\n";
