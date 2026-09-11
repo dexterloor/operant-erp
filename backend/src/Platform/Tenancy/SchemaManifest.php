@@ -371,7 +371,7 @@ final class SchemaManifest
             'module' => 'Modules\\Purchasing',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'The event that created stock movements. It is corrected by a further receipt, never deleted.',
+            'why' => 'The event that created stock movements. It is corrected by a further receipt, never deleted. **Carries CreateGoodsReceipt\'s retry key (step 8-i, Version20260911000400):** idempotency_key holds the hex SHA-256 of the Idempotency-Key header and request_digest the RequestDigest::of() of the request that created the row, both NOT NULL (no receipt predates the columns, so unlike purchase_order there is no history for a NULL to describe), each CHECKed to 64 lower-case hex. The unique goods_receipt_idem_unique (tenant_id, idempotency_key) is TOTAL, because this table has no deleted_at: a receipt is never archived, so no archived row needs to release its key. erp_ai reads both by table-level inheritance, the state API-O-32 accepted for purchase_order.',
             'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
         ],
         'goods_receipt_line' => [

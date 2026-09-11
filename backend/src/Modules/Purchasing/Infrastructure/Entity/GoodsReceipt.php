@@ -38,6 +38,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Table(name: 'goods_receipt')]
 #[ORM\UniqueConstraint(name: 'goods_receipt_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'goods_receipt_number_unique', columns: ['tenant_id', 'receipt_number'])]
+// A retried CreateGoodsReceipt collides here (step 8-i, Version20260911000400).
+#[ORM\UniqueConstraint(name: 'goods_receipt_idem_unique', columns: ['tenant_id', 'idempotency_key'])]
 // "What has been received against this order" — the receiving screen.
 #[ORM\Index(name: 'goods_receipt_tenant_order_idx', columns: ['tenant_id', 'purchase_order_id', 'received_at'])]
 class GoodsReceipt
@@ -66,6 +68,20 @@ class GoodsReceipt
     #[ORM\Column(name: 'receipt_number', type: Types::TEXT)]
     private string $receiptNumber;
 
+    /**
+     * **`CreateGoodsReceipt`'s retry key: the lower-case hex SHA-256 of the
+     * `Idempotency-Key` header**, never the header (D-B). NOT NULL, unlike
+     * `PurchaseOrder::$idempotencyKey`: that column is nullable for rows older
+     * than it, and no goods receipt predates this one (`Version20260911000400`).
+     * Set once, at construction or in the `INSERT`, and there is no setter.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT)]
+    private string $idempotencyKey;
+
+    /** `RequestDigest::of()` of the request that created the row. Request plumbing, never read into the domain. */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT)]
+    private string $requestDigest;
+
     #[ORM\Column(name: 'received_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $receivedAt;
 
@@ -81,6 +97,8 @@ class GoodsReceipt
         PurchaseOrder $purchaseOrder,
         Warehouse $warehouse,
         string $receiptNumber,
+        string $idempotencyKey,
+        string $requestDigest,
         ?\DateTimeImmutable $receivedAt = null,
     ) {
         $this->id = $id;
@@ -88,6 +106,8 @@ class GoodsReceipt
         $this->purchaseOrder = $purchaseOrder;
         $this->warehouse = $warehouse;
         $this->receiptNumber = $receiptNumber;
+        $this->idempotencyKey = $idempotencyKey;
+        $this->requestDigest = $requestDigest;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
         $this->receivedAt = $receivedAt ?? $this->createdAt;

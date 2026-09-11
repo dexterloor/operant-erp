@@ -119,6 +119,19 @@ use PHPUnit\Framework\Attributes\Test;
  * that exists is not a column that deduplicates**, one table over from the
  * lesson's first recording.
  *
+ * ---------------------------------------------------------------------------
+ * ⚠ Step 8-i, 2026-09-11 — the second header-sourced key, on a table that
+ * never deletes
+ * ---------------------------------------------------------------------------
+ * `Version20260911000400` gave `goods_receipt` the same key, so
+ * `CreateGoodsReceipt` moved to `unique:goods_receipt_idem_unique` and the
+ * blocked set went from eight to **seven**. Nothing in this file had to be
+ * loosened for it. The unique is **total**, because `goods_receipt` is class
+ * `none` and has no `deleted_at`, and
+ * `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes` already
+ * demanded exactly that of a non-soft table. The partiality check is honest
+ * here as written: "not soft" means "total", and `none` is not soft.
+ *
  * ⚠ **One mutation in this set silently failed to apply, and it is recorded
  * because it is the lesson rather than a mishap.** The first attempt at
  * `everyBlockedOperationIsNamedByTheGate`'s mutation removed `IssueInvoice` from
@@ -154,6 +167,12 @@ final class IdempotencyContractTest extends TenancyTestCase
         // value arrives as the `Idempotency-Key` HEADER rather than in the body.
         // `Version20260911000100` laid the column; see PINNED_HEADER_KEY.
         'CreatePurchaseOrder' => 'unique:purchase_order_tenant_idem_live',
+        // ⚠ **Step 8, 2026-09-11.** The second header-sourced key, and the
+        // first on a table with no `deleted_at`: `goods_receipt` is class
+        // `none`, so its unique is TOTAL, and
+        // `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes`
+        // demands exactly that. `Version20260911000400` laid it.
+        'CreateGoodsReceipt' => 'unique:goods_receipt_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -184,11 +203,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateBulkRoleAssignment' => 'store',
 
         // ⛔ none — declared idempotent, NO mechanism, blocked from shipping.
-        // EIGHT, not nine: `CreatePurchaseOrder` left this block on 2026-09-11.
+        // SEVEN: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
+        // and `CreateGoodsReceipt` the same day (step 8).
         'CreateSalesOrder' => '⛔ none',
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
-        'CreateGoodsReceipt' => '⛔ none',
         'CreateFulfilment' => '⛔ none',
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
@@ -224,6 +243,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         // The header-sourced one. See PINNED_HEADER_KEY for why that is a
         // legitimate source and why it cannot be stretched into a general one.
         'CreatePurchaseOrder' => [IdempotencyKeyGuard::COLUMN],
+        'CreateGoodsReceipt' => [IdempotencyKeyGuard::COLUMN],
     ];
 
     /**
@@ -276,6 +296,7 @@ final class IdempotencyContractTest extends TenancyTestCase
      */
     private const PINNED_HEADER_KEY = [
         'CreatePurchaseOrder',
+        'CreateGoodsReceipt',
     ];
 
     /**
