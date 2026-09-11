@@ -170,8 +170,10 @@ final class DomainRefusalTest extends KernelTestCase
 
     /**
      * **Step 6a: the line guard is `place()`'s, not only the approval service's**
-     * — API-15's reason for putting the status guard on the entity applies word
-     * for word: the reorder agent and a console command call `place()` directly.
+     * — on API-15's reasoning for the status guard, any caller of `place()` must
+     * state a count and the entity refuses one below 1. Today the approval
+     * service is the only caller, and the entity cannot check that the count it
+     * is handed is true; that is the caller's job.
      *
      * It is its own rule code rather than `status_transition_is_legal`, because
      * the order is in the right status and the caller's remedy is different: add

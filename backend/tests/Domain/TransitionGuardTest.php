@@ -269,6 +269,7 @@ final class TransitionGuardTest extends TestCase
         $pairs = 0;
         $accepted = [];
         $mutated = [];
+        $notAStatusRefusal = [];
 
         foreach (self::matrixEntities() as $entity) {
             foreach (self::transitionMethods($entity) as $method) {
@@ -285,7 +286,15 @@ final class TransitionGuardTest extends TestCase
                     try {
                         self::invoke($subject, $entity, $method);
                         $accepted[] = $entity.'::'.$method.'() from "'.$status.'"';
-                    } catch (IllegalTransition) {
+                    } catch (IllegalTransition $e) {
+                        // The refusal must be the STATUS guard's. Since step 6a
+                        // an `IllegalTransition` can also be a content refusal
+                        // (`has_a_live_line`), and that one firing from an
+                        // illegal source would hide a missing status guard.
+                        if (!str_ends_with($e->rule(), '.'.IllegalTransition::RULE)) {
+                            $notAStatusRefusal[] = $entity.'::'.$method.'() from "'.$status.'": '.$e->rule();
+                        }
+
                         // The refusal API-15 requires. A refusal that has already
                         // written half the transition is not a refusal: `place()`
                         // setting `orderedAt` before the guard leaves a managed
@@ -302,6 +311,7 @@ final class TransitionGuardTest extends TestCase
 
         self::assertGreaterThan(0, $pairs, 'The cross product was empty, so this clause had no subject.');
         self::assertSame([], $accepted, 'A transition method accepted a source status §8.3\'s matrix does not list.');
+        self::assertSame([], $notAStatusRefusal, 'An illegal source status was refused by something other than the status guard.');
         self::assertSame([], $mutated, 'A refused transition left the entity modified — the guard runs after part of the write.');
     }
 
@@ -813,11 +823,15 @@ final class TransitionGuardTest extends TestCase
                 continue;
             }
 
-            // A count precondition (`PurchaseOrder::place()`'s live-line count,
-            // step 6a). 1 satisfies it, so clause (a) still tests the STATUS
-            // guard alone and a legal matrix cell is not refused by a rule it is
-            // not about. `DomainRefusalTest` owns the 0 case.
-            if ($type instanceof \ReflectionNamedType && 'int' === $type->getName()) {
+            // `PurchaseOrder::place()`'s live-line count (step 6a), BY NAME and
+            // nothing else: 1 satisfies it, so a legal matrix cell is not refused
+            // by a rule it is not about. `DomainRefusalTest` owns the 0 case. Any
+            // other `int` still falls through to the failure below — a new
+            // parameter needs a decision, not a guessed value.
+            if (PurchaseOrder::class === $method->getDeclaringClass()->getName()
+                && 'place' === $method->getName()
+                && 'liveLineCount' === $parameter->getName()
+                && $type instanceof \ReflectionNamedType && 'int' === $type->getName()) {
                 $arguments[] = 1;
 
                 continue;

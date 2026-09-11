@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
  * **`ApprovePurchaseOrder` — E-19 / DSoD-1, and the sequence §8.1 fixes.**
  *
  * ===========================================================================
- * The order of the five steps, and why each is where it is
+ * The order of the six steps, and why each is where it is
  * ===========================================================================
  * §8.1: *"The order on `ApprovePurchaseOrder` is fixed and is **not** negotiable
  * at implementation."*
@@ -41,23 +41,40 @@ use Symfony\Component\Uid\Uuid;
  * `refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT])` (added by
  * `6c3ed6e`), which is §8.3's matrix row for this method, then refuses a live-line
  * count below 1. **Neither guard is re-added or restated here.** A second copy in
- * this class would be a rule with two homes, and API-15 requires the guard to sit
- * on the entity precisely so that the reorder agent and a console command are
- * bound by it too. What this class owns is the **count**: the entity maps no
+ * this class would be a rule with two homes, and API-15 puts the guard on the
+ * entity so that any other caller of `place()` meets it too. **No other caller
+ * exists today**: there is no reorder agent and no console command that places an
+ * order. And for the line guard that binding is narrower than it sounds. The
+ * entity checks only the number it is handed: a caller must *state* a count, and
+ * a count below 1 is refused, but the entity cannot tell a true count from a
+ * false one. What this class owns is therefore the **count**: the entity maps no
  * lines, so the count is read here, inside the transaction and under RLS, and
  * passed in.
  *
- * **Named residual: a line archived between the count and the commit.**
- * Nothing locks the order row. This class reads it with a plain `SELECT`, and
- * `PurchaseOrderWriter::archiveLine()` does the same before it checks `draft`,
- * archives the line and has `recomputeTotal()` `UPDATE` the order. Under
- * Postgres's default READ COMMITTED, whichever `UPDATE` on `purchase_order`
- * comes second waits for the other to commit and then goes ahead without
- * re-reading the status or the line count. So an approval racing the archiving
- * of an order's last line can commit `ordered` with no live lines. The same race
- * already let a line be archived on an order that had just been placed. Closing
- * it means `SELECT … FOR UPDATE` on the order in both paths, which is a locking
- * scheme, and step 6a deliberately does not build one.
+ * **Named residual: every other write to this order races the approval, and
+ * step 6c owns closing it.** Nothing in `src/` takes a row lock, and
+ * `PurchaseOrder` has no `#[ORM\Version]`. This class reads the order with a
+ * plain `SELECT`, and so does each path below before it checks the order and
+ * writes. Under Postgres's default READ COMMITTED, whichever `UPDATE` on
+ * `purchase_order` comes second waits for the first to commit and then goes
+ * ahead without re-reading the status or the lines.
+ *
+ *   - `PurchaseOrderWriter::archiveLine()` checks `draft`, archives the line and
+ *     has `recomputeTotal()` update the order. If the last line is archived
+ *     between this class's count and its commit, an `ordered` order is left with
+ *     no live line.
+ *   - `PurchaseOrderWriter::createLine()` / `updateLine()` have the same shape.
+ *     A line can be added to, or repriced on, an order that was just placed. So
+ *     the creator can change what was approved after an independent approval,
+ *     which is next to a DSoD-1 bypass.
+ *   - `PurchaseOrderCancellation` reads the order, then `find()`, `cancel()`,
+ *     `flush()`. Doctrine's `UPDATE` carries no status predicate, so cancel and
+ *     approve can overwrite each other's status: an approval that read `draft`
+ *     can put a just-cancelled order back to `ordered`.
+ *
+ * Closing these means `SELECT … FOR UPDATE` on the order, or a version column,
+ * in every one of those paths. That is a locking scheme, and it is **step 6c**.
+ * Step 6a deliberately does not build it.
  *
  * ===========================================================================
  * Why DSoD-1 runs AFTER the load, and why hoisting it is a named violation

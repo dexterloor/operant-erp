@@ -7,8 +7,11 @@ namespace App\Platform\Domain;
 use Doctrine\ORM\Mapping\Table;
 
 /**
- * API-15's refusal — a document was asked to make a transition its current
- * status does not allow.
+ * API-15's refusal — a document was asked to make a transition it may not make.
+ * Almost always because its current status does not allow it (`of()`,
+ * `because()`); since step 6a, also because the status allows it and a fact
+ * about the document's content does not (`unmetPrecondition()` — `place()` on a
+ * purchase order with no live line).
  *
  * ---------------------------------------------------------------------------
  * Why this is a `\DomainException` and not an `ApiProblem`
@@ -34,10 +37,17 @@ use Doctrine\ORM\Mapping\Table;
 final class IllegalTransition extends \DomainException
 {
     /**
-     * One rule code for every status machine. The *which* transition is refused
-     * is in `detail`/`message`; a rule code per method would put the method name
-     * in a client-visible contract for no gain, and §5.2's `rule` is the rule,
-     * not the occurrence.
+     * One rule code for every **status** refusal, on every status machine — what
+     * `of()` and `because()` produce. The *which* transition is refused is in
+     * `detail`/`message`; a rule code per method would put the method name in a
+     * client-visible contract for no gain, and §5.2's `rule` is the rule, not the
+     * occurrence.
+     *
+     * It is **not** the only code this class carries. `unmetPrecondition()`
+     * refuses from a status the matrix allows and names its own rule
+     * (`purchase_order.has_a_live_line`), because the source status is right and
+     * the caller's remedy is different. So "the refusal is a status refusal" is
+     * `rule()` ending in this constant, not merely `instanceof IllegalTransition`.
      */
     public const RULE = 'status_transition_is_legal';
 

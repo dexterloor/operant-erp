@@ -250,8 +250,10 @@ class PurchaseOrder
      * is not placed.** This class maps no lines, so the caller passes the count
      * of `purchase_order_line` rows with `deleted_at IS NULL`, read inside the
      * transaction that will flush this change. The parameter is required, with
-     * no default, so every caller (the approval service, the reorder agent, a
-     * console command) has to state a count rather than skip it. The status
+     * no default, so any caller has to *state* a count rather than skip it —
+     * today `PurchaseOrderApproval` is the only one. **This method checks only
+     * the number it is handed**: it refuses a count below 1 and cannot tell a
+     * true count from a false one, so counting honestly is the caller's job. The status
      * guard runs first, so a replayed approval is still answered with the status
      * refusal it relies on; both guards run before anything is written.
      */

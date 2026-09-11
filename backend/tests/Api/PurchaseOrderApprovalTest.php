@@ -372,6 +372,33 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **The count is of *this* order's lines.** Every other line-guard test seeds
+     * one order, so a count that dropped its `purchase_order_id` predicate — and
+     * counted every live line the tenant has — would leave all of them green.
+     * Here the tenant holds a live line on order A, and draft B, which has none,
+     * must still be refused.
+     *
+     * *Mutation, run:* the `purchase_order_id = ?` predicate in
+     * `PurchaseOrderApproval`'s count replaced by one that is always true; red
+     * here — B is approved — and green in every other test in this file.
+     */
+    #[Test]
+    public function aLineOnAnotherOrderDoesNotCountTowardsThisOne(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $withALine = $this->seedDraft(self::TENANT_A, 'PO-A', $buyer);
+        $this->seedLine(self::TENANT_A, $withALine['order'], $withALine['item']);
+        $empty = $this->seedDraft(self::TENANT_A, 'PO-B', $buyer);
+
+        $this->approve($empty['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.has_a_live_line', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($empty['order']);
+    }
+
+    /**
      * **F-2 step 8 — *"writes an `audit_log` row naming the approver"*.**
      *
      * §9.2's row for `PURCHASE_ORDER_PLACED`: written by `ApprovePurchaseOrder`,
