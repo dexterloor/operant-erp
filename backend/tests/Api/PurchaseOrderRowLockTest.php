@@ -228,6 +228,74 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'A refused write changed the order or its lines.');
     }
 
+    /**
+     * **Step 8 — a receipt waits for a cancellation, then is refused.** Without
+     * the lock first, the receipt reads `ordered`, passes, and blocks only at its
+     * own `UPDATE` of the order line; A commits the cancellation, and the
+     * receipt posts stock against a cancelled order (201).
+     */
+    #[Test]
+    public function aReceiptWaitsForACancellationAndIsRefusedByTheStatusGuard(): void
+    {
+        [$order, $line, $bin] = $this->orderedOrderToReceive();
+
+        $holder = $this->raceAgainstAHolder($order, before: [], request: fn () => $this->send(
+            'POST', '/purchase-orders/'.$order.'/goods-receipts',
+            ['lines' => [['purchase_order_line_id' => $line, 'quantity' => '1', 'storage_location_id' => $bin]]],
+            ['Idempotency-Key' => Uuid::v4()->toRfc4122()],
+        ), after: [
+            ["UPDATE purchase_order SET status = 'cancelled', updated_at = now() WHERE id = ?::uuid", [$order]],
+        ]);
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.'.self::STATUS_RULE, $this->json()['rule']);
+        $this->assertOrderStatus($order, PurchaseOrder::STATUS_CANCELLED);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+    }
+
+    /**
+     * **Step 8 — receipt vs receipt on one order.** A completes the line and the
+     * order while holding the lock. The second receipt must wait, then see
+     * `received`. Without the lock first it reads 0 received, passes the
+     * over-receipt check on stale numbers, and adds to a line already complete.
+     */
+    #[Test]
+    public function aSecondReceiptWaitsForTheFirstAndCannotOverReceive(): void
+    {
+        [$order, $line, $bin] = $this->orderedOrderToReceive();
+
+        $holder = $this->raceAgainstAHolder($order, before: [], request: fn () => $this->send(
+            'POST', '/purchase-orders/'.$order.'/goods-receipts',
+            ['lines' => [['purchase_order_line_id' => $line, 'quantity' => '1', 'storage_location_id' => $bin]]],
+            ['Idempotency-Key' => Uuid::v4()->toRfc4122()],
+        ), after: [
+            ['UPDATE purchase_order_line SET quantity_received = quantity_ordered WHERE id = ?::uuid', [$line]],
+            ["UPDATE purchase_order SET status = 'received', updated_at = now() WHERE id = ?::uuid", [$order]],
+        ]);
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.'.self::STATUS_RULE, $this->json()['rule']);
+        self::assertSame([['q' => '10.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity_received::text AS q FROM purchase_order_line WHERE id = ?::uuid', [$line]));
+    }
+
+    /** @return array{string, string, string} order, its one line (10 ordered), a bin of its warehouse */
+    private function orderedOrderToReceive(): array
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+        $bin = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-01')",
+            [$bin, self::TENANT_A, $draft['warehouse']]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "UPDATE purchase_order SET status = 'ordered', ordered_at = now() WHERE id = ?::uuid", [$draft['order']]);
+
+        return [$draft['order'], $line, $bin];
+    }
+
     /** @return iterable<string, array{string, string, array<string, string>|null}> */
     public static function draftOnlyWrites(): iterable
     {
@@ -254,19 +322,29 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      */
     #[Test]
     #[DataProvider('everyWritePath')]
-    public function theOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status): void
+    public function theOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status, string $orderStatus = PurchaseOrder::STATUS_DRAFT): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $otherItem = $this->seedItem(self::TENANT_A, 'SKU-OTHER');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $otherItem);
-        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem];
+        $bin = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-01')",
+            [$bin, self::TENANT_A, $draft['warehouse']]);
+        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem, '{bin}' => $bin];
+
+        // A receipt writes only against a placed order (step 8).
+        if (PurchaseOrder::STATUS_DRAFT !== $orderStatus) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'UPDATE purchase_order SET status = ?, ordered_at = now() WHERE id = ?::uuid', [$orderStatus, $draft['order']]);
+        }
 
         $this->recorder()->start();
         $this->send(
             $method,
             strtr($path, $placeholders),
-            null === $body ? null : array_map(static fn (string $v): string => strtr($v, $placeholders), $body),
+            null === $body ? null : self::filled($body, $placeholders),
             ['Idempotency-Key' => Uuid::v4()->toRfc4122()],
         );
         $this->recorder()->stop();
@@ -324,6 +402,28 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 default => 200,
             }];
         }
+
+        // Step 8: the goods receipt writes `purchase_order_line.quantity_received`
+        // and `purchase_order.status`, so it is a member of this domain.
+        yield 'CreateGoodsReceipt' => ['POST', '/purchase-orders/{order}/goods-receipts', [
+            'lines' => [['purchase_order_line_id' => '{line}', 'quantity' => '1', 'storage_location_id' => '{bin}']],
+        ], 201, PurchaseOrder::STATUS_ORDERED];
+    }
+
+    /**
+     * Placeholders filled at any depth: a receipt's body nests its lines.
+     *
+     * @param array<mixed>          $body
+     * @param array<string, string> $placeholders
+     *
+     * @return array<mixed>
+     */
+    private static function filled(array $body, array $placeholders): array
+    {
+        return array_map(
+            static fn (mixed $v): mixed => \is_array($v) ? self::filled($v, $placeholders) : strtr((string) $v, $placeholders),
+            $body,
+        );
     }
 
     /**
@@ -404,6 +504,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CreatePurchaseOrderLine' => 'PurchaseOrderWriter::createLine',
         'UpdatePurchaseOrderLine' => 'PurchaseOrderWriter::updateLine',
         'DeletePurchaseOrderLine' => 'PurchaseOrderWriter::archiveLine',
+        'CreateGoodsReceipt' => 'GoodsReceiptWriter::create',
     ];
 
     /** Writers that take no lock, each by name and with its reason. Keep it short. */

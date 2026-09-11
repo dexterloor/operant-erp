@@ -104,6 +104,9 @@ final class AuthOperationContractTest extends ApiTestCase
         $expected = array_merge(
             array_keys(\App\Tests\Api\ItemOperationContractTest::PINNED_ITEM_OPERATIONS),
             array_keys(\App\Tests\Api\PurchaseOrderOperationContractTest::PINNED_PURCHASE_ORDER_OPERATIONS),
+            // Step 8: `GetGoodsReceipt` lives at `/goods-receipts/{id}`, outside
+            // the purchase-order pin's paths, so it has a pin of its own.
+            array_keys(\App\Tests\Api\GoodsReceiptCreateTest::PINNED_GOODS_RECEIPT_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

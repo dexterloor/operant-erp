@@ -77,6 +77,14 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'DeletePurchaseOrder' => 'purchase_order.delete',
         'ApprovePurchaseOrder' => 'purchase_order.approve',
         'ListPurchaseOrderLines' => 'purchase_order.view',
+        // Step 8 (2026-09-11), each the row's own `Perm` cell.
+        // `goods_receipt.create` is SoD-2's controlled code, held by `owner` and
+        // `warehouse_operator` only: whoever raised the order is not whoever
+        // confirms the goods arrived. No dynamic rule (DSoD) applies to
+        // receipts — ADR-008 and SECURITY_MODEL.md name DSoD-1 alone, on
+        // `.approve` and `.cancel` — so the static split is the whole control.
+        'CreateGoodsReceipt' => 'goods_receipt.create',
+        'GetGoodsReceipt' => 'goods_receipt.view',
         'CreatePurchaseOrderLine' => 'purchase_order.edit',
         'UpdatePurchaseOrderLine' => 'purchase_order.edit',
         'DeletePurchaseOrderLine' => 'purchase_order.edit',

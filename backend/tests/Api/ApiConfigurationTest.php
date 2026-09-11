@@ -77,7 +77,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // against a route appearing that nobody declared; which operations those
         // are is pinned by name in ItemOperationContractTest,
         // AuthOperationContractTest and PurchaseOrderOperationContractTest.
-        self::assertCount(20, $checked, 'The route set changed. This slice declares twenty operations: '.implode(', ', array_keys($checked)));
+        // **Two more at step 8 (2026-09-11):** `CreateGoodsReceipt`, released by
+        // 8-i's retry key and `PurchaseOrder::recordReceipt()`, and
+        // `GetGoodsReceipt`, which exists so its 201's `Location` resolves.
+        self::assertCount(22, $checked, 'The route set changed. This slice declares twenty-two operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -338,6 +338,34 @@ class PurchaseOrder
         $this->updatedAt = new \DateTimeImmutable();
     }
 
+    /**
+     * **§8.3's receipt-posting row — the method it marked *(no method exists)*
+     * until step 8.**
+     *
+     * The legal sources are `ordered` and `partially_received`, passed in as this
+     * class's own constants (API-15, as `place()` and `cancel()` do). A draft has
+     * not been placed, and a cancelled or received order has nothing left to
+     * arrive against.
+     *
+     * The result is `received` when every live line has arrived in full, and
+     * `partially_received` otherwise. This class maps no lines, so the caller
+     * works that out from the lines it read under the order's row lock and
+     * passes the answer, as `place()` takes its caller's live-line count.
+     * `GoodsReceiptWriter` calls this BEFORE it writes anything, so a refused
+     * status leaves nothing to roll back; the status itself reaches the database
+     * when the unit of work flushes, after the stock is posted (F-3 step 5).
+     */
+    public function recordReceipt(bool $allLinesReceived): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [
+            self::STATUS_ORDERED,
+            self::STATUS_PARTIALLY_RECEIVED,
+        ]);
+
+        $this->status = $allLinesReceived ? self::STATUS_RECEIVED : self::STATUS_PARTIALLY_RECEIVED;
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
     public function isDeleted(): bool
     {
         return null !== $this->deletedAt;

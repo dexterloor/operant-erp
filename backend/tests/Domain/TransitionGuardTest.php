@@ -94,10 +94,12 @@ final class TransitionGuardTest extends TestCase
             'blocks' => [],
         ],
         [
-            'entity' => PurchaseOrder::class, 'method' => null, // receipt posting, ⛔ Output 9
+            // ⚠ `method` was `null` (receipt posting, ⛔ Output 9) until step 8
+            // wrote `recordReceipt()`; `blocks` empties with it.
+            'entity' => PurchaseOrder::class, 'method' => 'recordReceipt',
             'from' => [PurchaseOrder::STATUS_ORDERED, PurchaseOrder::STATUS_PARTIALLY_RECEIVED],
             'to' => [PurchaseOrder::STATUS_PARTIALLY_RECEIVED, PurchaseOrder::STATUS_RECEIVED],
-            'blocks' => ['CreateGoodsReceipt'],
+            'blocks' => [],
         ],
         // ⚠ **This row's `method` was `null` until 2026-09-11 and is the reason
         // the clause-(b) pin below lost a member.** §8.3 said this check *"stays
@@ -176,8 +178,8 @@ final class TransitionGuardTest extends TestCase
             // an implemented transition. **`SalesOrder::STATUS_CANCELLED` stays**
             // — `SalesOrder::cancel()` was not written, and it is not this
             // package's to write, so §8.3 clause (b) is still owed on that half.
-            PurchaseOrder::STATUS_PARTIALLY_RECEIVED,  // ⛔ receipt posting
-            PurchaseOrder::STATUS_RECEIVED,            // ⛔ receipt posting
+            // `STATUS_PARTIALLY_RECEIVED` and `STATUS_RECEIVED` left it at step 8:
+            // `recordReceipt()` reaches both. The purchase side owes nothing.
         ],
         SalesOrder::class => [
             SalesOrder::STATUS_CANCELLED,              // ⛔ cancel()
@@ -833,6 +835,18 @@ final class TransitionGuardTest extends TestCase
                 && 'liveLineCount' === $parameter->getName()
                 && $type instanceof \ReflectionNamedType && 'int' === $type->getName()) {
                 $arguments[] = 1;
+
+                continue;
+            }
+
+            // `PurchaseOrder::recordReceipt()`'s outcome flag (step 8), BY NAME:
+            // either value is legal from either source, so `true` refuses nothing
+            // the matrix allows. What the flag decides is `GoodsReceiptCreateTest`'s.
+            if (PurchaseOrder::class === $method->getDeclaringClass()->getName()
+                && 'recordReceipt' === $method->getName()
+                && 'allLinesReceived' === $parameter->getName()
+                && $type instanceof \ReflectionNamedType && 'bool' === $type->getName()) {
+                $arguments[] = true;
 
                 continue;
             }

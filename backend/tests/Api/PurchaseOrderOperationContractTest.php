@@ -83,6 +83,9 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         'CreatePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines', 'idem' => false],
         'UpdatePurchaseOrderLine' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
         'DeletePurchaseOrderLine' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
+        // Step 8: `unique:goods_receipt_idem_unique`, header-sourced like
+        // `CreatePurchaseOrder`. Here because its path is under the order (N-8).
+        'CreateGoodsReceipt' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/goods-receipts', 'idem' => true],
     ];
 
     /**
@@ -114,7 +117,9 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         // `STATUS_CANCELLED` reachable.
         'RestorePurchaseOrder',
         'RestorePurchaseOrderLine',
-        'CreateGoodsReceipt',
+        // `CreateGoodsReceipt` left this list at step 8: its E9-2 block was
+        // discharged by 8-i's retry key, X9-1's by `recordReceipt()`, and the
+        // Inventory contract it needed shipped at step 7.
     ];
 
     /**

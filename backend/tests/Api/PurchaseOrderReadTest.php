@@ -162,25 +162,43 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
      * to subtract two numbers it was given will eventually subtract the wrong
      * two."*
      *
-     * The floor at zero is this package's judgement rather than §4.4.3's: over-
-     * receipt is a real event `recordReceipt()` permits and
-     * `purchase_order_line_qty_sane` does not forbid, and a negative pre-fill on
-     * a receiving screen is a defect wearing a 200.
+     * The floor at zero is this package's judgement rather than §4.4.3's, and
+     * a negative pre-fill on a receiving screen is a defect wearing a 200.
+     *
+     * ⚠ **Corrected at step 8 (2026-09-11).** This docblock said over-receipt
+     * was "a real event `recordReceipt()` permits and `purchase_order_line_qty_sane`
+     * does not forbid", and the test seeded 8 received of 5 ordered to prove the
+     * floor. Both halves are now false: `CreateGoodsReceipt` refuses over-receipt
+     * (F-3 step 3), and `Version20260911000500`'s
+     * `purchase_order_line_not_over_received` refuses the row at the database.
+     * So the over-received fixture cannot be written, and this test asserts that
+     * instead. `GREATEST(…, 0)` in `PurchaseOrderLineRow` stays as a guard the
+     * CHECK makes unreachable; the boundary it can still be seen at is a line
+     * received in full, which reads exactly `0.000000`.
      */
     #[Test]
     public function theOutstandingQuantityIsOrderedMinusReceivedAndNeverNegative(): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 1, '10.000000', '2.5000', '4.000000');
-        // The supplier sent more than was ordered.
-        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 2, '5.000000', '2.5000', '8.000000');
+        // Received in full: the boundary, and the scale the clamp's cast pins.
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 2, '5.000000', '2.5000', '5.000000');
 
         $this->send('GET', '/purchase-orders/'.$draft['order'].'/lines');
         $items = $this->json()['items'];
 
         self::assertSame('6.000000', $items[0]['quantity_outstanding']);
         self::assertSame('0.000000', $items[1]['quantity_outstanding'],
-            'An over-received line reported a negative outstanding quantity, which F-3 step 2 would pre-fill.');
+            'A line received in full did not report exactly zero outstanding, which F-3 step 2 would pre-fill.');
+
+        // The state the old fixture described is one the database now refuses.
+        try {
+            $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 3, '5.000000', '2.5000', '8.000000');
+            self::fail('An over-received order line was written; nothing now stops a negative outstanding quantity but the read clamp.');
+        } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+            self::assertSame('23514', $e->getSQLState(), $e->getMessage());
+            self::assertStringContainsString('purchase_order_line_not_over_received', $e->getMessage());
+        }
     }
 
     /**
