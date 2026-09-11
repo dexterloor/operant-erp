@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Application\PurchaseOrderApproval;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Domain\IllegalTransition;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -387,16 +388,60 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
             'An explicit null is the caller clearing the date, and it must be distinguishable from an absent field.');
     }
 
-    /** API-14 / §4.2's `Idem: yes` cell — the header is required and its absence is 428, ahead of everything else. */
+    /**
+     * ⚠ **Approval does NOT require the header, and this test asserted the
+     * opposite until 2026-09-10.**
+     *
+     * §4.2's cell is `guard:purchase_order.status`. API-14 as amended demands the
+     * header for `store` and `unique:` only, because a `guard:` operation refuses
+     * its own repeat through the state machine whether or not a header arrives —
+     * so the 428 this method used to assert turned a correct request into a
+     * refusal and taught the caller nothing.
+     *
+     * **Inverted rather than deleted.** "No 428" is the behaviour that would
+     * otherwise go untested, and re-adding the flag to the operation must be red
+     * rather than silent.
+     */
     #[Test]
-    public function approvingWithoutAnIdempotencyKeyIsRefused(): void
+    public function approvingWithoutAnIdempotencyKeyIsAccepted(): void
     {
+        // A **null** creator, as the method this replaced used. Seeding the
+        // acting principal as the creator trips DSoD-1
+        // (`purchase_order.approver_is_not_the_creator`) and the approval is
+        // refused 409 before `place()` is ever reached -- which would make this
+        // test green on the wrong refusal. `aNullCreatorDoesNotRefuse` is the
+        // test that establishes a null creator is approvable.
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
 
-        self::assertSame(428, $this->httpStatus());
-        self::assertSame('urn:erp:problem:idempotency-key-required', $this->json()['type']);
+        self::assertNotSame(428, $this->httpStatus(),
+            'A `guard:` operation must not 428 for a missing header: `place()` refuses the repeat either way.');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * The mechanism the cell names, as behaviour: a replayed approval hits an
+     * order that is no longer `draft` and `place()`'s guard refuses it, which is
+     * how the caller learns the first attempt committed.
+     */
+    #[Test]
+    public function aReplayedApprovalIsRefusedByTheStatusGuard(): void
+    {
+        // Null creator, for the reason given above: DSoD-1 would otherwise refuse
+        // the FIRST approval, and the second refusal this test is about would
+        // never be reached. The two refusals are both `business-rule-violated`,
+        // so they are distinguished here by their `rule` member.
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
+
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.'.IllegalTransition::RULE, $this->json()['rule']);
     }
 
     /** API-9 — an undeclared field is refused, never ignored. `notes` is not in §4.2's cell. */

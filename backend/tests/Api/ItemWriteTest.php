@@ -107,19 +107,56 @@ final class ItemWriteTest extends ApiTestCase
         self::assertSame(201, $this->httpStatus());
     }
 
-    /** The other half of the `Idem` column: `RestoreItem` is marked too. */
+    /**
+     * ⚠ **`RestoreItem` does NOT require the key, and this test asserted the
+     * opposite until 2026-09-10.**
+     *
+     * §4.2's cell is `guard:inventory_item.deleted_at`, and API-14 as amended
+     * demands the header for `store` and `unique:` only: a guard refuses its own
+     * repeat whether or not a header arrives, so the 428 this method used to
+     * assert was a refusal that protected nothing — it made a caller who had
+     * done nothing wrong resend a request the system would have answered
+     * correctly either way.
+     *
+     * The assertion is **inverted rather than deleted**, because "no 428" is the
+     * behaviour that would otherwise be untested: the day somebody re-adds the
+     * flag to the operation, this goes red instead of silently reintroducing a
+     * pointless refusal. The replay refusal itself is
+     * `aReplayedRestoreIsRefusedByTheLiveRowRatherThanByTheHeader` below.
+     */
     #[Test]
-    public function restoreAlsoRequiresTheKey(): void
+    public function restoreDoesNotRequireTheKeyBecauseItsGuardRefusesTheRepeat(): void
     {
         $this->send('POST', '/items', self::body(), self::KEY);
         $id = $this->json()['id'];
         $this->send('DELETE', '/items/'.$id);
 
         $this->send('POST', '/items/'.$id.'/restoration');
-        self::assertSame(428, $this->httpStatus());
 
-        $this->send('POST', '/items/'.$id.'/restoration', null, self::KEY);
+        self::assertSame(200, $this->httpStatus(),
+            'A `guard:` operation must not 428 for a missing header: the guard refuses the repeat either way.');
+    }
+
+    /**
+     * The mechanism §4.2's cell actually names, as behaviour rather than as a
+     * cell. A replayed restore hits a live row and is refused — which is what
+     * tells the caller the first attempt committed.
+     */
+    #[Test]
+    public function aReplayedRestoreIsRefusedByTheLiveRowRatherThanByTheHeader(): void
+    {
+        $this->send('POST', '/items', self::body(), self::KEY);
+        $id = $this->json()['id'];
+        $this->send('DELETE', '/items/'.$id);
+
+        $this->send('POST', '/items/'.$id.'/restoration');
         self::assertSame(200, $this->httpStatus());
+
+        $this->send('POST', '/items/'.$id.'/restoration');
+
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('inventory_item.is_not_archived', $this->json()['rule']);
     }
 
     /**

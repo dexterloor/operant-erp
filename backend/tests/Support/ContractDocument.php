@@ -108,7 +108,7 @@ final class ContractDocument
                 'method' => $cells[3],
                 'path' => trim($cells[4], '`'),
                 'perm' => trim($cells[5], '`'),
-                'idem' => strtolower(strip_tags(str_replace('*', '', $cells[6]))),
+                'idem' => self::mechanismCell($cells[6]),
                 'accepts' => $cells[7],
                 'errors' => $cells[8],
                 'query' => $cells[9],
@@ -116,6 +116,54 @@ final class ContractDocument
         }
 
         return $rows;
+    }
+
+    /**
+     * §4.2's `Idem` cell, normalised to the bare mechanism token.
+     *
+     * ⚠ **The cell stopped being a binary on 2026-09-10** (API-14 as amended):
+     * it now names the MECHANISM that refuses the repeat — `unique:<index>`,
+     * `guard:<entity>.<property>`, `store`, `⛔ none`, or `no`. The old reader
+     * did `strtolower(strip_tags(str_replace('*', '', …)))` with **no trim**, so
+     * every value it returned carried its surrounding spaces and the only
+     * comparison anybody wrote against it was `'yes' === …`. That comparison is
+     * now false for all 38 marked rows, which is why the three pins that used it
+     * were rewritten to ask {@see self::headerIsRequiredFor()} instead.
+     *
+     * Decoration is removed rather than parsed: bold (`**`), the backticks the
+     * vocabulary table writes its tokens in, and the `⚠` marker `CreateExport`'s
+     * row carries. What is left is the token itself, so `**⛔ none**` and
+     * `` `unique:foo` `` compare as `⛔ none` and `unique:foo`.
+     */
+    public static function mechanismCell(string $cell): string
+    {
+        $bare = str_replace(['*', '`', '⚠'], '', strip_tags($cell));
+
+        return strtolower(trim((string) preg_replace('/\s+/u', ' ', $bare)));
+    }
+
+    /** §4.2's `Idem` cell for one operation, as the bare mechanism token. */
+    public static function mechanism(string $operationId): string
+    {
+        return self::operationRows()[$operationId]['idem'] ?? '';
+    }
+
+    /**
+     * **API-14 as amended: the `Idempotency-Key` header is demanded for `store`
+     * and `unique:` only.**
+     *
+     * A `guard:` operation refuses its own repeat through the state machine — or,
+     * for a `Restore*`, through the live-row precondition — whether or not a
+     * header arrives, so demanding one buys nothing and 428-ing without one is a
+     * refusal with no purpose. `⛔ none` demands no header because the operation
+     * is blocked from shipping at all: a header on an operation that
+     * deduplicates nothing is the advertisement E9-2 exists to stop.
+     */
+    public static function headerIsRequiredFor(string $operationId): bool
+    {
+        $mechanism = self::mechanism($operationId);
+
+        return 'store' === $mechanism || str_starts_with($mechanism, 'unique:');
     }
 
     /**
@@ -209,6 +257,18 @@ final class ContractDocument
         if (str_starts_with($cell, '—')) {
             return [];
         }
+
+        // ⚠ **The same parenthesis defect `queryParameters()` records, fixed on
+        // this side too rather than left to be found.** That method strips
+        // parenthesised groups because a value set is not a parameter; this one
+        // did not, so a backticked token inside a parenthesised aside would read
+        // as an accepted FIELD. No shipped row triggers it today — `RefreshToken`
+        // is the only accepted-field cell carrying parentheses and it opens with
+        // `—`, so it returns above before reaching here — which is precisely why
+        // the asymmetry survived: the fix was applied where a row already failed
+        // and not where the same reader could fail next. Applied in both places
+        // now, so the rule is the reader's rather than one cell's.
+        $cell = (string) preg_replace('/\([^()]*\)/', '', $cell);
 
         preg_match_all('/`([a-z_]+(?:\[\]\.[a-z_]+)?)`/', $cell, $matches);
 

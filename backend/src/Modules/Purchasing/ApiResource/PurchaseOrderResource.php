@@ -14,7 +14,6 @@ use App\Modules\Purchasing\ApiResource\State\ApprovePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\DeletePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderProvider;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderProcessor;
-use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -148,15 +147,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // on `kernel.controller`, ahead of every state class.
             read: false,
             processor: ApprovePurchaseOrderProcessor::class,
-            // §4.2 marks this row `Idem: yes`. §6.1's interim rule is what makes
-            // it shippable without the key store API-O-1 owes: a replay hits an
-            // order that is no longer `draft`, `place()`'s guard refuses it, and
-            // the caller is told `business-rule-violated` -- which is how it
-            // learns the first attempt committed. **E9-2 does not bite here**:
-            // its clause names §4.2's six create-a-child and three bulk
-            // operations, and this is neither.
+            // §4.2's cell is `guard:purchase_order.status`, and that mechanism is
+            // what makes this operation shippable without the key store: a replay
+            // hits an order that is no longer `draft`, `place()`'s guard refuses
+            // it, and the caller is told `business-rule-violated` -- which is how
+            // it learns the first attempt committed. **E9-2 does not bite here**:
+            // the operation has a mechanism, which is the property that gate is
+            // actually about.
+            //
+            // ⚠ **No `IdempotencyKeyGuard::OPERATION_FLAG`.** API-14 as amended
+            // demands the header for `store` and `unique:` only. A `guard:`
+            // operation refuses its own repeat whether or not a header arrives,
+            // so requiring one bought nothing and 428-ing without one was a
+            // refusal with no purpose. `IdempotencyContractTest` reconciles this
+            // flag against the cell.
             extraProperties: [
-                IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'purchase_order.approve',
             ],
         ),

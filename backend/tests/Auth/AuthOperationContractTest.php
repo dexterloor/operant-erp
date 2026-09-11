@@ -225,7 +225,11 @@ final class AuthOperationContractTest extends ApiTestCase
             self::assertArrayHasKey($operationId, $rows, $operationId.' is shipped and §4.2 declares no row for it.');
             self::assertSame($pinned['method'], $rows[$operationId]['method']);
             self::assertSame($pinned['path'], $rows[$operationId]['path']);
-            self::assertSame($pinned['idem'], 'yes' === $rows[$operationId]['idem']);
+            // §4.2's `Idem` cell names a mechanism since 2026-09-10, so the
+            // header requirement is derived from it. These three rows are `no`
+            // either way; the comparison is updated rather than left working by
+            // accident, which is how a stale reader survives.
+            self::assertSame($pinned['idem'], ContractDocument::headerIsRequiredFor($operationId));
         }
 
         self::assertSame(self::PINNED_ACCEPTED_FIELDS, ContractDocument::acceptedFields('IssueToken'));

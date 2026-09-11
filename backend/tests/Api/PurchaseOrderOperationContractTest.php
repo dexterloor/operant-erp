@@ -57,7 +57,11 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         'GetPurchaseOrder' => ['method' => 'GET', 'path' => '/purchase-orders/{id}', 'idem' => false],
         'UpdatePurchaseOrder' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}', 'idem' => false],
         'DeletePurchaseOrder' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}', 'idem' => false],
-        'ApprovePurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/approval', 'idem' => true],
+        // `idem` is *"requires the header"*. `ApprovePurchaseOrder` is
+        // `guard:purchase_order.status` and **lost** the requirement on
+        // 2026-09-10: a guard refuses its own repeat with or without a header
+        // (API-14 as amended), so the 428 protected nothing.
+        'ApprovePurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/approval', 'idem' => false],
         'ListPurchaseOrderLines' => ['method' => 'GET', 'path' => '/purchase-orders/{id}/lines', 'idem' => false],
         'CreatePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines', 'idem' => false],
         'UpdatePurchaseOrderLine' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
@@ -350,7 +354,9 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
                 $documented[$operationId] = [
                     'method' => $row['method'],
                     'path' => $row['path'],
-                    'idem' => 'yes' === $row['idem'],
+                    // §4.2's cell names the mechanism; the header requirement is
+                    // derived from it rather than read as a binary.
+                    'idem' => ContractDocument::headerIsRequiredFor($operationId),
                 ];
             }
         }

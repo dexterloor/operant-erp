@@ -36,10 +36,15 @@ final class ItemOperationContractTest extends ApiTestCase
     public const PINNED_ITEM_OPERATIONS = [
         'ListItems' => ['method' => 'GET', 'path' => '/items', 'idem' => false],
         'GetItem' => ['method' => 'GET', 'path' => '/items/{id}', 'idem' => false],
+        // `idem` is now *"does this operation require the header"*, not *"is this
+        // row marked"*. `CreateItem` is `unique:inventory_item_tenant_sku_live`
+        // and keeps it; `RestoreItem` is `guard:inventory_item.deleted_at` and
+        // **lost** it on 2026-09-10, because a guard refuses its own repeat
+        // whether or not a header arrives (API-14 as amended).
         'CreateItem' => ['method' => 'POST', 'path' => '/items', 'idem' => true],
         'UpdateItem' => ['method' => 'PATCH', 'path' => '/items/{id}', 'idem' => false],
         'DeleteItem' => ['method' => 'DELETE', 'path' => '/items/{id}', 'idem' => false],
-        'RestoreItem' => ['method' => 'POST', 'path' => '/items/{id}/restoration', 'idem' => true],
+        'RestoreItem' => ['method' => 'POST', 'path' => '/items/{id}/restoration', 'idem' => false],
     ];
 
     /** §4.2's `Accepted request fields` for both write rows. They are the same set. */
@@ -230,7 +235,9 @@ final class ItemOperationContractTest extends ApiTestCase
                 $documented[$operationId] = [
                     'method' => $row['method'],
                     'path' => $row['path'],
-                    'idem' => 'yes' === $row['idem'],
+                    // Not `'yes' === …` any more: §4.2's cell names the mechanism,
+                    // and whether the header is required follows from it.
+                    'idem' => ContractDocument::headerIsRequiredFor($operationId),
                 ];
             }
         }

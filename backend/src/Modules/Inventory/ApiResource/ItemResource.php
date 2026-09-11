@@ -140,8 +140,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // §4.2 gives `RestoreItem` `inventory_item.delete`, not a `.restore`
             // code: the catalogue has no such member, and undoing an archive is
             // the same authority as making one.
+            //
+            // ⚠ **No `IdempotencyKeyGuard::OPERATION_FLAG`, and its removal is the
+            // point rather than an omission.** §4.2's cell is
+            // `guard:inventory_item.deleted_at`: a replayed restore hits a live
+            // row and `ItemWriter::restore()` answers `business-rule-violated`,
+            // which tells the caller the first attempt committed. API-14 as
+            // amended demands the header for `store` and `unique:` only, because
+            // a guard refuses its own repeat whether or not a header arrives —
+            // so 428-ing a caller who omitted one was a refusal that protected
+            // nothing. `IdempotencyContractTest` is what holds this flag and the
+            // cell to each other.
             extraProperties: [
-                IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'inventory_item.delete',
             ],
         ),
