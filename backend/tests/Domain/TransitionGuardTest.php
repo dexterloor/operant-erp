@@ -99,11 +99,17 @@ final class TransitionGuardTest extends TestCase
             'to' => [PurchaseOrder::STATUS_PARTIALLY_RECEIVED, PurchaseOrder::STATUS_RECEIVED],
             'blocks' => ['CreateGoodsReceipt'],
         ],
+        // ⚠ **This row's `method` was `null` until 2026-09-11 and is the reason
+        // the clause-(b) pin below lost a member.** §8.3 said this check *"stays
+        // red until Output 9 writes `cancel()`"*; the method now exists, so the
+        // row names it, `STATUS_CANCELLED` becomes covered, and `blocks` empties
+        // because nothing is blocked on it any more. All three edits are forced
+        // by the code — leaving any one of them undone is red.
         [
-            'entity' => PurchaseOrder::class, 'method' => null, // cancel, ⛔ Output 9
+            'entity' => PurchaseOrder::class, 'method' => 'cancel',
             'from' => [PurchaseOrder::STATUS_DRAFT, PurchaseOrder::STATUS_ORDERED, PurchaseOrder::STATUS_PARTIALLY_RECEIVED],
             'to' => [PurchaseOrder::STATUS_CANCELLED],
-            'blocks' => ['CancelPurchaseOrder'],
+            'blocks' => [],
         ],
         [
             'entity' => SalesOrder::class, 'method' => 'confirm',
@@ -165,7 +171,11 @@ final class TransitionGuardTest extends TestCase
      */
     private const PINNED_UNREACHABLE = [
         PurchaseOrder::class => [
-            PurchaseOrder::STATUS_CANCELLED,           // ⛔ cancel()
+            // `STATUS_CANCELLED` left this pin on 2026-09-11: `cancel()` exists,
+            // the matrix row above names it, and the status is now reachable by
+            // an implemented transition. **`SalesOrder::STATUS_CANCELLED` stays**
+            // — `SalesOrder::cancel()` was not written, and it is not this
+            // package's to write, so §8.3 clause (b) is still owed on that half.
             PurchaseOrder::STATUS_PARTIALLY_RECEIVED,  // ⛔ receipt posting
             PurchaseOrder::STATUS_RECEIVED,            // ⛔ receipt posting
         ],

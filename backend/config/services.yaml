@@ -102,7 +102,7 @@ services:
             # API Platform discovers resources through the container's attribute
             # autoconfiguration, so a resource class the container never sees has
             # no routes at all.
-            - '../src/Modules/Purchasing/ApiResource/{NamedReference.php,ActorReference.php,UpdatePurchaseOrderInput.php,ApprovePurchaseOrderInput.php,CreatePurchaseOrderLineInput.php,UpdatePurchaseOrderLineInput.php}'
+            - '../src/Modules/Purchasing/ApiResource/{NamedReference.php,ActorReference.php,CreatePurchaseOrderInput.php,UpdatePurchaseOrderInput.php,ApprovePurchaseOrderInput.php,CancelPurchaseOrderInput.php,CreatePurchaseOrderLineInput.php,UpdatePurchaseOrderLineInput.php}'
             - '../src/Modules/Purchasing/ApiResource/State/QueryParameters.php'
             - '../src/Modules/Purchasing/Application/{PurchaseOrderRow.php,PurchaseOrderLineRow.php,PurchaseOrderListCriteria.php,PurchaseOrderViews.php}'
 

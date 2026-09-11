@@ -165,9 +165,9 @@ final class DeletionPolicyTest extends TenancyTestCase
         $orderId = Uuid::v4()->toRfc4122();
         $this->tenantContext()->run(self::TENANT_A, function () use ($orderId, $supplierId, $itemId): void {
             $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at)
+                INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key)
                 VALUES (?::uuid, ?::uuid, 'PO-CASCADE', ?::uuid,
-                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'ordered', now())
+                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'ordered', now(), gen_random_uuid()::text)
                 SQL, [$orderId, self::TENANT_A, $supplierId]);
             $this->app()->executeStatement(<<<'SQL'
                 INSERT INTO purchase_order_line

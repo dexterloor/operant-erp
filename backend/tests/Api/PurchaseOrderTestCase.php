@@ -57,10 +57,27 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     /**
      * A purchase order in whatever state a test needs.
      *
-     * `ordered_at` follows `purchase_order_ordered_at_set` — `CHECK (status =
-     * 'draft' OR ordered_at IS NOT NULL)` — rather than being passed in, so a
-     * fixture cannot construct a row the database would refuse and then have the
-     * test fail somewhere else entirely.
+     * `ordered_at` follows `purchase_order_ordered_at_set` — as of
+     * `Version20260911000200`, `CHECK (status IN ('draft', 'cancelled') OR
+     * ordered_at IS NOT NULL)` — rather than being passed in, so a fixture cannot
+     * construct a row the database would refuse and then have the test fail
+     * somewhere else entirely. **A `cancelled` fixture therefore keeps whatever
+     * `ordered_at` it is given, including none**, which is the case that
+     * constraint was widened to admit: an order cancelled while still a draft was
+     * never placed.
+     *
+     * ⚠ **`idempotency_key` is written on every seeded row, and that is not
+     * tidiness.** `Version20260911000200` installs
+     * `purchase_order_idempotency_key_required`, a `BEFORE INSERT` trigger that
+     * refuses an insert carrying no key — so this fixture and
+     * `CreatePurchaseOrder` are now under the same rule, which is the whole
+     * content of the trigger. A test wanting the **historical** shape (a row
+     * raised before step 5, with a NULL key) cannot get one from here and should
+     * not: those rows predate the migration and no insert creates them any more.
+     *
+     * The default is a fresh UUID rather than a fixed string because the column
+     * is on a live-row unique per tenant, and two fixtures sharing a literal
+     * would collide in any test that seeds two orders.
      *
      * @return string the new row's id
      */
@@ -74,16 +91,17 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         ?string $orderedAt = null,
         ?string $expectedAt = null,
         bool $archived = false,
+        ?string $idempotencyKey = null,
     ): string {
         $id = Uuid::v4()->toRfc4122();
 
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO purchase_order
                 (id, tenant_id, order_number, supplier_id, warehouse_id, created_by_user_id,
-                 status, currency_code, ordered_at, expected_at, deleted_at)
+                 status, currency_code, ordered_at, expected_at, deleted_at, idempotency_key)
             VALUES
                 (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid,
-                 ?, 'EUR', ?::timestamptz, ?::timestamptz, ?::timestamptz)
+                 ?, 'EUR', ?::timestamptz, ?::timestamptz, ?::timestamptz, ?)
             SQL, [
                 $id,
                 $tenantId,
@@ -92,9 +110,12 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
                 $warehouseId,
                 $createdByUserId,
                 $status,
-                PurchaseOrder::STATUS_DRAFT === $status ? $orderedAt : ($orderedAt ?? '2026-01-01T00:00:00+00:00'),
+                \in_array($status, [PurchaseOrder::STATUS_DRAFT, PurchaseOrder::STATUS_CANCELLED], true)
+                    ? $orderedAt
+                    : ($orderedAt ?? '2026-01-01T00:00:00+00:00'),
                 $expectedAt,
                 $archived ? '2026-01-02T00:00:00+00:00' : null,
+                $idempotencyKey ?? Uuid::v4()->toRfc4122(),
             ]);
 
         return $id;

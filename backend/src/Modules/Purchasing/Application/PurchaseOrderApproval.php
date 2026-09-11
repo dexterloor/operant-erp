@@ -53,67 +53,44 @@ use Symfony\Component\Uid\Uuid;
  * intra-tenant existence oracle for a caller holding no `.approve` at all."*
  *
  * ===========================================================================
- * The predicate, exactly
+ * The predicate is NOT here, and as of 2026-09-11 that is the point
  * ===========================================================================
- * `ADR-008` §2 and its **Amendment 1** (2026-09-10), cited through
- * `SECURITY_MODEL.md` E-19 rather than restated as a second copy:
+ * It is `PurchaseOrderDutySeparation`'s, called below with
+ * `purchase_order.approve`. Read that class for the three clauses, the `owner`
+ * exemption, the NULL ruling and the `business-rule-violated` rendering — all
+ * four are `ADR-008` §2 and its Amendment 1, and none of them is restated here.
  *
- *   - **refuse when `created_by_user_id` = the caller's `app_user.id`**;
- *   - **`owner` is exempt by name.** By *name*, not by permission set: on a
- *     one-person demo tenant `owner` raises the order and is the only seat that
- *     can place it. `SECURITY_MODEL.md` §4 seeds the eight default roles per
- *     tenant and `role.name` is what carries the seat, so the exemption is a
- *     lookup on `role.name` and not on a code — a code test would exempt
- *     `purchasing_manager` too, which A1.1 explicitly refuses:
- *     *"`purchasing_manager` is not exempt."*
- *   - **a NULL creator does NOT refuse.** *"A reorder-agent order was raised by
- *     no person, so there is nobody for the canceller to be, and the rule returns
- *     true."* This is the rule returning true, not an exemption — F-4's orders
- *     stay approvable by any `.approve` holder, and a refusal on NULL would make
- *     seeded data unapprovable.
- *   - **the refusal renders as `business-rule-violated`, not 403 and not 404.**
- *     §5.3 clause 4 says it in terms, and ST-3/ST-4e is its screen. The caller
- *     holds `.approve` and is looking at the row, so it is a rule about this row.
- *     `ApiProblem::businessRuleViolated()` is a 409 and carries `rule` and
- *     `message`; the message is `STATES.md` ST-4e's own words.
+ * **The extraction was anticipated by the code it came out of.** This class held
+ * `refuseSelfApproval(..., string $permissionCode)` with one argument and a
+ * docblock saying the parameter existed *"so the cancellation half is a second
+ * caller rather than a second copy"*. `CancelPurchaseOrder` is that second
+ * caller, and the predicate moved to a class named after the rule rather than
+ * after one of its two users. Nothing about the approval path's behaviour
+ * changed in the move.
  *
  * ===========================================================================
  * What is deliberately NOT here
  * ===========================================================================
- * **The `.cancel` half of E-19.** Amendment 1 extends DSoD-1 to
- * `purchase_order.cancel` with the same predicate and the same three clauses, and
- * `CancelPurchaseOrder` is the next package: `PurchaseOrder` has no `cancel()`
- * method, X9-1 and §8.3's reachability clause are what find that, and adding one
- * here would turn clause (b) green with the operation still unbuilt.
- * `refuseSelfApproval()` is written so the cancellation half is a second caller
- * rather than a second copy — see the `$permissionCode` parameter, which exists
- * only to make that true and today has exactly one argument.
+ * **The `.cancel` half of E-19**, which is `PurchaseOrderCancellation`'s: a
+ * different row load, a different transition method and a different audit event,
+ * sharing exactly one thing with this class — the predicate both call.
  *
- * **The `created_by_user_id` write.** §8.1's last clause — *"`CreatePurchaseOrder`
- * sets it server-side from the JWT subject on every user-initiated create"* — is
- * `CreatePurchaseOrder`'s, and that operation is blocked on §6.2. E-19 names the
- * consequence precisely: *"a single missing write disarms two checks rather than
- * one"*. Until it ships, every order over HTTP is seeded, and this class's NULL
- * branch is the one all seeded data takes.
+ * **The `created_by_user_id` write**, which is `PurchaseOrderWriter::create()`'s.
+ * §8.1's last clause — *"`CreatePurchaseOrder` sets it server-side from the JWT
+ * subject on every user-initiated create"* — is now built, so the NULL branch
+ * this class relies on is no longer the branch every HTTP-created order takes.
+ * E-19 names the consequence of getting that write wrong precisely: *"a single
+ * missing write disarms two checks rather than one"*, and
+ * `PurchaseOrderApprovalTest::everyHttpCreatedOrderRecordsItsCreator` is §8.1's
+ * fifth check, which could not be written while the operation did not exist.
  */
 final readonly class PurchaseOrderApproval
 {
-    /**
-     * The seat DSoD-1 exempts, as `role.name` holds it.
-     *
-     * A literal, and it is one on purpose: `SECURITY_MODEL.md` §4's role table is
-     * a document, `role` is a tenant-writable table, and there is no constant in
-     * this codebase that names the eight defaults. Writing it here — once, beside
-     * the argument for it — is better than deriving it from a permission set,
-     * which is the derivation A1.1 refuses. `PurchaseOrderApprovalTest` pins the
-     * same string independently, so the exemption cannot be renamed on one side.
-     */
-    public const OWNER_ROLE_NAME = 'owner';
-
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
+        private PurchaseOrderDutySeparation $dutySeparation,
         private PurchaseOrderAuditWriter $audit,
     ) {
     }
@@ -186,8 +163,8 @@ final readonly class PurchaseOrderApproval
                     );
                 }
 
-                // ---- step 3: DSoD-1.
-                $this->refuseSelfApproval(
+                // ---- step 3: DSoD-1, on the `.approve` code.
+                $this->dutySeparation->refuseWhenTheActorIsTheCreator(
                     $em,
                     null === $row['created_by_user_id'] ? null : (string) $row['created_by_user_id'],
                     $identity->userId,
@@ -250,104 +227,6 @@ final readonly class PurchaseOrderApproval
                     : PurchaseOrderRow::toResource($row);
             },
         );
-    }
-
-    /**
-     * DSoD-1's three clauses, in the order that makes the cheapest case cheapest
-     * without changing the answer.
-     *
-     * 1. **NULL creator ⇒ allow.** No query. R-6: there is nobody for the
-     *    approver to be.
-     * 2. **creator ≠ caller ⇒ allow.** No query. This is the ordinary path and
-     *    the two-person case DSoD-1 exists to permit.
-     * 3. **creator = caller ⇒ refuse, unless the caller holds `owner`.** The
-     *    role lookup runs only here, which is why it costs nothing on the path
-     *    every other approval takes.
-     *
-     * The creator arrives as an **id**, read by the statement in `approve()`
-     * rather than through `PurchaseOrder::getCreatedBy()`. Two reasons, and the
-     * second is the one that matters: the association would lazy-load an
-     * `AppUser` — a `UserManagement` **entity**, which is a boundary
-     * `deptrac.yaml` does not admit into `PurchasingApplication` — and the
-     * comparison is between two **ids**, so hydrating a principal to read its id
-     * is work with a cross-module dependency attached.
-     *
-     * `$permissionCode` is not used in the predicate and is not decoration: E-19
-     * enforces DSoD-1 on *both* codes of SoD-1's controlled half, and Amendment 1
-     * makes `purchase_order.cancel` the second caller. Carrying the code makes
-     * the cancellation half a call rather than a copy, which is the whole of what
-     * E-19 says went wrong when *"the static half moved and the dynamic half did
-     * not"*. It is surfaced in the refusal's `rule` member for the same reason.
-     */
-    private function refuseSelfApproval(EntityManagerInterface $em, ?string $creator, string $callerUserId, string $permissionCode): void
-    {
-        // Clause 1. Written as its own branch rather than folded into the
-        // comparison below, because `null !== $creator` reading as "allow" by
-        // accident is exactly the clause E-19 names as a violation when it goes
-        // the other way.
-        if (null === $creator) {
-            return;
-        }
-
-        // Clause 2.
-        if ($creator !== $callerUserId) {
-            return;
-        }
-
-        // Clause 3 -- and only here does a query run.
-        if ($this->holdsOwnerRole($em, $callerUserId)) {
-            return;
-        }
-
-        throw ApiProblem::businessRuleViolated(
-            // `<table>.<rule>`, the shape `IllegalTransition::rule()` derives and
-            // `inventory_item.is_archived` follows. The code the rule is enforced
-            // on is part of the identifier because E-19 enforces the same
-            // predicate on two of them, and a client that saw one identifier for
-            // both could not tell an approval refusal from a cancellation one.
-            'purchase_order.'.self::ruleSuffix($permissionCode),
-            // ST-4e's own words. `ADR-008` §2 prints the same sentence.
-            'You raised this order. It needs a different approver.',
-        );
-    }
-
-    /**
-     * The `owner` exemption, resolved against `role.name` under RLS.
-     *
-     * `role.deleted_at IS NULL` is the same predicate `IdentityReader` applies
-     * when it resolves the caller's permission codes — a soft-deleted role grants
-     * nothing, and it must not exempt anything either, or revoking `owner` would
-     * leave the exemption behind.
-     */
-    private function holdsOwnerRole(EntityManagerInterface $em, string $userId): bool
-    {
-        return (bool) $em->getConnection()->fetchOne(
-            <<<'SQL'
-            SELECT EXISTS (
-                SELECT 1
-                  FROM user_role ur
-                  JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id
-                 WHERE ur.user_id = ?::uuid
-                   AND r.name = ?
-                   AND r.deleted_at IS NULL
-            )
-            SQL,
-            [$userId, self::OWNER_ROLE_NAME],
-        );
-    }
-
-    /** `purchase_order.approve` => `approver_is_not_the_creator`. */
-    private static function ruleSuffix(string $permissionCode): string
-    {
-        return match ($permissionCode) {
-            'purchase_order.approve' => 'approver_is_not_the_creator',
-            'purchase_order.cancel' => 'canceller_is_not_the_creator',
-            default => throw new \LogicException(\sprintf(
-                'DSoD-1 is enforced on the two codes of SoD-1\'s controlled half and "%s" is neither. '
-                .'ADR-008 Amendment 1 A1.1 is the authority; extending it is an amendment, not a call site.',
-                $permissionCode,
-            )),
-        };
     }
 
     private static function parseTimestamp(string $value): ?\DateTimeImmutable

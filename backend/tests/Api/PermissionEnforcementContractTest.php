@@ -65,6 +65,14 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // separately entitled to.
         'ListPurchaseOrders' => 'purchase_order.view',
         'GetPurchaseOrder' => 'purchase_order.view',
+        // Added 2026-09-11. `purchase_order.create` is SoD-1's *create* side —
+        // the code `buyer` holds and `purchasing_manager` also holds, which is
+        // why DSoD-1 exists on top of it rather than instead of it — and
+        // `.cancel` is the second code of SoD-1's **controlled** half, moved
+        // there by ADR-008's third pass and given its dynamic check by
+        // Amendment 1.
+        'CreatePurchaseOrder' => 'purchase_order.create',
+        'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',
         'ApprovePurchaseOrder' => 'purchase_order.approve',

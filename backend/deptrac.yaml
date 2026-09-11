@@ -122,6 +122,11 @@ deptrac:
       - App\Modules\Purchasing\ApiResource\ApprovePurchaseOrderInput   # A-7
       - App\Modules\Purchasing\ApiResource\PurchaseOrderResource   # A-7
       - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
+    App\Modules\Purchasing\Application\PurchaseOrderCancellation:
+      - App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter   # A-5
+      - App\Modules\Purchasing\ApiResource\CancelPurchaseOrderInput   # A-7
+      - App\Modules\Purchasing\ApiResource\PurchaseOrderResource   # A-7
+      - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
     App\Modules\Purchasing\Application\PurchaseOrderLineRow:
       - App\Modules\Purchasing\ApiResource\NamedReference   # A-7
       - App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource   # A-7
@@ -137,6 +142,7 @@ deptrac:
     App\Modules\Purchasing\Application\PurchaseOrderViews:
       - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
     App\Modules\Purchasing\Application\PurchaseOrderWriter:
+      - App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput   # A-7
       - App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput   # A-7
       - App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource   # A-7
       - App\Modules\Purchasing\ApiResource\PurchaseOrderResource   # A-7

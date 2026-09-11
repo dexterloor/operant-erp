@@ -73,6 +73,12 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
                 $this->em()->find(Supplier::class, Uuid::fromString($supplierId)),
                 $this->em()->find(Warehouse::class, Uuid::fromString($warehouseId)),
                 $this->currency(),
+                // `Version20260911000200` refuses an insert with no key, so every
+                // writer of this table now supplies one -- including the ORM
+                // route, whose only way to carry it is this constructor argument.
+                // Fixture furniture here: this test is about tenant_id, not about
+                // idempotency.
+                Uuid::v4()->toRfc4122(),
             );
             $this->em()->persist($order);
             $this->em()->flush();
@@ -108,6 +114,7 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
                 $this->em()->find(Supplier::class, Uuid::fromString($supplierId)),
                 $this->em()->find(Warehouse::class, Uuid::fromString($warehouseId)),
                 $this->currency(),
+                Uuid::v4()->toRfc4122(),
             );
             $order->setCreatedBy(null);
             $this->em()->persist($order);
@@ -146,8 +153,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         // not leave a usable unit of work behind.
         $this->tenantContext()->run(self::TENANT_A, function () use ($supplierA, $warehouseA): void {
             $this->app()->executeStatement(
-                "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code)
-                 VALUES (gen_random_uuid(), ?::uuid, 'PO-SAME', ?::uuid, ?::uuid, 'EUR')",
+                "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key)
+                 VALUES (gen_random_uuid(), ?::uuid, 'PO-SAME', ?::uuid, ?::uuid, 'EUR', gen_random_uuid()::text)",
                 [self::TENANT_A, $supplierA, $warehouseA],
             );
         });
@@ -159,8 +166,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         try {
             $this->tenantContext()->run(self::TENANT_A, function () use ($supplierB, $warehouseA): void {
                 $this->app()->executeStatement(
-                    "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code)
-                     VALUES (gen_random_uuid(), ?::uuid, 'PO-CROSS', ?::uuid, ?::uuid, 'EUR')",
+                    "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key)
+                     VALUES (gen_random_uuid(), ?::uuid, 'PO-CROSS', ?::uuid, ?::uuid, 'EUR', gen_random_uuid()::text)",
                     [self::TENANT_A, $supplierB, $warehouseA],
                 );
             });

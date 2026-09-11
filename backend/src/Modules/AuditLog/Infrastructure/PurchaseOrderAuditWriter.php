@@ -47,8 +47,11 @@ use Symfony\Component\Uid\Uuid;
  * ===========================================================================
  * The parameter list is the control
  * ===========================================================================
- * There is **no `$eventType`** — this class writes one event, exactly as
- * `DenialAuditWriter` and `PasswordChangeAuditWriter` each write one.
+ * There is **no `$eventType`** — this class writes the two `purchase_order.*`
+ * events and each has a method of its own, so no caller can choose one. That is
+ * `DenialAuditWriter`'s and `PasswordChangeAuditWriter`'s shape with two members
+ * rather than one: what the rule forbids is a *parameter* naming the event, not
+ * a class covering a table.
  *
  * There is **no `$ipAddress`**, and it is absent structurally rather than passed
  * as null: §9.2's `ip_address` cell for this event is **null**, API-16 restricts
@@ -56,14 +59,16 @@ use Symfony\Component\Uid\Uuid;
  * business event under PC-11 (4a), and E4-5's database `CHECK` refuses a business
  * event carrying one. A method with no parameter for it cannot send one.
  *
- * There is **no `$metadata`**. §9.2 assigns metadata to three events and this is
- * not one of them: `STOCK_MOVEMENT_ADJUSTED` carries the operator's `note` and
- * `PURCHASE_ORDER_CANCELLED` will carry the cancellation reason, because
- * `stock_movement` and `purchase_order` have no free-text column for either.
- * An approval has no such words — F-2 step 8 has no reason field — so the column
- * is written as a literal empty object and there is no parameter that could fill
- * it. `metadata` is `jsonb` on an append-only table no role can `UPDATE` or
- * `DELETE`, so a value written there is written permanently.
+ * `recordPlaced()` takes **no `$metadata`**, and the asymmetry with
+ * `recordCancelled()` below is the whole of §9.2's metadata column rather than an
+ * inconsistency. An approval has no operator words — F-2 step 8 has no reason
+ * field — so the column is written as a literal empty object and there is no
+ * parameter that could fill it. A cancellation **does**: §4.2 accepts a `reason`
+ * on it, and `purchase_order` has no free-text column for one, which is exactly
+ * the position `stock_movement` is in for `STOCK_MOVEMENT_ADJUSTED`'s `note`.
+ * `metadata` is `jsonb` on an append-only table no role can `UPDATE` or
+ * `DELETE`, so a value written there is written permanently — which is why the
+ * parameter exists on one method and cannot be reached from the other.
  *
  * **No `permission_code` either.** `audit_log_permission_code_scope` permits a
  * non-null code only on `authz.permission.denied`, so writing one here would
@@ -118,6 +123,66 @@ final readonly class PurchaseOrderAuditWriter
                     // to arrive together.
                     AuditEvent::SUBJECT_TYPES[AuditEvent::PURCHASE_ORDER_PLACED],
                     $purchaseOrderId,
+                ]);
+        });
+    }
+
+    /**
+     * **`ADR-008` Amendment 1 / E-19 — the other end of the commitment
+     * `recordPlaced()` records.**
+     *
+     * §2's table puts `purchase_order.cancel` on SoD-1's controlled half beside
+     * `.approve`, which is what makes this a controlled transition rather than an
+     * ordinary edit, and `AuditEvent::PURCHASE_ORDER_CANCELLED` files it
+     * **`BUSINESS`** under PC-11 (4a): it is about the subject row's own business
+     * state and about no principal's credentials, sessions or privileges. A trail
+     * that showed a colleague the placing and hid the cancelling would answer
+     * *"what happened to this order"* with half of it.
+     *
+     * **`$reason` is the one value on this table that is not server-generated**,
+     * and it is handled as §9.2 handles `CreateStockAdjustment.note`: stored as a
+     * jsonb **string value**, under a single key, never interpolated into
+     * anything. It is bound as a parameter and cast — the JSON is built by
+     * Postgres from a bound string rather than assembled in PHP, so there is no
+     * spelling of a reason that can change the shape of the object it lands in.
+     *
+     * **Null is written as an empty object, not as `{"reason": null}`.** A key
+     * carrying a null would be a permanent record asserting that a reason field
+     * exists and is empty; the absence of the key is the honest statement that
+     * none was given, and it is the same `{}` every unmetadata'd event writes.
+     *
+     * **No `ip_address`, structurally rather than as a null argument** —
+     * `recordPlaced()`'s reason applies unchanged: API-16 restricts the column to
+     * security events, this is a business event, and `audit_log_ip_address_scope`
+     * refuses one at the database. A method with no parameter for it cannot send
+     * one.
+     *
+     * @param string|null $reason the operator's words, or null when none were given
+     */
+    public function recordCancelled(string $tenantId, string $actorUserId, string $actorLabel, string $purchaseOrderId, ?string $reason = null): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $purchaseOrderId, $reason): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL,
+                     CASE WHEN ?::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('reason', ?::text) END)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::PURCHASE_ORDER_CANCELLED,
+                    $actorUserId,
+                    $actorLabel,
+                    // Read off the catalogue rather than written as a literal:
+                    // the subject type and the event name are declared together
+                    // in `AuditEvent`, and `audit_log_subject_pair` requires them
+                    // to arrive together.
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::PURCHASE_ORDER_CANCELLED],
+                    $purchaseOrderId,
+                    $reason,
+                    $reason,
                 ]);
         });
     }

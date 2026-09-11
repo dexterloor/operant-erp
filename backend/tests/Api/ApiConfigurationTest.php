@@ -69,12 +69,15 @@ final class ApiConfigurationTest extends ApiTestCase
 
         // Six for the `/items` slice, three for Output 4 §7's authentication
         // paths (`IssueToken`, `GetCurrentUser`, and `ChangePassword` added
-        // 2026-09-09 under E-23), and **nine for the purchasing slice** added
-        // 2026-09-10. The count is a floor against a route appearing that nobody
-        // declared; which operations those are is pinned by name in
-        // ItemOperationContractTest, AuthOperationContractTest and
-        // PurchaseOrderOperationContractTest.
-        self::assertCount(18, $checked, 'The route set changed. This slice declares eighteen operations: '.implode(', ', array_keys($checked)));
+        // 2026-09-09 under E-23), nine for the purchasing slice added
+        // 2026-09-10, and **two more on 2026-09-11** — `CreatePurchaseOrder`,
+        // which E9-2 released once `Version20260911000100` gave it a
+        // client-supplied retry key, and `CancelPurchaseOrder`, which X9-1 held
+        // shut until `PurchaseOrder::cancel()` existed. The count is a floor
+        // against a route appearing that nobody declared; which operations those
+        // are is pinned by name in ItemOperationContractTest,
+        // AuthOperationContractTest and PurchaseOrderOperationContractTest.
+        self::assertCount(20, $checked, 'The route set changed. This slice declares twenty operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

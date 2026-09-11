@@ -24,7 +24,9 @@ final class OpenApiContractTest extends ApiTestCase
      * `IssueToken`, plus `ChangePassword` (E-23, 2026-09-09), plus **six on
      * `/purchase-orders`** (2026-09-10) — `UpdatePurchaseOrder`,
      * `DeletePurchaseOrder`, `ApprovePurchaseOrder`, `CreatePurchaseOrderLine`,
-     * `UpdatePurchaseOrderLine`, `DeletePurchaseOrderLine`. Not a description
+     * `UpdatePurchaseOrderLine`, `DeletePurchaseOrderLine` — plus **two more on
+     * 2026-09-11**, `CreatePurchaseOrder` and `CancelPurchaseOrder`, which is
+     * why this number is 14 and not 12. Not a description
      * of the whole contract — it is the anti-vacuity floor: if the `ApiResource`
      * classes are deleted the count drops and this file goes red, which is the
      * second mutation API-10a names.
@@ -37,7 +39,7 @@ final class OpenApiContractTest extends ApiTestCase
      * raising this number leaves the floor below the truth. Neither is caught by
      * the other test, so both are done here deliberately.
      */
-    private const AUTHORED_WRITE_OPERATIONS = 12;
+    private const AUTHORED_WRITE_OPERATIONS = 14;
 
     /** @return array<string, mixed> */
     private function regenerate(): array

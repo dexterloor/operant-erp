@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
+use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput;
 use App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource;
 use App\Modules\Purchasing\ApiResource\PurchaseOrderResource;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
@@ -73,15 +76,216 @@ final readonly class PurchaseOrderWriter
     /** numeric(19,4) — money (S-12). Never a float, in either direction. */
     private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
 
+    /** The live-row unique a **replay** collides on — `Version20260911000100`. */
+    private const IDEMPOTENCY_INDEX = 'purchase_order_tenant_idem_live';
+
+    /** The live-row unique a **race between two creates** collides on. */
+    private const NUMBER_INDEX = 'purchase_order_tenant_number_live';
+
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
+        private RequestIdentity $identities,
+        private WorkspaceSettings $settings,
     ) {
     }
 
     // -----------------------------------------------------------------------
     // The order
     // -----------------------------------------------------------------------
+
+    /**
+     * **`CreatePurchaseOrder` — the operation E9-2 blocked for a month, and the
+     * first in this project whose retry key is a domain column.**
+     *
+     * ===========================================================================
+     * What the key does, and the one place §6.2 had to be amended for it
+     * ===========================================================================
+     * The `Idempotency-Key` header's value is written into
+     * `purchase_order.idempotency_key`, which sits on the live-row unique
+     * `purchase_order_tenant_idem_live`. A retried timeout therefore collides **at
+     * the database**, exactly as a repeated `CreateItem` collides on `sku` — and
+     * that is the only route by which an operation whose response carries a
+     * server-minted `id` can be made retry-safe, because §2.2 serializes the
+     * response after commit and the envelope store cannot hold what does not yet
+     * exist.
+     *
+     * **A replay is recognised by a READ, before the insert — not by catching the
+     * `23505`.** That ordering is forced by a property this project already
+     * measured and wrote down: *"a constraint violation inside
+     * `wrapInTransaction` closes the EntityManager … a refused cross-tenant write
+     * does not leave a usable unit of work behind"*
+     * (`TwoParentCompositeKeyTest`, whose control case exists to establish it).
+     * So the obvious shape — insert, catch the unique violation, re-read the row
+     * the key created — **cannot work**: by the time the exception is caught
+     * there is no manager left to read with, and the caller gets a 500 instead of
+     * its order. Measured here too, on the first run of
+     * `aRetriedCreateYieldsOneOrderAndNotTwo`.
+     *
+     * The read and the index are therefore **two mechanisms with two jobs**, and
+     * neither replaces the other:
+     *
+     *   - the **read** answers every ordinary replay — the retry of a timed-out
+     *     request, which is the case P-5 is about and the only one a client can
+     *     produce on purpose;
+     *   - the **unique index** is the concurrency backstop, and it is what makes
+     *     the read safe to rely on: between the `SELECT` and the `INSERT` another
+     *     transaction can commit the same key, and the database refuses the
+     *     second row rather than letting the gap widen into a duplicate order.
+     *
+     * **What a replay returns makes §6.2's *"byte for byte"* false for the
+     * `unique:` route**, and §6.2 now says so in its own sentence rather than
+     * being quietly contradicted here: it is *the operation's response recomputed
+     * from the row the key created*. The difference is observable —
+     * `total_amount` moves as lines are added, so a replay arriving after a line
+     * was created returns the current total rather than the one the first
+     * response carried. The adversarial round priced that as the cost of the
+     * domain-column ruling; smuggling it would have been the failure.
+     *
+     * ⚠ **The residual, named rather than solved: two identical retries in flight
+     * at the same instant.** One loses at the index, its unit of work is gone,
+     * and this method answers `business-rule-violated` — *try again* — instead of
+     * the order. A third attempt reads the committed row and succeeds, so the
+     * client is never told anything false and never gets a second order; what it
+     * gets is one avoidable round trip in a window measured in milliseconds.
+     * Closing it properly needs a re-readable unit of work after a failed
+     * statement, which is a `TenantContext` change and not this operation's to
+     * make.
+     *
+     * The two uniques are told apart **by name**, and the distinction is
+     * load-bearing rather than tidy: `purchase_order_tenant_number_live` is a race
+     * between two concurrent creates picking the same `MAX + 1`, which is a
+     * genuine conflict the caller should retry, and answering it as a replay would
+     * hand one caller the *other* caller's order.
+     *
+     * ===========================================================================
+     * `created_by_user_id`, and why it is not an accepted field
+     * ===========================================================================
+     * §8.1: *"`CreatePurchaseOrder` does not accept `created_by_user_id` and sets
+     * it server-side from the JWT subject on every user-initiated create. A NULL
+     * `created_by_user_id` on a row created over HTTP converts DSoD-1 from a
+     * control into a suggestion one `INSERT` at a time."* Since Amendment 1 a
+     * single missing write disarms **two** checks rather than one — approval and
+     * cancellation — so the value comes from `RequestIdentity` and there is no
+     * parameter, no field and no branch by which it can arrive as NULL.
+     *
+     * ===========================================================================
+     * `order_number` is minted here, and no document says how
+     * ===========================================================================
+     * `purchase_order.order_number` is `NOT NULL`, §4.2 accepts no field for it,
+     * and **nothing in the contract specifies its form** — the only property any
+     * document relies on is that it is server-generated, which is precisely why it
+     * cannot serve as a retry key. `MAX + 1` over the tenant's live rows is
+     * `createLine()`'s own `line_number` shape one table up, and it inherits that
+     * method's race and its answer: two concurrent creates can pick the same
+     * number, one loses on the unique, and the refusal tells it to try again.
+     * **Reported as a decision taken here rather than presented as derived.**
+     *
+     * The scan is over **live** rows, matching the partial unique, so a number
+     * freed by archiving an order is reusable — the same property
+     * `purchase_order_line_unique` gives line numbers.
+     */
+    public function create(CreatePurchaseOrderInput $input, string $idempotencyKey): PurchaseOrderResource
+    {
+        $values = [
+            'supplierId' => $input->supplierId,
+            'warehouseId' => $input->warehouseId,
+            'currencyCode' => $input->currencyCode,
+            'expectedAt' => $input->expectedAt,
+        ];
+
+        $this->refuseMalformedCreateFields($values);
+
+        $id = Uuid::v4()->toRfc4122();
+        // Read before the transaction opens: it is a property of the request, not
+        // of the write, and `authenticated()` fails closed on its own.
+        $createdBy = $this->identities->authenticated()->userId;
+
+        try {
+            return $this->tenants->run(
+                $this->tenant->tenantId(),
+                function (EntityManagerInterface $em) use ($values, $id, $createdBy, $idempotencyKey): PurchaseOrderResource {
+                    // **The replay answer, and it is a read rather than a caught
+                    // exception.** See the method docblock: a constraint
+                    // violation inside `wrapInTransaction` closes the
+                    // EntityManager, so there is no unit of work left to re-read
+                    // the row with afterwards. The unique index below is still
+                    // what makes this safe -- it refuses the duplicate that
+                    // could commit between this SELECT and the INSERT.
+                    $replay = $this->orderCreatedByKeyInside($em, $idempotencyKey);
+
+                    if (null !== $replay) {
+                        return $replay;
+                    }
+
+                    $this->refuseUnresolvableCreateReferences($em, $values);
+
+                    // Read INSIDE the transaction, for `ItemWriter`'s reason:
+                    // `set_config(..., true)` and the tenant filter's parameter
+                    // are both transaction-scoped, so this is the only place the
+                    // workspace's own currency resolves. There is deliberately no
+                    // `?? 'EUR'` -- a workspace with no settings row cannot raise
+                    // an order, which is the refusal E4-3 exists to produce.
+                    $currencyCode = $values['currencyCode'] ?? $this->settings->defaultCurrencyCode();
+
+                    $em->getConnection()->executeStatement(
+                        <<<'SQL'
+                        INSERT INTO purchase_order
+                            (id, tenant_id, order_number, supplier_id, warehouse_id,
+                             created_by_user_id, currency_code, expected_at, idempotency_key)
+                        VALUES
+                            (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid,
+                             ?::uuid, ?, ?::timestamptz, ?)
+                        SQL,
+                        [
+                            $id,
+                            // Bound explicitly rather than read back out of the
+                            // GUC. The row still has to satisfy the RLS WITH
+                            // CHECK clause, so a mismatch between this value and
+                            // the transaction's tenant is refused by Postgres
+                            // rather than accepted.
+                            $this->tenant->tenantId(),
+                            $this->nextOrderNumber($em),
+                            $values['supplierId'],
+                            $values['warehouseId'],
+                            $createdBy,
+                            $currencyCode,
+                            $values['expectedAt'],
+                            $idempotencyKey,
+                        ],
+                    );
+
+                    return $this->readOrderInside($em, $id)
+                        ?? throw new \LogicException('The order just inserted is not visible to its own transaction.');
+                },
+            );
+        } catch (UniqueConstraintViolationException $e) {
+            // Caught OUTSIDE `TenantContext::run()`, never inside it: a failed
+            // statement leaves the Postgres transaction aborted (25P02), so
+            // catching within the block and continuing makes the following
+            // COMMIT fail with an error nobody can trace back to its cause.
+            if (self::violated($e, self::IDEMPOTENCY_INDEX)) {
+                // The narrow race the read above cannot cover: an identical
+                // retry committed between that SELECT and this INSERT. The
+                // EntityManager is closed, so the order cannot be read back
+                // here -- the client is told to try again, and the next attempt
+                // reads the committed row and gets it. Never a second order.
+                throw ApiProblem::businessRuleViolated(
+                    'purchase_order.idempotency_key_is_in_flight',
+                    'An identical request for this workspace is already being processed. Try again.',
+                );
+            }
+
+            if (self::violated($e, self::NUMBER_INDEX)) {
+                throw ApiProblem::businessRuleViolated(
+                    'purchase_order.order_number_is_unique_per_workspace',
+                    'Another order was raised in this workspace at the same moment. Try again.',
+                );
+            }
+
+            throw $e;
+        }
+    }
 
     public function update(string $id, UpdatePurchaseOrderInput $input): PurchaseOrderResource
     {
@@ -344,6 +548,7 @@ final readonly class PurchaseOrderWriter
     private const POINTERS = [
         'supplierId' => '/supplier_id',
         'warehouseId' => '/warehouse_id',
+        'currencyCode' => '/currency_code',
         'expectedAt' => '/expected_at',
         'inventoryItemId' => '/inventory_item_id',
         'quantity' => '/quantity',
@@ -419,6 +624,143 @@ final readonly class PurchaseOrderWriter
     // Shape, and only shape. Everything here is decidable without the database,
     // so it runs before a transaction is opened.
     // -----------------------------------------------------------------------
+
+    /**
+     * `CreatePurchaseOrder`'s shape rules, which are **not** `update()`'s with a
+     * required-list bolted on.
+     *
+     * Both parent ids are required here and merely un-clearable there; a create
+     * has no "absent means leave it alone" case at all, because there is nothing
+     * to leave alone. `currency_code` is optional and falls back to the
+     * workspace's, and `expected_at` is optional and nullable in the schema.
+     *
+     * @param array<string, string|null> $values
+     */
+    private function refuseMalformedCreateFields(array $values): void
+    {
+        $errors = [];
+
+        foreach (['supplierId', 'warehouseId'] as $property) {
+            if (null === ($values[$property] ?? null)) {
+                $errors[] = self::error($property, 'required', 'This field is required.');
+            } elseif (!Uuid::isValid($values[$property])) {
+                $errors[] = self::error($property, 'not_a_uuid', 'This field must be a UUID naming a row in this workspace.');
+            }
+        }
+
+        // The `currency` table's primary key is a three-letter ISO 4217 code.
+        // Checked for shape here so a malformed value is a named field defect
+        // rather than a foreign-key lookup that answers "unknown".
+        $currency = $values['currencyCode'] ?? null;
+        if (null !== $currency && 1 !== preg_match('/^[A-Z]{3}$/', $currency)) {
+            $errors[] = self::error('currencyCode', 'not_a_currency_code', 'This field must be a three-letter ISO 4217 code.');
+        }
+
+        if (null !== ($values['expectedAt'] ?? null) && null === self::parseTimestamp($values['expectedAt'])) {
+            $errors[] = self::error('expectedAt', 'not_a_timestamp', 'This field must be an RFC 3339 timestamp.');
+        }
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * **ST-5's oracle, applied to the three references a create carries.**
+     *
+     * Resolved by lookup rather than left to the foreign keys, for the reason
+     * `createLine()` resolves `inventory_item_id` that way: all three tables are
+     * bounded by RLS, so an id belonging to another tenant is indistinguishable
+     * from one that never existed, and the caller learns neither. A composite-FK
+     * violation would produce the same refusal with no pointer at the field that
+     * caused it, and §5.2 wants the field named.
+     *
+     * `currency` is **reference data** (ADR-002 §6) and is not tenant-scoped, so
+     * its lookup is an existence check and discloses nothing.
+     *
+     * @param array<string, string|null> $values
+     */
+    private function refuseUnresolvableCreateReferences(EntityManagerInterface $em, array $values): void
+    {
+        $connection = $em->getConnection();
+        $errors = [];
+
+        if (false === $connection->fetchOne('SELECT 1 FROM supplier WHERE id = ?::uuid AND deleted_at IS NULL', [$values['supplierId']])) {
+            $errors[] = self::error('supplierId', 'unknown_reference', 'No live supplier in this workspace has this id.');
+        }
+
+        if (false === $connection->fetchOne('SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL', [$values['warehouseId']])) {
+            $errors[] = self::error('warehouseId', 'unknown_reference', 'No live warehouse in this workspace has this id.');
+        }
+
+        if (null !== ($values['currencyCode'] ?? null)
+            && false === $connection->fetchOne('SELECT 1 FROM currency WHERE code = ?', [$values['currencyCode']])
+        ) {
+            $errors[] = self::error('currencyCode', 'unknown_reference', 'This is not a currency this system knows.');
+        }
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * The next free document number for this workspace.
+     *
+     * Over **live** rows, matching `purchase_order_tenant_number_live`'s own
+     * partiality, and bounded to numbers this method could have minted — the
+     * regexp is what stops a hand-seeded `PO-DRAFT-1` turning the cast into an
+     * error. RLS supplies the tenant bound, so no `tenant_id` predicate is
+     * written here.
+     */
+    private function nextOrderNumber(EntityManagerInterface $em): string
+    {
+        $next = (int) $em->getConnection()->fetchOne(<<<'SQL'
+            SELECT COALESCE(MAX(substring(order_number from 4)::bigint), 0) + 1
+              FROM purchase_order
+             WHERE deleted_at IS NULL AND order_number ~ '^PO-[0-9]+$'
+            SQL);
+
+        return 'PO-'.str_pad((string) $next, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * The order this key already created, or null if it has created none.
+     *
+     * Read **inside the caller's transaction**, which is what makes it the
+     * replay answer rather than a guess: the same transaction then either
+     * returns this row or writes a new one, and the unique index adjudicates
+     * anything that commits in between.
+     *
+     * `deleted_at IS NULL` matches the index's own partiality. An archived order
+     * therefore does not answer a replay — and that is correct: the index no
+     * longer holds its key, so a retry after an archive genuinely may create a
+     * new order.
+     */
+    private function orderCreatedByKeyInside(EntityManagerInterface $em, string $idempotencyKey): ?PurchaseOrderResource
+    {
+        $row = $em->getConnection()->fetchAssociative(
+            'SELECT '.PurchaseOrderRow::COLUMNS.' '.PurchaseOrderRow::FROM
+            .' WHERE po.idempotency_key = ? AND po.deleted_at IS NULL',
+            [$idempotencyKey],
+        );
+
+        return false === $row ? null : PurchaseOrderRow::toResource($row);
+    }
+
+    /**
+     * Whether a unique violation names a particular index.
+     *
+     * Read out of the driver's message because that is where Postgres puts it —
+     * `duplicate key value violates unique constraint "<name>"` — and DBAL's
+     * exception carries no structured constraint name. The alternative is
+     * treating every `23505` on this table the same, which would answer a
+     * document-number race by handing the loser somebody else's order.
+     */
+    private static function violated(UniqueConstraintViolationException $e, string $index): bool
+    {
+        return str_contains($e->getMessage(), $index);
+    }
 
     /** @param array<string, string|null> $values */
     private function refuseMalformedOrderFields(array $values): void

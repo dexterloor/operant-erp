@@ -6,6 +6,8 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\Purchasing\ApiResource\ApprovePurchaseOrderInput;
+use App\Modules\Purchasing\ApiResource\CancelPurchaseOrderInput;
+use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput;
@@ -28,33 +30,48 @@ use PHPUnit\Framework\Attributes\Test;
  * both directions.
  *
  * ---------------------------------------------------------------------------
- * Four rows of §4.2's Purchasing block are DELIBERATELY UNSHIPPED
+ * Rows of §4.2's Purchasing block that are DELIBERATELY UNSHIPPED
  * ---------------------------------------------------------------------------
- * `PINNED_UNSHIPPED` names them and `theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`
+ * `PINNED_UNSHIPPED` names them and `thePinsMatchTheContractDocument`
  * asserts their absence, on `AuthOperationContractTest`'s pattern for
  * `RefreshToken` and `RevokeSession`. Each is blocked by something a test can
  * point at, not by a schedule:
  *
- *   `CreatePurchaseOrder`        §6.2's byte-for-byte replay promise cannot be
- *                                met by §6.1's columns. `LEAD` owns the ruling.
- *   `CancelPurchaseOrder`        `PurchaseOrder::cancel()` does not exist —
- *                                §8.3's *(cancel — no method exists)* row, and
- *                                **X9-1**.
  *   `RestorePurchaseOrder`       **E9-3 / API-O-11** — no path yields an
  *   `RestorePurchaseOrderLine`   archived row's id to a caller who does not
  *                                already hold it. `theArchivedIdProblemIsWhyNoRestoreShips`
  *                                is the half of that a test can carry.
+ *   `CreateGoodsReceipt`         see `PINNED_UNSHIPPED`'s own note — blocked
+ *                                three times over, and the Inventory contract
+ *                                class it needs does not exist.
+ *
+ * **It was five until 2026-09-11.** `CreatePurchaseOrder` and
+ * `CancelPurchaseOrder` shipped in step 6; what unblocked each is recorded on
+ * the constant rather than here, because that is where a reader looking for why
+ * a name is absent will be.
  */
 final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
 {
     /**
-     * The nine rows §4.2 declares for `purchase_order` that this package ships.
+     * The rows §4.2 declares for `purchase_order` that this package ships —
+     * nine at Output 4's purchasing slice, **eleven since 2026-09-11**.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_PURCHASE_ORDER_OPERATIONS = [
         'ListPurchaseOrders' => ['method' => 'GET', 'path' => '/purchase-orders', 'idem' => false],
         'GetPurchaseOrder' => ['method' => 'GET', 'path' => '/purchase-orders/{id}', 'idem' => false],
+        // ⚠ **The only `idem => true` row in this table, and the only one there
+        // has ever been here.** `CreatePurchaseOrder`'s cell is
+        // `unique:purchase_order_tenant_idem_live` and the client-supplied value
+        // that index is built on arrives in the header itself — so for this
+        // operation the header is not a precondition attached to a mechanism, it
+        // *is* the mechanism. Dropping the flag would leave the column NULL on
+        // every request, which `Version20260911000200`'s trigger then refuses.
+        'CreatePurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders', 'idem' => true],
+        // `guard:purchase_order.status`, so no header — `cancel()` refuses the
+        // repeat either way (API-14 as amended).
+        'CancelPurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/cancellation', 'idem' => false],
         'UpdatePurchaseOrder' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}', 'idem' => false],
         'DeletePurchaseOrder' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}', 'idem' => false],
         // `idem` is *"requires the header"*. `ApprovePurchaseOrder` is
@@ -86,8 +103,15 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * `PurchasingApplication` and there is nothing under that namespace to admit.
      */
     public const PINNED_UNSHIPPED = [
-        'CreatePurchaseOrder',
-        'CancelPurchaseOrder',
+        // ⚠ **`CreatePurchaseOrder` and `CancelPurchaseOrder` left this list on
+        // 2026-09-11 and the reasons they were on it are both discharged rather
+        // than waived.** The first was blocked on §6.2's byte-for-byte promise
+        // against §6.1's columns: `Version20260911000100` gave it a
+        // client-supplied retry key, §6.2 was amended to say what a `unique:`
+        // replay actually returns, and E9-2 stopped naming it. The second was
+        // blocked by X9-1 because `PurchaseOrder::cancel()` did not exist, and
+        // it now does — §8.3's matrix row names the method, which is what makes
+        // `STATUS_CANCELLED` reachable.
         'RestorePurchaseOrder',
         'RestorePurchaseOrderLine',
         'CreateGoodsReceipt',
@@ -109,6 +133,20 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * @var array<string, list<string>>
      */
     private const PINNED_ACCEPTED_FIELDS = [
+        // ⚠ **A THIRD cell is implemented short, and it is this one.** §4.2 also
+        // names `lines[].inventory_item_id`, `lines[].quantity`,
+        // `lines[].unit_cost` and `lines[].expected_at` on this row — the nested
+        // create — and this package does not implement it: an order is raised
+        // first and lines are added through `CreatePurchaseOrderLine`.
+        // **The subtraction is invisible to the document comparison below**,
+        // because `ContractDocument::acceptedFields()` already drops every
+        // `lines[].*` token, so unlike the `expected_at` case there is no
+        // `assertContains` here that would go red the day the nested create
+        // ships. That is stated rather than left to be inferred:
+        // `CreatePurchaseOrderInput`'s docblock carries the shortfall, and it is
+        // reported in the step-6 hand-back as a named residual.
+        'CreatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'currency_code', 'expected_at'],
+        'CancelPurchaseOrder' => ['reason'],
         'UpdatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'expected_at'],
         'ApprovePurchaseOrder' => ['expected_at'],
         'CreatePurchaseOrderLine' => ['inventory_item_id', 'quantity', 'unit_cost'],
@@ -120,6 +158,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
 
     /** @var array<string, class-string> */
     private const INPUT_DTOS = [
+        'CreatePurchaseOrder' => CreatePurchaseOrderInput::class,
+        'CancelPurchaseOrder' => CancelPurchaseOrderInput::class,
         'UpdatePurchaseOrder' => UpdatePurchaseOrderInput::class,
         'ApprovePurchaseOrder' => ApprovePurchaseOrderInput::class,
         'CreatePurchaseOrderLine' => CreatePurchaseOrderLineInput::class,

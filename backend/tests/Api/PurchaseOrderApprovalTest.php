@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Modules\Purchasing\Application\PurchaseOrderApproval;
+use App\Modules\Purchasing\Application\PurchaseOrderDutySeparation;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Domain\IllegalTransition;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
@@ -21,26 +22,34 @@ use Symfony\Component\Uid\Uuid;
  *   `anOwnerIsExemptByName`
  *   `aNullCreatorDoesNotRefuse`
  *   `theRefusalIsTheBusinessRuleProblemType`
- *   `everyHttpCreatedOrderRecordsItsCreator`   ← **NOT HERE. See below.**
+ *   `everyHttpCreatedOrderRecordsItsCreator`   ← **owed since 2026-09-10, paid
+ *                                                 2026-09-11.**
  *
- * ⚠ **The fifth is `CreatePurchaseOrder`'s and that operation is not in this
- * package**, so it is not written here as a test that would pass over a fixture.
- * §8.1's clause is *"an HTTP-created `purchase_order` has a NULL
- * `created_by_user_id`"*, and there is no HTTP-created purchase order in the tree
- * — a test asserting it would be asserting something about
- * `PurchaseOrderTestCase::seedOrder()`, which sets the column because the test
- * told it to. **A check that can only pass is not a check.** It is reported as
- * owed by `CreatePurchaseOrder` rather than written green.
+ * ⚠ **The fifth check could not be written until `CreatePurchaseOrder` existed,
+ * and this docblock said so rather than writing it green.** The reasoning is
+ * kept because it is the reason the check is worth anything now: §8.1's clause
+ * is *"an HTTP-created `purchase_order` has a NULL `created_by_user_id`"*, and
+ * while no operation created one over HTTP, any test of it would have been
+ * asserting something about `PurchaseOrderTestCase::seedOrder()` — which sets
+ * the column because the test told it to. **A check that can only pass is not a
+ * check.** Step 6 shipped the operation, so the check now has the subject it was
+ * always about, and it reads the column **out of the database** rather than out
+ * of the response, because the response is built by the same method that did the
+ * write.
  *
  * ---------------------------------------------------------------------------
  * The `owner` exemption is pinned as a literal here
  * ---------------------------------------------------------------------------
- * `PurchaseOrderApproval::OWNER_ROLE_NAME` is the production constant and
+ * `PurchaseOrderDutySeparation::OWNER_ROLE_NAME` is the production constant and
  * `PINNED_OWNER_ROLE` below is an independent copy, on
  * `AuditWriterTest::PINNED_IP_BEARING_EVENTS`' reasoning: a test that granted
- * `PurchaseOrderApproval::OWNER_ROLE_NAME` and then asserted the exemption fired
- * would compare the constant to itself and stay green if somebody renamed the
- * seat to `admin`.
+ * the production constant and then asserted the exemption fired would compare
+ * the constant to itself and stay green if somebody renamed the seat to `admin`.
+ *
+ * **The constant moved class on 2026-09-11** — out of `PurchaseOrderApproval`
+ * and into `PurchaseOrderDutySeparation`, which is where the predicate itself
+ * went when `CancelPurchaseOrder` became its second caller. The pin did not
+ * move, which is the property that makes it a pin.
  */
 final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
 {
@@ -482,7 +491,85 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function theExemptSeatIsTheOnePinnedHere(): void
     {
-        self::assertSame(self::PINNED_OWNER_ROLE, PurchaseOrderApproval::OWNER_ROLE_NAME);
+        self::assertSame(self::PINNED_OWNER_ROLE, PurchaseOrderDutySeparation::OWNER_ROLE_NAME);
+    }
+
+    /**
+     * **§8.1's fifth check, owed since the rule was written and unwritable until
+     * `CreatePurchaseOrder` shipped.**
+     *
+     * > *fails if:* … **or** an HTTP-created `purchase_order` has a NULL
+     * > `created_by_user_id`.
+     *
+     * E-19 states the stake exactly: a NULL there on a user-initiated create
+     * *"converts DSoD-1 from a control into a suggestion one `INSERT` at a
+     * time"* — **and since Amendment 1 a single missing write disarms two checks
+     * rather than one**, approval and cancellation. So this is not a test about a
+     * column being populated; it is the test that keeps both halves of E-19 from
+     * being inert.
+     *
+     * It reads `created_by_user_id` **out of the database**, not out of the
+     * response. The response is built by the same method that performed the
+     * write, so a create that returned the caller as `created_by` while writing
+     * NULL would satisfy a response-level assertion — and that is precisely the
+     * shape (a claim about a write, in place of the write) this project has
+     * recorded finding twenty times.
+     *
+     * *Mutation, run:* the `$createdBy` argument in
+     * `PurchaseOrderWriter::create()`'s `INSERT` replaced by a literal `null`.
+     * Red here, and red in `theCreatorCannotApproveItsOwnOrder`'s cancellation
+     * twin — which is the two-checks-from-one-write property stated as a test
+     * result rather than as a sentence.
+     */
+    #[Test]
+    public function everyHttpCreatedOrderRecordsItsCreator(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->send('POST', '/purchase-orders', [
+            'supplier_id' => $supplier,
+            'warehouse_id' => $warehouse,
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT created_by_user_id FROM purchase_order WHERE id = ?::uuid', [$this->json()['id']]);
+
+        self::assertCount(1, $rows);
+        self::assertSame($this->actorId, $rows[0]['created_by_user_id'],
+            'An order created over HTTP does not name its creator. §8.1: CreatePurchaseOrder sets '
+            .'created_by_user_id server-side from the JWT subject on every user-initiated create, and a NULL '
+            .'there disarms DSoD-1 on approval AND on cancellation.');
+    }
+
+    /**
+     * The consequence of the check above, driven end to end: the creator of an
+     * order raised **through the API** cannot then approve it.
+     *
+     * Every other DSoD-1 test in this file seeds the creator directly, which is
+     * what `PurchaseOrderTestCase`'s docblock calls *"a fixture standing in for
+     * an unbuilt operation"*. This one uses no fixture for the creator at all —
+     * the column is written by the operation, and the refusal is produced by the
+     * value it wrote.
+     */
+    #[Test]
+    public function theCreatorOfAnApiCreatedOrderCannotApproveIt(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->send('POST', '/purchase-orders', [
+            'supplier_id' => $supplier,
+            'warehouse_id' => $warehouse,
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->approve($this->json()['id']);
+
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('purchase_order.approver_is_not_the_creator', $this->json()['rule']);
     }
 
     /** @param array<string, mixed> $body */

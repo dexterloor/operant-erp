@@ -95,13 +95,16 @@ class PurchaseOrder
      * entity can."* Two NULLs do not collide — Postgres treats them as distinct
      * in a unique index — which is what lets the historical rows coexist.
      *
-     * **There is deliberately no setter, and that is the residual.** Step 6 owns
-     * `CreatePurchaseOrder` and will write this value; until it does, nothing
-     * writes the column and the index therefore refuses nothing. A column that
-     * exists is not a column that deduplicates — `Version20260910000200`'s own
-     * lesson, one table over. A writer with no caller would be the defect that
-     * migration's docblock closes on (*"nothing that has no consumer"*), so the
-     * accessor below is read-only and step 6 adds the write path.
+     * **There is still no setter, and as of step 6 that is a decision rather
+     * than a residual.** `CreatePurchaseOrder` writes this column in the
+     * `INSERT` itself (`PurchaseOrderWriter::create()`), the way every other
+     * write in this slice reaches the database, and the **constructor** is the
+     * ORM route to the same value. A setter would be a second write path for a
+     * value that may only ever be set once, at insert, and
+     * `Version20260911000200`'s `BEFORE INSERT` trigger is what makes "at
+     * insert" non-negotiable: a row arriving without a key is refused by the
+     * database, so there is no state in which a later `setIdempotencyKey()`
+     * would be the right repair.
      */
     #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
     private ?string $idempotencyKey = null;
@@ -145,6 +148,22 @@ class PurchaseOrder
     #[ORM\Column(name: 'deleted_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $deletedAt = null;
 
+    /**
+     * `$idempotencyKey` is **optional in the signature and mandatory at the
+     * database**, and the asymmetry is deliberate rather than sloppy.
+     *
+     * Optional here, because this parameter is the *only* way an ORM-constructed
+     * order can carry one — there is no setter, by the argument on the property
+     * — and defaulting it keeps `null` expressible, which is what a row raised
+     * before `Version20260911000100` legitimately holds.
+     *
+     * Mandatory there, because `Version20260911000200`'s `BEFORE INSERT` trigger
+     * refuses a row that arrives without one. So a caller may *construct* an
+     * order with no key and cannot *persist* it, and the refusal names the column
+     * and the reason rather than surfacing as a silent NULL on a live-row unique
+     * that then refuses nothing. **That is the whole design: the value is set
+     * once, at construction or in the `INSERT`, and never afterwards.**
+     */
     public function __construct(
         Uuid $id,
         Uuid $tenantId,
@@ -152,6 +171,7 @@ class PurchaseOrder
         Supplier $supplier,
         Warehouse $warehouse,
         Currency $currency,
+        ?string $idempotencyKey = null,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
@@ -159,6 +179,7 @@ class PurchaseOrder
         $this->supplier = $supplier;
         $this->warehouse = $warehouse;
         $this->currency = $currency;
+        $this->idempotencyKey = $idempotencyKey;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }
@@ -231,6 +252,48 @@ class PurchaseOrder
         $this->status = self::STATUS_ORDERED;
         $this->orderedAt = $orderedAt;
         $this->expectedAt = $expectedAt;
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
+    /**
+     * **§8.3's cancel row, and the method X9-1 exists to find missing.**
+     *
+     * Until this commit `PurchaseOrder` had no cancellation method at all:
+     * `STATUS_CANCELLED` was reachable by nothing, `CancelPurchaseOrder` was
+     * declared in §4.2 and unimplementable, and `TransitionGuardTest`'s clause-(b)
+     * pin carried the status as owed. §8.3's matrix row is the authority for the
+     * three legal sources and they are **passed in as this class's own constants**,
+     * never as literals — API-15, and `noGuardEnumeratesAStatusAsAStringLiteral`
+     * is where a literal fails.
+     *
+     * **Why `partially_received` is legal and `received` is not**: a delivery
+     * that has partly arrived is a commitment the supplier has not completed, and
+     * L-9's reversal register routes the correction for what did arrive through a
+     * stock adjustment rather than through the order. A fully received order has
+     * nothing left to withdraw, so cancelling it would repudiate a commitment
+     * that has already been met on both sides.
+     *
+     * **`ordered_at` is deliberately not touched.** An order cancelled after it
+     * was placed keeps the date it was placed on — that is the fact the trail
+     * needs — and one cancelled while still a draft never had one.
+     * `purchase_order_ordered_at_set` was widened by `Version20260911000200` to
+     * admit exactly that second row; before it, this transition was legal in the
+     * contract and refused by the database.
+     *
+     * **Who may call it is not this method's business.** DSoD-1's
+     * `canceller != creator` is a rule about the *actor*, which an entity does
+     * not have — `PurchaseOrderDutySeparation` is where it lives, and
+     * `PurchaseOrderCancellation` is what runs the two in E-19's fixed order.
+     */
+    public function cancel(): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [
+            self::STATUS_DRAFT,
+            self::STATUS_ORDERED,
+            self::STATUS_PARTIALLY_RECEIVED,
+        ]);
+
+        $this->status = self::STATUS_CANCELLED;
         $this->updatedAt = new \DateTimeImmutable();
     }
 
