@@ -52,6 +52,13 @@ use Symfony\Component\Uid\Uuid;
  * caller holds the code and is looking at the row) and **never** 403 or 404.
  * `refuseUnlessDraft()` is the one place that rule is written.
  *
+ * **And before it reads, it locks (step 6c).** Each write to an existing order
+ * opens with `PurchaseOrderRowLock::holdInside()`, so the status it checks is
+ * still the status when it writes: a concurrent approval either committed
+ * first, and the read sees `ordered`, or waits. Without it, a line could be
+ * added to or repriced on an order that had just been placed. `create()` has
+ * no existing row to lock; its races are the two unique indexes it names.
+ *
  * ===========================================================================
  * `total_amount` is recomputed on every line write, and nobody owned that
  * ===========================================================================
@@ -332,6 +339,7 @@ final readonly class PurchaseOrderWriter
         return $this->translatingConstraintFailures(fn (): PurchaseOrderResource => $this->tenants->run(
             $this->tenant->tenantId(),
             function (EntityManagerInterface $em) use ($id, $submitted): PurchaseOrderResource {
+                PurchaseOrderRowLock::holdInside($em, $id);
                 $current = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
                 // ST-9 / §5.2a: an archived row renders read-only, and the
@@ -364,6 +372,7 @@ final readonly class PurchaseOrderWriter
     public function archive(string $id): void
     {
         $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+            PurchaseOrderRowLock::holdInside($em, $id);
             $current = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
             $this->refuseIfArchived($current);
@@ -399,6 +408,7 @@ final readonly class PurchaseOrderWriter
             function (EntityManagerInterface $em) use ($orderId, $values, $id): PurchaseOrderLineResource {
                 $connection = $em->getConnection();
 
+                PurchaseOrderRowLock::holdInside($em, $orderId);
                 $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
                 $this->refuseIfArchived($order);
                 $this->refuseUnlessDraft($order);
@@ -495,6 +505,7 @@ final readonly class PurchaseOrderWriter
         return $this->translatingConstraintFailures(fn (): PurchaseOrderLineResource => $this->tenants->run(
             $this->tenant->tenantId(),
             function (EntityManagerInterface $em) use ($orderId, $lineId, $submitted): PurchaseOrderLineResource {
+                PurchaseOrderRowLock::holdInside($em, $orderId);
                 $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
                 $this->refuseIfArchived($order);
                 $this->refuseUnlessDraft($order);
@@ -531,6 +542,11 @@ final readonly class PurchaseOrderWriter
     public function archiveLine(string $orderId, string $lineId): void
     {
         $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($orderId, $lineId): void {
+            // Order before line, and that ordering is the deadlock fix: before
+            // 6c this path locked the line (its UPDATE) and then the order
+            // (`recomputeTotal()`), the reverse of archiving the order, whose
+            // cascade trigger locks the order and then its lines.
+            PurchaseOrderRowLock::holdInside($em, $orderId);
             $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
             $this->refuseIfArchived($order);
             $this->refuseUnlessDraft($order);

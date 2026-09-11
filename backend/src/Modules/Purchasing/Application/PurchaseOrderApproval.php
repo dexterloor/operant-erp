@@ -9,6 +9,7 @@ use App\Modules\Purchasing\ApiResource\ApprovePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\PurchaseOrderResource;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
@@ -51,30 +52,23 @@ use Symfony\Component\Uid\Uuid;
  * lines, so the count is read here, inside the transaction and under RLS, and
  * passed in.
  *
- * **Named residual: every other write to this order races the approval, and
- * step 6c owns closing it.** Nothing in `src/` takes a row lock, and
- * `PurchaseOrder` has no `#[ORM\Version]`. This class reads the order with a
- * plain `SELECT`, and so does each path below before it checks the order and
- * writes. Under Postgres's default READ COMMITTED, whichever `UPDATE` on
- * `purchase_order` comes second waits for the first to commit and then goes
- * ahead without re-reading the status or the lines.
+ * **The race with every other write to this order: CLOSED by step 6c.** Until
+ * then nothing in `src/` took a row lock and `PurchaseOrder` has no
+ * `#[ORM\Version]`, so under READ COMMITTED whichever `UPDATE` on
+ * `purchase_order` came second waited for the first to commit and then went
+ * ahead without re-reading the status or the lines. An approval could place an
+ * order whose last line had just been archived; a line could be added to or
+ * repriced on an order just placed (next to a DSoD-1 bypass); and cancel and
+ * approve could overwrite each other's status.
  *
- *   - `PurchaseOrderWriter::archiveLine()` checks `draft`, archives the line and
- *     has `recomputeTotal()` update the order. If the last line is archived
- *     between this class's count and its commit, an `ordered` order is left with
- *     no live line.
- *   - `PurchaseOrderWriter::createLine()` / `updateLine()` have the same shape.
- *     A line can be added to, or repriced on, an order that was just placed. So
- *     the creator can change what was approved after an independent approval,
- *     which is next to a DSoD-1 bypass.
- *   - `PurchaseOrderCancellation` reads the order, then `find()`, `cancel()`,
- *     `flush()`. Doctrine's `UPDATE` carries no status predicate, so cancel and
- *     approve can overwrite each other's status: an approval that read `draft`
- *     can put a just-cancelled order back to `ordered`.
- *
- * Closing these means `SELECT … FOR UPDATE` on the order, or a version column,
- * in every one of those paths. That is a locking scheme, and it is **step 6c**.
- * Step 6a deliberately does not build it.
+ * Now this class, `PurchaseOrderCancellation` and every write in
+ * `PurchaseOrderWriter` take `PurchaseOrderRowLock` as the **first statement**
+ * of their transaction, before anything they check is read. A concurrent
+ * write either committed before the lock was granted, and every read below
+ * sees it, or it waits for this transaction. `PurchaseOrderRowLockTest` races
+ * each shape with a second connection. A version column was the other option
+ * and was not taken: it turns the loser into a retry the client must make,
+ * where the lock makes the loser wait and then give the answer that is true.
  *
  * ===========================================================================
  * Why DSoD-1 runs AFTER the load, and why hoisting it is a named violation
@@ -157,6 +151,12 @@ final readonly class PurchaseOrderApproval
         return $this->tenants->run(
             $this->tenant->tenantId(),
             function (EntityManagerInterface $em) use ($id, $identity, $expectedAtSubmitted, $expectedAt): PurchaseOrderResource {
+                // Step 6c: the order's row lock, before anything below is read.
+                // A concurrent write to this order either committed before
+                // this, and every read below sees it, or waits for this
+                // transaction. See `PurchaseOrderRowLock`.
+                PurchaseOrderRowLock::holdInside($em, $id);
+
                 // ---- step 2: the row, under RLS, inside the transaction that
                 // will write it. It is loaded here rather than by a provider
                 // because steps 2 to 5 are one atomic sequence: a row read
@@ -272,15 +272,14 @@ final readonly class PurchaseOrderApproval
         );
     }
 
+    /**
+     * `Rfc3339Timestamp`'s, the one parser the create and update paths and the
+     * request digest already share. Until step 6c this was a third copy
+     * without its warning check, so `2026-02-30` was placed as 2 March, and
+     * `T24:00` and `:60` rolled to the next instant, all as a 200.
+     */
     private static function parseTimestamp(string $value): ?\DateTimeImmutable
     {
-        foreach ([\DateTimeInterface::RFC3339_EXTENDED, \DateTimeInterface::RFC3339] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat($format, $value);
-            if (false !== $parsed) {
-                return $parsed;
-            }
-        }
-
-        return null;
+        return Rfc3339Timestamp::parse($value);
     }
 }

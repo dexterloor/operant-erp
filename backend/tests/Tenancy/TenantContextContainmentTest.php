@@ -59,6 +59,9 @@ final class TenantContextContainmentTest extends TestCase
      * of them exist specifically to demonstrate the forbidden forms.
      */
     private const KNOWN_WRITERS_OUTSIDE_SRC = [
+        'tests/Api/support/hold_order_lock.php' =>
+            'Out-of-process holder of a purchase-order row lock for PurchaseOrderRowLockTest (step 6c); '
+            .'connection A of a two-connection race, on the unpooled endpoint, with no container.',
         'tests/Tenancy/TenancyTestCase.php' =>
             'RESET, to clear the leak the bare-SET test deliberately creates; and set_config on the '
             .'owner connection, which needs its own context to read ground truth under FORCE RLS.',

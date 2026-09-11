@@ -99,6 +99,13 @@ final readonly class PurchaseOrderCancellation
         return $this->tenants->run(
             $this->tenant->tenantId(),
             function (EntityManagerInterface $em) use ($id, $identity, $reason): PurchaseOrderResource {
+                // Step 6c: the order's row lock, before anything below is read.
+                // Doctrine's `UPDATE` carries no status predicate, so without it
+                // a cancellation that read `draft` would overwrite whatever a
+                // concurrent approval or cancellation committed meanwhile. See
+                // `PurchaseOrderRowLock`.
+                PurchaseOrderRowLock::holdInside($em, $id);
+
                 // ---- step 2: the row, under RLS, inside the transaction that
                 // will write it. Loaded here rather than by a provider because
                 // steps 2 to 4 are one atomic sequence: a row read before the

@@ -684,6 +684,27 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **An impossible date is refused, not rolled over.** Before 6c this class
+     * had its own copy of the parser, without `Rfc3339Timestamp`'s warning
+     * check, so 30 February became 2 March and the order was placed with an
+     * expected date nobody wrote. The order has a live line, so the only thing
+     * left to refuse is the field.
+     */
+    #[Test]
+    public function approvingWithAnImpossibleExpectedDateIsRefusedAndPlacesNothing(): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $this->approve($draft['order'], ['expected_at' => '2026-02-30T00:00:00Z']);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('not_a_timestamp', $this->json()['errors'][0]['code']);
+        self::assertSame('/expected_at', $this->json()['errors'][0]['pointer']);
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
      * A refused approval moved nothing: still `draft`, still no `ordered_at`, and
      * no `purchase_order.placed` row — the trail records what happened.
      */
