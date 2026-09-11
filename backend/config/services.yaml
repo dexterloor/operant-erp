@@ -221,6 +221,13 @@ services:
     # edit somebody makes on purpose.
     App\Modules\UserManagement\Application\Contract\WorkspaceSettings: '@App\Modules\UserManagement\Infrastructure\TenantSettingsReader'
 
+    # ARCHITECTURE §5.5 W-1/W-3 — `Purchasing → Inventory::ReceiveStock`, the
+    # goods-receipt half of the two cross-module write edges. Explicit for the
+    # reason the binding above gives. It has no consumer until step 8, so it is
+    # private and unused today; the test env reaches it through a public alias
+    # of THIS id (below), so what is tested is this binding and not a copy.
+    App\Modules\Inventory\Application\Contract\ReceiveStock: '@App\Modules\Inventory\Application\StockReceiver'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test
@@ -246,6 +253,13 @@ when@test:
         # B-3's phase-2 check regenerates the spec; the factory is private.
         test.api_platform.openapi.factory:
             alias: api_platform.openapi.factory
+            public: true
+
+        # `ReceiveStock` has no consumer until step 8, and an unused private
+        # service is removed at compile time. Aliasing the interface id (not the
+        # implementation) keeps the production binding the thing under test.
+        test.inventory.receive_stock:
+            alias: App\Modules\Inventory\Application\Contract\ReceiveStock
             public: true
 
         App\Tests\Support\SqlRecorder:

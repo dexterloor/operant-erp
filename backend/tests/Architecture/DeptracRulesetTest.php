@@ -53,7 +53,7 @@ final class DeptracRulesetTest extends TestCase
      *
      * @return array{0: int, 1: string}
      */
-    private static function deptrac(array $args): array
+    private static function deptrac(array $args, ?string $configFile = null): array
     {
         $binary = self::backendDir().'/tools/deptrac/vendor/bin/deptrac';
 
@@ -70,7 +70,7 @@ final class DeptracRulesetTest extends TestCase
         // the child rather than assumed absent.
         $cmd = 'SHELL_VERBOSITY=0 '.escapeshellarg(PHP_BINARY).' '.escapeshellarg($binary)
             .' '.implode(' ', array_map(escapeshellarg(...), $args))
-            .' --config-file='.escapeshellarg(self::backendDir().'/deptrac.yaml')
+            .' --config-file='.escapeshellarg($configFile ?? self::backendDir().'/deptrac.yaml')
             .' --no-ansi 2>&1';
 
         $output = [];
@@ -127,6 +127,81 @@ final class DeptracRulesetTest extends TestCase
             'The deviation register is empty. It should not be: deptrac.yaml records the pre-existing '
             .'A-1, A-5, A-7, A-10 and A-12 edges this output found and was not permitted to repair. An '
             .'empty register means either they were silently fixed or the register stopped matching.');
+    }
+
+    /**
+     * Failure mode 1 in the class docblock — a ruleset that forbids nothing.
+     *
+     * ⚠ This method is named in that docblock since `7fdcc2a` and **did not
+     * exist until step 7** (one mention, zero methods, at `7fdcc2a` and at
+     * `c57cd12`). It is written now because step 7 publishes the first
+     * `Inventory` contract and step 8 will be the first module to cross into
+     * it: A-2 / A-13 say Purchasing reaches Inventory ONLY through
+     * `Application\Contract`, and nothing executed that.
+     *
+     * The real `deptrac.yaml` — its layers and ruleset, untouched — is run over
+     * fixture classes in a scratch directory, with the skip register emptied
+     * (it names real classes only) and a cache file of its own. Each probe is
+     * one constructor dependency, so each is exactly one edge.
+     */
+    #[Test]
+    public function aDeliberateViolationIsRejected(): void
+    {
+        $dir = sys_get_temp_dir().'/deptrac-probe-'.bin2hex(random_bytes(6));
+        mkdir($dir.'/src', 0o777, true);
+
+        try {
+            file_put_contents($dir.'/src/PurchasingProbes.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Purchasing\Application;
+                final class ProbeThroughTheContract { public function __construct(public \App\Modules\Inventory\Application\Contract\ReceiveStock $stock) {} }
+                final class ProbeIntoTheImplementation { public function __construct(public \App\Modules\Inventory\Application\StockReceiver $stock) {} }
+                final class ProbeIntoTheTable { public function __construct(public \App\Modules\Inventory\Infrastructure\Entity\StockLevel $level) {} }
+                PHP);
+            file_put_contents($dir.'/src/InventoryProbes.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Inventory\Application;
+                final class ProbeIntoPurchasing { public function __construct(public \App\Modules\Purchasing\Application\PurchaseOrderRowLock $lock) {} }
+                PHP);
+
+            /** @var array{deptrac: array<string, mixed>} $config */
+            $config = Yaml::parseFile(self::backendDir().'/deptrac.yaml');
+            $config['deptrac']['paths'] = [$dir.'/src'];
+            unset($config['deptrac']['skip_violations']);
+            file_put_contents($dir.'/deptrac.yaml', Yaml::dump($config, 8, 2));
+
+            [, $text] = self::deptrac([
+                'analyse', '--no-progress', '--formatter=json', '--output='.$dir.'/report.json',
+                '--cache-file='.$dir.'/deptrac.cache',
+            ], $dir.'/deptrac.yaml');
+
+            self::assertFileExists($dir.'/report.json', "deptrac produced no report:\n".$text);
+            /** @var array{Report: array<string, int>, files?: array<string, array{messages: list<array{message: string}>}>} $json */
+            $json = json_decode((string) file_get_contents($dir.'/report.json'), true, 512, JSON_THROW_ON_ERROR);
+
+            $messages = [];
+            foreach ($json['files'] ?? [] as $file) {
+                foreach ($file['messages'] as $message) {
+                    $messages[] = $message['message'];
+                }
+            }
+            $violators = array_map(static fn (string $m): string => (string) preg_replace('/^\S*\\\\(Probe\w+) .*$/s', '$1', $m), $messages);
+            sort($violators);
+
+            self::assertSame(['ProbeIntoPurchasing', 'ProbeIntoTheImplementation', 'ProbeIntoTheTable'], $violators,
+                "Exactly three probes break a rule — Purchasing into Inventory's implementation, Purchasing into "
+                ."Inventory's table, and §5.4's Inventory → Purchasing — and the contract edge is not one of them:\n"
+                .implode("\n", $messages));
+            self::assertSame(3, $json['Report']['Violations']);
+            self::assertSame(1, $json['Report']['Allowed'],
+                'The one allowed edge is Purchasing\Application → Inventory\Application\Contract (A-2).');
+        } finally {
+            foreach (['src/PurchasingProbes.php', 'src/InventoryProbes.php', 'deptrac.yaml', 'report.json', 'deptrac.cache'] as $f) {
+                @unlink($dir.'/'.$f);
+            }
+            @rmdir($dir.'/src');
+            @rmdir($dir);
+        }
     }
 
     #[Test]
