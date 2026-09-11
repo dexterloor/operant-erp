@@ -85,7 +85,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 // which is what makes the partial index worth having: the query
                 // that matters reads a tenth of the table.
                 $c->executeStatement(<<<'SQL'
-                    INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key)
+                    INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key, request_digest)
                     SELECT gen_random_uuid(), ?::uuid, 'PO-' || g,
                            (SELECT id FROM supplier  ORDER BY code LIMIT 1 OFFSET (g % 20)),
                            (SELECT id FROM warehouse ORDER BY code LIMIT 1 OFFSET (g % 2)),
@@ -96,7 +96,10 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                            -- per tenant: one literal here would collide on the
                            -- second row. `Version20260911000200`'s BEFORE INSERT
                            -- trigger is what makes the column non-optional.
-                           gen_random_uuid()::text
+                           -- Since Version20260911000300 it is hex SHA-256, and
+                           -- carries a digest beside it.
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex')
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
 

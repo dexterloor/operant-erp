@@ -12,6 +12,8 @@ use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
+use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
@@ -82,6 +84,9 @@ final readonly class PurchaseOrderWriter
     /** The live-row unique a **race between two creates** collides on. */
     private const NUMBER_INDEX = 'purchase_order_tenant_number_live';
 
+    /** §4.2's operation id, digested with the request so no other operation's request can match it. */
+    private const CREATE_OPERATION = 'CreatePurchaseOrder';
+
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
@@ -101,7 +106,8 @@ final readonly class PurchaseOrderWriter
      * ===========================================================================
      * What the key does, and the one place §6.2 had to be amended for it
      * ===========================================================================
-     * The `Idempotency-Key` header's value is written into
+     * The `Idempotency-Key` header's value — **hashed**, as D-B ruled
+     * (`IdempotencyKeyHash`) — is written into
      * `purchase_order.idempotency_key`, which sits on the live-row unique
      * `purchase_order_tenant_idem_live`. A retried timeout therefore collides **at
      * the database**, exactly as a repeated `CreateItem` collides on `sku` — and
@@ -141,6 +147,16 @@ final readonly class PurchaseOrderWriter
      * was created returns the current total rather than the one the first
      * response carried. The adversarial round priced that as the cost of the
      * domain-column ruling; smuggling it would have been the failure.
+     *
+     * ===========================================================================
+     * D-B: the same key with a different request is a 409, decided by a digest
+     * ===========================================================================
+     * The row also stores `request_digest` — `RequestDigest::of()` of what the
+     * client **sent**, normalised — and the replay read compares it: equal is a
+     * replay, different is §6.2's `idempotency-key-conflict`. Until 2026-09-11
+     * the read matched on the key alone, and answered a key reused for a
+     * different order with the first order, as a 201. `orderCreatedByKeyInside()`
+     * says why the comparison is never against the row.
      *
      * ⚠ **The residual, named rather than solved: two identical retries in flight
      * at the same instant.** One loses at the index, its unit of work is gone,
@@ -196,6 +212,21 @@ final readonly class PurchaseOrderWriter
 
         $this->refuseMalformedCreateFields($values);
 
+        // D-B: what was SENT, normalised -- after the shape check, so every value
+        // here is one the normalisers accept. `currency_code` is the client's
+        // value or null, never the workspace default it resolves to below: that
+        // default can change between a timeout and its retry.
+        $digest = RequestDigest::of(self::CREATE_OPERATION, [
+            'supplier_id' => RequestDigest::uuid($values['supplierId']),
+            'warehouse_id' => RequestDigest::uuid($values['warehouseId']),
+            'currency_code' => $values['currencyCode'],
+            'expected_at' => RequestDigest::instant($values['expectedAt']),
+        ]);
+
+        // D-B: the column holds the header's hash, never its value. The replay
+        // read and the INSERT below both use this, so they cannot disagree.
+        $keyHash = IdempotencyKeyHash::of($idempotencyKey);
+
         $id = Uuid::v4()->toRfc4122();
         // Read before the transaction opens: it is a property of the request, not
         // of the write, and `authenticated()` fails closed on its own.
@@ -204,7 +235,7 @@ final readonly class PurchaseOrderWriter
         try {
             return $this->tenants->run(
                 $this->tenant->tenantId(),
-                function (EntityManagerInterface $em) use ($values, $id, $createdBy, $idempotencyKey): PurchaseOrderResource {
+                function (EntityManagerInterface $em) use ($values, $id, $createdBy, $keyHash, $digest): PurchaseOrderResource {
                     // **The replay answer, and it is a read rather than a caught
                     // exception.** See the method docblock: a constraint
                     // violation inside `wrapInTransaction` closes the
@@ -212,7 +243,7 @@ final readonly class PurchaseOrderWriter
                     // the row with afterwards. The unique index below is still
                     // what makes this safe -- it refuses the duplicate that
                     // could commit between this SELECT and the INSERT.
-                    $replay = $this->orderCreatedByKeyInside($em, $idempotencyKey);
+                    $replay = $this->orderCreatedByKeyInside($em, $keyHash, $digest);
 
                     if (null !== $replay) {
                         return $replay;
@@ -232,10 +263,12 @@ final readonly class PurchaseOrderWriter
                         <<<'SQL'
                         INSERT INTO purchase_order
                             (id, tenant_id, order_number, supplier_id, warehouse_id,
-                             created_by_user_id, currency_code, expected_at, idempotency_key)
+                             created_by_user_id, currency_code, expected_at, idempotency_key,
+                             request_digest)
                         VALUES
                             (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid,
-                             ?::uuid, ?, ?::timestamptz, ?)
+                             ?::uuid, ?, ?::timestamptz, ?,
+                             ?)
                         SQL,
                         [
                             $id,
@@ -251,7 +284,8 @@ final readonly class PurchaseOrderWriter
                             $createdBy,
                             $currencyCode,
                             $values['expectedAt'],
-                            $idempotencyKey,
+                            $keyHash,
+                            $digest,
                         ],
                     );
 
@@ -736,16 +770,37 @@ final readonly class PurchaseOrderWriter
      * therefore does not answer a replay — and that is correct: the index no
      * longer holds its key, so a retry after an archive genuinely may create a
      * new order.
+     *
+     * **D-B: a key is a replay only if the request is the same one.** The stored
+     * `request_digest` is compared with this request's; a mismatch is §6.2's
+     * `idempotency-key-conflict` (409), thrown before anything is written, so the
+     * transaction rolls back clean. A keyed row with **no** digest cannot prove
+     * the requests match and is answered as a conflict too — failing closed,
+     * because the alternative hands out an order the caller may not have asked
+     * for. `purchase_order_request_digest_with_key` makes that row impossible;
+     * the branch is written anyway rather than argued.
+     *
+     * The comparison is against the digest, **never against the row**:
+     * `UpdatePurchaseOrder` may have moved the draft's supplier, warehouse or
+     * `expected_at` since, and a late retry of a request that succeeded is still
+     * that request.
      */
-    private function orderCreatedByKeyInside(EntityManagerInterface $em, string $idempotencyKey): ?PurchaseOrderResource
+    private function orderCreatedByKeyInside(EntityManagerInterface $em, string $keyHash, string $digest): ?PurchaseOrderResource
     {
         $row = $em->getConnection()->fetchAssociative(
-            'SELECT '.PurchaseOrderRow::COLUMNS.' '.PurchaseOrderRow::FROM
-            .' WHERE po.idempotency_key = ? AND po.deleted_at IS NULL',
-            [$idempotencyKey],
+            'SELECT id, request_digest FROM purchase_order WHERE idempotency_key = ? AND deleted_at IS NULL',
+            [$keyHash],
         );
 
-        return false === $row ? null : PurchaseOrderRow::toResource($row);
+        if (false === $row) {
+            return null;
+        }
+
+        if (!\is_string($row['request_digest']) || !hash_equals($row['request_digest'], $digest)) {
+            throw ApiProblem::idempotencyKeyConflict();
+        }
+
+        return $this->readOrderInside($em, (string) $row['id']);
     }
 
     /**

@@ -30,7 +30,8 @@ use Symfony\Component\HttpFoundation\Request;
  * ---------------------------------------------------------------------------
  * It reads the `Idempotency-Key` **header** off the request and hands it to the
  * writer. That is not decoration: the header's value *is* this operation's retry
- * key — it lands in `purchase_order.idempotency_key` and a replay collides on
+ * key — its SHA-256 lands in `purchase_order.idempotency_key` (D-B: hashed,
+ * never stored raw) and a replay collides on
  * `purchase_order_tenant_idem_live` — so something has to carry it from the HTTP
  * layer into the write.
  *
@@ -50,8 +51,12 @@ use Symfony\Component\HttpFoundation\Request;
  * the two to disagree about what a valid key is. The `??` below is therefore not
  * a fallback: it is a total expression over a value the guard has already
  * established is present, and if the flag is ever removed from the operation the
- * empty string reaches the database where the `BEFORE INSERT` trigger refuses it
- * loudly.
+ * empty string reaches `IdempotencyKeyHash::of()`, which refuses it loudly.
+ *
+ * *(Until D-B this sentence said the `BEFORE INSERT` trigger refused it. The
+ * trigger fires only on NULL; it was `purchase_order_idempotency_key_bytes`
+ * that refused `''`. Hashing blinded that CHECK — `sha256('')` is well-formed
+ * hex — which is why the refusal now lives in the hash.)*
  *
  * @implements ProcessorInterface<CreatePurchaseOrderInput, PurchaseOrderResource>
  */

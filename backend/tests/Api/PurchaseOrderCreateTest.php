@@ -192,23 +192,149 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
     }
 
     /**
-     * The key reaches the column the index is built on.
+     * **D-B's shipped defect, and the reason `IdempotencyKeyConflict` existed
+     * for a whole step without ever being thrown.**
+     *
+     * §6.2: *"a replay with the same key and a **different** body digest is
+     * `idempotency-key-conflict` (409)."* Until 2026-09-11 the replay read matched
+     * on the key alone, so a client that reused a key for a genuinely different
+     * order — another warehouse — was answered **201 with the first order**, as
+     * though it had got what it asked for.
+     *
+     * The row count is asserted as well as the status: a 409 that had written a
+     * second order first would satisfy the response check and be the opposite
+     * failure.
+     */
+    #[Test]
+    public function theSameKeyWithADifferentBodyIsAConflictAndWritesNothing(): void
+    {
+        $key = Uuid::v4()->toRfc4122();
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main')], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Other')], $key);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:idempotency-key-conflict', $this->json()['type']);
+        self::assertArrayNotHasKey('id', $this->json(), 'The conflict carried an order in its body.');
+
+        self::assertSame([['id' => $first]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'),
+            'A conflicting reuse of a key wrote a second purchase order, or changed the first one\'s identity.');
+    }
+
+    /**
+     * **The other side of the 409: a genuine retry is never a conflict because of
+     * how it was spelled.** D-B requires the digest over the deserialised,
+     * normalised input, and this is the test that says why.
+     *
+     * The retry differs from the first attempt in every way a retry library or a
+     * proxy may legitimately change a request and in no way that changes what is
+     * asked for: the timestamp as `.000+00:00` instead of `Z`, both UUIDs in
+     * upper case, the JSON keys in another order, and `currency_code` sent as an
+     * explicit `null` instead of omitted. A digest over raw bytes would 409 it.
+     *
+     * *Mutation, run:* the normalisers dropped from the writer's digest (raw
+     * strings digested). Red here — 409 — and nowhere else in this file.
+     */
+    #[Test]
+    public function aCosmeticallyDifferentSpellingOfTheSameRequestIsAReplayAndNotAConflict(): void
+    {
+        $key = Uuid::v4()->toRfc4122();
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $warehouse, 'expected_at' => '2026-10-01T00:00:00Z'], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->create([
+            'expected_at' => '2026-10-01T00:00:00.000+00:00',
+            'currency_code' => null,
+            'warehouse_id' => strtoupper($warehouse),
+            'supplier_id' => strtoupper($supplier),
+        ], $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($first, $this->json()['id']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+    }
+
+    /**
+     * **Why the comparison is against a stored digest and never against the
+     * row.** D-B ruled it after `CRIT` found the false 409 this test pins.
+     *
+     * A timed-out create can have succeeded, and the client can have gone on to
+     * edit the draft it got — `UpdatePurchaseOrder` moves supplier, warehouse and
+     * `expected_at` while the order is a draft — before a late retry of the
+     * original request arrives. That retry is still the request the key was
+     * minted for, so it is a replay: the order comes back **as it now stands**
+     * (§6.2's recomputed-from-the-row clause), not a 409.
+     *
+     * *Mutation, run:* the digest comparison replaced by a comparison of the
+     * request's `supplier_id` with the row's. Red here — 409 — which is exactly
+     * the design D-B refused.
+     */
+    #[Test]
+    public function aLateRetryAfterTheDraftWasEditedIsStillAReplay(): void
+    {
+        $key = Uuid::v4()->toRfc4122();
+        $body = $this->body();
+
+        $this->create($body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = $this->json()['id'];
+
+        $moved = $this->seedSupplier(self::TENANT_A, 'Moved');
+        $this->send('PATCH', '/purchase-orders/'.$order, ['supplier_id' => $moved, 'expected_at' => '2026-12-01T00:00:00+00:00']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->create($body, $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($order, $this->json()['id']);
+        self::assertSame($moved, $this->json()['supplier']['id'], 'The replay did not return the order as it now stands.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+    }
+
+    /**
+     * **The key reaches the column the index is built on — HASHED, and the raw
+     * value is nowhere on the row.** D-B, ruled 2026-09-11.
      *
      * Asserted separately from the replay behaviour because the two can fail
      * apart: a create that discarded the key would still answer 201, and the
      * replay would then mint a second order rather than colliding.
+     *
+     * The hash is computed here with `hash('sha256', …)` rather than through the
+     * production helper, so the test pins the ruled format — lower-case hex
+     * SHA-256 of the header value — instead of agreeing with whatever the helper
+     * happens to do. The raw key is then searched for in the **whole row's**
+     * text, not only in the one column: a key copied into any other column is
+     * the same exposure API-O-32 named.
+     *
+     * This test rewrites `theClientsKeyIsStoredOnTheRowItCreated`, which
+     * asserted the raw key was stored. That was the shipped behaviour and D-B
+     * reversed it.
      */
     #[Test]
-    public function theClientsKeyIsStoredOnTheRowItCreated(): void
+    public function theClientsKeyIsStoredHashedAndTheRawKeyIsNowhereOnTheRow(): void
     {
         $key = Uuid::v4()->toRfc4122();
         $this->create($this->body(), $key);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
-            'SELECT idempotency_key FROM purchase_order WHERE id = ?::uuid', [$this->json()['id']]);
+            'SELECT idempotency_key, request_digest, row_to_json(po)::text AS whole_row FROM purchase_order po WHERE id = ?::uuid',
+            [$this->json()['id']]);
 
-        self::assertSame($key, $rows[0]['idempotency_key']);
+        self::assertSame(hash('sha256', $key), $rows[0]['idempotency_key'],
+            'The stored key is not the lower-case hex SHA-256 of the Idempotency-Key header.');
+        self::assertStringNotContainsString($key, (string) $rows[0]['whole_row'],
+            'The raw Idempotency-Key is stored on the row it created.');
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $rows[0]['request_digest'],
+            'The row carries no request digest, so a same-key replay has nothing to be compared against.');
     }
 
     /**

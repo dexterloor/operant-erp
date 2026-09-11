@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
+use App\Platform\Http\Idempotency\RequestDigest;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -79,6 +81,16 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      * is on a live-row unique per tenant, and two fixtures sharing a literal
      * would collide in any test that seeds two orders.
      *
+     * **Since D-B the fixture writes what `CreatePurchaseOrder` writes, not the
+     * raw key.** `$idempotencyKey` is the header value a test would send; the row
+     * gets its hex SHA-256, and a `request_digest` equal to what the create path
+     * computes for the request that would have produced this row — the same
+     * supplier, warehouse and `expected_at`, with `currency_code` **stated** as
+     * the `EUR` the insert writes. So a test that replays a seeded order with its
+     * raw key and that body gets the replay, not a conflict. The database refuses
+     * a raw key and refuses a key without a digest (`Version20260911000300`), so
+     * a fixture that did anything else would fail at the insert rather than lie.
+     *
      * @return string the new row's id
      */
     protected function seedOrder(
@@ -98,10 +110,12 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO purchase_order
                 (id, tenant_id, order_number, supplier_id, warehouse_id, created_by_user_id,
-                 status, currency_code, ordered_at, expected_at, deleted_at, idempotency_key)
+                 status, currency_code, ordered_at, expected_at, deleted_at, idempotency_key,
+                 request_digest)
             VALUES
                 (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid,
-                 ?, 'EUR', ?::timestamptz, ?::timestamptz, ?::timestamptz, ?)
+                 ?, 'EUR', ?::timestamptz, ?::timestamptz, ?::timestamptz, ?,
+                 ?)
             SQL, [
                 $id,
                 $tenantId,
@@ -115,7 +129,13 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
                     : ($orderedAt ?? '2026-01-01T00:00:00+00:00'),
                 $expectedAt,
                 $archived ? '2026-01-02T00:00:00+00:00' : null,
-                $idempotencyKey ?? Uuid::v4()->toRfc4122(),
+                IdempotencyKeyHash::of($idempotencyKey ?? Uuid::v4()->toRfc4122()),
+                RequestDigest::of('CreatePurchaseOrder', [
+                    'supplier_id' => RequestDigest::uuid($supplierId),
+                    'warehouse_id' => RequestDigest::uuid($warehouseId),
+                    'currency_code' => 'EUR',
+                    'expected_at' => RequestDigest::instant($expectedAt),
+                ]),
             ]);
 
         return $id;

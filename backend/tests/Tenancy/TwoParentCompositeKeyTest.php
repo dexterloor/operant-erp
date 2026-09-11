@@ -77,8 +77,10 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
                 // writer of this table now supplies one -- including the ORM
                 // route, whose only way to carry it is this constructor argument.
                 // Fixture furniture here: this test is about tenant_id, not about
-                // idempotency.
-                Uuid::v4()->toRfc4122(),
+                // idempotency. Since `Version20260911000300` both values are hex
+                // SHA-256 and travel together; their content is immaterial here.
+                hash('sha256', Uuid::v4()->toRfc4122()),
+                hash('sha256', 'a request nobody sent'),
             );
             $this->em()->persist($order);
             $this->em()->flush();
@@ -114,7 +116,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
                 $this->em()->find(Supplier::class, Uuid::fromString($supplierId)),
                 $this->em()->find(Warehouse::class, Uuid::fromString($warehouseId)),
                 $this->currency(),
-                Uuid::v4()->toRfc4122(),
+                hash('sha256', Uuid::v4()->toRfc4122()),
+                hash('sha256', 'a request nobody sent'),
             );
             $order->setCreatedBy(null);
             $this->em()->persist($order);
@@ -153,8 +156,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         // not leave a usable unit of work behind.
         $this->tenantContext()->run(self::TENANT_A, function () use ($supplierA, $warehouseA): void {
             $this->app()->executeStatement(
-                "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key)
-                 VALUES (gen_random_uuid(), ?::uuid, 'PO-SAME', ?::uuid, ?::uuid, 'EUR', gen_random_uuid()::text)",
+                "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key, request_digest)
+                 VALUES (gen_random_uuid(), ?::uuid, 'PO-SAME', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
                 [self::TENANT_A, $supplierA, $warehouseA],
             );
         });
@@ -166,8 +169,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         try {
             $this->tenantContext()->run(self::TENANT_A, function () use ($supplierB, $warehouseA): void {
                 $this->app()->executeStatement(
-                    "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key)
-                     VALUES (gen_random_uuid(), ?::uuid, 'PO-CROSS', ?::uuid, ?::uuid, 'EUR', gen_random_uuid()::text)",
+                    "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key, request_digest)
+                     VALUES (gen_random_uuid(), ?::uuid, 'PO-CROSS', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
                     [self::TENANT_A, $supplierB, $warehouseA],
                 );
             });

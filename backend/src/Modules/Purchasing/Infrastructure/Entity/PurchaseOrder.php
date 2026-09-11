@@ -81,7 +81,9 @@ class PurchaseOrder
      *
      * `CreatePurchaseOrder`'s §4.2 `Idem` cell is
      * `unique:purchase_order_tenant_idem_live`, so the operation demands an
-     * `Idempotency-Key` header and the value lands here. A retried timeout then
+     * `Idempotency-Key` header and its lower-case hex SHA-256 lands here — never
+     * the raw value, since D-B; `Version20260911000300` refuses any other
+     * shape. A retried timeout then
      * collides on that live-row unique exactly as a repeated `CreateItem`
      * collides on `sku`, which is the only route by which an operation whose
      * response carries a server-minted `id` can be made retry-safe: the envelope
@@ -109,6 +111,15 @@ class PurchaseOrder
      */
     #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
     private ?string $idempotencyKey = null;
+
+    /**
+     * **D-B — `RequestDigest::of()` of the request that created this row**, so a
+     * same-key replay can be told from a same-key *different* request (§6.2's
+     * 409). Written once, in the same `INSERT` as the key, and never read back
+     * into the domain: it is request plumbing, not a property of an order.
+     */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT, nullable: true)]
+    private ?string $requestDigest = null;
 
     #[ORM\ManyToOne(targetEntity: Supplier::class)]
     #[ORM\JoinColumn(name: 'supplier_id', referencedColumnName: 'id', nullable: false)]
@@ -164,6 +175,12 @@ class PurchaseOrder
      * and the reason rather than surfacing as a silent NULL on a live-row unique
      * that then refuses nothing. **That is the whole design: the value is set
      * once, at construction or in the `INSERT`, and never afterwards.**
+     *
+     * **Since D-B both values are hex SHA-256** — the key is
+     * `IdempotencyKeyHash::of()` of the header, never the header itself, and
+     * `$requestDigest` is `RequestDigest::of()` of the request. The database
+     * refuses anything else (`Version20260911000300`), and refuses one without
+     * the other.
      */
     public function __construct(
         Uuid $id,
@@ -173,6 +190,7 @@ class PurchaseOrder
         Warehouse $warehouse,
         Currency $currency,
         ?string $idempotencyKey = null,
+        ?string $requestDigest = null,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
@@ -181,6 +199,7 @@ class PurchaseOrder
         $this->warehouse = $warehouse;
         $this->currency = $currency;
         $this->idempotencyKey = $idempotencyKey;
+        $this->requestDigest = $requestDigest;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }

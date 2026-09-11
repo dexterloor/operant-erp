@@ -141,6 +141,22 @@ final class ApiProblem extends \RuntimeException implements ProblemExceptionInte
         return new self(ProblemType::IdempotencyKeyRequired, 'This operation requires an Idempotency-Key header.');
     }
 
+    /**
+     * §6.2 — the same `Idempotency-Key` arrived with a different request digest.
+     *
+     * The body says only that the key was used for a different request. It does
+     * not say what that request was or which row it made: a key is a client's
+     * own value, but the first request's contents are not this caller's to learn
+     * by guessing keys.
+     */
+    public static function idempotencyKeyConflict(): self
+    {
+        return new self(
+            ProblemType::IdempotencyKeyConflict,
+            'This Idempotency-Key was already used for a different request in this workspace. A new request needs a new key.',
+        );
+    }
+
     public static function unsupportedMediaType(?string $detail = null): self
     {
         return new self(ProblemType::UnsupportedMediaType, $detail);

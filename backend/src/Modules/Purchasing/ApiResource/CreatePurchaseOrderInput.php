@@ -16,7 +16,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * identifier is minted server-side by `Uuid::v4()`.
  *
  * **No `idempotency_key`** is narrower and is the whole of why this operation's
- * retry key works. The value lands in `purchase_order.idempotency_key` and
+ * retry key works. Its SHA-256 (D-B) lands in `purchase_order.idempotency_key` and
  * collides on `purchase_order_tenant_idem_live`, but it arrives in the
  * `Idempotency-Key` **header** — never in this body. One value, one source: a
  * caller able to send it in both could send two different ones, and nothing
