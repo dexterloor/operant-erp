@@ -4,24 +4,40 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Application\Contract;
 
+use Symfony\Component\Uid\Uuid;
+
 /**
  * The command `ReceiveStock` takes: one goods receipt's worth of stock arriving
  * in one warehouse.
  */
 final readonly class StockReceipt
 {
-    /** numeric(19,6): at most 13 digits before the point and 6 after; no sign, because a receipt only adds. */
-    private const QUANTITY = '/^\d{1,13}(\.\d{1,6})?$/';
+    /**
+     * numeric(19,6): at most 13 digits before the point and 6 after; no sign,
+     * because a receipt only adds. `\A…\z`, never `^…$`: `$` also matches
+     * before a final newline, and `"5\n"` would then reach bccomp(), which
+     * throws a ValueError — a 500 instead of a refusal.
+     */
+    private const QUANTITY = '/\A\d{1,13}(\.\d{1,6})?\z/';
+
+    /** Canonical lower-case RFC 4122, as `StockReceiptLine` holds its ids. */
+    public string $goodsReceiptId;
+
+    /** Canonical lower-case RFC 4122. */
+    public string $warehouseId;
 
     /**
      * @param list<StockReceiptLine> $lines
      */
     public function __construct(
-        public string $goodsReceiptId,
-        public string $warehouseId,
+        string $goodsReceiptId,
+        string $warehouseId,
         public \DateTimeImmutable $occurredAt,
         public array $lines,
     ) {
+        $this->goodsReceiptId = self::canonical($goodsReceiptId, 'goodsReceiptId');
+        $this->warehouseId = self::canonical($warehouseId, 'warehouseId');
+
         if ([] === $lines) {
             throw StockReceiptRefused::noLines();
         }
@@ -34,5 +50,15 @@ final readonly class StockReceipt
                 throw StockReceiptRefused::quantityIsNotPositive($index, $line->quantity);
             }
         }
+    }
+
+    /** Refuses any form but RFC 4122 — braces, no hyphens, not a UUID — as `RequestDigest::uuid()` does. */
+    private static function canonical(string $id, string $field): string
+    {
+        if (!Uuid::isValid($id)) {
+            throw new \InvalidArgumentException(\sprintf('%s is not an RFC 4122 UUID: "%s".', $field, $id));
+        }
+
+        return Uuid::fromString($id)->toRfc4122();
     }
 }

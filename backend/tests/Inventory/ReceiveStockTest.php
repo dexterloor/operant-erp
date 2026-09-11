@@ -221,6 +221,11 @@ final class ReceiveStockTest extends ApiTestCase
         yield 'empty' => [''];
         yield 'seven decimals, rounded away by numeric(19,6)' => ['1.0000001'];
         yield 'fourteen integer digits, beyond numeric(19,6)' => ['10000000000000'];
+        // `$` matches before a final newline unless the pattern is anchored with
+        // `\z`; the value then reaches bccomp(), which throws a ValueError — a
+        // 500, measured by the step 7 review on PHP 8.4.6.
+        yield 'trailing newline' => ["5\n"];
+        yield 'trailing CRLF' => ["5\r\n"];
     }
 
     #[Test]
@@ -288,26 +293,21 @@ final class ReceiveStockTest extends ApiTestCase
 
     /**
      * The brief's "impossible under RLS + composite FKs — prove it with a test
-     * rather than a check". `StockReceiver` has no tenant check of its own and
-     * this is why it needs none:
+     * rather than a check", item half. `StockReceiver` has no tenant check of
+     * its own: `stock_movement_item_fk` is `(tenant_id, inventory_item_id)`,
+     * tenant_id is A's, so B's item id names no row and Postgres answers 23503,
+     * which aborts the caller's whole transaction. Neither tenant holds a row.
      *
-     *   another tenant's ITEM   `stock_movement_item_fk` is
-     *                           `(tenant_id, inventory_item_id)`, and tenant_id is
-     *                           A's, so the pair names no row: 23503.
-     *   another tenant's BIN    invisible under RLS to A's transaction, so the
-     *                           bin check finds no such bin in the warehouse.
-     *
-     * Either way the caller's whole transaction is refused and neither tenant
-     * holds a row afterwards.
+     * A test of its own, not a half of one: a 23503 inside
+     * `wrapInTransaction()` closes the entity manager, so anything the same
+     * test did after it would depend on running second.
      */
     #[Test]
-    public function anotherWorkspacesItemOrBinCannotBeReceivedIntoThisOne(): void
+    public function anotherWorkspacesItemIsRefusedByTheCompositeForeignKey(): void
     {
         $warehouse = $this->seedWarehouse(self::TENANT_A);
         $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
-        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
         $theirBolts = $this->seedItem(self::TENANT_B, 'BOLT');
-        $theirBin = $this->seedLocation(self::TENANT_B, $this->seedWarehouse(self::TENANT_B), 'A-01');
 
         try {
             $this->receiveAs(self::TENANT_A, $warehouse, [new StockReceiptLine($theirBolts, $bin, '5')]);
@@ -316,6 +316,24 @@ final class ReceiveStockTest extends ApiTestCase
             self::assertStringContainsString('stock_movement_item_fk', $e->getMessage());
         }
 
+        $this->assertNoStockInEitherWorkspace();
+    }
+
+    /**
+     * Bin half. Refused by the warehouse predicate of the bin check, and that
+     * predicate cannot be satisfied by another tenant's bin at all: the
+     * composite `storage_location_warehouse_fk` is `(tenant_id, warehouse_id)`,
+     * so B's bin can never carry A's `warehouse_id`. RLS hides B's bin from A's
+     * transaction too, but this test cannot tell the two apart and does not
+     * claim to — the refusal would hold with RLS off.
+     */
+    #[Test]
+    public function anotherWorkspacesBinIsRefusedAsNotABinOfTheReceivingWarehouse(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+        $theirBin = $this->seedLocation(self::TENANT_B, $this->seedWarehouse(self::TENANT_B), 'A-01');
+
         try {
             $this->receiveAs(self::TENANT_A, $warehouse, [new StockReceiptLine($bolts, $theirBin, '5')]);
             self::fail('Stock was received into another workspace\'s bin.');
@@ -323,6 +341,59 @@ final class ReceiveStockTest extends ApiTestCase
             self::assertSame('storage_location.belongs_to_receiving_warehouse', $refused->rule());
         }
 
+        $this->assertNoStockInEitherWorkspace();
+    }
+
+    /**
+     * Decided at the step 7 review (item 7): archiving a warehouse closes the
+     * site, and stock cannot arrive at a place that no longer operates. Its
+     * bins are not archived with it — no trigger cascades a warehouse to its
+     * locations — so without this refusal a closed site's live bins would keep
+     * taking stock. Refused for the receipt as a whole (`lineIndex()` null).
+     */
+    #[Test]
+    public function aReceiptIntoAnArchivedWarehouseIsRefusedEvenIntoItsLiveBins(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$warehouse]);
+
+        try {
+            $this->receiveAs(self::TENANT_A, $warehouse, [new StockReceiptLine($bolts, $bin, '5')]);
+            self::fail('Stock was received into an archived warehouse.');
+        } catch (StockReceiptRefused $refused) {
+            self::assertSame('warehouse.is_live', $refused->rule());
+            self::assertNull($refused->lineIndex());
+        }
+
+        self::assertSame([], $this->movements(self::TENANT_A, $bin));
+        self::assertSame([], $this->levels(self::TENANT_A, $bin));
+    }
+
+    /**
+     * Item 7's other half, pinned so a future "tidy-up" cannot quietly reverse
+     * it: an archived ITEM still takes stock in. SCHEMA §7 soft-deletes items
+     * because order lines and movements keep referencing them, and goods
+     * ordered before the item was archived still arrive at the dock.
+     */
+    #[Test]
+    public function anArchivedItemStillTakesStockIn(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$bolts]);
+
+        $this->receiveAs(self::TENANT_A, $warehouse, [new StockReceiptLine($bolts, $bin, '5')]);
+
+        self::assertSame([
+            ['inventory_item_id' => $bolts, 'qty_on_hand' => '5.000000', 'qty_reserved' => '0.000000', 'version' => 1],
+        ], $this->levels(self::TENANT_A, $bin));
+    }
+
+    private function assertNoStockInEitherWorkspace(): void
+    {
         foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
             self::assertSame(0, $this->countAsOwnerForTenant($tenant, 'SELECT count(*) FROM stock_movement'), 'A movement survived in '.$tenant);
             self::assertSame(0, $this->countAsOwnerForTenant($tenant, 'SELECT count(*) FROM stock_level'), 'A level survived in '.$tenant);
@@ -417,6 +488,111 @@ final class ReceiveStockTest extends ApiTestCase
         self::assertSame([
             ['inventory_item_id' => $bolts, 'qty_on_hand' => '5.000000', 'qty_reserved' => '0.000000', 'version' => 1],
         ], $this->levels(self::TENANT_A, $bin));
+    }
+
+    /**
+     * Each line fits numeric(19,6); their sum for one (item, bin) does not. The
+     * level upsert would fail with 22003 AFTER the movements were inserted — a
+     * 500 that aborts the caller's transaction. Refused before any write, and
+     * the refusal names the line whose addition crossed the limit.
+     */
+    #[Test]
+    public function linesWhoseSumForOneBinOverflowsTheLevelAreRefusedBeforeAnyWrite(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+
+        try {
+            $this->receiveAs(self::TENANT_A, $warehouse, [
+                new StockReceiptLine($bolts, $bin, '9999999999999.999999'),
+                new StockReceiptLine($bolts, $bin, '0.000001'),
+            ]);
+            self::fail('A receipt whose summed quantity overflows numeric(19,6) was accepted.');
+        } catch (StockReceiptRefused $refused) {
+            self::assertSame('stock_level.received_quantity_fits', $refused->rule());
+            self::assertSame(1, $refused->lineIndex());
+        }
+
+        self::assertSame([], $this->movements(self::TENANT_A, $bin));
+        self::assertSame([], $this->levels(self::TENANT_A, $bin));
+    }
+
+    /**
+     * One bin is one bin however its id is spelled. The DTOs hold the canonical
+     * lower-case RFC 4122 form, so the W-5 sort key, the per-bin sum and the
+     * bin check all compare like with like — and a receipt that spells one bin
+     * two ways makes ONE level write, moving `version` once.
+     */
+    #[Test]
+    public function idsAreHeldInCanonicalFormSoOneBinIsOneBinWhateverCaseItIsSpelledIn(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+        $goodsReceipt = Uuid::v4()->toRfc4122();
+
+        $shouted = new StockReceiptLine(strtoupper($bolts), strtoupper($bin), '1');
+        self::assertSame([$bolts, $bin], [$shouted->inventoryItemId, $shouted->storageLocationId]);
+
+        $receipt = new StockReceipt(strtoupper($goodsReceipt), strtoupper($warehouse), new \DateTimeImmutable('2026-09-11T08:00:00+00:00'), [$shouted]);
+        self::assertSame([$goodsReceipt, $warehouse], [$receipt->goodsReceiptId, $receipt->warehouseId]);
+
+        $this->receiveAs(self::TENANT_A, strtoupper($warehouse), [$shouted, new StockReceiptLine($bolts, $bin, '2')]);
+
+        self::assertSame([
+            ['inventory_item_id' => $bolts, 'qty_on_hand' => '3.000000', 'qty_reserved' => '0.000000', 'version' => 1],
+        ], $this->levels(self::TENANT_A, $bin));
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function idsThatAreNotRfc4122(): iterable
+    {
+        $id = '0b6e3f2a-5c1d-4e8f-9a7b-2d4c6e8f0a1b';
+        $forms = [
+            'braces' => '{'.$id.'}',
+            'no hyphens' => str_replace('-', '', $id),
+            'malformed' => 'not-a-uuid',
+            // `Uuid::fromString()` ACCEPTS base58 (and base32) and would
+            // canonicalise it silently; only the `isValid()` guard refuses it.
+            'base58' => Uuid::fromString($id)->toBase58(),
+        ];
+
+        foreach (['inventoryItemId', 'storageLocationId', 'warehouseId', 'goodsReceiptId'] as $field) {
+            foreach ($forms as $form => $value) {
+                yield $field.', '.$form => [$field, $value];
+            }
+        }
+    }
+
+    /**
+     * A malformed id used to reach Postgres as a 22P02, which aborts the
+     * caller's whole transaction; braces and no-hyphen forms reached it as a
+     * valid uuid that no string comparison here matched. Refused at
+     * construction with `\InvalidArgumentException`, as
+     * `RequestDigest::uuid()` refuses one: the ids come from the caller's own
+     * rows, so a bad one is a bug in the caller, not something a client fixes.
+     */
+    #[Test]
+    #[DataProvider('idsThatAreNotRfc4122')]
+    public function anIdThatIsNotAnRfc4122UuidIsRefusedAtConstruction(string $field, string $value): void
+    {
+        $ids = [
+            'inventoryItemId' => Uuid::v4()->toRfc4122(),
+            'storageLocationId' => Uuid::v4()->toRfc4122(),
+            'warehouseId' => Uuid::v4()->toRfc4122(),
+            'goodsReceiptId' => Uuid::v4()->toRfc4122(),
+        ];
+        $ids[$field] = $value;
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        new StockReceipt(
+            goodsReceiptId: $ids['goodsReceiptId'],
+            warehouseId: $ids['warehouseId'],
+            occurredAt: new \DateTimeImmutable('2026-09-11T08:00:00+00:00'),
+            lines: [new StockReceiptLine($ids['inventoryItemId'], $ids['storageLocationId'], '1')],
+        );
     }
 
     /** @return string the id it was given, now archived */

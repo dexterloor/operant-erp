@@ -37,6 +37,9 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class StockReceiver implements ReceiveStock
 {
+    /** The largest value numeric(19,6) holds: 13 digits before the point, 6 after. */
+    private const LARGEST_QUANTITY = '9999999999999.999999';
+
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
@@ -70,7 +73,23 @@ final readonly class StockReceiver implements ReceiveStock
                 throw StockReceiptRefused::goodsReceiptAlreadyPosted($receipt->goodsReceiptId);
             }
 
+            // An archived warehouse is a closed site, and its bins are not
+            // archived with it (no trigger cascades a warehouse to its
+            // locations), so the bin check alone would let a closed site keep
+            // taking stock. Only a warehouse that EXISTS and is archived is
+            // refused here; an unknown or invisible one is left to the bin
+            // check, which refuses its bins — calling it "archived" would be
+            // a false statement.
+            $archived = $connection->fetchOne(
+                'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NOT NULL',
+                [$receipt->warehouseId],
+            );
+            if (false !== $archived) {
+                throw StockReceiptRefused::warehouseIsArchived($receipt->warehouseId);
+            }
+
             $this->refuseBinsOutsideTheWarehouse($em, $receipt);
+            $deltas = $this->summedLevelDeltas($receipt);
 
             foreach ($receipt->lines as $line) {
                 $connection->executeStatement(
@@ -99,16 +118,8 @@ final readonly class StockReceiver implements ReceiveStock
             // bins queue on the first row rather than each holding the row the
             // other wants next. Two lines for one (item, bin) are one write:
             // the row is locked once and its version moves once per receipt.
-            //
-            // The key is two lower-cased 36-character UUIDs joined by NUL, so a
-            // string sort is the pair's order and is Postgres's uuid order.
-            $deltas = [];
-            foreach ($receipt->lines as $line) {
-                $key = strtolower($line->inventoryItemId)."\0".strtolower($line->storageLocationId);
-                $deltas[$key] = bcadd($deltas[$key] ?? '0', $line->quantity, 6);
-            }
-            ksort($deltas, \SORT_STRING);
-
+            // `$deltas` was summed and ordered before any write — see
+            // summedLevelDeltas().
             foreach ($deltas as $key => $quantity) {
                 [$itemId, $locationId] = explode("\0", (string) $key);
 
@@ -128,6 +139,35 @@ final readonly class StockReceiver implements ReceiveStock
     }
 
     /**
+     * The per-(item, bin) sums the levels will be raised by, in W-5's order,
+     * computed BEFORE any write. Each line fits numeric(19,6) (`StockReceipt`
+     * checked it), but two lines for one bin can sum past it, and the upsert
+     * would then fail with 22003 after the movements were inserted — a 500.
+     * Refused here instead, naming the line whose addition crossed the limit.
+     *
+     * The key is two canonical (lower-case, 36-character) UUIDs joined by NUL —
+     * `StockReceiptLine` holds them so — so a string sort is the pair's order
+     * and is Postgres's uuid order.
+     *
+     * @return array<string, string> "item\0bin" => summed quantity, ascending by key
+     */
+    private function summedLevelDeltas(StockReceipt $receipt): array
+    {
+        $deltas = [];
+        foreach ($receipt->lines as $index => $line) {
+            $key = $line->inventoryItemId."\0".$line->storageLocationId;
+            $deltas[$key] = bcadd($deltas[$key] ?? '0', $line->quantity, 6);
+
+            if (1 === bccomp($deltas[$key], self::LARGEST_QUANTITY, 6)) {
+                throw StockReceiptRefused::receivedQuantityDoesNotFit($index, $line->inventoryItemId, $line->storageLocationId);
+            }
+        }
+        ksort($deltas, \SORT_STRING);
+
+        return $deltas;
+    }
+
+    /**
      * "This bin is a live bin of that warehouse" is Inventory's fact to check,
      * and nothing else checks it: `stock_movement` has no `warehouse_id`, so the
      * schema would accept stock received at one warehouse booked into a bin at
@@ -140,7 +180,7 @@ final readonly class StockReceiver implements ReceiveStock
     private function refuseBinsOutsideTheWarehouse(EntityManagerInterface $em, StockReceipt $receipt): void
     {
         $asked = array_values(array_unique(array_map(
-            static fn (StockReceiptLine $line): string => strtolower($line->storageLocationId),
+            static fn (StockReceiptLine $line): string => $line->storageLocationId,
             $receipt->lines,
         )));
 
@@ -151,7 +191,9 @@ final readonly class StockReceiver implements ReceiveStock
         );
 
         foreach ($receipt->lines as $index => $line) {
-            if (!\in_array(strtolower($line->storageLocationId), $live, true)) {
+            // Both sides canonical: `id::text` is Postgres's canonical form and
+            // `StockReceiptLine` holds its ids in the same one.
+            if (!\in_array($line->storageLocationId, $live, true)) {
                 throw StockReceiptRefused::binIsNotALiveBinOfTheReceivingWarehouse($index, $line->storageLocationId, $receipt->warehouseId);
             }
         }

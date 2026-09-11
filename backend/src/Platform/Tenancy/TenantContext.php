@@ -244,9 +244,12 @@ final class TenantContext
 
         try {
             // Deliberately not wrapInTransaction: this block shares the outer
-            // transaction and its fate. Doctrine nests without savepoints by
-            // default anyway, so a savepoint here would be a promise the
-            // configuration does not keep.
+            // transaction and its fate, and begins nothing — no BEGIN and no
+            // SAVEPOINT. That is a choice, not a default: under DBAL 4 a nested
+            // beginTransaction() DOES create a savepoint (Connection::
+            // beginTransaction(), nesting level >= 2), which would give the
+            // inner block a partial rollback of its own. Joined work has none;
+            // it commits or rolls back with the outer transaction (W-2).
             return $work($this->em);
         } finally {
             --$this->depth;

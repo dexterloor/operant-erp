@@ -66,6 +66,25 @@ final class StockReceiptRefused extends \DomainException
         );
     }
 
+    public static function receivedQuantityDoesNotFit(int $lineIndex, string $itemId, string $locationId): self
+    {
+        return new self(
+            'stock_level.received_quantity_fits',
+            $lineIndex,
+            \sprintf('Line %d: the quantity received of item %s into location %s, summed over this receipt, '
+                .'exceeds 13 digits before the decimal point.', $lineIndex, $itemId, $locationId),
+        );
+    }
+
+    public static function warehouseIsArchived(string $warehouseId): self
+    {
+        return new self(
+            'warehouse.is_live',
+            null,
+            \sprintf('Warehouse %s is archived: a closed site cannot take stock in.', $warehouseId),
+        );
+    }
+
     public function rule(): string
     {
         return $this->rule;
