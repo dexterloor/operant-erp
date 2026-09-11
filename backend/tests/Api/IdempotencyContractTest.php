@@ -82,6 +82,43 @@ use PHPUnit\Framework\Attributes\Test;
  * operation whose contract the index is the whole of. Run against the live
  * catalogue, then re-created from the migration's exact definition; green again.
  *
+ * ---------------------------------------------------------------------------
+ * ⚠ Step 5, 2026-09-11 — the first cell to LEAVE `⛔ none`, and what it cost
+ * this file
+ * ---------------------------------------------------------------------------
+ * `Version20260911000100` gave `purchase_order` a nullable, live-row-unique,
+ * **client-supplied** `idempotency_key` column, so `CreatePurchaseOrder`'s cell
+ * moved from `⛔ none` to `unique:purchase_order_tenant_idem_live` and the
+ * blocked set went from nine to **eight**.
+ *
+ * **It required this file to learn a second legitimate source for a `unique:`
+ * key, and that is the part worth reading.** Every other `unique:` operation
+ * satisfies *"the client supplies the indexed value"* out of §4.2's
+ * accepted-field cell — a cell that describes the **body**. This one's key is
+ * the `Idempotency-Key` **header**. Widening the reconciliation to *"or it comes
+ * from somewhere else"* would have re-admitted the exact defect step 4 closed,
+ * so the source is pinned instead: see `PINNED_HEADER_KEY`, whose four clauses
+ * are each independently red-able, and which admits exactly one column —
+ * `IdempotencyKeyGuard::COLUMN`, derived from the class that enforces the header.
+ *
+ * **`theServerGeneratedDocumentNumbersAreNotClientSuppliedKeys` was rewritten
+ * rather than deleted.** It asserted both document-number operations were
+ * `⛔ none`, which made it a test of the blocked *state* — so it failed on the one
+ * transition it should have survived. What it was always about survives the fix:
+ * a server-minted document number is never a retry key, and
+ * `CreatePurchaseOrder` is now `unique:` on the client-supplied column and still
+ * emphatically not on `purchase_order_tenant_number_live`.
+ *
+ * **What this file still cannot see, stated because it is the live residual:**
+ * nothing writes the column. `PurchaseOrder` exposes no setter and
+ * `CreatePurchaseOrder` does not exist — step 6 owns both — so the index refuses
+ * nothing today. `noBlockedOperationShips` no longer covers this operation (it is
+ * not blocked), and what holds the line instead is
+ * `theHeaderSourcedKeysAreExactlyTheHeaderColumnAndDemandTheHeader`'s registry
+ * clause: the day it ships without demanding the header, this is red. **A column
+ * that exists is not a column that deduplicates**, one table over from the
+ * lesson's first recording.
+ *
  * ⚠ **One mutation in this set silently failed to apply, and it is recorded
  * because it is the lesson rather than a mishap.** The first attempt at
  * `everyBlockedOperationIsNamedByTheGate`'s mutation removed `IssueInvoice` from
@@ -113,6 +150,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateRole' => 'unique:role_tenant_name_live',
         'CreateSupplierProduct' => 'unique:supplier_product_unique',
         'AssignRole' => 'unique:user_role_unique',
+        // ⚠ **Step 5, 2026-09-11.** The only `unique:` whose client-supplied
+        // value arrives as the `Idempotency-Key` HEADER rather than in the body.
+        // `Version20260911000100` laid the column; see PINNED_HEADER_KEY.
+        'CreatePurchaseOrder' => 'unique:purchase_order_tenant_idem_live',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -143,7 +184,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateBulkRoleAssignment' => 'store',
 
         // ⛔ none — declared idempotent, NO mechanism, blocked from shipping.
-        'CreatePurchaseOrder' => '⛔ none',
+        // EIGHT, not nine: `CreatePurchaseOrder` left this block on 2026-09-11.
         'CreateSalesOrder' => '⛔ none',
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
@@ -180,6 +221,61 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateRole' => ['name'],
         'CreateSupplierProduct' => ['supplier_id', 'inventory_item_id'],
         'AssignRole' => ['user_id', 'role_id'],
+        // The header-sourced one. See PINNED_HEADER_KEY for why that is a
+        // legitimate source and why it cannot be stretched into a general one.
+        'CreatePurchaseOrder' => [IdempotencyKeyGuard::COLUMN],
+    ];
+
+    /**
+     * **The operations whose client-supplied key arrives as the
+     * `Idempotency-Key` HEADER rather than as a request body field.**
+     *
+     * ---------------------------------------------------------------------
+     * Why a second source was needed at all
+     * ---------------------------------------------------------------------
+     * `unique:` means *"a client-supplied value collides on a named live-row
+     * unique"*, and `everyPinnedClientKeyColumnIsAcceptedOrBoundByThePath`
+     * reconciles that against §4.2's **accepted-field** cell — a cell that
+     * describes the **body**. Every other `unique:` operation satisfies it that
+     * way: `CreateItem` sends `sku`.
+     *
+     * `CreatePurchaseOrder` cannot, and not because of an oversight in the
+     * contract. Its retry key **is** the idempotency key, and that value is
+     * carried by the header P-5 already requires. Adding it to the accepted-field
+     * cell instead would put a second spelling of the same value in the body,
+     * where a client could send one value in the header and a different one in
+     * the body and the two mechanisms would disagree about what identifies the
+     * retry.
+     *
+     * ---------------------------------------------------------------------
+     * Why this is NOT "anything goes", which is the whole risk of adding a source
+     * ---------------------------------------------------------------------
+     * A source that merely said *"or it comes from somewhere else"* would
+     * re-admit exactly the class of defect step 4 closed: an index the caller
+     * cannot collide with, excused by an unfalsifiable claim. Four clauses stop
+     * that, and every one of them can fail:
+     *
+     *   1. the column must be **`IdempotencyKeyGuard::COLUMN`** — derived from
+     *      the class that enforces the header, not restated here, so there is
+     *      exactly one column a header key may land in;
+     *   2. it must be the **whole** key less `tenant_id`, read from
+     *      `pg_indexes` — so the header can never excuse a *missing* body field
+     *      on a composite key such as `storage_location`'s `[warehouse_id, code]`;
+     *   3. the operation's cell must genuinely demand the header (`unique:`
+     *      does, under API-14 as amended) — a `guard:` or `no` operation cannot
+     *      claim a header source for anything;
+     *   4. the column must be **absent** from §4.2's accepted fields — one
+     *      value, one source.
+     *
+     * A wrong cell therefore still fails. Point a header-sourced operation at a
+     * business column and clause 1 is red; claim the header covers half a
+     * composite key and clause 2 is red; claim it for an operation that does not
+     * demand the header and clause 3 is red.
+     *
+     * @var list<string>
+     */
+    private const PINNED_HEADER_KEY = [
+        'CreatePurchaseOrder',
     ];
 
     /**
@@ -190,8 +286,8 @@ final class IdempotencyContractTest extends TenancyTestCase
      * @var array<string, string>
      */
     private const PINNED_SERVER_MINTED_KEYS = [
-        'CreatePurchaseOrder' => 'order_number',
-        'CreateSalesOrder' => 'order_number',
+        'CreatePurchaseOrder' => ['column' => 'order_number', 'index' => 'purchase_order_tenant_number_live'],
+        'CreateSalesOrder' => ['column' => 'order_number', 'index' => 'sales_order_tenant_number_live'],
     ];
 
     // -----------------------------------------------------------------------
@@ -418,11 +514,21 @@ final class IdempotencyContractTest extends TenancyTestCase
             $accepted = ContractDocument::acceptedFields($operationId);
             $bound = self::pathBoundColumns($rows[$operationId]['path']);
 
+            // The THIRD source, and it is deliberately the narrowest of the
+            // three: not "a header", but *the* header column, and only for an
+            // operation pinned as header-sourced. Everything that makes that
+            // admissible rather than a loophole is asserted by
+            // `theHeaderSourcedKeysAreExactlyTheHeaderColumnAndDemandTheHeader`.
+            $headerSourced = \in_array($operationId, self::PINNED_HEADER_KEY, true);
+
             foreach ($columns as $column) {
+                $byHeader = $headerSourced && IdempotencyKeyGuard::COLUMN === $column;
+
                 self::assertTrue(
-                    \in_array($column, $accepted, true) || \in_array($column, $bound, true),
+                    \in_array($column, $accepted, true) || \in_array($column, $bound, true) || $byHeader,
                     $operationId.' is `unique:` on '.$column.', and §4.2 shows the caller supplying neither '
-                    .'that field ['.implode(', ', $accepted).'] nor a path binding it ['.implode(', ', $bound).']. '
+                    .'that field ['.implode(', ', $accepted).'] nor a path binding it ['.implode(', ', $bound).'] '
+                    .'nor the '.IdempotencyKeyGuard::HEADER.' header. '
                     .'A unique the client cannot collide with refuses no retry.',
                 );
                 ++$checked;
@@ -436,29 +542,155 @@ final class IdempotencyContractTest extends TenancyTestCase
      * **The counterfactual, asserted rather than described.** `purchase_order` and
      * `sales_order` both carry a live-row unique on a document number, and both
      * were *assumed* to be covered by it. They are not, because the number is
-     * server-minted — so the cells are `⛔ none` and step 5 owes a retry-key
-     * column.
+     * server-minted.
      *
-     * This stays red-able forever: the day `order_number` becomes an accepted
-     * field, this goes red and the operation becomes classifiable as `unique:`.
+     * ⚠ **Rewritten at step 5's arrival, 2026-09-11, and the rewrite is the point
+     * rather than a repair.** This method used to assert that both operations
+     * were `⛔ none`, which made it a test of the *blocked* state — so it went red
+     * the moment `CreatePurchaseOrder` gained a mechanism, which is the one
+     * transition it should have survived. **The content it was always about is
+     * narrower and outlives the fix: a server-minted document number is never a
+     * retry key.** `CreatePurchaseOrder` is now `unique:` — on
+     * `purchase_order_tenant_idem_live`, the **client-supplied** column
+     * `Version20260911000100` laid — and this method still says the thing that
+     * matters, which is that it is emphatically **not** `unique:` on
+     * `purchase_order_tenant_number_live`.
      *
-     * **Mutation, run:** `order_number` added to `CreatePurchaseOrder`'s §4.2
-     * accepted-field cell. Red — *"CreatePurchaseOrder now accepts order_number.
-     * If the client supplies it, the operation has a `unique:` mechanism and must
-     * stop being `⛔ none`."* That is step 5's arrival, caught by this test.
+     * The second clause stays red-able forever: the day `order_number` becomes an
+     * accepted field, the operation's key would be client-supplied and this goes
+     * red.
+     *
+     * **Mutation, RUN:** `PINNED_MECHANISMS['CreatePurchaseOrder']` repointed to
+     * `unique:purchase_order_tenant_number_live` — the exact wrong fix step 5
+     * could have shipped. Red: *"CreatePurchaseOrder's mechanism is the
+     * server-minted document number index."*
      */
     #[Test]
     public function theServerGeneratedDocumentNumbersAreNotClientSuppliedKeys(): void
     {
         $this->requireContract();
 
-        foreach (self::PINNED_SERVER_MINTED_KEYS as $operationId => $column) {
-            self::assertSame('⛔ none', self::PINNED_MECHANISMS[$operationId],
-                $operationId.' is no longer blocked, so this counterfactual is stale.');
+        $checked = 0;
 
-            self::assertNotContains($column, ContractDocument::acceptedFields($operationId),
-                $operationId.' now accepts '.$column.'. If the client supplies it, the operation has a '
-                .'`unique:` mechanism and must stop being `⛔ none`.');
+        foreach (self::PINNED_SERVER_MINTED_KEYS as $operationId => $pin) {
+            self::assertArrayHasKey($operationId, self::PINNED_MECHANISMS,
+                $operationId.' has left the mechanism pin, so this counterfactual has no subject.');
+
+            self::assertNotSame('unique:'.$pin['index'], self::PINNED_MECHANISMS[$operationId],
+                $operationId.'\'s mechanism is the server-minted document number index '.$pin['index'].'. '
+                .$pin['column'].' is not in its accepted-field set, so the caller sends nothing that index '
+                .'can collide on and a retry mints a new number and a second document.');
+
+            self::assertNotContains($pin['column'], ContractDocument::acceptedFields($operationId),
+                $operationId.' now accepts '.$pin['column'].', so the document number is client-supplied '
+                .'and this counterfactual is stale.');
+            ++$checked;
+        }
+
+        self::assertGreaterThan(0, $checked, 'No server-minted key was examined.');
+    }
+
+    // -----------------------------------------------------------------------
+    // The second legitimate source for a `unique:` key — the header.
+    // -----------------------------------------------------------------------
+
+    /**
+     * **The clause that keeps the header source from becoming a loophole**, and
+     * the reason `everyPinnedClientKeyColumnIsAcceptedOrBoundByThePath` could
+     * learn a third source without being loosened into *"anything goes"*.
+     *
+     * Read `PINNED_HEADER_KEY`'s docblock for the argument. This method is
+     * clauses 1, 2 and 3 of it, against the **live catalogue** and the
+     * **registry**; the document half is the method below.
+     *
+     * The column name is taken from `IdempotencyKeyGuard::COLUMN` rather than
+     * written here, so there is one definition of *"the column a header key lands
+     * in"* and a rename cannot leave the test pointing at the old one.
+     *
+     * **Mutation, RUN:** `PINNED_CLIENT_KEY['CreatePurchaseOrder']` changed from
+     * `[IdempotencyKeyGuard::COLUMN]` to `['order_number']` — the header excusing
+     * a server-minted column, which is the precise defect this source could
+     * otherwise re-admit. Red on clause 1, naming the operation.
+     */
+    #[Test]
+    public function theHeaderSourcedKeysAreExactlyTheHeaderColumnAndDemandTheHeader(): void
+    {
+        self::assertNotSame([], self::PINNED_HEADER_KEY, 'No operation is header-sourced, so this clause has no subject.');
+
+        $catalogue = $this->indexCatalogue();
+        $shipped = array_keys(TransactionBoundaryTest::contractOperations());
+        self::assertNotSame([], $shipped, 'The registry produced no operations.');
+
+        foreach (self::PINNED_HEADER_KEY as $operationId) {
+            $mechanism = self::PINNED_MECHANISMS[$operationId] ?? 'no';
+
+            // 3. Only a mechanism that actually demands the header may claim to
+            //    be honoured by it. `guard:`, `store` and `no` cannot.
+            self::assertStringStartsWith('unique:', $mechanism,
+                $operationId.' is pinned as header-sourced and its mechanism is `'.$mechanism.'`. '
+                .'Only a `unique:` cell demands the '.IdempotencyKeyGuard::HEADER.' header under API-14 as amended, '
+                .'so nothing else can be honoured by it.');
+
+            // 1. Exactly one column, and it is the guard's own.
+            self::assertSame([IdempotencyKeyGuard::COLUMN], self::PINNED_CLIENT_KEY[$operationId] ?? [],
+                $operationId.' is header-sourced and its pinned client key is not exactly ['
+                .IdempotencyKeyGuard::COLUMN.']. A header key may land in that column and no other, or the '
+                .'source becomes an excuse for any index the caller cannot collide with.');
+
+            // 2. The whole key less tenant_id -- never part of a composite one.
+            $indexName = substr($mechanism, \strlen('unique:'));
+            self::assertArrayHasKey($indexName, $catalogue, $operationId.' names a missing index '.$indexName.'.');
+
+            $keyColumns = array_values(array_diff($catalogue[$indexName]['columns'], ['tenant_id']));
+            self::assertSame([IdempotencyKeyGuard::COLUMN], $keyColumns,
+                $operationId.'\'s index '.$indexName.' is keyed on ['.implode(', ', $keyColumns).']. '
+                .'A header supplies one value, so it can only honour an index whose entire key is that column -- '
+                .'it must never excuse a body field missing from a composite key.');
+
+            // The registry half: if it ships, it must really demand the header.
+            // `theHeaderIsRequiredExactlyWhereTheMechanismNeedsIt` asserts this
+            // over every shipped operation; repeated here because THIS is the
+            // operation whose whole mechanism is the header.
+            if (\in_array($operationId, $shipped, true)) {
+                $operation = TransactionBoundaryTest::contractOperations()[$operationId];
+                self::assertTrue(
+                    true === ($operation->getExtraProperties()[IdempotencyKeyGuard::OPERATION_FLAG] ?? null),
+                    $operationId.' is shipped, its retry key is the '.IdempotencyKeyGuard::HEADER.' header, and it '
+                    .'does not demand that header. The column it collides on would be NULL on every request.',
+                );
+            }
+        }
+    }
+
+    /**
+     * The document half: clause 4, plus the contract's own agreement that the
+     * header is demanded.
+     *
+     * **One value, one source.** The column must be **absent** from §4.2's
+     * accepted fields. If the caller could also send `idempotency_key` in the
+     * body, two spellings of one value would exist and nothing would decide which
+     * identifies the retry when they disagree.
+     *
+     * **Mutation, RUN:** `idempotency_key` added to `CreatePurchaseOrder`'s §4.2
+     * accepted-field cell. Red — *"CreatePurchaseOrder accepts idempotency_key as
+     * a body field."*
+     */
+    #[Test]
+    public function everyHeaderSourcedKeyIsAbsentFromTheAcceptedFieldsAndDemandedByTheContract(): void
+    {
+        $this->requireContract();
+
+        self::assertNotSame([], self::PINNED_HEADER_KEY, 'No operation is header-sourced, so this clause has no subject.');
+
+        foreach (self::PINNED_HEADER_KEY as $operationId) {
+            self::assertTrue(ContractDocument::headerIsRequiredFor($operationId),
+                $operationId.'\'s §4.2 cell does not demand the '.IdempotencyKeyGuard::HEADER.' header, and its '
+                .'retry key is that header. The value the index is built on would never arrive.');
+
+            self::assertNotContains(IdempotencyKeyGuard::COLUMN, ContractDocument::acceptedFields($operationId),
+                $operationId.' accepts '.IdempotencyKeyGuard::COLUMN.' as a body field while its retry key is the '
+                .IdempotencyKeyGuard::HEADER.' header. One value with two sources: a caller could send different '
+                .'ones and nothing decides which identifies the retry.');
         }
     }
 

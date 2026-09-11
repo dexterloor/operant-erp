@@ -46,6 +46,7 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Table(name: 'purchase_order')]
 #[ORM\UniqueConstraint(name: 'purchase_order_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'purchase_order_tenant_number_live', columns: ['tenant_id', 'order_number'], options: ['where' => '(deleted_at IS NULL)'])]
+#[ORM\UniqueConstraint(name: 'purchase_order_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\Index(name: 'purchase_order_tenant_open_idx', columns: ['tenant_id', 'ordered_at'], options: ['where' => "((deleted_at IS NULL) AND (status = ANY (ARRAY['ordered'::text, 'partially_received'::text])))"])]
 #[ORM\Index(name: 'purchase_order_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
 class PurchaseOrder
@@ -72,6 +73,38 @@ class PurchaseOrder
 
     #[ORM\Column(name: 'order_number', type: Types::TEXT)]
     private string $orderNumber;
+
+    /**
+     * **API-O-31 step 5 — the client's retry key, and the reason this column is
+     * nullable is HISTORY rather than the product's main path.**
+     *
+     * `CreatePurchaseOrder`'s §4.2 `Idem` cell is
+     * `unique:purchase_order_tenant_idem_live`, so the operation demands an
+     * `Idempotency-Key` header and the value lands here. A retried timeout then
+     * collides on that live-row unique exactly as a repeated `CreateItem`
+     * collides on `sku`, which is the only route by which an operation whose
+     * response carries a server-minted `id` can be made retry-safe: the envelope
+     * store cannot serve it, because §2.2 serializes the response after commit
+     * and the `id` and `Location` do not exist until the insert has happened.
+     *
+     * **NULL means "raised before `Version20260911000100`".** It does not mean
+     * "optional". ADR-008:231 criticised a nullable column justified as *"a
+     * fixture argument for a column the product writes NULL to on its main
+     * automated path"*, and attached the correction this docblock exists to
+     * honour: *"the migration cannot tell you why a column is nullable and the
+     * entity can."* Two NULLs do not collide — Postgres treats them as distinct
+     * in a unique index — which is what lets the historical rows coexist.
+     *
+     * **There is deliberately no setter, and that is the residual.** Step 6 owns
+     * `CreatePurchaseOrder` and will write this value; until it does, nothing
+     * writes the column and the index therefore refuses nothing. A column that
+     * exists is not a column that deduplicates — `Version20260910000200`'s own
+     * lesson, one table over. A writer with no caller would be the defect that
+     * migration's docblock closes on (*"nothing that has no consumer"*), so the
+     * accessor below is read-only and step 6 adds the write path.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
+    private ?string $idempotencyKey = null;
 
     #[ORM\ManyToOne(targetEntity: Supplier::class)]
     #[ORM\JoinColumn(name: 'supplier_id', referencedColumnName: 'id', nullable: false)]
@@ -143,6 +176,12 @@ class PurchaseOrder
     public function getOrderNumber(): string
     {
         return $this->orderNumber;
+    }
+
+    /** NULL exactly on orders raised before `Version20260911000100`. */
+    public function getIdempotencyKey(): ?string
+    {
+        return $this->idempotencyKey;
     }
 
     public function getSupplier(): Supplier

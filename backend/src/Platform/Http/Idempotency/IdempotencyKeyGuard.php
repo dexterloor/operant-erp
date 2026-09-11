@@ -52,9 +52,17 @@ use Symfony\Component\HttpKernel\Event\ControllerEvent;
  * database dependency at all -- it requires the header, bounds it at 255 octets,
  * and discards it. So an operation could carry the flag, pass every gate, and
  * still write a second row on a retried timeout. That is why §4.2 has a fifth
- * cell value, `⛔ none`, and why the nine operations carrying it are blocked by
- * `DELIVERY_LEDGER.md` E9-2 rather than merely noted: the header is not a
+ * cell value, `⛔ none`, and why the **eight** operations carrying it are blocked
+ * by `DELIVERY_LEDGER.md` E9-2 rather than merely noted: the header is not a
  * mechanism, and a column that could not say so is what hid the gap.
+ *
+ * ⚠ **It was nine until 2026-09-11.** `CreatePurchaseOrder` came off that list
+ * when `Version20260911000100` gave `purchase_order` a client-supplied
+ * `idempotency_key` column on a live-row unique, turning its cell from `⛔ none`
+ * into `unique:purchase_order_tenant_idem_live`. **The operation itself is still
+ * unshipped** — step 6 owns it — so what changed is that the mechanism now
+ * exists to be consumed, not that the retry is refused today: nothing writes the
+ * column yet, and an index over a column nobody writes refuses nothing.
  */
 #[AsEventListener(event: ControllerEvent::class)]
 final readonly class IdempotencyKeyGuard
@@ -64,6 +72,27 @@ final readonly class IdempotencyKeyGuard
     public const MAXIMUM_KEY_BYTES = 255;
 
     public const HEADER = 'Idempotency-Key';
+
+    /**
+     * **The one column a header-sourced retry key may land in.**
+     *
+     * API-14 as amended reconciles `unique:<index>` against *"the client supplies
+     * the indexed value"*, and for every other `unique:` operation the client
+     * supplies it in the **body** — `CreateItem` sends `sku`. `CreatePurchaseOrder`
+     * cannot: its index is keyed on the value of this header, because the thing
+     * that makes the retry recognisable is the retry key itself and §4.2's
+     * accepted-field column describes the body.
+     *
+     * So the reconciliation learns a second legitimate source, and this constant
+     * is what keeps that from becoming *"anything goes"*: a header-sourced key is
+     * admissible **only** into a column of this name, on an index whose whole key
+     * (less `tenant_id`) is that one column.
+     * `IdempotencyContractTest::everyUniqueIndexsKeyColumnsAreSuppliedByTheClient`
+     * and `::theHeaderSourcedKeysAreExactlyTheHeaderColumnAndDemandTheHeader`
+     * derive the rule from here rather than restating the name, so a rename moves
+     * both halves at once.
+     */
+    public const COLUMN = 'idempotency_key';
 
     /** The extra property an operation carries to declare itself `Idem`. */
     public const OPERATION_FLAG = 'idempotency_key_required';
