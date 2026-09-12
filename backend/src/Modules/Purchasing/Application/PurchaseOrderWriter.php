@@ -86,6 +86,11 @@ final readonly class PurchaseOrderWriter
     /** numeric(19,4) — money (S-12). Never a float, in either direction. */
     private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
 
+    /** One sentence for both overflow refusals, so they cannot drift apart. */
+    private const TOTAL_OUT_OF_RANGE = 'This line would take the order\'s total past what it can be stored as: '
+        .'a total carries at most 15 digits before the decimal point. Lower the quantity or the unit cost, '
+        .'or split the order.';
+
     /** The live-row unique a **replay** collides on — `Version20260911000100`. */
     private const IDEMPOTENCY_INDEX = 'purchase_order_tenant_idem_live';
 
@@ -253,6 +258,17 @@ final readonly class PurchaseOrderWriter
             'expectedAt' => $input->expectedAt,
         ];
 
+        // ⚠ **The header's shape is answered BEFORE the lines' shape, so a
+        // request malformed in both takes two round trips. That is a decision,
+        // not an oversight.** Merging the two passes would make this the only
+        // operation in the contract that collects across them:
+        // `GoodsReceiptWriter::create()` calls `receivedAt()` and then `lines()`
+        // in exactly this order and throws at the first, and the fix one clause
+        // down in `nestedLines()` exists precisely because two collection rules
+        // for one shape is the drift this project keeps finding. Each pass
+        // collects everything it can see -- every malformed header field
+        // together, then every malformed line together -- which is where the
+        // round trips actually get saved.
         $this->refuseMalformedCreateFields($values);
         $lines = self::nestedLines($input->lines);
 
@@ -507,13 +523,22 @@ final readonly class PurchaseOrderWriter
      * `GoodsReceiptWriter` and the array index the pointer addresses.
      *
      * ⚠ **The two refusals below throw on the FIRST offending line rather than
-     * collecting every bad line, and that is a decision rather than an
-     * oversight.** They cannot be collected together even in principle: an
-     * unknown item is `validation-failed` **with a pointer** and a catalogue miss
-     * is `business-rule-violated`, which carries no errors array at all — the
-     * supplier comes from the order, not from the request. Shape errors, which
-     * are one problem type, ARE collected across every line by
-     * {@see self::nestedLines()}.
+     * collecting every bad line.**
+     *
+     * **The two cannot be collected with EACH OTHER**, which is narrower than
+     * the claim this paragraph made until 2026-09-12: an unknown item is
+     * `validation-failed` with a pointer, a catalogue miss is
+     * `business-rule-violated` and carries no errors array at all, so there is no
+     * one problem the pair could be reported in. **The unknown-item half could
+     * be collected across lines on its own**, with a pre-pass resolving every
+     * item id at once the way `GoodsReceiptWriter::refuseUnknownBins()` does, and
+     * saying otherwise was wrong. It is not done here because the pre-pass would
+     * have to live outside this method and the two rules would stop being written
+     * in one place, which is the property that made this refactor worth doing —
+     * a trade, and now a stated one rather than an impossibility.
+     *
+     * Shape errors, which are one problem type, ARE collected across every line
+     * by {@see self::nestedLines()}.
      *
      * @param array<string, string|null> $values `inventoryItemId`, `quantity`, `unitCost`, already shape-checked
      * @param int|null                   $index  the line's position in `lines[]`, or null for the single-line path
@@ -1036,7 +1061,36 @@ final readonly class PurchaseOrderWriter
             $errors[] = self::error('unitCost', 'not_a_decimal', 'This field must be a non-negative decimal string with at most 15 integer digits and 4 fractional digits.');
         }
 
+        // ⚠ **Two fields each inside their own column can still produce a total
+        // that is not.** `quantity_ordered` admits 13 integer digits and
+        // `unit_cost` 15, and their product lands in
+        // `purchase_order.total_amount`, which is `numeric(19,4)` — fifteen. One
+        // line at the top of `unit_cost`'s range therefore made
+        // `recomputeTotal()`'s UPDATE raise 22003, which is neither of the two
+        // unique violations `create()` names, so it reached the client as a
+        // **500 with no pointer** for a request whose every field was inside the
+        // range this API published. Checked here, where both values are known and
+        // no transaction is open, and on the field that is almost always the one
+        // that is wrong.
+        if ([] === $errors && null !== $quantity && null !== $unitCost && !self::fitsInTheTotalColumn(bcmul($quantity, $unitCost, 4))) {
+            $errors[] = self::error('unitCost', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
+        }
+
         return $errors;
+    }
+
+    /**
+     * Whether a money value fits `purchase_order.total_amount` — `numeric(19,4)`,
+     * so fifteen integer digits.
+     *
+     * **The bound is `MONEY` itself**, the expression that already states that
+     * column family's shape for values arriving, rather than a second literal
+     * fifteen. `bcmul`/`bcadd` at scale 4 always produce four decimals and never
+     * a sign here, so the two sides of the column are checked by one expression.
+     */
+    private static function fitsInTheTotalColumn(string $value): bool
+    {
+        return 1 === preg_match(self::MONEY, $value);
     }
 
     /**
@@ -1112,6 +1166,7 @@ final readonly class PurchaseOrderWriter
         $accepted = self::nestedLineFields();
         $errors = [];
         $lines = [];
+        $total = '0.0000';
 
         foreach ($raw as $index => $line) {
             // An empty JSON object decodes to `[]`, which is also a list -- so an
@@ -1137,6 +1192,16 @@ final readonly class PurchaseOrderWriter
                 ];
             }
 
+            // ⚠ **An unknown key does NOT stop this line's own fields being
+            // checked.** It did until 2026-09-12, because the skip below tested
+            // the whole error list: a line carrying one stray key was answered
+            // with that key alone, the caller fixed it, and the same line came
+            // back refused for a second reason it could have been told the first
+            // time. `GoodsReceiptWriter` gets this right and the two nested-line
+            // creates now collect alike. **Only a value that could not be READ
+            // stops the checks**, because a check on a value that is not there is
+            // a second, meaningless error about the same defect.
+            $unreadable = [];
             $values = [];
             foreach (self::NESTED_LINE_PROPERTIES as $property) {
                 $value = $line[ltrim(self::POINTERS[$property], '/')] ?? null;
@@ -1144,21 +1209,39 @@ final readonly class PurchaseOrderWriter
                 // The top-level fields are typed by the input DTO; these are not,
                 // so a number where a decimal string belongs is named here rather
                 // than coerced. S-12: money and quantities are strings.
+                // **Load-bearing against a 500:** under `strict_types` an int
+                // reaching `preg_match()`'s string parameter is a `TypeError`.
                 if (null !== $value && !\is_string($value)) {
                     $errors[] = self::lineError($index, $property, 'not_a_string', 'This field must be sent as a string.');
-                    $value = null;
+                    $unreadable[] = $property;
+                    continue;
                 }
 
                 $values[$property] = $value;
+            }
+
+            // A field whose value could not be read is dropped from BOTH lists,
+            // so the shape check neither re-reports it as required nor as
+            // un-clearable -- two more sentences about one defect. The line's
+            // other fields are still checked, which is the whole of the
+            // collection rule above.
+            foreach (self::malformedLineFields($values, array_values(array_diff(self::NESTED_LINE_PROPERTIES, $unreadable))) as $error) {
+                $error['pointer'] = self::nestedPointerPrefix($index).$error['pointer'];
+                $errors[] = $error;
             }
 
             if (\count($errors) > $before) {
                 continue;
             }
 
-            foreach (self::malformedLineFields($values, self::NESTED_LINE_PROPERTIES) as $error) {
-                $error['pointer'] = self::nestedPointerPrefix($index).$error['pointer'];
-                $errors[] = $error;
+            // The case the per-line bound cannot see: every line fits and the
+            // SUM does not. Accumulated over the lines that are themselves
+            // sound, and reported against the one that tipped it -- which is the
+            // only line the caller can act on.
+            $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitCost'], 4), 4);
+            if (!self::fitsInTheTotalColumn($total)) {
+                $errors[] = self::lineError($index, 'unitCost', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
+                continue;
             }
 
             $lines[] = $values;

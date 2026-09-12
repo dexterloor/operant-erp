@@ -1010,6 +1010,163 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         self::assertSame('59e9e7438147805fac6468a2abdcc0e246a12eba994e49f0475c76b748c30d2b', $row['idempotency_key']);
     }
 
+    /**
+     * ⚠ **A line the writer accepts must not be able to overflow the column the
+     * order's total is stored in.**
+     *
+     * `purchase_order.total_amount` is `numeric(19,4)` — fifteen integer digits —
+     * and `unit_cost` is `numeric(19,4)` too, so **one** accepted line at the
+     * top of the column's range takes the order's total past it. Postgres raises
+     * `22003` on `recomputeTotal()`'s UPDATE, which is neither a unique nor a
+     * foreign-key violation, so `create()`'s catch rethrows it and the caller
+     * gets a **500 with no pointer** for a request whose every field was inside
+     * the range the API told it to use.
+     *
+     * The defect is older than the nested create — `CreatePurchaseOrderLine` can
+     * reach it too — but 8a made one request able to trigger it and gave that
+     * request up to 200 chances, so it is fixed here for both paths.
+     *
+     * The second case is the one the single-line check cannot see: every line is
+     * individually fine and the **sum** is not. It names the line that tipped it.
+     *
+     * *Mutation, run:* the running-total bound removed. Red — 500.
+     *
+     * @param list<array{string, string}> $lines quantity and unit cost, in order
+     */
+    #[Test]
+    #[DataProvider('totalsThatOverflowTheColumn')]
+    public function aLineThatWouldOverflowTheOrdersTotalIsAFieldDefectAndNotA500(array $lines, string $pointer): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-1');
+        $this->seedSupplierProduct(self::TENANT_A, $supplier, $item);
+
+        $this->create([
+            'supplier_id' => $supplier,
+            'warehouse_id' => $warehouse,
+            'lines' => array_map(static fn (array $line): array => [
+                'inventory_item_id' => $item, 'quantity' => $line[0], 'unit_cost' => $line[1],
+            ], $lines),
+        ]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('total_out_of_range', array_column($this->json()['errors'], 'code', 'pointer')[$pointer] ?? null,
+            'The overflow was not named as a field defect on the line that caused it.');
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+    }
+
+    /** @return iterable<string, array{list<array{string, string}>, string}> */
+    public static function totalsThatOverflowTheColumn(): iterable
+    {
+        // One line, both fields inside their own columns, product 16 digits.
+        yield 'one line' => [[['2', '999999999999999']], '/lines/0/unit_cost'];
+
+        // Three lines each comfortably inside the column; the third tips the sum.
+        yield 'the sum of three' => [[
+            ['1', '400000000000000'],
+            ['1', '400000000000000'],
+            ['1', '400000000000000'],
+        ], '/lines/2/unit_cost'];
+    }
+
+    /**
+     * **`CreatePurchaseOrderLine` reaches the same overflow, and the bound is the
+     * shared one** — the fix is in `malformedLineFields()`, which both write
+     * paths enter, not in the nested path alone.
+     */
+    #[Test]
+    public function aSingleLineThatWouldOverflowTheOrdersTotalIsRefusedOnTheLinesSubResourceToo(): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A);
+        $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
+            'inventory_item_id' => $draft['item'], 'quantity' => '2', 'unit_cost' => '999999999999999',
+        ]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('total_out_of_range', array_column($this->json()['errors'], 'code', 'pointer')['/unit_cost'] ?? null);
+    }
+
+    /**
+     * **Every refusing branch of the line-shape check, driven.**
+     *
+     * The `not_a_string` case is the one that is load-bearing rather than
+     * thorough: `lines` arrives as a decoded array, so nothing has typed its
+     * entries, and under `strict_types` an int reaching `preg_match()`'s string
+     * parameter is a `TypeError` — a **500** on a request that is merely wrong.
+     * The guard is what makes it a named field defect.
+     *
+     * `{}` is the case worth reading twice: an empty JSON object decodes to the
+     * same `[]` an empty JSON array does, so the "each line must be an object"
+     * clause deliberately lets it through to be answered as the three missing
+     * fields it is.
+     *
+     * @param mixed                   $lines    `lines` as the client sends it
+     * @param array<string, string>   $expected pointer => code, exactly
+     */
+    #[Test]
+    #[DataProvider('malformedLineShapes')]
+    public function everyWayOfMalformingTheLinesIsANamedFieldDefect(mixed $lines, array $expected): void
+    {
+        $body = $this->body();
+        $body['lines'] = $lines;
+        $this->create($body);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($expected, array_column($this->json()['errors'], 'code', 'pointer'));
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+    }
+
+    /** @return iterable<string, array{mixed, array<string, string>}> */
+    public static function malformedLineShapes(): iterable
+    {
+        yield 'an object instead of a list' => [['a' => 1], ['/lines' => 'not_a_list']];
+        yield 'a string instead of a line' => [['x'], ['/lines/0' => 'not_an_object']];
+        yield 'a number where a decimal string belongs' => [[['quantity' => 2]], [
+            '/lines/0/quantity' => 'not_a_string',
+            '/lines/0/inventory_item_id' => 'required',
+            '/lines/0/unit_cost' => 'required',
+        ]];
+        yield 'an empty line object' => [[[]], [
+            '/lines/0/inventory_item_id' => 'required',
+            '/lines/0/quantity' => 'required',
+            '/lines/0/unit_cost' => 'required',
+        ]];
+    }
+
+    /**
+     * **An unknown key on a line does not hide that line's other defects.**
+     *
+     * It did until this was fixed: the undeclared-key pass recorded its error and
+     * the line then skipped its own field checks, so a caller was answered with
+     * the stray key alone, corrected it, and got the same line back refused for a
+     * second reason it could have been told the first time. `GoodsReceiptWriter`
+     * — the other nested-lines create in this codebase — has always collected
+     * both, and two collection rules for one shape is the drift this project
+     * keeps finding.
+     *
+     * *Mutation, run:* the field checks skipped whenever the line produced any
+     * error. Red here.
+     */
+    #[Test]
+    public function anUnknownKeyOnALineDoesNotSuppressItsOtherRefusals(): void
+    {
+        $body = $this->body();
+        $body['lines'] = [[
+            'inventory_item_id' => 'not-a-uuid', 'quantity' => '1', 'unit_cost' => '1.0000', 'notes' => 'hurry',
+        ]];
+        $this->create($body);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([
+            '/lines/0/notes' => 'undeclared',
+            '/lines/0/inventory_item_id' => 'not_a_uuid',
+        ], array_column($this->json()['errors'], 'code', 'pointer'),
+            'The stray key suppressed the bad id, so the caller has to make two round trips to learn both.');
+    }
+
     /** @return iterable<string, array{string}> */
     public static function impossibleTimestamps(): iterable
     {
