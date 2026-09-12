@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Domain;
 
-use App\Platform\Domain\IllegalTransition;
-use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Platform\Domain\IllegalTransition;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\StatusMachines;

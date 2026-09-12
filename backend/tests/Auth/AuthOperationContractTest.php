@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Auth;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Modules\UserManagement\ApiResource\IssueTokenInput;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Tests\Api\ApiTestCase;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\ContractDocument;
