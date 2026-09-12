@@ -100,11 +100,7 @@ final readonly class GoodsReceiptWriter
         $digest = RequestDigest::of(self::OPERATION, [
             'purchase_order_id' => RequestDigest::uuid($orderId),
             'received_at' => RequestDigest::instant($receivedAtValue),
-            'lines' => array_map(static fn (array $line): array => [
-                'purchase_order_line_id' => $line['orderLine'],
-                'quantity' => $line['quantity'],
-                'storage_location_id' => $line['bin'],
-            ], $lines),
+            'lines' => self::digestedLines($lines),
         ]);
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
         $receivedBy = $this->identities->authenticated()->userId;
@@ -431,6 +427,45 @@ final readonly class GoodsReceiptWriter
         }
 
         return $lines;
+    }
+
+    /**
+     * The lines as §6.2 digests them — **sorted by `(purchase_order_line_id,
+     * storage_location_id)`, because a goods receipt has no line order.**
+     *
+     * `RequestDigest` keeps list order deliberately, and for
+     * `CreatePurchaseOrder` that is right: `purchase_order_line.line_number` is
+     * minted from the position, so line 1 and line 2 swapped is a different
+     * order. **`goods_receipt_line` has no line number at all.** Its row is
+     * identified by the order line and the bin, `GoodsReceiptReader` sorts the
+     * read shape by the order line's `line_number` and then the bin rather than
+     * by anything the request carried, and the same two lines sent the other way
+     * round record exactly the same delivery. Digesting the request order made
+     * that retry a 409 — the client did what P-5 asks and was told it asked for
+     * something else.
+     *
+     * **The sort is total, which is what makes it safe to sort at all.** A
+     * partial order would make the digest depend on the input order again for the
+     * entries it cannot separate. `self::lines()` already refuses the same
+     * `(order line, bin)` pair twice in one receipt as a duplicate line, so no
+     * two entries here can compare equal, and `quantity` is not needed as a
+     * tie-break — deliberately, since a value that cannot break a tie must not be
+     * allowed to decide an order.
+     *
+     * @param list<array{orderLine: string, quantity: string, bin: string}> $lines
+     *
+     * @return list<array{purchase_order_line_id: string, quantity: string, storage_location_id: string}>
+     */
+    private static function digestedLines(array $lines): array
+    {
+        usort($lines, static fn (array $a, array $b): int
+            => [$a['orderLine'], $a['bin']] <=> [$b['orderLine'], $b['bin']]);
+
+        return array_map(static fn (array $line): array => [
+            'purchase_order_line_id' => $line['orderLine'],
+            'quantity' => $line['quantity'],
+            'storage_location_id' => $line['bin'],
+        ], $lines);
     }
 
     /** @return array{pointer: string, code: string, message: string} */

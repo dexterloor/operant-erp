@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -117,7 +118,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
     /** §8.3: only `ordered` and `partially_received` take a receipt. */
     #[Test]
-    #[\PHPUnit\Framework\Attributes\DataProvider('ordersThatTakeNoReceipt')]
+    #[DataProvider('ordersThatTakeNoReceipt')]
     public function anOrderThatIsNotOpenTakesNoReceiptAndNothingIsWritten(string $status, string $received): void
     {
         $po = $this->orderedOrderWithLines(['10'], $status);
@@ -141,7 +142,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
     /** F-3 step 3: over-receipt is blocked at the line level — summed over the receipt, so two bins cannot sneak past it. */
     #[Test]
-    #[\PHPUnit\Framework\Attributes\DataProvider('overReceipts')]
+    #[DataProvider('overReceipts')]
     public function anOverReceiptIsRefusedAndNothingIsWritten(string $alreadyReceived, array $quantities): void
     {
         $po = $this->orderedOrderWithLines(['10'], PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
@@ -293,6 +294,191 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
         self::assertSame([['quantity_received' => '2.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT quantity_received::text AS quantity_received FROM purchase_order_line WHERE id = ?::uuid', [$po['lines'][0]]));
+    }
+
+    /**
+     * **What the digest is taken over, pinned as a constant — the check that
+     * makes the field set a decision rather than an accident.**
+     *
+     * §6.2 asks for two things of a `unique:` operation and step 8-ii shipped
+     * one. The conflict case existed, but it varied **quantity** alone, so every
+     * other digested field was unheld: delete `received_at` from
+     * `GoodsReceiptWriter`'s digest and the whole suite stayed green, while a
+     * retry that backdated a delivery to a different day was silently answered
+     * with the first receipt. `CreatePurchaseOrder` has carried this pin since
+     * `f67173b`; this is its port, and the gap between the two is the finding.
+     *
+     * The constant is **derived from §6.2's rules rather than copied out of a
+     * run** — operation id, fields sorted by name, the instant in one UTC form,
+     * quantities at scale 6, ids in canonical lower case, and the line list
+     * ordered by `(purchase_order_line_id, storage_location_id)`. Every input
+     * below is a fixed literal for that reason.
+     *
+     * **If this goes red, a stored digest and the digest of its own honest retry
+     * have parted.** Every receipt written before the change would answer its
+     * next retry with a 409. That is a migration story, not a new constant.
+     *
+     * **Mutations, run** (1 occurrence counted in the writer each time, reverted
+     * `cmp`-identical): each of the four digested fields removed in turn —
+     * `received_at`, `purchase_order_line_id`, `quantity`,
+     * `storage_location_id`. Each reddened this test **and** its own case of
+     * `aRetryThatChangesOneAcceptedFieldIsAConflict`, and nothing else. Before
+     * this pair existed, three of those four mutations left the entire suite
+     * green.
+     *
+     * **What this test does NOT catch, stated because the tidier claim was
+     * measured and is false:** removing the line sort leaves it green. The pinned
+     * request has **one** line, so no order exists to be wrong, and it is one line
+     * on purpose — a pin is worth more when its canonical form can be reproduced
+     * by hand. The sort is held by
+     * `aRetryThatReordersItsLinesIsAReplayAndNotAConflict` alone, which was the
+     * one red result of that mutation.
+     */
+    #[Test]
+    public function theStoredDigestOfAFixedRequestIsPinned(): void
+    {
+        $order = '60005e17-0000-4000-8000-000000000001';
+        $line = '60005e17-0000-4000-8000-000000000002';
+        $bin = '60005e17-0000-4000-8000-000000000003';
+
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Pinned');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Pinned');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-PINNED');
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO purchase_order
+                (id, tenant_id, order_number, supplier_id, warehouse_id, status, currency_code,
+                 ordered_at, idempotency_key, request_digest)
+            VALUES (?::uuid, ?::uuid, 'PO-PINNED', ?::uuid, ?::uuid, 'ordered', 'EUR',
+                    '2026-01-01T00:00:00+00:00'::timestamptz, ?, ?)
+            SQL, [$order, self::TENANT_A, $supplier, $warehouse,
+                str_repeat('a', 64), str_repeat('b', 64)]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO purchase_order_line
+                (id, tenant_id, purchase_order_id, inventory_item_id, line_number,
+                 quantity_ordered, quantity_received, unit_cost, lead_time_days)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 1, 10, 0, 2.5, 7)
+            SQL, [$line, self::TENANT_A, $order, $item]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+            [$bin, self::TENANT_A, $warehouse, 'PIN-01']);
+
+        $this->receive($order, [['purchase_order_line_id' => $line, 'quantity' => '4', 'storage_location_id' => $bin]],
+            'pinned-receipt-key-1', ['received_at' => '2026-09-01T12:00:00+02:00']);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $row = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT idempotency_key, request_digest FROM goods_receipt WHERE id = ?::uuid', [$this->json()['id']])[0];
+
+        self::assertSame('5b62ba53b9e3b93b39570666c6e78d417ff257631621d582950ada6b006e140e', $row['request_digest'],
+            'The writer digests a different field set, spells a field differently, or orders the lines '
+            .'differently. Every digest stored before this change will answer its next honest retry with a 409.');
+        self::assertSame('a78115bfefbdc942ada7f1e9c85fa7baf41691966ae72d6e9715b003fea61f6f', $row['idempotency_key']);
+    }
+
+    /**
+     * **Every accepted field is in the digest, one case each.** §6.2's conflict
+     * clause is only worth what the field set behind it is worth, and step 8-ii's
+     * single quantity case held one field of four.
+     *
+     * Each case sends the same request twice under one key, changing exactly one
+     * accepted field, and requires 409 and no second row. `received_at` is
+     * included deliberately: it is the field §4.2 accepts and F-3 never collects,
+     * so it is the one a reader is most likely to think does not matter.
+     *
+     * **Mutation, run:** each field removed from `GoodsReceiptWriter`'s digested
+     * array in turn, one at a time (1 occurrence each, counted before the run) —
+     * its own case red, the other three green, then reverted `cmp`-identical.
+     *
+     * @param callable(array{order: string, lines: list<string>, bin: string, secondBin: string}): array{0: array<string, mixed>, 1: array<string, mixed>} $requests
+     */
+    #[Test]
+    #[DataProvider('oneAcceptedFieldChanged')]
+    public function aRetryThatChangesOneAcceptedFieldIsAConflict(callable $requests): void
+    {
+        $po = $this->orderedOrderWithLines(['10', '10']);
+        $po['secondBin'] = $this->seedLocation(self::TENANT_A, $po['warehouse'], 'A-02');
+        $key = Uuid::v4()->toRfc4122();
+
+        [$first, $second] = $requests($po);
+
+        $this->receive($po['order'], $first['lines'], $key, array_diff_key($first, ['lines' => null]));
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->receive($po['order'], $second['lines'], $key, array_diff_key($second, ['lines' => null]));
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertStringContainsString('idempotency-key-conflict', (string) $this->json()['type']);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt_line'));
+    }
+
+    /** @return iterable<string, array{0: callable}> */
+    public static function oneAcceptedFieldChanged(): iterable
+    {
+        $line = static fn (array $po, int $which, string $quantity, string $bin): array
+            => [['purchase_order_line_id' => $po['lines'][$which], 'quantity' => $quantity, 'storage_location_id' => $po[$bin]]];
+
+        yield 'received_at' => [static fn (array $po): array => [
+            ['lines' => $line($po, 0, '4', 'bin'), 'received_at' => '2026-09-01T10:00:00+00:00'],
+            ['lines' => $line($po, 0, '4', 'bin'), 'received_at' => '2026-09-01T11:00:00+00:00'],
+        ]];
+
+        yield 'purchase_order_line_id' => [static fn (array $po): array => [
+            ['lines' => $line($po, 0, '4', 'bin')],
+            ['lines' => $line($po, 1, '4', 'bin')],
+        ]];
+
+        yield 'quantity' => [static fn (array $po): array => [
+            ['lines' => $line($po, 0, '4', 'bin')],
+            ['lines' => $line($po, 0, '5', 'bin')],
+        ]];
+
+        yield 'storage_location_id' => [static fn (array $po): array => [
+            ['lines' => $line($po, 0, '4', 'bin')],
+            ['lines' => $line($po, 0, '4', 'secondBin')],
+        ]];
+    }
+
+    /**
+     * **A goods receipt has no line order, so the digest must not keep one.**
+     *
+     * `RequestDigest` preserves list order on purpose — for `CreatePurchaseOrder`
+     * it is right, because `purchase_order_line.line_number` is minted from the
+     * position and line 1 and line 2 swapped is a different order.
+     * `goods_receipt_line` has **no line number**: the row is identified by
+     * `(purchase_order_line_id, storage_location_id)`, and sending the same two
+     * lines the other way round records exactly the same delivery. Under the
+     * shipped digest that retry was a 409 — the client did what P-5 asks and was
+     * told it asked for something else.
+     *
+     * The writer therefore sorts the digested list by that pair. The sort is
+     * **total**, which is why it is safe: the same pair twice in one receipt is
+     * already refused as a duplicate line, so no two entries can compare equal.
+     *
+     * *Red before the fix: 409 here.*
+     */
+    #[Test]
+    public function aRetryThatReordersItsLinesIsAReplayAndNotAConflict(): void
+    {
+        $po = $this->orderedOrderWithLines(['10', '10']);
+        $key = Uuid::v4()->toRfc4122();
+
+        $first = [
+            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '2', 'storage_location_id' => $po['bin']],
+        ];
+
+        $this->receive($po['order'], $first, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $receipt = $this->json();
+
+        $this->receive($po['order'], array_reverse($first), $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($receipt, $this->json());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt_line'));
     }
 
     /** SoD-2: `goods_receipt.create` is the operator's code; a caller without it is refused before anything is read. */

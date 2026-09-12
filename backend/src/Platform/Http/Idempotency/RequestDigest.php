@@ -36,9 +36,17 @@ use Symfony\Component\Uid\Uuid;
  *   - **object keys are sorted** (byte order, recursively), so the order a caller
  *     builds its array in is not part of the digest and a refactor that reorders
  *     it cannot turn every stored row into a conflict;
- *   - **lists keep their order**, because for a list the order *is* the request —
- *     when §4.2's `lines[]` arrive, line 1 and line 2 swapped is a different
- *     order;
+ *   - **lists keep their order**, because for a list the order *is* the request
+ *     wherever the write reads it: when §4.2's `lines[]` arrive on
+ *     `CreatePurchaseOrder`, `purchase_order_line.line_number` is minted from the
+ *     position, so line 1 and line 2 swapped is a different order. **Where the
+ *     write does not read the order, the caller sorts before handing the list
+ *     in** — `GoodsReceiptWriter::digestedLines()` is the one such caller today,
+ *     because `goods_receipt_line` has no line number and the same two lines the
+ *     other way round record the same delivery. Sorting here instead would be
+ *     wrong: this class cannot know which of the two a list is, and a sort it
+ *     applied to `CreatePurchaseOrder` would make two genuinely different orders
+ *     one request;
  *   - **nulls are explicit**: the caller passes every field the operation
  *     declares, present or not, so "absent" and "null" digest alike exactly when
  *     the input object cannot tell them apart;
