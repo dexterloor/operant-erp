@@ -74,6 +74,29 @@ final class DeliveryLedgerDocument
     }
 
     /**
+     * A gate row's **condition** cell alone — the *"fails if: …"* half — with the
+     * code cell and the *"why it blocks"* cell dropped.
+     *
+     * This separation is the point rather than a convenience. The why cell is
+     * **narrative**: it records how a gate was widened and narrowed, and it names
+     * operations that have since gained a mechanism precisely so the story of the
+     * repair survives. The condition cell is **operative**: what it names is
+     * blocked today. Reading the whole row cannot tell the two apart, which is
+     * how `CreateGoodsReceipt` shipped while E9-2's condition still reached it —
+     * the by-name check was satisfied by the narrative and never looked at the
+     * clause.
+     *
+     * An empty string means the row is missing or malformed; the caller must fail
+     * on it.
+     */
+    public static function gateCondition(string $code): string
+    {
+        $cells = explode(' | ', self::gateRow($code));
+
+        return $cells[1] ?? '';
+    }
+
+    /**
      * The operation names a gate row blocks, as backticked tokens in `Verb ++
      * Resource` form.
      *
@@ -89,7 +112,18 @@ final class DeliveryLedgerDocument
      */
     public static function operationsNamedBy(string $code): array
     {
-        preg_match_all('/`([A-Z][A-Za-z]+)`/', self::gateRow($code), $matches);
+        return self::operationsNamedIn(self::gateRow($code));
+    }
+
+    /**
+     * The same extraction, run over an arbitrary slice of the row — used to read
+     * the condition cell alone.
+     *
+     * @return list<string>
+     */
+    public static function operationsNamedIn(string $text): array
+    {
+        preg_match_all('/`([A-Z][A-Za-z]+)`/', $text, $matches);
 
         return array_values(array_unique($matches[1]));
     }

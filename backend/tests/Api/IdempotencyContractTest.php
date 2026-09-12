@@ -300,6 +300,31 @@ final class IdempotencyContractTest extends TenancyTestCase
     ];
 
     /**
+     * **The phrases a blocking clause may not use, because no check can compute
+     * who is inside them.**
+     *
+     * Both were E9-2's own wording and both have now failed in *both* directions.
+     * *"Create-a-child or bulk"* did not reach `CreatePurchaseOrder`, which is
+     * neither, so an unprotected operation sat outside the gate; and it did still
+     * reach `CreateGoodsReceipt` after step 8-i gave that operation a real
+     * mechanism, so a protected operation shipped past a gate that formally
+     * blocked it. The category is not a shorthand for the set — **it is a second,
+     * unmaintained copy of the set**, and the two drift.
+     *
+     * Kept deliberately short. The list is not an attempt to enumerate every noun
+     * a category could be phrased with; it is the two this project has actually
+     * been bitten by, pinned so they cannot come back. A fresh category would
+     * escape it, and `noGateBlocksByCategoryOrBlocksAnOperationThatNowHasAMechanism`'s
+     * second clause is what catches the consequence rather than the wording.
+     *
+     * @var list<string>
+     */
+    private const UNDECIDABLE_CATEGORIES = [
+        'create-a-child',
+        'bulk operations',
+    ];
+
+    /**
      * The two document-number uniques that look like retry keys and are not.
      * `theServerGeneratedDocumentNumbersAreNotClientSuppliedKeys` is the
      * assertion; this is the subject.
@@ -866,6 +891,86 @@ final class IdempotencyContractTest extends TenancyTestCase
             'An operation is marked `⛔ none` in §4.2 and no gate names it as blocked. That is the exact '
             .'shape that let `CreatePurchaseOrder` sit in the contract looking protected: an unprotected '
             .'operation nothing stops from being scheduled.');
+    }
+
+    /**
+     * **The other direction, and the one that was missing: a gate must not still
+     * block an operation that has since earned a mechanism — and it must say
+     * *which* operations it blocks in terms something can decide.**
+     *
+     * `everyBlockedOperationIsNamedByTheGate` above runs `⛔ none` → *named*. It
+     * cannot see the failure this stops, and did not: E9-2's condition opened with
+     * a **category** — *"any of §4.2's six create-a-child or three bulk operations
+     * while API-O-1 is open"* — and `CreateGoodsReceipt` is a create-a-child
+     * operation. Step 8-i gave it `unique:goods_receipt_idem_unique` and edited
+     * the **by-name** clause; the category clause was untouched, API-O-1 is still
+     * `⟦LIVE⟧`, and step 8-ii shipped the operation straight through it. There was
+     * no runtime defect — the operation is protected, by a real unique on a real
+     * client-supplied column — but a gate that a shipped operation walks past is
+     * not a gate, and the next one through it may not be protected.
+     *
+     * **A category cannot be reconciled against a set.** That is already this
+     * file's own finding, recorded when `CreatePurchaseOrder` fell outside
+     * *"create-a-child or bulk"* in the other direction, and the repair was
+     * applied to one clause of one row rather than to the rule. So this check
+     * makes the rule the rule:
+     *
+     *   1. **No blocking clause may name a category.** The condition cell and
+     *      API-O-1's register row must both decide their subject from §4.2's
+     *      `Idem` cell or from an operation name — never from *"create-a-child"*
+     *      or *"bulk operations"*, whose membership no test can compute.
+     *   2. **Every operation a condition names must still be `⛔ none`.** The
+     *      *why* cell is deliberately exempt: it is the narrative of how the gate
+     *      was widened and narrowed and it names operations that have since left,
+     *      which is why the condition cell is read alone.
+     *
+     * **Mutation, run:** `` `CreateGoodsReceipt` `` added to E9-2's condition cell
+     * (1 occurrence, counted). Red on clause 2 — *"E9-2's condition still blocks
+     * `CreateGoodsReceipt`, whose §4.2 cell reads
+     * `unique:goods_receipt_idem_unique`"*. Reverted, `cmp`-identical.
+     */
+    #[Test]
+    public function noGateBlocksByCategoryOrBlocksAnOperationThatNowHasAMechanism(): void
+    {
+        $this->requireLedger();
+        $this->requireContract();
+
+        $condition = DeliveryLedgerDocument::gateCondition('E9-2');
+        self::assertNotSame('', $condition, 'E9-2 has no condition cell, so nothing states what it blocks.');
+
+        $register = ContractDocument::registerRow('API-O-1');
+        self::assertNotSame('', $register, 'API-O-1 has left §14.1, so E9-2\'s citation of it dangles.');
+
+        // 1. Neither clause may decide its subject by a category.
+        foreach (self::UNDECIDABLE_CATEGORIES as $category) {
+            self::assertStringNotContainsString($category, $condition,
+                'E9-2\'s condition blocks by the category "'.$category.'". Membership of a category is not '
+                .'computable from §4.2, so no check can tell whether a shipped operation is inside it — which '
+                .'is how `CreateGoodsReceipt` shipped past this clause carrying a `unique:` cell. State the '
+                .'condition against the `Idem` cell, or by operation name.');
+
+            self::assertStringNotContainsString($category, $register,
+                'API-O-1 blocks by the category "'.$category.'", and E9-2\'s condition cites API-O-1 being '
+                .'open. The same undecidability reaches the gate through the citation.');
+        }
+
+        // 2. Nothing a condition names may have earned a mechanism since.
+        $stillBlocked = [];
+
+        foreach (DeliveryLedgerDocument::operationsNamedIn($condition) as $operationId) {
+            $mechanism = self::PINNED_MECHANISMS[$operationId] ?? null;
+
+            if (null === $mechanism || '⛔ none' === $mechanism) {
+                continue;
+            }
+
+            $stillBlocked[$operationId] = $mechanism;
+        }
+
+        self::assertSame([], $stillBlocked,
+            'E9-2\'s condition still blocks an operation whose §4.2 cell now names a mechanism: '
+            .json_encode($stillBlocked, \JSON_THROW_ON_ERROR).'. A gate that outlives its subject either '
+            .'stops a shipped operation or is walked past; both are how a gate stops being one.');
     }
 
     /**

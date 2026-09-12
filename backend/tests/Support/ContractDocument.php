@@ -167,6 +167,29 @@ final class ContractDocument
     }
 
     /**
+     * §14.1's open-item row for one code — `| **API-O-1** | …` — as its raw
+     * markdown.
+     *
+     * The same shape as {@see DeliveryLedgerDocument::gateRow()} and located the
+     * same way, by its own first cell, so a row that moves is still found. **A
+     * code that no longer has a row returns the empty string, and the caller must
+     * treat that as a failure rather than as nothing to check** — an open item
+     * that has quietly left the register is the case this must not pass.
+     */
+    public static function registerRow(string $code): string
+    {
+        $needle = '| **'.$code.'** |';
+
+        foreach (self::lines() as $line) {
+            if (str_starts_with($line, $needle)) {
+                return $line;
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * §5.2's catalogue: slug => status.
      *
      * @return array<string, int>
