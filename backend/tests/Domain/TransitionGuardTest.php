@@ -189,6 +189,62 @@ final class TransitionGuardTest extends TestCase
         Invoice::class => [],
     ];
 
+    /**
+     * **The scalar arguments clause (a) has to synthesise, by name — and, where
+     * the parameter carries a precondition, the value that FAILS it.**
+     *
+     * Until 2026-09-12 this register was two inline `if` blocks inside
+     * `argumentsFor()` that each supplied a *satisfying* value and nothing else,
+     * and that is why
+     * `everyTransitionMethodRefusesEveryIllegalSourceStatus`'s third limb —
+     * *"an illegal source status was refused by something other than the status
+     * guard"* — **had no mutation that could redden it.** `place()` was always
+     * called with `$liveLineCount = 1`, so `has_a_live_line` could not fire at
+     * all, so no ordering of the two guards inside `place()` changed what that
+     * limb saw. A clause with no reachable failure is the shape this project has
+     * now paid for six times.
+     *
+     * `refusing` is what gives it one. With `$liveLineCount = 0` **both** guards
+     * inside `place()` have something to say, and which of them speaks is D-C's
+     * shipped ruling (the project notes, step 6a): **status first, then the line
+     * guard** — a cancelled empty draft is told *"wrong status"*, not *"add a
+     * line"*, because adding a line is advice it cannot follow, line writes
+     * requiring `draft`. `theStatusGuardRefusesBeforeAnyPreconditionDoes` is
+     * that ruling as a check.
+     *
+     * `refusing` is **null** where the parameter has no refusing value at all:
+     * `recordReceipt()`'s flag is legal either way, and inventing a "refusing"
+     * value for it would be a case that proves nothing.
+     * `theStatusGuardRefusesBeforeAnyPreconditionDoes` refuses to take a stated
+     * `refusing` value on trust — it requires each one to actually refuse from a
+     * source the matrix allows, so a register entry cannot go quietly vacuous
+     * the way the two `if` blocks did.
+     *
+     * The keys are `Entity::method($parameter)` and
+     * `theSynthesisedScalarsAreExactlyTheRequiredScalarParametersInTheDomain`
+     * derives that set by reflection, so a transition method that grows a
+     * required scalar cannot be silently filled with a guessed value, and one
+     * that loses a parameter cannot leave a stale entry behind.
+     *
+     * @var array<string, array{satisfying: int|bool, refusing: int|bool|null, why: string}>
+     */
+    private const PRECONDITION_SCALARS = [
+        PurchaseOrder::class.'::place($liveLineCount)' => [
+            'satisfying' => 1,
+            'refusing' => 0,
+            'why' => 'Step 6a / D-C: an order with no live line may not be placed. 1 satisfies the precondition, so a '
+                .'legal matrix cell is not refused by a rule it is not about; 0 fails it, which is what makes the '
+                .'status guard\'s precedence checkable. `DomainRefusalTest` owns what the 0 case says over HTTP.',
+        ],
+        PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
+            'satisfying' => true,
+            'refusing' => null,
+            'why' => 'Step 8\'s outcome flag. Either value is legal from either source — it chooses between '
+                .'`partially_received` and `received`, it does not gate the transition — so there is no refusing '
+                .'value to give it. What the flag decides is `GoodsReceiptCreateTest`\'s.',
+        ],
+    ];
+
     // -----------------------------------------------------------------------
     // The domain
     // -----------------------------------------------------------------------
@@ -393,6 +449,169 @@ final class TransitionGuardTest extends TestCase
 
         self::assertGreaterThan(0, $inspected, 'No method was inspected, so this clause had no subject.');
         self::assertSame([], $literals, 'A guard restates a status instead of deriving it from the entity\'s STATUS_* constants.');
+    }
+
+    /**
+     * The scalars {@see self::PRECONDITION_SCALARS} supplies are **exactly** the
+     * required scalar parameters clause (a)'s domain declares — derived by
+     * reflection over the matrix's entities and their transition methods, not
+     * restated.
+     *
+     * This is the other half of the brief's question *"is the `int → 1` synthesis
+     * still scoped to `place()`'s `$liveLineCount` by name, and is any other
+     * required scalar being silently filled?"*. Read once, the answer is yes and
+     * no; asserted here, it stays that way. A new required scalar on a transition
+     * method is red until somebody decides what satisfies it and what refuses it.
+     *
+     * **Mutation:** delete either entry from the register; red here, naming the
+     * parameter, and `argumentsFor()` then fails the four clauses that invoke it.
+     */
+    #[Test]
+    public function theSynthesisedScalarsAreExactlyTheRequiredScalarParametersInTheDomain(): void
+    {
+        $required = [];
+
+        foreach (self::matrixEntities() as $entity) {
+            foreach (self::transitionMethods($entity) as $method) {
+                foreach ((new \ReflectionMethod($entity, $method))->getParameters() as $parameter) {
+                    if ($parameter->isOptional()) {
+                        break;
+                    }
+
+                    $type = $parameter->getType();
+
+                    if ($type instanceof \ReflectionNamedType && $type->isBuiltin()) {
+                        $required[] = self::scalarKey($entity, $method, $parameter->getName());
+                    }
+                }
+            }
+        }
+
+        sort($required);
+        $registered = array_keys(self::PRECONDITION_SCALARS);
+        sort($registered);
+
+        self::assertNotSame([], $required,
+            'No transition method takes a required scalar, so the register has no subject — retire it rather than '
+            .'leaving a list nothing is compared against.');
+
+        self::assertSame($registered, $required,
+            'PRECONDITION_SCALARS does not name exactly the required scalar parameters of the transition methods in '
+            .'§8.3\'s matrix. A parameter this test synthesises a value for without a decision behind it is how '
+            .'clause (a) ends up exercising a branch nobody chose.');
+    }
+
+    /**
+     * **D-C's ordering, as a check: the status guard speaks before any
+     * precondition does.**
+     *
+     * Run for every register entry that has a refusing value, and in both
+     * directions, because either one alone is worthless:
+     *
+     *  - from every source the matrix **allows**, the refusing value must produce
+     *    an `IllegalTransition` that is *not* a status refusal. That is the
+     *    non-vacuity half — it proves the value really does fail the precondition,
+     *    so a register entry cannot claim a refusing value it does not have;
+     *  - from every source the matrix **refuses**, the same call must be refused
+     *    by the **status** rule, with the entity untouched. That is the ordering
+     *    half, and it is the case
+     *    `everyTransitionMethodRefusesEveryIllegalSourceStatus` cannot reach,
+     *    because it always passes the satisfying value.
+     *
+     * ⚠ **What this does NOT claim, because the brief that asked for it was
+     * wrong about the code.** Step 9's brief said clause (a)'s status-rule limb
+     * *"has no mutation that can redden it today"*, and that is true **of this
+     * file**. It is not true of the project: `DomainRefusalTest::theStatusGuardRunsBeforeTheLineGuard`
+     * already drives `place()` at `liveLineCount: 0` from `ordered` and already
+     * reddens under the same mutation (verified — both go red together). What
+     * this adds over it is that it is **derived**: one hand-written pair becomes
+     * every register entry × every status the matrix refuses, so the day a
+     * status is added or a second transition grows a precondition, the case
+     * appears without anybody writing it; plus the vacuity guard below, which
+     * the hand-written pair carries as a fixture assumption rather than an
+     * assertion.
+     *
+     * **Mutation (the ordering):** move `refuseUnlessStatusIsOneOf()` below the
+     * `$liveLineCount` check in `PurchaseOrder::place()`; red here on all three
+     * illegal sources — `purchase_order.has_a_live_line` where the status rule is
+     * owed — and **green everywhere else in this file**, which is precisely the
+     * gap. **Mutation (the vacuity guard):** set `place()`'s `refusing` to `1`;
+     * red on the first limb, because a value that satisfies the precondition
+     * refuses nothing.
+     */
+    #[Test]
+    public function theStatusGuardRefusesBeforeAnyPreconditionDoes(): void
+    {
+        $legalCases = 0;
+        $illegalCases = 0;
+        $notRefused = [];
+        $refusedByTheStatusGuard = [];
+        $accepted = [];
+        $notAStatusRefusal = [];
+        $mutated = [];
+
+        foreach (self::PRECONDITION_SCALARS as $key => $entry) {
+            if (null === $entry['refusing']) {
+                continue;
+            }
+
+            [$entity, $method] = self::splitScalarKey($key);
+            $legal = self::legalSourcesFor($entity, $method);
+
+            foreach ($legal as $status) {
+                ++$legalCases;
+                $subject = self::instance($entity, $status);
+
+                try {
+                    self::invoke($subject, $entity, $method, $key);
+                    $notRefused[] = $key.' from "'.$status.'"';
+                } catch (IllegalTransition $e) {
+                    if (str_ends_with($e->rule(), '.'.IllegalTransition::RULE)) {
+                        $refusedByTheStatusGuard[] = $key.' from "'.$status.'": '.$e->rule();
+                    }
+                }
+            }
+
+            foreach (self::statusesOf($entity) as $status) {
+                if (\in_array($status, $legal, true)) {
+                    continue;
+                }
+
+                ++$illegalCases;
+                $subject = self::instance($entity, $status);
+                $before = self::snapshot($subject);
+
+                try {
+                    self::invoke($subject, $entity, $method, $key);
+                    $accepted[] = $key.' from "'.$status.'"';
+                } catch (IllegalTransition $e) {
+                    if (!str_ends_with($e->rule(), '.'.IllegalTransition::RULE)) {
+                        $notAStatusRefusal[] = $key.' from "'.$status.'": '.$e->rule();
+                    }
+
+                    if ($before != self::snapshot($subject)) {
+                        $mutated[] = $key.' from "'.$status.'"';
+                    }
+                }
+            }
+        }
+
+        self::assertGreaterThan(0, $legalCases, 'No register entry declares a refusing value, so this clause had no subject.');
+        self::assertGreaterThan(0, $illegalCases, 'No illegal source was exercised, so the ordering half had no subject.');
+
+        self::assertSame([], $notRefused,
+            'A PRECONDITION_SCALARS entry states a refusing value and the method accepted it from a status the matrix '
+            .'allows. The value refuses nothing, so every case below it is vacuous.');
+        self::assertSame([], $refusedByTheStatusGuard,
+            'A refusing value was refused by the STATUS guard from a source the matrix allows, so this case is not '
+            .'about the precondition at all.');
+
+        self::assertSame([], $accepted, 'A transition method accepted an illegal source status when its precondition also failed.');
+        self::assertSame([], $notAStatusRefusal,
+            'A transition was refused by its precondition from a source status the matrix does not allow. D-C ruled the '
+            .'other way round (status first, then the content guard): a cancelled empty draft must be told its status is '
+            .'wrong, not told to add a line — adding a line is advice it cannot follow, because line writes require draft.');
+        self::assertSame([], $mutated, 'A refused transition left the entity modified — the guard runs after part of the write.');
     }
 
     // -----------------------------------------------------------------------
@@ -772,10 +991,14 @@ final class TransitionGuardTest extends TestCase
         return $subject;
     }
 
-    /** @param class-string $entity */
-    private static function invoke(object $subject, string $entity, string $method): void
+    /**
+     * @param class-string $entity
+     * @param ?string      $refuseAt the {@see self::PRECONDITION_SCALARS} key whose
+     *                               **refusing** value to pass instead of its satisfying one
+     */
+    private static function invoke(object $subject, string $entity, string $method, ?string $refuseAt = null): void
     {
-        (new \ReflectionMethod($entity, $method))->invokeArgs($subject, self::argumentsFor(new \ReflectionMethod($entity, $method)));
+        (new \ReflectionMethod($entity, $method))->invokeArgs($subject, self::argumentsFor($entity, $method, $refuseAt));
     }
 
     /**
@@ -801,18 +1024,22 @@ final class TransitionGuardTest extends TestCase
 
 
     /**
-     * Required arguments, synthesised from the parameter types. An unknown type
-     * fails the test rather than being skipped — a transition method with a
-     * signature this cannot build is one that would otherwise drop silently out of
-     * clause (a)'s domain.
+     * Required arguments, synthesised from the parameter types and — for the
+     * scalars — from {@see self::PRECONDITION_SCALARS}, **by name**. An unknown
+     * type fails the test rather than being skipped: a transition method with a
+     * signature this cannot build is one that would otherwise drop silently out
+     * of clause (a)'s domain.
+     *
+     * @param class-string $entity
+     * @param ?string      $refuseAt the register key to pass the **refusing** value for
      *
      * @return list<mixed>
      */
-    private static function argumentsFor(\ReflectionMethod $method): array
+    private static function argumentsFor(string $entity, string $method, ?string $refuseAt = null): array
     {
         $arguments = [];
 
-        foreach ($method->getParameters() as $parameter) {
+        foreach ((new \ReflectionMethod($entity, $method))->getParameters() as $parameter) {
             if ($parameter->isOptional()) {
                 break;
             }
@@ -825,40 +1052,44 @@ final class TransitionGuardTest extends TestCase
                 continue;
             }
 
-            // `PurchaseOrder::place()`'s live-line count (step 6a), BY NAME and
-            // nothing else: 1 satisfies it, so a legal matrix cell is not refused
-            // by a rule it is not about. `DomainRefusalTest` owns the 0 case. Any
-            // other `int` still falls through to the failure below — a new
-            // parameter needs a decision, not a guessed value.
-            if (PurchaseOrder::class === $method->getDeclaringClass()->getName()
-                && 'place' === $method->getName()
-                && 'liveLineCount' === $parameter->getName()
-                && $type instanceof \ReflectionNamedType && 'int' === $type->getName()) {
-                $arguments[] = 1;
+            $key = self::scalarKey($entity, $method, $parameter->getName());
 
-                continue;
-            }
+            if (isset(self::PRECONDITION_SCALARS[$key])) {
+                $entry = self::PRECONDITION_SCALARS[$key];
 
-            // `PurchaseOrder::recordReceipt()`'s outcome flag (step 8), BY NAME:
-            // either value is legal from either source, so `true` refuses nothing
-            // the matrix allows. What the flag decides is `GoodsReceiptCreateTest`'s.
-            if (PurchaseOrder::class === $method->getDeclaringClass()->getName()
-                && 'recordReceipt' === $method->getName()
-                && 'allLinesReceived' === $parameter->getName()
-                && $type instanceof \ReflectionNamedType && 'bool' === $type->getName()) {
-                $arguments[] = true;
+                $arguments[] = $key === $refuseAt && null !== $entry['refusing']
+                    ? $entry['refusing']
+                    : $entry['satisfying'];
 
                 continue;
             }
 
             self::fail(\sprintf(
-                '%s::%s() takes $%s, whose type this test cannot synthesise. Teach it the type rather than excluding the method.',
-                $method->getDeclaringClass()->getName(),
-                $method->getName(),
+                '%s::%s() takes $%s, which this test cannot synthesise. Give it an entry in PRECONDITION_SCALARS '
+                .'with the value that satisfies it and the value that refuses it, rather than excluding the method.',
+                $entity,
+                $method,
                 $parameter->getName(),
             ));
         }
 
         return $arguments;
+    }
+
+    /** The {@see self::PRECONDITION_SCALARS} key for one parameter, in one place so both sides spell it the same way. */
+    private static function scalarKey(string $entity, string $method, string $parameter): string
+    {
+        return $entity.'::'.$method.'($'.$parameter.')';
+    }
+
+    /**
+     * @return array{0: class-string, 1: string}
+     */
+    private static function splitScalarKey(string $key): array
+    {
+        [$entity, $rest] = explode('::', $key, 2);
+
+        /* @var class-string $entity */
+        return [$entity, substr($rest, 0, (int) strpos($rest, '('))];
     }
 }
