@@ -271,6 +271,16 @@ final class ContractDocument
      * The `Accepted request fields` cell of one row, as the set of top-level
      * field names it declares.
      *
+     * ⚠ **A `lines[].x` token declares the top-level field `lines`, and until
+     * 2026-09-12 this reader dropped it entirely.** That blind spot was reported
+     * in `PurchaseOrderOperationContractTest`'s own pin: `CreatePurchaseOrder`'s
+     * cell named four `lines[].*` fields the code did not implement, and because
+     * every one of them was discarded here, no comparison in the project could
+     * see the shortfall — unlike `expected_at` on a line, which had a tie. The
+     * token is now folded to its top-level field, so the nested cell is visible
+     * to the same comparison as every other field; the sub-fields themselves are
+     * {@see self::nestedAcceptedFields()}'s.
+     *
      * @return list<string>
      */
     public static function acceptedFields(string $operationId): array
@@ -295,6 +305,40 @@ final class ContractDocument
 
         preg_match_all('/`([a-z_]+(?:\[\]\.[a-z_]+)?)`/', $cell, $matches);
 
-        return array_values(array_unique(array_filter($matches[1], static fn (string $f): bool => !str_contains($f, '[]'))));
+        // `lines[].quantity` is the field `lines`, carrying an object. Folded
+        // rather than dropped, and folded before `array_unique()` so the four
+        // tokens of one nested field collapse to one name in the position the
+        // first of them held.
+        return array_values(array_unique(array_map(
+            static fn (string $field): string => str_contains($field, '[]') ? strstr($field, '[]', true) : $field,
+            $matches[1],
+        )));
+    }
+
+    /**
+     * The sub-fields one `Accepted request fields` cell declares under a nested
+     * field — `lines[].quantity` under `lines`.
+     *
+     * **This is the half `acceptedFields()` cannot express**, and the reason it
+     * exists is a measured blind spot rather than symmetry: §4.2 named four
+     * `lines[].*` fields on `CreatePurchaseOrder` for a month while the operation
+     * refused the whole field, and nothing could go red about it because the
+     * tokens were discarded unread.
+     *
+     * @return list<string>
+     */
+    public static function nestedAcceptedFields(string $operationId, string $field): array
+    {
+        $cell = self::operationRows()[$operationId]['accepts'] ?? '';
+
+        if (str_starts_with($cell, '—')) {
+            return [];
+        }
+
+        $cell = (string) preg_replace('/\([^()]*\)/', '', $cell);
+
+        preg_match_all('/`'.preg_quote($field, '/').'\[\]\.([a-z_]+)`/', $cell, $matches);
+
+        return array_values(array_unique($matches[1]));
     }
 }

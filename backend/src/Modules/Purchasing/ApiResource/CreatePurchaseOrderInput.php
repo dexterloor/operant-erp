@@ -25,33 +25,35 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * is the clause that fails if this class ever grows the field.
  *
  * ---------------------------------------------------------------------------
- * ⚠ `lines[]` is in §4.2's accepted cell and is NOT accepted here
+ * `lines[]` — the nested create, built at step 8a (D-C)
  * ---------------------------------------------------------------------------
  * §4.2 names `lines[].inventory_item_id`, `lines[].quantity`,
- * `lines[].unit_cost` and `lines[].expected_at` on this row. They are not
- * implemented, and the field is **refused loudly** rather than accepted and
- * discarded — a request carrying `lines` gets API-9's `validation-failed`
- * naming it as undeclared, which is the same treatment `expected_at` gets on a
- * purchase order line for the same reason.
+ * `lines[].unit_cost` and `lines[].expected_at` on this row. **Three of the four
+ * are accepted; `expected_at` is not, and it is the same subtraction
+ * `CreatePurchaseOrderLine` already makes** — `purchase_order_line` has no such
+ * column, and
+ * `PurchaseOrderOperationContractTest::lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`
+ * is the tie that makes the day the column arrives a red suite. It now covers
+ * this operation's nested set as well as the two line writes.
  *
- * **This is a reported shortfall, not a derivation.** Three things make it the
- * defensible half of the choice and none of them makes it complete:
+ * **This section used to record the shortfall and its cost.** Until 2026-09-12
+ * the field was refused loudly and an order and its lines were therefore not
+ * atomic: a create that succeeded followed by a line create that failed left a
+ * headless draft. D-C ruled the nested create rather than the deferral, and
+ * `PurchaseOrderWriter::create()` now writes both in one transaction — all of it
+ * or none of it.
  *
- *   - F-2 steps 2–6 are a draft created first and lines added to it afterwards,
- *     through `CreatePurchaseOrderLine`, which ships and is tested;
- *   - a nested create would have to mint `line_number` and snapshot
- *     `lead_time_days` per line inside this operation, duplicating the logic
- *     `PurchaseOrderWriter::createLine()` already owns — and a second copy of a
- *     snapshot rule is how the two drift;
- *   - `PurchaseOrderResource`'s own docblock already argues that the `lines[]`
- *     entries are **`PurchaseOrderLine`'s** nested create rather than fields of
- *     this resource, and records that the derivation admits both readings.
+ * **`lines` stays optional**, because F-2 steps 2–6 remain legal: a draft may be
+ * raised empty and filled through `CreatePurchaseOrderLine`. What is refused is
+ * an **empty list** — `lines: []` says nothing that omitting the field does not
+ * say, and admitting it would put an empty list into the request digest, where
+ * canonical JSON cannot tell `[]` from `{}`. 6a's approval refusal is what stops
+ * an empty order being placed.
  *
- * What it costs is real and is stated: a client cannot raise an order and its
- * lines in one request, so the two are not atomic, and a create that succeeds
- * followed by a line create that fails leaves an empty draft. **`expected_at`,
- * which §4.2 accepts at both levels, is accepted here** — the order carries the
- * column; the line does not.
+ * **The rules are `PurchaseOrderWriter::createLine()`'s and there is no second
+ * copy of them:** both paths mint `line_number` from the position in the list and
+ * snapshot `lead_time_days` from the supplier's catalogue through one shared
+ * method. A second copy of a snapshot rule is how the two drift.
  */
 final class CreatePurchaseOrderInput
 {
@@ -79,4 +81,21 @@ final class CreatePurchaseOrderInput
     /** RFC 3339. Nullable in the schema: an order may be raised with no expected date. */
     #[SerializedName('expected_at')]
     public ?string $expectedAt = null;
+
+    /**
+     * The order's lines, as the decoded JSON array, checked entry by entry by
+     * `PurchaseOrderWriter`.
+     *
+     * Typed `?array` rather than a list of a nested input class for
+     * `CreateGoodsReceiptInput`'s reason: the writer refuses an unknown key on a
+     * line as API-9 refuses one at the top level, which keeps every pointer
+     * (`/lines/0/quantity`) in the one place that also knows which supplier
+     * catalogue a refusal is about.
+     *
+     * **Absent (`null`) and an empty list are not the same thing.** Absent is
+     * F-2's empty draft and is accepted; `[]` is refused. See the class docblock.
+     *
+     * @var array<mixed>|null
+     */
+    public ?array $lines = null;
 }

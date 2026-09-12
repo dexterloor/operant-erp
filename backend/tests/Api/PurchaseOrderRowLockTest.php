@@ -660,9 +660,19 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
     /** Writers that take no lock, each by name and with its reason. Keep it short. */
     private const ALLOWED_WITHOUT_A_LOCK = [
-        'PurchaseOrderWriter::create' => 'It inserts the row, so there is no existing row to lock. Its two races '
-            .'are answered by unique indexes: purchase_order_tenant_idem_live (a replay of the same key) and '
-            .'purchase_order_tenant_number_live (two creates picking the same order number).',
+        // ⚠ **Re-argued at step 8a, when this method stopped writing one row.**
+        // Since the nested create (D-C) it inserts the order, inserts its lines
+        // and rewrites `total_amount` — three writes across both tables. The
+        // entry survives, and not because the reason was reused: the order is
+        // created by this transaction and its id is a freshly minted UUID, so
+        // until COMMIT there is no second transaction that can address the row
+        // or its lines, and a lock would have nothing to serialise against.
+        // That is a property of the write, not a claim about callers.
+        'PurchaseOrderWriter::create' => 'It inserts the order, so there is no existing row to lock, and no other '
+            .'transaction can address what it inserts until it commits. Its two races are answered by unique '
+            .'indexes: purchase_order_tenant_idem_live (a replay of the same key) and '
+            .'purchase_order_tenant_number_live (two creates picking the same order number). Its lines are '
+            .'inserted in the same transaction and belong to an order nobody else can reach yet.',
     ];
 
     /** Statement text that writes either table. */
@@ -757,15 +767,31 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
         // Private and protected writers are reached through their in-class
         // callers. Repeat until nothing new is reached (a helper of a helper).
+        //
+        // ⚠ **A caller already in the list still collects the helper it reaches,
+        // and until 2026-09-12 it did not.** The clause read
+        // `if (!isset($reach[$caller]))`, so a method that already wrote one of
+        // the two tables directly never recorded the helpers it called. Found by
+        // step 8a: `PurchaseOrderWriter::create()` gained the nested lines, and
+        // the scan went on reporting it as `INSERT INTO purchase_order` alone —
+        // membership was right, the **description** was wrong, and that
+        // description is the only thing a reader of `ALLOWED_WITHOUT_A_LOCK` has
+        // to judge whether its reason is still true. It would have said "it
+        // inserts the row, so there is no existing row to lock" about a method
+        // that also inserts lines and rewrites the order's total.
+        //
+        // It terminates for the same reason as before: each (caller, helper)
+        // pair is added at most once and there are finitely many.
         do {
             $changed = false;
             foreach (array_keys($reach) as $key) {
                 if ($methods[$key]['public']) {
                     continue;
                 }
+                $via = 'via '.$methods[$key]['name'].'()';
                 foreach (self::inClassCallersOf($methods, $key) as $caller) {
-                    if (!isset($reach[$caller])) {
-                        $reach[$caller] = ['via '.$methods[$key]['name'].'()'];
+                    if (!\in_array($via, $reach[$caller] ?? [], true)) {
+                        $reach[$caller][] = $via;
                         $changed = true;
                     }
                 }

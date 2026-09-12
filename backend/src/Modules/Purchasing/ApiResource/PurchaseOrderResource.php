@@ -40,7 +40,16 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *      — and nothing else.
  *
  * **`lines` is deliberately NOT a member of this shape, and the reason is a
- * reading of §4.4.3 rather than a convenience.** `CreatePurchaseOrder`'s accepted
+ * reading of §4.4.3 rather than a convenience.** ⚠ **It is a statement about the
+ * RESPONSE only, and since step 8a the request half reads the other way:**
+ * `CreatePurchaseOrder` now accepts `lines[]` (D-C), so an order and its lines
+ * are raised in one call — and the response to that call is still this shape,
+ * with `total_amount` reflecting the lines and `ListPurchaseOrderLines` the way
+ * to read them back. The two are not in tension: what the create accepts and
+ * what the read returns are different derivations, and only the second is
+ * §4.4.3's.
+ *
+ * `CreatePurchaseOrder`'s accepted
  * cell names `lines[].inventory_item_id`, `lines[].quantity`, `lines[].unit_cost`
  * and `lines[].expected_at`. Those are fields of **PurchaseOrderLine**, which
  * §4.4.3 gives an additions row of its own — so it is a resource with its own
@@ -100,10 +109,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'CreatePurchaseOrder'),
             input: CreatePurchaseOrderInput::class,
             denormalizationContext: [
-                // API-9: unknown fields are refused, never ignored. This is also
-                // what refuses `lines` — §4.2 names `lines[]` on this row and
-                // this operation does not implement the nested create, so the
-                // field is refused loudly rather than accepted and discarded.
+                // API-9: unknown fields are refused, never ignored. ⚠ **It no
+                // longer refuses `lines`** — step 8a built the nested create
+                // (D-C) and `CreatePurchaseOrderInput` declares the field. What
+                // the deserializer cannot reach is the entries *inside* it: a
+                // decoded array has no declared properties, so API-9 is applied
+                // to each line by `PurchaseOrderWriter::nestedLines()`, which is
+                // also what refuses `lines[].expected_at`.
                 'allow_extra_attributes' => false,
                 'api_assign_object_to_populate' => false,
             ],

@@ -10,8 +10,10 @@ use App\Modules\Purchasing\ApiResource\CancelPurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
+use App\Modules\Purchasing\ApiResource\State\PurchaseOrderCollectionProvider;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput;
 use App\Modules\Purchasing\Application\PurchaseOrderViews;
+use App\Modules\Purchasing\Application\PurchaseOrderWriter;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
@@ -138,19 +140,19 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * @var array<string, list<string>>
      */
     private const PINNED_ACCEPTED_FIELDS = [
-        // ⚠ **A THIRD cell is implemented short, and it is this one.** §4.2 also
-        // names `lines[].inventory_item_id`, `lines[].quantity`,
-        // `lines[].unit_cost` and `lines[].expected_at` on this row — the nested
-        // create — and this package does not implement it: an order is raised
-        // first and lines are added through `CreatePurchaseOrderLine`.
-        // **The subtraction is invisible to the document comparison below**,
-        // because `ContractDocument::acceptedFields()` already drops every
-        // `lines[].*` token, so unlike the `expected_at` case there is no
-        // `assertContains` here that would go red the day the nested create
-        // ships. That is stated rather than left to be inferred:
-        // `CreatePurchaseOrderInput`'s docblock carries the shortfall, and it is
-        // reported in the step-6 hand-back as a named residual.
-        'CreatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'currency_code', 'expected_at'],
+        // ⚠ **The third short cell was this one, and step 8a closed it (D-C).**
+        // §4.2 names `lines[].inventory_item_id`, `lines[].quantity`,
+        // `lines[].unit_cost` and `lines[].expected_at` on this row; the nested
+        // create is now built and accepts the first three.
+        // **The blind spot that hid the shortfall is closed with it:**
+        // `ContractDocument::acceptedFields()` used to drop every `lines[].*`
+        // token, so nothing here could go red about the missing field — it now
+        // folds them to the top-level `lines`, and
+        // `theNestedLineCellIsExactlyTheNestedSetTheWriterAccepts` compares the
+        // sub-fields with the writer's own set. `lines[].expected_at` is the one
+        // subtraction, and it is the SAME subtraction the two line writes make,
+        // held by the same column tie.
+        'CreatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'currency_code', 'expected_at', 'lines'],
         'CancelPurchaseOrder' => ['reason'],
         'UpdatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'expected_at'],
         'ApprovePurchaseOrder' => ['expected_at'],
@@ -340,6 +342,70 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
                 .'Columns found: '.implode(', ', $columns),
             );
         }
+
+        // **The third place the same field arrives, added with step 8a's nested
+        // create.** §4.2 names `lines[].expected_at` on `CreatePurchaseOrder`
+        // too, so without this clause the nested path could accept the field the
+        // two line writes refuse and the suite would be green on the
+        // contradiction.
+        self::assertSame(
+            \in_array(self::UNSTORABLE_LINE_FIELD, $columns, true),
+            \in_array(self::UNSTORABLE_LINE_FIELD, PurchaseOrderWriter::nestedLineFields(), true),
+            'CreatePurchaseOrder\'s nested lines[] set must accept '.self::UNSTORABLE_LINE_FIELD
+            .' exactly when purchase_order_line has a column for it.',
+        );
+    }
+
+    /**
+     * **§4.2's `lines[].*` sub-fields against the ones the writer accepts — the
+     * comparison that could not be written until 2026-09-12.**
+     *
+     * `ContractDocument::acceptedFields()` dropped every `lines[].*` token, so
+     * for a month §4.2 declared a nested create this package refused entirely and
+     * **no check in the project could see it**. `CreatePurchaseOrderInput`'s
+     * docblock said so and a docblock is not a gate. This is the gate.
+     *
+     * The one subtraction is `expected_at`, by name and in one direction, exactly
+     * as `thePinsMatchTheContractDocument` subtracts it from the two line writes —
+     * and `lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn` is what makes it
+     * temporary.
+     */
+    #[Test]
+    public function theNestedLineCellIsExactlyTheNestedSetTheWriterAccepts(): void
+    {
+        $this->requireDocument();
+
+        $documented = ContractDocument::nestedAcceptedFields('CreatePurchaseOrder', 'lines');
+
+        self::assertContains(self::UNSTORABLE_LINE_FIELD, $documented,
+            '§4.2 no longer names lines[].'.self::UNSTORABLE_LINE_FIELD.' on CreatePurchaseOrder, so the subtraction below is stale.');
+
+        self::assertSame(
+            array_values(array_diff($documented, [self::UNSTORABLE_LINE_FIELD])),
+            PurchaseOrderWriter::nestedLineFields(),
+            'The nested lines[] fields PurchaseOrderWriter accepts are not §4.2\'s, less the one the schema cannot store.',
+        );
+    }
+
+    /**
+     * **The nested create's line cap, against the ceiling it was taken from.**
+     *
+     * No document sets a number of lines (grepped: §4.2 and §2 bound page size
+     * and nothing else), so `PurchaseOrderWriter::MAXIMUM_LINES` is a decision
+     * taken in the writer and it says so. What this pins is that it is not an
+     * arbitrary literal: it is API-17's `limit` maximum — the most rows this API
+     * will return in one response — so an order cannot be raised with more lines
+     * than the read side will ever hand back in one page.
+     *
+     * If the page ceiling moves, this goes red and somebody decides whether the
+     * write cap moves with it. That is the question worth forcing; two literals
+     * silently drifting apart is not.
+     */
+    #[Test]
+    public function theNestedLineCapIsThePageCeiling(): void
+    {
+        self::assertSame(PurchaseOrderCollectionProvider::MAXIMUM_LIMIT, PurchaseOrderWriter::MAXIMUM_LINES,
+            'The cap on lines[] in one CreatePurchaseOrder is no longer API-17\'s page ceiling.');
     }
 
     /**

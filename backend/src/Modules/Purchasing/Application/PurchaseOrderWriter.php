@@ -95,6 +95,41 @@ final readonly class PurchaseOrderWriter
     /** §4.2's operation id, digested with the request so no other operation's request can match it. */
     private const CREATE_OPERATION = 'CreatePurchaseOrder';
 
+    /**
+     * §4.2's `lines[]` sub-fields that `CreatePurchaseOrder` accepts, as input
+     * properties. The field names the client sends are derived from `POINTERS`
+     * by {@see self::nestedLineFields()}, so this set has one spelling.
+     *
+     * ⚠ **`expectedAt` is deliberately absent.** §4.2 names `lines[].expected_at`
+     * and `purchase_order_line` has no column for it — the same subtraction
+     * `CreatePurchaseOrderLine` makes, held by the same tie
+     * (`lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`).
+     */
+    private const NESTED_LINE_PROPERTIES = ['inventoryItemId', 'quantity', 'unitCost'];
+
+    /**
+     * **How many lines one `CreatePurchaseOrder` may carry. No document sets a
+     * number, so this is a decision taken here and reported as one.**
+     *
+     * **Public because the refusal message names the number**, and because
+     * `PurchaseOrderOperationContractTest` pins it against the page ceiling it is
+     * taken from rather than letting it be an unexplained literal.
+     *
+     * 200 is §4.2's own ceiling on how many rows this API will return in a single
+     * response (API-17's `limit` maximum, `PurchaseOrderCollectionProvider::MAXIMUM_LIMIT`);
+     * `PurchaseOrderOperationContractTest` pins the two together rather than
+     * letting this be an unexplained constant. An order with more lines than the
+     * API will ever hand back in one page is past what the read side was designed
+     * for, and the write side should not mint one.
+     *
+     * ⚠ **The reason usually given for such a cap does not apply here and is not
+     * claimed:** `create()` holds no row lock — there is no row yet — so an
+     * unbounded list would not hold one. What it would do is put an unbounded
+     * number of INSERTs and catalogue lookups inside one transaction, which is
+     * reason enough on its own.
+     */
+    public const MAXIMUM_LINES = 200;
+
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
@@ -219,17 +254,41 @@ final readonly class PurchaseOrderWriter
         ];
 
         $this->refuseMalformedCreateFields($values);
+        $lines = self::nestedLines($input->lines);
 
         // D-B: what was SENT, normalised -- after the shape check, so every value
         // here is one the normalisers accept. `currency_code` is the client's
         // value or null, never the workspace default it resolves to below: that
         // default can change between a timeout and its retry.
-        $digest = RequestDigest::of(self::CREATE_OPERATION, [
+        $digestedFields = [
             'supplier_id' => RequestDigest::uuid($values['supplierId']),
             'warehouse_id' => RequestDigest::uuid($values['warehouseId']),
             'currency_code' => $values['currencyCode'],
             'expected_at' => RequestDigest::instant($values['expectedAt']),
-        ]);
+        ];
+
+        // ⚠ **`lines` enters the digest only when it was SENT, and that is the
+        // whole of 8a's backward compatibility.** Every order created before the
+        // nested create shipped stored a digest computed from the four fields
+        // above; adding a fifth key unconditionally -- even as an explicit null --
+        // changes the canonical JSON of a request that omits it, so every one of
+        // those rows would answer its next honest retry with a 409. A key that is
+        // absent leaves the canonical form byte-identical.
+        // `theStoredDigestOfAFixedRequestIsPinned` is the constant that says so,
+        // and `aRetryOfARequestRaisedBeforeTheNestedCreateIsStillAReplay` drives it
+        // over HTTP.
+        //
+        // **The list keeps its order**, which `RequestDigest` does by design and
+        // this is the caller its docblock names: `line_number` is minted from the
+        // position, so the same two lines the other way round are a different
+        // order and must be a conflict, not a replay. That is the opposite of
+        // `GoodsReceiptWriter::digestedLines()`, which sorts because a receipt has
+        // no line order at all.
+        if (null !== $lines) {
+            $digestedFields['lines'] = self::digestedLines($lines);
+        }
+
+        $digest = RequestDigest::of(self::CREATE_OPERATION, $digestedFields);
 
         // D-B: the column holds the header's hash, never its value. The replay
         // read and the INSERT below both use this, so they cannot disagree.
@@ -243,7 +302,7 @@ final readonly class PurchaseOrderWriter
         try {
             return $this->tenants->run(
                 $this->tenant->tenantId(),
-                function (EntityManagerInterface $em) use ($values, $id, $createdBy, $keyHash, $digest): PurchaseOrderResource {
+                function (EntityManagerInterface $em) use ($values, $lines, $id, $createdBy, $keyHash, $digest): PurchaseOrderResource {
                     // **The replay answer, and it is a read rather than a caught
                     // exception.** See the method docblock: a constraint
                     // violation inside `wrapInTransaction` closes the
@@ -296,6 +355,19 @@ final readonly class PurchaseOrderWriter
                             $digest,
                         ],
                     );
+
+                    // D-C: the lines, in the SAME transaction as the order. Any
+                    // refusal below rolls the order back with them -- there is no
+                    // savepoint and none is wanted, because a create that kept the
+                    // order and dropped a line is the headless draft this step
+                    // exists to make impossible.
+                    foreach ($lines ?? [] as $index => $line) {
+                        $this->insertLineInside($em, $id, $line, $index);
+                    }
+
+                    if (null !== $lines) {
+                        $this->recomputeTotal($em, $id);
+                    }
 
                     return $this->readOrderInside($em, $id)
                         ?? throw new \LogicException('The order just inserted is not visible to its own transaction.');
@@ -399,95 +471,17 @@ final readonly class PurchaseOrderWriter
             'unitCost' => $input->unitCost,
         ];
 
-        $this->refuseMalformedLineFields($values, required: ['inventoryItemId', 'quantity', 'unitCost']);
-
-        $id = Uuid::v4()->toRfc4122();
+        $this->refuseMalformedLineFields($values, required: self::NESTED_LINE_PROPERTIES);
 
         return $this->translatingConstraintFailures(fn (): PurchaseOrderLineResource => $this->tenants->run(
             $this->tenant->tenantId(),
-            function (EntityManagerInterface $em) use ($orderId, $values, $id): PurchaseOrderLineResource {
-                $connection = $em->getConnection();
-
+            function (EntityManagerInterface $em) use ($orderId, $values): PurchaseOrderLineResource {
                 PurchaseOrderRowLock::holdInside($em, $orderId);
                 $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
                 $this->refuseIfArchived($order);
                 $this->refuseUnlessDraft($order);
 
-                $itemId = (string) $values['inventoryItemId'];
-
-                // ST-5's oracle: `inventory_item` is tenant-scoped, so this
-                // lookup is bounded by RLS and an id belonging to another tenant
-                // is indistinguishable from one that never existed. That is why
-                // it is a `validation-failed` on the *field* rather than a
-                // `not-found` on a row the caller never addressed.
-                if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL', [$itemId])) {
-                    throw ApiProblem::validationFailed([
-                        self::error('inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.'),
-                    ]);
-                }
-
-                // F-2 step 3 -- lead time is **snapshotted** onto the line from
-                // the supplier's catalogue, never referenced, because
-                // `supplier_product` is deletion class `hard` *"precisely so
-                // current terms can change without rewriting a placed order"*.
-                // `purchase_order_line.lead_time_days` is NOT NULL with no
-                // default and §4.2 accepts no field for it, so this read is the
-                // only source there is.
-                $leadTime = $connection->fetchOne(
-                    <<<'SQL'
-                    SELECT sp.lead_time_days
-                    FROM supplier_product sp
-                    JOIN purchase_order po ON po.tenant_id = sp.tenant_id AND po.supplier_id = sp.supplier_id
-                    WHERE po.id = ?::uuid AND sp.inventory_item_id = ?::uuid
-                    SQL,
-                    [$orderId, $itemId],
-                );
-
-                if (false === $leadTime) {
-                    // A rule about *this* order and *this* item rather than a
-                    // defect in a field the caller sent -- the supplier comes
-                    // from the order, not from the request -- so E-2's second
-                    // case and §5.2's `business-rule-violated`.
-                    throw ApiProblem::businessRuleViolated(
-                        'purchase_order_line.supplier_lists_the_item',
-                        'This order\'s supplier has no catalogue entry for that item, so the line has no lead time to record.',
-                    );
-                }
-
-                $connection->executeStatement(
-                    <<<'SQL'
-                    INSERT INTO purchase_order_line
-                        (id, tenant_id, purchase_order_id, inventory_item_id, line_number,
-                         quantity_ordered, unit_cost, lead_time_days)
-                    VALUES
-                        (?::uuid, ?::uuid, ?::uuid, ?::uuid,
-                         -- The next free number on this order. `line_number` is
-                         -- NOT NULL, §4.2 accepts no field for it, and
-                         -- `purchase_order_line_unique` is partial on
-                         -- `deleted_at IS NULL` -- so a discarded number is
-                         -- reusable and this MAX is over the live lines only,
-                         -- which is the same set the index constrains.
-                         (SELECT COALESCE(MAX(line_number), 0) + 1
-                            FROM purchase_order_line
-                           WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL),
-                         ?::numeric, ?::numeric, ?)
-                    SQL,
-                    [
-                        $id,
-                        // Bound explicitly rather than read back out of the GUC.
-                        // The row still has to satisfy the RLS WITH CHECK
-                        // clause, so a mismatch between this value and the
-                        // transaction's tenant is refused by Postgres rather
-                        // than accepted.
-                        $this->tenant->tenantId(),
-                        $orderId,
-                        $itemId,
-                        $orderId,
-                        $values['quantity'],
-                        $values['unitCost'],
-                        (int) $leadTime,
-                    ],
-                );
+                $id = $this->insertLineInside($em, $orderId, $values, null);
 
                 $this->recomputeTotal($em, $orderId);
 
@@ -495,6 +489,124 @@ final readonly class PurchaseOrderWriter
                     ?? throw new \LogicException('The line just inserted is not visible to its own transaction.');
             },
         ));
+    }
+
+
+    /**
+     * **F-2 step 3's line rules, in the one place either of them is written.**
+     *
+     * Both write paths enter here — `CreatePurchaseOrderLine` with `$index` null,
+     * and `CreatePurchaseOrder`'s nested `lines[]` with the line's position — so
+     * `line_number` minting and the `lead_time_days` snapshot exist once. The
+     * input docblock says why that mattered enough to refactor rather than copy:
+     * a second copy of a snapshot rule is how the two drift.
+     *
+     * **`$index` is the JSON Pointer base and nothing else.** Null points errors
+     * at `/inventory_item_id`; an integer points them at
+     * `/lines/0/inventory_item_id`. It is **0-based**, matching
+     * `GoodsReceiptWriter` and the array index the pointer addresses.
+     *
+     * ⚠ **The two refusals below throw on the FIRST offending line rather than
+     * collecting every bad line, and that is a decision rather than an
+     * oversight.** They cannot be collected together even in principle: an
+     * unknown item is `validation-failed` **with a pointer** and a catalogue miss
+     * is `business-rule-violated`, which carries no errors array at all — the
+     * supplier comes from the order, not from the request. Shape errors, which
+     * are one problem type, ARE collected across every line by
+     * {@see self::nestedLines()}.
+     *
+     * @param array<string, string|null> $values `inventoryItemId`, `quantity`, `unitCost`, already shape-checked
+     * @param int|null                   $index  the line's position in `lines[]`, or null for the single-line path
+     *
+     * @return string the new line's id
+     */
+    private function insertLineInside(EntityManagerInterface $em, string $orderId, array $values, ?int $index): string
+    {
+        $connection = $em->getConnection();
+        $id = Uuid::v4()->toRfc4122();
+        $itemId = (string) $values['inventoryItemId'];
+        // ST-5's oracle: `inventory_item` is tenant-scoped, so this
+        // lookup is bounded by RLS and an id belonging to another tenant
+        // is indistinguishable from one that never existed. That is why
+        // it is a `validation-failed` on the *field* rather than a
+        // `not-found` on a row the caller never addressed.
+        if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL', [$itemId])) {
+            throw ApiProblem::validationFailed([
+                self::lineError($index, 'inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.'),
+            ]);
+        }
+
+        // F-2 step 3 -- lead time is **snapshotted** onto the line from
+        // the supplier's catalogue, never referenced, because
+        // `supplier_product` is deletion class `hard` *"precisely so
+        // current terms can change without rewriting a placed order"*.
+        // `purchase_order_line.lead_time_days` is NOT NULL with no
+        // default and §4.2 accepts no field for it, so this read is the
+        // only source there is.
+        $leadTime = $connection->fetchOne(
+            <<<'SQL'
+            SELECT sp.lead_time_days
+            FROM supplier_product sp
+            JOIN purchase_order po ON po.tenant_id = sp.tenant_id AND po.supplier_id = sp.supplier_id
+            WHERE po.id = ?::uuid AND sp.inventory_item_id = ?::uuid
+            SQL,
+            [$orderId, $itemId],
+        );
+
+        if (false === $leadTime) {
+            // A rule about *this* order and *this* item rather than a
+            // defect in a field the caller sent -- the supplier comes
+            // from the order, not from the request -- so E-2's second
+            // case and §5.2's `business-rule-violated`.
+            // A `business-rule-violated` problem carries no pointer, so on the
+            // nested path the line is named in the MESSAGE. It is named by its
+            // pointer rather than as an ordinal ("Line 1"), because the ordinal
+            // and the 0-based pointer disagree and a caller correcting the wrong
+            // line is worse than a slightly technical sentence.
+            throw ApiProblem::businessRuleViolated(
+                'purchase_order_line.supplier_lists_the_item',
+                'This order\'s supplier has no catalogue entry for '
+                .(null === $index ? 'that item' : 'the item at /lines/'.$index)
+                .', so the line has no lead time to record.',
+            );
+        }
+
+        $connection->executeStatement(
+            <<<'SQL'
+            INSERT INTO purchase_order_line
+                (id, tenant_id, purchase_order_id, inventory_item_id, line_number,
+                 quantity_ordered, unit_cost, lead_time_days)
+            VALUES
+                (?::uuid, ?::uuid, ?::uuid, ?::uuid,
+                 -- The next free number on this order. `line_number` is
+                 -- NOT NULL, §4.2 accepts no field for it, and
+                 -- `purchase_order_line_unique` is partial on
+                 -- `deleted_at IS NULL` -- so a discarded number is
+                 -- reusable and this MAX is over the live lines only,
+                 -- which is the same set the index constrains.
+                 (SELECT COALESCE(MAX(line_number), 0) + 1
+                    FROM purchase_order_line
+                   WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL),
+                 ?::numeric, ?::numeric, ?)
+            SQL,
+            [
+                $id,
+                // Bound explicitly rather than read back out of the GUC.
+                // The row still has to satisfy the RLS WITH CHECK
+                // clause, so a mismatch between this value and the
+                // transaction's tenant is refused by Postgres rather
+                // than accepted.
+                $this->tenant->tenantId(),
+                $orderId,
+                $itemId,
+                $orderId,
+                $values['quantity'],
+                $values['unitCost'],
+                (int) $leadTime,
+            ],
+        );
+
+        return $id;
     }
 
     public function updateLine(string $orderId, string $lineId, UpdatePurchaseOrderLineInput $input): PurchaseOrderLineResource
@@ -872,6 +984,26 @@ final readonly class PurchaseOrderWriter
      */
     private function refuseMalformedLineFields(array $values, array $required): void
     {
+        if ([] !== ($errors = self::malformedLineFields($values, $required))) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * The same rules, returned rather than thrown, so the nested create can
+     * collect them across every line and re-point each one at
+     * `/lines/<n>/<field>`. **There is no second copy of any rule below**: the
+     * nested path's pointers are these pointers with a prefix, which is what
+     * makes a mutation that drops the prefix visible as a failing pointer
+     * assertion rather than as a silently different message.
+     *
+     * @param array<string, string|null> $values
+     * @param list<string>               $required
+     *
+     * @return list<array{pointer: string, code: string, message: string}>
+     */
+    private static function malformedLineFields(array $values, array $required): array
+    {
         $errors = [];
 
         foreach ($required as $property) {
@@ -904,9 +1036,161 @@ final readonly class PurchaseOrderWriter
             $errors[] = self::error('unitCost', 'not_a_decimal', 'This field must be a non-negative decimal string with at most 15 integer digits and 4 fractional digits.');
         }
 
+        return $errors;
+    }
+
+    /**
+     * **§4.2's `lines[]` sub-fields, as the client spells them.**
+     *
+     * Derived from `POINTERS` rather than written out a second time, so the set
+     * the writer accepts and the pointers it refuses with cannot disagree.
+     * `PurchaseOrderOperationContractTest` reads this to close the blind spot
+     * `ContractDocument::acceptedFields()` leaves: that reader drops every
+     * `lines[].*` token, so nothing compared the nested cell with the code until
+     * this method existed.
+     *
+     * @return list<string>
+     */
+    public static function nestedLineFields(): array
+    {
+        return array_map(static fn (string $property): string => ltrim(self::POINTERS[$property], '/'), self::NESTED_LINE_PROPERTIES);
+    }
+
+    /**
+     * **The shape of `lines`, decidable without the database**, so it runs before
+     * a transaction is opened — `GoodsReceiptWriter::lines()`'s posture, for its
+     * reason.
+     *
+     * Returns null when the field was **absent**, which is F-2's empty draft and
+     * is legal; every other answer is a non-empty list. The two are kept apart all
+     * the way to the digest, where absent means "no `lines` key at all" and
+     * therefore digests exactly as a pre-8a request did.
+     *
+     * ⚠ **`lines: []` is refused**, and the reason is not only that an order with
+     * nothing on it says nothing omitting the field does not say. 6b named the
+     * residual: in canonical JSON an empty list and an empty object both encode as
+     * `[]`, so admitting an empty list would put a value into the digest that
+     * cannot be told from a different one. Refusing it means the digest never sees
+     * an empty list and the question does not arise. 6a's approval refusal is the
+     * separate rule that stops an empty order being placed.
+     *
+     * Shape errors are collected across **every** line, because they are one
+     * problem type; the two database rules are not, and
+     * {@see self::insertLineInside()} says why.
+     *
+     * @param array<mixed>|null $raw
+     *
+     * @return list<array<string, string|null>>|null
+     */
+    private static function nestedLines(?array $raw): ?array
+    {
+        if (null === $raw) {
+            return null;
+        }
+
+        if ([] === $raw) {
+            throw ApiProblem::validationFailed([[
+                'pointer' => '/lines', 'code' => 'at_least_one_line',
+                'message' => 'A purchase order raised with lines must carry at least one. Omit the field to raise an empty draft.',
+            ]]);
+        }
+
+        if (!array_is_list($raw)) {
+            throw ApiProblem::validationFailed([[
+                'pointer' => '/lines', 'code' => 'not_a_list', 'message' => 'This field must be a list of lines.',
+            ]]);
+        }
+
+        if (\count($raw) > self::MAXIMUM_LINES) {
+            throw ApiProblem::validationFailed([[
+                'pointer' => '/lines', 'code' => 'too_many_lines',
+                'message' => \sprintf('A purchase order may be raised with at most %d lines in one request. '
+                    .'Raise it with the first %d and add the rest through the lines sub-resource.', self::MAXIMUM_LINES, self::MAXIMUM_LINES),
+            ]]);
+        }
+
+        $accepted = self::nestedLineFields();
+        $errors = [];
+        $lines = [];
+
+        foreach ($raw as $index => $line) {
+            // An empty JSON object decodes to `[]`, which is also a list -- so an
+            // empty object is admitted here and refused one clause down as three
+            // missing required fields, which is what it is.
+            if (!\is_array($line) || array_is_list($line) && [] !== $line) {
+                $errors[] = [
+                    'pointer' => '/lines/'.$index, 'code' => 'not_an_object', 'message' => 'Each line must be an object.',
+                ];
+                continue;
+            }
+
+            $before = \count($errors);
+
+            // API-9 at the nesting level the deserializer cannot reach: `lines`
+            // arrives as a decoded array, so `additionalProperties: false` says
+            // nothing about its entries. **`expected_at` is refused here**, which
+            // is the tie Trap 3 asks for -- §4.2 names `lines[].expected_at` and
+            // `purchase_order_line` has no column for it.
+            foreach (array_diff(array_keys($line), $accepted) as $unknown) {
+                $errors[] = [
+                    'pointer' => '/lines/'.$index.'/'.$unknown, 'code' => 'undeclared', 'message' => 'This field is not accepted.',
+                ];
+            }
+
+            $values = [];
+            foreach (self::NESTED_LINE_PROPERTIES as $property) {
+                $value = $line[ltrim(self::POINTERS[$property], '/')] ?? null;
+
+                // The top-level fields are typed by the input DTO; these are not,
+                // so a number where a decimal string belongs is named here rather
+                // than coerced. S-12: money and quantities are strings.
+                if (null !== $value && !\is_string($value)) {
+                    $errors[] = self::lineError($index, $property, 'not_a_string', 'This field must be sent as a string.');
+                    $value = null;
+                }
+
+                $values[$property] = $value;
+            }
+
+            if (\count($errors) > $before) {
+                continue;
+            }
+
+            foreach (self::malformedLineFields($values, self::NESTED_LINE_PROPERTIES) as $error) {
+                $error['pointer'] = self::nestedPointerPrefix($index).$error['pointer'];
+                $errors[] = $error;
+            }
+
+            $lines[] = $values;
+        }
+
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
         }
+
+        return $lines;
+    }
+
+    /**
+     * The lines as §6.2 digests them — **in the order they were sent**, because
+     * `line_number` is minted from the position and two lines the other way round
+     * are a different order. `RequestDigest`'s docblock names this operation as
+     * the caller that makes list order contract.
+     *
+     * Quantities at scale 6 and costs at scale 4, the columns' own scales, so
+     * `"2"`, `"2.0"` and `"2.000000"` are one request.
+     *
+     * @param list<array<string, string|null>> $lines
+     *
+     * @return list<array<string, string|null>>
+     */
+    private static function digestedLines(array $lines): array
+    {
+        return array_map(static fn (array $line): array => [
+            'inventory_item_id' => RequestDigest::uuid($line['inventoryItemId']),
+            'quantity' => bcadd((string) $line['quantity'], '0', 6),
+            'unit_cost' => bcadd((string) $line['unitCost'], '0', 4),
+        ], $lines);
     }
 
     /**
@@ -958,7 +1242,29 @@ final readonly class PurchaseOrderWriter
     /** @return array{pointer: string, code: string, message: string} */
     private static function error(string $property, string $code, string $message): array
     {
-        return ['pointer' => self::POINTERS[$property], 'code' => $code, 'message' => $message];
+        return self::lineError(null, $property, $code, $message);
+    }
+
+    /**
+     * The same refusal, addressed at a line of `lines[]` when the nested create
+     * raised it. **0-based**, matching `GoodsReceiptWriter` and the array index
+     * the pointer names.
+     *
+     * @return array{pointer: string, code: string, message: string}
+     */
+    private static function lineError(?int $index, string $property, string $code, string $message): array
+    {
+        return [
+            'pointer' => self::nestedPointerPrefix($index).self::POINTERS[$property],
+            'code' => $code,
+            'message' => $message,
+        ];
+    }
+
+    /** `''` for a top-level field, `/lines/<n>` for one inside the nested create. */
+    private static function nestedPointerPrefix(?int $index): string
+    {
+        return null === $index ? '' : '/lines/'.$index;
     }
 
     /**
