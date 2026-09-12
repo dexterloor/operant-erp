@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use Doctrine\DBAL\Exception\DriverException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -42,14 +43,55 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
         self::assertSame('23502', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-1', hash('sha256', 'k'), null)));
     }
 
-    /** A writer that forgot to hash is refused by Postgres, not trusted. */
+    /**
+     * **A writer that forgot to hash is refused by Postgres, not trusted — and
+     * the CHECK is `'^[0-9a-f]{64}$'`, every character of which is load-bearing.**
+     *
+     * Step 8-i ran **one** bad value per column: a UUID for the key, an
+     * upper-case digest. That pair leaves two ways to weaken the constraint
+     * without any test noticing. Dropping the `^…$` anchors leaves
+     * `~ '[0-9a-f]{64}'`, which **accepts a 64-character hash with anything
+     * stuck on either end** — a raw header value appended to a hash would store
+     * and the column would no longer mean what the replay read assumes. And
+     * writing it case-insensitively (`~*`, or `[0-9a-fA-F]`) accepts
+     * `strtoupper($hash)`, which is a *different string* from the one
+     * `IdempotencyKeyHash::of()` produces, so two spellings of one key would
+     * both be stored and the unique would refuse neither against the other.
+     *
+     * So each column now runs the whole set, and the columns run the same set
+     * rather than one each: a constraint written for one and forgotten for the
+     * other is the shape this file exists to catch.
+     */
     #[Test]
-    public function aKeyOrDigestThatIsNotLowerCaseHexSha256IsRefused(): void
+    #[DataProvider('valuesTheShapeCheckMustRefuse')]
+    public function aKeyOrDigestThatIsNotLowerCaseHexSha256IsRefused(string $column, string $value): void
     {
         $order = $this->orderedOrder();
+        $good = hash('sha256', 'good');
 
-        self::assertSame('23514', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-1', Uuid::v4()->toRfc4122(), hash('sha256', 'r'))));
-        self::assertSame('23514', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-1', hash('sha256', 'k'), strtoupper(hash('sha256', 'r')))));
+        self::assertSame('23514', $this->sqlStateOf(fn () => 'idempotency_key' === $column
+            ? $this->insertReceipt($order, 'GR-1', $value, $good)
+            : $this->insertReceipt($order, 'GR-1', $good, $value)));
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function valuesTheShapeCheckMustRefuse(): iterable
+    {
+        $hash = hash('sha256', 'k');
+
+        $bad = [
+            'not a hash at all' => Uuid::v4()->toRfc4122(),
+            'upper case' => strtoupper($hash),
+            'a hash with a character after it' => $hash.'x',
+            'a hash with a character before it' => 'x'.$hash,
+            'one character short' => substr($hash, 0, 63),
+        ];
+
+        foreach (['idempotency_key', 'request_digest'] as $column) {
+            foreach ($bad as $what => $value) {
+                yield $column.': '.$what => [$column, $value];
+            }
+        }
     }
 
     #[Test]

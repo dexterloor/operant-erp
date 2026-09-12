@@ -129,8 +129,19 @@ use PHPUnit\Framework\Attributes\Test;
  * loosened for it. The unique is **total**, because `goods_receipt` is class
  * `none` and has no `deleted_at`, and
  * `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes` already
- * demanded exactly that of a non-soft table. The partiality check is honest
- * here as written: "not soft" means "total", and `none` is not soft.
+ * demanded exactly that of a non-soft table.
+ *
+ * **⚠ This paragraph used to end *"the partiality check is honest here as
+ * written: 'not soft' means 'total', and `none` is not soft"*, and that was the
+ * inference the check did not make.** It read partiality as
+ * `str_contains($def, 'deleted_at IS NULL')`, so *"not partial on that one
+ * predicate"* was recorded as *"total"* and **any other predicate passed**. A
+ * `goods_receipt_idem_unique` written `WHERE received_at > …` would have read as
+ * a total unique while constraining a subset, and a backdated retry would have
+ * escaped the index this operation's cell names as its whole mechanism.
+ * **Measured on 2026-09-12, not argued:** that index was re-created with exactly
+ * that predicate against the live catalogue and the check stayed **green**. It
+ * is now written in both directions and is red on it.
  *
  * ⚠ **One mutation in this set silently failed to apply, and it is recorded
  * because it is the lesson rather than a mishap.** The first attempt at
@@ -319,6 +330,12 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * @var list<string>
      */
+    /**
+     * The one predicate a live-row unique may carry, as `pg_indexes` normalises
+     * it. See `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes`.
+     */
+    private const LIVE_ROW_PREDICATE = '(deleted_at IS NULL)';
+
     private const UNDECIDABLE_CATEGORIES = [
         'create-a-child',
         'bulk operations',
@@ -470,11 +487,45 @@ final class IdempotencyContractTest extends TenancyTestCase
      * row is live — which is why `supplier_product_unique` and `user_role_unique`
      * are total and still correct.
      *
-     * **Mutation, run, against the live catalogue:** `inventory_item_tenant_sku_live`
-     * dropped and re-created **without** its `WHERE deleted_at IS NULL`
-     * predicate, leaving a total unique on a `soft` table. Red — *"CreateItem's
-     * unique … is total while the manifest classes the table soft"*. Restored to
-     * the migration's exact definition afterwards.
+     * ---------------------------------------------------------------------------
+     * ⚠ It asked the wrong question until 2026-09-12, and called itself honest
+     * ---------------------------------------------------------------------------
+     * Partiality was read as `str_contains($def, 'deleted_at IS NULL')`, so
+     * *"partial"* meant *"partial on that one predicate"* and **every other
+     * predicate read as total**. On a non-soft table — `goods_receipt`, class
+     * `none` — a unique written `WHERE received_at > '2026-01-01'`, or
+     * `WHERE status <> 'void'`, or anything else, would have passed this check as
+     * a total unique while constraining a subset of the rows. **A backdated retry
+     * would then escape the index the contract names as its whole mechanism.**
+     * This file's step 8-i note said the check was *"honest here as written"* on
+     * the ground that *"not soft" means "total"*; that is the inference the check
+     * does not actually make.
+     *
+     * **It now asks what it means to ask, in both directions:**
+     *
+     *   - a **non-soft** table's unique must have **no `WHERE` at all** — total is
+     *     total, not "total except for the predicate I did not think of";
+     *   - a **soft** table's predicate must be **exactly `(deleted_at IS NULL)`**,
+     *     not merely contain it, so `WHERE deleted_at IS NULL AND status = 'x'`
+     *     is red rather than mistaken for a live-row unique.
+     *
+     * The predicate is taken from the catalogue's own `indexdef`, which Postgres
+     * normalises and parenthesises, so the comparison is against what the server
+     * holds rather than against the migration's spelling.
+     *
+     * **This is where `IssueInvoice` arrives when D-A is built**: its ruled index
+     * is partial on `status <> 'void'` and `invoice` is class `none`, so it must
+     * teach this check that predicate by name. That is the point — it will have
+     * to say so, rather than pass silently as it would have before.
+     *
+     * **Mutations, run** (against the live catalogue, each restored from the
+     * migration's exact definition): **(a)** `goods_receipt_idem_unique` dropped
+     * and re-created with `WHERE received_at > '2000-01-01'::timestamptz` — the
+     * escape the old check could not see. Red now, **green before**. **(b)**
+     * `inventory_item_tenant_sku_live` re-created without its
+     * `WHERE deleted_at IS NULL`, the original mutation, still red. **(c)** the
+     * same index re-created with `WHERE deleted_at IS NULL AND sku <> ''` — red
+     * now, **green before**.
      */
     #[Test]
     public function everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes(): void
@@ -489,17 +540,35 @@ final class IdempotencyContractTest extends TenancyTestCase
             self::assertArrayHasKey($table, SchemaManifest::TABLES, $table.' is not in the manifest.');
 
             $softDeletes = SchemaManifest::SOFT === SchemaManifest::TABLES[$table]['deletion'];
-            $isPartial = str_contains($catalogue[$indexName]['def'], 'deleted_at IS NULL');
+            $predicate = self::predicateOf($catalogue[$indexName]['def']);
 
-            self::assertSame($softDeletes, $isPartial,
-                $operationId.'\'s unique '.$indexName.' on '.$table.' is '.($isPartial ? 'partial' : 'total')
+            self::assertSame($softDeletes ? self::LIVE_ROW_PREDICATE : null, $predicate,
+                $operationId.'\'s unique '.$indexName.' on '.$table.' is '
+                .(null === $predicate ? 'total' : 'partial on '.$predicate)
                 .' while the manifest classes the table '.SchemaManifest::TABLES[$table]['deletion'].'. '
-                .'A soft-deleting table needs a live-row partial or an archived row blocks a re-create; '
-                .'a hard-deleting one has no deleted_at to be partial on.');
+                .'A soft-deleting table needs a live-row partial and nothing else in the predicate, or an '
+                .'archived row blocks a re-create or some other subset escapes it; a non-soft one must have '
+                .'no WHERE at all, because any predicate leaves rows the unique does not constrain and the '
+                .'contract names this index as the whole mechanism.');
             ++$checked;
         }
 
         self::assertGreaterThan(0, $checked, 'No unique mechanism was examined.');
+    }
+
+    /**
+     * An index's `WHERE` predicate as the catalogue spells it, or `null` when it
+     * has none.
+     *
+     * `pg_indexes.indexdef` is the server's own normalisation — it parenthesises
+     * the predicate and re-prints the expression — so `WHERE deleted_at IS NULL`
+     * comes back as `WHERE (deleted_at IS NULL)` however the migration wrote it.
+     * Matching on that normalised form is the point: it compares against what the
+     * database enforces, not against a spelling.
+     */
+    private static function predicateOf(string $def): ?string
+    {
+        return 1 === preg_match('/\bWHERE\s+(.+)$/', $def, $m) ? trim($m[1]) : null;
     }
 
     /**

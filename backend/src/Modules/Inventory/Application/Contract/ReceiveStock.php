@@ -85,14 +85,28 @@ namespace App\Modules\Inventory\Application\Contract;
  *     `goodsReceiptId`, which the caller mints server-side, so it refuses
  *     `receive()` twice for one receipt — for instance, calling once per line.
  *     A RETRIED request mints a new goods receipt with a new id and posts
- *     again; nothing here can see that. Nothing on the caller's side stops it
- *     today either: `goods_receipt` has only its primary key and a unique on
- *     the server-minted `receipt_number`, and `CreateGoodsReceipt` is `⛔ none`
- *     in API.md's idempotency column. Retry protection is the caller's
- *     client-supplied key (step 8). What the caller must do here is insert
- *     its `goods_receipt` row BEFORE calling. Its primary key then refuses a
- *     second receipt with the same id, and two transactions posting one id
- *     queue on that key instead of both passing this read.
+ *     again; nothing here can see that, and nothing here ever will — **a retry
+ *     is the caller's to recognise, because only the caller holds the request
+ *     it is a retry of.**
+ *
+ *     **⚠ Corrected 2026-09-12.** This said the caller had no protection
+ *     either — that `goods_receipt` carried only its primary key and a unique
+ *     on the server-minted `receipt_number`, that `CreateGoodsReceipt` was
+ *     `⛔ none` in `API.md`'s idempotency column, and that retry protection was
+ *     coming *"(step 8)"*. All of that was already false when it was written:
+ *     `Version20260911000400` (step 8-i) gave `goods_receipt` a client-supplied
+ *     `idempotency_key` and a `request_digest`, both `NOT NULL`, on the unique
+ *     `goods_receipt_idem_unique (tenant_id, idempotency_key)`, so the cell
+ *     reads `unique:goods_receipt_idem_unique`; and step 8-ii shipped
+ *     `GoodsReceiptWriter`, which reads that key under the order's row lock and
+ *     answers a repeat with the first receipt, or with
+ *     `idempotency-key-conflict` when the digest differs. **So a retried
+ *     `CreateGoodsReceipt` never reaches this method a second time.**
+ *
+ *     What the caller must do here is unchanged and is still a requirement:
+ *     insert its `goods_receipt` row BEFORE calling. Its primary key then
+ *     refuses a second receipt with the same id, and two transactions posting
+ *     one id queue on that key instead of both passing this read.
  *   - A receipt that fits but pushes an EXISTING level past numeric(19,6)
  *     (`qty_on_hand + delta` over 13 integer digits) is not refused here: the
  *     upsert fails with 22003 and aborts your transaction. Loud, nothing

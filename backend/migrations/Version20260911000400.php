@@ -38,9 +38,22 @@ use Doctrine\Migrations\AbstractMigration;
  * this one. A nullable column plus a trigger would describe a population that
  * does not exist. So both columns are plain `NOT NULL`, which says the same
  * thing in one clause and needs no function, no grant and no `WHEN`. An
- * integration or a scanner that posts receipts later (the entity allows a NULL
- * `received_by_user_id` for them) mints its own key, as the reorder agent must
- * for `purchase_order`.
+ *
+ * ⚠ **An integration or a scanner that posts receipts later — the entity allows a
+ * NULL `received_by_user_id` for them — is an OPEN ITEM, and saying it "mints its
+ * own key, as the reorder agent must for `purchase_order`" was half an answer.**
+ * Minting a key is the easy half: any opaque string the writer can reproduce on
+ * its own retry, hashed by `IdempotencyKeyHash::of()`. **The digest is the half
+ * with no answer here.** `RequestDigest::of()` digests *a request* — an operation
+ * id and the fields §4.2 declares — and a writer that is not serving one has no
+ * request to digest, while both columns are `NOT NULL`. Three shapes are possible
+ * and none is ruled: it goes through `CreateGoodsReceipt` like any other client,
+ * which is cheapest and makes the question disappear; or it digests the
+ * equivalent field set itself, which puts a second producer of these values
+ * outside the one class that defines them; or the column admits a non-request
+ * digest and `request_digest` stops meaning what its name says. **Nothing is
+ * built and nothing needs to be** — no such writer exists — but it is named as an
+ * open item rather than left reading as decided.
  *
  * **If a database does hold receipts** (none has been deployed), `ADD COLUMN …
  * NOT NULL` fails on the first row. That is the right outcome: such rows have
