@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\Purchasing\Application\GoodsReceiptWriter;
+use App\Modules\Purchasing\Application\PurchaseOrderWriter;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -695,6 +697,134 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
             $received = '0.000000';
         }
         $this->assertStatus($po['order'], $status);
+    }
+
+    /**
+     * **Both refusals that name one line out of many name it by its POINTER.**
+     *
+     * They used to read `Line %d` with the 0-based array index, so the first
+     * line was *"Line 0"* and the second was *"Line 1"* — which a caller reads
+     * as an ordinal and corrects the **wrong line**. 8a met the same problem on
+     * `CreatePurchaseOrder` and ruled it the other way: name the line by the
+     * pointer the rest of the response uses (`/lines/1`), *"because the ordinal
+     * and the 0-based pointer disagree and a caller correcting the wrong line is
+     * worse than a slightly technical sentence"*
+     * (`PurchaseOrderWriter::insertLineInside()`). This is that rule applied to
+     * the two places in `GoodsReceiptWriter` that shipped before it existed.
+     *
+     * **The fixture is built so the two readings differ.** The offending line is
+     * the **second** one in both cases, so a message saying "1" is wrong under
+     * either reading only if it means the ordinal — and a fixture with one line,
+     * or with the first line offending, cannot tell the two apart at all. The
+     * assertion that no message contains the word `Line ` at all is what stops
+     * the ordinal spelling coming back in a different sentence.
+     *
+     * **Mutation:** put either `sprintf('Line %d', $index)` back; red, naming the
+     * message.
+     */
+    #[Test]
+    public function aRefusalThatNamesOneLineNamesItByItsPointer(): void
+    {
+        $po = $this->orderedOrderWithLines(['10', '10']);
+
+        // (a) `business-rule-violated` carries no pointer, so the line is named
+        //     in the DETAIL. The second line is the one over-received.
+        $this->receive($po['order'], [
+            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '11', 'storage_location_id' => $po['bin']],
+        ]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order_line.is_not_over_received', $this->json()['rule']);
+        $detail = (string) $this->json()['detail'];
+        self::assertStringContainsString('/lines/1', $detail, 'The over-receipt refusal does not name the line it refused.');
+        self::assertStringNotContainsString('Line ', $detail,
+            'The over-receipt refusal names the line as an ordinal. The index it has is 0-based, so the ordinal it '
+            .'prints is off by one and the caller corrects a line that is not the problem.');
+
+        // (b) A validation error carries its own pointer for the DUPLICATE, and
+        //     names the line it duplicates in the message. That one is the first.
+        $this->receive($po['order'], [
+            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
+        ]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([['pointer' => '/lines/1/storage_location_id', 'code' => 'duplicate_line']], $this->errorPointers());
+        $message = (string) $this->json()['errors'][0]['message'];
+        self::assertStringContainsString('/lines/0', $message, 'The duplicate refusal does not name the line already receiving that pair.');
+        self::assertStringNotContainsString('Line ', $message,
+            'The duplicate refusal names the earlier line as an ordinal, and it is 0-based — it printed "Line 0" for '
+            .'the first line, which is not a line number any caller can act on.');
+    }
+
+    /**
+     * **`lines[]` is capped, and the receipt is the side of the asymmetry that
+     * needed it most.**
+     *
+     * 8a capped `CreatePurchaseOrder` at
+     * {@see \App\Modules\Purchasing\Application\PurchaseOrderWriter::MAXIMUM_LINES}
+     * and left this uncapped, and the reviewer found the asymmetry was **the
+     * wrong way round**: `CreatePurchaseOrder` holds **no** row lock — it
+     * inserts an order nobody can address until it commits — while
+     * `CreateGoodsReceipt` takes `PurchaseOrderRowLock::holdInside()` on the
+     * order **before** it inserts anything, and then inserts one
+     * `goods_receipt_line` per request line, one `UPDATE` per order line, and
+     * one stock movement per line, all inside that lock.
+     *
+     * **So the honest reason is the one 8a could not use, and it is not the one
+     * 8a's first attempt gave.** (8a's two false reasons are recorded as false
+     * in that constant's docblock — the number is §10.1/API-17's, not §4.2's,
+     * and `ListPurchaseOrderLines` is unpaginated, so there is no page to
+     * overflow. Neither is repeated here.) An uncapped receipt is an unbounded
+     * amount of work performed **while holding a lock every other write to that
+     * order has to wait behind** — approval, cancellation, every line edit, and
+     * every other delivery. The cap bounds how long one caller can hold it.
+     *
+     * **The number is tied, not derived**, exactly as 8a tied its own: the two
+     * bound different things, and what the tie says is that the largest batch
+     * this API accepts in one request against one order is **one magnitude,
+     * reviewed in one place**. The tie is asserted here, in a test, rather than
+     * by importing `PurchaseOrderWriter::MAXIMUM_LINES` into
+     * `GoodsReceiptWriter` — a production import would add a new
+     * `PurchasingApplication → PurchasingApplication` class-pair edge to
+     * `deptrac.yaml`, which registers those edges per class pair.
+     *
+     * **Mutations:** raise the cap in `GoodsReceiptWriter` alone → the tie is
+     * red; remove the cap → the edge case is red with 201.
+     */
+    #[Test]
+    public function aReceiptWithMoreLinesThanTheCapIsRefusedBeforeAnythingIsLocked(): void
+    {
+        self::assertSame(PurchaseOrderWriter::MAXIMUM_LINES, GoodsReceiptWriter::MAXIMUM_LINES,
+            'The two write paths into one purchase order accept different numbers of lines in one request. They bound '
+            .'different mechanisms — one an unlocked insert, one an insert holding the order\'s row lock — but they are '
+            .'one magnitude and are reviewed together. If one moves deliberately, move this assertion with it and say '
+            .'in both docblocks why they now differ.');
+
+        // **The over-cap request is otherwise VALID**, which is what makes the
+        // "remove the cap" mutation worth running: one bin per line, so no line
+        // duplicates another, and an order quantity that covers all of them, so
+        // nothing over-receipts. With the cap removed this request is a 201 and
+        // writes every one of those lines. A fixture of identical lines would
+        // have been refused by the duplicate rule either way, and the cap would
+        // never have had to be the thing that spoke.
+        $po = $this->orderedOrderWithLines([(string) (GoodsReceiptWriter::MAXIMUM_LINES + 1)]);
+
+        $lines = [];
+        for ($i = 0; $i <= GoodsReceiptWriter::MAXIMUM_LINES; ++$i) {
+            $lines[] = [
+                'purchase_order_line_id' => $po['lines'][0],
+                'quantity' => '1',
+                'storage_location_id' => $this->seedLocation(self::TENANT_A, $po['warehouse'], \sprintf('B-%04d', $i)),
+            ];
+        }
+
+        $this->receive($po['order'], $lines);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('too_many_lines', array_column($this->json()['errors'], 'code', 'pointer')['/lines'] ?? null);
+        $this->assertNothingReceived($po, PurchaseOrder::STATUS_ORDERED);
     }
 
     /** @return list<array{pointer: string, code: string}> */

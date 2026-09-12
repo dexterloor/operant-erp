@@ -81,6 +81,43 @@ final readonly class GoodsReceiptWriter
     private const LINE_FIELDS = ['purchase_order_line_id', 'quantity', 'storage_location_id'];
 
     /**
+     * **The most lines one request may deliver, and the reason is this
+     * operation's own rather than a copy of `CreatePurchaseOrder`'s.**
+     *
+     * 8a capped `CreatePurchaseOrder` at 200 and left this uncapped, and 8a's
+     * reviewer found the asymmetry was **the wrong way round**. `create()` over
+     * there inserts an order no other transaction can address until it commits
+     * and takes **no row lock at all**. This one takes
+     * `PurchaseOrderRowLock::holdInside()` on the order first and then, inside
+     * that lock, writes one `goods_receipt_line` per request line, one `UPDATE
+     * purchase_order_line` per order line touched and one stock movement per
+     * line. **An uncapped receipt is therefore an unbounded amount of work held
+     * in front of every other write to that order** — its approval, its
+     * cancellation, every line edit, every other delivery — all of which queue
+     * on the same lock. That is the reason, and it is a property of this write
+     * rather than a claim about response sizes.
+     *
+     * **The two reasons 8a first gave for its own 200 are false and are not
+     * repeated here** (see `PurchaseOrderWriter::MAXIMUM_LINES`, which records
+     * them as false): the number is `API.md` §10.1 / API-17's page ceiling, not
+     * §4.2's, and `ListPurchaseOrderLines` is unpaginated, so nothing overflows a
+     * page. What the shared number means is only this: **the largest batch this
+     * API accepts in one request against one purchase order is one magnitude,
+     * and is reviewed in one place.**
+     *
+     * The tie is asserted in
+     * `GoodsReceiptCreateTest::aReceiptWithMoreLinesThanTheCapIsRefusedBeforeAnythingIsLocked`
+     * rather than by importing `PurchaseOrderWriter::MAXIMUM_LINES` here: that
+     * import would add a new class-pair edge to `deptrac.yaml`, which registers
+     * those edges per class pair, for a value neither class derives from the
+     * other.
+     *
+     * **Public because the refusal message names the number**, and because that
+     * test reads it.
+     */
+    public const MAXIMUM_LINES = 200;
+
+    /**
      * How far ahead of the server a client's clock may be before `received_at`
      * is refused rather than clamped. See {@see self::receivedAt()}.
      */
@@ -259,7 +296,11 @@ final readonly class GoodsReceiptWriter
             if (1 === bccomp($after, (string) $row['quantity_ordered'], 6)) {
                 throw ApiProblem::businessRuleViolated(
                     'purchase_order_line.is_not_over_received',
-                    \sprintf('Line %d: this receipt would take the order line to %s received of %s ordered. '
+                    // `business-rule-violated` carries no pointer, so the line is
+                    // named in the message -- by its POINTER and not as an
+                    // ordinal, because `$index` is 0-based and the two disagree.
+                    // 8a's rule, `PurchaseOrderWriter::insertLineInside()`.
+                    \sprintf('The line at /lines/%d would take the order line to %s received of %s ordered. '
                         .'Over-receipt is not accepted.', $index, $after, (string) $row['quantity_ordered']),
                 );
             }
@@ -445,6 +486,18 @@ final readonly class GoodsReceiptWriter
             throw ApiProblem::validationFailed([['pointer' => '/lines', 'code' => 'not_a_list', 'message' => 'This field must be a list of lines.']]);
         }
 
+        // Checked here, before `create()` opens a transaction and takes the
+        // order's row lock -- a request refused for its size must never have
+        // held that lock.
+        if (\count($raw) > self::MAXIMUM_LINES) {
+            throw ApiProblem::validationFailed([[
+                'pointer' => '/lines', 'code' => 'too_many_lines',
+                'message' => \sprintf('A goods receipt may record at most %d lines in one request. '
+                    .'Record the first %d and send the rest as a further receipt against the same order.',
+                    self::MAXIMUM_LINES, self::MAXIMUM_LINES),
+            ]]);
+        }
+
         $errors = [];
         $lines = [];
         $seen = [];
@@ -484,7 +537,8 @@ final readonly class GoodsReceiptWriter
 
             if (isset($seen[$orderLine."\0".$bin])) {
                 $errors[] = self::error($index, 'storage_location_id', 'duplicate_line',
-                    \sprintf('Line %d already receives this order line into this location. Send one line per order line and location.', $seen[$orderLine."\0".$bin]));
+                    \sprintf('The line at /lines/%d already receives this order line into this location. '
+                        .'Send one line per order line and location.', $seen[$orderLine."\0".$bin]));
                 continue;
             }
             $seen[$orderLine."\0".$bin] = $index;
