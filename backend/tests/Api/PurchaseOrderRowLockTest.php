@@ -8,6 +8,9 @@ use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine;
 use App\Modules\Purchasing\Infrastructure\OrmPurchaseOrderReceiptStatus;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
+use App\Platform\Http\Idempotency\RequestDigest;
 use App\SharedKernel\ValueObject\AuditEvent;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -614,6 +617,113 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             "The loser's receipt survived, or the winner's did not.");
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM stock_movement'),
             'The loser posted stock before it was refused.');
+    }
+
+    /**
+     * **The residual this project has carried by name since step 6b, turned
+     * into a check. Step 9, item 11.**
+     *
+     * `PurchaseOrderWriter::create()` answers a same-key request that commits
+     * between its replay `SELECT` and its own `INSERT` with
+     * `purchase_order.idempotency_key_is_in_flight` — *"already being processed.
+     * Try again."* The comment above that `throw` makes **three** claims, and
+     * until this test **nothing asserted any of them**: the loser gets no second
+     * order; it is told to try again; *"the next attempt reads the committed row
+     * and gets it"*.
+     *
+     * **The race is not closed here and this test does not claim it is.**
+     * Handing the loser the winner's row in the same request needs a
+     * `TenantContext` change — the failed `INSERT` aborts the transaction and
+     * closes the `EntityManager`, so there is nothing left to read the winner
+     * with — and that stays owed. What is asserted is what the residual *rests
+     * on*, which is the part that was prose: a consolation argument doing a
+     * check's work is the shape this project has now paid for repeatedly.
+     *
+     * **It also pins the deliberate difference from the receipt.**
+     * `theLoserOfARaceForOneKeyAcrossTwoOrdersIsToldItIsAConflict` one method
+     * down answers **409 `idempotency-key-conflict`**, and `GoodsReceiptWriter`'s
+     * catch says in terms *"the two are NOT the same case, so do not harmonise
+     * them"*: there, the order's row lock has already serialised every same-order
+     * retry, so the only racer left is a **different** order and the key is
+     * genuinely reused; here there is no row to lock, the racer may be a genuine
+     * identical retry, and the next attempt is handed the order. Two tests side
+     * by side make that asymmetry a thing somebody has to justify changing,
+     * rather than a paragraph.
+     *
+     * **Made deterministic by the database, no clock.** A holds a decoy order
+     * (so B never waits on a row lock) and `INSERT`s the winning order carrying
+     * the hashed key — **uncommitted**, so B's replay read under READ COMMITTED
+     * cannot see it. B then blocks on `purchase_order_tenant_idem_live` at its
+     * own `INSERT`. A sees the waiter and commits; B raises `23505`. The winner's
+     * `order_number` is far away (`PO-999999`) so B, numbering from the committed
+     * maximum, cannot also collide on `purchase_order_tenant_number_live` — which
+     * would leave the answer up to which index was checked first.
+     *
+     * The winner's `request_digest` is computed the way `seedOrder()` computes
+     * it, which is the way `CreatePurchaseOrder` computes it, so the third
+     * attempt is a **replay** and not a 409 — and if the writer's digested field
+     * set ever changes, `PurchaseOrderCreateTest`'s pin reddens first.
+     *
+     * **Mutations:** delete the `IDEMPOTENCY_INDEX` arm of `create()`'s catch →
+     * the `23505` escapes as a 500; change it to `idempotencyKeyConflict()` (the
+     * receipt's answer) → red on the rule, which is the asymmetry being held.
+     */
+    #[Test]
+    public function theLoserOfARaceToCreateOneOrderIsRefusedAndTheNextAttemptIsHandedIt(): void
+    {
+        $decoy = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $key = Uuid::v4()->toRfc4122();
+        $winner = Uuid::v4()->toRfc4122();
+        $body = ['supplier_id' => $decoy['supplier'], 'warehouse_id' => $decoy['warehouse']];
+
+        $holder = $this->raceAgainstAHolder($decoy['order'], [[
+            <<<'SQL'
+                INSERT INTO purchase_order
+                    (id, tenant_id, order_number, supplier_id, warehouse_id, created_by_user_id,
+                     status, currency_code, ordered_at, expected_at, deleted_at, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, 'PO-999999', ?::uuid, ?::uuid, NULL,
+                        'draft', 'EUR', NULL, NULL, NULL, ?, ?)
+                SQL,
+            [
+                $winner, self::TENANT_A, $decoy['supplier'], $decoy['warehouse'],
+                IdempotencyKeyHash::of($key),
+                RequestDigest::of('CreatePurchaseOrder', [
+                    'supplier_id' => RequestDigest::uuid($decoy['supplier']),
+                    'warehouse_id' => RequestDigest::uuid($decoy['warehouse']),
+                    'currency_code' => null,
+                    'expected_at' => RequestDigest::instant(null),
+                ]),
+            ],
+        ]], function () use ($body, $key): void {
+            $this->send('POST', '/purchase-orders', $body, [IdempotencyKeyGuard::HEADER => $key]);
+        });
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+
+        // Claim 2 — one stable answer, and it is this one on purpose.
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.idempotency_key_is_in_flight', $this->json()['rule'],
+            'The loser of the create race is answered by something other than the in-flight rule. If this was a '
+            .'deliberate harmonisation with the goods receipt, GoodsReceiptWriter\'s catch argues against it in terms '
+            .'and has to be rewritten with this.');
+
+        // Claim 1 — never a second order. The decoy and the winner, nothing else.
+        self::assertSame(
+            [['order_number' => 'PO-1'], ['order_number' => 'PO-999999']],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT order_number FROM purchase_order ORDER BY order_number'),
+            'The loser of the race wrote an order. This is the defect §6.1 names, reached through the one window the '
+            .'replay read cannot cover.',
+        );
+
+        // Claim 3 — "the next attempt reads the committed row and gets it".
+        $this->send('POST', '/purchase-orders', $body, [IdempotencyKeyGuard::HEADER => $key]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($winner, $this->json()['id'],
+            'The attempt after the race was not handed the order the race created. That is the sentence the residual '
+            .'rests on: the client is told to try again because trying again works.');
+        self::assertCount(2, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'),
+            'The retry after the race minted a third order.');
     }
 
     /**
