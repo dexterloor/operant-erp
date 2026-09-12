@@ -283,10 +283,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'SELECT quantity_received::text AS q FROM purchase_order_line WHERE id = ?::uuid', [$line]));
     }
 
-    /** @return array{string, string, string} order, its one line (10 ordered), a bin of its warehouse */
-    private function orderedOrderToReceive(): array
+    /** @return array{string, string, string, string} order, its one line (10 ordered), a bin of its warehouse, that warehouse */
+    private function orderedOrderToReceive(string $number = 'PO-1'): array
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, $number, $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $bin = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A,
@@ -295,7 +295,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "UPDATE purchase_order SET status = 'ordered', ordered_at = now() WHERE id = ?::uuid", [$draft['order']]);
 
-        return [$draft['order'], $line, $bin];
+        return [$draft['order'], $line, $bin, $draft['warehouse']];
     }
 
     /** @return iterable<string, array{string, string, array<string, string>|null}> */
@@ -549,6 +549,71 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             "The receipt's status writer read the order before locking it. Its caller happens to hold the lock "
             .'today; this method must not depend on that.');
         $this->assertOrderStatus($order, PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
+    }
+
+    /**
+     * **The one race the order's row lock cannot cover, and what the loser is
+     * told.** A key is not scoped to an order, so two receipts against *two
+     * different orders* under one key hold two different locks and never wait
+     * for each other. The unique `goods_receipt_idem_unique (tenant_id,
+     * idempotency_key)` is what refuses the second, at its `INSERT`.
+     *
+     * **Step 8-ii answered that loser `business-rule-violated`
+     * `goods_receipt.idempotency_key_is_in_flight`, saying *"already being
+     * processed. Try again."* — advice into a wall.** The winner's row is
+     * committed and permanent, the key is spent, and every retry from here is a
+     * conflict. §6.2's answer for a key reused for a different request is
+     * `idempotency-key-conflict` (409), and it is the same answer the replay read
+     * gives one statement earlier when the winner committed a moment sooner. A
+     * caller should not get two different problems for one situation depending on
+     * which microsecond it arrived in.
+     *
+     * **Made deterministic by the database, with the holder used the other way
+     * round.** A holds a *different* order (so it never blocks B) and, before B
+     * is sent, `INSERT`s its own `goods_receipt` carrying the key —
+     * **uncommitted**, so B's replay read under READ COMMITTED cannot see it. B
+     * then takes its own order's lock, finds no replay, and blocks on the unique
+     * index at its own `INSERT`. A sees the waiter, commits, and B's insert
+     * raises `23505`. No clock decides anything.
+     *
+     * A's `receipt_number` is deliberately far away (`GR-999999`) so that B,
+     * numbering from the committed maximum, does not also collide on
+     * `goods_receipt_number_unique` — which would leave the index that refused
+     * it, and so the answer, up to the order the two are checked in.
+     *
+     * *Red before the fix: 409 expected, `business-rule-violated` returned.*
+     */
+    #[Test]
+    public function theLoserOfARaceForOneKeyAcrossTwoOrdersIsToldItIsAConflict(): void
+    {
+        [$mine, $myLine, $myBin] = $this->orderedOrderToReceive();
+        [$theirs, , , $theirWarehouse] = $this->orderedOrderToReceive('PO-2');
+        $user = $this->seedPrincipal(self::TENANT_A, []);
+        $key = Uuid::v4()->toRfc4122();
+
+        $holder = $this->raceAgainstAHolder($theirs, [[
+            <<<'SQL'
+                INSERT INTO goods_receipt
+                    (id, tenant_id, purchase_order_id, warehouse_id, received_by_user_id,
+                     receipt_number, received_at, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 'GR-999999', now(), ?, ?)
+                SQL,
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $theirs, $theirWarehouse, $user,
+                hash('sha256', $key), str_repeat('c', 64)],
+        ]], function () use ($mine, $myLine, $myBin, $key): void {
+            $this->send('POST', '/purchase-orders/'.$mine.'/goods-receipts', [
+                'lines' => [['purchase_order_line_id' => $myLine, 'quantity' => '1', 'storage_location_id' => $myBin]],
+            ], ['Idempotency-Key' => $key]);
+        });
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertStringContainsString('idempotency-key-conflict', (string) $this->json()['type']);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'),
+            "The loser's receipt survived, or the winner's did not.");
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM stock_movement'),
+            'The loser posted stock before it was refused.');
     }
 
     /**

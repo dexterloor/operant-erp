@@ -481,6 +481,70 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt_line'));
     }
 
+    /**
+     * **A key already used, sent at an order that does not exist for this caller,
+     * is 404 — not 409.** §5.3 / ST-5: a row the caller cannot see and a row that
+     * does not exist are one answer, and that answer comes **before** anything
+     * the request carries is judged. Otherwise the refusal itself tells the
+     * caller the key was used, which is a fact about this workspace's traffic.
+     *
+     * Step 8-ii read the replay row before it read the order, so this returned
+     * `idempotency-key-conflict`. Nothing crossed a tenant boundary — the replay
+     * read is under RLS, so it only ever saw this workspace's own row — but the
+     * status was wrong and it was wrong in the direction that answers a question
+     * the caller had not earned.
+     *
+     * The order id here is simply unknown. The other-workspace case is the same
+     * row under RLS and is covered by the tenancy suite; what this pins is the
+     * **order of the two checks**.
+     *
+     * *Red before the fix: 409.*
+     */
+    #[Test]
+    public function aReusedKeyAgainstAnOrderThatIsNotThereIsNotFound(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $key = Uuid::v4()->toRfc4122();
+
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->receive(Uuid::v4()->toRfc4122(),
+            [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]], $key);
+
+        self::assertSame(404, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+    }
+
+    /**
+     * **A replay still answers even when the order has been archived since.**
+     * The not-found check moved in front of the replay read for the test above,
+     * and this is the half that must NOT move with it: the archived refusal stays
+     * **behind** the replay, because a receipt that was accepted is a fact, and a
+     * retry of the request that created it is answered from the row whatever has
+     * happened to the order since.
+     */
+    #[Test]
+    public function aRetryIsStillAnsweredAfterTheOrderWasArchived(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $key = Uuid::v4()->toRfc4122();
+        $lines = [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]];
+
+        $this->receive($po['order'], $lines, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE purchase_order SET deleted_at = now() WHERE id = ?::uuid', [$po['order']]);
+
+        $this->receive($po['order'], $lines, $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($first, $this->json());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+    }
+
     /** SoD-2: `goods_receipt.create` is the operator's code; a caller without it is refused before anything is read. */
     #[Test]
     public function aCallerWithoutTheReceiptCodeIsRefused(): void
@@ -518,6 +582,15 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
     }
 
     /** `received_at` is when the goods arrived: stored, and it dates the stock movements. A future one is refused. */
+    /**
+     * `received_at` dates the receipt and every movement it posts; an hour ahead
+     * is refused, and a clock a few seconds fast is clamped rather than refused.
+     *
+     * **The tolerance is 60 seconds and the clamp is to the server's now** — see
+     * `GoodsReceiptWriter::receivedAt()` for why a field F-3 never collects
+     * needed one. The clamped case runs **last** deliberately: it writes a second
+     * receipt, and the backdated assertion above reads the whole table.
+     */
     #[Test]
     public function receivedAtDatesTheReceiptAndItsMovementsAndCannotBeInTheFuture(): void
     {
@@ -535,6 +608,17 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
                    to_char(sm.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS moved
               FROM goods_receipt gr JOIN stock_movement sm ON sm.source_id = gr.id
             SQL));
+
+        // A clock a few seconds fast is tolerated, and the stored instant is the
+        // server's own now rather than the client's future one.
+        $before = new \DateTimeImmutable();
+        $this->receive($po['order'], $lines, extra: ['received_at' => $before->modify('+5 seconds')->format(\DATE_RFC3339)]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $stored = new \DateTimeImmutable((string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT received_at FROM goods_receipt WHERE id = ?::uuid', [$this->json()['id']])[0]['received_at']);
+        self::assertGreaterThanOrEqual($before, $stored, 'The clamped instant went backwards.');
+        self::assertLessThanOrEqual(new \DateTimeImmutable(), $stored,
+            'A received_at inside the tolerance was stored as sent, so a receipt is dated in the future.');
     }
 
     /**

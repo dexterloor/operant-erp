@@ -28,12 +28,20 @@ use Symfony\Component\Uid\Uuid;
  *  1. `PurchaseOrderRowLock::holdInside()` — first, so a second receipt, a
  *     cancellation or an edit of this order waits here holding nothing (6c;
  *     W-5's "lock the purchase order first").
- *  2. The replay read, by the key's hash. Before any status check, so a retry
+ *  2. The order row, for **not-found only** (§5.3 / ST-5). It answers before
+ *     anything the request carries is judged, so a key reused against an order
+ *     this caller cannot see is 404 rather than a 409 telling them the key was
+ *     used in this workspace. **Amended 2026-09-12:** step 8-ii read the replay
+ *     first and answered 409 there.
+ *  3. The replay read, by the key's hash. Before any status check, so a retry
  *     of a receipt that completed the order (now `received`) is answered with
- *     that receipt and not refused as illegal from `received`. Under the lock,
- *     so two identical retries against one order queue, and the second READS
- *     the first's receipt instead of losing at the unique index.
- *  3. The order (not-found, archived) and its live lines, read under the lock.
+ *     that receipt and not refused as illegal from `received`; and before the
+ *     **archived** refusal, which is the half that deliberately did NOT move up
+ *     with the not-found check — an accepted receipt is a fact, and its retry is
+ *     answered from the row whatever has happened to the order since. Under the
+ *     lock, so two identical retries against one order queue, and the second
+ *     READS the first's receipt instead of losing at the unique index.
+ *  3a. The archived refusal, then the order's live lines, under the lock.
  *  4. `PurchaseOrder::recordReceipt()` — the status guard and the new status,
  *     decided from the locked lines plus this request, BEFORE any write.
  *  5. Over-receipt, per order line, summed over this receipt.
@@ -54,8 +62,10 @@ use Symfony\Component\Uid\Uuid;
  *     twice in one receipt is refused. The table's grain is the bin, and a
  *     delivery split across two shelves is ordinary. Two lines for the same bin
  *     are refused rather than summed, so what is stored is what was sent.
- *   - **`received_at` in the future is refused.** Goods cannot have arrived
- *     yet. There is no tolerance: a client that means "now" omits the field.
+ *   - **`received_at` more than a minute ahead of the server is refused; inside
+ *     that it is clamped to the server's now.** Goods cannot have arrived yet,
+ *     but a client stamping "now" off a clock a second fast is not asking for
+ *     the future. See `receivedAt()` for why the tolerance exists at all.
  *   - `receipt_number` is `GR-` + `MAX + 1` over the workspace's receipts,
  *     `order_number`'s precedent, with the same race answered "try again".
  *   - Quantities are digested at scale 6, so `"6"` and `"6.000000"` are one
@@ -69,6 +79,12 @@ final readonly class GoodsReceiptWriter
     private const QUANTITY = '/\A\d{1,13}(\.\d{1,6})?\z/';
 
     private const LINE_FIELDS = ['purchase_order_line_id', 'quantity', 'storage_location_id'];
+
+    /**
+     * How far ahead of the server a client's clock may be before `received_at`
+     * is refused rather than clamped. See {@see self::receivedAt()}.
+     */
+    private const CLOCK_SKEW_SECONDS = 60;
 
     private const IDEMPOTENCY_INDEX = 'goods_receipt_idem_unique';
 
@@ -116,12 +132,28 @@ final readonly class GoodsReceiptWriter
         } catch (UniqueConstraintViolationException $e) {
             // Outside `run()`: the failed statement aborted the transaction.
             if (str_contains($e->getMessage(), self::IDEMPOTENCY_INDEX)) {
-                // Same key, committed meanwhile against ANOTHER order (a retry
-                // on this order would have waited at the row lock and read it).
-                throw ApiProblem::businessRuleViolated(
-                    'goods_receipt.idempotency_key_is_in_flight',
-                    'A request with this Idempotency-Key is already being processed. Try again.',
-                );
+                // Same key, committed between this request's replay read and its
+                // own INSERT. It can only have been against ANOTHER order: a
+                // second receipt on THIS order would have waited at the row lock
+                // and then read the first from the replay. Another order means
+                // another `purchase_order_id`, which is digested — so this is a
+                // key reused for a different request, and §6.2 answers that with
+                // `idempotency-key-conflict`.
+                //
+                // It said "already being processed, try again" until 2026-09-12,
+                // which was advice into a wall: the winner is committed, the key
+                // is spent, and every retry from here conflicts. It also gave two
+                // different problems for one situation depending on whether the
+                // winner committed a microsecond before or after the replay read.
+                //
+                // `PurchaseOrderWriter`'s equivalent catch still says "try
+                // again", and the two are NOT the same case, so do not
+                // harmonise them: `CreatePurchaseOrder` has no row to lock, so
+                // its racer may be a genuine identical retry, and the next
+                // attempt reads the committed row and is handed the order. Here
+                // the order lock has already serialised every same-order retry,
+                // so the only thing left to lose to is a different order.
+                throw ApiProblem::idempotencyKeyConflict();
             }
 
             if (str_contains($e->getMessage(), self::NUMBER_INDEX)) {
@@ -153,7 +185,20 @@ final readonly class GoodsReceiptWriter
         // 1.
         PurchaseOrderRowLock::holdInside($em, $orderId);
 
-        // 2.
+        // 2. §5.3 / ST-5: an order this caller cannot see is not-found, and that
+        // is answered BEFORE anything the request carries is judged — otherwise
+        // the refusal tells the caller their key was used here, which is a fact
+        // about this workspace's traffic that they have not earned. Only the
+        // not-found half runs here; `deleted_at` is checked after the replay.
+        $order = $connection->fetchAssociative(
+            'SELECT warehouse_id, deleted_at FROM purchase_order WHERE id = ?::uuid',
+            [$orderId],
+        );
+        if (false === $order) {
+            throw ApiProblem::notFound();
+        }
+
+        // 3.
         $replay = $connection->fetchAssociative(
             'SELECT id, request_digest FROM goods_receipt WHERE idempotency_key = ?',
             [$keyHash],
@@ -167,14 +212,9 @@ final readonly class GoodsReceiptWriter
                 ?? throw new \LogicException('A receipt found by its key is not readable in the same transaction.');
         }
 
-        // 3.
-        $order = $connection->fetchAssociative(
-            'SELECT warehouse_id, deleted_at FROM purchase_order WHERE id = ?::uuid',
-            [$orderId],
-        );
-        if (false === $order) {
-            throw ApiProblem::notFound();
-        }
+        // The archived refusal stays BEHIND the replay on purpose: a receipt
+        // that was accepted is a fact, and a retry of the request that created
+        // it is answered from the row whatever has happened to the order since.
         if (null !== $order['deleted_at']) {
             throw ApiProblem::businessRuleViolated(
                 'purchase_order.is_archived',
@@ -333,23 +373,53 @@ final readonly class GoodsReceiptWriter
         return 'GR-'.str_pad((string) $next, 6, '0', \STR_PAD_LEFT);
     }
 
+    /**
+     * **A future `received_at` is refused, but a clock slightly fast is not — it
+     * is clamped to the server's own now.**
+     *
+     * Step 8-ii refused anything after now with no tolerance at all, on the
+     * reasoning that goods cannot have arrived yet. The reasoning is right and
+     * the rule was still wrong for the client this field has. **F-3 never
+     * collects `received_at`**, so the operator does not type it: the requests
+     * that carry one are either deliberately backdating a delivery, which is
+     * unaffected, or mechanically stamping *"now"* from the sending machine's
+     * clock. An unsynchronised clock one second fast made the second kind a 422
+     * saying goods cannot be received in the future, about a delivery standing on
+     * the dock — an answer with nothing the caller can do about it.
+     *
+     * Stating in §4.2 that the field is *for backdating only, omit it to mean
+     * now* was the alternative and does not fix it: a client that stamps now is
+     * still refused, and now has documentation saying it should have known.
+     *
+     * **Clamped rather than stored as sent**, so `goods_receipt.received_at` and
+     * the `stock_movement.occurred_at` taken from it are never in the future,
+     * which is what any later read of the ledger by date depends on. The client
+     * can see the stored instant: §4.4 branch 4 returns the row.
+     *
+     * **The digest is unaffected** — `RequestDigest::instant()` is given the
+     * value **as sent** (§6.2: what was sent, never what the write resolved it
+     * to), so a genuine retry of the same request is still a replay, and two
+     * different stamps a second apart are still two different requests.
+     */
     private static function receivedAt(?string $value): \DateTimeImmutable
     {
+        $now = new \DateTimeImmutable();
+
         if (null === $value) {
-            return new \DateTimeImmutable();
+            return $now;
         }
 
         $parsed = Rfc3339Timestamp::parse($value) ?? throw ApiProblem::validationFailed([
             ['pointer' => '/received_at', 'code' => 'not_a_timestamp', 'message' => 'This field must be an RFC 3339 timestamp.'],
         ]);
 
-        if ($parsed > new \DateTimeImmutable()) {
+        if ($parsed > $now->modify('+'.self::CLOCK_SKEW_SECONDS.' seconds')) {
             throw ApiProblem::validationFailed([
                 ['pointer' => '/received_at', 'code' => 'in_the_future', 'message' => 'Goods cannot be received in the future. Omit the field to mean now.'],
             ]);
         }
 
-        return $parsed;
+        return min($parsed, $now);
     }
 
     /**
