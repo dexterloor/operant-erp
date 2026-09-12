@@ -6,6 +6,8 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine;
+use App\Modules\Purchasing\Infrastructure\OrmPurchaseOrderReceiptStatus;
 use Doctrine\ORM\EntityManagerInterface;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -492,6 +494,64 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **`OrmPurchaseOrderReceiptStatus::recordReceipt` takes the order's row
+     * lock as the first thing it sends, called on its own.**
+     *
+     * It is the one writer here with no path of its own, so nothing at the HTTP
+     * level can show that it locks *itself* rather than inheriting its caller's
+     * lock. This drives it directly, inside a transaction that has taken no
+     * lock, and reads the statements the database was sent: **the first one
+     * naming `purchase_order` must be the lock**, before the `SELECT` that
+     * `find()` issues and before anything else reads the row.
+     *
+     * Written this way rather than as "the first statement of all" on purpose —
+     * `TenantContext` sends its own `set_config` first, and a check that
+     * counted that would be asserting the framework rather than the writer.
+     *
+     * **Mutation, run:** the `PurchaseOrderRowLock::holdInside()` call removed
+     * from the class (1 occurrence, counted; reverted `cmp`-identical). Red
+     * here and **nowhere else in this file** — which is the point of the test
+     * existing. `everyMethodThatWritesAPurchaseOrderIsCoveredByALockFirstCheck`
+     * stays green under it, because that check reconciles *which* methods are
+     * accounted for and not *what they do*; the name is still in
+     * `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, so a reason recorded there and then
+     * quietly falsified is invisible to it. That is the whole gap this test
+     * closes. **The arm is mutated separately:** the mutator clause removed from
+     * `writersOfPurchaseOrders()` (1 occurrence) — red there, because the method
+     * is accounted for and no longer found.
+     */
+    #[Test]
+    public function theReceiptStatusWriterTakesTheOrdersLockAsItsFirstStatement(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+
+        $writer = new OrmPurchaseOrderReceiptStatus();
+
+        $this->recorder()->start();
+        try {
+            $this->tenantContext()->run(
+                self::TENANT_A,
+                static fn (EntityManagerInterface $em) => $writer->recordReceipt($em, $order, false),
+            );
+        } finally {
+            $this->recorder()->stop();
+        }
+
+        $touching = array_values(array_filter(
+            $this->recorder()->statements(),
+            static fn (string $sql): bool => str_contains($sql, 'purchase_order'),
+        ));
+
+        self::assertNotSame([], $touching, 'The writer sent nothing naming purchase_order, so it did not run.');
+        self::assertSame(PurchaseOrderRowLock::SQL, $touching[0],
+            "The receipt's status writer read the order before locking it. Its caller happens to hold the lock "
+            .'today; this method must not depend on that.');
+        $this->assertOrderStatus($order, PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
+    }
+
+    /**
      * Which lock-first check covers each writer: `everyWritePath()`'s case =>
      * the method it enters. The keys must be exactly that provider's cases, so
      * the map and the runtime check cannot drift apart.
@@ -505,6 +565,32 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'UpdatePurchaseOrderLine' => 'PurchaseOrderWriter::updateLine',
         'DeletePurchaseOrderLine' => 'PurchaseOrderWriter::archiveLine',
         'CreateGoodsReceipt' => 'GoodsReceiptWriter::create',
+    ];
+
+    /**
+     * **Writers that take the lock themselves and are entered through another
+     * writer rather than through a path of their own.**
+     *
+     * A third category was needed because the other two do not fit.
+     * `LOCK_FIRST_CHECKED` is keyed by `everyWritePath()`'s HTTP cases, and
+     * this method has no case of its own — `CreateGoodsReceipt` already maps to
+     * `GoodsReceiptWriter::create`, which is where the receipt's lock is
+     * checked over HTTP. And `ALLOWED_WITHOUT_A_LOCK` would be a false
+     * statement: it does take one.
+     *
+     * **The reason is a fact rather than a promise.** The obvious entry —
+     * *"always called from a writer that already holds the lock"* — is true
+     * today and is exactly the kind of claim this project has watched go stale:
+     * it rests on there being no second caller, which nothing enforces. So the
+     * method locks first itself, and
+     * `theReceiptStatusWriterTakesTheOrdersLockAsItsFirstStatement` asserts it
+     * against the statements the database was actually sent.
+     */
+    private const LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
+        'OrmPurchaseOrderReceiptStatus::recordReceipt' => 'It calls PurchaseOrderRowLock::holdInside() first. '
+            .'Its only caller, GoodsReceiptWriter::createInside, already holds that lock, and the second take is '
+            .'re-entrant for the same transaction, so this costs one cheap statement and removes the dependence '
+            .'on the caller.',
     ];
 
     /** Writers that take no lock, each by name and with its reason. Keep it short. */
@@ -541,7 +627,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $derived = self::writersOfPurchaseOrders();
         self::assertNotSame([], $derived, 'The scan found no writer at all, so it is not scanning.');
 
-        $accounted = [...array_values(self::LOCK_FIRST_CHECKED), ...array_keys(self::ALLOWED_WITHOUT_A_LOCK)];
+        $accounted = [
+            ...array_values(self::LOCK_FIRST_CHECKED),
+            ...array_keys(self::LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN),
+            ...array_keys(self::ALLOWED_WITHOUT_A_LOCK),
+        ];
         sort($accounted);
         $found = array_keys($derived);
         sort($found);
@@ -555,7 +645,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame($accounted, $found,
             "The methods that write a purchase order or its lines are not the ones covered by a lock-first check.\n"
             ."A new writer must call PurchaseOrderRowLock::holdInside() first and get a case in everyWritePath() "
-            ."and LOCK_FIRST_CHECKED, or be added to ALLOWED_WITHOUT_A_LOCK with its reason.\n"
+            ."and LOCK_FIRST_CHECKED; or, if it has no path of its own, lock first and be named in "
+            ."LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN; or be added to ALLOWED_WITHOUT_A_LOCK with its reason.\n"
             ."Writers found in src/:\n".$describe);
     }
 
@@ -591,6 +682,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             if ($method['entity'] && [] !== array_intersect($method['calls'], ['flush', 'persist', 'remove'])) {
                 $writes[] = 'ORM: names a purchase-order entity class and flushes, persists or removes';
             }
+            if ($method['entity'] && [] !== ($mutators = array_intersect($method['calls'], self::entityMutators()))) {
+                $writes[] = 'ORM: names a purchase-order entity class and calls '.implode('(), ', $mutators).'() on it';
+            }
             if ([] !== $writes) {
                 $reach[$key] = $writes;
             }
@@ -618,6 +712,54 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             static fn (string $key): bool => $methods[$key]['public'] || [] === self::inClassCallersOf($methods, $key),
             \ARRAY_FILTER_USE_KEY,
         );
+    }
+
+    /**
+     * **The state-changing methods of the two entity classes, by reflection —
+     * the second half of the ORM arm, and the half step 8-ii walked through.**
+     *
+     * The arm originally fired only on `flush`, `persist` or `remove`, on the
+     * reasoning that an ORM write is not a write until it is flushed.
+     * `OrmPurchaseOrderReceiptStatus::recordReceipt` disproved it: it names
+     * `PurchaseOrder::class`, calls `find()`, `refresh()` and the entity's own
+     * `recordReceipt()`, and flushes **nothing** — its caller flushes, three
+     * steps later, after the stock is posted. So it changed a purchase order's
+     * status and the scan did not see it, while `PurchaseOrderRowLock`'s
+     * blind-spot list said the ORM gap was limited to methods that do *not*
+     * name the entity class. **A method that hands the write to somebody else
+     * to flush is the ordinary shape here, not an exotic one.**
+     *
+     * **Derived, never listed.** The names come from the entity classes
+     * themselves — every public instance method that is not an accessor — for
+     * the reason this project has measured twice: an exhaustive check that
+     * restates a constant is not a check, and a new transition added to
+     * `PurchaseOrder` would not be in a list. Accessors are excluded by the
+     * `get`/`is`/`has` prefixes the entities use throughout; a mutator named
+     * outside that convention is caught, and a *reader* named against it would
+     * only ever add a writer to the scan, which fails loudly rather than
+     * quietly.
+     *
+     * **What it still cannot see** is unchanged and is in the helper's
+     * docblock: a method that never names either class — an entity handed in as
+     * a parameter, or reached through a repository or an association.
+     *
+     * @return list<string>
+     */
+    private static function entityMutators(): array
+    {
+        $names = [];
+
+        foreach ([PurchaseOrder::class, PurchaseOrderLine::class] as $class) {
+            foreach ((new \ReflectionClass($class))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if ($method->isStatic() || $method->isConstructor() || 1 === preg_match('/^(?:get|is|has)[A-Z]/', $method->getName())) {
+                    continue;
+                }
+
+                $names[] = $method->getName();
+            }
+        }
+
+        return array_values(array_unique($names));
     }
 
     /**

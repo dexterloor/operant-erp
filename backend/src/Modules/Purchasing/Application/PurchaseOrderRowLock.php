@@ -68,19 +68,33 @@ use Symfony\Component\Uid\Uuid;
  * **derives** the writers from `src/` with PHP's tokenizer: every method whose
  * string literals write `purchase_order` or `purchase_order_line` (`UPDATE`,
  * `INSERT INTO`, `DELETE FROM`, or DQL on the entity), every method that names
- * `PurchaseOrder::class` / `PurchaseOrderLine::class` and flushes, persists or
- * removes, and every in-class caller of a private method that does either. It
- * fails on any writer not covered by a lock-first check.
+ * `PurchaseOrder::class` / `PurchaseOrderLine::class` and either flushes,
+ * persists or removes **or calls one of those entities' own state-changing
+ * methods** (taken by reflection, so a new transition is covered the day it is
+ * written), and every in-class caller of a private method that does any of it.
+ * It fails on any writer not covered by a lock-first check.
  * `PurchaseOrderWriter::create` is allowed by name: it has no existing row to
- * lock. **It cannot see:**
+ * lock.
+ *
+ * **⚠ The mutator half was added on 2026-09-12, and the list below used to be
+ * wrong.** It said the ORM gap was limited to methods that do **not** name
+ * either entity class. `OrmPurchaseOrderReceiptStatus::recordReceipt` names
+ * `PurchaseOrder::class`, changes the order's status, and flushes nothing — its
+ * caller flushes, after the stock is posted — so it fell through an arm that
+ * fired only on `flush`/`persist`/`remove`, and step 8-ii shipped a
+ * purchase-order writer the scan could not see. **A method that leaves the flush
+ * to somebody else is the ordinary shape in this codebase, not an exotic one.**
+ *
+ * **It still cannot see:**
  *
  *   - SQL whose table name is not inside one string literal: assembled at
  *     runtime (`sprintf('UPDATE %s', $table)`), held in a variable or a
  *     constant, or split so `UPDATE` and the table name are separate pieces;
- *   - an ORM write in a method that does not name either entity class: an
- *     entity handed in, or reached through a repository or an association,
- *     and flushed somewhere else; and a QueryBuilder `->update()` that never
- *     spells the statement as a string;
+ *   - an ORM write in a method that names neither entity class **and** calls
+ *     none of their mutators by name: an entity handed in as a parameter, or
+ *     reached through a repository or an association, and changed or flushed
+ *     somewhere else; and a QueryBuilder `->update()` that never spells the
+ *     statement as a string;
  *   - writes outside `src/`: migrations, scripts, `psql`, and triggers. The
  *     cascade trigger writes lines from inside an order `UPDATE`, which
  *     already holds the order, so it keeps the order → lines rule.
