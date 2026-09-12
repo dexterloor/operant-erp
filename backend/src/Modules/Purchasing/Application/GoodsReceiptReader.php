@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
-
-use App\Modules\Purchasing\Application\GoodsReceiptView;
-
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;

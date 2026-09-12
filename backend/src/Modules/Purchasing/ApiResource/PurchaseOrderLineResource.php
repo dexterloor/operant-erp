@@ -186,13 +186,15 @@ final class PurchaseOrderLineResource
          * has to subtract two numbers it was given will eventually subtract the
          * wrong two."*
          *
-         * **Floored at zero, and that is a judgement §4.4.3 does not make.**
-         * Over-receipt is a real event the database deliberately does not forbid
-         * — `PurchaseOrderLine::recordReceipt()` is additive and
-         * `purchase_order_line_qty_sane` only requires `quantity_received >= 0` —
-         * so `ordered − received` can be negative, and a negative pre-fill on
-         * F-3's receiving screen is a defect wearing a 200. Reported as a
-         * judgement rather than presented as derived.
+         * **Never negative, and since 2026-09-12 that is the database's doing
+         * rather than the reader's.** This said over-receipt was *"a real event
+         * the database deliberately does not forbid"*; step 8-ii's
+         * `Version20260911000500` added
+         * `purchase_order_line_not_over_received` and made it false in the same
+         * commit that left the sentence here. The read no longer floors the
+         * subtraction at zero — an unreachable floor that no test could
+         * distinguish — and `PurchaseOrderLineRow`'s docblock records what must
+         * come back if that constraint is ever dropped.
          */
         #[SerializedName('quantity_outstanding')]
         public string $quantityOutstanding,

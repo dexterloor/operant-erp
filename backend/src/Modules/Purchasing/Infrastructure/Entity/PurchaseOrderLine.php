@@ -159,27 +159,6 @@ class PurchaseOrderLine
         return $this->leadTimeDays;
     }
 
-    /**
-     * Called once per goods receipt line posted against this line. Additive
-     * rather than absolute because the caller holds one receipt and not the
-     * running total, and because over-receipt is a real event -- the supplier
-     * sent more than was ordered -- that the database deliberately does not
-     * forbid.
-     */
-    public function recordReceipt(string $quantity): void
-    {
-        if (1 !== bccomp($quantity, '0', 6)) {
-            throw new \InvalidArgumentException('A receipt quantity must be positive.');
-        }
-
-        $this->quantityReceived = bcadd($this->quantityReceived, $quantity, 6);
-        $this->updatedAt = new \DateTimeImmutable();
-    }
-
-    public function isFullyReceived(): bool
-    {
-        return bccomp($this->quantityReceived, $this->quantityOrdered, 6) >= 0;
-    }
 
     public function isDeleted(): bool
     {

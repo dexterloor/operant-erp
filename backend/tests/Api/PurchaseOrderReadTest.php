@@ -162,22 +162,30 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
      * to subtract two numbers it was given will eventually subtract the wrong
      * two."*
      *
-     * The floor at zero is this package's judgement rather than §4.4.3's, and
-     * a negative pre-fill on a receiving screen is a defect wearing a 200.
+     * ⚠ **Renamed 2026-09-12, because the old name outlived what the body could
+     * show.** It was `…AndNeverNegative`, and at step 8 the fixture it proved
+     * that with — 8 received of 5 ordered — became a row the database refuses,
+     * so the body was changed to assert the refusal instead. The name was not,
+     * and what was left asserted non-negativity of an expression that cannot be
+     * negative. **Measured, not inferred:** with the fixture gone, deleting
+     * `GREATEST(…, 0)` from `PurchaseOrderLineRow` left this test and the whole
+     * suite green, and so did deleting the `::numeric(19,6)` cast that existed
+     * only to undo `GREATEST`'s scale-0 literal. Both are therefore deleted
+     * rather than kept behind a comment, and the name now says what is actually
+     * checked.
      *
-     * ⚠ **Corrected at step 8 (2026-09-11).** This docblock said over-receipt
-     * was "a real event `recordReceipt()` permits and `purchase_order_line_qty_sane`
-     * does not forbid", and the test seeded 8 received of 5 ordered to prove the
-     * floor. Both halves are now false: `CreateGoodsReceipt` refuses over-receipt
-     * (F-3 step 3), and `Version20260911000500`'s
-     * `purchase_order_line_not_over_received` refuses the row at the database.
-     * So the over-received fixture cannot be written, and this test asserts that
-     * instead. `GREATEST(…, 0)` in `PurchaseOrderLineRow` stays as a guard the
-     * CHECK makes unreachable; the boundary it can still be seen at is a line
-     * received in full, which reads exactly `0.000000`.
+     * **The three things this does check**, each of which fails on its own: the
+     * subtraction (`10 − 4 = 6`); that it renders at **scale 6** on both a
+     * partly received line and one received in full, which is what S-12 makes a
+     * client compare on and is all that pins the column's shape now the cast is
+     * gone; and that `purchase_order_line_not_over_received` refuses the
+     * over-received row, which is what makes the result non-negative. The last
+     * is asserted here rather than assumed because it is this read's
+     * precondition, and `GoodsReceiptCreateTest` asserts it again from the
+     * write side.
      */
     #[Test]
-    public function theOutstandingQuantityIsOrderedMinusReceivedAndNeverNegative(): void
+    public function theOutstandingQuantityIsOrderedMinusReceivedAtScaleSixAndTheDatabaseKeepsItNonNegative(): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 1, '10.000000', '2.5000', '4.000000');
