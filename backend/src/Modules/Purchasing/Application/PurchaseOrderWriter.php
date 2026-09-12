@@ -113,25 +113,42 @@ final readonly class PurchaseOrderWriter
     private const NESTED_LINE_PROPERTIES = ['inventoryItemId', 'quantity', 'unitCost'];
 
     /**
-     * **How many lines one `CreatePurchaseOrder` may carry. No document sets a
-     * number, so this is a decision taken here and reported as one.**
+     * **How many lines one `CreatePurchaseOrder` REQUEST may carry. No document
+     * sets a number, so this is a decision taken here and reported as one.**
      *
-     * **Public because the refusal message names the number**, and because
-     * `PurchaseOrderOperationContractTest` pins it against the page ceiling it is
-     * taken from rather than letting it be an unexplained literal.
+     * **It bounds one request, not an order.** `CreatePurchaseOrderLine` is
+     * uncapped, so an order still reaches any size one call at a time — which is
+     * the right place for that question, because each of those calls is its own
+     * transaction.
      *
-     * 200 is §4.2's own ceiling on how many rows this API will return in a single
-     * response (API-17's `limit` maximum, `PurchaseOrderCollectionProvider::MAXIMUM_LIMIT`);
-     * `PurchaseOrderOperationContractTest` pins the two together rather than
-     * letting this be an unexplained constant. An order with more lines than the
-     * API will ever hand back in one page is past what the read side was designed
-     * for, and the write side should not mint one.
+     * **The reason, and it is one reason rather than three.** An unbounded list
+     * puts an unbounded number of INSERTs and catalogue lookups inside a single
+     * transaction. That is the whole of it.
      *
-     * ⚠ **The reason usually given for such a cap does not apply here and is not
-     * claimed:** `create()` holds no row lock — there is no row yet — so an
-     * unbounded list would not hold one. What it would do is put an unbounded
-     * number of INSERTs and catalogue lookups inside one transaction, which is
-     * reason enough on its own.
+     * ⚠ **Two other reasons were written here on 2026-09-12 and both were false.
+     * They are recorded rather than deleted, because each is the kind of thing
+     * that reads as a derivation and is not:**
+     *
+     *   - *"the reason usually given for such a cap"* — that an unbounded insert
+     *     would hold the order's row lock — does not apply: `create()` takes no
+     *     lock, there being no row yet;
+     *   - *"200 is §4.2's ceiling on what this API returns in one page, so an
+     *     order with more lines than a page is past what the read side was
+     *     designed for"* — the number is **§10.1 / API-17**'s, not §4.2's, and
+     *     `ListPurchaseOrderLines` is a `(bounded)` sub-list that takes no
+     *     `limit` at all. There is no page a 201-line order would fail to fit in,
+     *     because that list has no pages.
+     *
+     * **What the tie to `PurchaseOrderCollectionProvider::MAXIMUM_LIMIT` is
+     * therefore worth, stated honestly:** not a derivation — the two bound
+     * different things — but a statement that the largest batch this API is
+     * willing to hand over in one response and the largest it is willing to
+     * accept in one request are **the same magnitude, and are to be reviewed
+     * together**. `PurchaseOrderOperationContractTest::theNestedLineCapIsThePageCeiling`
+     * is what forces that review when either moves.
+     *
+     * **Public because the refusal message names the number** and because that
+     * test reads it.
      */
     public const MAXIMUM_LINES = 200;
 
@@ -953,7 +970,16 @@ final readonly class PurchaseOrderWriter
         }
 
         if (!\is_string($row['request_digest']) || !hash_equals($row['request_digest'], $digest)) {
-            throw ApiProblem::idempotencyKeyConflict();
+            // The hint exists for one difference a developer will not think to
+            // look for: **the order of `lines` is part of this request**, because
+            // `line_number` is minted from the position. Everything else that
+            // makes two requests different -- a changed supplier, a changed
+            // quantity -- is the kind of thing somebody diffing two bodies spots
+            // immediately. It is this operation's and not the shared sentence's,
+            // because the same reorder is a replay on `CreateGoodsReceipt`.
+            throw ApiProblem::idempotencyKeyConflict(
+                'The lines are compared in the order they were sent, because a line\'s number comes from its position.',
+            );
         }
 
         return $this->readOrderInside($em, (string) $row['id']);

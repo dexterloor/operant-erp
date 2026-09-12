@@ -149,11 +149,24 @@ final class ApiProblem extends \RuntimeException implements ProblemExceptionInte
      * own value, but the first request's contents are not this caller's to learn
      * by guessing keys.
      */
-    public static function idempotencyKeyConflict(): self
+    /**
+     * §6.2's 409.
+     *
+     * **`$hint` names the part of the request an operation knows a caller is
+     * least likely to have noticed changing**, and it is per-operation because
+     * the answer differs between operations that look identical: a reordered
+     * `lines[]` is a *different request* to `CreatePurchaseOrder`, whose
+     * `line_number` comes from the position, and the *same request* to
+     * `CreateGoodsReceipt`, which sorts before digesting because a receipt has no
+     * line order. Put in the shared sentence, either wording would be a lie one
+     * operation over.
+     */
+    public static function idempotencyKeyConflict(?string $hint = null): self
     {
         return new self(
             ProblemType::IdempotencyKeyConflict,
-            'This Idempotency-Key was already used for a different request in this workspace. A new request needs a new key.',
+            'This Idempotency-Key was already used for a different request in this workspace. A new request needs a new key.'
+            .(null === $hint ? '' : ' '.$hint),
         );
     }
 

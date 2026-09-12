@@ -652,13 +652,16 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * against the statements the database was actually sent.
      */
     private const LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
-        'OrmPurchaseOrderReceiptStatus::recordReceipt' => 'It calls PurchaseOrderRowLock::holdInside() first. '
-            .'Its only caller, GoodsReceiptWriter::createInside, already holds that lock, and the second take is '
-            .'re-entrant for the same transaction, so this costs one cheap statement and removes the dependence '
-            .'on the caller.',
+        'OrmPurchaseOrderReceiptStatus::recordReceipt' => [
+            'writes' => ['ORM: names a purchase-order entity class and calls recordReceipt() on it'],
+            'why' => 'It calls PurchaseOrderRowLock::holdInside() first. '
+                .'Its only caller, GoodsReceiptWriter::createInside, already holds that lock, and the second take is '
+                .'re-entrant for the same transaction, so this costs one cheap statement and removes the dependence '
+                .'on the caller.',
+        ],
     ];
 
-    /** Writers that take no lock, each by name and with its reason. Keep it short. */
+    /** Writers that take no lock, each by name, with the writes it makes and its reason. Keep it short. */
     private const ALLOWED_WITHOUT_A_LOCK = [
         // ⚠ **Re-argued at step 8a, when this method stopped writing one row.**
         // Since the nested create (D-C) it inserts the order, inserts its lines
@@ -668,11 +671,18 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // until COMMIT there is no second transaction that can address the row
         // or its lines, and a lock would have nothing to serialise against.
         // That is a property of the write, not a claim about callers.
-        'PurchaseOrderWriter::create' => 'It inserts the order, so there is no existing row to lock, and no other '
-            .'transaction can address what it inserts until it commits. Its two races are answered by unique '
-            .'indexes: purchase_order_tenant_idem_live (a replay of the same key) and '
-            .'purchase_order_tenant_number_live (two creates picking the same order number). Its lines are '
-            .'inserted in the same transaction and belong to an order nobody else can reach yet.',
+        'PurchaseOrderWriter::create' => [
+            'writes' => [
+                'SQL: INSERT INTO purchase_order',
+                'via insertLineInside()',
+                'via recomputeTotal()',
+            ],
+            'why' => 'It inserts the order, so there is no existing row to lock, and no other '
+                .'transaction can address what it inserts until it commits. Its two races are answered by unique '
+                .'indexes: purchase_order_tenant_idem_live (a replay of the same key) and '
+                .'purchase_order_tenant_number_live (two creates picking the same order number). Its lines are '
+                .'inserted in the same transaction and belong to an order nobody else can reach yet.',
+        ],
     ];
 
     /** Statement text that writes either table. */
@@ -723,6 +733,21 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             ."and LOCK_FIRST_CHECKED; or, if it has no path of its own, lock first and be named in "
             ."LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN; or be added to ALLOWED_WITHOUT_A_LOCK with its reason.\n"
             ."Writers found in src/:\n".$describe);
+
+        // ⚠ **The two lists whose entries carry a REASON also pin what that
+        // reason is about, and that half was a diagnostic until 2026-09-12.**
+        // The membership check above compares key sets, so a method already in
+        // one of these lists could grow a second and a third write — as
+        // `create()` did at step 8a, gaining its lines and its total — with the
+        // suite green and the reason quietly describing a method that no longer
+        // exists. The reason strings were values nothing read. Now a new write
+        // reddens here and whoever adds it has to re-read the sentence that
+        // excuses the missing lock.
+        foreach ([...self::ALLOWED_WITHOUT_A_LOCK, ...self::LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN] as $method => $pin) {
+            self::assertSame($pin['writes'], $derived[$method] ?? [],
+                $method.' writes something its entry does not account for. Its stated reason for taking no lock, or '
+                ."for locking with no path of its own, was written about a different set of writes:\n  ".$pin['why']);
+        }
     }
 
     /**

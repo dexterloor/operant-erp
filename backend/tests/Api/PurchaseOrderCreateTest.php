@@ -858,6 +858,17 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(),
             'The lines were reordered, so line 1 and line 2 name different items. That is a different order, not a retry.');
         self::assertSame('urn:erp:problem:idempotency-key-conflict', $this->json()['type']);
+
+        // **The answer has to be diagnosable.** A reorder is the one difference
+        // between two bodies that a developer diffing them will not register as
+        // a difference, and the shared 409 sentence says only that the key was
+        // used for a different request. This operation adds the missing half.
+        // It is not in the shared sentence because the same reorder is a REPLAY
+        // on `CreateGoodsReceipt`, so either wording would be false one
+        // operation over.
+        self::assertStringContainsString('in the order they were sent', (string) $this->json()['detail'],
+            'The conflict does not tell the caller that list order is part of the request, which is the one '
+            .'difference between the two bodies they will not spot.');
     }
 
     /**
@@ -1165,6 +1176,42 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
             '/lines/0/inventory_item_id' => 'not_a_uuid',
         ], array_column($this->json()['errors'], 'code', 'pointer'),
             'The stray key suppressed the bad id, so the caller has to make two round trips to learn both.');
+    }
+
+    /**
+     * **An explicit `"lines": null` is the same request as omitting the field,
+     * and this pins it as a decision rather than leaving it to be inferred from
+     * a property's type.**
+     *
+     * `CreatePurchaseOrderInput::$lines` is `?array` with a null default, so it
+     * cannot tell an absent key from an explicit null — and `RequestDigest`'s own
+     * rule is that the two digest alike *exactly when the input object cannot
+     * tell them apart*. Both spellings ask for an order with no lines, so a retry
+     * that switches between them is a retry, not a different request.
+     *
+     * The commit message that shipped the nested create said an explicit null
+     * would change the digest. That was about adding a `lines` KEY to the
+     * digested field set unconditionally, not about the client sending one, and
+     * it reads the other way round. This is the test that settles which.
+     */
+    #[Test]
+    public function anExplicitNullLinesIsTheSameRequestAsOmittingIt(): void
+    {
+        $key = Uuid::v4()->toRfc4122();
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $warehouse], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = $this->json()['id'];
+
+        $this->create(['supplier_id' => $supplier, 'warehouse_id' => $warehouse, 'lines' => null], $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($order, $this->json()['id'],
+            'An explicit null `lines` was treated as a different request from omitting the field. The input object '
+            .'cannot tell them apart, so nothing downstream should.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
     }
 
     /** @return iterable<string, array{string}> */

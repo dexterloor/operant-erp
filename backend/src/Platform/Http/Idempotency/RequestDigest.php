@@ -137,6 +137,23 @@ final class RequestDigest
     private static function canonical(mixed $value): mixed
     {
         if (\is_array($value)) {
+            // ⚠ **An empty collection is refused, not encoded**, for the reason a
+            // float is: its JSON spelling is ambiguous. `json_encode([])` is
+            // `[]` whether the caller meant an empty list or an empty object, so
+            // two different requests would digest alike and a retry that changed
+            // one into the other would be answered as a replay. 6b named this as
+            // a residual and both callers happened to refuse an empty `lines`
+            // anyway; **"both callers happen to" is not a guarantee**, and a
+            // third operation digesting one would re-open it silently. Refused
+            // here, so the guarantee is the class's rather than each caller's.
+            if ([] === $value) {
+                throw new \InvalidArgumentException(
+                    'An empty collection cannot be digested: [] is the JSON encoding of both an empty list and an '
+                    .'empty object, so two different requests would digest alike. Refuse it as a field defect '
+                    .'before digesting, as CreatePurchaseOrder and CreateGoodsReceipt refuse an empty `lines`.',
+                );
+            }
+
             if (!array_is_list($value)) {
                 ksort($value, \SORT_STRING);
             }

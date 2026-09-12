@@ -92,8 +92,19 @@ final class CreatePurchaseOrderInput
      * (`/lines/0/quantity`) in the one place that also knows which supplier
      * catalogue a refusal is about.
      *
-     * **Absent (`null`) and an empty list are not the same thing.** Absent is
+     * **An absent field and an empty list are not the same thing.** Absent is
      * F-2's empty draft and is accepted; `[]` is refused. See the class docblock.
+     *
+     * ⚠ **An explicit `"lines": null` IS the same thing as absent, by design.**
+     * This property cannot tell the two apart — that is what `?array $lines =
+     * null` means — so `{…}` and `{…,"lines":null}` are one request and one
+     * digest, and a retry that switches between them replays rather than
+     * conflicting. That is `RequestDigest`'s own stated rule (*"nulls are
+     * explicit: absent and null digest alike exactly when the input object
+     * cannot tell them apart"*) applied rather than an accident of typing, and
+     * it is the right answer: both spellings ask for an order with no lines.
+     * `PurchaseOrderCreateTest::anExplicitNullLinesIsTheSameRequestAsOmittingIt`
+     * pins it, so a later change that starts distinguishing them has to say so.
      *
      * @var array<mixed>|null
      */

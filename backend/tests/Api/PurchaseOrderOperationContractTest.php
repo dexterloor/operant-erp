@@ -9,8 +9,8 @@ use App\Modules\Purchasing\ApiResource\ApprovePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CancelPurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput;
-use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderCollectionProvider;
+use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput;
 use App\Modules\Purchasing\Application\PurchaseOrderViews;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
@@ -388,24 +388,32 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **The nested create's line cap, against the ceiling it was taken from.**
+     * **The nested create's line cap and the page ceiling, held at the same
+     * magnitude — which is all this pins, and the docblock used to claim more.**
      *
-     * No document sets a number of lines (grepped: §4.2 and §2 bound page size
-     * and nothing else), so `PurchaseOrderWriter::MAXIMUM_LINES` is a decision
-     * taken in the writer and it says so. What this pins is that it is not an
-     * arbitrary literal: it is API-17's `limit` maximum — the most rows this API
-     * will return in one response — so an order cannot be raised with more lines
-     * than the read side will ever hand back in one page.
+     * No document sets a number of lines, so `PurchaseOrderWriter::MAXIMUM_LINES`
+     * is a decision taken in the writer and it says so there, with its one sound
+     * reason: an unbounded list is an unbounded number of INSERTs in a single
+     * transaction.
      *
-     * If the page ceiling moves, this goes red and somebody decides whether the
-     * write cap moves with it. That is the question worth forcing; two literals
-     * silently drifting apart is not.
+     * ⚠ **This is deliberately NOT a derivation, and saying it was is the claim
+     * that was corrected.** The two constants bound different things —
+     * `MAXIMUM_LIMIT` is §10.1 / API-17's keyset page size, and
+     * `ListPurchaseOrderLines` is a `(bounded)` sub-list that takes no `limit`
+     * at all, so there is no page a 201-line order would fail to fit in. What
+     * this asserts is narrower and still worth asserting: the largest batch this
+     * API hands over in one response and the largest it accepts in one request
+     * are the same magnitude and are **reviewed together**. If either moves, this
+     * goes red and somebody decides about the other. Two literals drifting apart
+     * unnoticed is the outcome worth preventing.
      */
     #[Test]
     public function theNestedLineCapIsThePageCeiling(): void
     {
         self::assertSame(PurchaseOrderCollectionProvider::MAXIMUM_LIMIT, PurchaseOrderWriter::MAXIMUM_LINES,
-            'The cap on lines[] in one CreatePurchaseOrder is no longer API-17\'s page ceiling.');
+            'The cap on lines[] in one CreatePurchaseOrder and API-17\'s page ceiling have moved apart. '
+            .'Neither derives from the other; they are held together so that changing one forces a decision '
+            .'about the other.');
     }
 
     /**

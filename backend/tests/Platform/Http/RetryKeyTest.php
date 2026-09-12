@@ -103,6 +103,23 @@ final class RetryKeyTest extends TestCase
         RequestDigest::of('Op', ['quantity' => 1.5]);
     }
 
+    /**
+     * **6b's empty-list residual, closed here rather than in each caller.**
+     *
+     * `json_encode([])` is `[]` for both an empty list and an empty object, so a
+     * digest holding one cannot tell two different requests apart. Both callers
+     * that digest a collection today refuse an empty one — but *"both callers
+     * happen to"* is not a guarantee, and the third would re-open it in silence.
+     * Refused for the same reason a float is: an ambiguous spelling has no place
+     * in a value whose whole job is to distinguish requests.
+     */
+    #[Test]
+    public function anEmptyCollectionIsRefusedRatherThanEncodedAmbiguously(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        RequestDigest::of('Op', ['supplier_id' => self::SUPPLIER, 'lines' => []]);
+    }
+
     #[Test]
     public function aKeyIsStoredAsTheLowerCaseHexSha256OfTheHeaderValue(): void
     {
