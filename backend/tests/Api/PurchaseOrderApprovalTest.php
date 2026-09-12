@@ -6,8 +6,8 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Application\PurchaseOrderDutySeparation;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
-use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Domain\IllegalTransition;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;

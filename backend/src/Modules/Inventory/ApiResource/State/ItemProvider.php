@@ -6,9 +6,9 @@ namespace App\Modules\Inventory\ApiResource\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
-use App\Platform\Http\Problem\ApiProblem;
 use App\Modules\Inventory\ApiResource\ItemResource;
 use App\Modules\Inventory\Application\ItemReader;
+use App\Platform\Http\Problem\ApiProblem;
 
 /**
  * `GetItem`.

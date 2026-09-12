@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Modules\UserManagement\Infrastructure\AccessTokens;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 
 /**

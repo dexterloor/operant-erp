@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Audit;
 
-use App\SharedKernel\ValueObject\AuditEvent;
-use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
+use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
+use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Tenancy\TenancyTestCase;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;

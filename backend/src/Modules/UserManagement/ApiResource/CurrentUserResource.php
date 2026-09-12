@@ -7,8 +7,8 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
-use App\Platform\Security\PermissionGate;
 use App\Modules\UserManagement\ApiResource\State\CurrentUserProvider;
+use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**

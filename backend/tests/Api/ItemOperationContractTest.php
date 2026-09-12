@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Modules\Inventory\ApiResource\CreateItemInput;
 use App\Modules\Inventory\ApiResource\UpdateItemInput;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 

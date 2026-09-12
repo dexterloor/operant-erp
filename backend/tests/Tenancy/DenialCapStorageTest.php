@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 

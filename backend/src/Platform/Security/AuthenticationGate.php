@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Platform\Security;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Platform\Http\Problem\ApiProblem;
 use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\HttpFoundation\Request;

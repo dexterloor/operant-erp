@@ -6,13 +6,13 @@ namespace App\Modules\UserManagement\ApiResource\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
-use App\Platform\Http\Problem\ApiProblem;
-use App\Platform\Security\RequestIdentity;
 use App\Modules\UserManagement\ApiResource\ChangePasswordInput;
 use App\Modules\UserManagement\ApiResource\PasswordResource;
 use App\Modules\UserManagement\Application\ChangePassword;
 use App\Modules\UserManagement\Application\ChangePasswordCommand;
 use App\Modules\UserManagement\Application\ChangePasswordOutcome;
+use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use Symfony\Component\HttpFoundation\Request;
 
 /**

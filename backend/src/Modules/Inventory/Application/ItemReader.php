@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Application;
 
-use App\Platform\Http\Pagination\Cursor;
-use App\Platform\Tenancy\CurrentTenant;
 use App\Modules\Inventory\ApiResource\ItemCollection;
 use App\Modules\Inventory\ApiResource\ItemResource;
+use App\Platform\Http\Pagination\Cursor;
+use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;

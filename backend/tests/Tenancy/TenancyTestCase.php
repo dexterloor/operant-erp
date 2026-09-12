@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
-use App\SharedKernel\Reference\Currency;
 use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
 use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
-use App\SharedKernel\Reference\UnitOfMeasure;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\Reference\Currency;
+use App\SharedKernel\Reference\UnitOfMeasure;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;

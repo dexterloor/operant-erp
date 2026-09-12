@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 

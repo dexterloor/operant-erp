@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Platform\Security;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Platform\Http\Problem\ApiProblem;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
+use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\ControllerEvent;

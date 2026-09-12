@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Modules\UserManagement\Domain\PreAuthKeys;
 use App\Modules\UserManagement\Domain\VerifiesPasswords;
 use App\Modules\UserManagement\Infrastructure\AccessTokens;
@@ -15,6 +14,7 @@ use App\Modules\UserManagement\Infrastructure\EmailHasher;
 use App\Modules\UserManagement\Infrastructure\LockoutStore;
 use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\SharedKernel\ValueObject\AuditEvent;
 use Psr\Clock\ClockInterface;
 
 /**

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Platform\Security\PermissionGate;
 use App\Modules\UserManagement\Application\CurrentUserReader;
+use App\Platform\Security\PermissionGate;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Uid\Uuid;

@@ -6,12 +6,12 @@ namespace App\Modules\UserManagement\ApiResource\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
-use App\Platform\Http\Problem\ApiProblem;
 use App\Modules\UserManagement\ApiResource\IssueTokenInput;
 use App\Modules\UserManagement\ApiResource\TokenResource;
 use App\Modules\UserManagement\Application\SignIn;
 use App\Modules\UserManagement\Application\SignInCommand;
 use App\Modules\UserManagement\Application\SignInOutcome;
+use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 
 /**

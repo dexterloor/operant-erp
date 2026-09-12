@@ -6,10 +6,10 @@ namespace App\Modules\UserManagement\ApiResource\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
-use App\Platform\Http\Problem\ApiProblem;
-use App\Platform\Security\RequestIdentity;
 use App\Modules\UserManagement\ApiResource\CurrentUserResource;
 use App\Modules\UserManagement\Application\CurrentUserReader;
+use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 
 /**
  * `GetCurrentUser`.

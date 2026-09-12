@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\ValueObject\AuditEvent;
 use Doctrine\DBAL\Connection;
 
 /**

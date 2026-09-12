@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\SharedKernel\ValueObject\AuditEvent;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Platform\Tenancy\SchemaManifest;
+use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;

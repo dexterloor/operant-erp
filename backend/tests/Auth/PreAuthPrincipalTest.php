@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Platform\Tenancy\Entity\Tenant;
 use App\Platform\Tenancy\DatabaseRoles;
+use App\Platform\Tenancy\Entity\Tenant;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Api\TransactionBoundaryTest;
 use PHPUnit\Framework\Attributes\Test;

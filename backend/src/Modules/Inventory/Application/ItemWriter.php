@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Application;
 
-use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
-use App\Platform\Http\Problem\ApiProblem;
-use App\Platform\Tenancy\CurrentTenant;
 use App\Modules\Inventory\ApiResource\CreateItemInput;
 use App\Modules\Inventory\ApiResource\ItemResource;
 use App\Modules\Inventory\ApiResource\UpdateItemInput;
+use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
+use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;

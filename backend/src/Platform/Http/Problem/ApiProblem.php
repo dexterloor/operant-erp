@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Platform\Http\Problem;
 
+use ApiPlatform\Metadata\Error as ErrorOperation;
 use ApiPlatform\Metadata\ErrorResource;
 use ApiPlatform\Metadata\Exception\HttpExceptionInterface;
 use ApiPlatform\Metadata\Exception\ProblemExceptionInterface;
-use ApiPlatform\Metadata\Error as ErrorOperation;
 use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 

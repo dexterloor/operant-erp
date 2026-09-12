@@ -10,13 +10,13 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
-use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
-use App\Platform\Security\PermissionGate;
 use App\Modules\Inventory\ApiResource\State\CreateItemProcessor;
 use App\Modules\Inventory\ApiResource\State\DeleteItemProcessor;
 use App\Modules\Inventory\ApiResource\State\ItemProvider;
 use App\Modules\Inventory\ApiResource\State\RestoreItemProcessor;
 use App\Modules\Inventory\ApiResource\State\UpdateItemProcessor;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**

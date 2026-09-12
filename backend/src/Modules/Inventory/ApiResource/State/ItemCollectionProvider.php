@@ -6,12 +6,12 @@ namespace App\Modules\Inventory\ApiResource\State;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
-use App\Platform\Http\Pagination\Cursor;
-use App\Platform\Http\Pagination\InvalidCursor;
-use App\Platform\Http\Problem\ApiProblem;
 use App\Modules\Inventory\ApiResource\ItemCollection;
 use App\Modules\Inventory\Application\ItemListCriteria;
 use App\Modules\Inventory\Application\ItemReader;
+use App\Platform\Http\Pagination\Cursor;
+use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
 
