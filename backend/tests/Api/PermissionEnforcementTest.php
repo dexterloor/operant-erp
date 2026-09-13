@@ -164,6 +164,95 @@ final class PermissionEnforcementTest extends ApiTestCase
     }
 
     /**
+     * **The loop between the two above: every code but the one required is not
+     * enough.** Five-calls follow-up, owner ruling on call 2 (2026-09-13).
+     *
+     * The two loops above hold **nothing** and **everything**, and a gate that
+     * matched too loosely passes both: holding nothing matches nothing, and
+     * holding everything matches the right code anyway. So a `holds()` that
+     * accepted `purchase_order.approve` from a caller holding
+     * `purchase_order.create` — a prefix match, a module match, a `str_contains`
+     * — shipped green. With no role-granting path in production, the permission
+     * gate is the only separation between codes there is, which is what makes
+     * this the check to have.
+     *
+     * Here each operation is driven by a fresh principal holding **every declared
+     * code except that operation's own**, and must still be refused with that code
+     * named. The operation set and the code set are derived exactly as the two
+     * loops above derive them — the registry and `everyDeclaredPermission()` —
+     * and nothing is restated.
+     *
+     * The mutation below is only evidence if the fixture can express it: a
+     * module-prefix match can only be caught on an operation whose module
+     * declares a second code. The loop counts those and requires at least one,
+     * so a registry where every module had exactly one code would fail here
+     * rather than pass vacuously.
+     *
+     * *Mutation, run 2026-09-13:* `Identity::holds()` rewritten to match on the
+     * module prefix (the text before the first `.`). Red here — and both loops
+     * above stay green under it, which is the proof the gap was real **in the
+     * loops**. Run against the whole suite it is red in exactly one other place:
+     * `theSetTheApiEnforcesIsTheSetMeAdvertises`, whose principal holds
+     * `inventory_item.edit` and expects `DELETE /items` refused. *Second mutation,
+     * run the same day:* match on the action suffix instead (`supplier.view`
+     * satisfies `inventory_item.view`); whole suite red here and in exactly one
+     * other place, `GoodsReceiptCreateTest::aCallerWithoutTheReceiptCodeIsRefused`.
+     * So the gap was not "nothing can see a loose match" — each loose match was
+     * caught by **one hand-picked pair elsewhere, by accident of its fixture**,
+     * and a different loose match could miss both. What this loop adds is the
+     * domain: every operation, each against every sibling code, derived.
+     */
+    #[Test]
+    public function everyOperationRefusesACallerWhoHoldsEveryCodeExceptTheOneItRequires(): void
+    {
+        $everyCode = self::everyDeclaredPermission();
+
+        $examined = 0;
+        $aSiblingCodeWasHeld = 0;
+
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+
+            if (!\is_string($required)) {
+                continue;
+            }
+
+            ++$examined;
+
+            $held = array_values(array_diff($everyCode, [$required]));
+            $module = strstr($required, '.', true);
+
+            foreach ($held as $code) {
+                if (false !== $module && str_starts_with($code, $module.'.')) {
+                    ++$aSiblingCodeWasHeld;
+
+                    break;
+                }
+            }
+
+            $this->actAs(self::TENANT_A, $held);
+
+            $this->send(
+                (string) $operation->getMethod(),
+                $this->concretePathFor($operation),
+                \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
+            );
+
+            self::assertSame(403, $this->httpStatus(),
+                $name.' did not refuse a caller who holds every declared code except '.$required.'. Body: '
+                .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+            self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $name);
+            self::assertSame($required, $this->json()['required_permission'], $name);
+        }
+
+        self::assertGreaterThan(0, $examined,
+            'No operation in the registry declares a permission code, so this loop asserted nothing.');
+        self::assertGreaterThan(0, $aSiblingCodeWasHeld,
+            'No operation\'s module declares a second code, so no caller here held a sibling of the code it lacked '
+            .'and a loosely-matching holds() could not have been caught.');
+    }
+
+    /**
      * §14.2 item 25's first half — the request-level authentication gate.
      *
      * Every operation outside `/auth/*` refuses a request with no token, and it
