@@ -499,47 +499,48 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`OrmPurchaseOrderReceiptStatus::recordReceipt` takes the order's row
-     * lock as the first thing it sends, called on its own.**
+     * **Every writer with no path of its own takes the order's row lock as the
+     * first thing it sends, called on its own** — one case per entry in
+     * `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, derived from that list.
      *
-     * It is the one writer here with no path of its own, so nothing at the HTTP
-     * level can show that it locks *itself* rather than inheriting its caller's
-     * lock. This drives it directly, inside a transaction that has taken no
-     * lock, and reads the statements the database was sent: **the first one
-     * naming `purchase_order` must be the lock**, before the `SELECT` that
-     * `find()` issues and before anything else reads the row.
+     * Such a writer has no HTTP case, so nothing at the HTTP level can show that
+     * it locks *itself* rather than inheriting its caller's lock. Each case drives
+     * the method directly, inside a transaction that has taken no lock, and reads
+     * the statements the database was sent: **the first one naming
+     * `purchase_order` must be the lock**, before the `SELECT` that `find()`
+     * issues and before anything else reads the row.
      *
      * Written this way rather than as "the first statement of all" on purpose —
      * `TenantContext` sends its own `set_config` first, and a check that
      * counted that would be asserting the framework rather than the writer.
      *
-     * **Mutation, run:** the `PurchaseOrderRowLock::holdInside()` call removed
-     * from the class (1 occurrence, counted; reverted `cmp`-identical). Red
-     * here and **nowhere else in this file** — which is the point of the test
-     * existing. `everyMethodThatWritesAPurchaseOrderIsCoveredByALockFirstCheck`
-     * stays green under it, because that check reconciles *which* methods are
-     * accounted for and not *what they do*; the name is still in
-     * `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, so a reason recorded there and then
-     * quietly falsified is invisible to it. That is the whole gap this test
-     * closes. **The arm is mutated separately:** the mutator clause removed from
-     * `writersOf()` (1 occurrence) — red there, because the method
-     * is accounted for and no longer found.
+     * ⚠ **Until the five-calls follow-up review (2026-09-13) this was one
+     * hand-written test for `OrmPurchaseOrderReceiptStatus::recordReceipt`.** The
+     * accounting check reconciles *which* methods are listed, not *what they do*,
+     * so a second entry whose reason said "it calls `holdInside()` first" and was
+     * false went red nowhere. Now the list is the provider: a new entry is red
+     * here until {@see self::noPathWriter()} can drive it, and once it can, its
+     * reason is measured rather than read.
+     *
+     * **Mutations, run 2026-09-13:** (1) the `PurchaseOrderRowLock::holdInside()`
+     * call removed from `OrmPurchaseOrderReceiptStatus` (1 occurrence) — red
+     * here; `everyMethodThatWritesAPurchaseOrderIsCoveredByALockFirstCheck` stays
+     * green. (2) The reviewer's case: a throwaway `src/` method that changes an
+     * order through the entity WITHOUT locking, entered in the list with a false
+     * "it locks first" reason, its `writes` pin and a driver — red here on that
+     * case, and green in the accounting check, which is exactly the gap. (3) The
+     * same entry with no driver — red here, naming it. Each reverted
+     * `cmp`-identical or removed.
      */
     #[Test]
-    public function theReceiptStatusWriterTakesTheOrdersLockAsItsFirstStatement(): void
+    #[DataProvider('everyWriterWithNoPathOfItsOwn')]
+    public function aWriterWithNoPathOfItsOwnTakesTheOrdersLockAsItsFirstStatement(string $writer): void
     {
-        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
-        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
-
-        $writer = new OrmPurchaseOrderReceiptStatus();
+        ['run' => $run, 'then' => $then] = $this->noPathWriter($writer);
 
         $this->recorder()->start();
         try {
-            $this->tenantContext()->run(
-                self::TENANT_A,
-                static fn (EntityManagerInterface $em) => $writer->recordReceipt($em, $order, false),
-            );
+            $this->tenantContext()->run(self::TENANT_A, $run);
         } finally {
             $this->recorder()->stop();
         }
@@ -549,11 +550,45 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             static fn (string $sql): bool => str_contains($sql, 'purchase_order'),
         ));
 
-        self::assertNotSame([], $touching, 'The writer sent nothing naming purchase_order, so it did not run.');
+        self::assertNotSame([], $touching, $writer.' sent nothing naming purchase_order, so it did not run.');
         self::assertSame(PurchaseOrderRowLock::SQL, $touching[0],
-            "The receipt's status writer read the order before locking it. Its caller happens to hold the lock "
-            .'today; this method must not depend on that.');
-        $this->assertOrderStatus($order, PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
+            $writer.' read the order before locking it, and LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN says it locks first. '
+            .'Its caller may hold the lock today; this method must not depend on that.');
+        $then();
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function everyWriterWithNoPathOfItsOwn(): iterable
+    {
+        foreach (array_keys(self::LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN) as $writer) {
+            yield $writer => [$writer];
+        }
+    }
+
+    /**
+     * How to call one no-path writer on its own: `run` is handed the tenant
+     * transaction's EntityManager, `then` asserts it did its job. An entry with
+     * no driver fails rather than being skipped.
+     *
+     * @return array{run: callable(EntityManagerInterface): mixed, then: callable(): void}
+     */
+    private function noPathWriter(string $writer): array
+    {
+        switch ($writer) {
+            case 'OrmPurchaseOrderReceiptStatus::recordReceipt':
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+                $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+                $subject = new OrmPurchaseOrderReceiptStatus();
+
+                return [
+                    'run' => static fn (EntityManagerInterface $em) => $subject->recordReceipt($em, $order, false),
+                    'then' => fn () => $this->assertOrderStatus($order, PurchaseOrder::STATUS_PARTIALLY_RECEIVED),
+                ];
+        }
+
+        self::fail($writer.' is in LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN and this test cannot call it. Add a case to '
+            .'noPathWriter() that drives it on its own, so its "locks first" reason is measured rather than trusted.');
     }
 
     /**
@@ -760,7 +795,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * today and is exactly the kind of claim this project has watched go stale:
      * it rests on there being no second caller, which nothing enforces. So the
      * method locks first itself, and
-     * `theReceiptStatusWriterTakesTheOrdersLockAsItsFirstStatement` asserts it
+     * `aWriterWithNoPathOfItsOwnTakesTheOrdersLockAsItsFirstStatement` asserts it,
+     * for every entry,
      * against the statements the database was actually sent.
      */
     private const LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
@@ -911,15 +947,20 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * the scan is broken. Here empty is the **correct** state today, so that
      * guard would be red for the right answer. The two questions are split:
      *
-     *  - *does the scanner work?* — the purchase-order run above is the positive
-     *    control. It is the same `writersOf()`, and it finds every purchase-order
-     *    writer (ten on 2026-09-13) across SQL, the ORM flush arm, the ORM
-     *    mutator arm and the private-helper reduction, byte-identical to what
-     *    it found before this scan was parameterised;
+     *  - *does the scanner work?* — the purchase-order run is the positive
+     *    control, **run inside this test**. It is the same `writersOf()`; it
+     *    finds every purchase-order writer (ten on 2026-09-13) across SQL, the
+     *    ORM flush arm, the ORM mutator arm and the private-helper reduction,
+     *    byte-identical to what it found before this scan was parameterised; and
+     *    this test requires it to be non-empty and to contain
+     *    `PurchaseOrderApproval::approve`. *(Until the 2026-09-13 review the
+     *    control lived only in the sibling test, so a scanner broken for every
+     *    aggregate left this green — and a `--filter` run made it vacuous.)*
      *  - *is the SALES configuration able to see anything?* — the scan for one
      *    aggregate is only its regexes and its entity classes, so both are
      *    checked against the entities' own `#[ORM\Table]` names and class names
-     *    below, for both scans. A regex that could never match its table would
+     *    below, for both scans — SQL `UPDATE`/`INSERT INTO`/`DELETE FROM` and
+     *    DQL `UPDATE`/`DELETE FROM`. A regex that could never match its table would
      *    otherwise turn this into a test that passes forever.
      *
      * **What the first sales writer has to do to turn this green again** —
@@ -932,16 +973,24 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *  - **`CreateSalesOrder`** will need an allow-list entry: a create has no
      *    existing row to lock, and its races belong to its unique indexes;
      *  - **F-5's order-status recompute** on fulfilment posting will change a
-     *    sales order's status through the entity and leave the flush to its
-     *    caller — the shape `OrmPurchaseOrderReceiptStatus::recordReceipt` has.
-     *    That is the **ORM mutator arm**, which is why the sales scan derives
-     *    `SalesOrder`'s and `SalesOrderLine`'s mutators by reflection rather than
-     *    relying on SQL text alone.
+     *    sales order's status. **This test sees it only if it is written in a
+     *    shape the scan recognises**: SQL text naming the table, or a method that
+     *    names `SalesOrder::class` / `new SalesOrder` and calls one of its
+     *    mutators or flushes — the `OrmPurchaseOrderReceiptStatus::recordReceipt`
+     *    shape. If the recompute reaches the order **through an association** —
+     *    `Fulfilment::getSalesOrder()`, `Invoice::getSalesOrder()`,
+     *    `SalesOrderLine::getSalesOrder()` — and never names the class, this
+     *    scan is blind to it and stays green. The failure message says so too,
+     *    because that is where the next builder will read it.
      *
      * Whether that accounting then lives in this file or in a sales-side twin is
-     * the first sales writer's decision; this test only makes it unavoidable.
-     * The blind spots are the purchase-order scan's, unchanged — see
-     * `PurchaseOrderRowLock`'s docblock.
+     * the first sales writer's decision; this test only makes it unavoidable
+     * for the shapes it can see. The blind spots are the purchase-order scan's —
+     * see `PurchaseOrderRowLock`'s docblock — and one of them already writes
+     * here: **`sales_order_cascade_deletion`**, the trigger that carries a sales
+     * order's `deleted_at` to its lines, is a writer of `sales_order_line`
+     * outside `src/` (its name is even assembled at runtime in the migration),
+     * and it runs inside the order's own `UPDATE`, so it keeps order → lines.
      *
      * **Mutations, run 2026-09-13, each removed or reverted afterwards:** a
      * throwaway public method under `src/` that runs `UPDATE sales_order …` —
@@ -963,13 +1012,25 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                     self::assertMatchesRegularExpression($scan['sql'], $statement,
                         'The '.$aggregate.' scan\'s SQL pattern does not recognise a write to its own table '.$table.'.');
                 }
-                self::assertMatchesRegularExpression($scan['dql'], 'UPDATE '.$entity.' e SET e.x = 1',
-                    'The '.$aggregate.' scan\'s DQL pattern does not recognise a write to its own entity '.$entity.'.');
+                foreach (['UPDATE '.$entity.' e SET e.x = 1', 'DELETE FROM '.$entity.' e WHERE e.id = 1'] as $statement) {
+                    self::assertMatchesRegularExpression($scan['dql'], $statement,
+                        'The '.$aggregate.' scan\'s DQL pattern does not recognise a write to its own entity '.$entity.'.');
+                }
             }
 
             self::assertNotSame([], self::entityMutators($scan['entities']),
                 'The '.$aggregate.' entities have no mutator, so the ORM mutator arm of that scan has no subject.');
         }
+
+        // The positive control, here and not only in the sibling test: the same
+        // engine, pointed at an aggregate that has writers, must find them.
+        $control = self::writersOf(self::PURCHASE_ORDER_SCAN);
+        self::assertNotSame([], $control,
+            'The writer scan found no purchase-order writer, so the scanner itself is broken and the empty sales result '
+            .'below proves nothing.');
+        self::assertArrayHasKey('PurchaseOrderApproval::approve', $control,
+            'The writer scan no longer finds PurchaseOrderApproval::approve, a known ORM writer, so its ORM arms are broken '
+            .'and the empty sales result below proves nothing.');
 
         $derived = self::writersOf(self::SALES_ORDER_SCAN);
 
@@ -978,7 +1039,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             ."the order first (then stock). Nothing checks that for Sales yet. The first sales writer must take a "
             ."sales-order row lock as the first statement of its transaction and be covered by a lock-first check, or be "
             ."allow-listed with a reason the way PurchaseOrderWriter::create is (CreateSalesOrder has no row to lock). "
-            ."Then replace this assertion with the purchase-order style accounting.\nWriters found in src/:\n"
+            ."Then replace this assertion with the purchase-order style accounting.\n"
+            ."NOTE: this scan is blind to a write reached through an association (Fulfilment::getSalesOrder(), "
+            ."Invoice::getSalesOrder(), SalesOrderLine::getSalesOrder()) that never names SalesOrder::class, and to "
+            ."writers outside src/ such as the sales_order_cascade_deletion trigger. A sales writer this test does not "
+            ."list may still exist.\nWriters found in src/:\n"
             .print_r($derived, true));
     }
 
