@@ -8,6 +8,8 @@ use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine;
 use App\Modules\Purchasing\Infrastructure\OrmPurchaseOrderReceiptStatus;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrderLine;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
@@ -520,7 +522,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, so a reason recorded there and then
      * quietly falsified is invisible to it. That is the whole gap this test
      * closes. **The arm is mutated separately:** the mutator clause removed from
-     * `writersOfPurchaseOrders()` (1 occurrence) — red there, because the method
+     * `writersOf()` (1 occurrence) — red there, because the method
      * is accounted for and no longer found.
      */
     #[Test]
@@ -795,11 +797,45 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         ],
     ];
 
-    /** Statement text that writes either table. */
-    private const WRITE_SQL = '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+purchase_order(?:_line)?\b/i';
+    /**
+     * **What one run of the writer scan looks for — the scan is the same code for
+     * every aggregate, and this is everything about it that is not.**
+     *
+     * - `sql`: statement text that writes either table;
+     * - `dql`: DQL that writes either entity;
+     * - `entities`: the two entity classes. Their short names are what the ORM
+     *   arm recognises (`X::class`, `new X`), and their public non-accessor
+     *   methods, by reflection, are its mutators;
+     * - `label`: the words the ORM arm's description uses. The purchase-order
+     *   run's descriptions are pinned verbatim in the lists above, so this label
+     *   is part of that pin.
+     *
+     * There is no lock-helper parameter, and that is not an omission: this scan
+     * derives **which** methods write, and the lists above say how each is
+     * covered. That a covered writer really takes its lock first is proved by
+     * the races and `theOrderRowLockIsTheFirstStatementToTouchTheOrder`, which
+     * are per aggregate and cannot be parameterised into existence.
+     *
+     * @var array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}}
+     */
+    private const PURCHASE_ORDER_SCAN = [
+        'label' => 'purchase-order',
+        'sql' => '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+purchase_order(?:_line)?\b/i',
+        'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*PurchaseOrder(?:Line)?\b/',
+        'entities' => [PurchaseOrder::class, PurchaseOrderLine::class],
+    ];
 
-    /** DQL that writes either entity. */
-    private const WRITE_DQL = '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*PurchaseOrder(?:Line)?\b/';
+    /**
+     * W-5's other half — see `noMethodInSrcWritesASalesOrderYet()`.
+     *
+     * @var array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}}
+     */
+    private const SALES_ORDER_SCAN = [
+        'label' => 'sales-order',
+        'sql' => '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+sales_order(?:_line)?\b/i',
+        'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*SalesOrder(?:Line)?\b/',
+        'entities' => [SalesOrder::class, SalesOrderLine::class],
+    ];
 
     /**
      * **The domain is derived from `src/`, not restated.** A new method that
@@ -819,7 +855,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'LOCK_FIRST_CHECKED must name exactly the cases everyWritePath() runs.',
         );
 
-        $derived = self::writersOfPurchaseOrders();
+        $derived = self::writersOf(self::PURCHASE_ORDER_SCAN);
         self::assertNotSame([], $derived, 'The scan found no writer at all, so it is not scanning.');
 
         $accounted = [
@@ -861,14 +897,103 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Every method in `src/` that writes `purchase_order` / `purchase_order_line`,
-     * reduced to the methods a caller enters by: a private or protected writer
-     * is replaced by its in-class callers, and one with no in-class caller is
-     * reported as itself.
+     * **W-5's Sales half, as a tripwire: nothing in `src/` writes a sales order
+     * yet, and the first thing that does is red here.**
+     *
+     * `ARCHITECTURE.md` W-5 — *"Sales locks the order, then stock; Purchasing
+     * locks the PO, then stock"* — binds both write edges. Step 6c built the
+     * Purchasing half and the scan above keeps it built. The Sales half has no
+     * writer to check, so nothing would notice the first one arriving without its
+     * lock (five-calls follow-up, owner ruling on call 1, 2026-09-13).
+     *
+     * **Why this asserts `[]` and does not reuse the "not scanning" guard.** The
+     * purchase-order test refuses an empty result because, there, empty means
+     * the scan is broken. Here empty is the **correct** state today, so that
+     * guard would be red for the right answer. The two questions are split:
+     *
+     *  - *does the scanner work?* — the purchase-order run above is the positive
+     *    control. It is the same `writersOf()`, and it finds every purchase-order
+     *    writer (ten on 2026-09-13) across SQL, the ORM flush arm, the ORM
+     *    mutator arm and the private-helper reduction, byte-identical to what
+     *    it found before this scan was parameterised;
+     *  - *is the SALES configuration able to see anything?* — the scan for one
+     *    aggregate is only its regexes and its entity classes, so both are
+     *    checked against the entities' own `#[ORM\Table]` names and class names
+     *    below, for both scans. A regex that could never match its table would
+     *    otherwise turn this into a test that passes forever.
+     *
+     * **What the first sales writer has to do to turn this green again** —
+     * take a sales-order row lock as the first statement of its transaction
+     * (the `PurchaseOrderRowLock` shape), and be given the same accounting the
+     * purchase side has: a lock-first check that runs, and a list naming it; or
+     * be allow-listed with its reason, as `PurchaseOrderWriter::create` is.
+     * Two arrivals are already known:
+     *
+     *  - **`CreateSalesOrder`** will need an allow-list entry: a create has no
+     *    existing row to lock, and its races belong to its unique indexes;
+     *  - **F-5's order-status recompute** on fulfilment posting will change a
+     *    sales order's status through the entity and leave the flush to its
+     *    caller — the shape `OrmPurchaseOrderReceiptStatus::recordReceipt` has.
+     *    That is the **ORM mutator arm**, which is why the sales scan derives
+     *    `SalesOrder`'s and `SalesOrderLine`'s mutators by reflection rather than
+     *    relying on SQL text alone.
+     *
+     * Whether that accounting then lives in this file or in a sales-side twin is
+     * the first sales writer's decision; this test only makes it unavoidable.
+     * The blind spots are the purchase-order scan's, unchanged — see
+     * `PurchaseOrderRowLock`'s docblock.
+     *
+     * **Mutations, run 2026-09-13, each removed or reverted afterwards:** a
+     * throwaway public method under `src/` that runs `UPDATE sales_order …` —
+     * red here, naming it, and the purchase-order scan stays green; a throwaway
+     * method that names `SalesOrder::class` and calls `confirm()` with no flush —
+     * red here as the ORM mutator arm; the sales SQL pattern misspelt
+     * `sale_order` — red at the pattern check, before the scan could pass
+     * vacuously.
+     */
+    #[Test]
+    public function noMethodInSrcWritesASalesOrderYet(): void
+    {
+        foreach (['purchase order' => self::PURCHASE_ORDER_SCAN, 'sales order' => self::SALES_ORDER_SCAN] as $aggregate => $scan) {
+            foreach ($scan['entities'] as $entity) {
+                $table = (new \ReflectionClass($entity))->getAttributes(\Doctrine\ORM\Mapping\Table::class)[0]->newInstance()->name;
+                self::assertIsString($table, $entity.' declares no table name, so the '.$aggregate.' scan cannot be checked against it.');
+
+                foreach (["UPDATE $table SET x = 1", "INSERT INTO $table (id) VALUES (1)", "DELETE FROM $table WHERE id = 1"] as $statement) {
+                    self::assertMatchesRegularExpression($scan['sql'], $statement,
+                        'The '.$aggregate.' scan\'s SQL pattern does not recognise a write to its own table '.$table.'.');
+                }
+                self::assertMatchesRegularExpression($scan['dql'], 'UPDATE '.$entity.' e SET e.x = 1',
+                    'The '.$aggregate.' scan\'s DQL pattern does not recognise a write to its own entity '.$entity.'.');
+            }
+
+            self::assertNotSame([], self::entityMutators($scan['entities']),
+                'The '.$aggregate.' entities have no mutator, so the ORM mutator arm of that scan has no subject.');
+        }
+
+        $derived = self::writersOf(self::SALES_ORDER_SCAN);
+
+        self::assertSame([], $derived,
+            "A method in src/ now writes sales_order or sales_order_line, and ARCHITECTURE.md W-5 requires Sales to lock "
+            ."the order first (then stock). Nothing checks that for Sales yet. The first sales writer must take a "
+            ."sales-order row lock as the first statement of its transaction and be covered by a lock-first check, or be "
+            ."allow-listed with a reason the way PurchaseOrderWriter::create is (CreateSalesOrder has no row to lock). "
+            ."Then replace this assertion with the purchase-order style accounting.\nWriters found in src/:\n"
+            .print_r($derived, true));
+    }
+
+    /**
+     * Every method in `src/` that writes the scan's two tables (for the
+     * purchase-order run, `purchase_order` / `purchase_order_line`), reduced to
+     * the methods a caller enters by: a private or protected writer is replaced
+     * by its in-class callers, and one with no in-class caller is reported as
+     * itself.
+     *
+     * @param array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}} $scan
      *
      * @return array<string, list<string>> `ShortClass::method` => what it writes
      */
-    private static function writersOfPurchaseOrders(): array
+    private static function writersOf(array $scan): array
     {
         $methods = [];
         $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(\dirname(__DIR__, 2).'/src', \FilesystemIterator::SKIP_DOTS));
@@ -878,7 +1003,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             if ('php' !== $file->getExtension()) {
                 continue;
             }
-            foreach (self::methodsIn((string) file_get_contents($file->getPathname())) as $key => $method) {
+            foreach (self::methodsIn((string) file_get_contents($file->getPathname()), $scan) as $key => $method) {
                 if (isset($methods[$key])) {
                     throw new \LogicException(\sprintf('Two classes in src/ share the short name in %s; key the scan by FQCN.', $key));
                 }
@@ -887,13 +1012,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         }
 
         $reach = [];
+        $entityMutators = self::entityMutators($scan['entities']);
         foreach ($methods as $key => $method) {
             $writes = $method['writes'];
             if ($method['entity'] && [] !== array_intersect($method['calls'], ['flush', 'persist', 'remove'])) {
-                $writes[] = 'ORM: names a purchase-order entity class and flushes, persists or removes';
+                $writes[] = 'ORM: names a '.$scan['label'].' entity class and flushes, persists or removes';
             }
-            if ($method['entity'] && [] !== ($mutators = array_intersect($method['calls'], self::entityMutators()))) {
-                $writes[] = 'ORM: names a purchase-order entity class and calls '.implode('(), ', $mutators).'() on it';
+            if ($method['entity'] && [] !== ($mutators = array_intersect($method['calls'], $entityMutators))) {
+                $writes[] = 'ORM: names a '.$scan['label'].' entity class and calls '.implode('(), ', $mutators).'() on it';
             }
             if ([] !== $writes) {
                 $reach[$key] = $writes;
@@ -969,13 +1095,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * docblock: a method that never names either class — an entity handed in as
      * a parameter, or reached through a repository or an association.
      *
+     * @param array{class-string, class-string} $entities
+     *
      * @return list<string>
      */
-    private static function entityMutators(): array
+    private static function entityMutators(array $entities): array
     {
         $names = [];
 
-        foreach ([PurchaseOrder::class, PurchaseOrderLine::class] as $class) {
+        foreach ($entities as $class) {
             foreach ((new \ReflectionClass($class))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
                 if ($method->isStatic() || $method->isConstructor() || 1 === preg_match('/^(?:get|is|has)[A-Z]/', $method->getName())) {
                     continue;
@@ -1010,13 +1138,19 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
     /**
      * The methods of every class-like in one file, each with the writes its
-     * string literals spell, the methods it calls, and whether it names a
-     * purchase-order entity class. Closures belong to the method they are in.
+     * string literals spell, the methods it calls, and whether it names one of
+     * the scan's entity classes. Closures belong to the method they are in.
+     *
+     * @param array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}} $scan
      *
      * @return array<string, array{public: bool, class: string, name: string, writes: list<string>, calls: list<string>, entity: bool}>
      */
-    private static function methodsIn(string $source): array
+    private static function methodsIn(string $source, array $scan): array
     {
+        $entityShortNames = array_map(
+            static fn (string $class): string => substr((string) strrchr('\\'.$class, '\\'), 1),
+            $scan['entities'],
+        );
         $tokens = token_get_all($source);
         $methods = [];
         $depth = 0;
@@ -1099,7 +1233,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
 
             if (\T_CONSTANT_ENCAPSED_STRING === $id || \T_ENCAPSED_AND_WHITESPACE === $id) {
-                if (1 === preg_match(self::WRITE_SQL, $text, $m) || 1 === preg_match(self::WRITE_DQL, $text, $m)) {
+                if (1 === preg_match($scan['sql'], $text, $m) || 1 === preg_match($scan['dql'], $text, $m)) {
                     $methods[$current]['writes'][] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
                 }
                 continue;
@@ -1115,7 +1249,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 }
 
                 $short = substr((string) strrchr('\\'.$text, '\\'), 1);
-                if (\in_array($short, ['PurchaseOrder', 'PurchaseOrderLine'], true)) {
+                if (\in_array($short, $entityShortNames, true)) {
                     $isClassConstant = \T_DOUBLE_COLON === self::idAt($tokens, $nextIndex)
                         && \T_CLASS === self::idAt($tokens, self::nextMeaningful($tokens, (int) $nextIndex));
                     if ($isClassConstant || \T_NEW === $previous) {
