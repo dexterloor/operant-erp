@@ -45,6 +45,18 @@ use Firebase\JWT\Key;
  * this class turns every failure — expired, malformed, wrong signature, wrong
  * algorithm, a missing claim — into the **same** `null`, because a caller that
  * could tell them apart would eventually report which.
+ *
+ * **But the library validates `exp` only if it is there.** Until the RED review
+ * of 2026-09-14 a correctly signed token with no `exp` verified and never
+ * expired: E-20's absolute lifetime held only because `AccessTokenIssuer`
+ * always sets one. `iat` and `exp` are now required, as integers — E-20's pair,
+ * in the form the issuer writes — and their absence is the same `null`.
+ *
+ * **Not checked here:** that `exp` is no later than `iat` + eight hours (E-20's
+ * *"later than `iat` + 8h"* and *"unbounded"* clauses). The lifetime constant is
+ * `AccessTokenIssuer::LIFETIME_SECONDS`, in UserManagement, which this Platform
+ * class may not import (A-1); a token with a far `exp` still needs the signing
+ * key, so the clause rests on the issuer and the key, as before.
  */
 final readonly class AccessTokenVerifier
 {
@@ -85,7 +97,10 @@ final readonly class AccessTokenVerifier
         $tenantId = $claims['tenant_id'] ?? null;
         $subject = $claims['sub'] ?? null;
 
-        if (!\is_string($tenantId) || !\is_string($subject)) {
+        // E-20's pair, as the issuer writes it. `JWT::decode()` checks `exp`
+        // only when it is present, so without this a correctly signed token
+        // with no `exp` never expires.
+        if (!\is_string($tenantId) || !\is_string($subject) || !\is_int($claims['iat'] ?? null) || !\is_int($claims['exp'] ?? null)) {
             return null;
         }
 

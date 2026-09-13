@@ -128,6 +128,43 @@ final class AccessTokenSplitTest extends KernelTestCase
     }
 
     /**
+     * **A correctly signed token with no lifetime is refused** — RED review,
+     * 2026-09-14. `firebase/php-jwt` checks `exp` only *if it is present*, so a
+     * token signed with the right key and carrying no `exp` verified, for ever.
+     * E-20's eight-hour absolute lifetime held only because the issuer always
+     * sets `exp`; E-20's violation clause names *"an `exp` that is absent"*, and
+     * the row defines `exp` as `iat` + 8h, so both halves of the pair must be
+     * there, and be integers, as `AccessTokenIssuer` writes them.
+     *
+     * Every refusal is the same `null` as every other failure. The positive
+     * control — the same claims with both present — is inside this test.
+     */
+    #[Test]
+    public function aSignedTokenWithoutAnIntegerIatAndExpIsRefused(): void
+    {
+        $verifier = new AccessTokenVerifier(self::KEY_A);
+        $now = time();
+        $sign = static fn (array $claims): string => JWT::encode(
+            ['sub' => self::USER, 'tenant_id' => self::TENANT] + $claims, self::KEY_A, AccessTokenVerifier::ALGORITHM,
+        );
+
+        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER], $verifier->verify($sign(['iat' => $now, 'exp' => $now + 60])),
+            'The positive control did not verify, so the refusals below prove nothing.');
+
+        foreach ([
+            'no exp' => ['iat' => $now],
+            'no iat' => ['exp' => $now + 60],
+            'neither' => [],
+            'exp a numeric string' => ['iat' => $now, 'exp' => (string) ($now + 60)],
+            'exp a float' => ['iat' => $now, 'exp' => $now + 60.5],
+            'iat a numeric string' => ['iat' => (string) $now, 'exp' => $now + 60],
+            'exp null' => ['iat' => $now, 'exp' => null],
+        ] as $case => $claims) {
+            self::assertNull($verifier->verify($sign($claims)), 'A correctly signed token was verified with '.$case.'.');
+        }
+    }
+
+    /**
      * The key floor is on both sides. A short key on the issuer alone mints
      * forgeable tokens; on the verifier alone it accepts them.
      *
