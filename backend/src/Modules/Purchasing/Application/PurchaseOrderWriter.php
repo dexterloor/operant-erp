@@ -454,6 +454,13 @@ final readonly class PurchaseOrderWriter
                 $this->refuseIfArchived($current);
                 $this->refuseUnlessDraft($current);
 
+                // The same liveness the create demands, for whichever parent
+                // this edit names. The composite foreign key alone admits an
+                // archived supplier or warehouse -- the row still exists -- so
+                // without this a draft could be moved onto a closed site or a
+                // retired supplier (five-calls follow-up review, 2026-09-13).
+                $this->refuseParentsThatAreNotLive($em, $submitted);
+
                 if ([] !== $submitted) {
                     $em->getConnection()->executeStatement(
                         'UPDATE purchase_order SET '.implode(', ', array_map(
@@ -890,15 +897,7 @@ final readonly class PurchaseOrderWriter
     private function refuseUnresolvableCreateReferences(EntityManagerInterface $em, array $values): void
     {
         $connection = $em->getConnection();
-        $errors = [];
-
-        if (false === $connection->fetchOne('SELECT 1 FROM supplier WHERE id = ?::uuid AND deleted_at IS NULL', [$values['supplierId']])) {
-            $errors[] = self::error('supplierId', 'unknown_reference', 'No live supplier in this workspace has this id.');
-        }
-
-        if (false === $connection->fetchOne('SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL', [$values['warehouseId']])) {
-            $errors[] = self::error('warehouseId', 'unknown_reference', 'No live warehouse in this workspace has this id.');
-        }
+        $errors = self::notLiveParentErrors($em, $values);
 
         if (null !== ($values['currencyCode'] ?? null)
             && false === $connection->fetchOne('SELECT 1 FROM currency WHERE code = ?', [$values['currencyCode']])
@@ -909,6 +908,51 @@ final readonly class PurchaseOrderWriter
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
         }
+    }
+
+    /**
+     * `UpdatePurchaseOrder`'s half of the check above: the parents this edit
+     * names must be live, exactly as a create's must. A parent the edit does not
+     * name is not re-checked here — the order already points at it, and whether
+     * that is still acceptable is the approval's question (`API.md` §8.1 step 6
+     * re-checks the warehouse).
+     *
+     * @param array<string, string|null> $submitted
+     */
+    private function refuseParentsThatAreNotLive(EntityManagerInterface $em, array $submitted): void
+    {
+        $errors = self::notLiveParentErrors($em, $submitted);
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * One home for "a live supplier / warehouse in this workspace", shared by
+     * the create and the edit so the two cannot drift apart again. Only the keys
+     * present in `$values` are checked; RLS makes another tenant's id and a
+     * missing one the same answer (ST-5).
+     *
+     * @param array<string, string|null> $values
+     *
+     * @return list<array{pointer: string, code: string, message: string}>
+     */
+    private static function notLiveParentErrors(EntityManagerInterface $em, array $values): array
+    {
+        $errors = [];
+
+        foreach (['supplierId' => 'supplier', 'warehouseId' => 'warehouse'] as $property => $table) {
+            if (!\array_key_exists($property, $values)) {
+                continue;
+            }
+
+            if (false === $em->getConnection()->fetchOne("SELECT 1 FROM $table WHERE id = ?::uuid AND deleted_at IS NULL", [$values[$property]])) {
+                $errors[] = self::error($property, 'unknown_reference', 'No live '.$table.' in this workspace has this id.');
+            }
+        }
+
+        return $errors;
     }
 
     /**

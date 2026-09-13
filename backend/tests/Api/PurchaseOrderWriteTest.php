@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -100,6 +101,46 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
         self::assertSame(422, $this->httpStatus());
         self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
         self::assertContains('unknown_reference', array_column($this->json()['errors'], 'code'));
+    }
+
+    /**
+     * **An edit may not point a draft at an archived supplier or warehouse** —
+     * five-calls follow-up review, 2026-09-13. `CreatePurchaseOrder` refuses both
+     * with `unknown_reference`; `UpdatePurchaseOrder` checked the shape only and
+     * left the rest to the composite foreign key, which an archived row still
+     * satisfies. So a draft could be moved onto a closed site, or a supplier the
+     * workspace had retired, as a 200. Approval re-checks the warehouse
+     * (`API.md` §8.1 step 6); nothing re-checks the supplier.
+     *
+     * The rejected id is asserted to be refused *as the create refuses it* — the
+     * field named, `unknown_reference` — and the order is asserted to still point
+     * where it did.
+     */
+    #[Test]
+    #[DataProvider('editableParents')]
+    public function anEditMayNotPointADraftAtAnArchivedParent(string $field, string $table): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $archived = 'warehouse' === $table
+            ? $this->seedWarehouse(self::TENANT_A, 'Closed')
+            : $this->seedSupplier(self::TENANT_A, 'Retired');
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE $table SET deleted_at = now() WHERE id = ?::uuid", [$archived]);
+
+        $this->send('PATCH', '/purchase-orders/'.$draft['order'], [$field => $archived]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
+        self::assertSame(['/'.$field => 'unknown_reference'], array_column($this->json()['errors'], 'code', 'pointer'));
+
+        $this->send('GET', '/purchase-orders/'.$draft['order']);
+        self::assertSame($draft[$table], $this->json()[$table]['id'], 'The refused edit still moved the order.');
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function editableParents(): iterable
+    {
+        yield 'warehouse' => ['warehouse_id', 'warehouse'];
+        yield 'supplier' => ['supplier_id', 'supplier'];
     }
 
     /**

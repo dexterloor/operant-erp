@@ -1275,6 +1275,41 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **An archived parent is refused as an unknown one.** The composite foreign
+     * key admits an archived supplier or warehouse — the row still exists — so
+     * the `deleted_at IS NULL` in the lookup is the whole of this rule.
+     *
+     * Written at the five-calls follow-up review (2026-09-13), when the lookup
+     * became one helper shared with `UpdatePurchaseOrder`: removing
+     * `deleted_at IS NULL` from it reddened the edit's two cases and **nothing on
+     * the create side**, so the create's half of the rule had been unpinned since
+     * it shipped. *Mutation, run:* that predicate removed (1 occurrence); red on
+     * both cases here and both in `PurchaseOrderWriteTest::anEditMayNotPointADraftAtAnArchivedParent`.
+     */
+    #[Test]
+    #[DataProvider('archivableParents')]
+    public function anArchivedParentIsRefusedAsAnUnknownReference(string $table): void
+    {
+        $archived = 'warehouse' === $table
+            ? $this->seedWarehouse(self::TENANT_A, 'Closed')
+            : $this->seedSupplier(self::TENANT_A, 'Retired');
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE $table SET deleted_at = now() WHERE id = ?::uuid", [$archived]);
+
+        $this->create('warehouse' === $table ? $this->body(warehouse: $archived) : $this->body(supplier: $archived));
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['/'.$table.'_id' => 'unknown_reference'], array_column($this->json()['errors'], 'code', 'pointer'));
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function archivableParents(): iterable
+    {
+        yield 'warehouse' => ['warehouse'];
+        yield 'supplier' => ['supplier'];
+    }
+
+    /**
      * E4-3 — the currency comes from `tenant_settings`, per workspace, read
      * inside the tenant transaction. There is no instance-wide default and no
      * `?? 'EUR'` on the path.
