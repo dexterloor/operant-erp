@@ -118,9 +118,12 @@ services:
     App\Platform\Tenancy\CurrentTenant: '@App\Platform\Tenancy\AuthenticatedTenant'
 
     # E-1's collaborators are on `erp_app`, and the binding is explicit for the
-    # reason the §7 block below gives: the ORM's entity manager is pinned to
-    # `app`, so an autowired `Connection` would resolve to it by accident rather
-    # than by decision. Both of these are correct on `erp_app` and on nothing
+    # reason the §7 block below gives: an autowired `Connection` with no binding
+    # resolves to the DBAL default connection, which is `owner` -- the schema
+    # owner, not `erp_app` (measured, `ConnectionBindingTest`; the entity
+    # manager's pin to `app` does not govern autowiring). Until 2026-09-14 this
+    # comment said it would resolve to `erp_app`; it never did. Both of these
+    # are correct on `erp_app` and on nothing
     # else -- `IdentityReader` reads `app_user`/`user_role`/`role_permission`
     # under RLS, and `DenialAuditWriter` needs the `SELECT, INSERT` on
     # `audit_log` that only `erp_app` holds (S-9, `API.md` §9.2).
@@ -133,9 +136,9 @@ services:
             $app: '@doctrine.dbal.app_connection'
 
     # E-23's writer and E-23's throttle, both on `erp_app` and both explicit for
-    # the same reason as the two above: the ORM's entity manager is pinned to
-    # `app`, so an autowired `Connection` would resolve there by accident rather
-    # than by decision. `erp_app` is the principal E-23 names -- it already holds
+    # the same reason as the two above: without the binding an autowired
+    # `Connection` would be the schema owner, not `erp_app`. `erp_app` is the
+    # principal E-23 names -- it already holds
     # `SELECT, INSERT` on `audit_log` and needs no new grant -- and the
     # pre-authentication principals are deliberately not reachable from an
     # authenticated path.
@@ -152,11 +155,17 @@ services:
     #
     # Every one of these is an EXPLICIT connection binding, and that is the
     # security control rather than a configuration style. `API.md` §7.1 names one
-    # principal per step; the ORM's entity manager is pinned to `app`, so an
-    # autowired `Connection` would silently be `erp_app` — the one connection
-    # §7.2's *fails if* forbids on this path. Wired wrongly it does not degrade:
-    # `erp_app` holds nothing at all on the three counter tables, so the first
-    # statement raises `permission denied`
+    # principal per step. **Delete a binding and the container still compiles:
+    # the class is autowired to the DBAL default connection, `owner` -- the
+    # schema owner -- not to `erp_app`** (measured 2026-09-14,
+    # `ConnectionBindingTest::anUnboundAutowiredConnectionIsTheSchemaOwner`).
+    # This comment used to say an unbound `Connection` would silently be
+    # `erp_app`; it never was. No grant makes that case loud, because the owner
+    # holds every privilege; whether the class then misbehaves depends on what
+    # it does. The missing binding itself is what `ConnectionBindingTest`
+    # catches. What the grants DO make loud is narrower: a binding pointed
+    # explicitly at `app` fails on its first statement, because `erp_app` holds
+    # nothing on the three counter tables
     # (`GrantFootprintTest::aRateLimiterWiredToTheWrongConnectionFailsImmediately`).
     # ------------------------------------------------------------------
     App\Modules\UserManagement\Infrastructure\PreAuthBudgets:
@@ -272,6 +281,12 @@ when@test:
             public: true
 
         App\Tests\Support\SqlRecorder:
+            public: true
+
+        # A-10's measurement: a `Connection` with no binding, autowired. What it
+        # resolves to is asserted by `ConnectionBindingTest`, not stated here.
+        App\Tests\Support\UnboundConnectionProbe:
+            autowire: true
             public: true
 
         App\Tests\Support\RecordingMiddleware:
