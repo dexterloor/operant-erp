@@ -275,8 +275,23 @@ class PurchaseOrder
      * true count from a false one, so counting honestly is the caller's job. The status
      * guard runs first, so a replayed approval is still answered with the status
      * refusal it relies on; both guards run before anything is written.
+     *
+     * **Five-calls follow-up (owner ruling, 2026-09-13): an order is not placed
+     * against a warehouse that is no longer live.** `CreatePurchaseOrder`
+     * refuses an archived warehouse, and without this a draft whose warehouse
+     * was archived after it was raised was placed anyway and its goods refused
+     * at the dock (`ReceiveStock`'s `warehouse.is_live`). It is a required
+     * parameter for the same reason as the count: every caller must *state*
+     * whether the warehouse is live, read inside its own transaction, and this
+     * method trusts the answer it is given. It is not read from
+     * `$this->warehouse`: `SoftDeleteFilter` applies to that association's
+     * load, and a warehouse already in the identity map is not re-read by
+     * refreshing this order, so the association is the one read here that could
+     * be stale. It runs third — after the status guard, which must still answer a
+     * replay, and after the line guard, so every response 6a shipped is
+     * unchanged and an empty draft is told to add a line whatever its site.
      */
-    public function place(\DateTimeImmutable $orderedAt, int $liveLineCount, ?\DateTimeImmutable $expectedAt = null): void
+    public function place(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $warehouseIsLive, ?\DateTimeImmutable $expectedAt = null): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
 
@@ -287,6 +302,16 @@ class PurchaseOrder
                 $this->status,
                 'has_a_live_line',
                 'This purchase order has no lines. Add at least one line before ordering it.',
+            );
+        }
+
+        if (!$warehouseIsLive) {
+            throw IllegalTransition::unmetPrecondition(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                'warehouse_is_live',
+                'This purchase order\'s warehouse has been archived. Restore the warehouse before ordering it.',
             );
         }
 

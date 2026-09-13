@@ -161,7 +161,7 @@ final class DomainRefusalTest extends KernelTestCase
         self::assertSame([], $reflection->getAttributes(\Doctrine\ORM\Mapping\Table::class), 'The subclass inherited the attribute, so this test proves nothing.');
 
         try {
-            $subject->place(new \DateTimeImmutable(), 1);
+            $subject->place(new \DateTimeImmutable(), 1, true);
             self::fail('The guard did not refuse from "received".');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
@@ -187,7 +187,7 @@ final class DomainRefusalTest extends KernelTestCase
 
         $refusal = null;
         try {
-            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0);
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true);
         } catch (IllegalTransition $e) {
             $refusal = $e;
         }
@@ -222,10 +222,36 @@ final class DomainRefusalTest extends KernelTestCase
         $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_ORDERED);
 
         try {
-            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0);
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true);
             self::fail('place() accepted an order that is not a draft.');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
+        }
+    }
+
+    /**
+     * **Five-calls follow-up (2026-09-13): the warehouse guard runs after the
+     * line guard.** An empty draft against an archived warehouse is told to add a
+     * line, as it was before the warehouse guard existed — so no response step
+     * 6a shipped changes, and §8.1's list grows at its end rather than being
+     * renumbered. `TransitionGuardTest::theStatusGuardRefusesBeforeAnyPreconditionDoes`
+     * derives the status-first half for this parameter; it refuses one
+     * precondition at a time, so the order between the two preconditions is
+     * this test's alone.
+     *
+     * **Mutation:** move the warehouse guard above the line guard in `place()`;
+     * red — the rule is `warehouse_is_live`.
+     */
+    #[Test]
+    public function theLineGuardRunsBeforeTheWarehouseGuard(): void
+    {
+        $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_DRAFT);
+
+        try {
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: false);
+            self::fail('place() accepted an empty draft against an archived warehouse.');
+        } catch (IllegalTransition $e) {
+            self::assertSame('purchase_order.has_a_live_line', $e->rule());
         }
     }
 

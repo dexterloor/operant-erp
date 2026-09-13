@@ -20,7 +20,7 @@ use Symfony\Component\Uid\Uuid;
  * **`ApprovePurchaseOrder` — E-19 / DSoD-1, and the sequence §8.1 fixes.**
  *
  * ===========================================================================
- * The order of the six steps, and why each is where it is
+ * The order of the seven steps, and why each is where it is
  * ===========================================================================
  * §8.1: *"The order on `ApprovePurchaseOrder` is fixed and is **not** negotiable
  * at implementation."*
@@ -36,12 +36,19 @@ use Symfony\Component\Uid\Uuid;
  *   5. **line guard** — refuse when the order has no live line
  *      (`purchase_order.has_a_live_line`; step 6a, product-owner ruling
  *      2026-09-11).
- *   6. `place()`'s state change.
+ *   6. **warehouse guard** — refuse when the order's warehouse is archived
+ *      (`purchase_order.warehouse_is_live`; five-calls follow-up, owner ruling
+ *      2026-09-13). `CreatePurchaseOrder` refuses a non-live warehouse; this is
+ *      the same fact re-checked at the moment the order is committed to a
+ *      supplier, so a draft whose site closed in between is not placed and then
+ *      refused at the dock.
+ *   7. `place()`'s state change.
  *
- * Steps 4 to 6 are one call: `PurchaseOrder::place()` opens with
+ * Steps 4 to 7 are one call: `PurchaseOrder::place()` opens with
  * `refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT])` (added by
  * `6c3ed6e`), which is §8.3's matrix row for this method, then refuses a live-line
- * count below 1. **Neither guard is re-added or restated here.** A second copy in
+ * count below 1, then a warehouse that is not live. **None of the guards is
+ * re-added or restated here.** A second copy in
  * this class would be a rule with two homes, and API-15 puts the guard on the
  * entity so that any other caller of `place()` meets it too. **No other caller
  * exists today**: there is no reorder agent and no console command that places an
@@ -50,7 +57,17 @@ use Symfony\Component\Uid\Uuid;
  * a count below 1 is refused, but the entity cannot tell a true count from a
  * false one. What this class owns is therefore the **count**: the entity maps no
  * lines, so the count is read here, inside the transaction and under RLS, and
- * passed in.
+ * passed in. The warehouse guard is built the same way and for the same reason —
+ * the entity takes a stated `$warehouseIsLive`, and this class reads it.
+ *
+ * **Named, not built: the race with a concurrent warehouse archive.** The order
+ * row is locked, so its `warehouse_id` cannot change under the read; the
+ * WAREHOUSE row is not locked, so an archive committing after that read and
+ * before this transaction commits still ends with an ordered order against a
+ * closed site. No operation archives a warehouse today, so the race has no
+ * second party. Ordering it — the archive locking the warehouse row, or this
+ * read taking `FOR SHARE` — belongs to API-O-34 with `DeleteWarehouse`, which
+ * must refuse to archive a site with open orders in the first place.
  *
  * **The race with every other write to this order: CLOSED by step 6c.** Until
  * then nothing in `src/` took a row lock and `PurchaseOrder` has no
@@ -238,8 +255,22 @@ final readonly class PurchaseOrderApproval
                     [$id],
                 );
 
-                // ---- steps 4 to 6: both guards live inside `place()` (the
-                // status guard is §8.3's matrix row), and their
+                // The fact step 6 decides on: whether this order's warehouse is
+                // still live, read in this transaction under RLS. By statement,
+                // not through `$order->getWarehouse()` — `SoftDeleteFilter`
+                // hides an archived warehouse from the ORM, and a warehouse
+                // already in the identity map is not re-read by the refresh
+                // above. The order row is locked, so its `warehouse_id` cannot
+                // move under this read; the warehouse row is NOT locked — see
+                // the class docblock's race note (API-O-34's to order).
+                $warehouseIsLive = false !== $em->getConnection()->fetchOne(
+                    'SELECT 1 FROM warehouse w JOIN purchase_order po ON po.warehouse_id = w.id '
+                    .'WHERE po.id = ?::uuid AND w.deleted_at IS NULL',
+                    [$id],
+                );
+
+                // ---- steps 4 to 7: all three guards live inside `place()`
+                // (the status guard is §8.3's matrix row), and their
                 // `IllegalTransition` is turned into §5.2's
                 // `business-rule-violated` by `FrameworkProblemTranslator`.
                 //
@@ -249,6 +280,7 @@ final readonly class PurchaseOrderApproval
                 $order->place(
                     new \DateTimeImmutable(),
                     $liveLineCount,
+                    $warehouseIsLive,
                     $expectedAtSubmitted
                         ? $expectedAt
                         : (null === $row['expected_at'] ? null : new \DateTimeImmutable((string) $row['expected_at'])),

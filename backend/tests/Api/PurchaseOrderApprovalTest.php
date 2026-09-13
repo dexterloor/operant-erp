@@ -400,6 +400,40 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Five-calls follow-up, owner ruling 2026-09-13: approval re-checks the
+     * warehouse.** `CreatePurchaseOrder` refuses a warehouse that is not live,
+     * and until this test approval never looked again — so a draft raised
+     * against a live site, whose site was archived before approval, was placed
+     * with the supplier, and the goods were then refused at the dock by
+     * `ReceiveStock`'s `warehouse.is_live`.
+     *
+     * The warehouse is archived by statement as the owner because no operation
+     * archives one (`DeleteWarehouse` is declared and unbuilt; API-O-34). The
+     * draft has a live line and a different creator, so every earlier step of
+     * §8.1 passes and the warehouse is the only thing left to refuse. The same
+     * three things as the line guard's tests are asserted: the rule, the
+     * unchanged row, and no trail row.
+     */
+    #[Test]
+    public function anOrderWhoseWarehouseWasArchivedAfterItWasRaisedCannotBeApproved(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$draft['warehouse']]);
+
+        $this->approve($draft['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.warehouse_is_live', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
      * **F-2 step 8 — *"writes an `audit_log` row naming the approver"*.**
      *
      * §9.2's row for `PURCHASE_ORDER_PLACED`: written by `ApprovePurchaseOrder`,

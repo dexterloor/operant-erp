@@ -236,6 +236,15 @@ final class TransitionGuardTest extends TestCase
                 .'legal matrix cell is not refused by a rule it is not about; 0 fails it, which is what makes the '
                 .'status guard\'s precedence checkable. `DomainRefusalTest` owns what the 0 case says over HTTP.',
         ],
+        PurchaseOrder::class.'::place($warehouseIsLive)' => [
+            'satisfying' => true,
+            'refusing' => false,
+            'why' => 'Five-calls follow-up (owner ruling 2026-09-13): an order is not placed against an archived '
+                .'warehouse. true satisfies it, so no other cell is refused by a rule it is not about; false fails it, '
+                .'so the status guard\'s precedence over this guard is checked too. The order between this guard and '
+                .'the line guard is `DomainRefusalTest::theLineGuardRunsBeforeTheWarehouseGuard`\'s — this register '
+                .'refuses one precondition at a time.',
+        ],
         PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
             'satisfying' => true,
             'refusing' => null,
