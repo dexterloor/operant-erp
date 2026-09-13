@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\RequestIdentity;
@@ -32,7 +32,7 @@ use Symfony\Component\Uid\Uuid;
  * a resource reading the wrong claim -- or a gate resolving a different principal
  * from the one the operation then acted as -- would still have been green. The
  * rig now seeds a principal, mints a real token with the application's own
- * `AccessTokens`, and sends it; the tenant every reader and writer sees is the one
+ * `AccessTokenIssuer`, and sends it; the tenant every reader and writer sees is the one
  * `AuthenticationGate` took out of that token.
  *
  * The token is minted directly rather than by calling `POST /auth/token`. Going
@@ -258,8 +258,8 @@ abstract class ApiTestCase extends TenancyTestCase
     /** A real token from the application's own issuer, so the gate reads what production would read. */
     protected function tokenFor(string $tenantId, string $userId): string
     {
-        $tokens = self::getContainer()->get('test.auth.access_tokens');
-        \assert($tokens instanceof AccessTokens);
+        $tokens = self::getContainer()->get('test.auth.token_issuer');
+        \assert($tokens instanceof AccessTokenIssuer);
 
         return $tokens->issue($tenantId, $userId, new \DateTimeImmutable())->jwt;
     }

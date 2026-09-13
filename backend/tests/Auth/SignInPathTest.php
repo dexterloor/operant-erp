@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Platform\Security\AccessTokenVerifier;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
@@ -37,12 +37,12 @@ final class SignInPathTest extends AuthTestCase
         self::assertSame(['access_token', 'token_type', 'expires_at'], array_keys($body));
         self::assertSame('Bearer', $body['token_type']);
 
-        $tokens = self::getContainer()->get('test.auth.access_tokens');
-        \assert($tokens instanceof AccessTokens);
+        $tokens = self::getContainer()->get('test.auth.token_verifier');
+        \assert($tokens instanceof AccessTokenVerifier);
 
         self::assertSame(
             ['tenant_id' => $tenantId, 'sub' => $userId],
-            $tokens->read((string) $body['access_token']),
+            $tokens->verify((string) $body['access_token']),
             'The minted token does not carry the resolved tenant and user. ADR-005 D-5 makes tenant_id a '
             .'signed claim read server-side, and nothing else on any later request supplies it.',
         );

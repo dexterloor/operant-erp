@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Platform\Security;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
@@ -77,7 +76,7 @@ final readonly class AuthenticationGate
 
     public function __construct(
         private CurrentOperation $operations,
-        private AccessTokens $tokens,
+        private AccessTokenVerifier $tokens,
         private IdentityReader $reader,
         private RequestIdentity $identities,
         #[Autowire('%app.api_base_path%')]
@@ -99,7 +98,7 @@ final readonly class AuthenticationGate
         }
 
         $request = $event->getRequest();
-        $claims = $this->tokens->read($this->bearer($request) ?? throw ApiProblem::authenticationFailed());
+        $claims = $this->tokens->verify($this->bearer($request) ?? throw ApiProblem::authenticationFailed());
 
         if (null === $claims) {
             throw ApiProblem::authenticationFailed();

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Auth;
 
 use App\Modules\UserManagement\Application\CurrentUserReader;
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Platform\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
@@ -240,8 +240,8 @@ final class CurrentUserTest extends AuthTestCase
         $tenantB = $this->seedTenant(self::SLUG_PREFIX.'other', Tenant::STATUS_ACTIVE);
         $foreignUser = $this->seedUser($tenantB, 'bob@example.com', self::PASSWORD);
 
-        $tokens = self::getContainer()->get('test.auth.access_tokens');
-        \assert($tokens instanceof AccessTokens);
+        $tokens = self::getContainer()->get('test.auth.token_issuer');
+        \assert($tokens instanceof AccessTokenIssuer);
 
         // A perfectly valid signature over a pair that does not belong together.
         $forged = $tokens->issue($tenantA, $foreignUser, new \DateTimeImmutable())->jwt;

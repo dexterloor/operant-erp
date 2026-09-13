@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Modules\UserManagement\Infrastructure\PasswordVerifier;
+use App\Platform\Security\AccessTokenVerifier;
 use App\Tests\Api\ApiTestCase;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\PasswordHasher\PasswordHasherInterface;
@@ -271,15 +272,16 @@ final class PasswordVerifierTest extends ApiTestCase
     }
 
     /**
-     * *Mutation, run:* delete the length guard from `AccessTokens::__construct()`;
-     * a one-character signing key is accepted and this is red.
+     * *Mutation, run:* delete the floor call from `AccessTokenVerifier::__construct()`;
+     * a one-character signing key is accepted and this is red. (The issuer's own
+     * floor is `AccessTokenSplitTest::theIssuerRefusesAKeyShorterThanTheDigest`.)
      */
     #[Test]
     public function aSigningKeyShorterThanTheDigestIsRefused(): void
     {
         $this->expectException(\InvalidArgumentException::class);
 
-        new AccessTokens('too short');
+        new AccessTokenVerifier('too short');
     }
 
     /**
@@ -287,24 +289,28 @@ final class PasswordVerifierTest extends ApiTestCase
      * takes the accepted algorithm as an argument, and a token signed with a
      * different one — or with none — must not decode.
      *
-     * *Mutation, run:* widen `AccessTokens::read()` to accept `['HS256', 'none']`;
-     * the unsigned token decodes and this is red.
+     * *Mutation, run (against the pre-split `AccessTokens::read()`):* widen it to
+     * accept `['HS256', 'none']`; the unsigned token decodes and this is red. The
+     * same pin is now `AccessTokenVerifier::verify()`, and the right key under
+     * another HMAC is `AccessTokenSplitTest::theRightKeyUnderAnotherAlgorithmIsRefused`.
      */
     #[Test]
     public function aTokenSignedWithAnotherAlgorithmIsNotRead(): void
     {
-        $tokens = self::getContainer()->get('test.auth.access_tokens');
-        \assert($tokens instanceof AccessTokens);
+        $issuer = self::getContainer()->get('test.auth.token_issuer');
+        \assert($issuer instanceof AccessTokenIssuer);
+        $tokens = self::getContainer()->get('test.auth.token_verifier');
+        \assert($tokens instanceof AccessTokenVerifier);
 
-        $good = $tokens->issue('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', new \DateTimeImmutable());
-        self::assertNotNull($tokens->read($good->jwt), 'A token this class just minted did not read back, so every negative below is vacuous.');
+        $good = $issuer->issue('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', new \DateTimeImmutable());
+        self::assertNotNull($tokens->verify($good->jwt), 'A token the issuer just minted did not verify, so every negative below is vacuous.');
 
         [, $payload] = explode('.', $good->jwt, 3);
         $unsigned = rtrim(strtr(base64_encode('{"typ":"JWT","alg":"none"}'), '+/', '-_'), '=').'.'.$payload.'.';
 
-        self::assertNull($tokens->read($unsigned));
-        self::assertNull($tokens->read('not a token'));
-        self::assertNull($tokens->read(''));
+        self::assertNull($tokens->verify($unsigned));
+        self::assertNull($tokens->verify('not a token'));
+        self::assertNull($tokens->verify(''));
     }
 
     /**

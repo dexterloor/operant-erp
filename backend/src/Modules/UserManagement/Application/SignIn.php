@@ -6,7 +6,7 @@ namespace App\Modules\UserManagement\Application;
 
 use App\Modules\UserManagement\Domain\PreAuthKeys;
 use App\Modules\UserManagement\Domain\VerifiesPasswords;
-use App\Modules\UserManagement\Infrastructure\AccessTokens;
+use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Modules\UserManagement\Infrastructure\CredentialLookup;
 use App\Modules\UserManagement\Infrastructure\CredentialRow;
@@ -88,7 +88,7 @@ final readonly class SignIn
         private CredentialLookup $credentials,
         private VerifiesPasswords $passwords,
         private AuthTrailWriter $trail,
-        private AccessTokens $tokens,
+        private AccessTokenIssuer $tokens,
         private LoginRecorder $loginRecorder,
         private ClockInterface $clock,
     ) {

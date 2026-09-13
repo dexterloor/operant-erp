@@ -45,8 +45,11 @@ deptrac:
   # findings; the sixth (A-12) was already recorded in ARCHITECTURE.md §5.3 as a
   # known deviation with `BE-LEAD` as owner.
   #
-  # The register was 51 edges at Output 5 and is 71 now: **the purchasing slice
-  # added 20 on 2026-09-10**, 19 A-7 and one A-5. Not one of them is a new
+  # The register was 51 edges at Output 5 and 71 after **the purchasing slice
+  # added 20 on 2026-09-10**, 19 A-7 and one A-5. It is **75 now**: counted
+  # on 2026-09-14 it held 76 against this header's 71 (A-7 42, not 38; A-5
+  # 4, not 3 — the header had not been kept up), and API-O-26's token split
+  # removed the one A-1 edge `AuthenticationGate` carried. Not one of them is a new
   # *shape* — every one is the Output 4 slice shape already recorded for
   # `ItemReader`/`ItemWriter`/`ItemRow` and for `ChangePassword`'s call into
   # `PasswordChangeAuditWriter` — and every one has the same cause: an
@@ -55,7 +58,7 @@ deptrac:
   # synchronous audit call because `symfony/messenger` is not installed (A-5).
   # Recorded here rather than repaired for the reason the whole register exists:
   # repairing them is a design change to the slice shape Output 4 shipped, and
-  # it is the same design change for all 71.
+  # it is the same design change for all of them.
   #
   # `skip_violations` is exact: it skips the named class-to-class pair and
   # nothing else. A NEW edge of any of these shapes is a violation and fails the
@@ -66,18 +69,22 @@ deptrac:
   #
   # Each line carries the rule it deviates from:
   #
-  #   A-1  (1 edge)   Platform depends on a module. `AuthenticationGate` takes
-  #                   `UserManagement`'s `AccessTokens` to verify a JWT. §4 splits
-  #                   the two — Platform owns "JWT verification", UserManagement
-  #                   owns "JWT minting/refresh" — and `AccessTokens` does both,
-  #                   so the class sits on the wrong side of a line §4 already
-  #                   draws. Splitting it is a design call, not a relocation.
-  #   A-5  (3 edges)  Something depends on `AuditLog`. A-5's stated mechanism is
+  #   A-1  (1 edge)   Platform depends on a module: `PermissionGate` →
+  #                   `DenialAuditWriter`, which is also A-5 and is counted in
+  #                   both. There were two until API-O-26 (2026-09-14): the
+  #                   other was `AuthenticationGate` → `UserManagement`'s
+  #                   `AccessTokens`, a class that both minted and verified.
+  #                   §4 gives Platform "JWT verification" and UserManagement
+  #                   "JWT minting/refresh", so it was split along that line —
+  #                   `Platform\Security\AccessTokenVerifier` and
+  #                   `UserManagement\Infrastructure\AccessTokenIssuer` — and
+  #                   the edge is gone rather than registered.
+  #   A-5  (4 edges)  Something depends on `AuditLog`. A-5's stated mechanism is
   #                   dispatching `Platform\Messaging\Event\AuditableAction`,
   #                   and symfony/messenger is not installed, so the audit path
-  #                   is a direct synchronous call by necessity. One of the two
+  #                   is a direct synchronous call by necessity. One of them
   #                   is also A-1 (`PermissionGate` is Platform).
-  #   A-7  (38 edges) A module's `Application` layer depends "up" — on its own
+  #   A-7  (42 edges) A module's `Application` layer depends "up" — on its own
   #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
   #                   `CurrentUserResource` are declared there and returned from
   #                   Application) or on its own `Infrastructure` (entities and
@@ -186,7 +193,7 @@ deptrac:
     App\Modules\UserManagement\Application\PasswordChangeThrottle:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Application\SignIn:
-      - App\Modules\UserManagement\Infrastructure\AccessTokens   # A-7
+      - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7
       - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7
       - App\Modules\UserManagement\Infrastructure\CredentialLookup   # A-7
       - App\Modules\UserManagement\Infrastructure\CredentialRow   # A-7
@@ -203,8 +210,6 @@ deptrac:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\PreAuthBudgets:
       - Doctrine\DBAL\Connection   # A-10
-    App\Platform\Security\AuthenticationGate:
-      - App\Modules\UserManagement\Infrastructure\AccessTokens   # A-1
     App\Platform\Security\IdentityReader:
       - Doctrine\DBAL\Connection   # A-10
     App\Platform\Security\PermissionGate:

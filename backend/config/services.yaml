@@ -185,7 +185,16 @@ services:
         arguments:
             $key: '%env(AUTH_EMAIL_HASH_KEY)%'
 
-    App\Modules\UserManagement\Infrastructure\AccessTokens:
+    # API-O-26 — minting and verifying are two classes, and they are bound to
+    # ONE secret, by name, twice (Standing Rule 10). The issuer stays in
+    # UserManagement and the verifier is Platform's; the algorithm is not a
+    # binding at all, because the issuer reads `AccessTokenVerifier::ALGORITHM`.
+    # `AccessTokenSplitTest` goes red if these two ever name different keys.
+    App\Modules\UserManagement\Infrastructure\AccessTokenIssuer:
+        arguments:
+            $signingKey: '%env(AUTH_TOKEN_SIGNING_KEY)%'
+
+    App\Platform\Security\AccessTokenVerifier:
         arguments:
             $signingKey: '%env(AUTH_TOKEN_SIGNING_KEY)%'
 
@@ -314,7 +323,8 @@ when@test:
         # connection binding or an env-var name is the drift these tests exist to
         # catch. The service under test is the one production wires.
         test.auth.email_hasher: {alias: 'App\Modules\UserManagement\Infrastructure\EmailHasher', public: true}
-        test.auth.access_tokens: {alias: 'App\Modules\UserManagement\Infrastructure\AccessTokens', public: true}
+        test.auth.token_issuer: {alias: 'App\Modules\UserManagement\Infrastructure\AccessTokenIssuer', public: true}
+        test.auth.token_verifier: {alias: 'App\Platform\Security\AccessTokenVerifier', public: true}
         test.auth.password_verifier: {alias: 'App\Modules\UserManagement\Infrastructure\PasswordVerifier', public: true}
         test.auth.budgets: {alias: 'App\Modules\UserManagement\Infrastructure\PreAuthBudgets', public: true}
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
