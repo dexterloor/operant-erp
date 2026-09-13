@@ -14,6 +14,7 @@ use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Support\PhpSourceScan;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -1061,14 +1062,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     private static function writersOf(array $scan): array
     {
         $methods = [];
-        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(\dirname(__DIR__, 2).'/src', \FilesystemIterator::SKIP_DOTS));
 
-        /** @var \SplFileInfo $file */
-        foreach ($files as $file) {
-            if ('php' !== $file->getExtension()) {
-                continue;
-            }
-            foreach (self::methodsIn((string) file_get_contents($file->getPathname()), $scan) as $key => $method) {
+        foreach (PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src') as $path) {
+            foreach (self::methodsIn((string) file_get_contents($path), $scan) as $key => $method) {
                 if (isset($methods[$key])) {
                     throw new \LogicException(\sprintf('Two classes in src/ share the short name in %s; key the scan by FQCN.', $key));
                 }
@@ -1206,6 +1202,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * string literals spell, the methods it calls, and whether it names one of
      * the scan's entity classes. Closures belong to the method they are in.
      *
+     * The token walk itself is `App\Tests\Support\PhpSourceScan::scan()`,
+     * shared with S-7(c)'s `WriteOwnershipTest`; this adapter is everything
+     * about it that belongs to the lock-first scan.
+     *
      * @param array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}} $scan
      *
      * @return array<string, array{public: bool, class: string, name: string, writes: list<string>, calls: list<string>, entity: bool}>
@@ -1216,145 +1216,27 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             static fn (string $class): string => substr((string) strrchr('\\'.$class, '\\'), 1),
             $scan['entities'],
         );
-        $tokens = token_get_all($source);
         $methods = [];
-        $depth = 0;
-        $class = null;
-        $classDepth = null;
-        $pendingClass = null;
-        $pendingMethod = null;
-        $pendingPublic = true;
-        $modifiers = [];
-        $current = null;
-        $methodDepth = null;
 
-        foreach ($tokens as $i => $token) {
-            $id = \is_array($token) ? $token[0] : null;
-            $text = \is_array($token) ? $token[1] : $token;
-
-            if (\in_array($id, [\T_CLASS, \T_TRAIT, \T_ENUM, \T_INTERFACE], true) && \T_DOUBLE_COLON !== self::idAt($tokens, self::previousMeaningful($tokens, $i))) {
-                if (\T_STRING === self::idAt($tokens, self::nextMeaningful($tokens, $i))) {
-                    $pendingClass = $tokens[self::nextMeaningful($tokens, $i)][1];
-                }
-                continue;
-            }
-
-            $atClassBody = null !== $classDepth && $depth === $classDepth && null === $current;
-
-            if ($atClassBody && \in_array($id, [\T_PUBLIC, \T_PROTECTED, \T_PRIVATE], true)) {
-                $modifiers[] = $id;
-                continue;
-            }
-
-            if ($atClassBody && \T_FUNCTION === $id) {
-                $next = self::nextMeaningful($tokens, $i);
-                if ('&' === ($tokens[$next] ?? null)) {
-                    $next = self::nextMeaningful($tokens, $next);
-                }
-                if (\T_STRING === self::idAt($tokens, $next)) {
-                    $pendingMethod = $tokens[$next][1];
-                    $pendingPublic = !\in_array(\T_PRIVATE, $modifiers, true) && !\in_array(\T_PROTECTED, $modifiers, true);
-                }
-                $modifiers = [];
-                continue;
-            }
-
-            if ('{' === $text || \T_CURLY_OPEN === $id || \T_DOLLAR_OPEN_CURLY_BRACES === $id) {
-                ++$depth;
-                if (null !== $pendingClass && null === $classDepth) {
-                    $class = $pendingClass;
-                    $classDepth = $depth;
-                    $pendingClass = null;
-                } elseif (null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
-                    $current = $class.'::'.$pendingMethod;
-                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'writes' => [], 'calls' => [], 'entity' => false];
-                    $methodDepth = $depth;
-                    $pendingMethod = null;
-                }
-                continue;
-            }
-
-            if ('}' === $text) {
-                if (null !== $current && $depth === $methodDepth) {
-                    $current = null;
-                    $methodDepth = null;
-                } elseif (null !== $classDepth && $depth === $classDepth) {
-                    $class = null;
-                    $classDepth = null;
-                }
-                --$depth;
-                continue;
-            }
-
-            if ($atClassBody && ';' === $text) {
-                // An abstract or interface method: a signature with no body.
-                $pendingMethod = null;
-                $modifiers = [];
-                continue;
-            }
-
-            if (null === $current) {
-                continue;
-            }
-
-            if (\T_CONSTANT_ENCAPSED_STRING === $id || \T_ENCAPSED_AND_WHITESPACE === $id) {
-                if (1 === preg_match($scan['sql'], $text, $m) || 1 === preg_match($scan['dql'], $text, $m)) {
-                    $methods[$current]['writes'][] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
-                }
-                continue;
-            }
-
-            if (\in_array($id, [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED], true)) {
-                $previous = self::idAt($tokens, self::previousMeaningful($tokens, $i));
-                $nextIndex = self::nextMeaningful($tokens, $i);
-                $next = null === $nextIndex ? null : $tokens[$nextIndex];
-
-                if (\in_array($previous, [\T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR, \T_DOUBLE_COLON], true) && '(' === $next) {
-                    $methods[$current]['calls'][] = $text;
-                }
-
-                $short = substr((string) strrchr('\\'.$text, '\\'), 1);
-                if (\in_array($short, $entityShortNames, true)) {
-                    $isClassConstant = \T_DOUBLE_COLON === self::idAt($tokens, $nextIndex)
-                        && \T_CLASS === self::idAt($tokens, self::nextMeaningful($tokens, (int) $nextIndex));
-                    if ($isClassConstant || \T_NEW === $previous) {
-                        $methods[$current]['entity'] = true;
-                    }
+        foreach (PhpSourceScan::scan($source)['methods'] as $key => $method) {
+            $writes = [];
+            foreach ($method['literals'] as $literal) {
+                if (1 === preg_match($scan['sql'], $literal['text'], $m) || 1 === preg_match($scan['dql'], $literal['text'], $m)) {
+                    $writes[] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
                 }
             }
+
+            $methods[$key] = [
+                'public' => $method['public'],
+                'class' => $method['class'],
+                'name' => $method['name'],
+                'writes' => $writes,
+                'calls' => $method['calls'],
+                'entity' => [] !== array_intersect($method['named'], $entityShortNames),
+            ];
         }
 
         return $methods;
-    }
-
-    /** @param list<mixed> $tokens */
-    private static function nextMeaningful(array $tokens, int $i): ?int
-    {
-        for ($j = $i + 1, $n = \count($tokens); $j < $n; ++$j) {
-            if (!\is_array($tokens[$j]) || !\in_array($tokens[$j][0], [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT], true)) {
-                return $j;
-            }
-        }
-
-        return null;
-    }
-
-    /** @param list<mixed> $tokens */
-    private static function previousMeaningful(array $tokens, int $i): ?int
-    {
-        for ($j = $i - 1; $j >= 0; --$j) {
-            if (!\is_array($tokens[$j]) || !\in_array($tokens[$j][0], [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT], true)) {
-                return $j;
-            }
-        }
-
-        return null;
-    }
-
-    /** @param list<mixed> $tokens */
-    private static function idAt(array $tokens, ?int $i): ?int
-    {
-        return null !== $i && \is_array($tokens[$i]) ? $tokens[$i][0] : null;
     }
 
     // -----------------------------------------------------------------------
