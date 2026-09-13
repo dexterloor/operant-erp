@@ -32,16 +32,29 @@ use PHPUnit\Framework\TestCase;
  * method body **or** outside one (a `const SQL = 'UPDATE …'` is a write wherever
  * it is declared) — through `PhpSourceScan`, the token walk the purchase-order
  * lock-first scan runs on. Comments and docblocks are not literals, so prose in
- * them is never a statement.
+ * them is never a statement. A literal is read as its **runtime value**, escapes
+ * decoded: `"SELECT 1;\nUPDATE t"` has a newline before the keyword, not an `n`.
  *
- * A **write statement** is `INSERT INTO`, `DELETE FROM` or `UPDATE`, in any
- * case, except:
+ * A **write statement** is `INSERT INTO`, `DELETE FROM`, `UPDATE`,
+ * `MERGE INTO`, `TRUNCATE [TABLE] [ONLY] a, b, …` (every table in the list) or
+ * `COPY <name> [(cols)] FROM`, in any case, with whitespace **or SQL comments**
+ * between the words and before the target, except:
  *  - `DO UPDATE` (the arm of `ON CONFLICT`, whose table is the `INSERT`'s) and
- *    `FOR UPDATE` / `FOR NO KEY UPDATE` (a row lock, not a write);
- *  - a non-upper-case `update` that is not followed by `<name> [alias] SET` and
- *    does not end the literal piece — which is how an exception message such as
- *    *"Update is not allowed"* stays prose. An upper-case `UPDATE` is always a
- *    statement.
+ *    `FOR UPDATE` / `FOR NO KEY UPDATE` (a row lock, not a write) — **unless the
+ *    `DO` / `FOR` / `KEY` is in a SQL comment**, judged crudely and towards
+ *    reporting (`isConflictArmOrRowLock()`);
+ *  - `COPY <name> TO` and `COPY (query) TO`, which are reads;
+ *  - a non-upper-case `update` / `merge` / `truncate` / `copy` that does not
+ *    name a manifest table or mapped entity, is not followed by
+ *    `<name> [alias] SET`, and does not end the literal piece — which is how an
+ *    exception message such as *"Update is not allowed"* stays prose. An
+ *    upper-case keyword is always a statement.
+ *
+ * **Pinned by the `EVASIONS` fixture (RED review, 2026-09-14):** each shape the
+ * review planted past `18a4750` — escaped `\n` / `\t` before the keyword,
+ * lower-case `update` with an escaped newline, a comment ending in `DO`,
+ * `MERGE` / `TRUNCATE` / `COPY` — plus the five it confirmed were already
+ * caught.
  *
  * Its **target** is the name after the keyword (after `ONLY`): a SQL table
  * name, bare, quoted or schema-qualified, or a DQL entity FQCN, which is
@@ -76,6 +89,18 @@ use PHPUnit\Framework\TestCase;
  *    a name scan cannot tell them from a service method called `update()`.
  *  - **SQL assembled from pieces with no keyword in them**, and triggers — the
  *    same blind spots `PurchaseOrderRowLock`'s docblock names for the lock scan.
+ *  - **Other statements that write**: DDL (`ALTER`, `DROP`, `CREATE … AS`),
+ *    `SELECT` of a function or procedure that writes, `CALL`, `EXECUTE` of a
+ *    prepared name, and a `U&"…"` identifier (it fails closed as an unknown
+ *    table, it is not resolved).
+ *  - **A comment trick the crude comment test misjudges**: a `--` inside a
+ *    SQL string literal on the same line as a real `ON CONFLICT … DO UPDATE`
+ *    denies the exception (a false report, not a hidden write). The reverse is
+ *    not known: a comment ending between the word and `UPDATE` leaves its
+ *    closer there, and a `--` comment puts `--` on the word's line (reasoned,
+ *    not exhaustively tested).
+ *  - **The count pin is per module**: a scanner that stops seeing one statement
+ *    in the same commit that adds another *to the same module* keeps the pin.
  *  - **Reads.** Cross-module SQL reads are a disclosed residual, not a rule:
  *    `UserManagement\Application\PasswordChangeThrottle` reads `audit_log` by
  *    design.
@@ -83,20 +108,38 @@ use PHPUnit\Framework\TestCase;
 final class WriteOwnershipTest extends TestCase
 {
     /**
-     * **The empty-set floor.** 25 write statements under `src/Modules` on
-     * 2026-09-14 at `526bfef`, counted independently of this scanner with
+     * **The exact write-statement count, per module — a pin, not a floor.**
+     *
+     * Counted 2026-09-14 at `526bfef` independently of this scanner with
      *
      *     grep -rnE "INSERT INTO|DELETE FROM|UPDATE [a-z_]+( |$)" src/Modules
      *
      * which prints 34 lines: 9 are comment or docblock prose ("UPDATE is
      * retained", "no UPDATE restates the field list" — the reason a line grep is
-     * not the check) and 25 are statements, by module AuditLog 4, Inventory 6,
-     * Purchasing 10, UserManagement 5. It
-     * is the exact count, not a round number below it, so a scanner that loses
-     * even one statement is red. Removing a real write is the one legitimate
-     * reason to lower it, in the same commit.
+     * not the check) and 25 are statements. Re-checked at `45df678` after the
+     * 2026-09-14 parser fix: the scan's statement list is byte-identical.
+     *
+     * **Why exact, and why per module.** Until the RED review of 2026-09-14 this
+     * was `assertGreaterThanOrEqual(25, …)` — and a `>=` floor goes quiet the day
+     * the tree grows: add five writes and the scanner can lose five, anywhere,
+     * with the suite green. An exact count cannot lose one silently. Per module,
+     * because one total lets a new write in Purchasing pay for a statement the
+     * scanner stopped seeing in UserManagement.
+     *
+     * **Why not a count from an independent mechanism.** Two were considered: a
+     * second regex over the same literals is the same parser's idea of a
+     * statement and would share its blind spots (circular); a line grep over the
+     * source cannot tell a statement from prose (9 of its 34 lines above). The
+     * pin's cost is that **every commit that adds or removes a raw write edits
+     * this constant** — deliberately: the change is then in the diff, where a
+     * reviewer can see that the number moved by the writes the commit added.
      */
-    private const WRITE_STATEMENT_FLOOR = 25;
+    private const WRITE_STATEMENTS_PER_MODULE = [
+        'Modules\\AuditLog' => 4,
+        'Modules\\Inventory' => 6,
+        'Modules\\Purchasing' => 10,
+        'Modules\\UserManagement' => 5,
+    ];
 
     /** The target key for a registered statement whose table the scan cannot read. */
     private const UNRESOLVED = '(unresolved)';
@@ -123,13 +166,16 @@ final class WriteOwnershipTest extends TestCase
     {
         $statements = self::statementsUnder(\dirname(__DIR__, 2).'/src/Modules');
 
-        // 1. The floor: a scanner that matches nothing, or less than the tree
-        //    holds, is red before any ownership assertion can pass vacuously.
-        self::assertGreaterThanOrEqual(self::WRITE_STATEMENT_FLOOR, \count($statements),
-            'The write scan found '.\count($statements).' write statements under src/Modules, fewer than the '
-            .self::WRITE_STATEMENT_FLOOR.' the tree held when this floor was set. Either the scanner is broken — and '
-            .'every assertion below would hold over too little — or a write was removed and the floor must be lowered '
-            .'in the same commit.');
+        // 1. The pin: a scanner that matches nothing, or less than the tree
+        //    holds, is red before any ownership assertion can pass vacuously —
+        //    and so is one that loses a statement while another is added.
+        $perModule = array_count_values(array_column($statements, 'module'));
+        ksort($perModule);
+        self::assertSame(self::WRITE_STATEMENTS_PER_MODULE, $perModule,
+            'The write scan found a different number of write statements per module under src/Modules than '
+            .'WRITE_STATEMENTS_PER_MODULE pins. If this commit added or removed a raw SQL/DQL write, update the pin in '
+            .'the same commit so the change is visible in review. If it did not, the scanner has stopped seeing '
+            .'statements (or started seeing prose) and every ownership assertion below holds over the wrong set.');
 
         // 2. The positive control, in this test so a --filter run carries it:
         //    the same statement parser must resolve a write to every manifest
@@ -162,6 +208,11 @@ final class WriteOwnershipTest extends TestCase
             static fn (array $s): array => [$s['where'], $s['table']],
             self::statementsIn(self::FIXTURE, 'fixture'),
         ), 'The statement parser misreads its fixture.');
+        self::assertSame(self::EVASIONS_EXPECTED, array_map(
+            static fn (array $s): array => [$s['where'], $s['table']],
+            self::statementsIn(self::EVASIONS, 'evasions'),
+        ), 'The statement parser misreads its evasions fixture — the writes a RED review planted past it on 2026-09-14, '
+            .'and the shapes it already caught that must stay caught.');
 
         // 3. Ownership, fail closed, with registered deviations.
         $violations = [];
@@ -240,6 +291,80 @@ final class WriteOwnershipTest extends TestCase
     ];
 
     /**
+     * **Planted writes, RED review 2026-09-14.** Every method under `planted`
+     * wrote `audit_log` from a Purchasing class, and the scan at `18a4750` stayed
+     * green on each: the look-behind read the `n` / `t` of an escaped `\n` / `\t`
+     * as a word character; a lower-case `update` followed by an escaped newline
+     * was prose; a SQL comment ending in `DO` switched on the `ON CONFLICT`
+     * exception; `MERGE`, `TRUNCATE` and `COPY … FROM` were not keywords. The
+     * methods under `caught` were caught then and are pinned so the fix cannot
+     * lose them. The methods under `notWrites` are what the new keywords must
+     * not turn into statements.
+     */
+    private const EVASIONS = <<<'PHP'
+        <?php
+
+        namespace App\Modules\Purchasing\Infrastructure;
+
+        final class Evasions
+        {
+            public function planted(): void
+            {
+                $a = "SELECT 1;\nINSERT INTO audit_log (id) VALUES (1)";
+                $b = "SELECT 1;\tDELETE FROM audit_log WHERE id = 1";
+                $c = "update audit_log\nset id = 107";
+                $d = <<<'SQL'
+                    SELECT 1; -- nothing more to DO
+                    UPDATE audit_log SET id = 108
+                    SQL;
+                $e = 'MERGE INTO audit_log a USING (SELECT 1 AS id) s ON a.id = s.id WHEN MATCHED THEN DELETE';
+                $f = 'TRUNCATE audit_log';
+                $g = 'COPY audit_log FROM STDIN';
+                $h = "update /* then */ audit_log set id = 109";
+                $i = "SELECT 1; /* DO */\nUPDATE audit_log SET id = 110";
+                $j = 'TRUNCATE TABLE ONLY stock_level, audit_log';
+            }
+
+            public function caught(string $t): void
+            {
+                $a = 'WITH x AS (SELECT 1) INSERT INTO audit_log (id) SELECT 1';
+                $b = 'insert into "public"."audit_log" (id) values (1)';
+                $c = sprintf('UPDATE %s SET x = 1', $t);
+                $d = <<<'SQL'
+                    DELETE FROM audit_log WHERE id = 1
+                    SQL;
+                $e = 'UPDATE App\\Modules\\AuditLog\\Infrastructure\\Entity\\AuditLogEntry e SET e.id = 1';
+            }
+
+            public function notWrites(): void
+            {
+                $a = 'COPY audit_log TO STDOUT';
+                $b = 'Copy the order before you merge into another, or truncate the note.';
+                $c = "SELECT 1 FROM purchase_order WHERE id = ?\nFOR NO KEY UPDATE";
+            }
+        }
+        PHP;
+
+    private const EVASIONS_EXPECTED = [
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'stock_level'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::caught', 'audit_log'],
+        ['Evasions::caught', 'audit_log'],
+        ['Evasions::caught', null],
+        ['Evasions::caught', 'audit_log'],
+        ['Evasions::caught', 'audit_log'],
+    ];
+
+    /**
      * @return list<array{class: string, module: string, where: string, at: string, statement: string, table: ?string, problem: ?string}>
      */
     private static function statementsUnder(string $directory): array
@@ -274,7 +399,7 @@ final class WriteOwnershipTest extends TestCase
 
         $statements = [];
         foreach ($literals as [$class, $where, $literal]) {
-            foreach (self::statementsInLiteral($literal['text']) as $found) {
+            foreach (self::statementsInLiteral($literal['value']) as $found) {
                 $statements[] = [
                     'class' => ltrim($namespace.'\\'.$class, '\\'),
                     'module' => $module,
@@ -288,60 +413,136 @@ final class WriteOwnershipTest extends TestCase
     }
 
     /**
+     * One unit of what PostgreSQL reads as a token separator: whitespace, a
+     * `--` line comment, or a slash-star block comment. Used between the words of
+     * a keyword and before its target, so a comment is never where a write hides.
+     */
+    private const GAP = '(?:\s++|--[^\n]*+|/\*.*?\*/)';
+
+    /**
      * The write statements one literal piece spells, each with its resolved
      * table or, if it cannot be read as a manifest table, the reason.
+     *
+     * `$text` is the literal's runtime value (`PhpSourceScan`'s `value`): quotes
+     * removed and escapes decoded, so `"SELECT 1;\nUPDATE t"` has a newline
+     * before the keyword and not an `n`.
      *
      * @return list<array{statement: string, table: ?string, problem: ?string}>
      */
     private static function statementsInLiteral(string $text): array
     {
-        // A quoted literal keeps its quotes in the token; strip them so that a
-        // keyword at the end of the string reads as "nothing follows".
-        if (1 === preg_match('/^([\'"]).*\1$/s', $text)) {
-            $text = substr($text, 1, -1);
-        }
-
-        preg_match_all('/(?<![\w$\\\\])(INSERT\s+INTO|DELETE\s+FROM|UPDATE)(?![\w$])/i', $text, $matches, \PREG_OFFSET_CAPTURE);
+        $gap = self::GAP;
+        preg_match_all(
+            "~(?<![\\w\$\\\\])(INSERT{$gap}+INTO|DELETE{$gap}+FROM|MERGE{$gap}+INTO|UPDATE|TRUNCATE|COPY)(?![\\w\$])~is",
+            $text, $matches, \PREG_OFFSET_CAPTURE,
+        );
 
         $found = [];
         foreach ($matches[1] as [$keyword, $offset]) {
+            $kind = strtoupper((string) strstr($keyword.' ', ' ', true) ?: $keyword);
+            $kind = (string) preg_replace('/[^A-Z].*$/s', '', $kind);
+            $isUpperCase = str_starts_with($keyword, $kind);
             $before = substr($text, 0, $offset);
             $rest = substr($text, $offset + \strlen($keyword));
-            $isUpdate = 0 === strncasecmp($keyword, 'UPDATE', 6);
+            $statement = (string) preg_replace('/\s+/', ' ', trim($keyword.substr($rest, 0, 60)));
 
-            if ($isUpdate && 1 === preg_match('/\b(?:DO|FOR|KEY)\s+$/i', $before)) {
-                continue; // ON CONFLICT … DO UPDATE, or a row lock
+            if ('UPDATE' === $kind && self::isConflictArmOrRowLock($before)) {
+                continue; // ON CONFLICT … DO UPDATE, or FOR [NO KEY] UPDATE
             }
-            if ($isUpdate && 'UPDATE' !== $keyword
-                && 1 !== preg_match('/^\s*$/', $rest)
-                && 1 !== preg_match('/^\s+(?:ONLY\s+)?\S+(?:\s+(?:AS\s+)?\w+)?\s+SET\b/i', $rest)
+
+            $modifiers = match ($kind) {
+                'TRUNCATE' => "(?:TABLE{$gap}+)?(?:ONLY{$gap}+)?",
+                'INSERT', 'COPY' => '',
+                default => "(?:ONLY{$gap}+)?",
+            };
+            preg_match("~^{$gap}*{$modifiers}~is", $rest, $lead);
+            $afterLead = substr($rest, \strlen($lead[0]));
+            $target = self::nameAt($afterLead);
+
+            // A non-upper-case UPDATE / MERGE / TRUNCATE / COPY is prose ("Update
+            // is not allowed", "copy the order") unless it names a manifest
+            // table or mapped entity, has the `<name> [alias] SET` shape, or ends
+            // the literal piece. INSERT INTO and DELETE FROM are two words and
+            // always statements.
+            if (!$isUpperCase && \in_array($kind, ['UPDATE', 'MERGE', 'TRUNCATE', 'COPY'], true)
+                && 1 !== preg_match("~^{$gap}*$~s", $rest)
+                && null === $target['table']
+                && !('UPDATE' === $kind && 1 === preg_match('/^\s+(?:ONLY\s+)?\S+(?:\s+(?:AS\s+)?\w+)?\s+SET\b/i', $rest))
             ) {
-                continue; // prose: "Update is not allowed"
-            }
-
-            $statement = preg_replace('/\s+/', ' ', trim($keyword.substr($rest, 0, 60)));
-
-            if (1 === preg_match('/^\s+(?:ONLY\s+)?(\\\\*[A-Za-z_]\w*(?:\\\\+[A-Za-z_]\w*)+)(?![\w\\\\])/i', $rest, $t)) {
-                $entity = ltrim((string) preg_replace('/\\\\+/', '\\', $t[1]), '\\');
-                $table = self::tableOfEntity($entity);
-                $found[] = null !== $table && isset(SchemaManifest::TABLES[$table])
-                    ? ['statement' => $statement, 'table' => $table, 'problem' => null]
-                    : ['statement' => $statement, 'table' => null, 'problem' => 'DQL target '.$entity.' is not an entity mapped to a SchemaManifest table'];
                 continue;
             }
 
-            if (1 === preg_match('/^\s+(?:ONLY\s+)?(?:"?([A-Za-z_][\w$]*)"?\.)?"?([A-Za-z_][\w$]*)"?(?![\w$\\\\])/i', $rest, $t)) {
-                $name = $t[2];
-                $found[] = isset(SchemaManifest::TABLES[$name])
-                    ? ['statement' => $statement, 'table' => $name, 'problem' => null]
-                    : ['statement' => $statement, 'table' => null, 'problem' => '`'.$name.'` is not a SchemaManifest table'];
+            if ('COPY' === $kind) {
+                if (null === $target['length'] && 1 === preg_match('/^\(/', $afterLead)) {
+                    continue; // COPY (SELECT …) TO: a read
+                }
+                if (null !== $target['length'] && 1 === preg_match("~^{$gap}*(?:\\([^)]*\\){$gap}*)?TO(?![\\w\$])~is", substr($afterLead, $target['length']))) {
+                    continue; // COPY t TO: a read
+                }
+            }
+
+            if (null === $target['length']) {
+                $found[] = ['statement' => $statement, 'table' => null, 'problem' => 'no literal table name follows the keyword (interpolated, concatenated or computed)'];
                 continue;
             }
 
-            $found[] = ['statement' => $statement, 'table' => null, 'problem' => 'no literal table name follows the keyword (interpolated, concatenated or computed)'];
+            $found[] = ['statement' => $statement, 'table' => $target['table'], 'problem' => $target['problem']];
+
+            // TRUNCATE a, b, c writes every table in its list.
+            while ('TRUNCATE' === $kind
+                && 1 === preg_match("~^{$gap}*,{$gap}*(?:ONLY{$gap}+)?~is", $afterLead = substr($afterLead, $target['length']), $comma)
+                && null !== ($target = self::nameAt($afterLead = substr($afterLead, \strlen($comma[0]))))['length']
+            ) {
+                $found[] = ['statement' => $statement, 'table' => $target['table'], 'problem' => $target['problem']];
+            }
         }
 
         return $found;
+    }
+
+    /**
+     * Whether the `UPDATE` that follows `$before` is the arm of `ON CONFLICT … DO`
+     * or a `FOR [NO KEY] UPDATE` row lock. **Not if that `DO` / `FOR` / `KEY` sits
+     * in a SQL comment**: a nowdoc reading `-- nothing to DO` and then
+     * `UPDATE audit_log SET …` was planted past this exception on 2026-09-14.
+     * The comment test is deliberately crude — a `--` anywhere earlier on the
+     * word's line, or more comment openers than closers before it — and it errs towards
+     * denying the exception, which reports a write rather than hiding one.
+     */
+    private static function isConflictArmOrRowLock(string $before): bool
+    {
+        if (1 !== preg_match('/\b(?:DO|FOR|KEY)\s+$/i', $before, $m, \PREG_OFFSET_CAPTURE)) {
+            return false;
+        }
+        $head = substr($before, 0, $m[0][1]);
+        $line = substr($head, (int) strrpos("\n".$head, "\n"));
+
+        return !str_contains($line, '--') && substr_count($head, '/*') <= substr_count($head, '*/');
+    }
+
+    /**
+     * The table name, or DQL entity FQCN, at the very start of `$text`.
+     *
+     * @return array{length: ?int, table: ?string, problem: ?string} `length` null when no name is there
+     */
+    private static function nameAt(string $text): array
+    {
+        if (1 === preg_match('/^(\\\\*[A-Za-z_]\w*(?:\\\\+[A-Za-z_]\w*)+)(?![\w\\\\])/', $text, $t)) {
+            $entity = ltrim((string) preg_replace('/\\\\+/', '\\', $t[1]), '\\');
+            $table = self::tableOfEntity($entity);
+
+            return null !== $table && isset(SchemaManifest::TABLES[$table])
+                ? ['length' => \strlen($t[0]), 'table' => $table, 'problem' => null]
+                : ['length' => \strlen($t[0]), 'table' => null, 'problem' => 'DQL target '.$entity.' is not an entity mapped to a SchemaManifest table'];
+        }
+
+        if (1 === preg_match('/^(?:"?([A-Za-z_][\w$]*)"?\.)?"?([A-Za-z_][\w$]*)"?(?![\w$\\\\])/', $text, $t)) {
+            return isset(SchemaManifest::TABLES[$t[2]])
+                ? ['length' => \strlen($t[0]), 'table' => $t[2], 'problem' => null]
+                : ['length' => \strlen($t[0]), 'table' => null, 'problem' => '`'.$t[2].'` is not a SchemaManifest table'];
+        }
+
+        return ['length' => null, 'table' => null, 'problem' => null];
     }
 
     /** @param string $class a FQCN that may not exist */

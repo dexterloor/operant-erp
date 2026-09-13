@@ -20,10 +20,12 @@ namespace App\Tests\Support;
  *  - `methods`: every method body of every class-like, keyed
  *    `ShortClass::method`, with
  *     - the **string-literal pieces** it holds, in order, with their line —
- *       `T_CONSTANT_ENCAPSED_STRING` (quotes included, as written) and
- *       `T_ENCAPSED_AND_WHITESPACE` (the literal parts of an interpolated
- *       string or heredoc, so `"INSERT INTO {$table}"` yields the piece
- *       `INSERT INTO ` and nothing after it);
+ *       `T_CONSTANT_ENCAPSED_STRING` and `T_ENCAPSED_AND_WHITESPACE` (the
+ *       literal parts of an interpolated string or heredoc, so
+ *       `"INSERT INTO {$table}"` yields the piece `INSERT INTO ` and nothing
+ *       after it). Each piece has its `text` as written (quotes included) and
+ *       its `value` as PHP spells it at runtime — quotes removed, escapes
+ *       decoded ({@see self::decode()}). **Scans match on `value`**;
  *     - the methods it **calls** (`->x(`, `?->x(`, `::x(`);
  *     - the class names it **names** as `X::class` or `new X`, by short name.
  *    Closures and anonymous classes belong to the method they are in;
@@ -61,8 +63,8 @@ final class PhpSourceScan
     /**
      * @return array{
      *     namespace: string,
-     *     methods: array<string, array{public: bool, class: string, name: string, literals: list<array{text: string, line: int}>, calls: list<string>, named: list<string>}>,
-     *     outside: list<array{class: ?string, text: string, line: int}>
+     *     methods: array<string, array{public: bool, class: string, name: string, literals: list<array{text: string, value: string, line: int}>, calls: list<string>, named: list<string>}>,
+     *     outside: list<array{class: ?string, text: string, value: string, line: int}>
      * }
      */
     public static function scan(string $source): array
@@ -81,9 +83,21 @@ final class PhpSourceScan
         $current = null;
         $methodDepth = null;
 
+        $quoting = null;
+
         foreach ($tokens as $i => $token) {
             $id = \is_array($token) ? $token[0] : null;
             $text = \is_array($token) ? $token[1] : $token;
+
+            // Which quoting the next T_ENCAPSED_AND_WHITESPACE piece is in, so
+            // its escapes can be decoded the way PHP decodes them.
+            if ('"' === $text || '`' === $text) {
+                $quoting = null === $quoting ? 'double' : null;
+            } elseif (\T_START_HEREDOC === $id) {
+                $quoting = str_contains($text, "'") ? 'nowdoc' : 'heredoc';
+            } elseif (\T_END_HEREDOC === $id) {
+                $quoting = null;
+            }
 
             if (\T_NAMESPACE === $id && null === $class) {
                 $next = self::nextMeaningful($tokens, $i);
@@ -156,15 +170,17 @@ final class PhpSourceScan
 
             $isLiteral = \T_CONSTANT_ENCAPSED_STRING === $id || \T_ENCAPSED_AND_WHITESPACE === $id;
 
+            $value = !$isLiteral ? '' : (\T_CONSTANT_ENCAPSED_STRING === $id ? self::valueOfQuoted($text) : self::decode($text, (string) $quoting));
+
             if (null === $current) {
                 if ($isLiteral) {
-                    $outside[] = ['class' => $class, 'text' => $text, 'line' => $token[2]];
+                    $outside[] = ['class' => $class, 'text' => $text, 'value' => $value, 'line' => $token[2]];
                 }
                 continue;
             }
 
             if ($isLiteral) {
-                $methods[$current]['literals'][] = ['text' => $text, 'line' => $token[2]];
+                $methods[$current]['literals'][] = ['text' => $text, 'value' => $value, 'line' => $token[2]];
                 continue;
             }
 
@@ -186,6 +202,47 @@ final class PhpSourceScan
         }
 
         return ['namespace' => $namespace, 'methods' => $methods, 'outside' => $outside];
+    }
+
+    /**
+     * The string a `T_CONSTANT_ENCAPSED_STRING` token spells at runtime: quotes
+     * (and a `b` prefix) removed, escapes decoded as PHP decodes them.
+     */
+    private static function valueOfQuoted(string $token): string
+    {
+        $token = ltrim($token, 'bB');
+        $quote = $token[0];
+
+        return self::decode(substr($token, 1, -1), "'" === $quote ? 'single' : 'double');
+    }
+
+    /**
+     * **Escapes decoded, because a scan that reads the source spelling of a
+     * literal reads `"SELECT 1;\nUPDATE t"` as `1;` `\` `nUPDATE` — the `n`
+     * glued to the keyword — and that is the shape a RED review planted past
+     * both scans on 2026-09-14.** Single-quoted: `\\` and `\'` only. Double-quoted
+     * and heredoc: PHP's escape set (`\n \r \t \v \e \f \\ \$`, `\"` outside a
+     * heredoc, octal, `\x`, `\u{}`); any other backslash is kept, as PHP keeps
+     * it. A nowdoc is not decoded.
+     */
+    public static function decode(string $body, string $quoting): string
+    {
+        return match ($quoting) {
+            'nowdoc' => $body,
+            'single' => (string) preg_replace('/\\\\([\\\\\'])/', '$1', $body),
+            default => (string) preg_replace_callback(
+                'heredoc' === $quoting
+                    ? '/\\\\(?:([nrtvef\\\\$])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})/'
+                    : '/\\\\(?:([nrtvef\\\\$"])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})/',
+                static fn (array $m): string => match (true) {
+                    '' !== ($m[1] ?? '') => ['n' => "\n", 'r' => "\r", 't' => "\t", 'v' => "\v", 'e' => "\e", 'f' => "\f"][$m[1]] ?? $m[1],
+                    '' !== ($m[2] ?? '') => \chr((int) octdec($m[2]) & 0xFF),
+                    '' !== ($m[3] ?? '') => \chr((int) hexdec($m[3])),
+                    default => mb_chr((int) hexdec($m[4])),
+                },
+                $body,
+            ),
+        };
     }
 
     /** @param list<mixed> $tokens */
