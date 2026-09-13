@@ -7,8 +7,12 @@ namespace App\Tests\Architecture;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Tests\Support\PhpSourceScan;
+use App\Tests\Support\RegistryConnectionPlant;
 use App\Tests\Support\UnboundConnectionProbe;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Driver\Connection as DriverConnection;
+use Doctrine\Persistence\ConnectionRegistry;
+use Doctrine\Persistence\ManagerRegistry;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Yaml\Yaml;
@@ -42,6 +46,18 @@ use Symfony\Component\Yaml\Yaml;
  * no entry in `services.yaml`. It is still red here: the rule is that the choice
  * is an edit someone makes in one reviewed file, not a consequence of a
  * variable name.
+ *
+ * **A fourth check (RED review, 2026-09-14):** no class outside
+ * `Platform\Tenancy` takes a connection through a route no binding can pin —
+ * `ConnectionRegistry` / `ManagerRegistry` (whose `getConnection()` is the
+ * schema owner, measured in the test) or `Doctrine\DBAL\Driver\Connection` —
+ * {@see self::noClassOutsideTenancyTakesAConnectionThroughARegistryOrTheDriver},
+ * with a planted `Tests\Support\RegistryConnectionPlant` as its control.
+ *
+ * **Still not seen:** a connection fetched by service id from a container or
+ * service locator; one built with `DriverManager::getConnection()`; setter or
+ * `#[Required]` injection (only constructors are read); a `Connection` reached
+ * through another object's getter other than the entity manager's.
  *
  * **Out of scope, named:** `Inventory\Application\ItemWriter` type-hints
  * `Connection` only on private methods fed by `$em->getConnection()` — no
@@ -161,6 +177,64 @@ final class ConnectionBindingTest extends KernelTestCase
     }
 
     /**
+     * **The types a constructor can reach a connection through that no binding
+     * in `config/services.yaml` can pin to a principal** (RED review,
+     * 2026-09-14). A Sales class taking `ConnectionRegistry` and calling
+     * `getConnection()` passed every check above, because they look only for
+     * `Doctrine\DBAL\Connection`, and the registry hands back the default
+     * connection: the schema owner, measured below.
+     *
+     *  - `ConnectionRegistry` — and `ManagerRegistry`, which extends it and is
+     *    what a Doctrine `ServiceEntityRepository` takes; none is used in `src/`
+     *    today (grep, 2026-09-14), and the first one is red here by design.
+     *    `ManagerRegistry` is listed for the reader only: it is a subtype, so
+     *    removing it leaves the check unchanged (mutation, run: green);
+     *  - `Doctrine\DBAL\Driver\Connection` — the driver-level connection under
+     *    DBAL's wrapper, which carries no principal binding at all.
+     *
+     * `EntityManagerInterface` is **not** here: the entity manager is pinned to
+     * the `app` connection in `config/packages/doctrine.yaml`.
+     *
+     * @var list<class-string>
+     */
+    private const UNBINDABLE_CONNECTION_ROUTES = [
+        ConnectionRegistry::class,
+        ManagerRegistry::class,
+        DriverConnection::class,
+    ];
+
+    #[Test]
+    public function noClassOutsideTenancyTakesAConnectionThroughARegistryOrTheDriver(): void
+    {
+        $container = self::getContainer();
+
+        // The consequence, measured: the registry's default connection is the
+        // schema owner, exactly as an unbound autowired Connection is.
+        $registry = $container->get('doctrine');
+        self::assertInstanceOf(ConnectionRegistry::class, $registry);
+        self::assertSame($container->get('doctrine.dbal.owner_connection'), $registry->getConnection(),
+            'ConnectionRegistry::getConnection() no longer returns the owner connection. Re-measure, and correct this '
+            .'test\'s failure message together with it.');
+
+        // The positive control, in this test: the derivation must see every
+        // unbindable route on a planted class, and not the entity manager.
+        self::assertSame([
+            RegistryConnectionPlant::class.'::$connections',
+            RegistryConnectionPlant::class.'::$managers',
+            RegistryConnectionPlant::class.'::$driver',
+        ], self::constructorParametersTyped([RegistryConnectionPlant::class], self::UNBINDABLE_CONNECTION_ROUTES),
+            'The derivation does not see exactly the planted registry and driver-connection parameters, so the empty '
+            .'result below proves nothing.');
+
+        self::assertSame([], self::constructorParametersTyped(self::classesInSrcOutsideTenancy(), self::UNBINDABLE_CONNECTION_ROUTES),
+            "ARCHITECTURE.md A-10 / ADR-006: a class outside Platform\\Tenancy takes a ConnectionRegistry, ManagerRegistry "
+            ."or Doctrine\\DBAL\\Driver\\Connection in its constructor. None of these can be bound to a principal in "
+            ."config/services.yaml, and ConnectionRegistry::getConnection() returns the default connection, which is the "
+            ."SCHEMA OWNER — the role that owns the schema and runs migrations, and never serves a request. Take a "
+            ."Doctrine\\DBAL\\Connection bound explicitly to its principal, or EntityManagerInterface (pinned to app).");
+    }
+
+    /**
      * `Class::$parameter` for every constructor parameter in `src/` typed
      * `Doctrine\DBAL\Connection`, outside `Platform\Tenancy`.
      *
@@ -168,22 +242,47 @@ final class ConnectionBindingTest extends KernelTestCase
      */
     private static function constructorInjectedConnections(): array
     {
+        return self::constructorParametersTyped(self::classesInSrcOutsideTenancy(), [Connection::class]);
+    }
+
+    /** @return list<class-string> every class in `src/` outside `Platform\Tenancy` */
+    private static function classesInSrcOutsideTenancy(): array
+    {
         $src = \dirname(__DIR__, 2).'/src/';
-        $found = [];
+        $classes = [];
 
         foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
             // PSR-4: `App\` is `src/`, so the file names its class.
             $class = 'App\\'.str_replace('/', '\\', substr($path, \strlen($src), -\strlen('.php')));
-            if (str_starts_with($class, 'App\\Platform\\Tenancy\\') || !class_exists($class)) {
-                continue;
+            if (!str_starts_with($class, 'App\\Platform\\Tenancy\\') && class_exists($class)) {
+                $classes[] = $class;
             }
+        }
 
+        return $classes;
+    }
+
+    /**
+     * `Class::$parameter` for every constructor parameter of `$classes` whose
+     * type (or a member of its union) is one of `$types` or a subtype.
+     *
+     * @param list<class-string> $classes
+     * @param list<class-string> $types
+     *
+     * @return list<string>
+     */
+    private static function constructorParametersTyped(array $classes, array $types): array
+    {
+        $found = [];
+
+        foreach ($classes as $class) {
             foreach ((new \ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
                 $type = $parameter->getType();
                 $names = $type instanceof \ReflectionNamedType ? [$type] : ($type instanceof \ReflectionUnionType ? $type->getTypes() : []);
                 foreach ($names as $named) {
-                    if ($named instanceof \ReflectionNamedType && is_a($named->getName(), Connection::class, true)) {
+                    if ($named instanceof \ReflectionNamedType && [] !== array_filter($types, static fn (string $t): bool => is_a($named->getName(), $t, true))) {
                         $found[] = $class.'::$'.$parameter->getName();
+                        break;
                     }
                 }
             }
