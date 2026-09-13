@@ -215,6 +215,22 @@ final class OpenApiContractTest extends ApiTestCase
         self::assertStringNotContainsString('hydra', $encoded);
     }
 
+    /**
+     * API-O-33 option (a): the receipt's `received_by` is advertised as an
+     * `ActorReference` **or null**, the same schema `PurchaseOrder.created_by`
+     * carries. The column is nullable by design, so a spec that promised an
+     * object would promise something the API does not always send.
+     */
+    #[Test]
+    public function theReceiptReadSchemaAdvertisesTheReceiverAsNullableLikeTheCreator(): void
+    {
+        $spec = $this->regenerate();
+        $nullableActor = ['anyOf' => [['$ref' => '#/components/schemas/ActorReference'], ['type' => 'null']]];
+
+        self::assertSame($nullableActor, $spec['components']['schemas']['GoodsReceipt']['properties']['received_by'] ?? null);
+        self::assertSame($nullableActor, $spec['components']['schemas']['PurchaseOrder']['properties']['created_by'] ?? null);
+    }
+
     /** §12.3 — every operation declares an explicit `operationId`, and no two share one. */
     #[Test]
     public function everyOperationIdIsExplicitAndUnique(): void

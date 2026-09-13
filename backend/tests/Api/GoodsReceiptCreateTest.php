@@ -89,6 +89,113 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame($body, $this->json());
     }
 
+    /**
+     * **API-O-33, option (a) — the receipt names who booked it.** §4.4.3's
+     * GoodsReceipt row carries `received_by = {id, display_name}`, the
+     * `ActorReference` expansion of `goods_receipt.received_by_user_id`, on the
+     * 201 and on the read alike.
+     *
+     * The order is given a creator of its own, with a different name, so a reader
+     * that expanded the order's `created_by` instead of the receipt's receiver
+     * renders a real person who is the wrong one — and this fails on the id and
+     * on the name, not only on a null.
+     */
+    #[Test]
+    public function aReceiptNamesTheUserWhoBookedItOnTheCreateAndOnTheRead(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $orderer = $this->seedPrincipal(self::TENANT_A, []);
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE app_user SET display_name = 'Olga Orderer' WHERE id = ?::uuid", [$orderer]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE purchase_order SET created_by_user_id = ?::uuid WHERE id = ?::uuid', [$orderer, $po['order']]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE app_user SET display_name = 'Rita Receiver' WHERE id = ?::uuid", [$this->actorId]);
+
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $created = $this->json();
+        self::assertSame(['id' => $this->actorId, 'display_name' => 'Rita Receiver'], $created['received_by']);
+
+        $this->send('GET', '/goods-receipts/'.$created['id']);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $read = $this->json();
+        // §4.4.3's whole GoodsReceipt shape, as an exact key set.
+        $keys = array_keys($read);
+        sort($keys);
+        self::assertSame(['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'], $keys);
+        self::assertSame(['id' => $this->actorId, 'display_name' => 'Rita Receiver'], $read['received_by']);
+        self::assertSame([], ItemReadTest::tenantKeysIn($read));
+    }
+
+    /**
+     * The column is nullable by design (`Version20260911000400`: a writer that is
+     * not a person may post receipts), and §4.4.3 says a receipt with no recorded
+     * receiver renders as unknown — `null`, the key present, never `{}` and never
+     * an error. No API path writes NULL, so the owner does.
+     */
+    #[Test]
+    public function aReceiptWithNoRecordedReceiverRendersANullReceiver(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE goods_receipt SET received_by_user_id = NULL WHERE id = ?::uuid', [$id]);
+
+        $this->send('GET', '/goods-receipts/'.$id);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $body = $this->json();
+        self::assertArrayHasKey('received_by', $body);
+        self::assertNull($body['received_by']);
+    }
+
+    /**
+     * **Mirrors `created_by`, and says so:** `PurchaseOrderRow` joins `app_user`
+     * with no `deleted_at` filter, so an archived creator is still named. The
+     * receiver is joined the same way — a receipt records a fact about a past
+     * delivery, and archiving the person who booked it does not un-book it.
+     *
+     * The read is made by a SECOND principal holding only `goods_receipt.view`,
+     * which is the PC-11 (4a) ruling itself: whoever may read the receipt may read
+     * its receiver, and no further code is needed.
+     */
+    #[Test]
+    public function aReceiverWhoWasArchivedIsStillNamedToAnyoneWhoMayReadTheReceipt(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $receiver = (string) $this->actorId;
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET deleted_at = now() WHERE id = ?::uuid', [$receiver]);
+
+        $this->actAs(self::TENANT_A, ['goods_receipt.view']);
+        $this->send('GET', '/goods-receipts/'.$id);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['id' => $receiver, 'display_name' => 'Fixture Actor'], $this->json()['received_by']);
+    }
+
+    /** No new surface: a caller without `goods_receipt.view` gets the existing denial, and the receiver is not in it. */
+    #[Test]
+    public function aCallerWithoutTheViewCodeIsRefusedAndTheReceiverIsNotDisclosed(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $receiver = (string) $this->actorId;
+
+        $this->actAs(self::TENANT_A, array_values(array_diff(self::everyDeclaredPermission(), ['goods_receipt.view'])));
+        $this->send('GET', '/goods-receipts/'.$id);
+
+        $content = (string) $this->client()->getResponse()->getContent();
+        self::assertSame(403, $this->httpStatus(), $content);
+        self::assertStringNotContainsString($receiver, $content);
+        self::assertStringNotContainsString('received_by', $content);
+    }
+
     /** F-3 step 6: the receipt that brings the last outstanding line in full leaves the order `received`. */
     #[Test]
     public function theReceiptThatCompletesEveryLineLeavesTheOrderReceived(): void

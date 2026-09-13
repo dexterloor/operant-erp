@@ -18,6 +18,12 @@ use Symfony\Component\Uid\Uuid;
  * line of a receipt is inserted in one transaction, so `created_at` ties and
  * the table has no line number of its own; ordering by the order line's number
  * is the one stable order that also means something to the reader.
+ *
+ * **The receiver's join is outer and unfiltered, exactly as `PurchaseOrderRow`
+ * joins the creator.** `received_by_user_id` is nullable, so an inner join would
+ * lose the receipt; and there is no `deleted_at IS NULL` on `app_user`, so a
+ * receiver who has since been archived is still named — archiving a person does
+ * not un-book the delivery they booked.
  */
 final readonly class GoodsReceiptReader
 {
@@ -45,9 +51,11 @@ final readonly class GoodsReceiptReader
         $connection = $em->getConnection();
 
         $row = $connection->fetchAssociative(<<<'SQL'
-            SELECT gr.id, gr.receipt_number, gr.received_at, po.id AS purchase_order_id, po.order_number
+            SELECT gr.id, gr.receipt_number, gr.received_at, po.id AS purchase_order_id, po.order_number,
+                   u.id AS received_by_id, u.display_name AS received_by_display_name
               FROM goods_receipt gr
               JOIN purchase_order po ON po.tenant_id = gr.tenant_id AND po.id = gr.purchase_order_id
+              LEFT JOIN app_user u ON u.tenant_id = gr.tenant_id AND u.id = gr.received_by_user_id
              WHERE gr.id = ?::uuid
             SQL, [$id]);
 
@@ -68,6 +76,8 @@ final readonly class GoodsReceiptReader
             receiptNumber: (string) $row['receipt_number'],
             receivedAt: (string) PurchaseOrderRow::timestamp($row['received_at']),
             purchaseOrder: new OrderReference((string) $row['purchase_order_id'], (string) $row['order_number']),
+            receivedById: null === $row['received_by_id'] ? null : (string) $row['received_by_id'],
+            receivedByDisplayName: null === $row['received_by_id'] ? null : (string) $row['received_by_display_name'],
             lines: array_map(static fn (array $line): GoodsReceiptLineView => new GoodsReceiptLineView(
                 id: (string) $line['id'],
                 purchaseOrderLineId: (string) $line['purchase_order_line_id'],

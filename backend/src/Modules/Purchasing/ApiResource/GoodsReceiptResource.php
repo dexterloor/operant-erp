@@ -24,7 +24,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * The read shape is API-23a's derivation: `received_at` and the three line
  * fields from `CreateGoodsReceipt`'s accepted cell, `id`, and §4.4.3's
  * additions for this resource, `receipt_number` and the parent order's
- * `{id, order_number}`. No `archived_at`: `goods_receipt` is class `none`.
+ * `{id, order_number}`, and `received_by = {id, display_name}` or `null`
+ * (API-O-33 (a), 2026-09-14). No `archived_at`: `goods_receipt` is class `none`.
  *
  * `GetGoodsReceipt` is declared FIRST on purpose. API Platform's own
  * `Location` names a resource's first item operation, and that is the URI the
@@ -79,11 +80,29 @@ final class GoodsReceiptResource
         #[SerializedName('purchase_order')]
         public OrderReference $purchaseOrder,
         public array $lines,
+        /**
+         * API-O-33 option (a), ruled 2026-09-14: who booked the delivery, gated
+         * on `goods_receipt.view` like the rest of the shape (PC-11 (4a) — a
+         * business-document actor, not privilege history). **Null is a real
+         * value:** the column is nullable, and a receipt with no recorded
+         * receiver renders as unknown. Evidence for SoD-2, not enforcement.
+         */
+        #[SerializedName('received_by')]
+        public ?ActorReference $receivedBy,
     ) {
     }
 
     public static function fromView(GoodsReceiptView $view): self
     {
-        return new self($view->id, $view->receiptNumber, $view->receivedAt, $view->purchaseOrder, $view->lines);
+        return new self(
+            $view->id,
+            $view->receiptNumber,
+            $view->receivedAt,
+            $view->purchaseOrder,
+            $view->lines,
+            null === $view->receivedById
+                ? null
+                : new ActorReference($view->receivedById, (string) $view->receivedByDisplayName),
+        );
     }
 }
