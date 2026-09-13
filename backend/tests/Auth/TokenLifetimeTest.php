@@ -117,11 +117,40 @@ final class TokenLifetimeTest extends AuthTestCase
      * pinned exactly: since 2026-09-14 §4.2 declares **only `IssueToken`**,
      * because the owner withdrew `RefreshToken` (with `RevokeSession`) from the
      * table (D-14, ruling C). A Token row reappearing — a refresh operation
-     * re-declared without reopening D-14 and E-20 — is red here even before it
-     * ships; one that ships without a password is red below.
+     * re-declared without reopening D-14 and E-20 — is red at the pin, whether
+     * or not it ships. **So today the loop below only ever visits `IssueToken`**:
+     * it is red when §4.2 stops putting `password` among `IssueToken`'s accepted
+     * fields, and it can see no other row.
      *
-     * *Mutation, run:* implement a `RefreshToken` operation taking a bearer
-     * token; it is present, its accepted fields have no `password`, red.
+     * **This test reads the document, not the registry.** A *shipped*
+     * `RefreshToken` with no §4.2 row is invisible here. Since `da44513` that
+     * case is caught elsewhere — see the last mutation below.
+     *
+     * Mutations (C5, 2026-09-14; `docs/API.md` restored byte-identical, sha256
+     * `8da02630…`, after each):
+     *  - Re-add a `RefreshToken | Refresh / Token | POST | /auth/token/refresh |
+     *    — | no | refresh_token | …` row after `IssueToken` in §4.2 → RED at the
+     *    pin, `§4.2 no longer declares exactly one Token row, IssueToken…`,
+     *    diff `+ 'RefreshToken'`.
+     *  - Delete `` `password` `` from `IssueToken`'s accepted-fields cell → RED
+     *    in the loop, `IssueToken is shipped and §4.2 does not put `password`
+     *    among its accepted fields.`
+     *  - **Ship** a `RefreshToken` (`Post /auth/token/refresh` on
+     *    `TokenResource`, input declaring only `refresh_token`;
+     *    `backend/var/cache/test` deleted before the mutated run and before the
+     *    revert run — Rule 17) → **this test GREEN**. Red instead:
+     *    `everyTokenIssuingOperationCostsThePassword` above ("RefreshToken
+     *    issues a token without the password…"),
+     *    `AuthOperationContractTest::theRegistryDeclaresExactlyThePinnedAuthOperations`
+     *    (the `/auth/` pin gains `/auth/token/refresh`) and
+     *    `::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned` (at its
+     *    union assertion, `+ 'RefreshToken'` — which fires before that method's
+     *    "neither ships" loop, so the loop is not what caught it).
+     *  - Each revert: GREEN.
+     *
+     * *The previous mutation sentence here — "implement a `RefreshToken`
+     * operation; red" — stopped reaching this test when `da44513` withdrew the
+     * row: it was the loop that caught it, and the loop no longer sees it.*
      */
     #[Test]
     public function everyTokenRowInTheContractIsEitherUnshippedOrCostsThePassword(): void
