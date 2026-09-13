@@ -226,12 +226,19 @@ final class TransitionGuardTest extends TestCase
      * required scalar cannot be silently filled with a guessed value, and one
      * that loses a parameter cannot leave a stale entry behind.
      *
-     * @var array<string, array{satisfying: int|bool, refusing: int|bool|null, why: string}>
+     * `rule` is the rule half of the refusal the `refusing` value must produce
+     * (`IllegalTransition::unmetPrecondition()`'s `$rule`), null exactly where
+     * `refusing` is. Without it the legal-source half of
+     * `theStatusGuardRefusesBeforeAnyPreconditionDoes` accepted **any**
+     * non-status refusal, so a value that tripped the wrong precondition passed.
+     *
+     * @var array<string, array{satisfying: int|bool, refusing: int|bool|null, rule: ?string, why: string}>
      */
     private const PRECONDITION_SCALARS = [
         PurchaseOrder::class.'::place($liveLineCount)' => [
             'satisfying' => 1,
             'refusing' => 0,
+            'rule' => 'has_a_live_line',
             'why' => 'Step 6a / D-C: an order with no live line may not be placed. 1 satisfies the precondition, so a '
                 .'legal matrix cell is not refused by a rule it is not about; 0 fails it, which is what makes the '
                 .'status guard\'s precedence checkable. `DomainRefusalTest` owns what the 0 case says over HTTP.',
@@ -239,6 +246,7 @@ final class TransitionGuardTest extends TestCase
         PurchaseOrder::class.'::place($warehouseIsLive)' => [
             'satisfying' => true,
             'refusing' => false,
+            'rule' => 'warehouse_is_live',
             'why' => 'Five-calls follow-up (owner ruling 2026-09-13): an order is not placed against an archived '
                 .'warehouse. true satisfies it, so no other cell is refused by a rule it is not about; false fails it, '
                 .'so the status guard\'s precedence over this guard is checked too. The order between this guard and '
@@ -248,6 +256,7 @@ final class TransitionGuardTest extends TestCase
         PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
             'satisfying' => true,
             'refusing' => null,
+            'rule' => null,
             'why' => 'Step 8\'s outcome flag. Either value is legal from either source — it chooses between '
                 .'`partially_received` and `received`, it does not gate the transition — so there is no refusing '
                 .'value to give it. What the flag decides is `GoodsReceiptCreateTest`\'s.',
@@ -355,9 +364,11 @@ final class TransitionGuardTest extends TestCase
                         $accepted[] = $entity.'::'.$method.'() from "'.$status.'"';
                     } catch (IllegalTransition $e) {
                         // The refusal must be the STATUS guard's. Since step 6a
-                        // an `IllegalTransition` can also be a content refusal
-                        // (`has_a_live_line`), and that one firing from an
-                        // illegal source would hide a missing status guard.
+                        // an `IllegalTransition` can also be a content refusal —
+                        // any PRECONDITION_SCALARS entry's own rule
+                        // (`has_a_live_line`, `warehouse_is_live`, ...) — and one
+                        // firing from an illegal source would hide a missing
+                        // status guard.
                         if (!str_ends_with($e->rule(), '.'.IllegalTransition::RULE)) {
                             $notAStatusRefusal[] = $entity.'::'.$method.'() from "'.$status.'": '.$e->rule();
                         }
@@ -547,6 +558,14 @@ final class TransitionGuardTest extends TestCase
      * gap. **Mutation (the vacuity guard):** set `place()`'s `refusing` to `1`;
      * red on the first limb, because a value that satisfies the precondition
      * refuses nothing.
+     *
+     * **Legal-source half tightened at the five-calls review (2026-09-13).** It
+     * now requires the refusal to carry the entry's own `rule` and the entity to
+     * be untouched. *Mutations, run:* the two rule names inside `place()`
+     * swapped — red here on both entries, and the previous version of this test
+     * was green under it; `$this->orderedAt = $orderedAt` inserted just above the
+     * warehouse guard — red here on the snapshot, green in the previous version
+     * and in `DomainRefusalTest`. Both reverted `cmp`-identical.
      */
     #[Test]
     public function theStatusGuardRefusesBeforeAnyPreconditionDoes(): void
@@ -555,6 +574,8 @@ final class TransitionGuardTest extends TestCase
         $illegalCases = 0;
         $notRefused = [];
         $refusedByTheStatusGuard = [];
+        $refusedByAnotherRule = [];
+        $mutatedWhileRefusingAPrecondition = [];
         $accepted = [];
         $notAStatusRefusal = [];
         $mutated = [];
@@ -570,6 +591,7 @@ final class TransitionGuardTest extends TestCase
             foreach ($legal as $status) {
                 ++$legalCases;
                 $subject = self::instance($entity, $status);
+                $before = self::snapshot($subject);
 
                 try {
                     self::invoke($subject, $entity, $method, $key);
@@ -577,6 +599,12 @@ final class TransitionGuardTest extends TestCase
                 } catch (IllegalTransition $e) {
                     if (str_ends_with($e->rule(), '.'.IllegalTransition::RULE)) {
                         $refusedByTheStatusGuard[] = $key.' from "'.$status.'": '.$e->rule();
+                    } elseif (!str_ends_with($e->rule(), '.'.$entry['rule'])) {
+                        $refusedByAnotherRule[] = $key.' from "'.$status.'": '.$e->rule().' (expected .'.$entry['rule'].')';
+                    }
+
+                    if ($before != self::snapshot($subject)) {
+                        $mutatedWhileRefusingAPrecondition[] = $key.' from "'.$status.'"';
                     }
                 }
             }
@@ -614,6 +642,12 @@ final class TransitionGuardTest extends TestCase
         self::assertSame([], $refusedByTheStatusGuard,
             'A refusing value was refused by the STATUS guard from a source the matrix allows, so this case is not '
             .'about the precondition at all.');
+        self::assertSame([], $refusedByAnotherRule,
+            'A refusing value was refused by a precondition other than its own. The register entry refuses nothing it '
+            .'names, or the method\'s guards give the wrong rule.');
+        self::assertSame([], $mutatedWhileRefusingAPrecondition,
+            'A transition refused by a precondition from a legal source left the entity modified — the precondition '
+            .'guard runs after part of the write.');
 
         self::assertSame([], $accepted, 'A transition method accepted an illegal source status when its precondition also failed.');
         self::assertSame([], $notAStatusRefusal,

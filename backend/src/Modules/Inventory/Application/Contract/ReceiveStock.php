@@ -127,13 +127,18 @@ namespace App\Modules\Inventory\Application\Contract;
  * That refusal is a **backstop, not the control.** A placed order's warehouse
  * cannot be changed — order edits are draft-only — so an order open against a
  * closed site cannot be "redirected"; the escape is `RestoreWarehouse`
- * (declared in API.md §4.2, same permission as archiving), not cancellation.
- * The control belongs at archive time: `DeleteWarehouse` must refuse to
- * archive a warehouse that still has open orders or stock, and that is filed
- * as **API-O-34** (API.md §14.1) for when `DeleteWarehouse` is designed, with
- * the ordering this read needs against a concurrent archive. Until then no
- * operation archives a warehouse, so this branch is reached only by a row
- * archived outside the API. The refusal is pinned by `ReceiveStockTest` and
+ * (declared in API.md §4.2, same permission as archiving, **not yet built**),
+ * not cancellation. The control belongs at archive time: `DeleteWarehouse`
+ * must refuse to archive a warehouse that still has open orders or stock, and
+ * that is filed as **API-O-34** (API.md §14.1) for when `DeleteWarehouse` is
+ * designed, with the ordering this read needs against a concurrent archive.
+ *
+ * The earlier routes to this branch are closed upstream: a purchase order
+ * cannot be created, or edited as a draft, onto an archived warehouse, and
+ * it cannot be approved while its warehouse is archived (API.md §8.1 step 6).
+ * So for a purchase-order receipt this branch is reached only for a
+ * warehouse archived **after approval** — and, until `DeleteWarehouse`
+ * exists, only by a row archived outside the API. The refusal is pinned by `ReceiveStockTest` and
  * `GoodsReceiptCreateTest` and named in API.md; it is not a switch to flip.
  */
 interface ReceiveStock

@@ -311,7 +311,7 @@ class PurchaseOrder
                 __FUNCTION__,
                 $this->status,
                 'warehouse_is_live',
-                'This purchase order\'s warehouse has been archived. Restore the warehouse before ordering it.',
+                'This purchase order\'s warehouse has been archived. Move this order to a live warehouse, or restore this one.',
             );
         }
 

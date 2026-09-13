@@ -194,7 +194,7 @@ final class PermissionEnforcementTest extends ApiTestCase
      * loops**. Run against the whole suite it is red in exactly one other place:
      * `theSetTheApiEnforcesIsTheSetMeAdvertises`, whose principal holds
      * `inventory_item.edit` and expects `DELETE /items` refused. *Second mutation,
-     * run the same day:* match on the action suffix instead (`supplier.view`
+     * run the same day:* match on the action suffix instead (`purchase_order.view`
      * satisfies `inventory_item.view`); whole suite red here and in exactly one
      * other place, `GoodsReceiptCreateTest::aCallerWithoutTheReceiptCodeIsRefused`.
      * So the gap was not "nothing can see a loose match" — each loose match was
