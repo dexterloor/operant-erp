@@ -993,6 +993,26 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * outside `src/` (its name is even assembled at runtime in the migration),
      * and it runs inside the order's own `UPDATE`, so it keeps order → lines.
      *
+     * **The planted control (RED review, 2026-09-14).** At `2d9bc8a` this test
+     * stayed green with a throwaway sales class running
+     * `private const SQL = 'UPDATE sales_order …'` through `self::SQL` — the very
+     * shape `PurchaseOrderRowLock` uses, so the first sales writer could copy it
+     * past the tripwire — and with `"SELECT 1;\nUPDATE sales_order …"`, whose
+     * escaped newline glued `n` to the keyword. The scan now matches each
+     * literal's decoded runtime value, and credits a method with the literals of
+     * the constants of its own class it reaches (`self::`, `static::`,
+     * `OwnClass::`, and a constant defined as another). `PLANTED_SALES_WRITERS`
+     * pins both shapes, a constant that is not a write, and a method that merely
+     * spells the constant's name, inside this test.
+     *
+     * **Still blind, measured against the SQL pattern on 2026-09-14:**
+     * `UPDATE ONLY sales_order`, `UPDATE public.sales_order`,
+     * `UPDATE "sales_order"`, a comment between the keyword and the name, and
+     * `MERGE INTO sales_order` — the purchase-order pattern has the same shape,
+     * and its descriptions are pinned, so it was not widened under a defect fix.
+     * Nor does it credit a constant of **another** class (`OtherClass::SQL`,
+     * `parent::SQL`, an interface constant), or SQL built from pieces.
+     *
      * **Mutations, run 2026-09-13, each removed or reverted afterwards:** a
      * throwaway public method under `src/` that runs `UPDATE sales_order …` —
      * red here, naming it, and the purchase-order scan stays green; a throwaway
@@ -1033,6 +1053,17 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'The writer scan no longer finds PurchaseOrderApproval::approve, a known ORM writer, so its ORM arms are broken '
             .'and the empty sales result below proves nothing.');
 
+        // The planted control, RED review 2026-09-14: the two shapes that walked
+        // past this tripwire at `2d9bc8a`. `PurchaseOrderRowLock` runs its SQL
+        // through `self::SQL`, so the first sales writer can copy that pattern;
+        // and a double-quoted `"SELECT 1;\nUPDATE sales_order"` glued the `n` of
+        // the escape to the keyword. Both must be found by the same writersAmong()
+        // the tree scan below runs on.
+        self::assertSame(self::PLANTED_SALES_WRITERS_EXPECTED, array_keys(self::writersAmong([self::PLANTED_SALES_WRITERS], self::SALES_ORDER_SCAN)),
+            'The writer scan does not find exactly the planted sales-order writers — SQL held in a class constant and run '
+            .'through self::/static::/ClassName::, or SQL with an escaped newline before the keyword — so the empty '
+            .'result below may be a blind scan, not an empty tree.');
+
         $derived = self::writersOf(self::SALES_ORDER_SCAN);
 
         self::assertSame([], $derived,
@@ -1049,6 +1080,70 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * Planted sales-order writers for `noMethodInSrcWritesASalesOrderYet()`'s
+     * control. `readsOnly` references a constant that is not a write and
+     * `neverRuns` holds the write constant's name only as prose, so a scan that
+     * credited every constant to every method would be red too.
+     */
+    private const PLANTED_SALES_WRITERS = <<<'PHP'
+        <?php
+
+        namespace App\Modules\Sales\Infrastructure;
+
+        final class PlantedSalesWriter
+        {
+            private const SQL = 'UPDATE sales_order SET status = ? WHERE id = ?::uuid';
+
+            private const ALIAS = self::SQL;
+
+            private const READ = 'SELECT 1 FROM sales_order WHERE id = ?::uuid FOR NO KEY UPDATE';
+
+            public function viaSelf(object $c): void
+            {
+                $c->executeStatement(self::SQL, []);
+            }
+
+            public function viaStatic(object $c): void
+            {
+                $c->executeStatement(static::SQL, []);
+            }
+
+            public function viaOwnName(object $c): void
+            {
+                $c->executeStatement(PlantedSalesWriter::SQL, []);
+            }
+
+            public function viaAlias(object $c): void
+            {
+                $c->executeStatement(self::ALIAS, []);
+            }
+
+            public function viaEscapedNewline(object $c): void
+            {
+                $c->executeStatement("SELECT 1;\nUPDATE sales_order SET status = 'x'");
+            }
+
+            public function readsOnly(object $c): void
+            {
+                $c->executeStatement(self::READ, []);
+            }
+
+            public function neverRuns(): string
+            {
+                return 'SQL';
+            }
+        }
+        PHP;
+
+    private const PLANTED_SALES_WRITERS_EXPECTED = [
+        'PlantedSalesWriter::viaSelf',
+        'PlantedSalesWriter::viaStatic',
+        'PlantedSalesWriter::viaOwnName',
+        'PlantedSalesWriter::viaAlias',
+        'PlantedSalesWriter::viaEscapedNewline',
+    ];
+
+    /**
      * Every method in `src/` that writes the scan's two tables (for the
      * purchase-order run, `purchase_order` / `purchase_order_line`), reduced to
      * the methods a caller enters by: a private or protected writer is replaced
@@ -1061,10 +1156,27 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      */
     private static function writersOf(array $scan): array
     {
+        return self::writersAmong(array_map(
+            static fn (string $path): string => (string) file_get_contents($path),
+            PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src'),
+        ), $scan);
+    }
+
+    /**
+     * {@see self::writersOf()} over the given PHP sources rather than `src/`,
+     * so a planted fixture runs through exactly the same reduction.
+     *
+     * @param list<string>                                                                                                      $sources
+     * @param array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}} $scan
+     *
+     * @return array<string, list<string>>
+     */
+    private static function writersAmong(array $sources, array $scan): array
+    {
         $methods = [];
 
-        foreach (PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src') as $path) {
-            foreach (self::methodsIn((string) file_get_contents($path), $scan) as $key => $method) {
+        foreach ($sources as $source) {
+            foreach (self::methodsIn($source, $scan) as $key => $method) {
                 if (isset($methods[$key])) {
                     throw new \LogicException(\sprintf('Two classes in src/ share the short name in %s; key the scan by FQCN.', $key));
                 }
@@ -1218,10 +1330,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         );
         $methods = [];
 
-        foreach (PhpSourceScan::scan($source)['methods'] as $key => $method) {
+        $scanned = PhpSourceScan::scan($source);
+        foreach ($scanned['methods'] as $key => $method) {
             $writes = [];
-            foreach ($method['literals'] as $literal) {
-                if (1 === preg_match($scan['sql'], $literal['text'], $m) || 1 === preg_match($scan['dql'], $literal['text'], $m)) {
+            // The method's own literals and those of the constants it reaches
+            // (`self::SQL`), each as its runtime value, escapes decoded.
+            foreach (PhpSourceScan::literalsReachedBy($scanned, $key) as $literal) {
+                if (1 === preg_match($scan['sql'], $literal['value'], $m) || 1 === preg_match($scan['dql'], $literal['value'], $m)) {
                     $writes[] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
                 }
             }

@@ -29,6 +29,12 @@ namespace App\Tests\Support;
  *     - the methods it **calls** (`->x(`, `?->x(`, `::x(`);
  *     - the class names it **names** as `X::class` or `new X`, by short name.
  *    Closures and anonymous classes belong to the method they are in;
+ *  - per method, the **constants of its own class it references** —
+ *    `self::X`, `static::X`, `OwnShortName::X` — and `constants`: each class
+ *    constant's literals and the own-class constants its value references.
+ *    {@see self::literalsReachedBy()} joins them, so `executeStatement(self::SQL)`
+ *    is a method holding that SQL (RED review, 2026-09-14). Another class's
+ *    constant is not followed;
  *  - `outside`: the literal pieces **outside any method body** — class
  *    constants, property and parameter defaults — each with the class it is
  *    in (`null` outside a class). The lock-first scan ignores these, as it
@@ -63,8 +69,9 @@ final class PhpSourceScan
     /**
      * @return array{
      *     namespace: string,
-     *     methods: array<string, array{public: bool, class: string, name: string, literals: list<array{text: string, value: string, line: int}>, calls: list<string>, named: list<string>}>,
-     *     outside: list<array{class: ?string, text: string, value: string, line: int}>
+     *     methods: array<string, array{public: bool, class: string, name: string, literals: list<array{text: string, value: string, line: int}>, calls: list<string>, named: list<string>, constants: list<string>}>,
+     *     outside: list<array{class: ?string, text: string, value: string, line: int}>,
+     *     constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>
      * }
      */
     public static function scan(string $source): array
@@ -82,8 +89,10 @@ final class PhpSourceScan
         $modifiers = [];
         $current = null;
         $methodDepth = null;
-
         $quoting = null;
+        $constants = [];
+        $constant = null;
+        $inConstDeclaration = false;
 
         foreach ($tokens as $i => $token) {
             $id = \is_array($token) ? $token[0] : null;
@@ -121,6 +130,17 @@ final class PhpSourceScan
                 continue;
             }
 
+            if ($atClassBody && \T_CONST === $id) {
+                $inConstDeclaration = true;
+                continue;
+            }
+
+            if ($atClassBody && $inConstDeclaration && \T_STRING === $id && '=' === ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
+                $constant = $class.'::'.$text;
+                $constants[$constant] = ['literals' => [], 'refs' => []];
+                continue;
+            }
+
             if ($atClassBody && \T_FUNCTION === $id) {
                 $next = self::nextMeaningful($tokens, $i);
                 if ('&' === ($tokens[$next] ?? null)) {
@@ -142,7 +162,7 @@ final class PhpSourceScan
                     $pendingClass = null;
                 } elseif (null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
                     $current = $class.'::'.$pendingMethod;
-                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'literals' => [], 'calls' => [], 'named' => []];
+                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'literals' => [], 'calls' => [], 'named' => [], 'constants' => []];
                     $methodDepth = $depth;
                     $pendingMethod = null;
                 }
@@ -162,9 +182,12 @@ final class PhpSourceScan
             }
 
             if ($atClassBody && ';' === $text) {
-                // An abstract or interface method: a signature with no body.
+                // An abstract or interface method: a signature with no body; or
+                // the end of a constant declaration.
                 $pendingMethod = null;
                 $modifiers = [];
+                $inConstDeclaration = false;
+                $constant = null;
                 continue;
             }
 
@@ -172,10 +195,22 @@ final class PhpSourceScan
 
             $value = !$isLiteral ? '' : (\T_CONSTANT_ENCAPSED_STRING === $id ? self::valueOfQuoted($text) : self::decode($text, (string) $quoting));
 
+            $ownConstant = null === $class ? null : self::ownConstantAt($tokens, $i, $class);
+
             if (null === $current) {
                 if ($isLiteral) {
                     $outside[] = ['class' => $class, 'text' => $text, 'value' => $value, 'line' => $token[2]];
+                    if (null !== $constant) {
+                        $constants[$constant]['literals'][] = ['text' => $text, 'value' => $value, 'line' => $token[2]];
+                    }
+                } elseif (null !== $constant && null !== $ownConstant) {
+                    $constants[$constant]['refs'][] = $class.'::'.$ownConstant;
                 }
+                continue;
+            }
+
+            if (null !== $ownConstant) {
+                $methods[$current]['constants'][] = $class.'::'.$ownConstant;
                 continue;
             }
 
@@ -201,7 +236,68 @@ final class PhpSourceScan
             }
         }
 
-        return ['namespace' => $namespace, 'methods' => $methods, 'outside' => $outside];
+        return ['namespace' => $namespace, 'methods' => $methods, 'outside' => $outside, 'constants' => $constants];
+    }
+
+    /**
+     * **A method's literals plus the literals of every constant of its own class
+     * it reaches** — through `self::X`, `static::X` or `OwnClass::X`, and through
+     * a constant whose value is another such reference (`const B = self::A`).
+     *
+     * `PurchaseOrderRowLock` runs its statement as `self::SQL`, and until the RED
+     * review of 2026-09-14 a scan over a method's own literals could not see a
+     * write held that way: `private const SQL = 'UPDATE sales_order …'` walked
+     * past the sales tripwire.
+     *
+     * @param array{methods: array<string, array{constants: list<string>, literals: list<array{text: string, value: string, line: int}>}>, constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>} $scan
+     *
+     * @return list<array{text: string, value: string, line: int}>
+     */
+    public static function literalsReachedBy(array $scan, string $methodKey): array
+    {
+        $literals = $scan['methods'][$methodKey]['literals'];
+        $queue = $scan['methods'][$methodKey]['constants'];
+        $seen = [];
+
+        while (null !== ($name = array_shift($queue))) {
+            if (isset($seen[$name]) || !isset($scan['constants'][$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            array_push($literals, ...$scan['constants'][$name]['literals']);
+            array_push($queue, ...$scan['constants'][$name]['refs']);
+        }
+
+        return $literals;
+    }
+
+    /**
+     * The name `X` when the token at `$i` is the `X` of `self::X`, `static::X`
+     * or `<own short class name>::X` and is not a call or `::class`.
+     *
+     * @param list<mixed> $tokens
+     */
+    private static function ownConstantAt(array $tokens, int $i, string $class): ?string
+    {
+        if (\T_STRING !== self::idAt($tokens, $i) || 'class' === strtolower($tokens[$i][1])) {
+            return null;
+        }
+        $colon = self::previousMeaningful($tokens, $i);
+        if (\T_DOUBLE_COLON !== self::idAt($tokens, $colon) || '(' === ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
+            return null;
+        }
+        $owner = self::previousMeaningful($tokens, (int) $colon);
+        $ownerId = self::idAt($tokens, $owner);
+        if (\T_STATIC === $ownerId) {
+            return $tokens[$i][1];
+        }
+        if (\in_array($ownerId, [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED], true)) {
+            $name = substr((string) strrchr('\\'.$tokens[$owner][1], '\\'), 1);
+
+            return 'self' === strtolower($name) || $name === $class ? $tokens[$i][1] : null;
+        }
+
+        return null;
     }
 
     /**
