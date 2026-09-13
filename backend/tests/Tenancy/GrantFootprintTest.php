@@ -394,7 +394,7 @@ final class GrantFootprintTest extends TenancyTestCase
      * legitimately needs full DML there for the worker … if Output 4 wires the
      * pre-auth route to the default connection, the queue is reachable again."*
      * That premise is gone. `erp_app` holds `SELECT` and nothing else on
-     * `messenger_messages`, so wiring the pre-auth route to the default
+     * `messenger_messages`, so wiring the pre-auth route to the `app`
      * connection no longer makes the queue *writable* — it would still be
      * wrong, and this test is still the thing that makes it loud, but the
      * consequence is now a cross-tenant payload **read** rather than queue
@@ -407,6 +407,17 @@ final class GrantFootprintTest extends TenancyTestCase
      * counter tables, so a rate limiter pointed at the wrong connection fails
      * with `permission denied` on its first statement instead of working and
      * quietly leaving the queue exposed.
+     *
+     * **⚠ Corrected 2026-09-14 — `erp_app` is NOT the default connection.** The
+     * quoted paragraph above, and this docblock until today, called the `app`
+     * connection "the default connection". It is not, and it was measured:
+     * `config/packages/doctrine.yaml` sets `default_connection: owner`, so an
+     * autowired `Connection` with no binding runs as the **schema owner**
+     * (`tests/Architecture/ConnectionBindingTest.php` pins that). The "wrong
+     * connection" this test makes loud is therefore any application principal
+     * (`erp_app`, `erp_ai`, `erp_auth`, `erp_authlog`) — **not** an unbound
+     * default, which holds every privilege and would not be refused here. That
+     * mistake is `ConnectionBindingTest`'s to catch, not this test's.
      *
      * **The table list was `['auth_attempt', 'auth_lockout']` until SEC-O-16
      * (2026-09-09) and that was the fake-green shape this project keeps

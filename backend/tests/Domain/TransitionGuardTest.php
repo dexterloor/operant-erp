@@ -79,7 +79,7 @@ final class TransitionGuardTest extends TestCase
     /**
      * `docs/API.md` §8.3's matrix, as data.
      *
-     * `method` is `null` on the four rows §8.3 marks *(no method exists)*, which
+     * `method` is `null` on the rows §8.3 marks *(no method exists)*, which
      * is what those rows say: the transition is declared legal and there is
      * nothing to perform it. `blocks` names the §4.2 operations that cannot be
      * implemented until there is — clause (c)'s subject.
@@ -136,6 +136,17 @@ final class TransitionGuardTest extends TestCase
             'from' => [Invoice::STATUS_ISSUED, Invoice::STATUS_OVERDUE],
             'to' => [Invoice::STATUS_PAID],
             'blocks' => [],
+        ],
+        // ⚠ **Added 2026-09-14 (owner ruling on OI-2).** §8.3 now declares
+        // `paid → issued` legal — a payment recorded in error — and no method
+        // performs it, so the matrix was green over the gap until this row named
+        // it. `STATUS_ISSUED` is the initial status, so clause (b)'s pin does not
+        // move; clause (c) is what this row feeds.
+        [
+            'entity' => Invoice::class, 'method' => null, // payment reversal, ⛔ no method
+            'from' => [Invoice::STATUS_PAID],
+            'to' => [Invoice::STATUS_ISSUED],
+            'blocks' => ['ReverseInvoicePayment'],
         ],
         [
             'entity' => Invoice::class, 'method' => 'markOverdue',

@@ -41,7 +41,7 @@ use PHPUnit\Framework\Attributes\Test;
  * ---------------------------------------------------------------------------
  * `docs/` is gitignored, so §4.2 is not in the repository and a check whose only
  * domain is the document has no subject on a clean checkout. `PINNED_MECHANISMS`
- * is therefore a **pin** in the §12.3 sense — the 38 cells, transcribed once —
+ * is therefore a **pin** in the §12.3 sense — the 41 cells, transcribed once —
  * and it is checked in both directions against the document wherever the document
  * is present.
  *
@@ -157,7 +157,7 @@ use PHPUnit\Framework\Attributes\Test;
 final class IdempotencyContractTest extends TenancyTestCase
 {
     /**
-     * §4.2's 38 marked cells, transcribed once. The 76 `no` rows are not listed:
+     * §4.2's 41 marked cells, transcribed once. The 74 `no` rows are not listed:
      * they are asserted as *"everything else"*, so a row that loses its mechanism
      * fails rather than silently joining them.
      *
@@ -192,6 +192,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CancelSalesOrder' => 'guard:sales_order.status',
         'PayInvoice' => 'guard:invoice.status',
         'VoidInvoice' => 'guard:invoice.status',
+        // ⚠ **2026-09-14, owner ruling (OI-2).** Unbuilt. `paid → issued` is a
+        // §8.3 transition, so a repeat finds the invoice already `issued` and
+        // is refused by the status guard — no key needed.
+        'ReverseInvoicePayment' => 'guard:invoice.status',
 
         // guard:<entity>.deleted_at — a repeat hits a LIVE row. NOT a status
         // guard: §8.3 excludes the soft-delete methods from API-15 by name.
@@ -214,8 +218,12 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateBulkRoleAssignment' => 'store',
 
         // ⛔ none — declared idempotent, NO mechanism, blocked from shipping.
-        // SEVEN: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
-        // and `CreateGoodsReceipt` the same day (step 8).
+        // NINE: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
+        // and `CreateGoodsReceipt` the same day (step 8); `CreateSalesReturn`
+        // and `IssueCreditNote` joined it on 2026-09-14 (owner ruling on OI-2 —
+        // neither table exists, so nothing can refuse a retry). `IssueInvoice`
+        // was redesigned per shipment (D-A as amended) and stays here until
+        // `invoice_tenant_fulfilment_not_void` exists.
         'CreateSalesOrder' => '⛔ none',
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
@@ -223,12 +231,21 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
         'IssueInvoice' => '⛔ none',
+        'CreateSalesReturn' => '⛔ none',
+        'IssueCreditNote' => '⛔ none',
     ];
 
-    /** §4.2's own totals, so a parser that silently stopped finding rows fails. */
-    private const PINNED_ROW_COUNT = 114;
+    /**
+     * §4.2's own totals, so a parser that silently stopped finding rows fails.
+     *
+     * **2026-09-14:** 114 − 2 withdrawn `no` rows (`RefreshToken`,
+     * `RevokeSession`, D-14 / owner ruling C) + 3 added marked rows
+     * (`ReverseInvoicePayment`, `CreateSalesReturn`, `IssueCreditNote`) = 115;
+     * 76 − 2 = 74 unmarked.
+     */
+    private const PINNED_ROW_COUNT = 115;
 
-    private const PINNED_UNMARKED_COUNT = 76;
+    private const PINNED_UNMARKED_COUNT = 74;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —

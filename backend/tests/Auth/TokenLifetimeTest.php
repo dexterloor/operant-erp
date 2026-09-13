@@ -110,13 +110,15 @@ final class TokenLifetimeTest extends AuthTestCase
     }
 
     /**
-     * The document side of the same rule, and the place D-14's two residuals are
-     * held to being residuals.
+     * The document side of the same rule.
      *
-     * §4.2 declares `RefreshToken` and `RevokeSession`; D-14 ships neither. This
-     * asserts the only two states either may be in — **absent from the shipped
-     * registry**, or **present and costing a password** — so shipping
-     * `RefreshToken` without reopening E-20 is not possible quietly.
+     * Every `Token` row in §4.2 is in one of two states — **absent from the
+     * shipped registry**, or **present and costing a password**. The domain is
+     * pinned exactly: since 2026-09-14 §4.2 declares **only `IssueToken`**,
+     * because the owner withdrew `RefreshToken` (with `RevokeSession`) from the
+     * table (D-14, ruling C). A Token row reappearing — a refresh operation
+     * re-declared without reopening D-14 and E-20 — is red here even before it
+     * ships; one that ships without a password is red below.
      *
      * *Mutation, run:* implement a `RefreshToken` operation taking a bearer
      * token; it is present, its accepted fields have no `password`, red.
@@ -137,7 +139,12 @@ final class TokenLifetimeTest extends AuthTestCase
             return 'Token' === $resource;
         });
 
-        self::assertGreaterThanOrEqual(2, \count($tokenRows), '§4.2 declares fewer Token rows than IssueToken and RefreshToken, so the domain moved.');
+        $tokenRowIds = array_keys($tokenRows);
+        sort($tokenRowIds);
+        self::assertSame(['IssueToken'], $tokenRowIds,
+            '§4.2 no longer declares exactly one Token row, IssueToken. RefreshToken was withdrawn from §4.2 '
+            .'on 2026-09-14 (D-14, owner ruling C); a Token row returning needs a ruling that reopens D-14 and '
+            .'E-20, and a Token row vanishing means the domain below has no subject.');
 
         $shipped = array_keys(TransactionBoundaryTest::contractOperations());
 

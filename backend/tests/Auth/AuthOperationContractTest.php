@@ -37,10 +37,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class AuthOperationContractTest extends ApiTestCase
 {
     /**
-     * §4.2's two Authentication rows this wave ships. `RefreshToken` and
-     * `RevokeSession` are **absent on purpose**: D-14 rules both out and keeps
-     * them as declared residuals under API-O-13, and `theShippedSurfaceIsExactly…`
-     * below asserts their absence rather than leaving it implied.
+     * §4.2's Authentication rows this wave ships. `RefreshToken` and
+     * `RevokeSession` are **absent on purpose**: D-14 rules both out, and
+     * `theShippedSurfaceIsExactly…` below asserts their absence rather than
+     * leaving it implied.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
@@ -56,7 +56,15 @@ final class AuthOperationContractTest extends ApiTestCase
     /** §4.2's `Accepted request fields` for `IssueToken`, which is exhaustive. */
     private const PINNED_ACCEPTED_FIELDS = ['workspace', 'email', 'password'];
 
-    /** D-14: declared in §4.2, deliberately not shipped. */
+    /**
+     * D-14: deliberately not shipped — and, since 2026-09-14, **withdrawn from
+     * §4.2** by the owner (ruling C). Until then D-14 kept both as *declared*
+     * residuals and `thePinsMatchTheContractDocument` demanded their rows. The
+     * owner ruled that a row no build will ever satisfy is a promise, not a
+     * deferral, so the rows left the table and the withdrawal is recorded
+     * beside it. Both halves are still asserted: neither ships, and neither is
+     * declared.
+     */
     private const PINNED_UNSHIPPED = ['RefreshToken', 'RevokeSession'];
 
     #[Test]
@@ -239,12 +247,23 @@ final class AuthOperationContractTest extends ApiTestCase
         self::assertSame([], ContractDocument::queryParameters('IssueToken'));
         self::assertSame([], ContractDocument::queryParameters('GetCurrentUser'));
 
-        // The residuals are declared in the document and unshipped in the code.
+        // The residuals are WITHDRAWN from §4.2 (D-14, owner ruling C,
+        // 2026-09-14) and unshipped in the code. The row-count guard above is
+        // what stops this absence passing on a parser that found nothing.
         foreach (self::PINNED_UNSHIPPED as $residual) {
-            self::assertArrayHasKey($residual, $rows,
-                $residual.' has left §4.2. D-14 keeps it as a *declared* residual; deleting the row would '
-                .'turn a deferral into an omission.');
+            self::assertArrayNotHasKey($residual, $rows,
+                $residual.' is declared in §4.2 again. The owner withdrew it on 2026-09-14 (ruling C) because '
+                .'D-14 ships neither operation; reinstating the row needs a ruling that reopens D-14 and E-20.');
         }
+
+        // …and the withdrawal is RECORDED, so the absence is a ruling rather than
+        // a row that silently went missing.
+        $withdrawal = array_values(array_filter(ContractDocument::lines(),
+            static fn (string $line): bool => str_contains($line, 'WITHDRAWN')
+                && str_contains($line, '`RefreshToken`') && str_contains($line, '`RevokeSession`')));
+        self::assertNotSame([], $withdrawal,
+            'RefreshToken and RevokeSession are absent from §4.2 and no line records their withdrawal. An '
+            .'undocumented absence is an omission, not a deferral.');
     }
 
     /**
