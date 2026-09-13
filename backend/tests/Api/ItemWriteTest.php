@@ -52,8 +52,35 @@ final class ItemWriteTest extends ApiTestCase
     }
 
     /**
-     * B-3's runtime half. The spec-level clause stops `id` being *declared*;
-     * only this stops it being *accepted*.
+     * B-3's runtime half: a create carrying `id` is answered 422 at `/id`, and
+     * no row appears at the id the client chose.
+     *
+     * **Three layers stand between a client and a chosen id, and this test sees
+     * only the outcome, not which layer produced it:**
+     *  1. *Declaration* — `CreateItemInput` has no `id`. Proved by
+     *     `OpenApiContractTest::noWriteSchemaDeclaresAnIdProperty`, not here:
+     *     adding the property leaves this test GREEN.
+     *  2. *API Platform's own refusal* — `ItemNormalizer::denormalize` throws
+     *     "Update is not allowed for this operation." for any body carrying
+     *     `id` when the context's `api_allow_update` is not `true` (a POST
+     *     defaults it to `false`); `FrameworkProblemTranslator` relabels it
+     *     `/id`. **This is the layer that answers today.**
+     *  3. `allow_extra_attributes: false` — **never observed refusing `id`.**
+     *     Layer 2 fires before it; with layer 2 disabled the `id` is taken as
+     *     an IRI instead, so layer 3 still never sees it.
+     *
+     * Mutations (C5, 2026-09-14, `backend/var/cache/test` deleted before each
+     * mutated run and before the revert run — Rule 17):
+     *  - `public ?string $id` added to `CreateItemInput` **and**
+     *    `allow_extra_attributes` removed from `CreateItem`: this test GREEN
+     *    (the spec test goes red). *Not* "only disabling both goes red" as
+     *    `a8e2b78`'s record had it.
+     *  - `'api_allow_update' => true` on `CreateItem`, everything else intact:
+     *    RED, `Failed asserting that 404 is identical to 422.` — the `id` is
+     *    resolved as an IRI and not found. That red is the 404 path, not an
+     *    acceptance: **a write at a client-chosen id was never observed**, so
+     *    the trailing `GET … 404` assertion has no mutation shown to reach it.
+     *  - Revert: GREEN.
      */
     #[Test]
     public function aCreateCarryingAnIdIsRefused(): void

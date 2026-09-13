@@ -129,6 +129,19 @@ final class OpenApiContractTest extends ApiTestCase
      * resolves `$ref`s before inspecting: a schema-local scan misses an `id`
      * inside a referenced component, which is exactly where a nested write
      * would put one.
+     *
+     * **This proves B-3's declaration layer only** — that no request schema
+     * *documents* an `id`. It cannot see whether a body carrying one is
+     * accepted; that is `ItemWriteTest::aCreateCarryingAnIdIsRefused`, whose
+     * docblock names the three layers and which one answers.
+     *
+     * Mutation (C5, 2026-09-14, `backend/var/cache/test` deleted before the
+     * mutated run and before the revert run — Rule 17): `public ?string $id`
+     * added to `CreateItemInput`, with `CreateItem`'s `allow_extra_attributes`
+     * also removed → RED, `B-3: a write schema declares a row identifier.` with
+     * `POST /api/v1/items application/json /id`. The runtime test stayed GREEN
+     * in that same run — API Platform's own normaliser refuses the `id` first
+     * (the re-run saw the same with the property alone). Revert: GREEN.
      */
     #[Test]
     public function noWriteSchemaDeclaresAnIdProperty(): void
