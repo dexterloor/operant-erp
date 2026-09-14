@@ -40,8 +40,10 @@ use PHPUnit\Framework\Attributes\Test;
  * silently is the same vacuity arriving by a different road. Step 3 is therefore
  * not computed here: it cannot rescue an expectation.
  */
-final class ResponseShapeTest extends ApiTestCase
+final class ResponseShapeTest extends PurchaseOrderTestCase
 {
+    use OperationSuccessRecipes;
+
     /** The fields every row may get without §4.2 or §4.4.3 saying anything about it. */
     private const FREE_FIELDS = ['id', 'archived_at'];
 
@@ -104,6 +106,119 @@ final class ResponseShapeTest extends ApiTestCase
         self::assertSame([], $vacuous,
             'A built read resource has a derived expectation with nothing beyond id and archived_at. API-23a requires an '
             .'additions row for a resource with no Create* row, or with a Create* row under a different Resource name.');
+    }
+
+    /**
+     * **P-6 / API-6 — no response carries `tenant_id` or `tenantId`, at any
+     * depth, including inside a cursor.**
+     *
+     * Subject: the serialized body of every operation in the registry, each driven
+     * to success by {@see OperationSuccessRecipes}, walked recursively. A string
+     * member named `next_cursor` or `previous_cursor` is base64url-decoded and, if
+     * it is JSON, walked too — §4.4.3 names the cursor as a place one would hide.
+     *
+     * Controls inside this method: recipes equal the registry and each answered its
+     * success status; the walker finds a planted `tenantId` at depth three and a
+     * planted `tenant_id` inside an encoded cursor; at least one body and at least
+     * one cursor were walked.
+     *
+     * Mutations: `docs/session9/progress-C5B.md` row 12.
+     */
+    #[Test]
+    public function noResponseCarriesATenantIdentifier(): void
+    {
+        $plantedCursor = rtrim(strtr(base64_encode((string) json_encode(['k' => 'a', 'tenant_id' => 'x'])), '+/', '-_'), '=');
+        $planted = [];
+        $cursors = 0;
+        self::walkTenantKeys(['a' => [['b' => ['tenantId' => 1]]], 'next_cursor' => $plantedCursor], '$', $planted, $cursors);
+        self::assertSame(['$.a[0].b.tenantId', '$.next_cursor<decoded>.tenant_id'], $planted, 'The walker missed a planted tenant identifier.');
+
+        $found = [];
+        $cursors = 0;
+        $walked = 0;
+        foreach ($this->drivenBodies() as $name => $body) {
+            if (null === $body) {
+                continue;
+            }
+            ++$walked;
+            $keys = [];
+            self::walkTenantKeys($body, '$', $keys, $cursors);
+            foreach ($keys as $where) {
+                $found[] = $name.' at '.$where;
+            }
+        }
+
+        self::assertGreaterThan(0, $walked, 'No response body was walked.');
+        self::assertGreaterThan(0, $cursors, 'No cursor was decoded, so the inside-a-cursor half had no subject.');
+        self::assertSame([], $found, 'P-6: a response carries a tenant identifier.');
+    }
+
+    /**
+     * Every registry operation driven to success, and its decoded JSON body
+     * (`null` for an empty body). Controls: the recipes equal the registry, and
+     * each answered the status its recipe drives for — the subject here is the
+     * body, so a refusal's body would be the wrong subject.
+     *
+     * @return array<string, array<mixed>|null>
+     */
+    private function drivenBodies(): array
+    {
+        $registry = TransactionBoundaryTest::contractOperations();
+        $recipes = $this->successRecipes();
+        $names = array_keys($registry);
+        sort($names);
+        $recipeNames = array_keys($recipes);
+        sort($recipeNames);
+        self::assertNotSame([], $names, 'The registry is empty.');
+        self::assertSame($names, $recipeNames, 'Every operation in the registry must be driven here, and only those.');
+
+        $prepared = [];
+        foreach ($recipes as $name => [$prepare]) {
+            $prepared[$name] = $prepare();
+        }
+
+        // Lists read what the other fixtures seeded, so a list page is not empty.
+        $bodies = [];
+        foreach ($recipes as $name => [, $drive]) {
+            [$status, $label] = $drive($prepared[$name]);
+            $content = (string) $this->client()->getResponse()->getContent();
+            self::assertSame($status, $this->httpStatus(), \sprintf('%s (%s) was not driven to success: %s', $name, $label, substr($content, 0, 300)));
+            $bodies[$name] = '' === $content ? null : json_decode($content, true, flags: \JSON_THROW_ON_ERROR);
+
+            // A list that pages is read once more at one row a page, so a body
+            // carrying a real cursor is walked too.
+            if ('GET' === $registry[$name]->getMethod() && (bool) $registry[$name]->getParameters()?->has('limit')) {
+                $uri = (string) parse_url($this->client()->getRequest()->getUri(), \PHP_URL_PATH);
+                $this->send('GET', $uri.'?limit=1');
+                self::assertSame(200, $this->httpStatus(), $name.' at limit=1 was not driven to success.');
+                $bodies[$name.' (limit=1)'] = json_decode((string) $this->client()->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+            }
+        }
+
+        return $bodies;
+    }
+
+    /**
+     * @param list<string> $found
+     */
+    private static function walkTenantKeys(mixed $value, string $where, array &$found, int &$cursors): void
+    {
+        if (!\is_array($value)) {
+            return;
+        }
+
+        foreach ($value as $key => $member) {
+            $path = \is_int($key) ? $where.'['.$key.']' : $where.'.'.$key;
+            if (\is_string($key) && \in_array(strtolower(str_replace('_', '', $key)), ['tenantid'], true)) {
+                $found[] = $path;
+            }
+            if (\in_array($key, ['next_cursor', 'previous_cursor'], true) && \is_string($member)) {
+                ++$cursors;
+                $decoded = json_decode((string) base64_decode(strtr($member, '-_', '+/'), true), true);
+                self::walkTenantKeys(\is_array($decoded) ? $decoded : [], $path.'<decoded>', $found, $cursors);
+            }
+            self::walkTenantKeys($member, $path, $found, $cursors);
+        }
     }
 
     /**
@@ -193,7 +308,7 @@ final class ResponseShapeTest extends ApiTestCase
      *
      * @return list<string>
      */
-    private static function knownResources(array $rows, array $additions): array
+    public static function knownResources(array $rows, array $additions): array
     {
         $known = array_keys($additions);
 
@@ -213,7 +328,7 @@ final class ResponseShapeTest extends ApiTestCase
      *
      * @param list<string> $known
      */
-    private static function resourceOf(string $verbResource, array $known): string
+    public static function resourceOf(string $verbResource, array $known): string
     {
         self::assertMatchesRegularExpression('/^(Get|List) \/ [A-Za-z]+$/', $verbResource, 'A built GET operation\'s Verb / Resource cell is neither Get nor List.');
         [$verb, $name] = explode(' / ', $verbResource);
@@ -240,7 +355,7 @@ final class ResponseShapeTest extends ApiTestCase
      *
      * @return list<string>
      */
-    private static function parentsImpliedBy(string $path): array
+    public static function parentsImpliedBy(string $path): array
     {
         preg_match_all('#/([a-z-]+)/\{[^}]+\}#', $path, $matches);
 
