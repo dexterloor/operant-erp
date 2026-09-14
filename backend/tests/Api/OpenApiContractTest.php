@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
-use Symfony\Bundle\FrameworkBundle\Console\Application;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * B-3's phase-2 half — the generated artifact, and API-10a's three outcomes.
@@ -45,37 +43,7 @@ final class OpenApiContractTest extends ApiTestCase
     /** @return array<string, mixed> */
     private function regenerate(): array
     {
-        $application = new Application(self::bootedKernel());
-        $application->setAutoExit(false);
-
-        // `phpunit.dist.xml` sets SHELL_VERBOSITY=-1, and Symfony's console
-        // reads that into VERBOSITY_QUIET -- under which the export command
-        // writes nothing at all and the artifact silently disappears. Cleared
-        // for the duration of the run so that "the generator produced nothing"
-        // means what it says.
-        $verbosity = $_SERVER['SHELL_VERBOSITY'] ?? null;
-        unset($_SERVER['SHELL_VERBOSITY'], $_ENV['SHELL_VERBOSITY']);
-        putenv('SHELL_VERBOSITY');
-
-        $output = new BufferedOutput();
-
-        try {
-            $status = $application->run(new ArrayInput(['command' => 'api:openapi:export']), $output);
-        } finally {
-            if (null !== $verbosity) {
-                $_SERVER['SHELL_VERBOSITY'] = $verbosity;
-                $_ENV['SHELL_VERBOSITY'] = $verbosity;
-                putenv('SHELL_VERBOSITY='.$verbosity);
-            }
-        }
-
-        self::assertSame(0, $status, 'NO ARTIFACT: the spec could not be generated. API-10a: an absent artifact is not evidence.');
-
-        $spec = json_decode($output->fetch(), true);
-        self::assertIsArray($spec, 'NO ARTIFACT: the generator produced something that is not a JSON document.');
-        self::assertArrayHasKey('paths', $spec);
-
-        return $spec;
+        return GeneratedSpec::regenerate(self::bootedKernel());
     }
 
     private static function bootedKernel(): \Symfony\Component\HttpKernel\KernelInterface
