@@ -8,9 +8,13 @@ use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
+use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
-use App\Tests\Tenancy\TenancyTestCase;
+use App\Tests\Api\PurchaseOrderTestCase;
+use App\Tests\Api\TransactionBoundaryTest;
+use App\Tests\Support\CountingKdf;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -94,7 +98,7 @@ use Symfony\Component\Uid\Uuid;
  *     landed* from *only the PHP layers exist*, which is what the raw-SQL refusal
  *     probe settles.
  */
-final class AuditWriterTest extends TenancyTestCase
+final class AuditWriterTest extends PurchaseOrderTestCase
 {
     /**
      * §9.1's layer 1a: the events that may carry an `ip_address`, **declared
@@ -658,6 +662,313 @@ final class AuditWriterTest extends TenancyTestCase
         \assert($writer instanceof PasswordChangeAuditWriter);
 
         return $writer;
+    }
+
+    /**
+     * **`API.md` §9.2 — no operation writes an event outside the catalogue.**
+     *
+     * Domain: `AuditEvent::ALL`, read from the constant. Subject: every operation
+     * in `TransactionBoundaryTest::contractOperations()`, each driven to success
+     * (so every writer on its path runs) and then once more by a caller holding
+     * nothing (so the denial writer runs for every operation that declares a
+     * code). Every `INSERT INTO audit_log` executed on any connection during
+     * those requests is read off the SQL recorder **with its bound values**, and
+     * its `event_type` must be a catalogue member. The attempt is what is read,
+     * not the row: a write the `CHECK` refuses leaves no row behind.
+     *
+     * The success recipes are keyed by operation and held equal to the registry,
+     * so an operation built tomorrow is red here until it is driven.
+     *
+     * Controls inside this test: the recipes equal the registry; every recipe
+     * answers its success status; at least one audit write was captured; and the
+     * captured writes equal the rows `audit_log` gained, so no write slipped past
+     * the capture.
+     *
+     * Mutation (API.md's; C5 batch A, 2026-09-14, cache deleted before the
+     * mutated and the revert run — Rule 17): `GoodsReceiptWriter` made to insert
+     * an `audit_log` row with event type `goods_receipt.created` → RED, "§9.2: an
+     * operation wrote an event type outside AuditEvent::ALL." with
+     * `goods_receipt.created` — read off the bound values, since the `CHECK`
+     * left no row. Revert → GREEN. Control mutations, run the same day: the
+     * recorder's `recordExecution()` call removed → RED "No audit write was
+     * captured…"; the `GetCurrentUser` recipe removed → RED "Every operation in
+     * the registry must be driven to success here…".
+     */
+    #[Test]
+    public function noOperationWritesAnEventOutsideTheCatalogue(): void
+    {
+        self::assertNotSame([], AuditEvent::ALL, 'The catalogue is empty, so the domain is vacuous.');
+
+        $registry = TransactionBoundaryTest::contractOperations();
+        $recipes = $this->successRecipes();
+        $names = array_keys($registry);
+        sort($names);
+        $recipeNames = array_keys($recipes);
+        sort($recipeNames);
+        self::assertNotSame([], $names, 'The registry is empty, so there is no subject.');
+        self::assertSame($names, $recipeNames, 'Every operation in the registry must be driven to success here, and only those.');
+
+        // Every fixture before the first request.
+        $prepared = [];
+        foreach ($recipes as $name => [$prepare]) {
+            $prepared[$name] = $prepare();
+        }
+
+        $before = $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log');
+        $recorder = $this->recorder();
+        $recorder->start();
+
+        $failed = [];
+        foreach ($recipes as $name => [, $drive]) {
+            [$expected, $label] = $drive($prepared[$name]);
+            if ($expected !== $this->httpStatus()) {
+                $failed[] = \sprintf('%s (%s) answered %d, not %d: %s', $name, $label, $this->httpStatus(), $expected,
+                    substr((string) $this->client()->getResponse()->getContent(), 0, 300));
+            }
+        }
+
+        $this->actAs(self::TENANT_A, []);
+        foreach ($registry as $name => $operation) {
+            if (!\is_string($operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null)) {
+                continue;
+            }
+            $this->send((string) $operation->getMethod(),
+                (string) preg_replace_callback('/\{[^}]+\}/', static fn (): string => Uuid::v4()->toRfc4122(), (string) $operation->getUriTemplate()),
+                \in_array($operation->getMethod(), ['POST', 'PATCH'], true) ? [] : null);
+            if (403 !== $this->httpStatus()) {
+                $failed[] = $name.' (no permission) answered '.$this->httpStatus().', not 403';
+            }
+        }
+
+        $recorder->stop();
+
+        $attempted = [];
+        foreach ($recorder->executions() as $execution) {
+            if (1 === preg_match('/^\s*INSERT\s+INTO\s+audit_log\b/i', $execution['sql'])) {
+                $attempted[] = self::eventTypeOf($execution['sql'], $execution['params']);
+            }
+        }
+
+        self::assertNotSame([], $attempted, 'No audit write was captured, so the catalogue check had no subject.');
+        self::assertSame([], array_values(array_unique(array_diff($attempted, AuditEvent::ALL))),
+            '§9.2: an operation wrote an event type outside AuditEvent::ALL.');
+
+        self::assertSame([], $failed, 'An operation was not driven down the path its writers are on.');
+        self::assertSame(\count($attempted), $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log') - $before,
+            'The captured audit writes are not the rows audit_log gained, so a write escaped the capture.');
+    }
+
+    /**
+     * The value an `INSERT INTO audit_log (…) VALUES (…)` puts in `event_type`:
+     * the bound value at that placeholder, or the literal written there.
+     *
+     * @param array<int|string, mixed> $params
+     */
+    private static function eventTypeOf(string $sql, array $params): string
+    {
+        self::assertSame(1, preg_match('/audit_log\s*\(([^)]*)\)\s*VALUES\s*\((.*)\)\s*$/is', $sql, $m), 'Unreadable audit INSERT: '.$sql);
+
+        $columns = array_map(trim(...), explode(',', $m[1]));
+        $position = array_search('event_type', $columns, true);
+        self::assertIsInt($position, 'An audit INSERT names no event_type column: '.$sql);
+
+        // Split the VALUES list on top-level commas; `gen_random_uuid()` and
+        // `'{}'::jsonb` must each stay one expression.
+        $expressions = [];
+        $depth = 0;
+        $current = '';
+        foreach (str_split($m[2]) as $char) {
+            $depth += '(' === $char ? 1 : (')' === $char ? -1 : 0);
+            if (',' === $char && 0 === $depth) {
+                $expressions[] = trim($current);
+                $current = '';
+                continue;
+            }
+            $current .= $char;
+        }
+        $expressions[] = trim($current);
+        self::assertCount(\count($columns), $expressions, 'An audit INSERT has a different number of columns and values: '.$sql);
+
+        $expression = $expressions[$position];
+        if (1 === preg_match("/^'([^']*)'/", $expression, $literal)) {
+            return $literal[1];
+        }
+
+        self::assertStringContainsString('?', $expression, 'event_type is neither bound nor a literal: '.$sql);
+        $index = substr_count(implode(',', \array_slice($expressions, 0, $position)), '?');
+
+        return (string) array_values($params)[$index];
+    }
+
+    /**
+     * One success path per built operation: a fixture step, run before any
+     * request, and a request step answering the status it expects.
+     *
+     * @return array<string, array{0: callable(): array<string, mixed>, 1: callable(array<string, mixed>): array{0: int, 1: string}}>
+     */
+    private function successRecipes(): array
+    {
+        $key = static fn (): array => ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
+        $none = static fn (): array => [];
+        $draft = function (string $number): array {
+            $d = $this->seedDraft(self::TENANT_A, $number);
+            $d['line'] = $this->seedLine(self::TENANT_A, $d['order'], $d['item']);
+
+            return $d;
+        };
+        $ordered = function (string $number): array {
+            $supplier = $this->seedSupplier(self::TENANT_A, 'Acme '.$number);
+            $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH '.$number);
+            $order = $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+            $line = $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-'.$number));
+            $bin = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [$bin, self::TENANT_A, $warehouse, 'A-01']);
+
+            return ['order' => $order, 'line' => $line, 'bin' => $bin];
+        };
+        $receive = function (array $o) use ($key): void {
+            $this->send('POST', '/purchase-orders/'.$o['order'].'/goods-receipts',
+                ['lines' => [['purchase_order_line_id' => $o['line'], 'quantity' => '1', 'storage_location_id' => $o['bin']]]], $key());
+        };
+        $password = 'a-password-long-enough-for-e23';
+
+        return [
+            'ListItems' => [$none, function (): array {
+                $this->send('GET', '/items');
+
+                return [200, 'list'];
+            }],
+            'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
+                $this->send('GET', '/items/'.$c['item']);
+
+                return [200, 'read'];
+            }],
+            'CreateItem' => [$none, function () use ($key): array {
+                $this->send('POST', '/items', ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA'], $key());
+
+                return [201, 'create'];
+            }],
+            'UpdateItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-UPD')], function (array $c): array {
+                $this->send('PATCH', '/items/'.$c['item'], ['name' => 'Renamed']);
+
+                return [200, 'update'];
+            }],
+            'DeleteItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-DEL')], function (array $c): array {
+                $this->send('DELETE', '/items/'.$c['item']);
+
+                return [204, 'delete'];
+            }],
+            'RestoreItem' => [function (): array {
+                $item = $this->seedItem(self::TENANT_A, 'SKU-RES');
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$item]);
+
+                return ['item' => $item];
+            }, function (array $c): array {
+                $this->send('POST', '/items/'.$c['item'].'/restoration');
+
+                return [200, 'restore'];
+            }],
+            'GetGoodsReceipt' => [fn (): array => $ordered('PO-GR-GET'), function (array $c) use ($receive): array {
+                $receive($c);
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'receive, then read'];
+            }],
+            'CreateGoodsReceipt' => [fn (): array => $ordered('PO-GR-NEW'), function (array $c) use ($receive): array {
+                $receive($c);
+
+                return [201, 'receive'];
+            }],
+            'ListPurchaseOrders' => [$none, function (): array {
+                $this->send('GET', '/purchase-orders');
+
+                return [200, 'list'];
+            }],
+            'ListPurchaseOrderLines' => [fn (): array => $draft('PO-LL'), function (array $c): array {
+                $this->send('GET', '/purchase-orders/'.$c['order'].'/lines');
+
+                return [200, 'list'];
+            }],
+            'CreatePurchaseOrderLine' => [function () use ($draft): array {
+                $d = $draft('PO-CL');
+                $this->seedSupplierProduct(self::TENANT_A, $d['supplier'], $d['item']);
+
+                return $d;
+            }, function (array $c): array {
+                $this->send('POST', '/purchase-orders/'.$c['order'].'/lines', ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_cost' => '1']);
+
+                return [201, 'create'];
+            }],
+            'UpdatePurchaseOrderLine' => [fn (): array => $draft('PO-UL'), function (array $c): array {
+                $this->send('PATCH', '/purchase-orders/'.$c['order'].'/lines/'.$c['line'], ['quantity' => '2']);
+
+                return [200, 'update'];
+            }],
+            'DeletePurchaseOrderLine' => [fn (): array => $draft('PO-DL'), function (array $c): array {
+                $this->send('DELETE', '/purchase-orders/'.$c['order'].'/lines/'.$c['line']);
+
+                return [204, 'delete'];
+            }],
+            'GetPurchaseOrder' => [fn (): array => $draft('PO-GET'), function (array $c): array {
+                $this->send('GET', '/purchase-orders/'.$c['order']);
+
+                return [200, 'read'];
+            }],
+            'CreatePurchaseOrder' => [fn (): array => [
+                'supplier' => $this->seedSupplier(self::TENANT_A, 'Acme New'),
+                'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH New'),
+            ], function (array $c) use ($key): array {
+                $this->send('POST', '/purchase-orders', ['supplier_id' => $c['supplier'], 'warehouse_id' => $c['warehouse'], 'currency_code' => 'EUR'], $key());
+
+                return [201, 'create'];
+            }],
+            'UpdatePurchaseOrder' => [fn (): array => $draft('PO-UPD'), function (array $c): array {
+                $this->send('PATCH', '/purchase-orders/'.$c['order'], ['expected_at' => '2030-01-01T00:00:00Z']);
+
+                return [200, 'update'];
+            }],
+            'DeletePurchaseOrder' => [fn (): array => $draft('PO-DEL'), function (array $c): array {
+                $this->send('DELETE', '/purchase-orders/'.$c['order']);
+
+                return [204, 'delete'];
+            }],
+            'ApprovePurchaseOrder' => [fn (): array => $draft('PO-APP'), function (array $c): array {
+                $this->send('POST', '/purchase-orders/'.$c['order'].'/approval', []);
+
+                return [200, 'approve'];
+            }],
+            'CancelPurchaseOrder' => [fn (): array => $draft('PO-CAN'), function (array $c): array {
+                $this->send('POST', '/purchase-orders/'.$c['order'].'/cancellation', ['reason' => 'Supplier withdrew']);
+
+                return [200, 'cancel'];
+            }],
+            'GetCurrentUser' => [$none, function (): array {
+                $this->send('GET', '/me');
+
+                return [200, 'read'];
+            }],
+            // Last two, in this order: the sign-in presents the password the
+            // change just set, so both writers on the credential path run.
+            'ChangePassword' => [function () use ($password): array {
+                $hasher = self::getContainer()->get(CountingKdf::class);
+                \assert($hasher instanceof CountingKdf);
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$hasher->hash($password), $this->actorId]);
+
+                return [];
+            }, function () use ($password): array {
+                $this->send('POST', '/me/password', ['current_password' => $password, 'new_password' => $password.'-changed']);
+
+                return [200, 'change'];
+            }],
+            'IssueToken' => [$none, function () use ($password): array {
+                $email = (string) ($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT email FROM app_user WHERE id = ?::uuid', [$this->actorId])[0]['email'] ?? '');
+                $this->send('POST', '/auth/token', ['workspace' => 'tenant-a', 'email' => $email, 'password' => $password.'-changed']);
+
+                return [200, 'sign in with the changed password'];
+            }],
+        ];
     }
 
     private function purchaseOrderWriter(): PurchaseOrderAuditWriter

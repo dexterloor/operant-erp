@@ -19,11 +19,15 @@ final class SqlRecorder
     /** @var list<string> */
     private array $statements = [];
 
+    /** @var list<array{sql: string, params: array<int|string, mixed>}> */
+    private array $executions = [];
+
     private bool $recording = false;
 
     public function start(): void
     {
         $this->statements = [];
+        $this->executions = [];
         $this->recording = true;
     }
 
@@ -37,6 +41,26 @@ final class SqlRecorder
         if ($this->recording) {
             $this->statements[] = $sql;
         }
+    }
+
+    /**
+     * A prepared statement's execution with the values bound to it, in the
+     * order `recordExecution()` saw them. Recorded only while recording, like
+     * `record()`.
+     *
+     * @param array<int|string, mixed> $params
+     */
+    public function recordExecution(string $sql, array $params): void
+    {
+        if ($this->recording) {
+            $this->executions[] = ['sql' => $sql, 'params' => $params];
+        }
+    }
+
+    /** @return list<array{sql: string, params: array<int|string, mixed>}> */
+    public function executions(): array
+    {
+        return $this->executions;
     }
 
     /** @return list<string> */
