@@ -78,19 +78,49 @@ final class PermissionEnforcementTest extends ApiTestCase
      * of the 428 and ahead of validation, so a caller holding no permission learns
      * neither that the operation is idempotent nor which fields it accepts.
      *
+     * **The loop's domain is asserted, not just counted.** The operations it
+     * drove are compared with the operations
+     * `PermissionEnforcementContractTest::PINNED_PERMISSIONS` gives a code — a
+     * transcription of §4.2's `Perm` cells that does not read the registry. An
+     * operation that stops declaring its code drops out of the loop's filter
+     * without a request being sent, and before this assertion existed that was
+     * visible only as a lower assertion count (96 → 91 for `UpdateItem`, C5's
+     * re-run). The pin's own non-emptiness is checked inside this test, so an
+     * emptied domain on both sides is red here and not merely in a sibling.
+     *
      * *Mutation, run:* `PermissionGate`'s `$identity->holds()` branch inverted to
-     * `return` unconditionally. Red on the first operation. *Second mutation,
-     * run:* the `extraProperties` entry deleted from `UpdateItem`; the operation
-     * leaves this loop's domain — and `PermissionEnforcementContractTest::
-     * everyOperationDeclaresItsRequiredPermission` goes red, which is why that
-     * check exists and why this one does not try to be it.
+     * `return` unconditionally. Red on the first operation.
+     *
+     * *Second mutation, run (C5, 2026-09-14; `backend/var/cache/test` deleted
+     * before the mutated run and before the revert run — Rule 17):* the
+     * `extraProperties` permission entry deleted from `UpdateItem`. Red here at
+     * the domain assertion, "The operations this loop drove are not the ones
+     * §4.2 gives a code…", the expected `'UpdateItem'` missing from what the
+     * loop drove; and
+     * `PermissionEnforcementContractTest::everyOperationDeclaresItsRequiredPermission`
+     * is red too, "UpdateItem declares no required permission…". Revert: GREEN.
+     * Before this assertion existed the same mutation left this test GREEN.
+     *
+     * *Third mutation, run the same day (test file only, cache deleted):* the
+     * pin filter made to keep nothing. Red at the non-emptiness check, "The pin
+     * gives no operation a permission code…". Revert: GREEN.
      */
     #[Test]
     public function everyOperationThatDeclaresAPermissionRefusesACallerWhoHoldsNothing(): void
     {
         $this->actAs(self::TENANT_A, []);
 
+        $expected = array_keys(array_filter(
+            PermissionEnforcementContractTest::PINNED_PERMISSIONS,
+            static fn (?string $code): bool => null !== $code,
+        ));
+        sort($expected);
+
+        self::assertNotSame([], $expected,
+            'The pin gives no operation a permission code, so the domain assertion below would compare two empty sets.');
+
         $examined = 0;
+        $drove = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
@@ -100,6 +130,7 @@ final class PermissionEnforcementTest extends ApiTestCase
             }
 
             ++$examined;
+            $drove[] = (string) $name;
 
             $this->send(
                 (string) $operation->getMethod(),
@@ -116,6 +147,11 @@ final class PermissionEnforcementTest extends ApiTestCase
 
         self::assertGreaterThan(0, $examined,
             'No operation in the registry declares a permission code, so this loop asserted nothing.');
+
+        sort($drove);
+        self::assertSame($expected, $drove,
+            'The operations this loop drove are not the ones §4.2 gives a code (PermissionEnforcementContractTest::'
+            .'PINNED_PERMISSIONS). One missing here was never sent a request, so its refusal was never checked.');
     }
 
     /**

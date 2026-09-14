@@ -39,7 +39,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
      *
      * @var array<string, string|null>
      */
-    private const PINNED_PERMISSIONS = [
+    public const PINNED_PERMISSIONS = [
         'IssueToken' => null,
         'GetCurrentUser' => null,
         // §4.2's `—`, ruled on `PasswordResource`: §3's catalogue is closed at
