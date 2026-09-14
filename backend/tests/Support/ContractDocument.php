@@ -341,4 +341,28 @@ final class ContractDocument
 
         return array_values(array_unique($matches[1]));
     }
+
+    /**
+     * Resource → table, read off §4.2's `Restore / <Resource>` rows, whose `Idem`
+     * cell names the mechanism `guard:<table>.deleted_at`. It is the one place
+     * §4.2 ties a resource name to a `SchemaManifest` table, and it can only name
+     * a soft-deleting table — so a caller that needs "which resource is this soft
+     * table?" asks here, and holds the result equal to
+     * `SchemaManifest::softDeletedTables()` in both directions before trusting it.
+     *
+     * @return array<string, string>
+     */
+    public static function restoreGuardTables(): array
+    {
+        $tables = [];
+
+        foreach (self::operationRows() as $row) {
+            if (1 === preg_match('/^Restore \/ ([A-Za-z]+)$/', $row['verbResource'], $resource)
+                && 1 === preg_match('/^guard:([a-z_]+)\.deleted_at$/', $row['idem'], $table)) {
+                $tables[$resource[1]] = $table[1];
+            }
+        }
+
+        return $tables;
+    }
 }
