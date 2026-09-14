@@ -147,12 +147,14 @@ final readonly class FrameworkProblemTranslator
             ]]),
             // API Platform's own client-supplied-id refusal, which fires in
             // `ItemNormalizer::denormalize` before `allow_extra_attributes`
-            // ever sees the field. It is the right refusal -- B-3 twice over --
-            // with a message that names neither the field nor the reason, so it
-            // is re-labelled here. The coupling to the vendor's wording is
-            // deliberate and pinned: `ItemApiWriteTest::aCreateCarryingAnIdIsRefused`
-            // asserts the `/id` pointer, so a message change upstream turns the
-            // test red rather than silently degrading the body to a bare 422.
+            // ever sees the field. It is the layer of B-3 that answers today
+            // -- `allow_extra_attributes` was never observed refusing `id`
+            // (`2c25895`) -- with a message that names neither the field nor
+            // the reason, so it is re-labelled here. The coupling to the
+            // vendor's wording is deliberate and pinned:
+            // `ItemWriteTest::aCreateCarryingAnIdIsRefused` asserts the `/id`
+            // pointer, so a message change upstream turns the test red rather
+            // than silently degrading the body to a bare 422.
             $e instanceof NotNormalizableValueException && self::VENDOR_UPDATE_REFUSAL === $e->getMessage() => ApiProblem::validationFailed([[
                 'pointer' => '/id',
                 'code' => 'undeclared_field',

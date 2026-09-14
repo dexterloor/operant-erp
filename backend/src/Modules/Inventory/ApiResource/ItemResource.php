@@ -68,10 +68,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'CreateItem'),
             input: CreateItemInput::class,
             denormalizationContext: [
-                // API-9: unknown fields are refused, never ignored. This is the
-                // runtime half of B-3 -- the spec-level clause stops `id` being
-                // *declared*, and only a deny-unknown deserializer stops it
-                // being *accepted*.
+                // API-9: unknown fields are refused, never ignored, and the
+                // field is named back (`ItemWriteTest::anUndeclaredFieldIsRefusedAndNamed`).
+                //
+                // This is NOT what refuses a client-supplied `id` (B-3). Three
+                // layers stand between a client and a chosen id -- see
+                // `ItemWriteTest::aCreateCarryingAnIdIsRefused`'s docblock:
+                //  1. Declaration -- `CreateItemInput` has no `id`. Proved by
+                //     `OpenApiContractTest::noWriteSchemaDeclaresAnIdProperty`
+                //     only; adding the property leaves the runtime test GREEN.
+                //  2. API Platform's own refusal -- `ItemNormalizer::denormalize`
+                //     throws "Update is not allowed for this operation." for any
+                //     body carrying `id` when `api_allow_update` is not `true` (a
+                //     POST defaults it to `false`); `FrameworkProblemTranslator`
+                //     relabels it `/id`. This is the layer that answers today.
+                //  3. This flag -- never observed refusing `id`. Layer 2 fires
+                //     before it; with layer 2 disabled the `id` is taken as an
+                //     IRI instead (a 404 path), so this flag still never sees it.
+                // Measured in `2c25895`: `id` added to the input AND this flag
+                // removed left the runtime test GREEN. A write at a
+                // client-chosen id was never observed.
                 'allow_extra_attributes' => false,
                 // The provider returns nothing for a create, and leaving this
                 // unset makes API Platform emit a 5.0 deprecation on every POST.
