@@ -33,7 +33,9 @@ use Psr\Clock\ClockInterface;
  *  6  `Tenant::permitsLogin()` on the status read at 4     — **no statement**
  * 6a  `is_active` on the value read at 4                   — **no statement**
  *  7  upsert `auth_lockout` on every surviving failure     — **erp_ratelimit**
- *  8  one `audit_log` row on the branches that reach it    — **erp_authlog**
+ *  8  one `audit_log` row on the branches that reach it,   — **erp_authlog**
+ *     within E-12's daily cap on the count step 7 returned
+ *     (rows 1–20; row 21 flagged; none from 22)
  *  9  `last_login_at`, success only, after the JWT         — `erp_app`
  *
  * **No statement before step 9 is issued on `erp_app`.** That is B-1's second
@@ -138,11 +140,14 @@ final readonly class SignIn
 
         if (AuditEvent::AUTH_LOGIN_SUCCESS !== $eventType) {
             // --- 7 --------------------------------------------------------
-            $this->lockouts->recordFailure($slug, $emailHash);
+            // One upsert on both miss paths too; E-12's daily counter advances
+            // inside it only on the branches that write the trail.
+            $accrual = $this->lockouts->recordFailure($slug, $emailHash, null !== $eventType);
 
             // --- 8 --------------------------------------------------------
+            // E-12's cap, decided on the count step 7 returned: no read.
             if (null !== $eventType) {
-                $this->trail->record($eventType, $row->tenantId, (string) $row->userId, (string) $row->storedEmail, $command->ipAddress);
+                $this->trail->recordFailure($eventType, $row->tenantId, (string) $row->userId, (string) $row->storedEmail, $command->ipAddress, $accrual->suppressionCount);
             }
 
             return SignInResult::refused();

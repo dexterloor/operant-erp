@@ -47,37 +47,90 @@ use Symfony\Component\Uid\Uuid;
  * the **stored** `email` from the row that resolved does.
  *
  * ---------------------------------------------------------------------------
- * The daily cap is NOT implemented here, and that is a named gap
+ * The daily cap — E-12, ADR-006 §2.2 and Amendment 1 A1.3 (built at plan step C1)
  * ---------------------------------------------------------------------------
- * §9.3 keys it `(tenant_id, user_id)` per UTC day over the **union** of
- * `auth.login.failure` and `auth.login.tenant_inactive`. §9.5 (b) answers where
- * the counter lives: nowhere yet — `erp_authlog` cannot `SELECT` the trail, and
- * the recommended column on `auth_lockout` is **API-O-6**, a `DATA` schema ask
- * that has not landed. So both branches write, uncapped.
+ * **C = 20 rows per `(slug_normalised, email_hash)` per UTC day**, counted over
+ * the union of `auth.login.failure` and `auth.login.tenant_inactive`, so the two
+ * branches fall silent together. `recordFailure()` is handed the count that
+ * `LockoutStore::recordFailure()`'s step-7 upsert returned (`RETURNING`, on
+ * `erp_ratelimit`), and decides from it alone:
  *
- * That is the E-7-safe direction and the reasoning is worth keeping: capped or
- * uncapped, the requirement is that the two branches behave *identically*, and
- * *"both always write one row"* satisfies it exactly as *"both fall silent"*
- * does. What is lost is ADR-006 §2.2's flooding bound — an attacker holding one
- * valid `(slug, email)` pair can still generate rows for that tenant — bounded
- * meanwhile by both E-21 budgets and by E-22. Routed in `API.md` §14.2.
+ * - attempts **1–20** write the ordinary row;
+ * - attempt **21** writes the ordinary row with `metadata` = `{"suppression_started": true}`,
+ *   server-set, through the **same statements** — the flag is a bound
+ *   value, not a statement;
+ * - from attempt **22** it issues **nothing**, on any connection.
+ *
+ * So at most 21 rows per pair per day, and the cap reads nothing: `erp_authlog`
+ * still holds `INSERT` and no `SELECT`, and no statement is added anywhere
+ * (`LoginAuditCapTest::theCeilingAddsNoStatementOnEitherMissPath`). Counting
+ * continues past the ceiling on `auth_lockout`, and the day's suppressed total is
+ * lost at the UTC reset — no statement writes it to the trail, because one would
+ * be a statement on the capped branch (A1.3).
+ *
+ * **Successful sign-ins stay uncapped** (A1.3 residual 5): `record()` has no
+ * ceiling, and `SignIn` calls it on the success branch only.
+ *
+ * *(This section read "The daily cap is NOT implemented here, and that is a
+ * named gap", with both branches writing uncapped, until C1 built the storage
+ * E4-4 authorised and the key X-5 agreed.)*
  */
 final readonly class AuthTrailWriter
 {
+    /**
+     * The owner-accepted ceiling (E-12, ADR-006 A1.3, 2026-09-14). The row at
+     * `DAILY_CEILING + 1` is the marker; nothing is written after it.
+     */
+    public const DAILY_CEILING = 20;
+
+    /** The server-set `metadata` key the marker row carries. */
+    public const SUPPRESSION_STARTED = 'suppression_started';
+
     public function __construct(private Connection $authLog, private TenantContext $tenants)
     {
     }
 
     /**
-     * One row, synchronously, under tenant context from the **resolved** id.
+     * Step 8 on the two capped branches: one row while `$attemptToday` is within
+     * the ceiling, the marker row at `DAILY_CEILING + 1`, and nothing after.
      *
-     * `BEGIN` → `set_config` → `INSERT` → `COMMIT`, and the same three
-     * statements on every branch that reaches the trail. E-12 requires the
-     * tenant-inactive row to be written *"at the same branch point and with the
-     * same statement count as the `auth.login.failure` row"*, and one method
-     * with one caller per branch is how that stops being a promise.
+     * @param int $attemptToday `LockoutAccrual::$suppressionCount` from this request's step-7 upsert
+     */
+    public function recordFailure(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress, int $attemptToday): void
+    {
+        if (AuditEvent::AUTH_LOGIN_FAILURE !== $eventType && AuditEvent::AUTH_LOGIN_TENANT_INACTIVE !== $eventType) {
+            throw new \InvalidArgumentException(sprintf('E-12: "%s" is not one of the two capped login-failure events.', $eventType));
+        }
+
+        if ($attemptToday > self::DAILY_CEILING + 1) {
+            return;
+        }
+
+        $metadata = self::DAILY_CEILING + 1 === $attemptToday ? [self::SUPPRESSION_STARTED => true] : [];
+
+        $this->write($eventType, $tenantId, $actorUserId, $actorLabel, $ipAddress, $metadata);
+    }
+
+    /**
+     * One row, synchronously, uncapped — the success branch's writer.
      */
     public function record(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress): void
+    {
+        $this->write($eventType, $tenantId, $actorUserId, $actorLabel, $ipAddress, []);
+    }
+
+    /**
+     * One row, synchronously, under tenant context from the **resolved** id.
+     *
+     * `BEGIN` → `set_config` → `INSERT` → `COMMIT`, and the same statements on
+     * every branch that reaches the trail, the C+1 marker included. E-12 requires
+     * the tenant-inactive row to be written *"at the same branch point and with the
+     * same statement count as the `auth.login.failure` row"*, and one method
+     * with one caller per branch is how that stops being a promise.
+     *
+     * @param array<string, true> $metadata server-set only; no caller passes client input
+     */
+    private function write(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress, array $metadata): void
     {
         // `SUBJECTLESS` is derived from the catalogue and is E-13's half: it is
         // where the catalogue records that this event has no subject to declare.
@@ -112,8 +165,9 @@ final readonly class AuthTrailWriter
             $this->tenants->establishOn($this->authLog, $tenantId);
             $this->authLog->executeStatement(<<<'SQL'
                 INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
-                VALUES (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, NULL, NULL, ?::inet, '{}'::jsonb)
-                SQL, [Uuid::v4()->toRfc4122(), $tenantId, $eventType, $actorUserId, $actorLabel, $ipAddress]);
+                VALUES (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, NULL, NULL, ?::inet, ?::jsonb)
+                SQL, [Uuid::v4()->toRfc4122(), $tenantId, $eventType, $actorUserId, $actorLabel, $ipAddress,
+                    [] === $metadata ? '{}' : json_encode($metadata, \JSON_THROW_ON_ERROR)]);
             $this->authLog->commit();
         } catch (\Throwable $e) {
             $this->authLog->rollBack();
