@@ -455,6 +455,64 @@ final class GrantFootprintTest extends TenancyTestCase
         }
     }
 
+    /**
+     * **E4-4 as amended — E-12's suppression storage is reachable by
+     * `erp_ratelimit` alone.** *fails if:* *"the new storage is reachable by any
+     * principal but `erp_ratelimit`"* (`DELIVERY_LEDGER.md` E4-4; plan v3 C1).
+     *
+     * `everyColumnLevelPrivilegeIsExactlyTheDeclaredSet` already walks these two
+     * columns, because it derives its columns from the catalogue. This names them,
+     * so a rename or a drop is red rather than silently leaving the walk with
+     * nothing of E-12's to check, and it carries its own planted grant.
+     *
+     * *Mutation, run:* `GRANT SELECT (suppression_count) ON auth_lockout TO erp_app`
+     * appended to `Version20260914000100`; red here and in the column walk.
+     */
+    #[Test]
+    public function theLoginFailureCapStorageIsReachableByTheRateLimiterAlone(): void
+    {
+        $columns = ['suppression_count', 'suppression_day'];
+
+        $present = $this->owner()->fetchFirstColumn(
+            "SELECT attname FROM pg_attribute WHERE attrelid = 'auth_lockout'::regclass AND attnum > 0 AND NOT attisdropped AND attname = ANY(?::text[]) ORDER BY attname",
+            ['{'.implode(',', $columns).'}']);
+        self::assertSame($columns, $present, 'E-12\'s suppression storage is not on auth_lockout, so this test has no subject.');
+
+        $wrong = function () use ($columns): array {
+            $found = [];
+            foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+                $declared = SchemaManifest::grantsFor('auth_lockout', $role);
+                foreach (SchemaManifest::COLUMN_PRIVILEGES as $priv) {
+                    foreach ($columns as $column) {
+                        $expected = DatabaseRoles::RATE_LIMIT === $role && \in_array($priv, $declared, true);
+                        $actual = (bool) $this->owner()->fetchOne(
+                            'SELECT has_column_privilege(?, ?, ?, ?)', [$role, 'auth_lockout', $column, $priv]);
+                        if ($expected !== $actual) {
+                            $found[] = "$role $priv auth_lockout.$column";
+                        }
+                    }
+                }
+            }
+
+            return $found;
+        };
+
+        self::assertSame(['SELECT', 'INSERT', 'UPDATE'], SchemaManifest::grantsFor('auth_lockout', DatabaseRoles::RATE_LIMIT),
+            'The manifest no longer declares erp_ratelimit\'s footprint on auth_lockout, so the expectation below is not E4-4\'s.');
+        self::assertSame([], $wrong(), 'E-12\'s suppression storage is reachable by a principal other than erp_ratelimit, or not by it.');
+
+        $this->owner()->beginTransaction();
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT SELECT (suppression_count) ON auth_lockout TO %s', DatabaseRoles::APP));
+            self::assertSame([DatabaseRoles::APP.' SELECT auth_lockout.suppression_count'], $wrong(),
+                'A planted column grant on the suppression storage did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->rollBack();
+        }
+
+        self::assertSame([], $wrong(), 'The planted grant survived the rollback.');
+    }
+
     #[Test]
     public function everyRoleHoldsExactlyTheTablePrivilegesTheManifestDeclares(): void
     {

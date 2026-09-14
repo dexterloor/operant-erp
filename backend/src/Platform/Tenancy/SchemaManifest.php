@@ -154,7 +154,7 @@ final class SchemaManifest
             'module' => 'Modules\\UserManagement',
             'tenant' => false,
             'deletion' => self::NA,
-            'why' => 'ADR-006 §6.6 / ARCHITECTURE S-14. Lockout state lives here, keyed (slug_normalised, email_hash), and never on app_user: a pre-auth UPDATE on a tenant-owned table from an attacker-chosen context is O-9 with a DoS attached.',
+            'why' => 'ADR-006 §6.6 / ARCHITECTURE S-14. Lockout state lives here, keyed (slug_normalised, email_hash), and never on app_user: a pre-auth UPDATE on a tenant-owned table from an attacker-chosen context is O-9 with a DoS attached. **Also carries E-12\'s daily login-failure trail cap (E4-4 as amended, Version20260914000100):** suppression_count and suppression_day, advanced inside the one step-7 upsert and only on the branches that write the trail, separate from failure_count and reset by nothing but a new UTC day (ADR-006 A1.3, C = 20). No new grant: the table-level grant below covers both columns, so they are reachable by erp_ratelimit alone (GrantFootprintTest::theLoginFailureCapStorageIsReachableByTheRateLimiterAlone). No E-11 column: its half moved to the output that builds the email.',
             'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
         ],
         'messenger_messages' => [
