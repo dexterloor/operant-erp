@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use ApiPlatform\Metadata\HttpOperation;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Uid\Uuid;
 
 /**
  * API-21 (`docs/API.md` §4.4.1) — the success-status rule, and the anti-vacuity
@@ -26,10 +27,11 @@ use PHPUnit\Framework\Attributes\Test;
  * ---------------------------------------------------------------------------
  * The domain is the **built** surface — `TransactionBoundaryTest::contractOperations()`,
  * every non-`_api_` operation of every `App\` resource — and it widens by
- * itself as rows are built. `::everyOperationReturnsTheStatusItsBranchRequires`,
- * the sibling this probe protects, does not exist yet; this probe stands on its
- * own because a branch table with a hole in it is a defect before any status is
- * asserted against it.
+ * itself as rows are built. `::everyOperationReturnsTheStatusItsBranchRequires`
+ * is the sibling this probe protects (added by C5 batch B, 2026-09-14): it
+ * drives every operation and holds its answer to the one branch the probe
+ * proved it matches. The probe still stands on its own, because a branch table
+ * with a hole in it is a defect before any status is asserted against it.
  *
  * ---------------------------------------------------------------------------
  * Two readings taken here, stated rather than hidden
@@ -50,8 +52,10 @@ use PHPUnit\Framework\Attributes\Test;
  * pin, and {@see self::theBranchPinIsTheContractsTable()} holds the pin to the
  * document in both directions wherever the document exists.
  */
-final class ResponseStatusTest extends ApiTestCase
+final class ResponseStatusTest extends PurchaseOrderTestCase
 {
+    use OperationSuccessRecipes;
+
     /**
      * §4.4.1's table, row for row: branch number → `Method`, whether the branch
      * is the `POST` that creates an addressable row (`true`), the `POST` that
@@ -125,6 +129,99 @@ final class ResponseStatusTest extends ApiTestCase
     }
 
     /**
+     * **API-21's second half — every built operation, driven to success, answers
+     * the status its branch requires**, and a branch-4 `POST` names the URI the
+     * branch tested for; a `DELETE` answers with no body.
+     *
+     * **The expectation is derived, never written per operation.** The branch is
+     * found by {@see self::branchesMatching()} from the operation's `Method` and
+     * path against the registry, and the status is the pin's. The status each
+     * success recipe returns is its author's expectation and is **discarded
+     * unread**; so is the `status:` attribute on the operation, which is a
+     * per-operation declaration and exactly what this test must not trust.
+     *
+     * Controls inside this method: the recipes equal the registry; every
+     * operation matched exactly one branch before its answer was judged; every
+     * branch had at least one driven member; at least one `Location` and at least
+     * one `DELETE` body were examined.
+     *
+     * **Mutations (C5 batch B, 2026-09-14; `var/cache/test` deleted before the
+     * mutated and the revert run — Rule 17):** see `docs/session9/progress-C5B.md`
+     * row 7 — `CreateItem`'s `status: 201` → `200`; `ApprovePurchaseOrder`'s
+     * `status: 200` → `201` (the one that proves `POST` has two branches);
+     * `DeleteItemProcessor` made to return the resource. Each red, by name.
+     */
+    #[Test]
+    public function everyOperationReturnsTheStatusItsBranchRequires(): void
+    {
+        $operations = TransactionBoundaryTest::contractOperations();
+        $paths = array_map(static fn (HttpOperation $operation): string => self::normalised($operation), $operations);
+        $recipes = $this->successRecipes();
+
+        self::assertNotSame([], $operations, 'The registry produced no operations, so nothing was driven.');
+        $names = array_keys($operations);
+        sort($names);
+        $recipeNames = array_keys($recipes);
+        sort($recipeNames);
+        self::assertSame($names, $recipeNames, 'Every operation in the registry must be driven here, and only those.');
+
+        $prepared = [];
+        foreach ($recipes as $name => [$prepare]) {
+            $prepared[$name] = $prepare();
+        }
+
+        $wrong = [];
+        $members = array_fill_keys(array_keys(self::BRANCHES), 0);
+        $locationsExamined = 0;
+        $deleteBodiesExamined = 0;
+
+        foreach ($recipes as $name => [, $drive]) {
+            $drive($prepared[$name]); // The recipe's own expected status is deliberately not read.
+
+            $operation = $operations[$name];
+            $method = (string) $operation->getMethod();
+            $matched = self::branchesMatching($method, $paths[$name], $paths);
+            self::assertCount(1, $matched, $name.' does not match exactly one branch, so no status can be derived for it.');
+
+            $branch = $matched[0];
+            ++$members[$branch];
+            $expected = self::BRANCHES[$branch]['status'];
+            $response = $this->client()->getResponse();
+
+            if ($expected !== $response->getStatusCode()) {
+                $wrong[] = \sprintf('%s %s %s is branch %d and answered %d, not %d: %s', $name, $method, $paths[$name], $branch,
+                    $response->getStatusCode(), $expected, substr((string) $response->getContent(), 0, 200));
+            }
+
+            if (4 === $branch) {
+                ++$locationsExamined;
+                $location = $response->headers->get('Location');
+                $tested = self::addressableRowUris($paths[$name], $paths);
+                $named = null === $location ? null : self::normalisedLocation($location);
+
+                if (null === $named || !\in_array($named, $tested, true)) {
+                    $wrong[] = \sprintf('%s is branch 4 and its Location is %s, not the row-level URI the branch tested for (%s)',
+                        $name, var_export($location, true), implode(' or ', $tested));
+                }
+            }
+
+            if ('DELETE' === $method) {
+                ++$deleteBodiesExamined;
+                if ('' !== (string) $response->getContent()) {
+                    $wrong[] = \sprintf('%s is a DELETE and returned a body: %s', $name, substr((string) $response->getContent(), 0, 200));
+                }
+            }
+        }
+
+        self::assertSame([], array_keys(array_filter($members, static fn (int $count): bool => 0 === $count)),
+            'A status branch had no driven member, so its status was never asserted.');
+        self::assertGreaterThan(0, $locationsExamined, 'No branch-4 Location was examined.');
+        self::assertGreaterThan(0, $deleteBodiesExamined, 'No DELETE body was examined.');
+
+        self::assertSame([], $wrong, 'API-21: an operation answered other than its branch requires.');
+    }
+
+    /**
      * The pin is §4.4.1's table, and the table is the pin. Branch number,
      * `Method` token and status are read from the document's rows; a branch
      * deleted from the document, or added to it, is red here.
@@ -185,10 +282,35 @@ final class ResponseStatusTest extends ApiTestCase
      */
     private static function createsAnAddressableRow(string $path, array $registryPaths): bool
     {
+        return [] !== self::addressableRowUris($path, $registryPaths);
+    }
+
+    /**
+     * The row-level URIs, in normalised form, that reading (1) found declared
+     * for a `POST` at this path — what a branch-4 `Location` must name.
+     *
+     * @param array<string, string> $registryPaths
+     *
+     * @return list<string>
+     */
+    private static function addressableRowUris(string $path, array $registryPaths): array
+    {
         $segments = explode('/', trim($path, '/'));
         $candidates = [$path.'/{}', '/'.end($segments).'/{}'];
 
-        return [] !== array_intersect($candidates, $registryPaths);
+        return array_values(array_unique(array_intersect($candidates, $registryPaths)));
+    }
+
+    /** A `Location` header with the base path removed and every uuid segment read as a parameter. */
+    private static function normalisedLocation(string $location): string
+    {
+        $path = (string) parse_url($location, \PHP_URL_PATH);
+        $path = str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+
+        return implode('/', array_map(
+            static fn (string $segment): string => Uuid::isValid($segment) ? '{}' : $segment,
+            explode('/', $path),
+        ));
     }
 
     private static function normalised(HttpOperation $operation): string

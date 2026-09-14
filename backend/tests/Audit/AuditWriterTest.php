@@ -8,13 +8,12 @@ use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
-use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Api\OperationSuccessRecipes;
 use App\Tests\Api\PurchaseOrderTestCase;
 use App\Tests\Api\TransactionBoundaryTest;
-use App\Tests\Support\CountingKdf;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -100,6 +99,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class AuditWriterTest extends PurchaseOrderTestCase
 {
+    use OperationSuccessRecipes;
+
     /**
      * §9.1's layer 1a: the events that may carry an `ip_address`, **declared
      * here and never in `AuditEvent`**, and reconciled with the catalogue in both
@@ -798,177 +799,6 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $index = substr_count(implode(',', \array_slice($expressions, 0, $position)), '?');
 
         return (string) array_values($params)[$index];
-    }
-
-    /**
-     * One success path per built operation: a fixture step, run before any
-     * request, and a request step answering the status it expects.
-     *
-     * @return array<string, array{0: callable(): array<string, mixed>, 1: callable(array<string, mixed>): array{0: int, 1: string}}>
-     */
-    private function successRecipes(): array
-    {
-        $key = static fn (): array => ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
-        $none = static fn (): array => [];
-        $draft = function (string $number): array {
-            $d = $this->seedDraft(self::TENANT_A, $number);
-            $d['line'] = $this->seedLine(self::TENANT_A, $d['order'], $d['item']);
-
-            return $d;
-        };
-        $ordered = function (string $number): array {
-            $supplier = $this->seedSupplier(self::TENANT_A, 'Acme '.$number);
-            $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH '.$number);
-            $order = $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
-            $line = $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-'.$number));
-            $bin = Uuid::v4()->toRfc4122();
-            $this->insertAsOwnerForTenant(self::TENANT_A,
-                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
-                [$bin, self::TENANT_A, $warehouse, 'A-01']);
-
-            return ['order' => $order, 'line' => $line, 'bin' => $bin];
-        };
-        $receive = function (array $o) use ($key): void {
-            $this->send('POST', '/purchase-orders/'.$o['order'].'/goods-receipts',
-                ['lines' => [['purchase_order_line_id' => $o['line'], 'quantity' => '1', 'storage_location_id' => $o['bin']]]], $key());
-        };
-        $password = 'a-password-long-enough-for-e23';
-
-        return [
-            'ListItems' => [$none, function (): array {
-                $this->send('GET', '/items');
-
-                return [200, 'list'];
-            }],
-            'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
-                $this->send('GET', '/items/'.$c['item']);
-
-                return [200, 'read'];
-            }],
-            'CreateItem' => [$none, function () use ($key): array {
-                $this->send('POST', '/items', ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA'], $key());
-
-                return [201, 'create'];
-            }],
-            'UpdateItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-UPD')], function (array $c): array {
-                $this->send('PATCH', '/items/'.$c['item'], ['name' => 'Renamed']);
-
-                return [200, 'update'];
-            }],
-            'DeleteItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-DEL')], function (array $c): array {
-                $this->send('DELETE', '/items/'.$c['item']);
-
-                return [204, 'delete'];
-            }],
-            'RestoreItem' => [function (): array {
-                $item = $this->seedItem(self::TENANT_A, 'SKU-RES');
-                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$item]);
-
-                return ['item' => $item];
-            }, function (array $c): array {
-                $this->send('POST', '/items/'.$c['item'].'/restoration');
-
-                return [200, 'restore'];
-            }],
-            'GetGoodsReceipt' => [fn (): array => $ordered('PO-GR-GET'), function (array $c) use ($receive): array {
-                $receive($c);
-                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
-
-                return [200, 'receive, then read'];
-            }],
-            'CreateGoodsReceipt' => [fn (): array => $ordered('PO-GR-NEW'), function (array $c) use ($receive): array {
-                $receive($c);
-
-                return [201, 'receive'];
-            }],
-            'ListPurchaseOrders' => [$none, function (): array {
-                $this->send('GET', '/purchase-orders');
-
-                return [200, 'list'];
-            }],
-            'ListPurchaseOrderLines' => [fn (): array => $draft('PO-LL'), function (array $c): array {
-                $this->send('GET', '/purchase-orders/'.$c['order'].'/lines');
-
-                return [200, 'list'];
-            }],
-            'CreatePurchaseOrderLine' => [function () use ($draft): array {
-                $d = $draft('PO-CL');
-                $this->seedSupplierProduct(self::TENANT_A, $d['supplier'], $d['item']);
-
-                return $d;
-            }, function (array $c): array {
-                $this->send('POST', '/purchase-orders/'.$c['order'].'/lines', ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_cost' => '1']);
-
-                return [201, 'create'];
-            }],
-            'UpdatePurchaseOrderLine' => [fn (): array => $draft('PO-UL'), function (array $c): array {
-                $this->send('PATCH', '/purchase-orders/'.$c['order'].'/lines/'.$c['line'], ['quantity' => '2']);
-
-                return [200, 'update'];
-            }],
-            'DeletePurchaseOrderLine' => [fn (): array => $draft('PO-DL'), function (array $c): array {
-                $this->send('DELETE', '/purchase-orders/'.$c['order'].'/lines/'.$c['line']);
-
-                return [204, 'delete'];
-            }],
-            'GetPurchaseOrder' => [fn (): array => $draft('PO-GET'), function (array $c): array {
-                $this->send('GET', '/purchase-orders/'.$c['order']);
-
-                return [200, 'read'];
-            }],
-            'CreatePurchaseOrder' => [fn (): array => [
-                'supplier' => $this->seedSupplier(self::TENANT_A, 'Acme New'),
-                'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH New'),
-            ], function (array $c) use ($key): array {
-                $this->send('POST', '/purchase-orders', ['supplier_id' => $c['supplier'], 'warehouse_id' => $c['warehouse'], 'currency_code' => 'EUR'], $key());
-
-                return [201, 'create'];
-            }],
-            'UpdatePurchaseOrder' => [fn (): array => $draft('PO-UPD'), function (array $c): array {
-                $this->send('PATCH', '/purchase-orders/'.$c['order'], ['expected_at' => '2030-01-01T00:00:00Z']);
-
-                return [200, 'update'];
-            }],
-            'DeletePurchaseOrder' => [fn (): array => $draft('PO-DEL'), function (array $c): array {
-                $this->send('DELETE', '/purchase-orders/'.$c['order']);
-
-                return [204, 'delete'];
-            }],
-            'ApprovePurchaseOrder' => [fn (): array => $draft('PO-APP'), function (array $c): array {
-                $this->send('POST', '/purchase-orders/'.$c['order'].'/approval', []);
-
-                return [200, 'approve'];
-            }],
-            'CancelPurchaseOrder' => [fn (): array => $draft('PO-CAN'), function (array $c): array {
-                $this->send('POST', '/purchase-orders/'.$c['order'].'/cancellation', ['reason' => 'Supplier withdrew']);
-
-                return [200, 'cancel'];
-            }],
-            'GetCurrentUser' => [$none, function (): array {
-                $this->send('GET', '/me');
-
-                return [200, 'read'];
-            }],
-            // Last two, in this order: the sign-in presents the password the
-            // change just set, so both writers on the credential path run.
-            'ChangePassword' => [function () use ($password): array {
-                $hasher = self::getContainer()->get(CountingKdf::class);
-                \assert($hasher instanceof CountingKdf);
-                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$hasher->hash($password), $this->actorId]);
-
-                return [];
-            }, function () use ($password): array {
-                $this->send('POST', '/me/password', ['current_password' => $password, 'new_password' => $password.'-changed']);
-
-                return [200, 'change'];
-            }],
-            'IssueToken' => [$none, function () use ($password): array {
-                $email = (string) ($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT email FROM app_user WHERE id = ?::uuid', [$this->actorId])[0]['email'] ?? '');
-                $this->send('POST', '/auth/token', ['workspace' => 'tenant-a', 'email' => $email, 'password' => $password.'-changed']);
-
-                return [200, 'sign in with the changed password'];
-            }],
-        ];
     }
 
     private function purchaseOrderWriter(): PurchaseOrderAuditWriter
