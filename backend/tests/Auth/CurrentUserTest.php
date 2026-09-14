@@ -35,8 +35,26 @@ final class CurrentUserTest extends AuthTestCase
      * The whole shape §4.4.3 declares, and API-6/T-1's *"no response carries
      * `tenant_id`, at any depth"*.
      *
-     * *Mutation, run:* add a `tenantId` property to `CurrentUserResource`; the
-     * recursive walk finds it and this is red.
+     * **Two assertions can catch a tenant identifier, and which one fires
+     * depends on where it appears.** The exact-key and exact-value assertions
+     * come first and pin `id`, `email`, `display_name` and every `roles` entry
+     * whole, so a tenant key added at the top level or inside a role reference
+     * is red there, before the recursive walk runs. **The walk is reached only
+     * through `permission_codes`**, the one member this test does not pin by
+     * value (`thePermissionSetIsWhatRolePermissionHolds` does).
+     *
+     * Mutations (C5, 2026-09-14; `backend/var/cache/test` deleted before each
+     * mutated run and before each revert run — Rule 17):
+     *  - `public string $tenantId` added to `CurrentUserResource` (re-run,
+     *    same day) → RED at the **exact-keys** assertion, `tenantId` in the
+     *    key list; not the walk, which an earlier record here credited.
+     *  - `public string $tenantId` added to `RoleReference` → RED at the
+     *    **`roles`** assertion, "API-23b: a reference is expanded as {id,
+     *    display field} and carries nothing else.", `+ 'tenantId' => …`.
+     *  - `CurrentUserReader` returning each permission code as
+     *    `{code, tenant_id}` → RED at the **walk**, "A response carries a
+     *    tenant identifier: tenant_id, tenant_id".
+     *  - Each revert: GREEN.
      */
     #[Test]
     public function meReturnsTheDeclaredShapeAndNoTenantIdentifier(): void
