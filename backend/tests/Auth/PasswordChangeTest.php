@@ -9,6 +9,7 @@ use App\Modules\UserManagement\Application\PasswordChangeThrottle;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\PasswordHasher\PasswordHasherInterface;
@@ -635,17 +636,35 @@ final class PasswordChangeTest extends AuthTestCase
      * the JWT requirement is decided by the row's own `Path`, and `/me/password`
      * is not under `/auth/`.
      *
-     * *Mutation, run:* change `PasswordResource`'s `uriTemplate` to
-     * `/auth/me/password`. `AuthenticationGate::isPreAuthentication()` then returns
-     * true, the request reaches the processor with no identity,
-     * `RequestIdentity::authenticated()` throws, and this is red on 500 against
-     * 401 — a *louder* failure than the silent one, which is the fail-closed
-     * behaviour that holder was written for.
+     * **The protection under test is `AuthenticationGate::isPreAuthentication()`**,
+     * which skips authentication for any operation whose `uriTemplate` starts
+     * with `/auth/`. So the request path is read off `ChangePassword`'s declared
+     * `uriTemplate` rather than written here: with a hard-coded `/me/password`,
+     * moving the operation under `/auth/` turned this test into a routing check
+     * (red on 404 against 401, never reaching the gate — C5, 2026-09-14), and
+     * any route removal at all would have produced the same red.
+     *
+     * Mutations (C5, 2026-09-14; `backend/var/cache/test` deleted before each
+     * mutated run and before each revert run — Rule 17):
+     *  - `PasswordResource`'s `uriTemplate` → `/auth/me/password`. The gate
+     *    skips the operation, the request reaches the processor with no
+     *    identity, `RequestIdentity` throws "No identity is resolved for this
+     *    request…", and this is RED on `500 is identical to 401` — a *louder*
+     *    failure than a silent change, which is the fail-closed behaviour that
+     *    holder was written for.
+     *  - Route untouched; `isPreAuthentication()` widened to also return true
+     *    for a path ending `/password`. Same RED, `500 is identical to 401`,
+     *    same `RequestIdentity` exception.
+     *  - Each revert: GREEN.
      */
     #[Test]
     public function theOperationIsAuthenticatedThoughItDeclaresNoCode(): void
     {
-        $this->send('POST', '/me/password', [
+        $operations = TransactionBoundaryTest::contractOperations();
+        self::assertArrayHasKey('ChangePassword', $operations, 'ChangePassword is not in the registry, so there is no path to send to.');
+        $path = (string) $operations['ChangePassword']->getUriTemplate();
+
+        $this->send('POST', $path, [
             'current_password' => self::PASSWORD,
             'new_password' => 'should-never-be-applied',
         ]);
