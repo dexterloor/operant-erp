@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -18,9 +17,9 @@ use PHPUnit\Framework\Attributes\Test;
  * **Derived from the operation registry, never a list in the test**: every
  * `GET` in `TransactionBoundaryTest::contractOperations()` whose operationId's
  * verb is `List` (§12.3 makes the verb the operation's classification, and
- * `OperationIdTest` holds the operationId to it). Where `docs/API.md` is present
- * the domain is also held equal to the built §4.2 rows whose `Verb / Resource`
- * cell says `List`, so a list whose name drifted is red rather than unexamined.
+ * `OperationIdTest` holds the operationId to its §4.2 `Verb / Resource` cell,
+ * so a list whose name drifted is red there). The domain reads no document, so
+ * this file runs identically on a clean checkout (`SkipInvariantTest`).
  *
  * Whether a list pages is read off the operation too — a list that declares a
  * `limit` query parameter pages; one that does not is §4.2's `(bounded)`, whose
@@ -187,16 +186,6 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
         $fixtures = array_keys($this->fixtures());
         sort($fixtures);
         self::assertSame(array_keys($lists), $fixtures, 'Every list operation in the registry must have a fixture here, and only those.');
-
-        if (ContractDocument::isAvailable()) {
-            $rows = ContractDocument::operationRows();
-            $documented = array_keys(array_filter(
-                array_intersect_key($rows, TransactionBoundaryTest::contractOperations()),
-                static fn (array $row): bool => str_starts_with($row['verbResource'], 'List / '),
-            ));
-            sort($documented);
-            self::assertSame(array_keys($lists), $documented, 'The registry\'s List operations and the built §4.2 List rows disagree.');
-        }
 
         return $lists;
     }
