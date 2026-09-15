@@ -20,24 +20,33 @@ use Symfony\Component\Uid\Uuid;
  */
 final class DeletionPolicyTest extends TenancyTestCase
 {
+    /**
+     * Fixture writes on `supplier` and `warehouse` run as the owner: no `src/`
+     * path writes either table, so `erp_app` holds SELECT on them and nothing else
+     * (ADR-002 Amendment 4). The constraints these tests fire -- the UUIDv4 CHECK,
+     * the live-row uniques, the composite keys -- bind every role, and locally the
+     * owner is bound by FORCE ROW LEVEL SECURITY too.
+     */
     private function insertSupplier(string $id, string $tenantId, string $name, string $code): void
     {
-        $this->tenantContext()->run($tenantId, function () use ($id, $tenantId, $name, $code): void {
-            $this->app()->executeStatement(
-                "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
-                [$id, $tenantId, $name, $code],
-            );
-        });
+        $this->insertAsOwnerForTenant(
+            $tenantId,
+            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
+            [$id, $tenantId, $name, $code],
+        );
+    }
+
+    private function softDeleteSupplier(string $tenantId, string $id): void
+    {
+        $this->executeAsOwnerForTenant($tenantId, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$id]);
     }
 
     private function seedWarehouse(): void
     {
-        $this->tenantContext()->run(self::TENANT_A, function (): void {
-            $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO warehouse (id, tenant_id, code, name, country_code)
-                VALUES (gen_random_uuid(), ?::uuid, 'WH-C', 'Cascade', 'DE')
-                SQL, [self::TENANT_A]);
-        });
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO warehouse (id, tenant_id, code, name, country_code)
+            VALUES (gen_random_uuid(), ?::uuid, 'WH-C', 'Cascade', 'DE')
+            SQL, [self::TENANT_A]);
     }
 
     /**
@@ -87,9 +96,7 @@ final class DeletionPolicyTest extends TenancyTestCase
         $first = Uuid::v4()->toRfc4122();
         $this->insertSupplier($first, self::TENANT_A, 'Acme', 'ACME');
 
-        $this->tenantContext()->run(self::TENANT_A, function () use ($first): void {
-            $this->app()->executeStatement('UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$first]);
-        });
+        $this->softDeleteSupplier(self::TENANT_A, $first);
 
         $second = Uuid::v4()->toRfc4122();
         $this->insertSupplier($second, self::TENANT_A, 'Acme', 'ACME');
@@ -129,9 +136,7 @@ final class DeletionPolicyTest extends TenancyTestCase
         $supplierId = Uuid::v4()->toRfc4122();
         $this->insertSupplier($supplierId, self::TENANT_A, 'Retired', 'RET');
 
-        $this->tenantContext()->run(self::TENANT_A, function () use ($supplierId): void {
-            $this->app()->executeStatement('UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$supplierId]);
-        });
+        $this->softDeleteSupplier(self::TENANT_A, $supplierId);
 
         $itemId = $this->seedItem(self::TENANT_A, 'SKU-ORPHAN', $supplierId);
 
@@ -319,9 +324,7 @@ final class DeletionPolicyTest extends TenancyTestCase
         $this->insertSupplier(Uuid::v4()->toRfc4122(), self::TENANT_A, 'Here', 'HERE');
         $this->insertSupplier(Uuid::v4()->toRfc4122(), self::TENANT_B, 'Other Tenant', 'OTHER');
 
-        $this->tenantContext()->run(self::TENANT_A, function () use ($deletedId): void {
-            $this->app()->executeStatement('UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$deletedId]);
-        });
+        $this->softDeleteSupplier(self::TENANT_A, $deletedId);
 
         $this->em()->clear();
 

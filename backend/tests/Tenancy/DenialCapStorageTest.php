@@ -153,13 +153,16 @@ final class DenialCapStorageTest extends TenancyTestCase
             return;
         }
 
+        // As the owner: no `src/` path creates a user, so `erp_app` holds no
+        // INSERT on app_user (ADR-002 Amendment 4).
+        foreach ([[self::ACTOR, 'probe'], [self::OTHER_ACTOR, 'other']] as [$id, $slug]) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, ?, ?)',
+                [$id, self::TENANT_A, $slug.'@example.test', 'not-a-hash', ucfirst($slug)],
+            );
+        }
+
         $this->tenantContext()->run(self::TENANT_A, function (): void {
-            foreach ([[self::ACTOR, 'probe'], [self::OTHER_ACTOR, 'other']] as [$id, $slug]) {
-                $this->app()->executeStatement(
-                    'INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, ?, ?)',
-                    [$id, self::TENANT_A, $slug.'@example.test', 'not-a-hash', ucfirst($slug)],
-                );
-            }
 
             // Today's denials, spread over the catalogue's worth of codes. The
             // `g % CODES` distribution is what makes permission_code a real

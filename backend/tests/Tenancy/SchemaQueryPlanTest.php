@@ -50,14 +50,20 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
             $this->tenantContext()->run($tenant, function () use ($tenant): void {
                 $c = $this->app();
+                // ADR-002 Amendment 4: `erp_app` writes only what a `src/` caller
+                // writes. warehouse, storage_location, supplier, customer,
+                // sales_order and invoice have no such caller, so those six seeds
+                // run as the owner in this tenant's context (committed, so the
+                // `erp_app` INSERTs below that read them see them). The plans
+                // under test are all read as `erp_app`.
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO warehouse (id, tenant_id, code, name, country_code)
                     SELECT gen_random_uuid(), ?::uuid, 'WH' || g, 'Warehouse ' || g, 'DE'
                     FROM generate_series(1, 2) g
                     SQL, [$tenant]);
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO storage_location (id, tenant_id, warehouse_id, code)
                     SELECT gen_random_uuid(), w.tenant_id, w.id, 'BIN' || g
                     FROM warehouse w CROSS JOIN generate_series(1, 2) g
@@ -69,13 +75,13 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ITEMS]);
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO supplier (id, tenant_id, name, code, currency_code)
                     SELECT gen_random_uuid(), ?::uuid, 'Supplier ' || g, 'SUP' || g, 'EUR'
                     FROM generate_series(1, 20) g
                     SQL, [$tenant]);
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO customer (id, tenant_id, code, name, currency_code)
                     SELECT gen_random_uuid(), ?::uuid, 'CUS' || g, 'Customer ' || lpad(g::text, 4, '0'), 'EUR'
                     FROM generate_series(1, 200) g
@@ -103,7 +109,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code)
                     SELECT gen_random_uuid(), ?::uuid, 'SO-' || g,
                            (SELECT id FROM customer  ORDER BY code LIMIT 1 OFFSET (g % 200)),
@@ -114,7 +120,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
 
-                $c->executeStatement(<<<'SQL'
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO invoice (id, tenant_id, sales_order_id, customer_id, invoice_number, status, currency_code, total_amount, issued_at, due_at, paid_at)
                     SELECT gen_random_uuid(), s.tenant_id, s.id, s.customer_id, 'INV-' || s.order_number,
                            CASE WHEN right(s.order_number, 1) = '0' THEN 'issued' ELSE 'paid' END,

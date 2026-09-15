@@ -7,7 +7,6 @@ namespace App\Tests\Tenancy;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
 use App\Modules\Warehouses\Infrastructure\Entity\Warehouse;
-use App\SharedKernel\Reference\Country;
 use App\SharedKernel\Reference\Currency;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -41,23 +40,29 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         return $this->em()->find(Currency::class, 'EUR');
     }
 
-    private function country(): Country
-    {
-        return $this->em()->find(Country::class, 'DE');
-    }
-
-    /** @return array{0: string, 1: string} supplier id, warehouse id */
+    /**
+     * The parents are fixtures, written as owner SQL. No `src/` path writes
+     * `supplier` or `warehouse`, so `erp_app` -- the connection the entity manager
+     * is pinned to -- holds SELECT on them and nothing else (ADR-002 Amendment 4),
+     * and an ORM `persist()` of either would be refused. The subject of this file
+     * is the `PurchaseOrder` ORM insert, which still runs through the entity
+     * manager as `erp_app`; each test loads the parents with `em()->find()`.
+     *
+     * @return array{0: string, 1: string} supplier id, warehouse id
+     */
     private function seedParents(string $tenantId, string $suffix = ''): array
     {
-        return $this->tenantContext()->run($tenantId, function () use ($tenantId, $suffix): array {
-            $supplier = new Supplier(Uuid::v4(), Uuid::fromString($tenantId), 'Parent Supplier'.$suffix, 'SUP'.$suffix, $this->currency());
-            $warehouse = new Warehouse(Uuid::v4(), Uuid::fromString($tenantId), 'WH'.$suffix, 'Parent Warehouse'.$suffix, $this->country());
-            $this->em()->persist($supplier);
-            $this->em()->persist($warehouse);
-            $this->em()->flush();
+        $supplierId = Uuid::v4()->toRfc4122();
+        $warehouseId = Uuid::v4()->toRfc4122();
 
-            return [$supplier->getId()->toRfc4122(), $warehouse->getId()->toRfc4122()];
-        });
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
+            [$supplierId, $tenantId, 'Parent Supplier'.$suffix, 'SUP'.$suffix]);
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, ?, ?, 'DE')",
+            [$warehouseId, $tenantId, 'WH'.$suffix, 'Parent Warehouse'.$suffix]);
+
+        return [$supplierId, $warehouseId];
     }
 
     #[Test]

@@ -368,14 +368,21 @@ final class DoctrineMappingTest extends TenancyTestCase
             'Too few tenant-scoped entities were inspected for this to be covering the schema.');
     }
 
+    /**
+     * The supplier is a fixture written as owner SQL and loaded with `find()`: no
+     * `src/` path writes `supplier`, so `erp_app` (the entity manager's connection)
+     * holds SELECT on it and nothing else (ADR-002 Amendment 4). The round trip
+     * under test is the `InventoryItem` ORM insert and read, still as `erp_app`.
+     */
     #[Test]
     public function anEntityRoundTripsThroughTheOrmInsideATenantTransaction(): void
     {
-        $id = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $s = $this->newSupplier(self::TENANT_A, 'Acme', 'ACME');
+        $supplierId = $this->seedSupplier(self::TENANT_A, 'Acme');
+
+        $id = $this->tenantContext()->run(self::TENANT_A, function () use ($supplierId): string {
+            $s = $this->em()->find(Supplier::class, Uuid::fromString($supplierId));
             $i = $this->newItem(self::TENANT_A, 'SKU-1');
             $i->setSupplier($s);
-            $this->em()->persist($s);
             $this->em()->persist($i);
             $this->em()->flush();
 
@@ -427,11 +434,13 @@ final class DoctrineMappingTest extends TenancyTestCase
     #[Test]
     public function touchingALazyAssociationAfterTheTenantTransactionClosesFails(): void
     {
-        $itemId = $this->tenantContext()->run(self::TENANT_A, function (): string {
-            $s = $this->newSupplier(self::TENANT_A, 'Acme', 'ACME');
+        // Supplier as owner SQL, for the reason on the round-trip test above.
+        $supplierId = $this->seedSupplier(self::TENANT_A, 'Acme');
+
+        $itemId = $this->tenantContext()->run(self::TENANT_A, function () use ($supplierId): string {
+            $s = $this->em()->find(Supplier::class, Uuid::fromString($supplierId));
             $i = $this->newItem(self::TENANT_A, 'LAZY');
             $i->setSupplier($s);
-            $this->em()->persist($s);
             $this->em()->persist($i);
             $this->em()->flush();
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Tests\Tenancy;
 
 use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
-use App\Modules\Suppliers\Infrastructure\Entity\Supplier;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Platform\Tenancy\TenantContext;
 use App\SharedKernel\Reference\Currency;
@@ -187,6 +186,23 @@ abstract class TenancyTestCase extends KernelTestCase
      */
     protected function insertAsOwnerForTenant(string $tenantId, string $sql, array $params = []): void
     {
+        $this->executeAsOwnerForTenant($tenantId, $sql, $params);
+    }
+
+    /**
+     * Any one fixture write -- INSERT or UPDATE -- as the owner in a workspace's
+     * context, committed. `insertAsOwnerForTenant` is this under its older name.
+     *
+     * ADR-002 Amendment 4 (V4 batch B7, 2026-09-16): `erp_app` holds only the
+     * writes its `src/` callers issue, so a fixture writing a table no production
+     * path writes (`supplier`, `warehouse`, `customer`, `app_user` …) cannot run
+     * as `erp_app` and runs here. Locally the owner is NOBYPASSRLS and FORCE is on
+     * every tenant table, so these rows still pass `WITH CHECK` and the composite
+     * foreign keys. On Neon the owner is BYPASSRLS and would skip `WITH CHECK`; the
+     * suite does not run there (G-3).
+     */
+    protected function executeAsOwnerForTenant(string $tenantId, string $sql, array $params = []): void
+    {
         $c = $this->owner();
         $c->beginTransaction();
         try {
@@ -242,22 +258,15 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
-     * Entity factories, so that a change to a constructor is one edit rather
-     * than twenty. Both must be called inside a tenant context: the reference
-     * rows they look up are non-tenant tables, but the entities they build are
-     * not.
+     * Entity factory, so that a change to a constructor is one edit rather
+     * than twenty. It must be called inside a tenant context: the reference rows
+     * it looks up are non-tenant tables, but the entity it builds is not.
+     *
+     * There is no `newSupplier` any more (removed in V4 batch B7): under ADR-002
+     * Amendment 4 `erp_app`, the entity manager's connection, writes only what a
+     * `src/` caller writes, and nothing in `src/` writes `supplier`. Seed one
+     * with `seedSupplier()` and load it with `em()->find()`.
      */
-    protected function newSupplier(string $tenantId, string $name, string $code): Supplier
-    {
-        return new Supplier(
-            Uuid::v4(),
-            Uuid::fromString($tenantId),
-            $name,
-            $code,
-            $this->em()->find(Currency::class, 'EUR'),
-        );
-    }
-
     protected function newItem(string $tenantId, string $sku, ?string $name = null): InventoryItem
     {
         return new InventoryItem(
@@ -270,19 +279,23 @@ abstract class TenancyTestCase extends KernelTestCase
         );
     }
 
-    /** @return string the new row's id */
+    /**
+     * As the owner, not `erp_app`: no `src/` path writes `supplier`, so after
+     * ADR-002 Amendment 4 `erp_app` holds SELECT on it and nothing else.
+     *
+     * @return string the new row's id
+     */
     protected function seedSupplier(string $tenantId, string $name): string
     {
         $id = Uuid::v4()->toRfc4122();
-        $this->tenantContext()->run($tenantId, function () use ($id, $tenantId, $name): void {
-            // `code` and `currency_code` are NOT NULL with no usable default:
-            // a supplier without a currency cannot be priced, and Output 2
-            // declines to invent one.
-            $this->app()->executeStatement(
-                "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
-                [$id, $tenantId, $name, strtoupper(substr(md5($name), 0, 8))],
-            );
-        });
+        // `code` and `currency_code` are NOT NULL with no usable default:
+        // a supplier without a currency cannot be priced, and Output 2
+        // declines to invent one.
+        $this->insertAsOwnerForTenant(
+            $tenantId,
+            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
+            [$id, $tenantId, $name, strtoupper(substr(md5($name), 0, 8))],
+        );
 
         return $id;
     }
