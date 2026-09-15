@@ -696,6 +696,70 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * **Database-level privileges: every application role holds `CONNECT` and nothing else** (V3-3(i), V4 batch B2c,
+     * 2026-09-16; `docs/session10/v3-principals.md` S-g).
+     *
+     * `pg_database.datacl` was NULL, so PostgreSQL's defaults applied and PUBLIC held `CONNECT` **and `TEMPORARY`**. Under
+     * PgBouncer's `pool_mode=transaction` with `server_reset_query_always=0` no reset runs between clients, so a temp table
+     * outlives the client that made it on the pooled backend, and `pg_temp` is searched before `public` for the unqualified
+     * names application SQL uses. M-3, measured 2026-09-16: an `erp_app` client ran `CREATE TEMP TABLE audit_log (LIKE
+     * public.audit_log)`; a fresh `erp_app` client on the same pool (same backend pid) inserted tenant B's audit row with the
+     * application's own statement shape and read it back; the owner, in tenant B's context, found **0** rows in
+     * `public.audit_log`. Append-only audit rows silently lost, CHECKs, foreign keys and triggers skipped, forged reads —
+     * persistence into later requests from any tenant, R-14's class. `Version20260916000100` revokes `TEMPORARY` from PUBLIC.
+     *
+     * **Domain derived from the server, never listed:** the database privilege types are read from
+     * `aclexplode(acldefault('d', owner))`, so a privilege type PostgreSQL adds is covered without an edit here.
+     * `has_database_privilege()` resolves PUBLIC grants and role membership, which `information_schema` does not (A1.5).
+     *
+     * **Positive control in the same test:** a `GRANT TEMPORARY … TO erp_app` inside a transaction must show up, and must be
+     * gone after the rollback.
+     *
+     * **Not closed by this, named so "TEMP revoked" is not read as "session state closed"** (V3-3(ii), owner question O-2):
+     * bare `SET`, `SET ROLE`, session `pg_advisory_lock`, `PREPARE`, `LISTEN`, `WITH HOLD` cursors, and `lo_create` storage.
+     */
+    #[Test]
+    public function everyApplicationRoleHoldsConnectAndNoOtherDatabasePrivilege(): void
+    {
+        $types = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT DISTINCT a.privilege_type
+            FROM pg_database d CROSS JOIN LATERAL aclexplode(acldefault('d', d.datdba)) a
+            WHERE d.datname = current_database()
+            ORDER BY 1
+            SQL);
+        self::assertContains('TEMPORARY', $types, 'The server-derived database privilege domain does not include TEMPORARY, so it is not being read.');
+        self::assertContains('CONNECT', $types);
+
+        $held = function () use ($types): array {
+            $map = [];
+            foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+                $map[$role] = array_values(array_filter($types, fn (string $type): bool => (bool) $this->owner()->fetchOne(
+                    'SELECT has_database_privilege(?, current_database(), ?)', [$role, $type])));
+            }
+
+            return $map;
+        };
+        $expected = array_fill_keys(DatabaseRoles::APPLICATION_ROLES, ['CONNECT']);
+
+        self::assertSame($expected, $held(),
+            'An application role holds a database privilege other than CONNECT. TEMPORARY lets a temp table shadow a '
+            .'public table for every later client on a pooled backend (V3-3, R-14); CREATE lets a role own a schema.');
+
+        $this->owner()->beginTransaction();
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT TEMPORARY ON DATABASE %s TO %s',
+                $this->owner()->quoteSingleIdentifier((string) $this->owner()->fetchOne('SELECT current_database()')),
+                $this->owner()->quoteSingleIdentifier(DatabaseRoles::APP)));
+
+            self::assertContains('TEMPORARY', $held()[DatabaseRoles::APP], 'A planted GRANT TEMPORARY was not seen, so the empty result above proves nothing.');
+        } finally {
+            $this->owner()->rollBack();
+        }
+
+        self::assertSame($expected, $held(), 'The planted grant survived the rollback.');
+    }
+
+    /**
      * Individual partitions are storage, not schema, and no principal needs a
      * privilege on one: permissions are checked against the table named in the
      * query, and routing an INSERT to a partition does not consult the

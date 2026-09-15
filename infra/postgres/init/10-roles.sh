@@ -42,8 +42,12 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- Not part of ADR-002 §1; do not carry this to staging or production.
     GRANT pg_read_all_stats TO "${DB_OWNER}";
 
-    -- No application role may create objects. If one could, it would own what it
-    -- creates, and ownership plus a missing FORCE would void isolation.
+    -- No application role may create objects in public. If one could, it would own
+    -- what it creates, and ownership plus a missing FORCE would void isolation.
+    -- This line covers schema CREATE only. Temporary tables are a database
+    -- privilege that PUBLIC holds by default; migration Version20260916000100
+    -- revokes TEMPORARY from PUBLIC (V3-3(i)), because on a transaction-pooled
+    -- backend a temp table shadows a public table for every later client.
     REVOKE CREATE ON SCHEMA public FROM PUBLIC;
     GRANT USAGE ON SCHEMA public TO "${ERP_APP_USER}", "${ERP_AI_USER}",
                                     "${ERP_AUTH_USER}", "${ERP_AUTHLOG_USER}", "${ERP_RATELIMIT_USER}";
