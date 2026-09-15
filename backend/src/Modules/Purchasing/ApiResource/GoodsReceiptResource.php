@@ -27,12 +27,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `{id, order_number}`, and `received_by = {id, display_name}` or `null`
  * (API-O-33 (a), 2026-09-14). No `archived_at`: `goods_receipt` is class `none`.
  *
- * Of the line fields, `storage_location_id` is returned as API-23b's
- * `storage_location = {id, code}` (2026-09-15; it shipped bare, a defect).
- * `purchase_order_line_id` is still bare: a document-line reference has no
- * display field API-23b derives, and that is an owner ruling owed
- * (`docs/session10/red-row11-attack.md` R2), held in `ResponseShapeTest` as a
- * registered deviation. The request side is unchanged — both are accepted as ids.
+ * The embedded `lines` are not a sub-list (§4.2 has no `ListGoodsReceiptLines`),
+ * so each entry carries API-23 step 1's line fields one level down, plus `id`:
+ * `storage_location_id` as API-23b's `storage_location = {id, code}` (2026-09-15;
+ * it shipped bare, a defect), and `purchase_order_line_id` as clause (i)'s
+ * `purchase_order_line = {id, line_number}` (owner ruling Q1(b), 2026-09-15; it
+ * was bare until then). §4.4.3's additions add `lines[].inventory_item = {id, sku,
+ * name}` (owner rulings Q1(c) and Q-A). The request side is unchanged — both
+ * references are accepted as ids.
  *
  * `GetGoodsReceipt` is declared FIRST on purpose. API Platform's own
  * `Location` names a resource's first item operation, and that is the URI the

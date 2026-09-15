@@ -34,6 +34,15 @@ use Symfony\Component\Uid\Uuid;
  * `PurchaseOrderRow`'s supplier and warehouse joins, and `GoodsReceiptWriter`
  * already reads it. Accepted residual: a bin code is unique only among live bins
  * of one warehouse, so after a retire-and-reuse two old lines can show one code.
+ *
+ * **The item's join is inner and unfiltered, for the bin's reasons** (§4.4.3's
+ * `lines[].inventory_item = {id, sku, name}`, owner rulings Q1(c) and Q-A).
+ * `goods_receipt_line` has no item column, so the item is the ordered line's:
+ * `purchase_order_line.inventory_item_id` is `NOT NULL` under a composite foreign
+ * key, and an item archived after the delivery is still the item that arrived.
+ * It reads `inventory_item`, a table `Modules\Inventory` owns — the same A-2
+ * residual as `PurchaseOrderLineRow`'s item join. The order line's reference is
+ * `{id, line_number}` (API-23b clause (i)).
  */
 final readonly class GoodsReceiptReader
 {
@@ -75,9 +84,12 @@ final readonly class GoodsReceiptReader
 
         $lines = $connection->fetchAllAssociative(<<<'SQL'
             SELECT grl.id, grl.purchase_order_line_id, grl.quantity_received,
+                   pol.line_number AS purchase_order_line_number,
+                   i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
                    sl.id AS storage_location_id, sl.code AS storage_location_code
               FROM goods_receipt_line grl
               JOIN purchase_order_line pol ON pol.tenant_id = grl.tenant_id AND pol.id = grl.purchase_order_line_id
+              JOIN inventory_item i ON i.tenant_id = pol.tenant_id AND i.id = pol.inventory_item_id
               JOIN storage_location sl ON sl.tenant_id = grl.tenant_id AND sl.id = grl.storage_location_id
              WHERE grl.goods_receipt_id = ?::uuid
              ORDER BY pol.line_number, grl.storage_location_id, grl.id
@@ -92,7 +104,8 @@ final readonly class GoodsReceiptReader
             receivedByDisplayName: null === $row['received_by_id'] ? null : (string) $row['received_by_display_name'],
             lines: array_map(static fn (array $line): GoodsReceiptLineView => new GoodsReceiptLineView(
                 id: (string) $line['id'],
-                purchaseOrderLineId: (string) $line['purchase_order_line_id'],
+                purchaseOrderLine: new OrderLineReference((string) $line['purchase_order_line_id'], (int) $line['purchase_order_line_number']),
+                inventoryItem: new ItemReference((string) $line['inventory_item_id'], (string) $line['inventory_item_sku'], (string) $line['inventory_item_name']),
                 quantity: (string) $line['quantity_received'],
                 storageLocation: new LocationReference((string) $line['storage_location_id'], (string) $line['storage_location_code']),
             ), $lines),

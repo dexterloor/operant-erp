@@ -60,6 +60,9 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         // bin, or hands one line the other's code, renders a real code that is
         // the wrong one.
         $secondBin = $this->seedLocation(self::TENANT_A, $po['warehouse'], 'B-07');
+        // Names that are not the SKU (the seeder writes name = sku), so a reader
+        // that returns one for the other renders a real value that is wrong.
+        $this->renameItems($po['items'], ['Item zero', 'Item one']);
 
         $this->receive($po['order'], [
             ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '6', 'storage_location_id' => $po['bin']],
@@ -72,14 +75,25 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame('GR-000001', $body['receipt_number']);
         self::assertSame(['id' => $po['order'], 'order_number' => 'PO-1'], $body['purchase_order']);
         self::assertCount(2, $body['lines']);
-        // Every line member but the line's own id, by name and value: API-23b's
-        // `storage_location = {id, code}` (the key, both members, nothing else),
-        // and `purchase_order_line_id` still bare — ResponseShapeTest's
-        // registered deviation, owner ruling owed (red-row11-attack.md R2).
+        // Every line member but the line's own id, by name, value and order:
+        // API-23b clause (i)'s `purchase_order_line = {id, line_number}` (owner
+        // ruling Q1(b)), the item under clause (ii) as `{id, sku, name}` (Q1(c),
+        // Q-A), and `storage_location = {id, code}` — each key, every member,
+        // nothing else.
         self::assertSame(
             [
-                ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '6.000000', 'storage_location' => ['id' => $po['bin'], 'code' => 'A-01']],
-                ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '4.000000', 'storage_location' => ['id' => $secondBin, 'code' => 'B-07']],
+                [
+                    'purchase_order_line' => ['id' => $po['lines'][0], 'line_number' => 1],
+                    'inventory_item' => ['id' => $po['items'][0], 'sku' => 'SKU-PO-1-0', 'name' => 'Item zero'],
+                    'quantity' => '6.000000',
+                    'storage_location' => ['id' => $po['bin'], 'code' => 'A-01'],
+                ],
+                [
+                    'purchase_order_line' => ['id' => $po['lines'][1], 'line_number' => 2],
+                    'inventory_item' => ['id' => $po['items'][1], 'sku' => 'SKU-PO-1-1', 'name' => 'Item one'],
+                    'quantity' => '4.000000',
+                    'storage_location' => ['id' => $secondBin, 'code' => 'B-07'],
+                ],
             ],
             array_map(static fn (array $l): array => array_diff_key($l, ['id' => true]), $body['lines']),
         );
@@ -159,6 +173,69 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertArrayHasKey('received_by', $body);
         self::assertNull($body['received_by']);
+    }
+
+    /**
+     * **A receipt line names its ordered line by number and its item — by value,
+     * not by position** (owner rulings Q1(b), Q1(c) and Q-A, 2026-09-15).
+     *
+     * Three lines are ordered, each for a different item renamed away from its
+     * SKU; only lines 3 and 2 are received, **in that request order**. So a
+     * positional number (`ROW_NUMBER()` over the receipt) reads `[1, 2]` where the
+     * order line's column reads `[2, 3]`, and an item joined through the wrong
+     * order line renders a real item that is the wrong one. The reader orders
+     * lines by the order line's number, on the 201 and on the read alike.
+     */
+    #[Test]
+    public function aReceiptLineNamesItsOrderLineByNumberAndItsItem(): void
+    {
+        $po = $this->orderedOrderWithLines(['5', '5', '5']);
+        $this->renameItems($po['items'], ['Item zero', 'Item one', 'Item two']);
+        $secondBin = $this->seedLocation(self::TENANT_A, $po['warehouse'], 'B-07');
+
+        $this->receive($po['order'], [
+            ['purchase_order_line_id' => $po['lines'][2], 'quantity' => '2', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '3', 'storage_location_id' => $secondBin],
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $expected = [
+            [['id' => $po['lines'][1], 'line_number' => 2], ['id' => $po['items'][1], 'sku' => 'SKU-PO-1-1', 'name' => 'Item one']],
+            [['id' => $po['lines'][2], 'line_number' => 3], ['id' => $po['items'][2], 'sku' => 'SKU-PO-1-2', 'name' => 'Item two']],
+        ];
+        $pairs = static fn (array $body): array => array_map(
+            static fn (array $l): array => [$l['purchase_order_line'], $l['inventory_item']],
+            $body['lines'],
+        );
+        self::assertSame($expected, $pairs($this->json()));
+
+        $this->send('GET', '/goods-receipts/'.$this->json()['id']);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($expected, $pairs($this->json()));
+    }
+
+    /**
+     * **An item archived after the delivery is still named on the receipt**, for
+     * the bin's reason: the item join carries no `deleted_at IS NULL`, so
+     * tidying a catalogue neither drops the line nor un-names what arrived.
+     */
+    #[Test]
+    public function aReceiptWhoseItemWasLaterArchivedStillNamesTheItem(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$po['items'][0]]);
+
+        $this->send('GET', '/goods-receipts/'.$id);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(
+            [['id' => $po['items'][0], 'sku' => 'SKU-PO-1-0', 'name' => 'SKU-PO-1-0']],
+            array_column($this->json()['lines'], 'inventory_item'),
+        );
     }
 
     /**
@@ -1000,6 +1077,20 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
             'warehouse' => $warehouse,
             'items' => $items,
         ];
+    }
+
+    /**
+     * Renames each item so its `name` differs from its `sku` (the seeder writes
+     * `name = sku`).
+     *
+     * @param list<string> $items
+     * @param list<string> $names
+     */
+    protected function renameItems(array $items, array $names): void
+    {
+        foreach ($items as $i => $item) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET name = ? WHERE id = ?::uuid', [$names[$i], $item]);
+        }
     }
 
     /** @return string the new row's id */

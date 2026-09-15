@@ -49,39 +49,6 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const FREE_FIELDS = ['id', 'archived_at'];
 
     /**
-     * **Bare references that are known and not yet ruled: operation => JSON path
-     * (list indices written `[N]`) => reason.** Registered 2026-09-15.
-     *
-     * `lines[].purchase_order_line_id` on a goods receipt is a reference to a
-     * **document line**, and API-23b's display-field chain (`name`, else `code`,
-     * else `sku`, else the document number) has no answer for one:
-     * `purchase_order_line` has none of the first three, and its `line_number` is
-     * an integer outside the five `text` document-number columns `docs/ux/IA.md`
-     * §5.6 names under R-1 — and `PurchaseOrderLineResource` records that
-     * `line_number` is a column, not a field. Picking a display field here would
-     * be choosing per resource, which API-23b forbids. The question goes to the
-     * owner: `docs/session10/red-row11-attack.md`, "R2". Until it is ruled, this
-     * path is excused and **only** this path; `storage_location_id` on the same
-     * lines was the shipped defect and is expanded.
-     *
-     * Every entry must still be observed in a driven body, so the excuse cannot
-     * outlive the bare id it excuses — when R2 is built, this entry turns the
-     * test red until it is removed.
-     *
-     * @var array<string, array<string, non-empty-string>>
-     */
-    private const REGISTERED_BARE_REFERENCES = [
-        'GetGoodsReceipt' => [
-            '$.lines[N].purchase_order_line_id' => 'A document-line reference has no API-23b display field; owner ruling owed '
-                .'(docs/session10/red-row11-attack.md R2, registered 2026-09-15).',
-        ],
-        'CreateGoodsReceipt' => [
-            '$.lines[N].purchase_order_line_id' => 'A document-line reference has no API-23b display field; owner ruling owed '
-                .'(docs/session10/red-row11-attack.md R2, registered 2026-09-15).',
-        ],
-    ];
-
-    /**
      * **The probe.** No built read resource's derived expectation is empty
      * beyond `id` and `archived_at`.
      *
@@ -169,14 +136,19 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * field. It is keyed on that table's name, so another table with a `sku`
      * column gains nothing.
      *
-     * One bare reference is excused by {@see self::REGISTERED_BARE_REFERENCES}, by
-     * operation and exact path; an entry that is no longer observed is red.
+     * **Clause (i) is owner ruling Q1(b) (2026-09-15):** a reference to a row of a
+     * sub-listed line table displays `{id, line_number}` and nothing else, and it
+     * takes precedence over clause (ii). The set is
+     * {@see self::subListedLineTables()}'s, derived from §4.2 and the schema. No
+     * bare reference is excused: until that ruling a goods receipt's
+     * `lines[].purchase_order_line_id` was, by a registry this test no longer has.
      *
      * Controls inside this method: recipes equal the registry and each answered its
      * success status; at least one expansion was examined and resolved to a table;
      * the walker flags a planted bare `supplier_id` and a planted three-member
-     * expansion; the registry excuses its own path and not the same path under a
-     * different key or operation; clause (ii)'s table is read from the document
+     * expansion; clause (i)'s set contains `purchase_order_line`, and its
+     * guardless mapping throws on a planted missing table and a planted
+     * `line_number` column; clause (i)'s rule text is present; clause (ii)'s table is read from the document
      * exactly once and has a `sku` column; the document-number indexes are
      * exactly five; and planted calls of the pure rule pin each branch.
      *
@@ -235,18 +207,30 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 'The display rule is wrong on a planted case: '.$label.'.');
         }
 
-        // Control — the registry excuses exactly its own operation and path.
-        foreach (self::REGISTERED_BARE_REFERENCES as $operation => $paths) {
-            foreach (array_keys($paths) as $path) {
-                $concrete = str_replace('[N]', '[3]', $path);
-                self::assertSame($path, self::registeredBareReference($operation, $concrete), 'The registry does not excuse its own entry at '.$concrete.'.');
-                self::assertNull(self::registeredBareReference($operation, $concrete.'_x_id'), 'The registry excuses a path it does not name.');
-                self::assertNull(self::registeredBareReference('NoSuch'.$operation, $concrete), 'The registry excuses an operation it does not name.');
-            }
+        // Clause (i)'s rule text, and its set.
+        self::assertStringContainsString('**(i) A reference to a row of a sub-listed line table displays its `line_number`.**', $section,
+            '§4.4.3 no longer states API-23b clause (i).');
+        self::assertStringContainsString('**Clause (i) takes precedence:**', $section, '§4.4.3 no longer says clause (i) takes precedence.');
+
+        try {
+            self::tableOfGuardlessCandidate('NoSuchThing', SchemaManifest::TABLES, static fn (string $table): array => []);
+            self::fail('tableOfGuardlessCandidate() did not fail on a candidate with no table.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('NoSuchThing', $e->getMessage());
         }
+        try {
+            self::tableOfGuardlessCandidate('CustomerContact', SchemaManifest::TABLES, static fn (string $table): array => ['id', 'line_number']);
+            self::fail('tableOfGuardlessCandidate() did not fail on a guardless candidate with a line_number column.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('CustomerContact', $e->getMessage());
+        }
+        self::assertSame('supplier_product', self::tableOfGuardlessCandidate('SupplierProduct', SchemaManifest::TABLES, static fn (string $table): array => ['id', 'sku']));
+
+        $subListedLineTables = $this->subListedLineTables();
+        self::assertNotSame([], $subListedLineTables, 'Clause (i) derived no sub-listed line table, so it was read from nothing.');
+        self::assertContains('purchase_order_line', $subListedLineTables, 'Clause (i)\'s set does not contain purchase_order_line.');
 
         $defects = [];
-        $observed = [];
         $examined = 0;
 
         foreach ($this->drivenBodies() as $name => $body) {
@@ -255,16 +239,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
             foreach ($found as [$kind, $where, $value]) {
                 if ('bare' === $kind) {
-                    if (null !== ($path = self::registeredBareReference($name, $where))) {
-                        $observed[$name][$path] = true;
-                        continue;
-                    }
                     $defects[] = \sprintf('%s returns %s unexpanded', $name, $where);
                     continue;
                 }
 
                 ++$examined;
-                $want = $this->expectedMembers((string) $value['id'], $skuTable, $documentNumbers);
+                $want = $this->expectedMembers((string) $value['id'], $skuTable, $documentNumbers, $subListedLineTables);
                 $members = array_keys($value);
                 sort($members);
                 if (null === $want || $want !== $members) {
@@ -276,26 +256,6 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         self::assertGreaterThan(0, $examined, 'No expansion was examined, so the display-field half had no subject.');
         self::assertSame([], $defects, 'API-23b: a reference is returned unexpanded, or an expansion carries more than its id and display field.');
-
-        $stale = [];
-        foreach (self::REGISTERED_BARE_REFERENCES as $operation => $paths) {
-            foreach ($paths as $path => $reason) {
-                if (!isset($observed[$operation][$path])) {
-                    $stale[] = $operation.' at '.$path.' ('.$reason.')';
-                }
-            }
-        }
-        self::assertSame([], $stale,
-            'A registered bare reference is no longer returned. Remove it from REGISTERED_BARE_REFERENCES, so that it cannot '
-            .'excuse a different bare id later.');
-    }
-
-    /** The registered path a bare reference matches for this operation, or null when none excuses it. */
-    private static function registeredBareReference(string $operation, string $where): ?string
-    {
-        $path = (string) preg_replace('/\[\d+\]/', '[N]', $where);
-
-        return isset(self::REGISTERED_BARE_REFERENCES[$operation][$path]) ? $path : null;
     }
 
     /**
@@ -448,11 +408,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * The sorted member list API-23b expects for an expansion of the row holding
      * this id, or null when no table holds it or the rule has no answer.
      *
-     * @param array<string, string> $documentNumbers table => document-number column
+     * @param array<string, string> $documentNumbers     table => document-number column
+     * @param list<string>          $subListedLineTables clause (i)'s set
      *
      * @return list<string>|null
      */
-    private function expectedMembers(string $id, string $skuTable, array $documentNumbers): ?array
+    private function expectedMembers(string $id, string $skuTable, array $documentNumbers, array $subListedLineTables): ?array
     {
         foreach (SchemaManifest::tenantScopedTables() as $table) {
             $columns = $this->columnsOf($table);
@@ -463,10 +424,79 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 continue;
             }
 
-            return self::displayMembers($table, $columns, false, $documentNumbers[$table] ?? null, $skuTable);
+            return self::displayMembers($table, $columns, \in_array($table, $subListedLineTables, true), $documentNumbers[$table] ?? null, $skuTable);
         }
 
         return null;
+    }
+
+    /**
+     * **API-23b clause (i)'s set, derived — never listed.** A sub-listed line
+     * table is the table of a resource `S` that §4.2 gives both a `List` row
+     * marked *(bounded)* at a path `P` and a `Create / S` row at the same `P`,
+     * **and** that has a `line_number` column. It is defined without the parent's
+     * nested create (staged E9 (i)).
+     *
+     * The table is the one `S`'s `Restore` row names by its `guard:`; a resource
+     * with no `Restore` row is mapped by {@see self::tableOfGuardlessCandidate()},
+     * which never skips.
+     *
+     * @return list<string>
+     */
+    private function subListedLineTables(): array
+    {
+        $rows = ContractDocument::operationRows();
+        $guards = ContractDocument::restoreGuardTables();
+        $tables = [];
+
+        foreach ($rows as $list) {
+            if (1 !== preg_match('/^List \/ ([A-Za-z]+)$/', $list['verbResource'], $plural) || !str_contains($list['query'], '*(bounded)*')) {
+                continue;
+            }
+            $singulars = array_unique([
+                (string) preg_replace('/s$/', '', $plural[1]),
+                (string) preg_replace('/es$/', '', $plural[1]),
+                (string) preg_replace('/ies$/', 'y', $plural[1]),
+            ]);
+
+            foreach ($rows as $create) {
+                if ($create['path'] !== $list['path'] || 1 !== preg_match('/^Create \/ ([A-Za-z]+)$/', $create['verbResource'], $resource)
+                    || !\in_array($resource[1], $singulars, true)) {
+                    continue;
+                }
+
+                $table = $guards[$resource[1]]
+                    ?? self::tableOfGuardlessCandidate($resource[1], SchemaManifest::TABLES, fn (string $t): array => $this->columnsOf($t));
+                if (\in_array('line_number', $this->columnsOf($table), true)) {
+                    $tables[] = $table;
+                }
+            }
+        }
+
+        return array_values(array_unique($tables));
+    }
+
+    /**
+     * A clause (i) candidate with no `Restore` row, mapped to its table by snake
+     * case (LEAD ruling D3). It **fails loudly, never skips**: no table of that
+     * name, or a table that has `line_number` (so clause (i) would need a ruling
+     * to name it), throws, naming the resource.
+     *
+     * @param array<string, mixed>              $manifestTables
+     * @param callable(string): list<string>    $columnsOf
+     */
+    private static function tableOfGuardlessCandidate(string $resource, array $manifestTables, callable $columnsOf): string
+    {
+        $table = strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+
+        if (!\array_key_exists($table, $manifestTables)) {
+            throw new \LogicException(\sprintf('Sub-listed resource %s has no Restore row and its snake-case table %s does not exist, so clause (i) cannot decide it.', $resource, $table));
+        }
+        if (\in_array('line_number', $columnsOf($table), true)) {
+            throw new \LogicException(\sprintf('Sub-listed resource %s has a line_number column but no Restore row, so clause (i) cannot name its table.', $resource));
+        }
+
+        return $table;
     }
 
     /**
