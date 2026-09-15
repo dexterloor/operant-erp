@@ -15,7 +15,10 @@ COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env.infra 
 # `.env.test` is loaded through PHP Dotenv by the runtime for this one command,
 # never shell-sourced: `set -a; . ./.env.test` would parse it as shell, where the
 # unquoted `&` in `?serverVersion=17&charset=utf8` backgrounds a command and a `$`
-# in a password expands.
+# in a password expands. With the owner DSN present, bin/console refuses every
+# command except ServingCredentialGuard::CONSOLE_OWNER_COMMANDS (hygiene), so
+# `doctrine:migrations:generate` / `dump-schema` are refused under OWNER_RUNTIME
+# too, and `list` / `help` are refused on purpose.
 OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 
 .PHONY: env up down reset migrate test tenancy deptrac verify

@@ -276,6 +276,14 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Platform\\Tenancy\\#'
+    # V3-1(i), V4 batch B2b-2 (2026-09-16): the front-controller credential guard. It runs in
+    # `public/index.php` and `bin/console` before any kernel exists, so it may depend only on
+    # DBAL's DSN parser and driver list (`Doctrine`) and on `DatabaseRoles` (`PlatformTenancy`),
+    # and nothing may depend on it -- no layer's `allowed` list names it.
+    - name: PlatformRuntime
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Runtime\\#'
     # Symfony's own kernel. Not a module and not a Platform component; it
     # exists as a layer so that it is covered rather than silently uncollected.
     - name: AppKernel
@@ -598,6 +606,9 @@ deptrac:
       - PlatformHttp
       - PlatformPersistence
       - PlatformSecurity
+    PlatformRuntime:
+      - Doctrine
+      - PlatformTenancy
     AppKernel: ~
     # §5.1 — L1 depends downward on L0 and on nothing above it.
     SharedKernel:

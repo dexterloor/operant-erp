@@ -2,7 +2,10 @@
 <?php
 
 use App\Kernel;
+use App\Platform\Runtime\ServingCredentialGuard;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\ConsoleEvents;
+use Symfony\Component\Console\Event\ConsoleCommandEvent;
 
 if (!is_dir(dirname(__DIR__).'/vendor')) {
     throw new LogicException('Dependencies are missing. Try running "composer install".');
@@ -16,6 +19,37 @@ require_once dirname(__DIR__).'/vendor/autoload_runtime.php';
 
 return function (array $context) {
     $kernel = new Kernel($context['APP_ENV'], (bool) $context['APP_DEBUG']);
+    $application = new Application($kernel);
 
-    return new Application($kernel);
+    // Hygiene, not a control (V3-1(i); B2b-2 draft rev 3 §3.2). While a non-application database credential is present,
+    // every command except ServingCredentialGuard::CONSOLE_OWNER_COMMANDS is refused -- `list` and `help` included, on
+    // purpose. `bootEnv` has already loaded the credential and the kernel boots with it; anyone who can run this with the
+    // owner DSN can run `psql`. It stops accidents: `dbal:run-sql`, `cache:*` and vendor DBAL commands on the default
+    // (owner) connection.
+    //
+    // A runtime-only listener, added here to the booted kernel's dispatcher: it reads the command Application actually
+    // resolved (after its own option binding, aliases and abbreviations), so there is no second argv parser to disagree
+    // with it. It is never compiled into the container and never exists under PHPUnit, which constructs Application
+    // directly; ForbidSchemaToolCommands stays the only ConsoleEvents::COMMAND listener in src/.
+    // Not stopped (recorded limits): `doctrine:migrations:execute --down`, `--db-configuration=<php file>`, `--conn`/`--em`.
+    $offending = ServingCredentialGuard::offendingNames($_ENV, $_SERVER, getenv());
+    if ([] !== $offending) {
+        $kernel->boot(); // idempotent: Application::doRun boots again and sets this same dispatcher
+        $kernel->getContainer()->get('event_dispatcher')->addListener(
+            ConsoleEvents::COMMAND,
+            static function (ConsoleCommandEvent $event) use ($offending): void {
+                $name = $event->getCommand()?->getName();
+                if (\in_array($name, ServingCredentialGuard::CONSOLE_OWNER_COMMANDS, true)) {
+                    return;
+                }
+                $line = ServingCredentialGuard::MARKER.' (console hygiene) — '.($name ?? '?').' may not run with a non-application database credential in: '.implode(', ', $offending);
+                error_log($line);
+                fwrite(fopen('php://stderr', 'w'), $line.\PHP_EOL);
+                exit(ServingCredentialGuard::EXIT_CODE);
+            },
+            \PHP_INT_MAX,
+        );
+    }
+
+    return $application;
 };
