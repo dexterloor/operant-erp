@@ -20,11 +20,23 @@ namespace App\Modules\UserManagement\Infrastructure;
  * *rotation day* that is bounded by both `E-21` budgets, and the alternative
  * (a rotation that keeps counters live) needs the address, which is the thing
  * this class exists not to store.
+ *
+ * **A 32-byte key floor (V1-S-12, 2026-09-16)**, `AccessTokenVerifier`'s for the same reason: an empty or short key makes
+ * every stored hash a dictionary attack away from the address it hides. The refusal names the variable, never the value.
  */
 final readonly class EmailHasher
 {
+    /** The HMAC-SHA256 digest size, as `AccessTokenVerifier::MINIMUM_KEY_BYTES`. */
+    public const MINIMUM_KEY_BYTES = 32;
+
     public function __construct(private string $key)
     {
+        if (self::MINIMUM_KEY_BYTES > \strlen($key)) {
+            throw new \InvalidArgumentException(
+                'AUTH_EMAIL_HASH_KEY is shorter than 32 bytes. Below the digest size the keyed hash in auth_lockout '
+                .'is a dictionary attack away from every address that was ever tried.'
+            );
+        }
     }
 
     /** @return string 32 raw bytes, for the `bytea` column */
