@@ -10,6 +10,7 @@ use App\Modules\UserManagement\Infrastructure\LockoutStore;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Support\SecurityModelDocument;
+use App\Tests\Support\UtcMidnight;
 use Doctrine\DBAL\ParameterType;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -51,6 +52,31 @@ final class LoginAuditCapTest extends AuthTestCase
     private const PASSWORD = 'correct horse battery staple';
 
     private const EMAIL = 'alice@example.com';
+
+    /**
+     * The longest a test here may take from its seed to its last request, in
+     * seconds. Measured 2026-09-16: the longest method (23 sign-ins over HTTP)
+     * ran in 1.1 s; 30 allows a machine many times slower.
+     */
+    private const DAY_BUDGET_SECONDS = 30;
+
+    /**
+     * **No UTC midnight inside a test** (V1-R-16, V4 B4d). Every test here seeds or
+     * reads "today's UTC day" and then drives requests; crossing 00:00 UTC between
+     * the two resets `suppression_count` and turns a correct run red. The time is
+     * the database's (`now()` decides the day), and when the boundary is within
+     * the budget the test sleeps past it. No skip, no retry.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $nowUtc = new \DateTimeImmutable((string) $this->owner()->fetchOne("SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"')"));
+        $wait = UtcMidnight::secondsToWaitClearOfUtcMidnight($nowUtc, self::DAY_BUDGET_SECONDS);
+        if ($wait > 0) {
+            sleep($wait);
+        }
+    }
 
     /**
      * §5.1 clause 4, *"C ≠ 20"*, against the constant and against E-12's own row.
@@ -281,6 +307,73 @@ final class LoginAuditCapTest extends AuthTestCase
         self::assertSame($wrongAtC['ratelimit'], $unknownAtC['ratelimit'], 'V-8: the ratelimit count differs between the two miss paths at the ceiling.');
         self::assertSame(self::PINNED_CEILING - 1, $this->suppressionCount($slug, 'nobody@example.com'),
             'An unresolved email advanced the suppression counter, which counts only branches that write the trail.');
+    }
+
+    /**
+     * **V1-S-5a (V4 B4d): the response does not change at the cap.** Attempts C,
+     * C+1 (the marker row) and C+2 (silent) are compared byte for byte — status,
+     * body length, decoded body and every header but `date` / `x-debug-token*`,
+     * the observable `TokenEndpointIndistinguishabilityTest` compares — and with an
+     * ordinary wrong-password refusal well below the ceiling. Controls inside: the
+     * three attempts really are C, C+1 and C+2 (the counter), and exactly two of
+     * them wrote (so the comparison straddles the marker and the silence).
+     *
+     * The marker has **no reader yet** (`ListAuditLogEntries` is unbuilt; its
+     * reader and alert are V1-S-5b's). This test pins only that the caller cannot
+     * see the cap.
+     *
+     * *Mutations (cache deleted before and after):* a header (`X-B4-Marker`) and,
+     * separately, a `detail` member added to the refusal at C+1 only — each GREEN
+     * across the suite's auth tests before this test existed, each RED here.
+     */
+    #[Test]
+    public function theRefusalIsByteIdenticalAtTheCeilingTheMarkerAndPastIt(): void
+    {
+        $slug = self::SLUG_PREFIX.'bytes';
+        $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+        $this->seedUser($tenantId, self::EMAIL, self::PASSWORD);
+
+        $this->signIn($slug, self::EMAIL, 'wrong');
+        $ordinary = $this->observable();
+        self::assertSame(401, $ordinary['status'], 'The ordinary refusal below the ceiling was not a 401.');
+
+        $this->seedCounter($slug, self::EMAIL, self::PINNED_CEILING - 1);
+        $before = \count($this->trailWithMetadata($tenantId));
+        $observed = [];
+        foreach (['C', 'C+1', 'C+2'] as $attempt) {
+            $this->signIn($slug, self::EMAIL, 'wrong');
+            $observed[$attempt] = $this->observable();
+        }
+
+        self::assertSame(self::PINNED_CEILING + 2, $this->suppressionCount($slug, self::EMAIL), 'The three attempts were not C, C+1 and C+2.');
+        self::assertSame(2, \count($this->trailWithMetadata($tenantId)) - $before, 'C and C+1 did not both write, so the comparison does not straddle the marker.');
+
+        foreach ($observed as $attempt => $response) {
+            self::assertSame($ordinary, $response, "The refusal at attempt $attempt differs from an ordinary wrong password: the cap is observable.");
+        }
+    }
+
+    /**
+     * Status, body length, decoded body and headers (less `date` and
+     * `x-debug-token*`) of the last response.
+     *
+     * @return array{status: int, length: int, body: array<string, mixed>, headers: array<string, string>}
+     */
+    private function observable(): array
+    {
+        $response = $this->client()->getResponse();
+        $content = (string) $response->getContent();
+
+        $headers = [];
+        foreach ($response->headers->all() as $name => $values) {
+            if ('date' === $name || str_starts_with($name, 'x-debug-token')) {
+                continue;
+            }
+            $headers[$name] = implode(', ', array_map(strval(...), $values));
+        }
+        ksort($headers);
+
+        return ['status' => $response->getStatusCode(), 'length' => \strlen($content), 'body' => (array) json_decode($content, true), 'headers' => $headers];
     }
 
     /**
