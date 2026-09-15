@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -46,6 +47,31 @@ final class RequestContractTest extends PurchaseOrderTestCase
      * 409. `App\Platform\Http\BodylessWriteRefusal` is the fix. Second mutation:
      * that class made to skip `RestoreItem` by name → RED naming `RestoreItem`
      * alone. Revert → GREEN.
+     *
+     * **A refusal must also write nothing** (V1-R-1, V4 B4a). The defect was
+     * "answered 204 **and applied** the delete", and a status check alone cannot
+     * see a refusal that arrives after the write. So every tenant-scoped table
+     * of the acting tenant is fingerprinted (row count and an ordered digest of
+     * every row as `to_jsonb`, read as the owner with the tenant declared) before
+     * and after each request, and any table that differs is named. That covers
+     * the three shapes V1-R-1 names at once: a delete keeps `deleted_at IS NULL`,
+     * `RestoreItem` leaves its row archived, a PATCH leaves `updated_at` and every
+     * touched column as they were — and a create adds no row.
+     * - **A `Restore…` operation is driven at an archived row.** At a live row its
+     *   processor refuses before any write, so the no-write check would be
+     *   vacuous for it; a control asserts the row really is archived.
+     * - **Positive control inside:** the fingerprint taken before seeding must
+     *   differ, after seeding, on `inventory_item`, `purchase_order` and
+     *   `purchase_order_line`, so it can see a row change on the tables the
+     *   built writes touch.
+     *
+     * Mutation (Rule 17 — cache deleted before and after, confirmed): the
+     * `DELETE` half of `BodylessWriteRefusal`'s throw moved into a processor
+     * decorator (priority 50, outside `WriteProcessor`) that runs `inner` and then
+     * throws. Before this check: `OK (1 test, 47 assertions)` — the three deletes
+     * applied and still answered the named 422. After: RED naming `DeleteItem`,
+     * `DeletePurchaseOrder` and `DeletePurchaseOrderLine`. The same move for every
+     * body-less write (Restore included): RED naming `RestoreItem` as well.
      */
     #[Test]
     public function everyWriteOperationRefusesAnUndeclaredField(): void
@@ -60,11 +86,20 @@ final class RequestContractTest extends PurchaseOrderTestCase
         // Every row is seeded before the first request: a refused request can
         // close the shared entity manager, and a seed after it would error
         // rather than drive the operation.
+        $unseeded = $this->tenantFingerprint();
         $paths = [];
         $n = 0;
         foreach ($writes as $name => $operation) {
-            $paths[$name] = $this->pathFor((string) $operation->getUriTemplate(), 'RC-'.++$n);
+            $paths[$name] = $this->pathFor((string) $operation->getUriTemplate(), 'RC-'.++$n, str_starts_with($name, 'Restore'));
         }
+
+        $seeded = $this->tenantFingerprint();
+        foreach (['inventory_item', 'purchase_order', 'purchase_order_line'] as $table) {
+            self::assertNotSame($unseeded[$table] ?? null, $seeded[$table] ?? null,
+                'The fingerprint did not change on '.$table.' when rows were seeded, so "nothing was written" below proves nothing.');
+        }
+
+        $wrote = [];
 
         $driven = [];
         $accepted = [];
@@ -79,6 +114,7 @@ final class RequestContractTest extends PurchaseOrderTestCase
                 ? [IdempotencyKeyGuard::HEADER => 'c5-request-contract-'.$n]
                 : [];
 
+            $before = $this->tenantFingerprint();
             $this->send(
                 (string) $operation->getMethod(),
                 $paths[$name],
@@ -86,6 +122,13 @@ final class RequestContractTest extends PurchaseOrderTestCase
                 $headers,
             );
             $driven[] = $name;
+            $after = $this->tenantFingerprint();
+
+            $changed = array_keys(array_diff_assoc($after, $before) + array_diff_assoc($before, $after));
+            if ([] !== $changed) {
+                sort($changed);
+                $wrote[] = \sprintf('%s %s %s → %d, changed: %s', $name, $operation->getMethod(), $operation->getUriTemplate(), $this->httpStatus(), implode(', ', $changed));
+            }
 
             $status = $this->httpStatus();
             $body = (string) $this->client()->getResponse()->getContent();
@@ -107,6 +150,33 @@ final class RequestContractTest extends PurchaseOrderTestCase
 
         self::assertSame(array_keys($writes), $driven, 'The loop did not drive every write operation the registry declares.');
         self::assertSame([], $accepted, 'API-9: a write operation did not refuse an undeclared field by name.');
+        self::assertSame([], $wrote, 'API-9: a write operation refused an undeclared field and still wrote.');
+    }
+
+    /**
+     * Every tenant-scoped table of `TENANT_A`, as `table => "count:md5"` over
+     * its rows in a fixed order. Read as the owner with the tenant declared
+     * (FORCE ROW LEVEL SECURITY binds the owner too), outside any request.
+     *
+     * @return array<string, string>
+     */
+    private function tenantFingerprint(): array
+    {
+        $parts = [];
+        foreach (SchemaManifest::tenantScopedTables() as $table) {
+            $parts[] = \sprintf(
+                "SELECT '%1\$s' AS t, count(*)::text || ':' || md5(coalesce(string_agg(to_jsonb(r)::text, '|' ORDER BY to_jsonb(r)::text), '')) AS f FROM %1\$s r",
+                $table,
+            );
+        }
+
+        $fingerprint = [];
+        foreach ($this->fetchAsOwnerForTenant(self::TENANT_A, implode(' UNION ALL ', $parts)) as $row) {
+            $fingerprint[(string) $row['t']] = (string) $row['f'];
+        }
+        self::assertCount(\count(SchemaManifest::tenantScopedTables()), $fingerprint, 'The fingerprint does not cover every tenant-scoped table.');
+
+        return $fingerprint;
     }
 
     /**
@@ -151,9 +221,14 @@ final class RequestContractTest extends PurchaseOrderTestCase
      * know is a failure, not a skip: the operation it belongs to is new, and
      * this is where it has to be taught.
      */
-    private function pathFor(string $uriTemplate, string $orderNumber): string
+    private function pathFor(string $uriTemplate, string $orderNumber, bool $archivedItem = false): string
     {
         $draft = $this->seedDraft(self::TENANT_A, $orderNumber);
+        if ($archivedItem) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$draft['item']]);
+            self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$draft['item']]),
+                $uriTemplate.': the row a Restore operation is driven at is not archived, so its no-write check proves nothing.');
+        }
         $rows = [
             'items' => $draft['item'],
             'purchase-orders' => $draft['order'],

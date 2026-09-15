@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\HttpOperation;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -87,9 +89,27 @@ final class ClientChosenIdTest extends PurchaseOrderTestCase
 
     /**
      * The same, one level down: `lines[].id` on a create that writes its lines
-     * with the header. The domain is every `POST` whose recipe body carries a
-     * list of objects (`CreateGoodsReceipt` today); a top-level refusal would
-     * mask a nested one, so this is a separate request and a separate method.
+     * with the header. A top-level refusal would mask a nested one, so this is a
+     * separate request and a separate method.
+     *
+     * **The nested domain is derived from the operations, not from the recipes**
+     * (V1-R-2, V4 B4a). Until 2026-09-16 it was "every `POST` whose recipe body
+     * carries a list of objects", and `CreatePurchaseOrder`'s recipe sent no
+     * `lines` — so `lines[].id` on the atomic order create (D-C) was never
+     * planted. Now every public `array` property of each registry `POST`'s input
+     * class (its wire name) is a nested field the recipe **must** carry at least
+     * one object in; a control after the no-row assertion names any operation
+     * and field that was not planted into. Today: `CreatePurchaseOrder lines` and
+     * `CreateGoodsReceipt lines`. A future list of scalars (an `_ids[]` field) is
+     * also an `array` property and fails that control loudly: it has to be
+     * taught here, not skipped.
+     *
+     * Mutation (Rule 17 — cache deleted before and after, confirmed):
+     * `PurchaseOrderWriter` stops refusing a nested `id` (added to the accepted
+     * keys), carries it in the line values, and `insertLineInside()` inserts at
+     * `$values['id'] ?? Uuid::v4()`. Before this derivation and the recipe line:
+     * `OK (2 tests, 22 assertions)`. After: RED on the no-row assertion naming
+     * `CreatePurchaseOrder lines[0].id → purchase_order_line`.
      */
     #[Test]
     public function aNestedIdAClientChoseIsNeverWhereARowLands(): void
@@ -102,10 +122,18 @@ final class ClientChosenIdTest extends PurchaseOrderTestCase
      */
     private function assertNoPlantedIdLandsAnywhere(string $mode): void
     {
-        $posts = array_keys(array_filter(
+        $postOperations = array_filter(
             TransactionBoundaryTest::contractOperations(),
             static fn ($operation): bool => 'POST' === $operation->getMethod(),
-        ));
+        );
+        $posts = array_keys($postOperations);
+        $nestedDomain = [];
+        foreach ($postOperations as $name => $operation) {
+            foreach (self::nestedListFields($operation) as $field) {
+                $nestedDomain[] = $name.' '.$field;
+            }
+        }
+        sort($nestedDomain);
         $recipes = array_intersect_key($this->successRecipes(), array_flip($posts));
         sort($posts);
         $recipeNames = array_keys($recipes);
@@ -175,6 +203,16 @@ final class ClientChosenIdTest extends PurchaseOrderTestCase
         );
 
         // ---- Controls.
+        if (self::NESTED === $mode) {
+            self::assertNotSame([], $nestedDomain, 'No registry POST declares a nested list field, so the nested domain is empty.');
+            $plantedInto = array_values(array_unique(array_map(
+                static fn (array $probe): string => (string) preg_replace('/\[\d+\]\.id$/', '', $probe['label']),
+                $chosen,
+            )));
+            sort($plantedInto);
+            self::assertSame([], array_values(array_diff($nestedDomain, $plantedInto)),
+                'A POST declares a nested list field its success recipe sends no object in, so no id was planted there (V1-R-2).');
+        }
         self::assertNotSame([], $minted, 'No POST created a row without a plant, so the lookup was never shown to see one.');
         $seen = array_values(array_unique(array_column($found, 'id')));
         sort($seen);
@@ -215,6 +253,34 @@ final class ClientChosenIdTest extends PurchaseOrderTestCase
         }
 
         parent::send($method, $path, $body, $headers, $accept);
+    }
+
+    /**
+     * The wire names of the input class's public `array` properties: the fields
+     * a `POST` accepts a list in, and so the fields a nested id can be planted
+     * into.
+     *
+     * @return list<string>
+     */
+    private static function nestedListFields(HttpOperation $operation): array
+    {
+        $input = $operation->getInput();
+        $class = \is_array($input) ? ($input['class'] ?? null) : null;
+        if (!\is_string($class)) {
+            return [];
+        }
+
+        $fields = [];
+        foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            $type = $property->getType();
+            if (!$type instanceof \ReflectionNamedType || 'array' !== $type->getName()) {
+                continue;
+            }
+            $attribute = $property->getAttributes(SerializedName::class)[0] ?? null;
+            $fields[] = null !== $attribute ? $attribute->newInstance()->serializedName : $property->getName();
+        }
+
+        return $fields;
     }
 
     /**

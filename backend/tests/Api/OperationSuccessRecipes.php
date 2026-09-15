@@ -143,11 +143,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'read'];
             }],
-            'CreatePurchaseOrder' => [fn (): array => [
-                'supplier' => $this->seedSupplier(self::TENANT_A, 'Acme New'),
-                'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH New'),
-            ], function (array $c) use ($key): array {
-                $this->send('POST', '/purchase-orders', ['supplier_id' => $c['supplier'], 'warehouse_id' => $c['warehouse'], 'currency_code' => 'EUR'], $key());
+            // One line (V1-R-2, V4 B4a): a recipe that sends no `lines` leaves the
+            // nested create unprobed by every check that plants into the body.
+            'CreatePurchaseOrder' => [function (): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');
+                $item = $this->seedItem(self::TENANT_A, 'SKU-NEW-PO', $supplier);
+                $this->seedSupplierProduct(self::TENANT_A, $supplier, $item);
+
+                return ['supplier' => $supplier, 'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH New'), 'item' => $item];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/purchase-orders', [
+                    'supplier_id' => $c['supplier'], 'warehouse_id' => $c['warehouse'], 'currency_code' => 'EUR',
+                    'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_cost' => '1']],
+                ], $key());
 
                 return [201, 'create'];
             }],
