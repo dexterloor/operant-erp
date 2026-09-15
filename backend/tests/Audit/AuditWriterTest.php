@@ -694,6 +694,18 @@ final class AuditWriterTest extends PurchaseOrderTestCase
      * recorder's `recordExecution()` call removed → RED "No audit write was
      * captured…"; the `GetCurrentUser` recipe removed → RED "Every operation in
      * the registry must be driven to success here…".
+     *
+     * **Capture widened, V1-R-8 (V4 B4c, 2026-09-16; cache deleted before and
+     * after each run).** Plant: `PurchaseOrderAuditWriter::recordPlaced()` first
+     * issues a CHECK-refused insert (event type `b4.not_in_catalogue`) inside a
+     * savepoint and swallows the refusal. Spelt `INSERT INTO audit_log` it was
+     * already RED. Spelt `INSERT INTO "audit_log"`, `INSERT INTO public.audit_log`,
+     * with a leading block comment, with a leading `--` comment, as
+     * `WITH x AS (SELECT 1) INSERT INTO audit_log`, or as
+     * `insert /* gap *\/ into "public"."audit_log"`, each was
+     * `OK (1 test, 88 assertions)` before {@see self::isAnAuditInsert()}, and each
+     * is RED after it: "§9.2: an operation wrote an event type outside
+     * AuditEvent::ALL." naming `b4.not_in_catalogue`.
      */
     #[Test]
     public function noOperationWritesAnEventOutsideTheCatalogue(): void
@@ -745,7 +757,7 @@ final class AuditWriterTest extends PurchaseOrderTestCase
 
         $attempted = [];
         foreach ($recorder->executions() as $execution) {
-            if (1 === preg_match('/^\s*INSERT\s+INTO\s+audit_log\b/i', $execution['sql'])) {
+            if (self::isAnAuditInsert($execution['sql'])) {
                 $attempted[] = self::eventTypeOf($execution['sql'], $execution['params']);
             }
         }
@@ -760,6 +772,29 @@ final class AuditWriterTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Whether a statement inserts into `audit_log`, in any spelling PostgreSQL
+     * accepts** (V1-R-8, V4 B4c): anywhere in the statement (so `WITH … INSERT`),
+     * after SQL comments are removed (a leading `--` or block comment, or one
+     * between the words), in any case, with the table bare, quoted, or qualified
+     * by a bare or quoted `public`. Until 2026-09-16 the capture was
+     * `^\s*INSERT\s+INTO\s+audit_log\b`, and a writer that swallowed a
+     * CHECK-refused insert spelt any other way left neither a capture nor a row,
+     * so the count control could not see it. **Not seen:** another schema on the
+     * search path, a `U&"…"` identifier, an insert issued inside a function or a
+     * `DO` block, and `COPY audit_log FROM`.
+     */
+    private static function isAnAuditInsert(string $sql): bool
+    {
+        return 1 === preg_match('/\bINSERT\s+INTO\s+(?:"?public"?\s*\.\s*)?"?audit_log"?(?![\w$])/i', self::withoutComments($sql));
+    }
+
+    /** `$sql` with `--` and block comments replaced by a space (string literals are not parsed; errs towards matching). */
+    private static function withoutComments(string $sql): string
+    {
+        return (string) preg_replace('~--[^\n]*|/\*.*?\*/~s', ' ', $sql);
+    }
+
+    /**
      * The value an `INSERT INTO audit_log (…) VALUES (…)` puts in `event_type`:
      * the bound value at that placeholder, or the literal written there.
      *
@@ -767,7 +802,7 @@ final class AuditWriterTest extends PurchaseOrderTestCase
      */
     private static function eventTypeOf(string $sql, array $params): string
     {
-        self::assertSame(1, preg_match('/audit_log\s*\(([^)]*)\)\s*VALUES\s*\((.*)\)\s*$/is', $sql, $m), 'Unreadable audit INSERT: '.$sql);
+        self::assertSame(1, preg_match('/audit_log"?\s*\(([^)]*)\)\s*VALUES\s*\((.*)\)\s*$/is', self::withoutComments($sql), $m), 'Unreadable audit INSERT: '.$sql);
 
         $columns = array_map(trim(...), explode(',', $m[1]));
         $position = array_search('event_type', $columns, true);

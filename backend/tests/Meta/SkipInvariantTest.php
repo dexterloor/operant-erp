@@ -75,6 +75,19 @@ use PHPUnit\Framework\TestCase;
  * The fully-qualified spelling is in that list because the first draft matched
  * `T_STRING` alone and let it straight through. It was found by running the
  * mutation, not by reading the code — see `isDocumentReference()`.
+ *
+ * ---------------------------------------------------------------------------
+ * A guard gates its own document only (V1-C4, V4 B4c, 2026-09-16)
+ * ---------------------------------------------------------------------------
+ * Until then clause (ii) accepted any reader's probe as a gate for every reader:
+ * `if (!ContractDocument::isAvailable())` satisfied it for a method reading
+ * `IaDocument`. Gates and reaches are now tracked per document class. Plant, a
+ * throwaway `tests/Meta` test class (cache deleted before and after): a
+ * `ContractDocument` guard before an `IaDocument` read — directly, with a comment
+ * inside the negation and the fully-qualified name, and through a private
+ * helper — plus a control method guarding both. Before: `OK (2 tests, 6
+ * assertions)`. After: RED naming exactly the three plant methods, `(IaDocument)`,
+ * and not the control.
  */
 final class SkipInvariantTest extends TestCase
 {
@@ -151,11 +164,11 @@ final class SkipInvariantTest extends TestCase
             }
 
             ++$subjects;
-            $gate = $gates[$key] ?? null;
 
-            foreach ($reaches[$key] as $position) {
+            foreach ($reaches[$key] as [$position, $document]) {
+                $gate = $gates[$key][$document] ?? null;
                 if (null === $gate || $position <= $gate) {
-                    $ungated[] = $key;
+                    $ungated[] = $key.' ('.$document.')';
                     break;
                 }
             }
@@ -172,7 +185,11 @@ final class SkipInvariantTest extends TestCase
      *
      * @param list<\PhpToken> $tokens
      *
-     * @return list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int}>
+     * **A guard gates the documents its condition probes, and only those**
+     * (V1-C4, V4 B4c): `!ContractDocument::isAvailable()` is no guard for a read
+     * of `IaDocument`.
+     *
+     * @return list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int, documents: list<string>}>
      */
     private function guards(array $tokens): array
     {
@@ -189,7 +206,8 @@ final class SkipInvariantTest extends TestCase
             }
 
             $close = $this->match($tokens, $open, '(', ')');
-            if (null === $close || !$this->conditionIsTheAvailabilityProbe($tokens, $open, $close)) {
+            $documents = null === $close ? [] : $this->documentsProbedBy($tokens, $open, $close);
+            if ([] === $documents) {
                 continue;
             }
 
@@ -216,16 +234,24 @@ final class SkipInvariantTest extends TestCase
                 continue;
             }
 
-            $guards[] = ['condStart' => $open, 'condEnd' => $close, 'bodyStart' => $bodyStart, 'bodyEnd' => $bodyEnd];
+            $guards[] = ['condStart' => $open, 'condEnd' => $close, 'bodyStart' => $bodyStart, 'bodyEnd' => $bodyEnd, 'documents' => $documents];
         }
 
         return $guards;
     }
 
-    /** @param list<\PhpToken> $tokens */
-    private function conditionIsTheAvailabilityProbe(array $tokens, int $open, int $close): bool
+    /**
+     * The document classes whose availability probe the condition negates —
+     * `[]` when it is not a guard.
+     *
+     * @param list<\PhpToken> $tokens
+     *
+     * @return list<string> class short names
+     */
+    private function documentsProbedBy(array $tokens, int $open, int $close): array
     {
         $negatedAt = null;
+        $documents = [];
 
         for ($i = $open + 1; $i < $close; ++$i) {
             if ('!' === $tokens[$i]->text && null === $negatedAt) {
@@ -240,11 +266,19 @@ final class SkipInvariantTest extends TestCase
             $probe = null === $operator ? null : $this->next($tokens, $operator);
 
             if (null !== $probe && $this->isName($tokens[$probe], self::AVAILABILITY_PROBE)) {
-                return true;
+                $documents[] = $this->documentOf($tokens[$i]);
             }
         }
 
-        return false;
+        return array_values(array_unique($documents));
+    }
+
+    /** The short class name a document reference token spells. */
+    private function documentOf(\PhpToken $token): string
+    {
+        $segments = explode('\\', $token->text);
+
+        return (string) end($segments);
     }
 
     /**
@@ -255,8 +289,8 @@ final class SkipInvariantTest extends TestCase
      * @return array<string, array{
      *     isTest: bool,
      *     name: string,
-     *     inlineGate: int|null,
-     *     directReaches: list<int>,
+     *     inlineGate: array<string, int>,
+     *     directReaches: list<array{0: int, 1: string}>,
      *     calls: list<array{name: string, at: int}>
      * }>
      */
@@ -336,12 +370,16 @@ final class SkipInvariantTest extends TestCase
      * chance to skip: the closing brace of a guard whose body actually calls
      * `markTestSkipped`. A guard that does something else is not a gate.
      *
-     * @param list<\PhpToken>                                                          $tokens
-     * @param list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int}> $guards
+     * Per document: a guard gates only the documents it probes.
+     *
+     * @param list<\PhpToken>                                                                                    $tokens
+     * @param list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int, documents: list<string>}> $guards
+     *
+     * @return array<string, int> document => position
      */
-    private function inlineGate(array $tokens, array $guards, int $bodyStart, int $bodyEnd): ?int
+    private function inlineGate(array $tokens, array $guards, int $bodyStart, int $bodyEnd): array
     {
-        $gate = null;
+        $gates = [];
 
         foreach ($guards as $guard) {
             if ($guard['condStart'] < $bodyStart || $guard['bodyEnd'] > $bodyEnd) {
@@ -350,13 +388,15 @@ final class SkipInvariantTest extends TestCase
 
             for ($i = $guard['bodyStart']; $i < $guard['bodyEnd']; ++$i) {
                 if ($this->isName($tokens[$i], self::SKIP_CALL)) {
-                    $gate = min($gate ?? $guard['bodyEnd'], $guard['bodyEnd']);
+                    foreach ($guard['documents'] as $document) {
+                        $gates[$document] = min($gates[$document] ?? $guard['bodyEnd'], $guard['bodyEnd']);
+                    }
                     break;
                 }
             }
         }
 
-        return $gate;
+        return $gates;
     }
 
     /**
@@ -364,10 +404,10 @@ final class SkipInvariantTest extends TestCase
      * guard's own condition — `!ContractDocument::isAvailable()` is the guard,
      * not a read of the document.
      *
-     * @param list<\PhpToken>                                                          $tokens
-     * @param list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int}> $guards
+     * @param list<\PhpToken>                                                                                    $tokens
+     * @param list<array{condStart: int, condEnd: int, bodyStart: int, bodyEnd: int, documents: list<string>}> $guards
      *
-     * @return list<int>
+     * @return list<array{0: int, 1: string}> position and document
      */
     private function directReaches(array $tokens, array $guards, int $bodyStart, int $bodyEnd): array
     {
@@ -384,7 +424,7 @@ final class SkipInvariantTest extends TestCase
                 }
             }
 
-            $reaches[] = $i;
+            $reaches[] = [$i, $this->documentOf($tokens[$i])];
         }
 
         return $reaches;
@@ -429,15 +469,18 @@ final class SkipInvariantTest extends TestCase
      * scan and conservative**: a name is a gate only if *every* method carrying
      * it is one, so an ambiguous helper cannot launder a missing guard.
      *
-     * @param array<string, array{isTest: bool, name: string, inlineGate: int|null, directReaches: list<int>, calls: list<array{name: string, at: int}>}> $methods
+     * **Per document** (V1-C4): a call is a gate for document D only if every
+     * candidate is a gate for D.
      *
-     * @return array<string, int>
+     * @param array<string, array{isTest: bool, name: string, inlineGate: array<string, int>, directReaches: list<array{0: int, 1: string}>, calls: list<array{name: string, at: int}>}> $methods
+     *
+     * @return array<string, array<string, int>> method => document => position
      */
     private function resolveGates(array $methods): array
     {
         $gates = [];
         foreach ($methods as $key => $method) {
-            if (null !== $method['inlineGate']) {
+            if ([] !== $method['inlineGate']) {
                 $gates[$key] = $method['inlineGate'];
             }
         }
@@ -452,15 +495,17 @@ final class SkipInvariantTest extends TestCase
                         continue;
                     }
 
-                    foreach ($candidates as $candidate) {
-                        if (!isset($gates[$candidate])) {
-                            continue 2;
+                    foreach ($this->documentClasses() as $document) {
+                        foreach ($candidates as $candidate) {
+                            if (!isset($gates[$candidate][$document])) {
+                                continue 2;
+                            }
                         }
-                    }
 
-                    if (!isset($gates[$key]) || $call['at'] < $gates[$key]) {
-                        $gates[$key] = $call['at'];
-                        $changed = true;
+                        if (!isset($gates[$key][$document]) || $call['at'] < $gates[$key][$document]) {
+                            $gates[$key][$document] = $call['at'];
+                            $changed = true;
+                        }
                     }
                 }
             }
@@ -474,10 +519,13 @@ final class SkipInvariantTest extends TestCase
      * something that does. Resolution here is conservative the other way: *any*
      * method carrying the name reaching is enough.
      *
-     * @param array<string, array{isTest: bool, name: string, inlineGate: int|null, directReaches: list<int>, calls: list<array{name: string, at: int}>}> $methods
-     * @param array<string, int>                                                                                                                          $gates
+     * Per document: a candidate's reach of D is discharged inside it only when
+     * the candidate is a gate for D.
      *
-     * @return array<string, list<int>>
+     * @param array<string, array{isTest: bool, name: string, inlineGate: array<string, int>, directReaches: list<array{0: int, 1: string}>, calls: list<array{name: string, at: int}>}> $methods
+     * @param array<string, array<string, int>>                                                                                                                                                 $gates
+     *
+     * @return array<string, list<array{0: int, 1: string}>>
      */
     private function resolveReaches(array $methods, array $gates): array
     {
@@ -494,19 +542,21 @@ final class SkipInvariantTest extends TestCase
             foreach ($methods as $key => $method) {
                 foreach ($method['calls'] as $call) {
                     foreach ($this->byName($methods, $call['name']) as $candidate) {
-                        if ($candidate === $key || [] === ($reaches[$candidate] ?? [])) {
+                        if ($candidate === $key) {
                             continue;
                         }
-                        // A gate's own reach is discharged inside it.
-                        if (isset($gates[$candidate])) {
-                            continue;
-                        }
-                        if (\in_array($call['at'], $reaches[$key] ?? [], true)) {
-                            continue;
-                        }
+                        foreach (array_unique(array_column($reaches[$candidate] ?? [], 1)) as $document) {
+                            // A gate's own reach is discharged inside it — for the documents it gates.
+                            if (isset($gates[$candidate][$document])) {
+                                continue;
+                            }
+                            if (\in_array([$call['at'], $document], $reaches[$key] ?? [], true)) {
+                                continue;
+                            }
 
-                        $reaches[$key][] = $call['at'];
-                        $changed = true;
+                            $reaches[$key][] = [$call['at'], $document];
+                            $changed = true;
+                        }
                     }
                 }
             }
@@ -516,7 +566,7 @@ final class SkipInvariantTest extends TestCase
     }
 
     /**
-     * @param array<string, array{isTest: bool, name: string, inlineGate: int|null, directReaches: list<int>, calls: list<array{name: string, at: int}>}> $methods
+     * @param array<string, array{isTest: bool, name: string, inlineGate: array<string, int>, directReaches: list<array{0: int, 1: string}>, calls: list<array{name: string, at: int}>}> $methods
      *
      * @return list<string>
      */

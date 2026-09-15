@@ -300,6 +300,15 @@ final class WriteOwnershipTest extends TestCase
      * methods under `caught` were caught then and are pinned so the fix cannot
      * lose them. The methods under `notWrites` are what the new keywords must
      * not turn into statements.
+     *
+     * **`$k`…`$p` and `notWrites::$d`, V1-R-6(a), V4 B4c (2026-09-16):** a keyword
+     * glued to a dollar-quote opening tag — tagged (`$q$UPDATE`), an underscore
+     * tag spelt with `\$` escapes in a double-quoted string (`$l`), untagged in a
+     * SQL function body (`$m`), a comment between the glued keyword and its
+     * target (`$n`), a nowdoc `DO $body$ … $q$MERGE INTO` (`$o`) and an escaped
+     * heredoc `TRUNCATE` (`$p`). **All six were missed before the fix** (the
+     * fixture comparison lost exactly six `planted` rows); `a$b$UPDATE` is an
+     * identifier, not a tag, and stays not-a-statement.
      */
     private const EVASIONS = <<<'PHP'
         <?php
@@ -323,6 +332,16 @@ final class WriteOwnershipTest extends TestCase
                 $h = "update /* then */ audit_log set id = 109";
                 $i = "SELECT 1; /* DO */\nUPDATE audit_log SET id = 110";
                 $j = 'TRUNCATE TABLE ONLY stock_level, audit_log';
+                $k = 'DO $$BEGIN EXECUTE $q$UPDATE audit_log SET id = 111$q$; END$$';
+                $l = "DO \$\$BEGIN EXECUTE \$_x\$DELETE FROM audit_log WHERE id = 112\$_x\$; END\$\$";
+                $m = 'CREATE FUNCTION p() RETURNS void LANGUAGE sql AS $$INSERT INTO audit_log (id) VALUES (113)$$';
+                $n = 'DO $$BEGIN EXECUTE $q$UPDATE/* glued */audit_log SET id = 114$q$; END$$';
+                $o = <<<'SQL'
+                    DO $body$BEGIN EXECUTE $q$MERGE INTO audit_log a USING (SELECT 1 AS id) s ON a.id = s.id WHEN MATCHED THEN DELETE$q$; END$body$
+                    SQL;
+                $p = <<<SQL
+                    DO \$\$BEGIN EXECUTE \$q\$TRUNCATE audit_log\$q\$; END\$\$
+                    SQL;
             }
 
             public function caught(string $t): void
@@ -341,6 +360,7 @@ final class WriteOwnershipTest extends TestCase
                 $a = 'COPY audit_log TO STDOUT';
                 $b = 'Copy the order before you merge into another, or truncate the note.';
                 $c = "SELECT 1 FROM purchase_order WHERE id = ?\nFOR NO KEY UPDATE";
+                $d = 'SELECT a$b$UPDATE FROM purchase_order';
             }
         }
         PHP;
@@ -356,6 +376,12 @@ final class WriteOwnershipTest extends TestCase
         ['Evasions::planted', 'audit_log'],
         ['Evasions::planted', 'audit_log'],
         ['Evasions::planted', 'stock_level'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
+        ['Evasions::planted', 'audit_log'],
         ['Evasions::planted', 'audit_log'],
         ['Evasions::caught', 'audit_log'],
         ['Evasions::caught', 'audit_log'],
@@ -412,6 +438,23 @@ final class WriteOwnershipTest extends TestCase
         return $statements;
     }
 
+    /** The dollar-quote delimiters in `$text`, replaced by spaces; see `statementsInLiteral()`. */
+    private static function blankDollarQuoteTags(string $text): string
+    {
+        $offset = 0;
+        while (1 === preg_match('/(?<![\w$])\$(?:[A-Za-z_\x80-\xff][\w\x80-\xff]*)?\$/', $text, $m, \PREG_OFFSET_CAPTURE, $offset)) {
+            [$tag, $at] = $m[0];
+            $length = \strlen($tag);
+            $text = substr_replace($text, str_repeat(' ', $length), $at, $length);
+            if (false !== ($close = strpos($text, $tag, $at + $length))) {
+                $text = substr_replace($text, str_repeat(' ', $length), $close, $length);
+            }
+            $offset = $at + $length;
+        }
+
+        return $text;
+    }
+
     /**
      * One unit of what PostgreSQL reads as a token separator: whitespace, a
      * `--` line comment, or a slash-star block comment. Used between the words of
@@ -431,6 +474,17 @@ final class WriteOwnershipTest extends TestCase
      */
     private static function statementsInLiteral(string $text): array
     {
+        // **A dollar-quote delimiter is a token separator** (V1-R-6(a), V4 B4c).
+        // The look-behind below refuses a keyword preceded by `$`, so an
+        // identifier such as `a$b$UPDATE` is not a statement — and until
+        // 2026-09-16 that also hid `EXECUTE $q$UPDATE audit_log …$q$` and
+        // `AS $$INSERT INTO …$$`, whose keyword is glued to an opening tag.
+        // Every opening `$tag$` / `$$` — one not glued to an identifier, as an
+        // opening tag never is per PostgreSQL's lexer — is blanked to spaces of
+        // the same length, and so is the next occurrence of the same tag, which
+        // closes it and MAY be glued (`TRUNCATE audit_log$q$`). Offsets and the
+        // `DO` / `FOR` look-back are unchanged.
+        $text = self::blankDollarQuoteTags($text);
         $gap = self::GAP;
         preg_match_all(
             "~(?<![\\w\$\\\\])(INSERT{$gap}+INTO|DELETE{$gap}+FROM|MERGE{$gap}+INTO|UPDATE|TRUNCATE|COPY)(?![\\w\$])~is",

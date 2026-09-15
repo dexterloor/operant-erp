@@ -1069,6 +1069,18 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * Nor does it credit a constant of **another** class (`OtherClass::SQL`,
      * `parent::SQL`, an interface constant), or SQL built from pieces.
      *
+     * **Followed since 2026-09-16 (V1-R-6(b), V4 B4c):** a property default read
+     * as `$this->sql`, a static property read as `self::$SQL` / `static::$SQL`,
+     * and `constant('self::SQL')` / `\constant("…")` with a literal argument —
+     * each planted with a comment variant (a block comment after `$this->`, after
+     * `static::` and inside `constant(`) and an escape
+     * variant (`"SELECT 1;\nDELETE FROM sales_order_line …"` as the static
+     * default, `"self\u{3a}\u{3a}SQL"`). All seven were missed before the fix
+     * (the planted list lost exactly those seven), and `readsAPropertyOnly` stays
+     * out. **Still not followed:** another object's property (`$o->sql`), a
+     * property assigned anywhere but its declaration, and dynamic names
+     * (`$this->{$n}`, `constant($name)`).
+     *
      * **Mutations, run 2026-09-13, each removed or reverted afterwards:** a
      * throwaway public method under `src/` that runs `UPDATE sales_order …` —
      * red here, naming it, and the purchase-order scan stays green; a throwaway
@@ -1116,8 +1128,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // the escape to the keyword. Both must be found by the same writersAmong()
         // the tree scan below runs on.
         self::assertSame(self::PLANTED_SALES_WRITERS_EXPECTED, array_keys(self::writersAmong([self::PLANTED_SALES_WRITERS], self::SALES_ORDER_SCAN)),
-            'The writer scan does not find exactly the planted sales-order writers — SQL held in a class constant and run '
-            .'through self::/static::/ClassName::, or SQL with an escaped newline before the keyword — so the empty '
+            'The writer scan does not find exactly the planted sales-order writers — SQL held in a class constant, a '
+            .'property default or a static property and run through self::/static::/ClassName::/$this->/constant(), or '
+            .'SQL with an escaped newline before the keyword — so the empty '
             .'result below may be a blind scan, not an empty tree.');
 
         $derived = self::writersOf(self::SALES_ORDER_SCAN);
@@ -1154,6 +1167,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
             private const READ = 'SELECT 1 FROM sales_order WHERE id = ?::uuid FOR NO KEY UPDATE';
 
+            private string $sql = 'UPDATE sales_order SET status = ? WHERE id = ?::uuid';
+
+            private static string $STATIC_SQL = "SELECT 1;\nDELETE FROM sales_order_line WHERE id = ?::uuid";
+
+            private string $read = 'SELECT 1 FROM sales_order WHERE id = ?::uuid';
+
             public function viaSelf(object $c): void
             {
                 $c->executeStatement(self::SQL, []);
@@ -1179,6 +1198,46 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 $c->executeStatement("SELECT 1;\nUPDATE sales_order SET status = 'x'");
             }
 
+            public function viaProperty(object $c): void
+            {
+                $c->executeStatement($this->sql, []);
+            }
+
+            public function viaPropertyAfterAComment(object $c): void
+            {
+                $c->executeStatement($this-> /* the statement */ sql, []);
+            }
+
+            public function viaStaticProperty(object $c): void
+            {
+                $c->executeStatement(self::$STATIC_SQL, []);
+            }
+
+            public function viaStaticPropertyAfterAComment(object $c): void
+            {
+                $c->executeStatement(static:: /* late */ $STATIC_SQL, []);
+            }
+
+            public function viaConstantFunction(object $c): void
+            {
+                $c->executeStatement(constant('self::SQL'), []);
+            }
+
+            public function viaConstantFunctionEscaped(object $c): void
+            {
+                $c->executeStatement(\constant("self\u{3a}\u{3a}SQL"), []);
+            }
+
+            public function viaConstantFunctionAfterAComment(object $c): void
+            {
+                $c->executeStatement(constant(/* by name */ 'PlantedSalesWriter::SQL'), []);
+            }
+
+            public function readsAPropertyOnly(object $c): void
+            {
+                $c->executeStatement($this->read, []);
+            }
+
             public function readsOnly(object $c): void
             {
                 $c->executeStatement(self::READ, []);
@@ -1197,6 +1256,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'PlantedSalesWriter::viaOwnName',
         'PlantedSalesWriter::viaAlias',
         'PlantedSalesWriter::viaEscapedNewline',
+        'PlantedSalesWriter::viaProperty',
+        'PlantedSalesWriter::viaPropertyAfterAComment',
+        'PlantedSalesWriter::viaStaticProperty',
+        'PlantedSalesWriter::viaStaticPropertyAfterAComment',
+        'PlantedSalesWriter::viaConstantFunction',
+        'PlantedSalesWriter::viaConstantFunctionEscaped',
+        'PlantedSalesWriter::viaConstantFunctionAfterAComment',
     ];
 
     /**

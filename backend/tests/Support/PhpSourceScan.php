@@ -30,11 +30,22 @@ namespace App\Tests\Support;
  *     - the class names it **names** as `X::class` or `new X`, by short name.
  *    Closures and anonymous classes belong to the method they are in;
  *  - per method, the **constants of its own class it references** —
- *    `self::X`, `static::X`, `OwnShortName::X` — and `constants`: each class
- *    constant's literals and the own-class constants its value references.
- *    {@see self::literalsReachedBy()} joins them, so `executeStatement(self::SQL)`
- *    is a method holding that SQL (RED review, 2026-09-14). Another class's
- *    constant is not followed;
+ *    `self::X`, `static::X`, `OwnShortName::X`, and `constant('self::X')` /
+ *    `constant('OwnShortName::X')` with a literal argument — and `constants`:
+ *    each class constant's literals and the own-class constants its value
+ *    references. {@see self::literalsReachedBy()} joins them, so
+ *    `executeStatement(self::SQL)` is a method holding that SQL (RED review,
+ *    2026-09-14). Another class's constant is not followed;
+ *  - per method, the **properties of its own class it references** —
+ *    `$this->x`, `self::$X`, `static::$X`, `OwnShortName::$X` — and
+ *    `properties`: each property's default literals (a promoted constructor
+ *    parameter's default included) and the own-class constants that default
+ *    references. Joined the same way (V1-R-6(b), V4 B4c, 2026-09-16: a property
+ *    default, a static property and `constant('self::SQL')` each walked past the
+ *    sales tripwire). **Not followed:** another object's property (`$o->sql`), a
+ *    property assigned anywhere but its declaration, a dynamic name
+ *    (`$this->{$n}`, `constant($name)`), and a parameter default that shares a
+ *    property's name is credited to that property (errs towards reporting);
  *  - `outside`: the literal pieces **outside any method body** — class
  *    constants, property and parameter defaults — each with the class it is
  *    in (`null` outside a class). The lock-first scan ignores these, as it
@@ -71,7 +82,8 @@ final class PhpSourceScan
      *     namespace: string,
      *     methods: array<string, array{public: bool, class: string, name: string, literals: list<array{text: string, value: string, line: int}>, calls: list<string>, named: list<string>, constants: list<string>}>,
      *     outside: list<array{class: ?string, text: string, value: string, line: int}>,
-     *     constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>
+     *     constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>,
+     *     properties: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>
      * }
      */
     public static function scan(string $source): array
@@ -93,6 +105,8 @@ final class PhpSourceScan
         $constants = [];
         $constant = null;
         $inConstDeclaration = false;
+        $properties = [];
+        $property = null;
 
         foreach ($tokens as $i => $token) {
             $id = \is_array($token) ? $token[0] : null;
@@ -135,6 +149,17 @@ final class PhpSourceScan
                 continue;
             }
 
+            if ($atClassBody && !$inConstDeclaration && \T_VARIABLE === $id && '=' === ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
+                // A property default, or a (promoted) parameter default: `$property` until `,` `)` `;` or `{`.
+                $property = $class.'::'.$text;
+                $properties[$property] ??= ['literals' => [], 'refs' => []];
+                continue;
+            }
+
+            if ($atClassBody && null !== $property && (',' === $text || ')' === $text)) {
+                $property = null;
+            }
+
             if ($atClassBody && $inConstDeclaration && \T_STRING === $id && '=' === ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
                 $constant = $class.'::'.$text;
                 $constants[$constant] = ['literals' => [], 'refs' => []];
@@ -155,6 +180,7 @@ final class PhpSourceScan
             }
 
             if ('{' === $text || \T_CURLY_OPEN === $id || \T_DOLLAR_OPEN_CURLY_BRACES === $id) {
+                $property = null;
                 ++$depth;
                 if (null !== $pendingClass && null === $classDepth) {
                     $class = $pendingClass;
@@ -162,7 +188,7 @@ final class PhpSourceScan
                     $pendingClass = null;
                 } elseif (null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
                     $current = $class.'::'.$pendingMethod;
-                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'literals' => [], 'calls' => [], 'named' => [], 'constants' => []];
+                    $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'literals' => [], 'calls' => [], 'named' => [], 'constants' => [], 'properties' => []];
                     $methodDepth = $depth;
                     $pendingMethod = null;
                 }
@@ -188,6 +214,7 @@ final class PhpSourceScan
                 $modifiers = [];
                 $inConstDeclaration = false;
                 $constant = null;
+                $property = null;
                 continue;
             }
 
@@ -203,8 +230,16 @@ final class PhpSourceScan
                     if (null !== $constant) {
                         $constants[$constant]['literals'][] = ['text' => $text, 'value' => $value, 'line' => $token[2]];
                     }
-                } elseif (null !== $constant && null !== $ownConstant) {
-                    $constants[$constant]['refs'][] = $class.'::'.$ownConstant;
+                    if (null !== $property) {
+                        $properties[$property]['literals'][] = ['text' => $text, 'value' => $value, 'line' => $token[2]];
+                    }
+                } elseif (null !== $ownConstant) {
+                    if (null !== $constant) {
+                        $constants[$constant]['refs'][] = $class.'::'.$ownConstant;
+                    }
+                    if (null !== $property) {
+                        $properties[$property]['refs'][] = $class.'::'.$ownConstant;
+                    }
                 }
                 continue;
             }
@@ -214,8 +249,16 @@ final class PhpSourceScan
                 continue;
             }
 
+            if (null !== ($ownProperty = self::ownPropertyAt($tokens, $i, (string) $class))) {
+                $methods[$current]['properties'][] = $class.'::$'.$ownProperty;
+                continue;
+            }
+
             if ($isLiteral) {
                 $methods[$current]['literals'][] = ['text' => $text, 'value' => $value, 'line' => $token[2]];
+                if (null !== ($named = self::constantFunctionArgument($tokens, $i, $value, (string) $class))) {
+                    $methods[$current]['constants'][] = $class.'::'.$named;
+                }
                 continue;
             }
 
@@ -236,7 +279,7 @@ final class PhpSourceScan
             }
         }
 
-        return ['namespace' => $namespace, 'methods' => $methods, 'outside' => $outside, 'constants' => $constants];
+        return ['namespace' => $namespace, 'methods' => $methods, 'outside' => $outside, 'constants' => $constants, 'properties' => $properties];
     }
 
     /**
@@ -249,26 +292,93 @@ final class PhpSourceScan
      * write held that way: `private const SQL = 'UPDATE sales_order …'` walked
      * past the sales tripwire.
      *
-     * @param array{methods: array<string, array{constants: list<string>, literals: list<array{text: string, value: string, line: int}>}>, constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>} $scan
+     * **And the default literals of every property of its own class it reads**
+     * (`$this->x`, `self::$X`), with the constants a default references
+     * (V1-R-6(b), 2026-09-16).
+     *
+     * @param array{methods: array<string, array{constants: list<string>, properties: list<string>, literals: list<array{text: string, value: string, line: int}>}>, constants: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>, properties: array<string, array{literals: list<array{text: string, value: string, line: int}>, refs: list<string>}>} $scan
      *
      * @return list<array{text: string, value: string, line: int}>
      */
     public static function literalsReachedBy(array $scan, string $methodKey): array
     {
         $literals = $scan['methods'][$methodKey]['literals'];
-        $queue = $scan['methods'][$methodKey]['constants'];
+        $queue = [...$scan['methods'][$methodKey]['constants'], ...$scan['methods'][$methodKey]['properties']];
         $seen = [];
 
         while (null !== ($name = array_shift($queue))) {
-            if (isset($seen[$name]) || !isset($scan['constants'][$name])) {
+            $entry = $scan['constants'][$name] ?? $scan['properties'][$name] ?? null;
+            if (isset($seen[$name]) || null === $entry) {
                 continue;
             }
             $seen[$name] = true;
-            array_push($literals, ...$scan['constants'][$name]['literals']);
-            array_push($queue, ...$scan['constants'][$name]['refs']);
+            array_push($literals, ...$entry['literals']);
+            array_push($queue, ...$entry['refs']);
         }
 
         return $literals;
+    }
+
+    /**
+     * The name `x` when the token at `$i` is the `x` of `$this->x` / `$this?->x`
+     * (not a call), or the `$X` of `self::$X`, `static::$X` or
+     * `<own short class name>::$X` (returned as `X`).
+     *
+     * @param list<mixed> $tokens
+     */
+    private static function ownPropertyAt(array $tokens, int $i, string $class): ?string
+    {
+        $id = self::idAt($tokens, $i);
+        $previous = self::previousMeaningful($tokens, $i);
+
+        if (\T_STRING === $id && \in_array(self::idAt($tokens, $previous), [\T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR], true)
+            && '(' !== ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
+            $object = self::previousMeaningful($tokens, (int) $previous);
+
+            return \T_VARIABLE === self::idAt($tokens, $object) && '$this' === $tokens[$object][1] ? $tokens[$i][1] : null;
+        }
+
+        if (\T_VARIABLE === $id && \T_DOUBLE_COLON === self::idAt($tokens, $previous)) {
+            $owner = self::previousMeaningful($tokens, (int) $previous);
+            $ownerId = self::idAt($tokens, $owner);
+            if (\T_STATIC === $ownerId) {
+                return substr($tokens[$i][1], 1);
+            }
+            if (\in_array($ownerId, [\T_STRING, \T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED], true)) {
+                $name = substr((string) strrchr('\\'.$tokens[$owner][1], '\\'), 1);
+
+                return 'self' === strtolower($name) || $name === $class ? substr($tokens[$i][1], 1) : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The constant name `X` when the literal at `$i` is the only argument of a
+     * `constant(…)` / `\constant(…)` call and its runtime value is
+     * `self::X`, `static::X` or `<own short class name>::X`.
+     *
+     * @param list<mixed> $tokens
+     */
+    private static function constantFunctionArgument(array $tokens, int $i, string $value, string $class): ?string
+    {
+        $open = self::previousMeaningful($tokens, $i);
+        if ('(' !== ($tokens[$open] ?? null) || ')' !== ($tokens[self::nextMeaningful($tokens, $i)] ?? null)) {
+            return null;
+        }
+        $function = self::previousMeaningful($tokens, (int) $open);
+        if (!\in_array(self::idAt($tokens, $function), [\T_STRING, \T_NAME_FULLY_QUALIFIED], true)
+            || 'constant' !== strtolower(ltrim($tokens[$function][1], '\\'))
+            || \in_array(self::idAt($tokens, self::previousMeaningful($tokens, (int) $function)), [\T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR, \T_DOUBLE_COLON, \T_FUNCTION, \T_NEW], true)) {
+            return null;
+        }
+        if (1 !== preg_match('/^\\\\?([\w\\\\]+)::([A-Za-z_]\w*)$/', $value, $m)) {
+            return null;
+        }
+        $owner = substr((string) strrchr('\\'.$m[1], '\\'), 1);
+
+        return \in_array(strtolower($owner), ['self', 'static'], true) || $owner === $class ? $m[2] : null;
     }
 
     /**
