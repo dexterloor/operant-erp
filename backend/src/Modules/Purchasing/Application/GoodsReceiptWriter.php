@@ -261,7 +261,7 @@ final readonly class GoodsReceiptWriter
 
         $live = [];
         foreach ($connection->fetchAllAssociative(
-            'SELECT id, inventory_item_id, quantity_ordered, quantity_received FROM purchase_order_line
+            'SELECT id, inventory_item_id, line_number, quantity_ordered, quantity_received FROM purchase_order_line
               WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL',
             [$orderId],
         ) as $row) {
@@ -290,18 +290,19 @@ final readonly class GoodsReceiptWriter
         $this->orders->recordReceipt($em, $orderId, $allReceived);
 
         // 5. F-3 step 3: over-receipt is blocked at the line level.
-        foreach ($lines as $index => $line) {
+        foreach ($lines as $line) {
             $row = $live[$line['orderLine']];
             $after = bcadd((string) $row['quantity_received'], $receiving[$line['orderLine']], 6);
             if (1 === bccomp($after, (string) $row['quantity_ordered'], 6)) {
                 throw ApiProblem::businessRuleViolated(
                     'purchase_order_line.is_not_over_received',
                     // `business-rule-violated` carries no pointer, so the line is
-                    // named in the message -- by its POINTER and not as an
-                    // ordinal, because `$index` is 0-based and the two disagree.
-                    // 8a's rule, `PurchaseOrderWriter::insertLineInside()`.
-                    \sprintf('The line at /lines/%d would take the order line to %s received of %s ordered. '
-                        .'Over-receipt is not accepted.', $index, $after, (string) $row['quantity_ordered']),
+                    // named in the message. The rule is about the ORDER line, so
+                    // it is named by the `line_number` the receive page shows
+                    // (V2-C-19, 2026-09-16) -- not by the request's 0-based
+                    // pointer, which is not the user's terms (ST-3).
+                    \sprintf('Order line %d would reach %s received of %s ordered. Over-receipt is not accepted.',
+                        (int) $row['line_number'], $after, (string) $row['quantity_ordered']),
                 );
             }
         }

@@ -916,47 +916,40 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **Both refusals that name one line out of many name it by its POINTER.**
+     * **An over-receipt names the ORDERED line by its `line_number`; a duplicate still names the earlier request line by its
+     * pointer.**
      *
-     * They used to read `Line %d` with the 0-based array index, so the first
-     * line was *"Line 0"* and the second was *"Line 1"* — which a caller reads
-     * as an ordinal and corrects the **wrong line**. 8a met the same problem on
-     * `CreatePurchaseOrder` and ruled it the other way: name the line by the
-     * pointer the rest of the response uses (`/lines/1`), *"because the ordinal
-     * and the 0-based pointer disagree and a caller correcting the wrong line is
-     * worse than a slightly technical sentence"*
-     * (`PurchaseOrderWriter::insertLineInside()`). This is that rule applied to
-     * the two places in `GoodsReceiptWriter` that shipped before it existed.
+     * Both used to read `Line %d` with the 0-based array index — *"Line 0"* for the first line — which a caller reads as an
+     * ordinal and corrects the wrong line. 8a's answer was the pointer (`/lines/1`). **V2-C-19 (V4 B3e, 2026-09-16)** moved
+     * the over-receipt half on: `business-rule-violated` carries no pointer, a JSON pointer is not the user's terms (ST-3),
+     * and since owner ruling Q1(b) the ordered line's `line_number` is on the wire — it is what the receive page shows. The
+     * rule is about the ORDER line, so its number is the one to name.
      *
-     * **The fixture is built so the two readings differ.** The offending line is
-     * the **second** one in both cases, so a message saying "1" is wrong under
-     * either reading only if it means the ordinal — and a fixture with one line,
-     * or with the first line offending, cannot tell the two apart at all. The
-     * assertion that no message contains the word `Line ` at all is what stops
-     * the ordinal spelling coming back in a different sentence.
+     * **The fixture is built so the three readings differ.** The over-received order line is `line_number` 2 and is sent
+     * FIRST in the receipt, so its pointer is `/lines/0` and a 0-based ordinal would say 0. The message is pinned exactly.
      *
-     * **Mutation:** put either `sprintf('Line %d', $index)` back; red, naming the
-     * message.
+     * **Mutation:** revert the over-receipt message to the pointer text → red on the exact message.
      */
     #[Test]
-    public function aRefusalThatNamesOneLineNamesItByItsPointer(): void
+    public function anOverReceiptNamesTheOrderedLineByItsNumberAndADuplicateByItsPointer(): void
     {
         $po = $this->orderedOrderWithLines(['10', '10']);
 
-        // (a) `business-rule-violated` carries no pointer, so the line is named
-        //     in the DETAIL. The second line is the one over-received.
+        // (a) `business-rule-violated` carries no pointer, so the ORDER line is
+        //     named in the DETAIL, by its number. Line 2 is over-received and is
+        //     the first entry of the receipt.
         $this->receive($po['order'], [
-            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
             ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '11', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']],
         ]);
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('purchase_order_line.is_not_over_received', $this->json()['rule']);
-        $detail = (string) $this->json()['detail'];
-        self::assertStringContainsString('/lines/1', $detail, 'The over-receipt refusal does not name the line it refused.');
-        self::assertStringNotContainsString('Line ', $detail,
-            'The over-receipt refusal names the line as an ordinal. The index it has is 0-based, so the ordinal it '
-            .'prints is off by one and the caller corrects a line that is not the problem.');
+        self::assertSame(
+            'Order line 2 would reach 11.000000 received of 10.000000 ordered. Over-receipt is not accepted.',
+            (string) $this->json()['detail'],
+            'The over-receipt refusal does not name the ordered line by the number the receive page shows (V2-C-19).',
+        );
 
         // (b) A validation error carries its own pointer for the DUPLICATE, and
         //     names the line it duplicates in the message. That one is the first.

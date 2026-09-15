@@ -669,9 +669,10 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
      * **The supplier-catalogue rule is F-2 step 3's and it is about the order,
      * not about a field the caller sent** — so it stays a
      * `business-rule-violated`, which carries no pointer. The line is therefore
-     * named in the message, by its pointer rather than as an ordinal: `/lines/1`
-     * and "line 2" are the same line and a caller correcting the wrong one is a
-     * worse outcome than a technical sentence.
+     * named in the message. Until V2-C-19 (2026-09-16) that was the pointer
+     * (`/lines/1`), because a 0-based ordinal would have named the wrong line; it
+     * is now the `line_number` the line would carry, which is minted from its
+     * position and so is exactly "line 2".
      */
     #[Test]
     public function aNestedLineWhoseItemTheSupplierDoesNotListNamesTheLine(): void
@@ -694,8 +695,15 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
         self::assertSame('purchase_order_line.supplier_lists_the_item', $this->json()['rule']);
-        self::assertStringContainsString('/lines/1', (string) $this->json()['detail'],
-            'The refusal did not say which line the supplier does not list.');
+        // V2-C-19 (V4 B3e, 2026-09-16): named as the line NUMBER the order will
+        // carry. A nested line's `line_number` is minted from its position on a
+        // new order, so the second entry is line 2 — well defined, and the
+        // user's terms rather than a 0-based pointer. Pinned exactly.
+        self::assertSame(
+            'This order\'s supplier has no catalogue entry for the item on line 2, so the line has no lead time to record.',
+            (string) $this->json()['detail'],
+            'The refusal did not name the line by the number it would carry (V2-C-19).',
+        );
         self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
     }
 

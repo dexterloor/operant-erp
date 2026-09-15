@@ -588,10 +588,12 @@ final readonly class PurchaseOrderWriter
      * input docblock says why that mattered enough to refactor rather than copy:
      * a second copy of a snapshot rule is how the two drift.
      *
-     * **`$index` is the JSON Pointer base and nothing else.** Null points errors
+     * **`$index` is the JSON Pointer base.** Null points errors
      * at `/inventory_item_id`; an integer points them at
      * `/lines/0/inventory_item_id`. It is **0-based**, matching
-     * `GoodsReceiptWriter` and the array index the pointer addresses.
+     * `GoodsReceiptWriter` and the array index the pointer addresses. The one
+     * refusal with no pointer names the line as `$index + 1`, the number it
+     * would carry (V2-C-19).
      *
      * ⚠ **The two refusals below throw on the FIRST offending line rather than
      * collecting every bad line.**
@@ -660,14 +662,16 @@ final readonly class PurchaseOrderWriter
             // from the order, not from the request -- so E-2's second
             // case and §5.2's `business-rule-violated`.
             // A `business-rule-violated` problem carries no pointer, so on the
-            // nested path the line is named in the MESSAGE. It is named by its
-            // pointer rather than as an ordinal ("Line 1"), because the ordinal
-            // and the 0-based pointer disagree and a caller correcting the wrong
-            // line is worse than a slightly technical sentence.
+            // nested path the line is named in the MESSAGE, by the line number
+            // it would carry (V2-C-19, 2026-09-16). That is well defined here:
+            // the nested lines belong to an order this transaction is creating,
+            // so the MAX + 1 below mints `$index + 1` for each in turn. Until
+            // then it was named by its 0-based pointer, which is not the user's
+            // terms.
             throw ApiProblem::businessRuleViolated(
                 'purchase_order_line.supplier_lists_the_item',
                 'This order\'s supplier has no catalogue entry for '
-                .(null === $index ? 'that item' : 'the item at /lines/'.$index)
+                .(null === $index ? 'that item' : 'the item on line '.($index + 1))
                 .', so the line has no lead time to record.',
             );
         }
