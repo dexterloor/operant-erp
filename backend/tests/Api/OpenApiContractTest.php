@@ -324,7 +324,18 @@ final class OpenApiContractTest extends ApiTestCase
         self::assertSame($nullableActor, $spec['components']['schemas']['PurchaseOrder']['properties']['created_by'] ?? null);
     }
 
-    /** §12.3 — every operation declares an explicit `operationId`, and no two share one. */
+    /**
+     * §12.3 — every operation declares an explicit `operationId`, and no two share one.
+     *
+     * **The derivation check reads `api_`, not `_api_`** (V1-R-18, V4 B4b). API
+     * Platform strips the leading underscore when it derives an `operationId` from an
+     * operation name (`NormalizeOperationNameTrait`: `_api_/b4-plants/{id}_get` →
+     * `api_b4-plants_id_get`), so `assertStringStartsNotWith('_api_', …)` could never
+     * fail. Measured with a planted `App\` `Get` declared without `name:` or
+     * `operationId` (Rule 17, cache deleted before and after): with `_api_` this method
+     * stayed GREEN while `OperationIdTest` went red on `"api_b4-plants_id_get"`; with
+     * `^_?api_` it goes RED naming `get /api/v1/b4-plants/{id}`.
+     */
     #[Test]
     public function everyOperationIdIsExplicitAndUnique(): void
     {
@@ -334,7 +345,7 @@ final class OpenApiContractTest extends ApiTestCase
         foreach ($spec['paths'] as $path => $methods) {
             foreach ($methods as $method => $operation) {
                 self::assertArrayHasKey('operationId', $operation, $method.' '.$path);
-                self::assertStringStartsNotWith('_api_', $operation['operationId'], 'API Platform\'s derivation was not overridden on '.$method.' '.$path);
+                self::assertDoesNotMatchRegularExpression('/^_?api_/', $operation['operationId'], 'API Platform\'s derivation was not overridden on '.$method.' '.$path);
                 $ids[] = $operation['operationId'];
             }
         }

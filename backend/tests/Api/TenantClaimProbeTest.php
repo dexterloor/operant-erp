@@ -147,6 +147,21 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
      * does NOT refuse an undeclared name there" — 200 with `A.item` against a
      * 404. The rest of the suite stayed green under it too: OK (717 tests,
      * 6327 assertions). Both reverted; green.
+     *
+     * ⚠ **That second note went stale at `4e99cdd` (step F2, 2026-09-15)** and is
+     * kept only as history (V1-R-7, V4 B4b). `UndeclaredQueryParameterRefusal`
+     * now refuses `?tenant_id` on every operation before `read`, so the provider
+     * is never reached. **Re-run 2026-09-16** (Rule 17, cache deleted before and
+     * after): the same `ItemProvider` switch → `OK (1 test, 1296 assertions)` —
+     * GREEN, the correct outcome, and no longer evidence. **The query-channel
+     * mutation that still reaches this check** is to *declare* the name and read
+     * it: `parameters: ['tenant_id' => new QueryParameter(key: 'tenant_id')]` on
+     * `GetItem`, plus the same `ItemProvider` switch → RED, "GetItem with tenant
+     * B's id in query tenant_id was refused, but not the way the operation
+     * refuses any undeclared name. R-29." (404 `not-found` against the control's
+     * 422 `undeclared_parameter`). Reverted; green. Since F2 the query and body
+     * channels stop at refusal gates on every built operation; only the header
+     * channel reaches operation logic undeclared.
      */
     #[Test]
     public function aClientSuppliedTenantIdInAHeaderTheQueryOrTheBodyChangesNoOperationsOutcome(): void

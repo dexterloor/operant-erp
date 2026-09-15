@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Platform\Http;
 
+use ApiPlatform\Metadata\Error as ErrorOperation;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\Platform\Http\Problem\ApiProblem;
@@ -68,10 +69,16 @@ use Symfony\Component\HttpFoundation\Request;
  * undeclared_parameter, message}` per undeclared name, in the order the query
  * string carries them — exactly what the list providers returned.
  *
- * Only this application's operations are subject: API Platform's own error
- * operations (`_api_*`) re-enter the provider chain while rendering a problem and
- * declare nothing, so refusing there would turn every problem raised on a URL
- * with a query string into a second one.
+ * Only this application's operations are subject, and **not its error
+ * operations**: an error operation (`ApiProblem`'s `_api_problem`, and the
+ * vendor's) re-enters the provider chain while rendering a problem and declares
+ * nothing, so refusing there would turn every problem raised on a URL with a
+ * query string into a second one. **The exemption is decided by the operation's
+ * kind (`ApiPlatform\Metadata\Error`), never by its name** (V1-S-8, 2026-09-16):
+ * until then it was "name starts with `_api_`", which is also the name API
+ * Platform gives an operation declared without `name:`, so such an `App\`
+ * operation was silently exempt — a planted one answered 200 to `?probe=1`.
+ * Pinned by `UndeclaredQueryParameterRefusalTest::onlyAnErrorOperationIsExemptWhateverAnOperationIsNamed`.
  */
 #[AsDecorator(decorates: 'api_platform.state_provider.main', priority: self::PRIORITY)]
 final readonly class UndeclaredQueryParameterRefusal implements ProviderInterface
@@ -96,7 +103,7 @@ final readonly class UndeclaredQueryParameterRefusal implements ProviderInterfac
 
         if ($request instanceof Request
             && str_starts_with((string) $operation->getClass(), 'App\\')
-            && !str_starts_with((string) $operation->getName(), '_api_')
+            && !$operation instanceof ErrorOperation
         ) {
             self::refuseUndeclared($operation, $request);
         }

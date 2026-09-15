@@ -4,9 +4,16 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\Error as ErrorOperation;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Operation;
+use ApiPlatform\State\ProviderInterface;
+use App\Modules\Inventory\ApiResource\ItemResource;
+use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Http\UndeclaredQueryParameterRefusal;
 use App\Tests\Support\CountingKdf;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * The decisions `Platform\Http\UndeclaredQueryParameterRefusal` takes, each pinned
@@ -119,6 +126,80 @@ final class UndeclaredQueryParameterRefusalTest extends PurchaseOrderTestCase
         self::assertSame('?c5', $this->json()['errors'][0]['pointer'] ?? null);
         self::assertSame($before, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT password_hash FROM app_user WHERE id = ?::uuid', [$this->actorId])[0]['password_hash'],
             'The password changed on a request refused for its URL.');
+    }
+
+    /**
+     * **The exemption is API Platform's error operations, decided by what the
+     * operation IS, not by what it is called** (V1-S-8, V4 B4b, ⚑ standing rule 1).
+     *
+     * Until 2026-09-16 the refusal skipped every operation whose name starts with
+     * `_api_`. That is also the name API Platform gives an operation declared
+     * without `name:` — so an `App\` operation shipped without one was silently
+     * exempt (fail-open). Measured with a planted `App\` resource whose `Get` has
+     * no `name:` (Rule 17, cache deleted before and after): `GET …?probe=1`
+     * answered **200** (`docs/session10/progress-B4.md`). The exemption exists
+     * for one reason — an error operation re-enters the provider chain while it
+     * renders a problem and declares nothing — so it is now
+     * `$operation instanceof ApiPlatform\Metadata\Error`.
+     *
+     * Driven on the decorator directly, with a recording inner provider, so the
+     * three cases need no planted resource:
+     * 1. an `App\` `Get` named the way API Platform names an unnamed one → refused;
+     * 2. `ApiProblem`'s own error operation (`_api_problem`, an `App\` class) → passed through;
+     * 3. an error operation whose name does NOT start with `_api_` → passed through
+     *    (so the criterion is the operation's kind, not a second spelling of the name).
+     *
+     * Mutations (Rule 17, cache deleted before and after): the `instanceof
+     * ErrorOperation` test replaced by the old name prefix → RED on case 1 ("An App
+     * operation named the way API Platform names an unnamed one was not refused");
+     * the exemption removed altogether → RED on case 2 ("ApiProblem's error
+     * operation was refused…") and every HTTP test in this class errors, so the
+     * exemption is load-bearing. After the fix the same planted unnamed `Get`
+     * answers 422 to `?probe=1`.
+     */
+    #[Test]
+    public function onlyAnErrorOperationIsExemptWhateverAnOperationIsNamed(): void
+    {
+        $inner = new class implements ProviderInterface {
+            public int $calls = 0;
+
+            public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
+            {
+                ++$this->calls;
+
+                return null;
+            }
+        };
+        $refusal = new UndeclaredQueryParameterRefusal($inner);
+        $request = Request::create('/api/v1/items/x?probe=1');
+
+        $unnamed = new Get(uriTemplate: '/items/{id}/unnamed', class: ItemResource::class, name: '_api_/items/{id}/unnamed_get');
+        $refused = null;
+        try {
+            $refusal->provide($unnamed, [], ['request' => $request]);
+        } catch (ApiProblem $problem) {
+            $refused = $problem;
+        }
+        self::assertNotNull($refused, 'An App operation named the way API Platform names an unnamed one was not refused (V1-S-8: fail-open).');
+        self::assertSame(0, $inner->calls, 'The refused request reached the inner provider.');
+
+        foreach ([
+            'ApiProblem\'s error operation' => new ErrorOperation(class: ApiProblem::class, name: '_api_problem'),
+            'an error operation not named _api_' => new ErrorOperation(class: ApiProblem::class, name: 'problem'),
+        ] as $label => $error) {
+            $before = $inner->calls;
+            try {
+                $refusal->provide($error, [], ['request' => $request]);
+            } catch (ApiProblem) {
+                self::fail($label.' was refused: rendering a problem on a URL with a query string would raise a second one.');
+            }
+            self::assertSame($before + 1, $inner->calls, $label.' did not reach the inner provider.');
+        }
+
+        // Control: a named App operation is refused the same way (the refusal is live at all).
+        $named = new Get(uriTemplate: '/items/{id}', class: ItemResource::class, name: 'GetItem');
+        $this->expectException(ApiProblem::class);
+        $refusal->provide($named, [], ['request' => $request]);
     }
 
     /**
