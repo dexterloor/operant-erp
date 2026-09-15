@@ -8,6 +8,7 @@ use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\RequestIdentity;
+use App\Tests\Support\OwnerRequestWindow;
 use App\Tests\Support\SqlRecorder;
 use App\Tests\Tenancy\TenancyTestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -71,6 +72,21 @@ abstract class ApiTestCase extends TenancyTestCase
         $this->client = $client;
 
         $this->actAs(self::TENANT_A);
+    }
+
+    /**
+     * V3-1(i) item (5): no HTTP test may see the schema owner's connection issue a statement while a request is served.
+     * Coverage and limits: `App\Tests\Support\OwnerRequestWindow`; positive control: `OwnerRequestWindowTest`.
+     */
+    protected function tearDown(): void
+    {
+        $window = self::getContainer()->get(OwnerRequestWindow::class);
+        \assert($window instanceof OwnerRequestWindow);
+        $inside = $window->takeStatementsInsideRequests();
+
+        parent::tearDown();
+
+        self::assertSame([], $inside, 'The schema owner\'s connection issued statements while a request was served (V3-1(i)); a request path reaches the owner.');
     }
 
     /**

@@ -303,6 +303,10 @@ when@test:
         test.sql_recorder.auth: {class: App\Tests\Support\SqlRecorder, public: true}
         test.sql_recorder.authlog: {class: App\Tests\Support\SqlRecorder, public: true}
         test.sql_recorder.ratelimit: {class: App\Tests\Support\SqlRecorder, public: true}
+        # V3-1(i) item (5), V4 batch B2b-3: the schema owner's statements, recorded
+        # only while a main request is served (App\Tests\Support\OwnerRequestWindow).
+        # ApiTestCase::tearDown fails any HTTP test in which one was issued.
+        test.sql_recorder.owner: {class: App\Tests\Support\SqlRecorder, public: true}
 
         test.recording_middleware.app:
             class: App\Tests\Support\RecordingMiddleware
@@ -320,6 +324,14 @@ when@test:
             class: App\Tests\Support\RecordingMiddleware
             arguments: ['@test.sql_recorder.ratelimit']
             tags: [{name: 'doctrine.middleware', connection: 'ratelimit'}]
+        test.recording_middleware.owner:
+            class: App\Tests\Support\RecordingMiddleware
+            arguments: ['@test.sql_recorder.owner']
+            tags: [{name: 'doctrine.middleware', connection: 'owner'}]
+        App\Tests\Support\OwnerRequestWindow:
+            arguments: ['@test.sql_recorder.owner']
+            tags: ['kernel.event_subscriber']
+            public: true
 
         # T-6 / E-7 — the KDF invocation count, which no response and no SQL log
         # carries. It decorates the **KDF**, not `VerifiesPasswords`: the old
