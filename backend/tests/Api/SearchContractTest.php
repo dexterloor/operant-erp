@@ -18,12 +18,12 @@ use PHPUnit\Framework\Attributes\Test;
  * ---------------------------------------------------------------------------
  * **Every built list**, from {@see ListOperationFixtures}; the ones offering `q`
  * are driven with `?q=<probe>` under the SQL recorder. **TB-5's columns are parsed
- * from its own sentence** (`IaDocument::tb5SearchableSentence()`), and *"the four
+ * from its own sentence** (`IaDocument::tb5SearchableSentence()`), and *"the five
  * document numbers"* — which the sentence names without naming — are derived as
  * API-19d does, from the sort manifest's `<table>_tenant_number_live` /
  * `<table>_number_unique` indexes and the `*_number` order each such row names.
- * (TB-5 says four; the manifest yields five — API-O-19, routed to `UX`. This
- * test takes API-19d's side, the derivable one.) A list's table is its §4.2
+ * (TB-5 said four until 2026-09-15, when `UX` closed API-O-19 at five, the side
+ * this test had already derived.) A list's table is its §4.2
  * resource tied by the `Restore` guard or, failing one, by its snake-case name.
  *
  * ---------------------------------------------------------------------------
