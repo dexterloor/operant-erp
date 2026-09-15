@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\IaDocument;
@@ -26,19 +27,17 @@ use PHPUnit\Framework\Attributes\Test;
  * list operation in `TransactionBoundaryTest::contractOperations()`. Every manifest
  * row is accounted for as in or out, and both halves are asserted non-empty, so
  * the restriction cannot silently exclude everything.
- *
- * ---------------------------------------------------------------------------
- * `::everyDeclaredParameterIsAcceptedAndNoOtherIs` is not here
- * ---------------------------------------------------------------------------
- * C5 batch C wrote it (inventory row 20) and it was **red on shipped code**: every
- * non-list operation answers 2xx to an undeclared query parameter, which §10.3's
- * first clause names a defect. It is staged, uncommitted, at
- * `docs/session10/staged/C5C-QueryParameterContractTest.php.txt` for the owner
- * and LEAD (`docs/session10/progress-C5C.md`).
  */
 final class QueryParameterContractTest extends PurchaseOrderTestCase
 {
     use ListOperationFixtures;
+    use OperationSuccessRecipes;
+
+    /** The parameter name no §4.2 row declares, sent to every operation. */
+    private const PROBE = 'c5_undeclared_probe';
+
+    /** While set, `send()` appends this query string to requests addressed to this operation's route. */
+    private ?array $probeTarget = null;
 
     /**
      * **§10.3's second fails-if clause — every `?`-placeholder in the sort
@@ -233,6 +232,177 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
 
         self::assertSame([], $defects, 'API-19c: `archived` is offered where neither limb earns it, or not offered where one does.');
         self::assertCount(2, $decided, 'The built lists do not include both an offering and a non-offering list, so one direction had no subject.');
+    }
+
+    /**
+     * **API-19b / §10.3's first fails-if clause — an operation accepts exactly the
+     * query parameters its §4.2 row declares: every declared one is accepted, and
+     * any other is refused.** *"`—` means this operation takes no query
+     * parameter"*, so the domain is **every §4.2 row that is built**, not only the
+     * lists: the operation registry, each operation driven by
+     * {@see OperationSuccessRecipes}.
+     *
+     * Three halves:
+     * 1. **declared = documented**, both directions, per built operation: the
+     *    registry's declared parameters equal §4.2's cell;
+     * 2. **nothing else is accepted**: every operation's own request, with
+     *    `?c5_undeclared_probe=1` appended (and, on every list, each parameter
+     *    another §4.2 row declares and this one does not), answers 422
+     *    `validation-failed` naming `?<name>` with `undeclared_parameter` — a 2xx
+     *    is the parameter accepted and ignored, which API-19 calls the defect;
+     * 3. **every declared parameter is accepted**: on every built list, each
+     *    declared parameter sent with a value from the list's fixture answers 200.
+     *
+     * Controls inside this method: recipes equal the registry; every recipe
+     * reached its route under the probe (the append happened); the cross-probe
+     * universe parsed from §4.2 is non-empty; every declared list parameter was
+     * sent; at least one operation refused the probe, so the refusal shape is
+     * reachable.
+     *
+     * **First run (C5 batch C, 2026-09-15): red on exactly the 19 non-list
+     * operations**, each answering 2xx to the probe — a shipped defect, fixed as
+     * step F2 by `Platform\Http\UndeclaredQueryParameterRefusal`, which the three
+     * lists now share. Its edge decisions are `UndeclaredQueryParameterRefusalTest`'s.
+     *
+     * **Mutations (cache deleted — Rule 17):** §10.3's, on a built list — a
+     * `created_by` `QueryParameter` added to `PurchaseOrderCollection` → half 1 red
+     * (§4.2's cell lacks it). F2's — the refusal removed (all 22 named), skipped for
+     * writes (the 15 writes named), fed a hard-coded declared list missing
+     * `ListPurchaseOrderLines` (its declared `archived` refused), its `code`
+     * changed (every operation named). Recorded in `docs/session10/progress-C5C.md`
+     * row 20 and `docs/session10/progress-F2.md`.
+     */
+    #[Test]
+    public function everyDeclaredParameterIsAcceptedAndNoOtherIs(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored; §4.2\'s Query parameters column is read from it.');
+        }
+
+        $operations = TransactionBoundaryTest::contractOperations();
+        $recipes = $this->successRecipes();
+        $names = array_keys($operations);
+        sort($names);
+        $keys = array_keys($recipes);
+        sort($keys);
+        self::assertSame($names, $keys, 'Every registry operation must have a success recipe, and only those.');
+
+        $universe = [];
+        foreach (array_keys(ContractDocument::operationRows()) as $row) {
+            $universe = [...$universe, ...ContractDocument::queryParameters($row)];
+        }
+        $universe = array_values(array_unique($universe));
+        self::assertGreaterThan(5, \count($universe), '§4.2\'s Query parameters column parsed to almost nothing.');
+
+        $defects = [];
+
+        // Half 1.
+        foreach ($operations as $name => $operation) {
+            $declared = self::declaredParameters($operation);
+            $documented = ContractDocument::queryParameters($name);
+            foreach (array_diff($declared, $documented) as $p) {
+                $defects[] = \sprintf('%s declares `%s`, which its §4.2 cell does not', $name, $p);
+            }
+            foreach (array_diff($documented, $declared) as $p) {
+                $defects[] = \sprintf('%s\'s §4.2 cell declares `%s`, which the operation does not', $name, $p);
+            }
+        }
+
+        // Every fixture step runs before the first request, so a refused write
+        // cannot leave a later fixture without its entity manager.
+        $contexts = [];
+        foreach ($recipes as $name => [$fixture]) {
+            $contexts[$name] = $fixture();
+        }
+
+        // Half 2, every operation: its own request with the probe appended.
+        $refused = 0;
+        foreach ($recipes as $name => [, $request]) {
+            $this->probeTarget = ['operation' => $operations[$name], 'query' => self::PROBE.'=1', 'hits' => 0];
+            $request($contexts[$name]);
+            $hits = $this->probeTarget['hits'];
+            $this->probeTarget = null;
+            self::assertGreaterThan(0, $hits, $name.'\'s recipe never addressed its own route, so the probe was never sent.');
+
+            $defect = $this->refusalDefect(self::PROBE);
+            if (null === $defect) {
+                ++$refused;
+            } else {
+                $defects[] = \sprintf('%s accepted `?%s`: %s', $name, self::PROBE, $defect);
+            }
+        }
+
+        // Halves 2 (cross-probe) and 3, every list.
+        $fixtures = $this->listFixtures();
+        foreach ($this->listOperations() as $name => $operation) {
+            [$path, $seed] = $fixtures[$name]();
+            $context = $seed(3);
+            $declared = self::declaredParameters($operation);
+
+            foreach (array_diff($universe, $declared) as $other) {
+                $this->send('GET', $path.'?'.$other.'=1');
+                $defect = $this->refusalDefect($other);
+                if (null !== $defect) {
+                    $defects[] = \sprintf('%s accepted `?%s`, which another §4.2 row declares and this one does not: %s', $name, $other, $defect);
+                }
+            }
+
+            $this->send('GET', $path.'?limit=1');
+            $cursor = 200 === $this->httpStatus() ? ($this->json()['next_cursor'] ?? null) : null;
+            $values = [
+                'limit' => '1',
+                'after' => $cursor,
+                'before' => $cursor,
+                'q' => $context['search'],
+                'supplier_id' => $context['supplier'],
+                'archived' => 'true',
+            ];
+            foreach ($declared as $parameter) {
+                $schema = $operation->getParameters()?->get($parameter)?->getSchema() ?? [];
+                $value = $values[$parameter] ?? ($schema['enum'][0] ?? null);
+                if (null === $value) {
+                    $defects[] = $name.' declares `'.$parameter.'` and no value for it could be derived, so its acceptance was never sent';
+                    continue;
+                }
+                $this->send('GET', $path.'?'.$parameter.'='.urlencode((string) $value));
+                if (200 !== $this->httpStatus()) {
+                    $defects[] = \sprintf('%s refused its declared `%s=%s`: %d %s', $name, $parameter, $value, $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 200));
+                }
+            }
+        }
+
+        self::assertSame([], $defects, 'API-19b: an operation accepts a query parameter its §4.2 row does not declare, or refuses one it does.');
+        self::assertGreaterThan(0, $refused, 'No operation refused the probe, so the refusal shape was never observed.');
+    }
+
+    private function refusalDefect(string $parameter): ?string
+    {
+        $status = $this->httpStatus();
+        $body = json_decode((string) $this->client()->getResponse()->getContent(), true);
+        $errors = \is_array($body) ? ($body['errors'] ?? []) : [];
+
+        foreach ((array) $errors as $error) {
+            if (\is_array($error) && ('?'.$parameter) === ($error['pointer'] ?? null) && 'undeclared_parameter' === ($error['code'] ?? null)) {
+                return 422 === $status ? null : 'refused by name with status '.$status;
+            }
+        }
+
+        return 'answered '.$status.' without naming it undeclared';
+    }
+
+    protected function send(string $method, string $path, ?array $body = null, array $headers = [], string $accept = 'application/json'): void
+    {
+        if (null !== $this->probeTarget) {
+            $operation = $this->probeTarget['operation'];
+            $bare = str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+            $pattern = '#^'.preg_replace('/\\\\\{[^}]+\\\\\}/', '[^/?]+', preg_quote(self::pathOf($operation), '#')).'(\?|$)#';
+            if ($method === $operation->getMethod() && 1 === preg_match($pattern, $bare)) {
+                $path .= (str_contains($path, '?') ? '&' : '?').$this->probeTarget['query'];
+                ++$this->probeTarget['hits'];
+            }
+        }
+
+        parent::send($method, $path, $body, $headers, $accept);
     }
 
     /**

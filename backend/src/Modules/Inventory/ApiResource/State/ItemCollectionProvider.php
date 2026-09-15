@@ -18,11 +18,13 @@ use Symfony\Component\Uid\Uuid;
 /**
  * `ListItems` — parameter parsing, and the refusals API-19/API-19b require.
  *
- * The **accepted** parameter set is read off the operation's own declared
- * parameters, never from a list in this class. §4.2's `Query parameters` column
- * is exhaustive, `ItemCollection` declares exactly that column, and the spec
- * documents the same set -- so a parameter accepted here but undocumented, or
- * documented and refused, is not expressible.
+ * The **accepted** parameter set is the operation's own declared parameters,
+ * and an undeclared one never reaches this class: `Platform\Http\UndeclaredQueryParameterRefusal`
+ * refuses it for every operation, at the position this provider used to (F2,
+ * 2026-09-15). §4.2's `Query parameters` column is exhaustive, `ItemCollection`
+ * declares exactly that column, and the spec documents the same set -- so a
+ * parameter accepted here but undocumented, or documented and refused, is not
+ * expressible.
  *
  * @implements ProviderInterface<ItemCollection>
  */
@@ -33,7 +35,7 @@ final readonly class ItemCollectionProvider implements ProviderInterface
      * `ItemReader` writes into its `ORDER BY`.
      *
      * **`sort` is not a declared parameter today**, so a request carrying one is
-     * refused by `refuseUndeclaredParameters()` below and the `unserved_sort`
+     * refused by `Platform\Http\UndeclaredQueryParameterRefusal` and the `unserved_sort`
      * branch in `criteria()` is not reached. That branch is kept rather than
      * deleted because it is the half that has to be right on the day D-b closes:
      * `/items` acquires `inventory_item_tenant_name_live`, the parameter comes
@@ -57,30 +59,7 @@ final readonly class ItemCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        $this->refuseUndeclaredParameters($operation, $query);
-
         return $this->reader->list($this->criteria($query));
-    }
-
-    /** @param array<string, mixed> $query */
-    private function refuseUndeclaredParameters(Operation $operation, array $query): void
-    {
-        $declared = [];
-        foreach ($operation->getParameters() ?? [] as $key => $parameter) {
-            $declared[] = (string) ($parameter->getKey() ?? $key);
-        }
-
-        $undeclared = array_diff(array_keys($query), $declared);
-        if ([] !== $undeclared) {
-            throw ApiProblem::validationFailed(array_map(
-                static fn (string $name): array => [
-                    'pointer' => '?'.$name,
-                    'code' => 'undeclared_parameter',
-                    'message' => \sprintf('This operation declares no query parameter named "%s".', $name),
-                ],
-                array_values($undeclared),
-            ));
-        }
     }
 
     /** @param array<string, mixed> $query */

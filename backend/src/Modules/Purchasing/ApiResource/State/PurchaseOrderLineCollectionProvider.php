@@ -15,8 +15,9 @@ use Symfony\Component\HttpFoundation\Request;
  * `ListPurchaseOrderLines` — one parameter, and the refusal API-19b requires for
  * everything else.
  *
- * The **accepted** parameter set is read off the operation's own declared
- * parameters, never from a list in this class. §4.2's `Query parameters` column
+ * The **accepted** parameter set is the operation's own declared parameters, and
+ * an undeclared one never reaches this class
+ * (`Platform\Http\UndeclaredQueryParameterRefusal`, F2 2026-09-15). §4.2's `Query parameters` column
  * is exhaustive, `PurchaseOrderLineCollection` declares exactly that column, and
  * the spec documents the same set — so a parameter accepted here but undocumented,
  * or documented and refused, is not expressible.
@@ -40,8 +41,6 @@ final readonly class PurchaseOrderLineCollectionProvider implements ProviderInte
     {
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
-
-        QueryParameters::refuseUndeclared($operation, $query);
 
         return $this->reader->listLines(
             (string) ($uriVariables['id'] ?? ''),
