@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Serializer\Attribute\Ignore;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
  * API-23 and API-23a (`docs/API.md` §4.4.3) — the anti-vacuity probe §15 item 11
@@ -31,8 +34,9 @@ use PHPUnit\Framework\Attributes\Test;
  * The domain is the **built read shapes**: the resource each `GET` operation in
  * `TransactionBoundaryTest::contractOperations()` reads, named by that
  * operation's §4.2 `Verb / Resource` cell (`List / Items` → `Item`). It widens by
- * itself as reads are built. `::everyDeclaredFieldIsDerivedOrDeclaredAsAnAddition`,
- * the comparison this probe protects, does not exist yet.
+ * itself as reads are built. `::everyDeclaredFieldIsDerivedOrDeclaredAsAnAddition`
+ * is the comparison this probe protects, and both read one derivation,
+ * {@see self::derivation()}, and one additions parser, {@see self::declaredAdditions()}.
  *
  * **The assertion is slightly stronger than "not `{id}` alone"**: steps 1 and 4
  * must contribute at least one field, so `{id, archived_at}` is vacuous too. Step
@@ -55,8 +59,11 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * The controls are inside this method: a sibling test does not protect a
      * `--filter` run of this one.
      *
-     * **Mutation (empty an expectation):** make {@see self::expectation()} ignore
-     * the additions table; `CurrentUser`, which has no `Create*` row and whose
+     * It reads the same {@see self::derivation()} the comparison below reads, with
+     * step 3 excluded (no soft tables passed), so there is one derivation.
+     *
+     * **Mutation (empty an expectation):** make {@see self::derivation()} ignore
+     * the additions; `CurrentUser`, which has no `Create*` row and whose
      * additions row is its whole shape, derives to `{id}`; red. **Mutation
      * (delete a branch of the derivation):** delete the `CurrentUser` row from
      * §4.4.3's table in `docs/API.md`; red, by name — this is the built-surface
@@ -71,7 +78,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
 
         $rows = ContractDocument::operationRows();
-        $additions = self::additionsTable();
+        $additions = self::declaredAdditions();
 
         // Control 1 — both documents the derivation reads were actually read.
         self::assertNotSame([], $rows, '§4.2 yielded no operation rows.');
@@ -79,7 +86,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         // Control 2 — the detector fires on the defect's own shape: a resource
         // with no Create row and no additions row derives to {id} and is vacuous.
-        self::assertSame(['id'], self::expectation('ResourceNoRowDescribes', $rows, $additions));
+        self::assertSame(['id'], array_keys(self::derivation('ResourceNoRowDescribes', $rows, $additions, [])));
         self::assertTrue(self::isVacuous(['id']), 'An expectation of {id} alone was not recognised as vacuous, so the assertion below cannot go red.');
 
         $known = self::knownResources($rows, $additions);
@@ -98,7 +105,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         $vacuous = [];
         foreach ($resources as $resource => $operations) {
-            $expectation = self::expectation($resource, $rows, $additions);
+            $expectation = array_keys(self::derivation($resource, $rows, $additions, []));
             if (self::isVacuous($expectation)) {
                 $vacuous[] = \sprintf('%s (read by %s) derives to {%s}', $resource, implode(', ', $operations), implode(', ', $expectation));
             }
@@ -107,6 +114,157 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertSame([], $vacuous,
             'A built read resource has a derived expectation with nothing beyond id and archived_at. API-23a requires an '
             .'additions row for a resource with no Create* row, or with a Create* row under a different Resource name.');
+    }
+
+    /**
+     * **API-23 in both directions — every field a built read DTO serializes is
+     * derivable by steps 1–3 or listed in §4.4.3, and every field the derivation
+     * yields is on the DTO.** Also API-23a: a resource with no `Create*` row under
+     * its own name has an additions row. **And one level down:** every entry of an
+     * embedded nested list carries exactly what step 1 derives for it plus the
+     * additions sentence's members.
+     *
+     * Domain: the resources the built `GET`s read, as the probe above names them.
+     * The DTO is the output class of every registry operation whose §4.2 cell
+     * names the resource with a non-`List` verb (they must agree on one class);
+     * its fields are its public properties under their `#[SerializedName]`.
+     *
+     * **The derivation, as applied here, with the readings it takes:**
+     * 1. the `Create / <Resource>` row's accepted fields, minus a parent `_id`
+     *    the path implies; a remaining `x_id` is expected as `x`, because
+     *    API-23b returns it expanded; a `lines[].*` token is `lines`, **and step
+     *    1's sub-list exception** (owner ruling Q1(a), 2026-09-15) drops a nested
+     *    `n[]` that {@see self::subListedChild()} names — a bounded `List` at the
+     *    `Get` path + `/n`, a `Create` at that path, and every `n[].f` accepted
+     *    there. A nested field that is kept is an **embedded** list;
+     * 2. `id`;
+     * 3. `archived_at` iff the resource's table is `soft`. The resource → table
+     *    tie is §4.2's `Restore / <Resource>` row (`guard:<table>.deleted_at`),
+     *    held equal to `SchemaManifest::softDeletedTables()` in both directions
+     *    first, so it is a derivation and not a guess;
+     * 4. §4.4.3's additions, read by {@see self::declaredAdditions()}.
+     *
+     * An embedded entry is expected to carry `{id}` ∪ its `n[].f` sub-fields
+     * (a trailing `_id` stripped: API-23b expands it) ∪ the nested additions
+     * (`**R also carries `n[].member`**`). Step 3 is not applied to an entry, which
+     * has no resource of its own. Every entry of `$.n` in every driven body of a
+     * non-`List` operation on the resource is compared.
+     *
+     * Mutations: `docs/session10/progress-Q1Q2.md` (C4); the first run of row 10
+     * is `docs/session9/progress-C5B.md`.
+     */
+    #[Test]
+    public function everyDeclaredFieldIsDerivedOrDeclaredAsAnAddition(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored; the derivation reads §4.2 and §4.4.3 and has nothing to read without it.');
+        }
+
+        $rows = ContractDocument::operationRows();
+        $additions = self::declaredAdditions($nestedAdditions);
+        $softResources = ContractDocument::restoreGuardTables();
+        $operations = TransactionBoundaryTest::contractOperations();
+
+        // Step 1's sub-list exception, as the rule text states it.
+        $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '));
+        self::assertStringContainsString('**and except** a nested', $section, '§4.4.3 step 1 no longer states the sub-list exception.');
+        self::assertStringContainsString('not an implied part of the parent', $section, '§4.4.3 step 1 no longer grounds the sub-list exception.');
+
+        // Control 1 — the resource → table tie covers the soft set exactly.
+        $tied = array_values($softResources);
+        sort($tied);
+        $manifest = SchemaManifest::softDeletedTables();
+        sort($manifest);
+        self::assertNotSame([], $manifest, 'SchemaManifest declares no soft table.');
+        self::assertSame($manifest, $tied, '§4.2\'s Restore guards and SchemaManifest\'s soft tables disagree, so step 3 cannot be derived.');
+        self::assertNotSame([], $additions, '§4.4.3\'s additions table yielded no rows.');
+
+        // Control 2 — the comparison reports both directions.
+        self::assertSame(['carries `extra`', 'lacks `missing`'],
+            self::compare(['id' => 'step 2', 'missing' => 'probe'], ['id', 'extra']),
+            'The comparison does not report both directions, so the assertion below cannot go red on one of them.');
+
+        $known = self::knownResources($rows, $additions);
+        $resources = [];
+        foreach ($operations as $name => $operation) {
+            if ('GET' === $operation->getMethod()) {
+                self::assertArrayHasKey($name, $rows, $name.' is a built read with no §4.2 row.');
+                $resources[self::resourceOf($rows[$name]['verbResource'], $known)][] = $name;
+            }
+        }
+
+        // Control 3 — the domain is not empty.
+        self::assertNotSame([], $resources, 'The registry produced no read operation, so nothing was compared.');
+
+        $defects = [];
+
+        // Orphans — a nested addition names a list the derivation keeps embedded.
+        foreach ($nestedAdditions as $resource => $lists) {
+            $embedded = [];
+            self::derivation($resource, $rows, $additions, $softResources, embedded: $embedded);
+            foreach (array_keys($lists) as $nested) {
+                if (!\array_key_exists($nested, $embedded)) {
+                    $defects[] = \sprintf('%s\'s additions name %s[].%s, but %s is not an embedded field of %s', $resource, $nested,
+                        implode(', '.$nested.'[].', $lists[$nested]), $nested, $resource);
+                }
+            }
+        }
+
+        $bodies = null;
+        $entriesExamined = 0;
+        foreach ($resources as $resource => $readers) {
+            $class = self::dtoClassOf($resource, $rows, $operations);
+            $embedded = [];
+            $expected = self::derivation($resource, $rows, $additions, $softResources, $defects, $embedded);
+
+            $hasCreate = [] !== array_filter($rows, static fn (array $row): bool => 'Create / '.$resource === $row['verbResource']);
+            if (!$hasCreate && !\array_key_exists($resource, $additions)) {
+                $defects[] = $resource.' has no Create row under its own name and no additions row (API-23a)';
+            }
+
+            foreach (self::compare($expected, self::serializedFields($class)) as $difference) {
+                $field = (string) preg_replace('/^.*`([^`]+)`$/', '$1', $difference);
+                $defects[] = \sprintf('%s (%s, read by %s) %s%s', $resource, $class, implode(', ', $readers), $difference,
+                    str_starts_with($difference, 'lacks') ? ', which '.$expected[$field].' declares' : ', which is neither derivable by steps 1–3 nor listed in §4.4.3');
+            }
+
+            // The nested half: every entry of each embedded list, in every driven
+            // body of a non-List operation on this resource.
+            foreach ($embedded as $nested => $createOperation) {
+                $entry = ['id' => 'step 2'];
+                foreach (ContractDocument::nestedAcceptedFields($createOperation, $nested) as $sub) {
+                    $entry[str_ends_with($sub, '_id') ? substr($sub, 0, -3) : $sub] ??= 'step 1';
+                }
+                foreach ($nestedAdditions[$resource][$nested] ?? [] as $member) {
+                    $entry[$member] ??= 'the additions sentence';
+                }
+
+                $bodies ??= $this->drivenBodies();
+                $observed = 0;
+                foreach ($operations as $name => $operation) {
+                    if (1 !== preg_match('/^(?!List )[A-Za-z]+ \/ '.$resource.'$/', $rows[$name]['verbResource'] ?? '')) {
+                        continue;
+                    }
+                    foreach ((array) (($bodies[$name] ?? [])[$nested] ?? []) as $item) {
+                        ++$observed;
+                        foreach (self::compare($entry, array_keys((array) $item)) as $difference) {
+                            $member = (string) preg_replace('/^.*`([^`]+)`$/', '$1', $difference);
+                            $defects[] = \sprintf('%s %s[] entry (%s) %s%s', $resource, $nested, $name, $difference,
+                                str_starts_with($difference, 'lacks')
+                                    ? ', which '.$entry[$member].' declares'
+                                    : ', which step 1 does not derive and no additions sentence adds');
+                        }
+                    }
+                }
+                $entriesExamined += $observed;
+                if (0 === $observed) {
+                    $defects[] = \sprintf('%s %s[]: no entry was observed in any driven body, so the nested half compared nothing', $resource, $nested);
+                }
+            }
+        }
+
+        self::assertSame([], $defects, 'API-23: a built read DTO and its derived field list disagree.');
+        self::assertGreaterThan(0, $entriesExamined, 'No embedded list entry was compared, so the nested half had no subject.');
     }
 
     /**
@@ -453,11 +611,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             if (1 !== preg_match('/^List \/ ([A-Za-z]+)$/', $list['verbResource'], $plural) || !str_contains($list['query'], '*(bounded)*')) {
                 continue;
             }
-            $singulars = array_unique([
-                (string) preg_replace('/s$/', '', $plural[1]),
-                (string) preg_replace('/es$/', '', $plural[1]),
-                (string) preg_replace('/ies$/', 'y', $plural[1]),
-            ]);
+            $singulars = self::singularsOf($plural[1]);
 
             foreach ($rows as $create) {
                 if ($create['path'] !== $list['path'] || 1 !== preg_match('/^Create \/ ([A-Za-z]+)$/', $create['verbResource'], $resource)
@@ -598,34 +752,6 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         return array_values(array_unique($nested));
     }
 
-    /**
-     * API-23 steps 1, 2 and 4 for one resource. Step 3 is left out on purpose —
-     * see the class docblock.
-     *
-     * @param array<string, array{operationId: string, verbResource: string, method: string, path: string}> $rows
-     * @param array<string, list<string>>                                                                    $additions
-     *
-     * @return list<string>
-     */
-    private static function expectation(string $resource, array $rows, array $additions): array
-    {
-        $fields = [];
-
-        foreach ($rows as $operationId => $row) {
-            if ('Create / '.$resource !== $row['verbResource']) {
-                continue;
-            }
-            $parents = self::parentsImpliedBy($row['path']);
-            foreach (ContractDocument::acceptedFields($operationId) as $field) {
-                if (!(str_ends_with($field, '_id') && \in_array(substr($field, 0, -3), $parents, true))) {
-                    $fields[] = $field;
-                }
-            }
-        }
-
-        return array_values(array_unique(['id', ...$fields, ...($additions[$resource] ?? [])]));
-    }
-
     /** @param list<string> $expectation */
     private static function isVacuous(array $expectation): bool
     {
@@ -633,20 +759,188 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     }
 
     /**
-     * §4.4.3's additions table, as resource → field names.
+     * @param array<string, string> $expected field → where the derivation got it
+     * @param list<string>          $actual
      *
-     * The cell is prose. The fields are the backticked names **before the first
-     * ` — ` or sentence break**, with parenthesised asides removed first — every
-     * row opens with its field list and then explains it. A row naming two
-     * resources (`**GoodsReceipt** / **Fulfilment**`) gives both the same list.
-     * Over-reading a cell can only make this probe weaker, never red, so the
-     * rule errs toward reading less.
+     * @return list<string>
+     */
+    private static function compare(array $expected, array $actual): array
+    {
+        $differences = [];
+        foreach (array_diff($actual, array_keys($expected)) as $field) {
+            $differences[] = 'carries `'.$field.'`';
+        }
+        foreach (array_diff(array_keys($expected), $actual) as $field) {
+            $differences[] = 'lacks `'.$field.'`';
+        }
+
+        return $differences;
+    }
+
+    /**
+     * API-23 steps 1–4 for one resource, as field → source. Pass no soft
+     * resources to leave step 3 out (the probe).
+     *
+     * Step 1's sub-list exception: a nested `n[]` that
+     * {@see self::subListedChild()} names is not a field. A nested field whose
+     * bounded list and same-path create exist but whose sub-fields that create
+     * does not all accept is kept, and recorded as a defect, because step 1
+     * cannot except it. Every nested field that is kept is returned in
+     * `$embedded` as `n => the Create operation that declares it`.
+     *
+     * @param array<string, array{operationId: string, verbResource: string, method: string, path: string, query: string}> $rows
+     * @param array<string, list<string>>                                                                                 $additions
+     * @param array<string, string>                                                                                       $softResources
+     * @param list<string>                                                                                                $defects
+     * @param array<string, string>                                                                                       $embedded
+     *
+     * @return array<string, string>
+     */
+    private static function derivation(string $resource, array $rows, array $additions, array $softResources, array &$defects = [], array &$embedded = []): array
+    {
+        $fields = ['id' => 'step 2'];
+        $parents = [];
+
+        foreach ($rows as $operationId => $row) {
+            if ('Create / '.$resource !== $row['verbResource']) {
+                continue;
+            }
+            $parents = self::parentsImpliedBy($row['path']);
+            foreach (ContractDocument::acceptedFields($operationId) as $field) {
+                if ([] !== ContractDocument::nestedAcceptedFields($operationId, $field)) {
+                    $failed = null;
+                    if (null !== self::subListedChild($resource, $field, $rows, $failed)) {
+                        continue;
+                    }
+                    if (null !== $failed) {
+                        foreach ($failed['fields'] as $unaccepted) {
+                            $defects[] = \sprintf('%s\'s %s[] names `%s`, which %s does not accept, so step 1 cannot except it',
+                                $resource, $field, $unaccepted, $failed['create']);
+                        }
+                    }
+                    $embedded[$field] = $operationId;
+                }
+                if (str_ends_with($field, '_id')) {
+                    if (\in_array(substr($field, 0, -3), $parents, true)) {
+                        continue;
+                    }
+                    $field = substr($field, 0, -3);
+                }
+                $fields[$field] ??= 'step 1 (`'.$operationId.'`)';
+            }
+        }
+
+        if (\array_key_exists($resource, $softResources)) {
+            $fields['archived_at'] ??= 'step 3 (`'.$softResources[$resource].'` is soft)';
+        }
+
+        foreach ($additions[$resource] ?? [] as $field) {
+            if ('@parent' === $field) {
+                self::assertCount(1, $parents, $resource.'\'s additions name "the parent" and its Create path does not imply exactly one.');
+                $field = $parents[0];
+            }
+            $fields[$field] ??= 'the §4.4.3 additions row';
+        }
+
+        return $fields;
+    }
+
+    /**
+     * **API-23 step 1's sub-list predicate.** The child resource whose rows a
+     * nested `n[]` on `Create / <resource>` are, when all three hold:
+     *
+     *   1. the `Get / <resource>` path followed by `/<n>` is, placeholders
+     *      normalised, the path of a `List` row whose query cell is marked
+     *      `*(bounded)*`;
+     *   2. a `Create / <singular of that List>` row exists at the same path;
+     *   3. every `n[].f` on `Create / <resource>` is in that `Create` row's
+     *      accepted set.
+     *
+     * Otherwise null. When 1 and 2 hold and 3 does not, `$failed` names the
+     * child's create and the sub-fields it does not accept.
+     *
+     * @param array<string, array{verbResource: string, path: string, query: string}> $rows
+     * @param array{create: string, fields: list<string>}|null                         $failed
+     */
+    public static function subListedChild(string $resource, string $nested, array $rows, ?array &$failed = null): ?string
+    {
+        $failed = null;
+        $get = null;
+        $create = null;
+        foreach ($rows as $operationId => $row) {
+            if ('Get / '.$resource === $row['verbResource']) {
+                $get = $row['path'];
+            }
+            if ('Create / '.$resource === $row['verbResource']) {
+                $create = $operationId;
+            }
+        }
+        if (null === $get || null === $create) {
+            return null;
+        }
+
+        $normalise = static fn (string $path): string => (string) preg_replace('/\{[^}]+\}/', '{}', $path);
+        $target = $normalise($get).'/'.$nested;
+
+        foreach ($rows as $list) {
+            if (1 !== preg_match('/^List \/ ([A-Za-z]+)$/', $list['verbResource'], $plural)
+                || !str_contains($list['query'], '*(bounded)*') || $normalise($list['path']) !== $target) {
+                continue;
+            }
+            foreach ($rows as $childCreate => $row) {
+                if ($normalise($row['path']) !== $target || 1 !== preg_match('/^Create \/ ([A-Za-z]+)$/', $row['verbResource'], $child)
+                    || !\in_array($child[1], self::singularsOf($plural[1]), true)) {
+                    continue;
+                }
+                $unaccepted = array_values(array_diff(
+                    ContractDocument::nestedAcceptedFields($create, $nested),
+                    ContractDocument::acceptedFields($childCreate),
+                ));
+                if ([] === $unaccepted) {
+                    return $child[1];
+                }
+                $failed = ['create' => $childCreate, 'fields' => $unaccepted];
+
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<string> the `-s`, `-es` and `-ies → -y` singular candidates of a plural resource name */
+    private static function singularsOf(string $plural): array
+    {
+        return array_values(array_unique([
+            (string) preg_replace('/s$/', '', $plural),
+            (string) preg_replace('/es$/', '', $plural),
+            (string) preg_replace('/ies$/', 'y', $plural),
+        ]));
+    }
+
+    /**
+     * §4.4.3's additions — the one parser in this file. The rule: the backticked
+     * names before the first ` — ` or sentence break, parentheses removed, plus
+     * three readings of prose the built rows use, stated here:
+     *
+     * - a row naming two resources pairs `` `a` / `b` `` positionally
+     *   (`**GoodsReceipt** / **Fulfilment**`: `receipt_number` / `fulfilment_number`);
+     * - *"the parent order's `{…}`"* is a field named after the parent the
+     *   resource's `Create*` path implies (`@parent`, resolved in the derivation);
+     * - a bold sentence *"**<Resource> also carries `field` …**"* adds that field
+     *   to that resource (API-O-33's `received_by`). The capture refuses a name
+     *   followed by `[`, so `` `lines[].inventory_item` `` does not add `lines`;
+     *   that form is a **nested** addition, returned in `$nested` as
+     *   `resource => list => members`.
+     *
+     * @param array<string, array<string, list<string>>> $nested
      *
      * @return array<string, list<string>>
      */
-    private static function additionsTable(): array
+    private static function declaredAdditions(?array &$nested = null): array
     {
         $table = [];
+        $nested = [];
 
         foreach (explode("\n", ContractDocument::sectionBetween('#### 4.4.3 ', '#### 4.4.4 ')) as $line) {
             if (!str_starts_with($line, '| **')) {
@@ -663,17 +957,71 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             do {
                 $prose = (string) preg_replace('/\([^()]*\)/', '', $before = $prose);
             } while ($prose !== $before);
-            $prose = preg_split('/ — |\. /', $prose, 2)[0];
+            $leading = preg_split('/ — |\. /', $prose, 2)[0];
 
-            preg_match_all('/`([a-z][a-z_]*)/', $prose, $tokens);
-            $fields = array_values(array_unique(array_diff($tokens[1], ['null'])));
+            foreach ($names[1] as $position => $name) {
+                $own = (string) preg_replace_callback('/`([a-z][a-z_]*)` \/ `([a-z][a-z_]*)`/',
+                    static fn (array $m): string => '`'.($m[$position + 1] ?? $m[1]).'`', $leading);
+                $own = (string) preg_replace("/\\bparent [a-z]+'s `\\{[^`]*\\}`/", '`@parent`', $own);
 
-            foreach ($names[1] as $name) {
-                $table[$name] = $fields;
+                preg_match_all('/`(@parent|[a-z][a-z_]*)/', $own, $tokens);
+                preg_match_all('/\*\*'.$name.' also carries `([a-z][a-z_]*)(?![\[a-z_])/', $cells[2], $also);
+
+                $table[$name] = array_values(array_unique(array_diff([...$tokens[1], ...$also[1]], ['null'])));
+            }
+
+            preg_match_all('/\*\*([A-Z][A-Za-z]+) also carries `([a-z][a-z_]*)\[\]\.([a-z][a-z_]*)/', $cells[2], $members, \PREG_SET_ORDER);
+            foreach ($members as [, $resource, $list, $member]) {
+                $nested[$resource][$list][] = $member;
             }
         }
 
         return $table;
+    }
+
+    /**
+     * The one DTO class a resource is serialized from: the output class of every
+     * registry operation whose §4.2 cell names it with a non-`List` verb.
+     *
+     * @param array<string, array{verbResource: string}> $rows
+     * @param array<string, HttpOperation>               $operations
+     *
+     * @return class-string
+     */
+    private static function dtoClassOf(string $resource, array $rows, array $operations): string
+    {
+        $classes = [];
+        foreach ($operations as $name => $operation) {
+            if (1 === preg_match('/^(?!List )[A-Za-z]+ \/ '.$resource.'$/', $rows[$name]['verbResource'] ?? '')) {
+                $classes[] = $operation->getOutput()['class'] ?? $operation->getClass();
+            }
+        }
+        $classes = array_values(array_unique(array_filter($classes)));
+        self::assertCount(1, $classes, $resource.' is not serialized from exactly one DTO class: ['.implode(', ', $classes).']');
+
+        return $classes[0];
+    }
+
+    /**
+     * A DTO's serialized field names: its public properties, under
+     * `#[SerializedName]` where one is given, less any marked `#[Ignore]`.
+     *
+     * @param class-string $class
+     *
+     * @return list<string>
+     */
+    private static function serializedFields(string $class): array
+    {
+        $fields = [];
+        foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic() || [] !== $property->getAttributes(Ignore::class)) {
+                continue;
+            }
+            $renamed = $property->getAttributes(SerializedName::class)[0] ?? null;
+            $fields[] = null === $renamed ? $property->getName() : (string) $renamed->newInstance()->serializedName;
+        }
+
+        return $fields;
     }
 
     /**

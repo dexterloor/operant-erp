@@ -39,29 +39,20 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *      `status`, `total_amount`, `ordered_at`, `created_by = {id, display_name}`
  *      — and nothing else.
  *
- * **`lines` is deliberately NOT a member of this shape, and the reason is a
- * reading of §4.4.3 rather than a convenience.** ⚠ **It is a statement about the
- * RESPONSE only, and since step 8a the request half reads the other way:**
- * `CreatePurchaseOrder` now accepts `lines[]` (D-C), so an order and its lines
- * are raised in one call — and the response to that call is still this shape,
- * with `total_amount` reflecting the lines and `ListPurchaseOrderLines` the way
- * to read them back. The two are not in tension: what the create accepts and
- * what the read returns are different derivations, and only the second is
- * §4.4.3's.
- *
- * `CreatePurchaseOrder`'s accepted
- * cell names `lines[].inventory_item_id`, `lines[].quantity` and
- * `lines[].unit_cost`. Those are fields of **PurchaseOrderLine**, which
- * §4.4.3 gives an additions row of its own — so it is a resource with its own
- * derived shape, reachable through `ListPurchaseOrderLines`, and the `lines[]`
- * entries in the parent's create cell are that resource's *nested create* rather
- * than fields of this one. Returning every line on every row of
- * `ListPurchaseOrders` would also put an unbounded child set inside a keyset page,
- * which is the shape TB-1c takes bounded sub-lists **out** of the parent for.
- * **This is a judgement about a derivation whose wording admits both readings and
- * it is reported as one** — a mechanical reading of step 1 produces a `lines`
- * member, and if that is what §4.4.3 means then `ResponseShapeTest` will say so
- * when it is built.
+ * **`lines` is not a member of this shape, and API-23 step 1 says so** (its
+ * sub-list exception, owner ruling Q1(a), 2026-09-15). `CreatePurchaseOrder`
+ * accepts `lines[]` (D-C, step 8a) — `lines[].inventory_item_id`,
+ * `lines[].quantity` and `lines[].unit_cost` — so an order and its lines are
+ * raised in one call. But §4.2 declares `ListPurchaseOrderLines` at this
+ * resource's `Get` path + `/lines`, marked *(bounded)*, and
+ * `CreatePurchaseOrderLine` at that same path, and it accepts every `lines[].f`
+ * the parent's cell names. So step 1 excepts `lines`: those entries are that
+ * sub-list's rows, read there — API.md's *"the four bounded sub-lists are
+ * operations, not an implied part of the parent"*. **The 201 to
+ * `CreatePurchaseOrder` therefore carries no lines**, with `total_amount`
+ * reflecting them; `ListPurchaseOrderLines` reads them back.
+ * `ResponseShapeTest::everyDeclaredFieldIsDerivedOrDeclaredAsAnAddition` checks
+ * this shape against that derivation.
  *
  * ---------------------------------------------------------------------------
  * Why this is a DTO and not the `PurchaseOrder` entity (API-8, P-7)
