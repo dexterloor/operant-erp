@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Auth;
 
 use ApiPlatform\Metadata\HttpOperation;
-use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
+use App\Platform\Security\AccessTokenVerifier;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\ContractDocument;
@@ -31,7 +31,8 @@ final class TokenLifetimeTest extends AuthTestCase
      * about what a client receives.
      *
      * *Mutation, run:* set `AccessTokenIssuer::LIFETIME_SECONDS` to fifteen minutes;
-     * red.
+     * red. (Run before V1-S-4, 2026-09-16, moved the constant to
+     * `AccessTokenVerifier::LIFETIME_SECONDS`, which the issuer now reads.)
      */
     #[Test]
     public function theAccessTokenExpiresEightHoursAfterIssue(): void
@@ -51,7 +52,7 @@ final class TokenLifetimeTest extends AuthTestCase
         self::assertArrayHasKey('iat', $claims);
         self::assertArrayHasKey('exp', $claims);
         self::assertSame(8 * 60 * 60, $claims['exp'] - $claims['iat'], 'exp is not iat + 8h.');
-        self::assertSame(AccessTokenIssuer::LIFETIME_SECONDS, $claims['exp'] - $claims['iat']);
+        self::assertSame(AccessTokenVerifier::LIFETIME_SECONDS, $claims['exp'] - $claims['iat']);
 
         // The advertised expiry is the claim, not a second calculation.
         self::assertSame(

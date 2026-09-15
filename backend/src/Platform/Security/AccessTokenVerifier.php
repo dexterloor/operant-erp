@@ -52,15 +52,23 @@ use Firebase\JWT\Key;
  * always sets one. `iat` and `exp` are now required, as integers — E-20's pair,
  * in the form the issuer writes — and their absence is the same `null`.
  *
- * **Not checked here:** that `exp` is no later than `iat` + eight hours (E-20's
- * *"later than `iat` + 8h"* and *"unbounded"* clauses). The lifetime constant is
- * `AccessTokenIssuer::LIFETIME_SECONDS`, in UserManagement, which this Platform
- * class may not import (A-1); a token with a far `exp` still needs the signing
- * key, so the clause rests on the issuer and the key, as before.
+ * **And `exp` may be no later than `iat` + eight hours (V1-S-4, 2026-09-16).**
+ * E-20's *"later than `iat` + 8h"* clause is now checked on the way in rather
+ * than resting on the issuer alone. `LIFETIME_SECONDS` lives here, beside
+ * `ALGORITHM`, and `AccessTokenIssuer` reads it — the A-1 objection that kept the
+ * bound out (a Platform class may not import UserManagement) is avoided by the
+ * direction of the import, exactly as `ALGORITHM` already was. A far `exp` still
+ * needs the signing key, so this is defence against an issuer misconfiguration.
+ *
+ * **Any `nbf` is refused.** The issuer never writes one, and `firebase/php-jwt`
+ * skips its future-`iat` check whenever `nbf` is present.
  */
 final readonly class AccessTokenVerifier
 {
     public const ALGORITHM = 'HS256';
+
+    /** E-20: eight hours, absolute. The issuer mints `exp = iat + LIFETIME_SECONDS`; this refuses anything longer. */
+    public const LIFETIME_SECONDS = 8 * 60 * 60;
 
     /** The HS256 digest size. Below it every other control in the path is intact and forgeable. */
     public const MINIMUM_KEY_BYTES = 32;
@@ -101,6 +109,11 @@ final readonly class AccessTokenVerifier
         // only when it is present, so without this a correctly signed token
         // with no `exp` never expires.
         if (!\is_string($tenantId) || !\is_string($subject) || !\is_int($claims['iat'] ?? null) || !\is_int($claims['exp'] ?? null)) {
+            return null;
+        }
+
+        // E-20's upper bound, and no `nbf` (V1-S-4): see the class docblock.
+        if ($claims['exp'] - $claims['iat'] > self::LIFETIME_SECONDS || \array_key_exists('nbf', $claims)) {
             return null;
         }
 

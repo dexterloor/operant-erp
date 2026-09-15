@@ -31,7 +31,7 @@ use Firebase\JWT\JWT;
  * ADR-005 D-5: **`tenant_id` is a signed JWT claim**, read server-side and
  * passed to `set_config`, and never accepted from a header, query parameter or
  * body (T-1 / API-7). `sub` is the `app_user` id. `iat` and `exp` are E-20's
- * pair and `exp` is `iat` + `LIFETIME_SECONDS` — derived, so no deployment
+ * pair and `exp` is `iat` + `AccessTokenVerifier::LIFETIME_SECONDS` — derived, so no deployment
  * setting and no client-supplied value can reach it, which is two of E-20's
  * three violation clauses closed by construction rather than by a check.
  *
@@ -42,9 +42,6 @@ use Firebase\JWT\JWT;
  */
 final readonly class AccessTokenIssuer
 {
-    /** E-20: eight hours, absolute. `exp = iat + 8h`, and nothing slides it. */
-    public const LIFETIME_SECONDS = 8 * 60 * 60;
-
     public function __construct(private string $signingKey)
     {
         AccessTokenVerifier::refuseAKeyShorterThanTheDigest($signingKey);
@@ -53,7 +50,9 @@ final readonly class AccessTokenIssuer
     public function issue(string $tenantId, string $userId, \DateTimeImmutable $issuedAt): IssuedToken
     {
         $iat = $issuedAt->getTimestamp();
-        $exp = $iat + self::LIFETIME_SECONDS;
+        // Read off the verifier (V1-S-4), which refuses anything longer, so the
+        // two halves cannot disagree about E-20's eight hours.
+        $exp = $iat + AccessTokenVerifier::LIFETIME_SECONDS;
 
         $jwt = JWT::encode([
             'sub' => $userId,

@@ -123,7 +123,7 @@ final class AccessTokenSplitTest extends KernelTestCase
         self::assertNotNull($verifier->verify($issuer->issue(self::TENANT, self::USER, new \DateTimeImmutable())->jwt),
             'The positive control did not verify, so the refusal below proves nothing.');
 
-        $lapsed = new \DateTimeImmutable('@'.(time() - AccessTokenIssuer::LIFETIME_SECONDS - 60));
+        $lapsed = new \DateTimeImmutable('@'.(time() - AccessTokenVerifier::LIFETIME_SECONDS - 60));
         self::assertNull($verifier->verify($issuer->issue(self::TENANT, self::USER, $lapsed)->jwt));
     }
 
@@ -162,6 +162,45 @@ final class AccessTokenSplitTest extends KernelTestCase
         ] as $case => $claims) {
             self::assertNull($verifier->verify($sign($claims)), 'A correctly signed token was verified with '.$case.'.');
         }
+    }
+
+    /**
+     * **V1-S-4 (V4 B3b, 2026-09-16): E-20's upper bound is checked on the way in,
+     * and `nbf` is refused.**
+     *
+     * The verifier required integer `iat` and `exp` but not `exp - iat <= 8h`, so
+     * a correctly signed token with a far `exp` verified until then; E-20's
+     * violation clause names *"an `exp` later than `iat` + 8h"*. And
+     * `firebase/php-jwt` skips its future-`iat` check whenever `nbf` is present,
+     * while the issuer never writes one — so any `nbf` is refused.
+     *
+     * Eight hours is spelled here independently of
+     * `AccessTokenVerifier::LIFETIME_SECONDS`, so a change to the constant is red
+     * here rather than compared with itself. The boundary (exactly 8h) is the
+     * positive control, inside the test.
+     *
+     * *Mutation:* drop the bound from `verify()` → the `8h + 1` case is red.
+     */
+    #[Test]
+    public function aSignedTokenLivingLongerThanEightHoursOrCarryingNbfIsRefused(): void
+    {
+        $verifier = new AccessTokenVerifier(self::KEY_A);
+        $now = time();
+        $eightHours = 8 * 60 * 60;
+        $sign = static fn (array $claims): string => JWT::encode(
+            ['sub' => self::USER, 'tenant_id' => self::TENANT] + $claims, self::KEY_A, AccessTokenVerifier::ALGORITHM,
+        );
+
+        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER],
+            $verifier->verify($sign(['iat' => $now, 'exp' => $now + $eightHours])),
+            'exp = iat + 8h is E-20 exactly and must verify, or the refusals below prove nothing.');
+
+        self::assertNull($verifier->verify($sign(['iat' => $now, 'exp' => $now + $eightHours + 1])),
+            'A correctly signed token with exp = iat + 8h + 1 verified: E-20\'s absolute lifetime is not bounded on the way in.');
+
+        self::assertNull($verifier->verify($sign(['iat' => $now, 'exp' => $now + 60, 'nbf' => $now - 60])),
+            'A correctly signed token carrying nbf verified. The issuer never writes one, and its presence disables the '
+            .'library\'s future-iat check.');
     }
 
     /**
