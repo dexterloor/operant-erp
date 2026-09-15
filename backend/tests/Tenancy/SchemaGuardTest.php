@@ -38,6 +38,43 @@ final class SchemaGuardTest extends TenancyTestCase
     }
 
     /**
+     * No principal can create roles or databases (V3-8(a), M-8; V4 batch B6, 2026-09-16).
+     *
+     * The local owner was created `CREATEDB CREATEROLE`, which no migration, test,
+     * `bin/` script or `src/` class uses. CREATEROLE cannot confer BYPASSRLS, but it
+     * can mint a login role with a password, which is a new principal nobody
+     * reviewed under ARCHITECTURE.md §3.3. `infra/postgres/init/10-roles.sh` now
+     * creates the owner `NOCREATEDB NOCREATEROLE`, and migrations run unchanged.
+     *
+     * The owner is identified by asking the owner connection who it is, never by a
+     * literal. One assertion per role and attribute, so a planted
+     * `ALTER ROLE … CREATEROLE` / `CREATEDB` on any of the six names its row.
+     *
+     * **Local only.** On Neon the console owner is believed to hold both through
+     * `neon_superuser`; that is measured at G-3 (V3-8(b)), not here.
+     */
+    #[Test]
+    public function noPrincipalCanCreateRolesOrDatabases(): void
+    {
+        $owner = (string) $this->owner()->fetchOne('SELECT current_user');
+        $roles = [...DatabaseRoles::APPLICATION_ROLES, $owner];
+
+        $rows = $this->owner()->fetchAllAssociative(
+            'SELECT rolname, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname IN (?) ORDER BY rolname',
+            [$roles],
+            [ArrayParameterType::STRING],
+        );
+
+        self::assertCount(\count($roles), $rows,
+            'Every application role and the owner must exist: expected '.implode(', ', $roles)
+            .', found '.implode(', ', array_column($rows, 'rolname')));
+        foreach ($rows as $r) {
+            self::assertFalse($r['rolcreaterole'], $r['rolname'].' holds CREATEROLE -- it can mint a login role nobody reviewed.');
+            self::assertFalse($r['rolcreatedb'], $r['rolname'].' holds CREATEDB -- it can create a database outside every policy in this schema.');
+        }
+    }
+
+    /**
      * The list is not trusted; it is reconciled.
      *
      * D-9's blocking condition is that the guards above must derive from a role

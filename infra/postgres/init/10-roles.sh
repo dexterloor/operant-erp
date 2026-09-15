@@ -17,10 +17,17 @@
 # Local stand-in for Neon's default role: DB_OWNER, created NOSUPERUSER on
 # purpose. If it were the bootstrap superuser, FORCE ROW LEVEL SECURITY would be
 # untestable, because a superuser bypasses row security no matter what.
+#
+# The owner is also NOCREATEDB NOCREATEROLE (V3-8(a), M-8; V4 batch B6,
+# 2026-09-16). It held both and nothing used them: migrations need ownership of
+# the database and the schema (granted below by the superuser), not the right to
+# mint roles or databases. SchemaGuardTest::noPrincipalCanCreateRolesOrDatabases
+# asserts both attributes false for the owner and every application role.
+# Neon's console owner differs (neon_superuser); measured at G-3, not here.
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-    CREATE ROLE "${DB_OWNER}"      LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB CREATEROLE PASSWORD '${DB_OWNER_PASSWORD}';
+    CREATE ROLE "${DB_OWNER}"      LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${DB_OWNER_PASSWORD}';
     CREATE ROLE "${ERP_APP_USER}"  LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_APP_PASSWORD}';
     CREATE ROLE "${ERP_AI_USER}"   LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_AI_PASSWORD}';
 
