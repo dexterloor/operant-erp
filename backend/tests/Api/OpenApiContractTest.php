@@ -120,6 +120,12 @@ final class OpenApiContractTest extends ApiTestCase
      * §15.1; (b) in a scratch copy of `docs/API.md`, a §15.1 row flipped to
      * `built` for a write with no operation → red naming it as missing from the
      * spec. Both reverted; `docs/API.md` restored byte-identical.
+     *
+     * **Writes only, by decision (d) — reads are out of scope** (V1-R-19, recorded
+     * 2026-09-16, V4 B4e): a §15.1 read row flipped to `built` with no operation,
+     * or a shipped read whose §15.1 row still says `unbuilt`, stays green here
+     * (C7's progress note: "read flip stays green"). Owner: BE-LEAD. Trigger to
+     * revisit: M4, where the whole contract closes — extend to reads then.
      */
     #[Test]
     public function theSpecsWriteOperationsAreExactlySection151sBuiltWriteRows(): void

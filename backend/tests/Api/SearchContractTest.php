@@ -148,6 +148,14 @@ final class SearchContractTest extends PurchaseOrderTestCase
      * becomes `(lower(po.order_number) LIKE lower(?) OR s.name ~* ?)` → red here
      * (a case-insensitive match over two columns, in two predicates) and in the
      * sibling (`supplier.name`). Recorded in `docs/session10/progress-C5C.md` row 25.
+     *
+     * **Residual non-coverage (V1-R-11, recorded 2026-09-16, V4 B4e; from the V1
+     * RED review, not re-measured here):** the case-insensitive family is lexical.
+     * A cross-column case-insensitive match reached through a `citext` column, a
+     * nondeterministic ICU collation (`COLLATE "und-x-icu"`), or `unaccent()` is
+     * not flagged. Owner: BE-LEAD. Trigger to revisit: the first migration that
+     * adds a `citext` column, a nondeterministic collation or the `unaccent`
+     * extension.
      */
     #[Test]
     public function noSearchIsACrossColumnIlike(): void

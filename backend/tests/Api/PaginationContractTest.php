@@ -172,7 +172,11 @@ final class PaginationContractTest extends PurchaseOrderTestCase
      * Postgres dollar-quoted strings (`$$ … $$`) and `E'…\''` escapes, which the
      * blanking pass does not model — the first could hide an `OFFSET`, the second
      * could cause a false red; a query path a list only takes on parameter values
-     * not driven here (e.g. `sort` values outside the fixture views).
+     * not driven here (e.g. `sort` values outside the fixture views). **And offset
+     * pagination spelt without the keyword** (V1-R-10, recorded 2026-09-16, V4 B4e;
+     * from the V1 RED review, not re-measured here): `ROW_NUMBER() OVER (…)` with
+     * `WHERE rn > ?`, and `FETCH ABSOLUTE` / `MOVE` on a server-side cursor. Owner:
+     * BE-LEAD. Trigger to revisit: the first list query that uses a window function.
      */
     #[Test]
     public function noListQueryEmitsOffset(): void

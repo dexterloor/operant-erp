@@ -431,6 +431,15 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * one cursor were walked.
      *
      * Mutations: `docs/session9/progress-C5B.md` row 12.
+     *
+     * **Residual non-coverage (V1-R-9, recorded 2026-09-16, V4 B4e; from the V1
+     * RED review, not re-measured here):** the walk matches **key names** only. A
+     * tenant uuid carried under any other key (`workspace_id`, `owner.tenant`), or
+     * as a value with no telling key, is not seen; nor is the `tenant_id` claim
+     * inside `IssueToken`'s access token, which D-5 puts there on purpose.
+     * Owner: BE-LEAD. Trigger to revisit: the first expansion or field that carries
+     * a tenant-scoped id under another key — then also walk values for the
+     * fixture tenants' uuids, with the token allow-listed.
      */
     #[Test]
     public function noResponseCarriesATenantIdentifier(): void

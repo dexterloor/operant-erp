@@ -58,6 +58,14 @@ use Symfony\Component\HttpFoundation\Request;
  * body-reading counterpart does; the query string has no such counterpart, and
  * the lists fix its position.
  *
+ * **Residual (V1-R-17, recorded 2026-09-16, V4 B4e):** the refusal acts only when
+ * the provider chain runs with the HTTP `Request` in its context. Step F2 removed
+ * the three list providers' own copies of this refusal, so a caller that invokes
+ * a provider without a request — a GraphQL resolver, or an internal `provide()`
+ * call — gets no refusal at all (the `HeaderParameter` residual is separate and
+ * already named). Owner: BE-LEAD. Trigger to revisit: GraphQL is enabled, or any
+ * code calls a state provider outside an HTTP request.
+ *
  * **Unauthenticated and credential operations are not exempt.** `IssueToken` and
  * `ChangePassword` both have `—` in the column. The refusal depends only on the
  * URL the caller wrote — never on an account, a tenant or a password — so it
