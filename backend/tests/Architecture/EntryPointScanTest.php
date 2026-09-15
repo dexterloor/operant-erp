@@ -113,6 +113,17 @@ final class EntryPointScanTest extends TestCase
         $this->assertRuleMatchesExactly(self::RUNTIME_FILES, static fn (array $tokens): bool => self::referencesTheRuntime($tokens), 'runtime reference');
     }
 
+    /**
+     * **Assertion count is derived from source length, and moves when a listed file is edited** (VAR investigation,
+     * 2026-09-16, `docs/session10/progress-VAR.md`). The second half asserts once per non-whitespace, non-comment token
+     * of every listed file outside OWNER_KEY_FILES, plus one `assertSame` for the rule match: 2141 at `6d6f7e1`
+     * (2140 tokens). Adding code to one of those four files — not a new test anywhere — raises the suite's total: B6's
+     * `785c8f6` added 92 tokens to PoolConfigurationTest.php, which is why the suite went +96 for a 4-assertion test.
+     * Benign: every token is checked whatever their number, so the verdict cannot depend on the count, and the count is
+     * identical across repeated runs and fresh volumes on one HEAD (five runs, per-test junit diff, 0 moving). Separately,
+     * `phpFiles()` caches statically, so its `assertNotEmpty` is counted once per process, in whichever test calls it
+     * first — fixed in a full run (default order), different under `--filter`.
+     */
     #[Test]
     public function onlyTheListedFilesOpenAConnectionOrLoadADotenvFileDirectly(): void
     {
