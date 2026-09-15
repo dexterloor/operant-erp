@@ -7,6 +7,8 @@ scratch/
 .env
 .env.*
 !.env.example
+!.env.infra.example
+!.env.test.example
 
 # ---- PHP / Symfony ----
 /backend/vendor/

@@ -6,13 +6,25 @@
 # `make reset` destroyed one database while the suite tested another for a
 # whole session. Override it if your engine differs; do not remove it.
 DOCKER_CONTEXT ?= colima
-COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env -f infra/docker-compose.yml
+# Three env files, split by who may read them (V3-1(i), V4 batch B2b-1, 2026-09-16):
+#   .env.infra  compose bootstrap passwords (owner, superuser, roles) -- read by compose ONLY
+#   .env        application DSNs and secrets -- read by every Symfony kernel
+#   .env.test   the schema owner's DSN -- read by the suite, `migrate` and `reset` only
+COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env.infra -f infra/docker-compose.yml
+
+# `.env.test` is loaded through PHP Dotenv by the runtime for this one command,
+# never shell-sourced: `set -a; . ./.env.test` would parse it as shell, where the
+# unquoted `&` in `?serverVersion=17&charset=utf8` backgrounds a command and a `$`
+# in a password expands.
+OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 
 .PHONY: env up down reset migrate test tenancy deptrac verify
 
-env:                ## create .env from the template (then fill in every CHANGE_ME)
+env:                ## create .env, .env.infra and .env.test from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
-	@grep -q CHANGE_ME_ .env && echo "  .env still contains placeholders -- edit it before continuing" || true
+	@test -f .env.infra || cp .env.infra.example .env.infra
+	@test -f .env.test || cp .env.test.example .env.test
+	@for f in .env .env.infra .env.test; do grep -q CHANGE_ME_ $$f && echo "  $$f still contains placeholders -- edit it before continuing" || true; done
 
 up:                 ## postgres + pgbouncer (pool_mode=transaction, default_pool_size=1)
 	$(COMPOSE) up -d
@@ -28,7 +40,7 @@ reset:              ## destroy the database volume and rebuild it from the roles
 	$(MAKE) migrate
 
 migrate:            ## runs as the owner role; erp_app has no rights to migrate
-	cd backend && php bin/console doctrine:migrations:migrate --no-interaction
+	cd backend && $(OWNER_RUNTIME) php bin/console doctrine:migrations:migrate --no-interaction
 
 test:
 	cd backend && php bin/phpunit

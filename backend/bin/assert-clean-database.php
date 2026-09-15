@@ -46,12 +46,23 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Symfony\Component\Dotenv\Dotenv;
 
+// The owner DSN lives in the root `.env.test`, not in `.env` (V3-1(i), V4 batch
+// B2b-1, 2026-09-16): every Symfony kernel loads `.env`, so the credential that
+// owns the schema was moved out of it. This script is not a kernel, and it reads
+// the owner's file by explicit path -- the same `DATABASE_URL` the suite reads
+// through `loadEnv` under APP_ENV=test, so "the database the suite connects to"
+// still means exactly that. Loaded through PHP Dotenv, never shell-sourced.
 $root = \dirname(__DIR__, 2);
-(new Dotenv())->loadEnv($root . '/.env');
+$ownerEnv = $root . '/.env.test';
+if (!is_file($ownerEnv)) {
+    fwrite(STDERR, "assert-clean-database: missing " . $ownerEnv . " (cp .env.test.example .env.test, then fill in every CHANGE_ME).\n");
+    exit(2);
+}
+(new Dotenv())->load($ownerEnv);
 
 $url = $_ENV['DATABASE_URL'] ?? '';
 if ('' === $url) {
-    fwrite(STDERR, "assert-clean-database: DATABASE_URL is not set.\n");
+    fwrite(STDERR, "assert-clean-database: DATABASE_URL is not set in .env.test.\n");
     exit(2);
 }
 
