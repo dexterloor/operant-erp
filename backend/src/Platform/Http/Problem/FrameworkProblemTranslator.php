@@ -148,9 +148,11 @@ final readonly class FrameworkProblemTranslator
             // API Platform's own client-supplied-id refusal, which fires in
             // `ItemNormalizer::denormalize` before `allow_extra_attributes`
             // ever sees the field. It is the layer of B-3 that answers today
-            // -- `allow_extra_attributes` was never observed refusing `id`
-            // (`2c25895`) -- with a message that names neither the field nor
-            // the reason, so it is re-labelled here. The coupling to the
+            // -- with this vendor block cut, `allow_extra_attributes` does
+            // refuse `id` with 422 (R4, layer L3b, 2026-09-14; `2c25895` had
+            // only tried switching the block off by `api_allow_update`) --
+            // and its message names neither the field nor the reason, so it
+            // is re-labelled here. The coupling to the
             // vendor's wording is deliberate and pinned:
             // `ItemWriteTest::aCreateCarryingAnIdIsRefused` asserts the `/id`
             // pointer, so a message change upstream turns the test red rather

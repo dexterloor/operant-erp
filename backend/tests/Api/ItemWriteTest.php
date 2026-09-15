@@ -65,9 +65,21 @@ final class ItemWriteTest extends ApiTestCase
      *     `id` when the context's `api_allow_update` is not `true` (a POST
      *     defaults it to `false`); `FrameworkProblemTranslator` relabels it
      *     `/id`. **This is the layer that answers today.**
-     *  3. `allow_extra_attributes: false` — **never observed refusing `id`.**
-     *     Layer 2 fires before it; with layer 2 disabled the `id` is taken as
-     *     an IRI instead, so layer 3 still never sees it.
+     *  3. `allow_extra_attributes: false` — **does not answer today only
+     *     because layer 2 fires first.** With layer 2's `isset($data['id'])`
+     *     block cut from the vendor normaliser, this flag **does refuse `id`,
+     *     with 422** (R4, layer L3b, 2026-09-14). With layer 2 switched off by
+     *     `'api_allow_update' => true` instead, the `id` is resolved as an IRI
+     *     (a 404 path) and never reaches this flag.
+     *
+     * None of the three, alone or combined, lets a chosen id persist: the writer
+     * mints `Uuid::v4()` regardless (R4's verdict; owner decision (c) makes that
+     * minting B-3's guard). A row at a chosen id needs the writer changed to read
+     * the input id **and** all three layers removed — and under that mutation
+     * this test is red at the status (`201 is identical to 422`) before its
+     * trailing `GET … 404` runs. **The check on the row is
+     * `ClientChosenIdTest`**, which asserts no row at the chosen id before it
+     * reads any status.
      *
      * Mutations (C5, 2026-09-14, `backend/var/cache/test` deleted before each
      * mutated run and before the revert run — Rule 17):
@@ -78,8 +90,7 @@ final class ItemWriteTest extends ApiTestCase
      *  - `'api_allow_update' => true` on `CreateItem`, everything else intact:
      *    RED, `Failed asserting that 404 is identical to 422.` — the `id` is
      *    resolved as an IRI and not found. That red is the 404 path, not an
-     *    acceptance: **a write at a client-chosen id was never observed**, so
-     *    the trailing `GET … 404` assertion has no mutation shown to reach it.
+     *    acceptance.
      *  - Revert: GREEN.
      */
     #[Test]

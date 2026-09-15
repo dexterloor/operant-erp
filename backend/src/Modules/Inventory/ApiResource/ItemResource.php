@@ -82,12 +82,17 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 //     body carrying `id` when `api_allow_update` is not `true` (a
                 //     POST defaults it to `false`); `FrameworkProblemTranslator`
                 //     relabels it `/id`. This is the layer that answers today.
-                //  3. This flag -- never observed refusing `id`. Layer 2 fires
-                //     before it; with layer 2 disabled the `id` is taken as an
-                //     IRI instead (a 404 path), so this flag still never sees it.
+                //  3. This flag -- silent today only because layer 2 fires
+                //     first. With layer 2's `isset($data['id'])` block cut from
+                //     the vendor normaliser, this flag DOES refuse `id` with 422
+                //     (R4, layer L3b, 2026-09-14). With layer 2 switched off by
+                //     `'api_allow_update' => true` instead, the `id` is taken as
+                //     an IRI (a 404 path) and never reaches this flag.
                 // Measured in `2c25895`: `id` added to the input AND this flag
-                // removed left the runtime test GREEN. A write at a
-                // client-chosen id was never observed.
+                // removed left the runtime test GREEN. No layer, alone or
+                // combined, persists a chosen id: `ItemWriter::create()` mints
+                // the id regardless, and that minting is B-3's guard
+                // (`ClientChosenIdTest`).
                 'allow_extra_attributes' => false,
                 // The provider returns nothing for a create, and leaving this
                 // unset makes API Platform emit a 5.0 deprecation on every POST.
