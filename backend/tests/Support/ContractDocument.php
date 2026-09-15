@@ -344,6 +344,56 @@ final class ContractDocument
     }
 
     /**
+     * Whether §4.2 marks one row `*(bounded)*` in its `Query parameters` cell —
+     * the same literal `ResponseShapeTest::subListedChild()` tests, read through
+     * one accessor so batch C's checks do not carry a third spelling of it.
+     * API-19a's exclusion 2 says these are exactly the sort manifest's
+     * `(bounded, TB-1c` rows, *"so the two documents agree by construction"*.
+     */
+    public static function isBounded(string $operationId): bool
+    {
+        return str_contains(self::operationRows()[$operationId]['query'] ?? '', '*(bounded)*');
+    }
+
+    /**
+     * API-19a's manifest-route → API-path table (§10.2), parsed rather than
+     * restated: the first row pairs its backticked routes and paths by position,
+     * the second maps a named screen surface, and "every other row" is the
+     * identity, which is what a route absent from the returned map means.
+     *
+     * An empty map means the table was not found; a row whose two cells name a
+     * different number of routes throws.
+     *
+     * @return array<string, string>
+     */
+    public static function manifestPathMapping(): array
+    {
+        $map = [];
+
+        foreach (explode("\n", self::sectionBetween('**API-19a', '**Exclusion 1')) as $line) {
+            $cells = array_map(trim(...), \array_slice(explode('|', $line), 1, -1));
+            if (3 !== \count($cells) || 'Manifest route' === $cells[0] || 1 === preg_match('/^-+$/', $cells[0])) {
+                continue;
+            }
+
+            preg_match_all('/`([^`]+)`/', $cells[0], $routes);
+            preg_match_all('/`(\/[^`]*)`/', $cells[1], $paths);
+            if ([] === $paths[1]) {
+                continue; // "every other row | identical".
+            }
+            if (\count($routes[1]) !== \count($paths[1])) {
+                throw new \LogicException('API-19a: a mapping row pairs '.\count($routes[1]).' routes with '.\count($paths[1]).' paths: '.$line);
+            }
+
+            foreach ($routes[1] as $i => $route) {
+                $map[$route] = $paths[1][$i];
+            }
+        }
+
+        return $map;
+    }
+
+    /**
      * Resource → table, read off §4.2's `Restore / <Resource>` rows, whose `Idem`
      * cell names the mechanism `guard:<table>.deleted_at`. It is the one place
      * §4.2 ties a resource name to a `SchemaManifest` table, and it can only name

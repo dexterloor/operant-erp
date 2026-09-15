@@ -26,11 +26,15 @@ use PHPUnit\Framework\Attributes\Test;
  * whole set is one page — so the walk below has no per-operation branching.
  *
  * The fixtures are the one per-operation part, because a row cannot be seeded
- * generically. They are keyed by operation and held equal to the domain inside
- * each test, so a list built tomorrow is red here until it is given one.
+ * generically. They live in {@see ListOperationFixtures} (moved there by C5
+ * batch C, 2026-09-15, so batch C's list checks seed the same rows) and are held
+ * equal to the domain inside each test, so a list built tomorrow is red here
+ * until it is given one.
  */
 final class ListEnvelopeTest extends PurchaseOrderTestCase
 {
+    use ListOperationFixtures;
+
     /** API-22's members, and nothing else. */
     private const ENVELOPE = ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'];
 
@@ -58,7 +62,7 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
     public function everyListOperationReturnsTheEnvelope(): void
     {
         $lists = $this->listOperations();
-        $fixtures = $this->fixtures();
+        $fixtures = $this->listFixtures();
 
         self::assertSame([], self::envelopeDefects(['items' => [], 'next_cursor' => null, 'previous_cursor' => null, 'tenant_has_rows' => false]),
             'The detector refused a well-formed envelope.');
@@ -76,7 +80,7 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
                 $defects[] = $name.' (empty): '.$defect;
             }
 
-            $seed();
+            $seed(self::ROWS);
             $this->send('GET', $path);
             self::assertSame(200, $this->httpStatus(), $name.' did not answer its populated path.');
             $body = $this->json();
@@ -111,14 +115,14 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
     public function theLastPageCarriesANullCursor(): void
     {
         $lists = $this->listOperations();
-        $fixtures = $this->fixtures();
+        $fixtures = $this->listFixtures();
 
         $defects = [];
         $paged = [];
 
         foreach ($lists as $name => $operation) {
             [$path, $seed] = $fixtures[$name]();
-            $seed();
+            $seed(self::ROWS);
 
             // The whole default view in one request — API-17's default page is
             // far above the rows seeded here — so the walk has a count to reach.
@@ -167,29 +171,6 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
         self::assertNotSame([], $paged, 'No list walked more than one page, so a cursor on a page with a successor was never seen.');
     }
 
-    /**
-     * The domain: every built `GET` whose operationId verb is `List`.
-     *
-     * @return array<string, HttpOperation>
-     */
-    private function listOperations(): array
-    {
-        $lists = array_filter(
-            TransactionBoundaryTest::contractOperations(),
-            static fn (HttpOperation $operation, string $name): bool => 'GET' === $operation->getMethod() && 1 === preg_match('/^List[A-Z]/', $name),
-            \ARRAY_FILTER_USE_BOTH,
-        );
-        ksort($lists);
-
-        self::assertNotSame([], $lists, 'The registry produced no list operation, so nothing was examined.');
-
-        $fixtures = array_keys($this->fixtures());
-        sort($fixtures);
-        self::assertSame(array_keys($lists), $fixtures, 'Every list operation in the registry must have a fixture here, and only those.');
-
-        return $lists;
-    }
-
     /** Whether the list pages at all: it declares `limit`, which a `(bounded)` list does not. */
     private static function pages(HttpOperation $operation): bool
     {
@@ -225,41 +206,5 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
         }
 
         return $defects;
-    }
-
-    /**
-     * One fixture per list: the path to read, and a step that seeds
-     * {@see self::ROWS} rows the list's default view returns. The path exists
-     * before the seed, so the empty page is readable first.
-     *
-     * @return array<string, callable(): array{0: string, 1: callable(): void}>
-     */
-    private function fixtures(): array
-    {
-        return [
-            'ListItems' => fn (): array => ['/items', function (): void {
-                for ($i = 1; $i <= self::ROWS; ++$i) {
-                    $this->seedItem(self::TENANT_A, 'SKU-ENV-'.$i);
-                }
-            }],
-            'ListPurchaseOrderLines' => function (): array {
-                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Lines');
-                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Lines');
-                $order = $this->seedOrder(self::TENANT_A, 'PO-ENV-LINES', $supplier, $warehouse);
-
-                return ['/purchase-orders/'.$order.'/lines', function () use ($order): void {
-                    for ($i = 1; $i <= self::ROWS; ++$i) {
-                        $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ENV-L'.$i), $i);
-                    }
-                }];
-            },
-            'ListPurchaseOrders' => fn (): array => ['/purchase-orders', function (): void {
-                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Orders');
-                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Orders');
-                for ($i = 1; $i <= self::ROWS; ++$i) {
-                    $this->seedOrder(self::TENANT_A, 'PO-ENV-'.$i, $supplier, $warehouse);
-                }
-            }],
-        ];
     }
 }
