@@ -416,4 +416,63 @@ final class ContractDocument
 
         return $tables;
     }
+
+    /**
+     * §15.1's per-row build status, operationId → `built` | `unbuilt`.
+     *
+     * §15.1 is a **four**-column table (six fields with `-F'|'`), which is why
+     * {@see self::operationRows()} never reads it. The section runs from its
+     * heading to the next heading **or the end of the document** — it is the last
+     * section today, so {@see self::sectionBetween()}, which returns nothing for
+     * an unmatched end heading, cannot be used.
+     *
+     * Strict on purpose: a table line inside the section with any other field
+     * count, or a status other than the two words §15.1 uses, throws rather than
+     * being skipped. A status row the parser quietly stepped over would take an
+     * operation out of every set derived from here without anything going red.
+     *
+     * @return array<string, string>
+     */
+    public static function buildStatuses(): array
+    {
+        $inside = false;
+        $statuses = [];
+
+        foreach (self::lines() as $number => $line) {
+            if (!$inside) {
+                $inside = str_starts_with($line, '### 15.1 ');
+
+                continue;
+            }
+            if (str_starts_with($line, '#')) {
+                break;
+            }
+            if (!str_starts_with($line, '|')) {
+                continue;
+            }
+
+            $cells = array_map(trim(...), explode('|', $line));
+            if (6 !== \count($cells)) {
+                throw new \UnexpectedValueException(\sprintf('§15.1 line %d has %d fields, not 6: %s', $number + 1, \count($cells), $line));
+            }
+
+            $operationId = trim($cells[1], '`');
+            if ('operationId' === $operationId || 1 === preg_match('/^-*$/', $operationId)) {
+                continue;
+            }
+
+            $status = str_replace('*', '', $cells[2]);
+            if (!\in_array($status, ['built', 'unbuilt'], true)) {
+                throw new \UnexpectedValueException(\sprintf('§15.1 line %d has status "%s", not built or unbuilt.', $number + 1, $status));
+            }
+
+            if (isset($statuses[$operationId])) {
+                throw new \UnexpectedValueException(\sprintf('§15.1 line %d repeats %s.', $number + 1, $operationId));
+            }
+
+            $statuses[$operationId] = $status;
+        }
+
+        return $statuses;
+    }
 }

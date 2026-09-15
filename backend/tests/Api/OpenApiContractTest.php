@@ -18,27 +18,15 @@ use PHPUnit\Framework\Attributes\Test;
 final class OpenApiContractTest extends ApiTestCase
 {
     /**
-     * The write operations this slice authors: four on `/items`, plus
-     * `IssueToken`, plus `ChangePassword` (E-23, 2026-09-09), plus **six on
-     * `/purchase-orders`** (2026-09-10) — `UpdatePurchaseOrder`,
-     * `DeletePurchaseOrder`, `ApprovePurchaseOrder`, `CreatePurchaseOrderLine`,
-     * `UpdatePurchaseOrderLine`, `DeletePurchaseOrderLine` — plus **two more on
-     * 2026-09-11**, `CreatePurchaseOrder` and `CancelPurchaseOrder`, which is
-     * why this number was 14 and not 12 — **and 15 since step 8 (2026-09-11)**,
-     * `CreateGoodsReceipt` (`GetGoodsReceipt` is a read). Not a description
-     * of the whole contract — it is the anti-vacuity floor: if the `ApiResource`
-     * classes are deleted the count drops and this file goes red, which is the
-     * second mutation API-10a names.
-     *
-     * **Both sides of API-10a's comparison moved in that pass and they moved by
-     * the same one**, which is the property the VACUOUS branch depends on: the
-     * document gained a `ChangePassword` row in §4.2 and the tree gained a
-     * `PasswordResource`. Raising this number without authoring the operation
-     * would turn the floor into a ceiling nobody can reach; authoring it without
-     * raising this number leaves the floor below the truth. Neither is caught by
-     * the other test, so both are done here deliberately.
+     * **What "write" means in this file, on both sides of every comparison.** An
+     * operation is a write if its HTTP method is one of these: on the spec side
+     * the method is the path item's key, on the document side it is §4.2's
+     * `Method` cell for the row with the same operationId. One constant, so the
+     * two sides cannot be derived differently. `PUT` is listed although API-5
+     * removes it (`a3fb961` checks that): a `PUT` that appeared would be a write,
+     * and a definition that left it out would let it through every check here.
      */
-    private const AUTHORED_WRITE_OPERATIONS = 15;
+    private const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
     /** @return array<string, mixed> */
     private function regenerate(): array
@@ -53,36 +41,52 @@ final class OpenApiContractTest extends ApiTestCase
 
     /**
      * API-10a. The outcome today is **VACUOUS** and this test says so out loud:
-     * one resource is authored out of the contract's whole inventory, so the
-     * `id` assertion below is real but the gate is not passed.
+     * the spec declares fewer write operations than §4.2 does, so the `id`
+     * assertion below is real but the gate is not passed. Owner decision (d),
+     * 2026-09-14, rules VACUOUS M0-b's outcome — **never recorded as a pass** —
+     * together with C7's equality, which is
+     * {@see self::theSpecsWriteOperationsAreExactlySection151sBuiltWriteRows()}.
      *
-     * When the remaining resources land, the counts converge and this test goes
-     * red — which is deliberate. It is the thing that forces somebody to change
-     * the assertion to PASS on purpose rather than discovering that a partially
-     * authored spec had been reported as green.
+     * When the last §4.2 row is built (M4), the counts converge and this test
+     * goes red — which is deliberate. It is the thing that forces somebody to
+     * change the assertion to PASS on purpose rather than discovering that a
+     * partially authored spec had been reported as green.
+     *
+     * **What the old `AUTHORED_WRITE_OPERATIONS = 15` protected, and where each
+     * property now lives (C7, 2026-09-15):**
+     *  - *the floor* — deleting the `ApiResource` classes turns this file red
+     *    (API-10a's second mutation). With the document present, the C7
+     *    equality is red for every built write operation that vanishes, by
+     *    name. On a clean checkout the equality has no second side, so the
+     *    assertion below that the spec declares at least one write runs first
+     *    on every checkout; the exact shipped set is held without the document
+     *    by `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`.
+     *  - *the ceiling that forces a rewrite* — here, unchanged in meaning: the
+     *    spec's write count must stay **below** §4.2's.
+     *  - *both sides moving together* — the constant had to be raised by hand
+     *    whenever a write operation shipped, and nothing caught forgetting. The
+     *    equality replaces that hand step with §15.1, which is re-derived
+     *    whenever a row ships and which this file now reads.
      */
     #[Test]
     public function theApi10aOutcomeIsVacuousAndIsNotRecordedAsAPass(): void
     {
         $spec = $this->regenerate();
+        $generated = $this->writeOperationIds($spec);
 
-        self::assertSame(
-            self::AUTHORED_WRITE_OPERATIONS,
-            \count($this->writeOperations($spec)),
-            'The generated spec no longer declares the write operations this slice authors.',
-        );
+        self::assertNotSame([], $generated, 'The generated spec declares no write operation, so a VACUOUS outcome here would be empty against the contract.');
 
         if (!ContractDocument::isAvailable()) {
-            self::markTestSkipped('docs/API.md is gitignored and absent, so the VACUOUS comparison has no second side. The floor above still ran.');
+            self::markTestSkipped('docs/API.md is gitignored and absent, so the VACUOUS comparison has no second side. The non-empty check above still ran.');
         }
 
         $documented = array_filter(
             ContractDocument::operationRows(),
-            static fn (array $row): bool => \in_array($row['method'], ['POST', 'PATCH', 'DELETE'], true),
+            static fn (array $row): bool => \in_array($row['method'], self::WRITE_METHODS, true),
         );
 
         self::assertGreaterThan(
-            self::AUTHORED_WRITE_OPERATIONS,
+            \count($generated),
             \count($documented),
             \sprintf(
                 'The spec now declares as many write operations as §4.2 does (%d). The API-10a outcome has moved from '
@@ -90,6 +94,114 @@ final class OpenApiContractTest extends ApiTestCase
                 \count($documented),
             ),
         );
+    }
+
+    /**
+     * **C7 (owner decision (d)): the generated spec's write operations are
+     * exactly §15.1's built write rows** — an equality, red on drift in either
+     * direction, and naming the operation that drifted.
+     *
+     * Both sides are sets of operationIds, and "write" is {@see self::WRITE_METHODS}
+     * on both:
+     *  - **spec side** — every operation under `paths` whose method key is a
+     *    write method, by its `operationId`;
+     *  - **document side** — every §15.1 row whose status is `built`
+     *    (`ContractDocument::buildStatuses()`), kept if §4.2's `Method` cell for
+     *    that operationId is a write method. A built row with no §4.2 row has no
+     *    method to classify it by and is reported, never dropped.
+     *
+     * Controls, inside this method: §15.1 yields rows, some built; both sets
+     * are non-empty; and the comparison is shown to name a planted extra name on
+     * either side and a removed real name on either side before it is trusted.
+     *
+     * Mutations (C7, 2026-09-15, `docs/session10/progress-C4C7.md`): (a) a
+     * throwaway write operation added to a resource (`backend/var/cache/test`
+     * deleted before and after — Rule 17) → red naming it as missing from
+     * §15.1; (b) in a scratch copy of `docs/API.md`, a §15.1 row flipped to
+     * `built` for a write with no operation → red naming it as missing from the
+     * spec. Both reverted; `docs/API.md` restored byte-identical.
+     */
+    #[Test]
+    public function theSpecsWriteOperationsAreExactlySection151sBuiltWriteRows(): void
+    {
+        $spec = $this->regenerate();
+        $generated = $this->writeOperationIds($spec);
+
+        self::assertNotSame([], $generated, 'The generated spec declares no write operation, so the equality below would have one empty side.');
+
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored and absent, so §15.1 is not there to compare the spec with.');
+        }
+
+        $contract = ContractDocument::operationRows();
+        $statuses = ContractDocument::buildStatuses();
+
+        self::assertNotSame([], $statuses, '§15.1 yielded no rows, so the document side would be empty.');
+        self::assertContains('built', $statuses, '§15.1 marks nothing built, so the document side would be empty.');
+
+        $unclassifiable = [];
+        $documented = [];
+        foreach (array_keys(array_filter($statuses, static fn (string $status): bool => 'built' === $status)) as $operationId) {
+            if (!isset($contract[$operationId])) {
+                $unclassifiable[] = $operationId;
+
+                continue;
+            }
+            if (\in_array($contract[$operationId]['method'], self::WRITE_METHODS, true)) {
+                $documented[] = $operationId;
+            }
+        }
+        sort($documented);
+
+        self::assertSame([], $unclassifiable, '§15.1 marks these built but §4.2 has no row for them, so their method is unknown.');
+        self::assertNotSame([], $documented, '§15.1 marks no write row built, so the equality below would have one empty side.');
+
+        // The comparison is shown to discriminate, in all four directions, before it is read.
+        $planted = 'PlantedC7WriteOperation';
+        self::assertSame(['missing from §15.1' => [$planted], 'missing from the spec' => []], self::writeDrift([...$generated, $planted], $generated));
+        self::assertSame(['missing from §15.1' => [], 'missing from the spec' => [$planted]], self::writeDrift($generated, [...$generated, $planted]));
+        self::assertSame(['missing from §15.1' => [], 'missing from the spec' => [$generated[0]]], self::writeDrift(\array_slice($generated, 1), $generated));
+        self::assertSame(['missing from §15.1' => [$generated[0]], 'missing from the spec' => []], self::writeDrift($generated, \array_slice($generated, 1)));
+
+        self::assertSame(
+            ['missing from §15.1' => [], 'missing from the spec' => []],
+            self::writeDrift($generated, $documented),
+            'C7: the generated spec\'s write operations and §15.1\'s built write rows differ.',
+        );
+    }
+
+    /**
+     * @param list<string> $spec
+     * @param list<string> $document
+     *
+     * @return array{'missing from §15.1': list<string>, 'missing from the spec': list<string>}
+     */
+    private static function writeDrift(array $spec, array $document): array
+    {
+        $extra = array_values(array_diff($spec, $document));
+        $missing = array_values(array_diff($document, $spec));
+        sort($extra);
+        sort($missing);
+
+        return ['missing from §15.1' => $extra, 'missing from the spec' => $missing];
+    }
+
+    /**
+     * The write operations' ids, sorted, from the generated spec.
+     *
+     * @param array<string, mixed> $spec
+     *
+     * @return list<string>
+     */
+    private function writeOperationIds(array $spec): array
+    {
+        $ids = [];
+        foreach ($this->writeOperations($spec) as $label => $operation) {
+            $ids[] = \is_string($operation['operationId'] ?? null) ? $operation['operationId'] : '(no operationId) '.$label;
+        }
+        sort($ids);
+
+        return $ids;
     }
 
     /**
@@ -272,7 +384,7 @@ final class OpenApiContractTest extends ApiTestCase
         // (1) the extraction must be non-empty, and that is half the check.
         $writes = array_filter(
             ContractDocument::operationRows(),
-            static fn (array $row): bool => \in_array($row['method'], ['POST', 'PATCH', 'DELETE'], true),
+            static fn (array $row): bool => \in_array($row['method'], self::WRITE_METHODS, true),
         );
         self::assertNotSame([], $writes);
 
@@ -299,7 +411,7 @@ final class OpenApiContractTest extends ApiTestCase
 
         foreach ($spec['paths'] as $path => $methods) {
             foreach ($methods as $method => $operation) {
-                if (\in_array(strtolower((string) $method), ['post', 'patch', 'delete'], true)) {
+                if (\in_array(strtoupper((string) $method), self::WRITE_METHODS, true)) {
                     $writes[strtoupper((string) $method).' '.$path] = $operation;
                 }
             }
