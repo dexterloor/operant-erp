@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use ApiPlatform\Metadata\HttpOperation;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 
