@@ -28,9 +28,24 @@ final class ErrorContractTest extends ApiTestCase
      * operation or named in its cell.
      *
      * Mutation 1 (document): `not-found` added to `CreateSupplier`'s cell → RED,
-     * half 1. Mutation 2 (API.md's reverse mutation): `stale-record` removed from
-     * `CreateGoodsReceipt`'s cell and the operation made to raise it → RED,
-     * half 2. Reverts → GREEN.
+     * half 1. Mutation 2 (API.md's reverse mutation; re-run 2026-09-15, cache
+     * deleted before each run): `CreateGoodsReceiptProcessor::process` made to
+     * throw `ApiProblem::businessRuleViolated()` as its first statement and
+     * `business-rule-violated` removed from `CreateGoodsReceipt`'s cell → RED,
+     * half 2, "CreateGoodsReceipt (missing row, empty body) returned
+     * `business-rule-violated`"; the same throw with the cell intact → GREEN.
+     * Reverts → GREEN. (Until 2026-09-15 the subject was `stale-record`, which
+     * that cell named and nothing raises; the cell no longer names it.)
+     *
+     * ⚠ **What half 2 cannot see, measured the same day.** Removing
+     * `business-rule-violated` from `CreateGoodsReceipt`'s cell with NO throw
+     * planted stays GREEN, although the operation really raises it
+     * (`GoodsReceiptCreateTest::anOverReceiptIsRefusedAndNothingIsWritten`). So
+     * does clearing every non-universal entry from all fifteen built rows that
+     * carry one: the three fixture-free requests reach no non-universal type on
+     * any built operation. Half 2 therefore proves the detector, not the cells —
+     * a stateful refusal missing from its cell, or a listed type nothing raises,
+     * is invisible here. Carried to V1 (`docs/session10/v1-carry.md`).
      *
      * **It was red on the day it was written**, on the no-token probe of every
      * operation outside `/auth/`: §5.2's sentence did not name
