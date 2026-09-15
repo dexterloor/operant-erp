@@ -27,6 +27,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `{id, order_number}`, and `received_by = {id, display_name}` or `null`
  * (API-O-33 (a), 2026-09-14). No `archived_at`: `goods_receipt` is class `none`.
  *
+ * Of the line fields, `storage_location_id` is returned as API-23b's
+ * `storage_location = {id, code}` (2026-09-15; it shipped bare, a defect).
+ * `purchase_order_line_id` is still bare: a document-line reference has no
+ * display field API-23b derives, and that is an owner ruling owed
+ * (`docs/session10/red-row11-attack.md` R2), held in `ResponseShapeTest` as a
+ * registered deviation. The request side is unchanged — both are accepted as ids.
+ *
  * `GetGoodsReceipt` is declared FIRST on purpose. API Platform's own
  * `Location` names a resource's first item operation, and that is the URI the
  * 201 must carry (API-21 branch 4), so no `CreatedRowLocation` template is

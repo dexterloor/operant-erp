@@ -56,10 +56,14 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
     public function aReceiptPostsEveryLineMovesTheStockAndLeavesThePartOrderPartiallyReceived(): void
     {
         $po = $this->orderedOrderWithLines(['10.000000', '4.000000']);
+        // A second bin with a different code, so a reader that joins the wrong
+        // bin, or hands one line the other's code, renders a real code that is
+        // the wrong one.
+        $secondBin = $this->seedLocation(self::TENANT_A, $po['warehouse'], 'B-07');
 
         $this->receive($po['order'], [
             ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '6', 'storage_location_id' => $po['bin']],
-            ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '4.000000', 'storage_location_id' => $po['bin']],
+            ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '4.000000', 'storage_location_id' => $secondBin],
         ]);
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -68,9 +72,16 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame('GR-000001', $body['receipt_number']);
         self::assertSame(['id' => $po['order'], 'order_number' => 'PO-1'], $body['purchase_order']);
         self::assertCount(2, $body['lines']);
+        // Every line member but the line's own id, by name and value: API-23b's
+        // `storage_location = {id, code}` (the key, both members, nothing else),
+        // and `purchase_order_line_id` still bare — ResponseShapeTest's
+        // registered deviation, owner ruling owed (red-row11-attack.md R2).
         self::assertSame(
-            [[$po['lines'][0], '6.000000', $po['bin']], [$po['lines'][1], '4.000000', $po['bin']]],
-            array_map(static fn (array $l): array => [$l['purchase_order_line_id'], $l['quantity'], $l['storage_location_id']], $body['lines']),
+            [
+                ['purchase_order_line_id' => $po['lines'][0], 'quantity' => '6.000000', 'storage_location' => ['id' => $po['bin'], 'code' => 'A-01']],
+                ['purchase_order_line_id' => $po['lines'][1], 'quantity' => '4.000000', 'storage_location' => ['id' => $secondBin, 'code' => 'B-07']],
+            ],
+            array_map(static fn (array $l): array => array_diff_key($l, ['id' => true]), $body['lines']),
         );
         self::assertSame('/api/v1/goods-receipts/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
 
@@ -148,6 +159,27 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertArrayHasKey('received_by', $body);
         self::assertNull($body['received_by']);
+    }
+
+    /**
+     * **A bin retired after the delivery still names where the goods went.**
+     * API-23b's `storage_location = {id, code}` is joined with no
+     * `deleted_at IS NULL`, as the receiver is: archiving a bin does not un-book
+     * the stock that was put in it, and a filtered join would drop the line.
+     */
+    #[Test]
+    public function aReceiptWhoseBinWasLaterArchivedStillNamesTheBin(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE storage_location SET deleted_at = now() WHERE id = ?::uuid', [$po['bin']]);
+
+        $this->send('GET', '/goods-receipts/'.$id);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([['id' => $po['bin'], 'code' => 'A-01']], array_column($this->json()['lines'], 'storage_location'));
     }
 
     /**

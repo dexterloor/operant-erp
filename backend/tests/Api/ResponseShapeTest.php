@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -46,6 +47,39 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
     /** The fields every row may get without §4.2 or §4.4.3 saying anything about it. */
     private const FREE_FIELDS = ['id', 'archived_at'];
+
+    /**
+     * **Bare references that are known and not yet ruled: operation => JSON path
+     * (list indices written `[N]`) => reason.** Registered 2026-09-15.
+     *
+     * `lines[].purchase_order_line_id` on a goods receipt is a reference to a
+     * **document line**, and API-23b's display-field chain (`name`, else `code`,
+     * else `sku`, else the document number) has no answer for one:
+     * `purchase_order_line` has none of the first three, and its `line_number` is
+     * an integer outside the five `text` document-number columns `docs/ux/IA.md`
+     * §5.6 names under R-1 — and `PurchaseOrderLineResource` records that
+     * `line_number` is a column, not a field. Picking a display field here would
+     * be choosing per resource, which API-23b forbids. The question goes to the
+     * owner: `docs/session10/red-row11-attack.md`, "R2". Until it is ruled, this
+     * path is excused and **only** this path; `storage_location_id` on the same
+     * lines was the shipped defect and is expanded.
+     *
+     * Every entry must still be observed in a driven body, so the excuse cannot
+     * outlive the bare id it excuses — when R2 is built, this entry turns the
+     * test red until it is removed.
+     *
+     * @var array<string, array<string, non-empty-string>>
+     */
+    private const REGISTERED_BARE_REFERENCES = [
+        'GetGoodsReceipt' => [
+            '$.lines[N].purchase_order_line_id' => 'A document-line reference has no API-23b display field; owner ruling owed '
+                .'(docs/session10/red-row11-attack.md R2, registered 2026-09-15).',
+        ],
+        'CreateGoodsReceipt' => [
+            '$.lines[N].purchase_order_line_id' => 'A document-line reference has no API-23b display field; owner ruling owed '
+                .'(docs/session10/red-row11-attack.md R2, registered 2026-09-15).',
+        ],
+    ];
 
     /**
      * **The probe.** No built read resource's derived expectation is empty
@@ -106,6 +140,119 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertSame([], $vacuous,
             'A built read resource has a derived expectation with nothing beyond id and archived_at. API-23a requires an '
             .'additions row for a resource with no Create* row, or with a Create* row under a different Resource name.');
+    }
+
+    /**
+     * **API-23b — no response field ending `_id` is returned unexpanded (other
+     * than `subject_id` and `source_id`), and an expansion carries the id and the
+     * display field only.**
+     *
+     * Subject: the serialized body of every operation in the registry, each driven
+     * to success by {@see OperationSuccessRecipes}, walked at every depth. An
+     * **expansion** is an object-valued member (or an object in a list member)
+     * carrying `id`, other than the envelope's `items` and a nested collection §4.2
+     * declares as `name[].field` (`lines`) — those are the resource's own rows, not
+     * references. The display field is derived, not chosen: the referenced row is
+     * found by its id in the schema's tables, and its field is that table's `name`
+     * where it has one, else `code`, else `sku`, else its document number
+     * (`*_number`). **Reading taken:** `app_user` has no `name` column and its name
+     * column is `display_name`, which is what §4.4.3 writes for `created_by`.
+     *
+     * One bare reference is excused by {@see self::REGISTERED_BARE_REFERENCES}, by
+     * operation and exact path; an entry that is no longer observed is red.
+     *
+     * Controls inside this method: recipes equal the registry and each answered its
+     * success status; at least one expansion was examined and resolved to a table;
+     * the walker flags a planted bare `supplier_id` and a planted three-member
+     * expansion; the registry excuses its own path and not the same path under a
+     * different key or operation.
+     *
+     * **What this does not check:** the display **value**, and that the expansion's
+     * key is the `_id` field's name less `_id`. Both are pinned per operation where
+     * the expansion is built (`GoodsReceiptCreateTest` for `storage_location`).
+     *
+     * Mutations: `docs/session9/progress-C5B.md` row 11; `docs/session10/progress-R1.md`.
+     */
+    #[Test]
+    public function everyReferenceIsExpanded(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored; the nested collections §4.2 declares are read from it.');
+        }
+
+        $nested = self::nestedCollections();
+        self::assertNotSame([], $nested, '§4.2 declares no nested collection, so the sub-row carve-out was read from nothing.');
+
+        $planted = [];
+        self::walkReferences(['supplier_id' => 'x', 'supplier' => ['id' => 'x', 'name' => 'n', 'code' => 'c']], '$', $nested, $planted);
+        self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'bare' === $p[0]), 'The walker missed a planted bare supplier_id.');
+        self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'expansion' === $p[0]), 'The walker missed a planted expansion.');
+
+        // Control — the registry excuses exactly its own operation and path.
+        foreach (self::REGISTERED_BARE_REFERENCES as $operation => $paths) {
+            foreach (array_keys($paths) as $path) {
+                $concrete = str_replace('[N]', '[3]', $path);
+                self::assertSame($path, self::registeredBareReference($operation, $concrete), 'The registry does not excuse its own entry at '.$concrete.'.');
+                self::assertNull(self::registeredBareReference($operation, $concrete.'_x_id'), 'The registry excuses a path it does not name.');
+                self::assertNull(self::registeredBareReference('NoSuch'.$operation, $concrete), 'The registry excuses an operation it does not name.');
+            }
+        }
+
+        $defects = [];
+        $observed = [];
+        $examined = 0;
+
+        foreach ($this->drivenBodies() as $name => $body) {
+            $found = [];
+            self::walkReferences($body, '$', $nested, $found);
+
+            foreach ($found as [$kind, $where, $value]) {
+                if ('bare' === $kind) {
+                    if (null !== ($path = self::registeredBareReference($name, $where))) {
+                        $observed[$name][$path] = true;
+                        continue;
+                    }
+                    $defects[] = \sprintf('%s returns %s unexpanded', $name, $where);
+                    continue;
+                }
+
+                ++$examined;
+                $display = $this->displayFieldOf((string) $value['id']);
+                $members = array_keys($value);
+                sort($members);
+                $want = null === $display ? null : ['id', $display];
+                if (null !== $want) {
+                    sort($want);
+                }
+                if (null === $want || $want !== $members) {
+                    $defects[] = \sprintf('%s: the expansion at %s carries [%s], not [%s]', $name, $where, implode(', ', $members),
+                        null === $want ? 'id and a display field — no table holding that id has one' : implode(', ', $want));
+                }
+            }
+        }
+
+        self::assertGreaterThan(0, $examined, 'No expansion was examined, so the display-field half had no subject.');
+        self::assertSame([], $defects, 'API-23b: a reference is returned unexpanded, or an expansion carries more than its id and display field.');
+
+        $stale = [];
+        foreach (self::REGISTERED_BARE_REFERENCES as $operation => $paths) {
+            foreach ($paths as $path => $reason) {
+                if (!isset($observed[$operation][$path])) {
+                    $stale[] = $operation.' at '.$path.' ('.$reason.')';
+                }
+            }
+        }
+        self::assertSame([], $stale,
+            'A registered bare reference is no longer returned. Remove it from REGISTERED_BARE_REFERENCES, so that it cannot '
+            .'excuse a different bare id later.');
+    }
+
+    /** The registered path a bare reference matches for this operation, or null when none excuses it. */
+    private static function registeredBareReference(string $operation, string $where): ?string
+    {
+        $path = (string) preg_replace('/\[\d+\]/', '[N]', $where);
+
+        return isset(self::REGISTERED_BARE_REFERENCES[$operation][$path]) ? $path : null;
     }
 
     /**
@@ -199,6 +346,39 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     }
 
     /**
+     * @param list<array{0: string, 1: string, 2: mixed}> $found
+     * @param list<string>                               $nested
+     */
+    private static function walkReferences(mixed $value, string $where, array $nested, array &$found, bool $isRow = true): void
+    {
+        if (!\is_array($value)) {
+            return;
+        }
+
+        if (array_is_list($value)) {
+            foreach ($value as $index => $element) {
+                self::walkReferences($element, $where.'['.$index.']', $nested, $found, $isRow);
+            }
+
+            return;
+        }
+
+        if (!$isRow && \array_key_exists('id', $value)) {
+            $found[] = ['expansion', $where, $value];
+        }
+
+        foreach ($value as $key => $member) {
+            $key = (string) $key;
+            if (str_ends_with($key, '_id') && !\in_array($key, ['subject_id', 'source_id'], true)) {
+                $found[] = ['bare', $where.'.'.$key, $member];
+            }
+            // An envelope's items and a declared nested collection hold rows; any
+            // other object-valued member is a reference.
+            self::walkReferences($member, $where.'.'.$key, $nested, $found, 'items' === $key || \in_array($key, $nested, true));
+        }
+    }
+
+    /**
      * @param list<string> $found
      */
     private static function walkTenantKeys(mixed $value, string $where, array &$found, int &$cursors): void
@@ -219,6 +399,50 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
             self::walkTenantKeys($member, $path, $found, $cursors);
         }
+    }
+
+    /** The display field API-23b derives for the table holding this id, or null when none holds it. */
+    private function displayFieldOf(string $id): ?string
+    {
+        foreach (SchemaManifest::tenantScopedTables() as $table) {
+            $columns = array_column($this->owner()->fetchAllAssociative(
+                'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', [$table]), 'column_name');
+            if (!\in_array('id', $columns, true)) {
+                continue;
+            }
+            if ([] === $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT 1 FROM '.$table.' WHERE id::text = ?', [$id])) {
+                continue;
+            }
+            foreach (['name', 'code', 'sku'] as $candidate) {
+                if (\in_array($candidate, $columns, true)) {
+                    return $candidate;
+                }
+            }
+            $numbers = array_values(array_filter($columns, static fn (string $c): bool => str_ends_with($c, '_number') && 'line_number' !== $c));
+            if (1 === \count($numbers)) {
+                return $numbers[0];
+            }
+
+            return \in_array('display_name', $columns, true) ? 'display_name' : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Every nested collection §4.2's accepted cells declare (`lines[].quantity` → `lines`).
+     *
+     * @return list<string>
+     */
+    private static function nestedCollections(): array
+    {
+        $nested = [];
+        foreach (ContractDocument::operationRows() as $row) {
+            preg_match_all('/`([a-z_]+)\[\]\./', $row['accepts'], $m);
+            $nested = [...$nested, ...$m[1]];
+        }
+
+        return array_values(array_unique($nested));
     }
 
     /**

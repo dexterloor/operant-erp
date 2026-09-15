@@ -24,6 +24,16 @@ use Symfony\Component\Uid\Uuid;
  * lose the receipt; and there is no `deleted_at IS NULL` on `app_user`, so a
  * receiver who has since been archived is still named — archiving a person does
  * not un-book the delivery they booked.
+ *
+ * **The bin's join is unfiltered for the same reason** (API-23b's
+ * `storage_location = {id, code}`): a bin retired after the delivery still names
+ * where the goods went, so there is no `deleted_at IS NULL` on
+ * `storage_location`. It is inner because `goods_receipt_line.storage_location_id`
+ * is `NOT NULL` under a composite foreign key, so the row always exists. It reads
+ * a table `Modules\Warehouses` owns — the same accepted A-2 residual as
+ * `PurchaseOrderRow`'s supplier and warehouse joins, and `GoodsReceiptWriter`
+ * already reads it. Accepted residual: a bin code is unique only among live bins
+ * of one warehouse, so after a retire-and-reuse two old lines can show one code.
  */
 final readonly class GoodsReceiptReader
 {
@@ -64,9 +74,11 @@ final readonly class GoodsReceiptReader
         }
 
         $lines = $connection->fetchAllAssociative(<<<'SQL'
-            SELECT grl.id, grl.purchase_order_line_id, grl.storage_location_id, grl.quantity_received
+            SELECT grl.id, grl.purchase_order_line_id, grl.quantity_received,
+                   sl.id AS storage_location_id, sl.code AS storage_location_code
               FROM goods_receipt_line grl
               JOIN purchase_order_line pol ON pol.tenant_id = grl.tenant_id AND pol.id = grl.purchase_order_line_id
+              JOIN storage_location sl ON sl.tenant_id = grl.tenant_id AND sl.id = grl.storage_location_id
              WHERE grl.goods_receipt_id = ?::uuid
              ORDER BY pol.line_number, grl.storage_location_id, grl.id
             SQL, [$id]);
@@ -82,7 +94,7 @@ final readonly class GoodsReceiptReader
                 id: (string) $line['id'],
                 purchaseOrderLineId: (string) $line['purchase_order_line_id'],
                 quantity: (string) $line['quantity_received'],
-                storageLocationId: (string) $line['storage_location_id'],
+                storageLocation: new LocationReference((string) $line['storage_location_id'], (string) $line['storage_location_code']),
             ), $lines),
         );
     }
