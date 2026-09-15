@@ -20,9 +20,9 @@ use Symfony\Component\Uid\Uuid;
  * short delivery is a smaller receipt and a return is a movement in the other
  * direction, never a negative receipt line.
  *
- * Immutable in practice for the same reason as its parent: erp_app holds
- * `SELECT, INSERT, UPDATE` and no DELETE, and the movements this line produced
- * are append-only facts.
+ * Immutable for the same reason as its parent: erp_app holds `SELECT, INSERT`
+ * and no UPDATE or DELETE (ADR-002 Amendment 4), and the movements this line
+ * produced are append-only facts.
  *
  * Note that `storageLocation` and not `warehouse` is what is recorded here.
  * GoodsReceipt names the warehouse; the line names the bin, because that is the

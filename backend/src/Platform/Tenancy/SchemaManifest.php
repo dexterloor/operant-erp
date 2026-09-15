@@ -31,6 +31,21 @@ namespace App\Platform\Tenancy;
  * fails. A table declared here and not created fails. A grant wider than the
  * one declared fails; so does a grant narrower than declared.
  *
+ * **What a grant here means (ADR-002 Amendment 4, 2026-09-16).** `erp_app`'s
+ * write privileges on a table are exactly the writes production code under
+ * `backend/src/` issues on it, counting the implied ones: an `ON CONFLICT DO
+ * UPDATE` needs UPDATE; a locking clause needs UPDATE on every table it locks
+ * (every table in FROM when `OF` is absent, sub-selects, CTEs, `FOR KEY SHARE`
+ * included); a role holding UPDATE on a `cascade_deletion_to_lines` parent needs
+ * UPDATE and SELECT on the child. A tenant table declared without `grants` is
+ * therefore **read-only** by default ({@see self::TENANT_READ_DEFAULT}), and a
+ * table that keeps a write says so explicitly below. The migration that ships
+ * the first caller of a write grants it and edits this file in the same commit;
+ * a `42501` from a new writer is fixed by granting that writer's privilege,
+ * never by restoring a CRUD default. Until 2026-09-16 the default was CRUD, and
+ * `GrantFootprintTest`'s exact equality would have pushed every new tenant table
+ * to grant writes ahead of any caller.
+ *
  * The grants are the load-bearing part. ALTER DEFAULT PRIVILEGES (A1.1) is what
  * stops R-34, and it is also what makes S-9's `REVOKE` fragile and what hands
  * every future non-tenant table to erp_app. The resolution is the same shape
@@ -39,7 +54,7 @@ namespace App\Platform\Tenancy;
  * declared below, last. Nothing is inherited by accident, and the assertion is
  * exhaustive rather than spot-check.
  *
- * @see ADR-002 §1, §5, §6, Amendment 1 §A1.1/§A1.3
+ * @see ADR-002 §1, §5, §6, Amendment 1 §A1.1/§A1.3, Amendment 4
  * @see ADR-006 §2, §6.3, V-1…V-3, V-10
  * @see ADR-007 (deletion policy — the `deletion` key)
  */
@@ -93,8 +108,18 @@ final class SchemaManifest
      */
     public const COLUMN_PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'];
 
-    /** The default footprint on a tenant-scoped table. Overridden per table below. */
-    private const CRUD = [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], DatabaseRoles::AI => ['SELECT']];
+    /**
+     * The default footprint on a tenant-scoped table: **read-only** (ADR-002
+     * Amendment 4). Writes are declared per table, and only for a write a `src/`
+     * caller issues. Replaced `CRUD` (SELECT, INSERT, UPDATE, DELETE for
+     * `erp_app`) on 2026-09-16, which granted writes no code used -- including on
+     * `role`, `role_permission` and `user_role`. `erp_ai` keeps SELECT pending
+     * V3-5.
+     */
+    private const TENANT_READ_DEFAULT = [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']];
+
+    /** A tenant table `erp_app` inserts into and updates, from `src/` callers named at the table. */
+    private const APP_INSERT_UPDATE = [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']];
 
     /** Readable by the application and the query agent; written only by the owner. */
     private const READ_ONLY_REFERENCE = [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']];
@@ -116,7 +141,7 @@ final class SchemaManifest
      * is expected to hold.
      *
      * `grants` is mandatory for a non-tenant table (that is V-10) and defaults
-     * to CRUD for a tenant-scoped one.
+     * to read-only (`TENANT_READ_DEFAULT`) for a tenant-scoped one.
      *
      * @var array<string, array{module: string, tenant: bool, deletion: string, why: string, grants?: array<string, list<string>>, column_grants?: array<string, array<string, list<string>>>, rls_exempt?: true}>
      */
@@ -203,7 +228,13 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::NA,
             'why' => 'API-O-1 / E9-2. The storage `Idempotency-Key` never had: API.md §6.1 records the header as required by P-5 and ROADMAP.md with nowhere in the schema to keep one, so IdempotencyKeyGuard demands it and its own docblock says it "does not deduplicate a replay". **SCOPED 2026-09-11 (API-14 as amended, §6.1/§6.2): this table serves the THREE BULK OPERATIONS and nothing else** -- CreateBulkArchival, CreateBulkRestoration, CreateBulkRoleAssignment, the operations whose Idem cell reads `store`. The reason is §2.2 and it is what makes the no-UPDATE grant sufficient rather than merely tolerable: a bulk response is {requested, applied}, known BEFORE commit, so the row can be written once inside the request\'s own transaction with its response already in hand. Every operation that creates an addressable row is out of scope by construction -- its response carries a server-minted id and a Location, neither of which exists until the insert has happened, so it would need the claim-then-fill shape the missing UPDATE forbids. Those operations take a client-supplied domain-column key on a live-row unique instead (`unique:<index>`), and the EIGHT that have neither mechanism today are `⛔ none` and blocked by E9-2 -- nine until 2026-09-11, when Version20260911000100 gave purchase_order the first such column and CreatePurchaseOrder left the list. This scoping narrows what the table is FOR; it changes no column, no grant and no policy, and no migration accompanies it. Keyed UNIQUE (tenant_id, operation_id, key) per §6.1, holding the request-body digest, the response status, the response-body digest and created_at. **It does not satisfy §6.2\'s byte-for-byte replay clause** — a digest is not a body, nothing stores the body, and adding a response_body column is a contract decision (size cap, PII at rest, retention) that is not DATA\'s; recorded as an open item rather than answered in a migration. Deletion class n/a rather than none, and it is the first tenant-scoped table to take it: n/a is "infrastructure tables nothing in the domain deletes", the domain never loads a row from here, and so the table carries no ORM entity — which is exactly the correlation SchemaOwnershipTest::everyTableTheDomainOwnsCarriesAMappedEntity derives (its expected set is every table whose class is not n/a). Classing it none would demand an entity, and an entity here would hand the domain a handle on transport plumbing. Retention is designed WITH SEC-O-3 rather than beside it, which means refusing both mechanisms §6.1 suggests: no partition (ADR-007 §A1.1; SCHEMA.md §13 records auth_attempt\'s as "structurally present and operationally inert"), no maintenance principal (SEC-O-1: none exists or can be created; ADR-007 §A1.4 rejects a purge-only one), and therefore no dated purge and no retention_column (PO\'s ruling of 2026-09-07; ROADMAP.md F-18 — a retention_column on a table with no authorised age purge is a declaration with no catalogue referent). The only authorised purge is the lifecycle purge predicated on tenant_id at tenant closure, on ADR-007 §A1.3\'s per-tenant loop under FORCE ROW LEVEL SECURITY, and idempotency_key_tenant_operation_key leads with tenant_id so it is index-supported with no second index. The residual is named, not solved: rows on a live tenant are never removed and this table has no audit value at all (§6.1\'s own words), so its growth is waste rather than a trade — an age window needs a PO ruling and does not get invented here.',
-            // SELECT and INSERT, and each omission is a decision.
+            // SELECT and nothing else, and each omission is a decision.
+            // INSERT: revoked by ADR-002 Amendment 4 (2026-09-16) -- the store
+            //         has no `src/` writer. IdempotencyKeyGuard requires and
+            //         discards the header, and every built retry key is a
+            //         domain column on its business table. The build that
+            //         writes this table (the first bulk operation) grants INSERT
+            //         in its own migration and edits this line.
             // UPDATE: §6.1 -- a replayed key is answered from the stored row,
             //         never rewritten. That also chooses the protocol: the row
             //         is written once with its response already known, so the
@@ -217,7 +248,7 @@ final class SchemaManifest
             //         digests.
             // the pre-auth roles: no operation marked `Idem` is reachable
             //         before a JWT exists (API.md §7).
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT']],
+            'grants' => [DatabaseRoles::APP => ['SELECT']],
         ],
 
         // ------------------------------------------------------------------
@@ -264,7 +295,11 @@ final class SchemaManifest
             // erp_ai holds nothing: the query agent has no business reading a
             // credential table, and a column-scoped grant would still put
             // password_hash one widening away from a model-driven query.
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE', 'DELETE']],
+            // erp_app: SELECT and UPDATE only (ADR-002 Amendment 4). UPDATE is
+            // the ORM flush of LoginRecorder (last_login_at) and ChangePassword
+            // (password_hash). No `src/` path creates or deletes a user --
+            // CreateUser and provisioning grant INSERT when they are built.
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'UPDATE']],
             'column_grants' => [DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active']]],
         ],
         'role' => [
@@ -321,12 +356,18 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'ADR-007 names it directly: a product appearing on a historical order line cannot be hard-deleted.',
+            // ADR-002 A4: INSERT and UPDATE from ItemWriter (create, update; archive and restore are UPDATEs of
+            // deleted_at). No DELETE: the row is soft-deleted, never removed.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'stock_level' => [
             'module' => 'Modules\\Inventory',
             'tenant' => true,
             'deletion' => self::HARD,
             'why' => 'A live aggregate of stock_movement, not a record of anything. Nothing references it and re-deriving it is always possible.',
+            // ADR-002 A4: StockReceiver's INSERT … ON CONFLICT DO UPDATE needs both verbs. No DELETE: no `src/` path
+            // removes a level, although the deletion class would allow one; the build that does grants it.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'stock_movement' => [
             'module' => 'Modules\\Inventory',
@@ -360,26 +401,39 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Goods receipts reference it. A cancelled order is a status; a discarded draft is a soft delete, and both must survive in the audit trail. **Carries the first domain-column retry key (API-O-31 step 5, Version20260911000100):** idempotency_key, nullable, on the live-row unique purchase_order_tenant_idem_live. It is the mechanism CreatePurchaseOrder\'s §4.2 cell names, and it is client-supplied -- which order_number is not, being server-generated, which is why the document-number unique refuses no replay and this one will. Nullable is a statement about HISTORY: rows predating that migration have no key. The non-null demand is owed and deferred BY NAME to step 6 as purchase_order_idempotency_key_required, a BEFORE INSERT trigger -- not a CHECK, which would refuse every UPDATE of a historical row, and not NOT VALID, which exempts existing rows from the scan but not from later writes. Nothing wrote the column until step 6 (CreatePurchaseOrder, and Version20260911000200 installed that trigger): a column that exists is not a column that deduplicates. **Since D-B (Version20260911000300) the column holds the lower-case hex SHA-256 of the header, never the header** (CHECK purchase_order_idempotency_key_sha256), and request_digest beside it holds RequestDigest::of() of the request that created the row -- what a same-key replay is compared against, a different digest being idempotency-key-conflict (409). The two are both-or-neither (purchase_order_request_digest_with_key). erp_ai reads both by table-level inheritance and that is the accepted state (API-O-32 closed): neither value can be sent back as a key. ARCHITECTURE.md AI-4 forbids either in an AI tool DTO; no AI tool exists yet, and step 9 wrote the check (AiToolDtoTest) with the vacancy pinned in both directions rather than enjoyed -- it also found that AI-4 did not name idempotency_key.response_digest, which it now does.',
+            // ADR-002 A4: INSERT from PurchaseOrderWriter; UPDATE from its raw updates, the ORM flushes of
+            // PurchaseOrderApproval, PurchaseOrderCancellation and OrmPurchaseOrderReceiptStatus, **and
+            // PurchaseOrderRowLock::SQL's FOR NO KEY UPDATE, which needs UPDATE even with no UPDATE statement** (constraint 1).
+            // No DELETE: archival is a soft delete.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'purchase_order_line' => [
             'module' => 'Modules\\Purchasing',
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Soft, and it was hard until RED pointed out what that cost: a soft-deleted order left live lines, and purchase_order_line_tenant_item_idx exists to answer "how much of this item is already on order" -- so the obvious query counted supply that would never arrive and suppressed a legitimate reorder. A database trigger cascades the parent\'s deletion, so the aggregate is consistent whatever writes it.',
+            // ADR-002 A4: INSERT and UPDATE from PurchaseOrderWriter and GoodsReceiptWriter (quantity_received), **and
+            // UPDATE is required by purchase_order_cascade_deletion**, which runs cascade_deletion_to_lines as the
+            // invoker: a role with UPDATE on purchase_order must hold UPDATE and SELECT here (constraint 2,
+            // GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild). No DELETE.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'goods_receipt' => [
             'module' => 'Modules\\Purchasing',
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'The event that created stock movements. It is corrected by a further receipt, never deleted. **Carries CreateGoodsReceipt\'s retry key (step 8-i, Version20260911000400):** idempotency_key holds the hex SHA-256 of the Idempotency-Key header and request_digest the RequestDigest::of() of the request that created the row, both NOT NULL (no receipt predates the columns, so unlike purchase_order there is no history for a NULL to describe), each CHECKed to 64 lower-case hex. The unique goods_receipt_idem_unique (tenant_id, idempotency_key) is TOTAL, because this table has no deleted_at: a receipt is never archived, so no archived row needs to release its key. erp_ai reads both by table-level inheritance, the state API-O-32 accepted for purchase_order.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
+            // ADR-002 A4: SELECT and INSERT (GoodsReceiptWriter). UPDATE was declared for a void/correction path that is
+            // not built; no `src/` path updates a receipt, so it is not granted. Its build grants it.
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']],
         ],
         'goods_receipt_line' => [
             'module' => 'Modules\\Purchasing',
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'Shares its parent\'s class: deleting a receipt line would unbalance the stock movements it produced.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
+            // ADR-002 A4: SELECT and INSERT (GoodsReceiptWriter); no `src/` path updates a receipt line.
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']],
         ],
 
         // ------------------------------------------------------------------
@@ -412,6 +466,10 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Invoices and fulfilments reference it, and a cancelled order is a status rather than a removal; only an unissued draft is ever discarded.',
+            // Read-only by default (ADR-002 A4). **The first build that grants ANY UPDATE on sales_order -- a confirm
+            // or cancel, not only a soft delete -- grants UPDATE on sales_order_line in the same migration:**
+            // sales_order_cascade_deletion runs as the invoker, and a table-level UPDATE makes SET deleted_at reachable
+            // (GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild).
         ],
         'sales_order_line' => [
             'module' => 'Modules\\Sales',
@@ -424,21 +482,24 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'The event that depleted stock (ARCHITECTURE W-3). Corrected by a return, never deleted.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
+            // ADR-002 A4: read-only until CreateFulfilment is built; that migration grants the INSERT (and any UPDATE)
+            // its writer issues. Never DELETE (deletion class none).
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
         'fulfilment_line' => [
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'Shares its parent\'s class: deleting a fulfilment line would unbalance the stock movements it produced.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
+            // ADR-002 A4: read-only until CreateFulfilment is built. Never DELETE.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
         'invoice' => [
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. UPDATE is retained because status and payment state change.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']],
+            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. Status and payment state change by UPDATE, so IssueInvoice and the payment and void operations grant INSERT and UPDATE in their own migrations when built (ADR-002 Amendment 4); until then no `src/` path writes an invoice and erp_app only reads it.',
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
     ];
 
@@ -487,7 +548,7 @@ final class SchemaManifest
         $spec = self::TABLES[$table] ?? throw new \InvalidArgumentException(
             "Table '$table' is not declared in SchemaManifest::TABLES.");
 
-        $grants = $spec['grants'] ?? ($spec['tenant'] ? self::CRUD : []);
+        $grants = $spec['grants'] ?? ($spec['tenant'] ? self::TENANT_READ_DEFAULT : []);
 
         return $grants[$role] ?? [];
     }

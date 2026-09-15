@@ -585,6 +585,82 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * **ADR-002 Amendment 4, constraint 2 — the invoker cascade trigger pairs its parent's UPDATE with its child's**
+     * (V4 batch B7, 2026-09-16; RED `red-adr002-a4-attack.md` R7).
+     *
+     * `purchase_order_cascade_deletion` and `sales_order_cascade_deletion` run `cascade_deletion_to_lines`, which is
+     * SECURITY INVOKER and issues `UPDATE <tgargs[0]> SET deleted_at … WHERE tenant_id = … AND <tgargs[1]> = …`. So
+     * any role that can UPDATE a parent can fire an UPDATE of the child **as itself**: without UPDATE and SELECT on the
+     * child, a soft delete of the parent is a `42501` at the line table. Narrowing grants to callers makes that easy to
+     * get wrong — the first sales build to grant UPDATE on `sales_order` for a confirm or cancel makes `SET deleted_at`
+     * reachable whether or not it soft-deletes anything. Once `DeletionPolicyTest`'s sales cascade test moved to the
+     * owner (it proves the function body), nothing else exercised this for sales.
+     *
+     * **Domain derived from the catalogue, never listed:** every non-internal trigger calling
+     * `cascade_deletion_to_lines`, its parent from `tgrelid` and its child from `tgargs[0]`; every application role.
+     * The parent side is `has_any_column_privilege(…, 'UPDATE')`, which is true for a table-level grant and for a
+     * column-level one (an `UPDATE (deleted_at)` column grant fires the trigger too). The child side is table-level
+     * UPDATE and SELECT.
+     *
+     * **Positive control, same test:** `purchase_order` → `purchase_order_line` must be in the derived set and
+     * `erp_app` must hold UPDATE on `purchase_order`, so the implication is exercised, not vacuous.
+     * **Planted control:** `GRANT UPDATE ON sales_order TO erp_app` inside a rolled-back transaction must produce
+     * exactly one violation naming `sales_order_line`.
+     */
+    #[Test]
+    public function aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild(): void
+    {
+        $pairs = $this->owner()->fetchAllKeyValue(<<<'SQL'
+            SELECT t.tgrelid::regclass::text AS parent,
+                   (string_to_array(encode(t.tgargs, 'escape'), '\000'))[1] AS child
+            FROM pg_trigger t
+            JOIN pg_proc p ON p.oid = t.tgfoid
+            WHERE p.proname = 'cascade_deletion_to_lines' AND NOT t.tgisinternal
+            ORDER BY 1
+            SQL);
+
+        self::assertSame('purchase_order_line', $pairs['purchase_order'] ?? null,
+            'The purchase_order cascade trigger is not in the derived set, so this test has lost its positive control.');
+        self::assertArrayHasKey('sales_order', $pairs, 'The sales_order cascade trigger is not in the derived set.');
+        self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_table_privilege(?, ?, ?)',
+            [DatabaseRoles::APP, 'purchase_order', 'UPDATE']),
+            'erp_app cannot UPDATE purchase_order, so the implication below is never exercised and proves nothing.');
+
+        $violations = function () use ($pairs): array {
+            $found = [];
+            foreach ($pairs as $parent => $child) {
+                foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+                    if (!(bool) $this->owner()->fetchOne('SELECT has_any_column_privilege(?, ?, ?)', [$role, $parent, 'UPDATE'])) {
+                        continue;
+                    }
+                    foreach (['UPDATE', 'SELECT'] as $priv) {
+                        if (!(bool) $this->owner()->fetchOne('SELECT has_table_privilege(?, ?, ?)', [$role, $child, $priv])) {
+                            $found[] = "$role can UPDATE $parent but lacks $priv on $child";
+                        }
+                    }
+                }
+            }
+
+            return $found;
+        };
+
+        self::assertSame([], $violations(),
+            "A role can soft-delete a cascade parent but cannot run the cascade it fires as the invoker. Grant the child's "
+            .'UPDATE in the same migration that grants the parent\'s (ADR-002 A4.4 item 3).');
+
+        $this->owner()->beginTransaction();
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE ON sales_order TO %s', DatabaseRoles::APP));
+            self::assertSame([DatabaseRoles::APP.' can UPDATE sales_order but lacks UPDATE on sales_order_line'], $violations(),
+                'A planted UPDATE on sales_order alone did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->rollBack();
+        }
+
+        self::assertSame([], $violations(), 'The planted grant survived the rollback.');
+    }
+
+    /**
      * ADR-006 V-1, in the form the probe forced.
      *
      * has_any_column_privilege raises `unrecognized privilege type` for DELETE,

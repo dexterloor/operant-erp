@@ -24,7 +24,7 @@ namespace App\Platform\Tenancy;
  */
 final class DatabaseRoles
 {
-    /** Symfony application and workers. CRUD, RLS-bound. ADR-002 §1. */
+    /** Symfony application and workers. Writes its `src/` callers issue, RLS-bound. ADR-002 A4. */
     public const APP = 'erp_app';
 
     /** NL query agent. SELECT only, RLS-bound. ADR-002 §1. */
@@ -40,7 +40,7 @@ final class DatabaseRoles
      * Pre-auth rate limiting and lockout counters.
      *
      * Not in ADR-006, which puts §2.1 step 1 on erp_app. That is the exposure
-     * ADR-006's own Condition 2 promotes to equal priority: erp_app holds DML on
+     * ADR-006's own Condition 2 promotes to equal priority: erp_app then held DML on
      * every table with no tenant_id -- including messenger_messages -- so running
      * the rate limiter on it hands an unauthenticated request a principal that
      * can inject into the message queue. Five roles do not close that; a sixth,

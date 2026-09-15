@@ -233,8 +233,9 @@ final class DeletionPolicyTest extends TenancyTestCase
      * the cascade function's body and the trigger's wiring, not that it runs as the
      * invoker `erp_app`. That invoker property -- a role with UPDATE on a cascade
      * parent must also hold UPDATE and SELECT on the child -- is held for every
-     * application role by a catalogue check over `pg_trigger` (ADR-002 A4.3
-     * constraint 2), which lands in `GrantFootprintTest` with this batch's migration. The
+     * application role by the catalogue check over `pg_trigger`,
+     * `GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild`
+     * (ADR-002 A4.3 constraint 2). The
      * demand reads still run as `erp_app`. The purchasing twin above keeps
      * `erp_app` for every `purchase_order*` statement, so the invoker path is still
      * exercised end to end there.

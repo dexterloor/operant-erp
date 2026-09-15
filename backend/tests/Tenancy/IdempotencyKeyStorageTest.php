@@ -17,15 +17,15 @@ use PHPUnit\Framework\Attributes\Test;
  * Nothing here checks that the table has RLS enabled and forced, carries a
  * `USING`/`WITH CHECK` policy pair, pins its primary key to UUIDv4, references
  * the registry, exposes a total `UNIQUE (tenant_id, id)`, leads every unique
- * index with `tenant_id`, or that `erp_app` holds exactly `SELECT, INSERT` on
- * it. Every one of those is already asserted for **every** table by
+ * index with `tenant_id`, or that `erp_app` holds exactly `SELECT` on it (ADR-002
+ * Amendment 4 revoked its INSERT on 2026-09-16: the store has no `src/` writer). Every one of those is already asserted for **every** table by
  * `SchemaManifestTest`, `SchemaGuardTest`, `SchemaOwnershipTest` and
  * `GrantFootprintTest`, all of which derive their domain from
  * `SchemaManifest::TABLES` and the live catalogue and none of which has an
  * allow-list. Restating them here would be a second, weaker copy of a check
  * that already covers the case.
  *
- * What is left is what those cannot see: the isolation as *behaviour*, the two
+ * What is left is what those cannot see: the isolation as *behaviour*, the three
  * write refusals as *statements* rather than as `has_table_privilege`, the
  * replay refusal the whole table exists to produce, the scope of the key, and
  * the column constraints that make `IdempotencyKeyGuard`'s 255-byte ceiling and
@@ -81,13 +81,23 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
      * The grant footprint as three statements rather than as a catalogue lookup.
      *
      * `GrantFootprintTest::everyRoleHoldsExactlyTheTablePrivilegesTheManifestDeclares`
-     * asserts `has_table_privilege` is `SELECT, INSERT` and nothing else, in
-     * both directions, and that is the exhaustive check. This one asserts what a
-     * reader wants to know — that the record can be written once and then
-     * neither rewritten nor removed — because a privilege check and a refused
-     * statement have come apart before on this project.
+     * asserts `has_table_privilege` is `SELECT` and nothing else, in both
+     * directions, and that is the exhaustive check. This one asserts what a
+     * reader wants to know — that the application login can neither record, nor
+     * rewrite, nor remove a key — because a privilege check and a refused
+     * statement have come apart before on this project. Each refusal is named by
+     * its message, `permission denied for table`, never by `42501` alone, which an
+     * RLS refusal shares (ADR-002 Amendment 4, rule R3).
      *
-     * The two refusals are not symmetry. **No `UPDATE`** is §6.1's rule that a
+     * **No `INSERT`** since ADR-002 Amendment 4 (`Version20260916000300`,
+     * 2026-09-16): nothing under `src/` writes this store — `IdempotencyKeyGuard`
+     * requires and discards the header, and every built retry key is a domain
+     * column on its business table — so the privilege had no caller. Until then
+     * this test was `…RecordsAKeyOnceAndThenCannotRewriteOrRemoveIt` and asserted
+     * INSERT `accepted`. The first bulk operation that writes the store grants
+     * INSERT in its own migration and moves this pin.
+     *
+     * The two older refusals are not symmetry. **No `UPDATE`** is §6.1's rule that a
      * replayed key is answered from the stored row rather than rewritten, and it
      * is what forces the write-once-at-commit protocol. **No `DELETE`** is the
      * larger one: a principal that can delete its own idempotency records can
@@ -99,11 +109,12 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
      * three verbs sharing one unit of work would measure the first refusal and
      * then an `EntityManagerClosed` — a fake-green wearing a red hat.
      *
-     * Mutation, run: `GRANT UPDATE, DELETE ON idempotency_key TO erp_app` —
-     * both read `accepted` and the assertion fails naming them.
+     * Mutations, run (V4 batch B7): `GRANT UPDATE, DELETE ON idempotency_key TO
+     * erp_app` — both read `accepted` and the assertion fails naming them; and
+     * the migration's revoke absent — INSERT reads `accepted`.
      */
     #[Test]
-    public function theApplicationPrincipalRecordsAKeyOnceAndThenCannotRewriteOrRemoveIt(): void
+    public function theApplicationPrincipalCanNeitherRecordNorRewriteNorRemoveAKey(): void
     {
         $outcomes = [
             'INSERT' => $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'written-once')),
@@ -112,10 +123,10 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         ];
 
         self::assertSame(
-            ['INSERT' => 'accepted', 'UPDATE' => self::PRIVILEGE_REFUSED, 'DELETE' => self::PRIVILEGE_REFUSED],
+            ['INSERT' => self::PRIVILEGE_REFUSED, 'UPDATE' => self::PRIVILEGE_REFUSED, 'DELETE' => self::PRIVILEGE_REFUSED],
             $outcomes,
-            'erp_app must be able to record a key and must not be able to rewrite or remove one. '
-            .'API.md §6.1: a replayed key is answered from the stored row, never rewritten — and a '
+            'erp_app must not be able to record, rewrite or remove a key. INSERT has no src/ caller (ADR-002 '
+            .'Amendment 4). API.md §6.1: a replayed key is answered from the stored row, never rewritten — and a '
             .'principal holding DELETE can replay anything by deleting the row that refuses it. The '
             .'purge is the owner\'s per-tenant lifecycle loop (SEC-O-3\'s ruling), not the application\'s.');
     }

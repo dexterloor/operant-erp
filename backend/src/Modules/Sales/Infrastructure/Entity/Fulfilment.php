@@ -16,9 +16,11 @@ use Symfony\Component\Uid\Uuid;
  * ---------------------------------------------------------------------------
  * Never deleted, and the schema says so rather than the code
  * ---------------------------------------------------------------------------
- * This table has no `deleted_at` **and no DELETE grant** — erp_app holds
- * SELECT, INSERT and UPDATE on it and nothing more (Version20260906000100's
- * "documents that are voided or corrected, never removed" block). A shipment
+ * This table has no `deleted_at` **and no DELETE grant** — and today erp_app
+ * holds SELECT on it and nothing more: no `src/` path writes a fulfilment yet, so
+ * ADR-002 Amendment 4 (`Version20260916000300`) revoked the INSERT and UPDATE
+ * Version20260906000100 granted, and `CreateFulfilment` grants what its writer
+ * issues when built — never DELETE. A shipment
  * that left the building is a fact about the physical world; the correction for
  * a mistaken one is a return, not an erasure. Making that a missing privilege
  * rather than a convention means a stray `DELETE` is permission denied and not

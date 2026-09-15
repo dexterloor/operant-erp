@@ -14,8 +14,9 @@ use Symfony\Component\Uid\Uuid;
 /**
  * Modules\Purchasing. One delivery arriving against one purchase order.
  *
- * A document, not a record: Version20260906000100 grants erp_app
- * `SELECT, INSERT, UPDATE` and no DELETE. A receipt entered in error is voided
+ * A document, not a record: erp_app holds `SELECT, INSERT` and no UPDATE or
+ * DELETE (Version20260906000100 granted UPDATE too; ADR-002 Amendment 4,
+ * `Version20260916000300`, revoked it because no `src/` path updates a receipt). A receipt entered in error is voided
  * or corrected by a compensating receipt, never removed -- the stock movements
  * it produced are already immutable facts (StockMovement), and deleting the
  * document that explains them would leave the ledger unaccountable.

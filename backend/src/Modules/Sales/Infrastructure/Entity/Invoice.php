@@ -16,15 +16,17 @@ use Symfony\Component\Uid\Uuid;
  * Modules\Sales. The demand for payment.
  *
  * ---------------------------------------------------------------------------
- * Never deleted. **Voided**, which is why UPDATE is retained
+ * Never deleted. **Voided**, which is an UPDATE
  * ---------------------------------------------------------------------------
- * There is no `deleted_at` here and no DELETE grant: erp_app holds SELECT,
- * INSERT and UPDATE and nothing more (Version20260906000100's "documents that
- * are voided or corrected, never removed" block). An issued invoice is a
- * statement made to a third party and a row in someone's tax record; it cannot
- * be unsent. Cancelling one is the `void` status, and moving to it is an
- * UPDATE — which is precisely why UPDATE stays granted on a table that is
- * otherwise append-only. `paid` is likewise a status transition, guarded by
+ * There is no `deleted_at` here and never a DELETE grant. **Today erp_app holds
+ * SELECT and nothing more** (ADR-002 Amendment 4, `Version20260916000300`): no
+ * `src/` path writes an invoice yet, so the INSERT and UPDATE that
+ * Version20260906000100 granted were revoked, and `IssueInvoice` and the payment
+ * and void operations grant them in their own migrations when built. An issued
+ * invoice is a statement made to a third party and a row in someone's tax
+ * record; it cannot be unsent. Cancelling one is the `void` status, and moving
+ * to it is an UPDATE — which is why those builds grant UPDATE on a table that is
+ * otherwise append-only, and still never DELETE. `paid` is likewise a status transition, guarded by
  * `invoice_paid_at_set` so that a paid invoice cannot exist without a payment
  * date.
  *
