@@ -226,6 +226,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $method,
             strtr($path, $placeholders),
             null === $body ? null : array_map(static fn (string $v): string => strtr($v, $placeholders), $body),
+            // Since V2-R-12 the line create demands a key; without one it is a 428 that never reaches the order.
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()],
         ));
 
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
@@ -655,6 +657,60 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             "The loser's receipt survived, or the winner's did not.");
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM stock_movement'),
             'The loser posted stock before it was refused.');
+    }
+
+    /**
+     * **V2-R-12 (V4 B3a, F-1): the loser of a race for one line key across two
+     * orders is a 409, never a 500.**
+     *
+     * `CreatePurchaseOrderLine`'s key lookup reads committed rows only, and the
+     * order row lock serialises retries on the SAME order. A same-key request on
+     * a DIFFERENT order is therefore refused by
+     * `purchase_order_line_tenant_idem_live` at its `INSERT`, and the writer must
+     * translate that violation **by the index's name** into §6.2's
+     * `idempotency-key-conflict` — the key is spent on another order's line, so
+     * "try again" would be advice into a wall (the goods receipt's reasoning,
+     * `theLoserOfARaceForOneKeyAcrossTwoOrdersIsToldItIsAConflict`).
+     *
+     * A holds order 1 and `INSERT`s its keyed line **uncommitted**, so B's key
+     * lookup cannot see it; B locks order 2, finds no replay, and blocks on the
+     * unique. A sees the waiter and commits; B raises `23505`.
+     *
+     * **Mutation (a1):** delete the by-name mapping → the violation is rethrown
+     * and this is red on a 500.
+     */
+    #[Test]
+    public function aConcurrentSameKeyOnAnotherOrderIsAConflictNotA500(): void
+    {
+        $first = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedSupplierProduct(self::TENANT_A, $first['supplier'], $first['item']);
+        $second = $this->seedOrder(self::TENANT_A, 'PO-2', $first['supplier'], $first['warehouse']);
+        $key = Uuid::v4()->toRfc4122();
+
+        $holder = $this->raceAgainstAHolder($first['order'], [[
+            <<<'SQL'
+                INSERT INTO purchase_order_line
+                    (id, tenant_id, purchase_order_id, inventory_item_id, line_number,
+                     quantity_ordered, unit_cost, lead_time_days, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 1, 1, 1, 7, ?, ?)
+                SQL,
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $first['order'], $first['item'],
+                hash('sha256', $key), str_repeat('c', 64)],
+        ]], function () use ($second, $first, $key): void {
+            $this->send('POST', '/purchase-orders/'.$second.'/lines', [
+                'inventory_item_id' => $first['item'], 'quantity' => '1', 'unit_cost' => '1',
+            ], [IdempotencyKeyGuard::HEADER => $key]);
+        });
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:idempotency-key-conflict', $this->json()['type']);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM purchase_order_line'),
+            "The loser's line survived, or the winner's did not.");
+        self::assertSame('0.0000', (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$second])[0]['total_amount'],
+            "The loser moved its order's total before it was refused.");
     }
 
     /**

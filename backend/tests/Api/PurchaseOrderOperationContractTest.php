@@ -63,8 +63,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
     public const PINNED_PURCHASE_ORDER_OPERATIONS = [
         'ListPurchaseOrders' => ['method' => 'GET', 'path' => '/purchase-orders', 'idem' => false],
         'GetPurchaseOrder' => ['method' => 'GET', 'path' => '/purchase-orders/{id}', 'idem' => false],
-        // ⚠ **The only `idem => true` row in this table, and the only one there
-        // has ever been here.** `CreatePurchaseOrder`'s cell is
+        // ⚠ **The first `idem => true` row in this table** (the goods receipt
+        // and, since V2-R-12, the line create followed). `CreatePurchaseOrder`'s cell is
         // `unique:purchase_order_tenant_idem_live` and the client-supplied value
         // that index is built on arrives in the header itself — so for this
         // operation the header is not a precondition attached to a mechanism, it
@@ -82,7 +82,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         // (API-14 as amended), so the 428 protected nothing.
         'ApprovePurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/approval', 'idem' => false],
         'ListPurchaseOrderLines' => ['method' => 'GET', 'path' => '/purchase-orders/{id}/lines', 'idem' => false],
-        'CreatePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines', 'idem' => false],
+        // V2-R-12 (2026-09-16): `unique:purchase_order_line_tenant_idem_live`, header-sourced.
+        'CreatePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines', 'idem' => true],
         'UpdatePurchaseOrderLine' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
         'DeletePurchaseOrderLine' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
         // Step 8: `unique:goods_receipt_idem_unique`, header-sourced like

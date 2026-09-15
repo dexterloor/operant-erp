@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -290,7 +291,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $draft['item'],
             'quantity' => '3.500000',
             'unit_cost' => '4.5000',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
@@ -328,7 +329,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $draft['item'],
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         self::assertSame(201, $this->httpStatus());
 
         $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
@@ -353,7 +354,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $draft['item'],
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order_line.supplier_lists_the_item', $this->json()['rule']);
@@ -372,7 +373,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
                 'inventory_item_id' => $draft['item'],
                 'quantity' => '1',
                 'unit_cost' => '1',
-            ]);
+            ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
             self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
             $ids[] = $this->json()['id'];
         }
@@ -400,7 +401,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
                 'inventory_item_id' => $draft['item'],
                 'quantity' => $quantity,
                 'unit_cost' => '1',
-            ]);
+            ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
             self::assertSame(422, $this->httpStatus(), 'quantity='.$quantity.' was accepted.');
             self::assertSame('/quantity', $this->json()['errors'][0]['pointer']);
@@ -418,7 +419,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $itemInB,
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(422, $this->httpStatus());
         self::assertSame('/inventory_item_id', $this->json()['errors'][0]['pointer']);
@@ -438,7 +439,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $draft['item'],
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_editable_only_while_draft', $this->json()['rule']);
@@ -463,7 +464,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'quantity' => '1',
             'unit_cost' => '1',
             'expected_at' => '2026-04-02T00:00:00+00:00',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(422, $this->httpStatus(),
             'expected_at was accepted on a line. §4.2 does not declare it (owner ruling Q2, 2026-09-15), so accepting it '
@@ -578,7 +579,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
             'inventory_item_id' => $draft['item'],
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
@@ -627,7 +628,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
             'inventory_item_id' => $draft['item'], 'quantity' => '3', 'unit_cost' => '4.5000',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         $line = $this->json()['id'];
 
         $this->send('GET', '/purchase-orders/'.$draft['order']);

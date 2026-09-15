@@ -107,6 +107,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'method' => 'replayCreateGoodsReceipt',
             'why' => 'A second goods_receipt, and a second helping of quantity_received on the order line.',
         ],
+        'CreatePurchaseOrderLine' => [
+            'method' => 'replayCreatePurchaseOrderLine',
+            'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
+                .'mechanism is the header-sourced retry key on a live-row unique.',
+        ],
         'ApprovePurchaseOrder' => [
             'method' => 'replayApprovePurchaseOrder',
             'why' => 'A second placement of an order already placed. Its mechanism is the status guard, which refuses '
@@ -273,6 +278,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_received FROM purchase_order_line WHERE id = ?::uuid', [$line]),
             'The replay applied the delivery a second time to the order line, which is the effect the row count alone '
             .'cannot see.');
+    }
+
+    private function replayCreatePurchaseOrderLine(string $why): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
+        $body = ['inventory_item_id' => $draft['item'], 'quantity' => '2', 'unit_cost' => '3'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', $body, $key);
+
+        // The id, not only the count: the replay read is what turns the retry
+        // into an answer (see `replayCreateGoodsReceipt`).
+        self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the first line.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order_line'), $why);
+        self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]), $why);
     }
 
     private function replayApprovePurchaseOrder(string $why): void

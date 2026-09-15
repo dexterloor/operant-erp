@@ -449,7 +449,7 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         $this->seedSupplierProduct(self::TENANT_A, $supplier, $item);
         $this->send('POST', '/purchase-orders/'.$order.'/lines', [
             'inventory_item_id' => $item, 'quantity' => '2', 'unit_cost' => '3.0000',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         $this->create($body, $key);
@@ -1090,7 +1090,7 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
             'inventory_item_id' => $draft['item'], 'quantity' => '2', 'unit_cost' => '999999999999999',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('total_out_of_range', array_column($this->json()['errors'], 'code', 'pointer')['/unit_cost'] ?? null);

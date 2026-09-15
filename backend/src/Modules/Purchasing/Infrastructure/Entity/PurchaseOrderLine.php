@@ -38,6 +38,9 @@ use Symfony\Component\Uid\Uuid;
 // reused (the mint is MAX+1 over live lines). The receiving screen and the
 // supplier's paperwork both address lines by number.
 #[ORM\UniqueConstraint(name: 'purchase_order_line_unique', columns: ['tenant_id', 'purchase_order_id', 'line_number'], options: ['where' => '(deleted_at IS NULL)'])]
+// V2-R-12: `CreatePurchaseOrderLine`'s retry key (`Version20260916000200`). Tenant-wide, like
+// `purchase_order_tenant_idem_live`: a header supplies one value, and the request digest carries the order id.
+#[ORM\UniqueConstraint(name: 'purchase_order_line_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
 // "How much of this item is already on order" — the reorder-point calculation's
 // other input (ADR-004), and the reason a reorder run does not raise a second
 // purchase order for stock already coming.
@@ -77,6 +80,18 @@ class PurchaseOrderLine
     /** Snapshotted from SupplierProduct at ordering time. See the class docblock. */
     #[ORM\Column(name: 'lead_time_days', type: Types::INTEGER)]
     private int $leadTimeDays;
+
+    /**
+     * **V2-R-12 — the `Idempotency-Key` header's lower-case hex SHA-256, written by `CreatePurchaseOrderLine` in its
+     * `INSERT`.** NULL on a line raised inside `CreatePurchaseOrder`'s nested `lines[]`, because that request's key is
+     * the order's, and on lines raised before `Version20260916000200`. No setter: written once, at insert, by the writer.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
+    private ?string $idempotencyKey = null;
+
+    /** D-B: `RequestDigest::of()` of the single-line request that created this row, beside its key (both or neither). */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT, nullable: true)]
+    private ?string $requestDigest = null;
 
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;

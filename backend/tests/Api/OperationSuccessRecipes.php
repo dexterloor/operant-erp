@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Tests\Support\CountingKdf;
 use Symfony\Component\Uid\Uuid;
 
@@ -123,7 +124,7 @@ trait OperationSuccessRecipes
 
                 return $d;
             }, function (array $c): array {
-                $this->send('POST', '/purchase-orders/'.$c['order'].'/lines', ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_cost' => '1']);
+                $this->send('POST', '/purchase-orders/'.$c['order'].'/lines', ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_cost' => '1'], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
                 return [201, 'create'];
             }],

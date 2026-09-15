@@ -41,7 +41,7 @@ use PHPUnit\Framework\Attributes\Test;
  * ---------------------------------------------------------------------------
  * `docs/` is gitignored, so §4.2 is not in the repository and a check whose only
  * domain is the document has no subject on a clean checkout. `PINNED_MECHANISMS`
- * is therefore a **pin** in the §12.3 sense — the 41 cells, transcribed once —
+ * is therefore a **pin** in the §12.3 sense — the 43 cells, transcribed once —
  * and it is checked in both directions against the document wherever the document
  * is present.
  *
@@ -157,7 +157,7 @@ use PHPUnit\Framework\Attributes\Test;
 final class IdempotencyContractTest extends TenancyTestCase
 {
     /**
-     * §4.2's 41 marked cells, transcribed once. The 74 `no` rows are not listed:
+     * §4.2's 43 marked cells, transcribed once. The 72 `no` rows are not listed:
      * they are asserted as *"everything else"*, so a row that loses its mechanism
      * fails rather than silently joining them.
      *
@@ -184,6 +184,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         // `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes`
         // demands exactly that. `Version20260911000400` laid it.
         'CreateGoodsReceipt' => 'unique:goods_receipt_idem_unique',
+        // ⚠ **V2-R-12, 2026-09-16 (V4 B3a).** Was `no`, and a retry wrote a
+        // second line. The third header-sourced key; tenant-wide like the
+        // order's, with the path's order id in the request digest.
+        // `Version20260916000200` laid it.
+        'CreatePurchaseOrderLine' => 'unique:purchase_order_line_tenant_idem_live',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -233,6 +238,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         'IssueInvoice' => '⛔ none',
         'CreateSalesReturn' => '⛔ none',
         'IssueCreditNote' => '⛔ none',
+        // **V2-R-12, 2026-09-16.** Was `no`: the same misfile as the purchase
+        // order line on an unbuilt row. `sales_order_line` has no client key,
+        // so a retry would write a second line. E9-2 names it.
+        'CreateSalesOrderLine' => '⛔ none',
     ];
 
     /**
@@ -242,10 +251,13 @@ final class IdempotencyContractTest extends TenancyTestCase
      * `RevokeSession`, D-14 / owner ruling C) + 3 added marked rows
      * (`ReverseInvoicePayment`, `CreateSalesReturn`, `IssueCreditNote`) = 115;
      * 76 − 2 = 74 unmarked.
+     *
+     * **2026-09-16 (V2-R-12):** `CreatePurchaseOrderLine` → `unique:` and
+     * `CreateSalesOrderLine` → `⛔ none`, so 74 − 2 = 72 unmarked; 43 marked.
      */
     private const PINNED_ROW_COUNT = 115;
 
-    private const PINNED_UNMARKED_COUNT = 74;
+    private const PINNED_UNMARKED_COUNT = 72;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —
@@ -272,6 +284,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         // legitimate source and why it cannot be stretched into a general one.
         'CreatePurchaseOrder' => [IdempotencyKeyGuard::COLUMN],
         'CreateGoodsReceipt' => [IdempotencyKeyGuard::COLUMN],
+        'CreatePurchaseOrderLine' => [IdempotencyKeyGuard::COLUMN],
     ];
 
     /**
@@ -325,6 +338,7 @@ final class IdempotencyContractTest extends TenancyTestCase
     private const PINNED_HEADER_KEY = [
         'CreatePurchaseOrder',
         'CreateGoodsReceipt',
+        'CreatePurchaseOrderLine',
     ];
 
     /**

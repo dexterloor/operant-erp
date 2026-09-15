@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -195,7 +196,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
             'inventory_item_id' => $c,
             'quantity' => '1',
             'unit_cost' => '1',
-        ]);
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $body = $this->json();

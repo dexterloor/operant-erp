@@ -15,6 +15,7 @@ use App\Modules\Purchasing\ApiResource\State\DeletePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderLineProvider;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\Application\ItemReference;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -97,12 +98,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 'api_assign_object_to_populate' => false,
             ],
             processor: CreatePurchaseOrderLineProcessor::class,
-            // §4.2's `Idem` cell for this row is **no**, and that is the
-            // contract's decision rather than this file's. E9-2 would block it
-            // if it were `yes`: this is one of the six create-a-child operations
-            // its clause names, and API-O-1's key store still deduplicates
-            // nothing.
+            // §4.2's `Idem` cell is `unique:purchase_order_line_tenant_idem_live`
+            // since V2-R-12 (2026-09-16): until then it read `no`, and a retry
+            // wrote a second line and raised the order's total. The header's
+            // value IS the indexed value, so API-14 as amended demands it (428
+            // without one). `IdempotencyContractTest` reconciles this flag
+            // against the cell.
             extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'purchase_order.edit',
                 // The URI §4.2 declares this row at. Without it API Platform
                 // derives `Location` from its own `NotExposed` fallback and

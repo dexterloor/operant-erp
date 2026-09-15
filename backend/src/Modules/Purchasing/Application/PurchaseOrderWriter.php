@@ -100,6 +100,15 @@ final readonly class PurchaseOrderWriter
     /** §4.2's operation id, digested with the request so no other operation's request can match it. */
     private const CREATE_OPERATION = 'CreatePurchaseOrder';
 
+    /** The live-row unique a **line-create replay race** collides on — `Version20260916000200` (V2-R-12). */
+    private const LINE_IDEMPOTENCY_INDEX = 'purchase_order_line_tenant_idem_live';
+
+    /** The live-row unique two concurrent line creates picking the same `MAX + 1` collide on. */
+    private const LINE_NUMBER_INDEX = 'purchase_order_line_unique';
+
+    /** §4.2's operation id for the single-line create, digested with its request. */
+    private const CREATE_LINE_OPERATION = 'CreatePurchaseOrderLine';
+
     /**
      * §4.2's `lines[]` sub-fields that `CreatePurchaseOrder` accepts, as input
      * properties. The field names the client sends are derived from `POINTERS`
@@ -503,7 +512,32 @@ final readonly class PurchaseOrderWriter
     // The lines
     // -----------------------------------------------------------------------
 
-    public function createLine(string $orderId, CreatePurchaseOrderLineInput $input): PurchaseOrderLineResource
+    /**
+     * **`CreatePurchaseOrderLine` — and since V2-R-12 (2026-09-16) a retry writes one line, not two.**
+     *
+     * Until then every request minted a new id and `MAX(line_number) + 1`, so a retried timeout added a second line and
+     * raised the total an approver would approve. The mechanism is `create()`'s, one table down: the header's hash in
+     * `purchase_order_line.idempotency_key` on `purchase_order_line_tenant_idem_live`, and D-B's `request_digest`.
+     *
+     * **The order of the steps is the design:**
+     *
+     *   1. the order's row lock — which also serialises every same-order retry, so the in-flight "try again" residual of
+     *      `create()` does not arise here;
+     *   2. not-found, before anything the request carries is judged (ST-5: a key lookup first would tell a caller that
+     *      their key was used in this workspace);
+     *   3. the **key lookup**: a different digest is 409 `idempotency-key-conflict`; the same digest is the line that key
+     *      created, recomputed, with **no insert and no total recompute** — 201 + the same `Location` (§6.2's
+     *      domain-key replay);
+     *   4. only then the archived and draft guards, so a retry that arrives after the order was approved is handed its
+     *      line rather than refused for an act that committed;
+     *   5. the insert, carrying the key hash and the digest.
+     *
+     * **The digest includes the path's order id.** The unique is tenant-wide (a header supplies one value), so without
+     * it the same key sent to another order would replay another order's line. A same-key request on another order that
+     * races past step 3 is refused at the index, and {@see self::translatingConstraintFailures()} maps that violation
+     * **by name** to 409.
+     */
+    public function createLine(string $orderId, CreatePurchaseOrderLineInput $input, string $idempotencyKey): PurchaseOrderLineResource
     {
         $values = [
             'inventoryItemId' => $input->inventoryItemId,
@@ -513,15 +547,28 @@ final readonly class PurchaseOrderWriter
 
         $this->refuseMalformedLineFields($values, required: self::NESTED_LINE_PROPERTIES);
 
+        // D-B: the column holds the header's hash, never its value.
+        $keyHash = IdempotencyKeyHash::of($idempotencyKey);
+
         return $this->translatingConstraintFailures(fn (): PurchaseOrderLineResource => $this->tenants->run(
             $this->tenant->tenantId(),
-            function (EntityManagerInterface $em) use ($orderId, $values): PurchaseOrderLineResource {
+            function (EntityManagerInterface $em) use ($orderId, $values, $keyHash): PurchaseOrderLineResource {
                 PurchaseOrderRowLock::holdInside($em, $orderId);
                 $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+
+                // After not-found, so the path id is a valid UUID here and the
+                // digest's normaliser accepts it.
+                $digest = self::lineDigest($orderId, $values);
+
+                $replay = $this->lineCreatedByKeyInside($em, $orderId, $keyHash, $digest);
+                if (null !== $replay) {
+                    return $replay;
+                }
+
                 $this->refuseIfArchived($order);
                 $this->refuseUnlessDraft($order);
 
-                $id = $this->insertLineInside($em, $orderId, $values, null);
+                $id = $this->insertLineInside($em, $orderId, $values, null, $keyHash, $digest);
 
                 $this->recomputeTotal($em, $orderId);
 
@@ -564,12 +611,17 @@ final readonly class PurchaseOrderWriter
      * Shape errors, which are one problem type, ARE collected across every line
      * by {@see self::nestedLines()}.
      *
-     * @param array<string, string|null> $values `inventoryItemId`, `quantity`, `unitCost`, already shape-checked
-     * @param int|null                   $index  the line's position in `lines[]`, or null for the single-line path
+     * **`$keyHash` and `$digest` are the single-line path's retry key (V2-R-12)** and are both null on the nested path:
+     * that request's key is the order's, and N lines sharing it would collide on `purchase_order_line_tenant_idem_live`.
+     *
+     * @param array<string, string|null> $values  `inventoryItemId`, `quantity`, `unitCost`, already shape-checked
+     * @param int|null                   $index   the line's position in `lines[]`, or null for the single-line path
+     * @param string|null                $keyHash `IdempotencyKeyHash::of()` of the header, single-line path only
+     * @param string|null                $digest  `self::lineDigest()`, single-line path only
      *
      * @return string the new line's id
      */
-    private function insertLineInside(EntityManagerInterface $em, string $orderId, array $values, ?int $index): string
+    private function insertLineInside(EntityManagerInterface $em, string $orderId, array $values, ?int $index, ?string $keyHash = null, ?string $digest = null): string
     {
         $connection = $em->getConnection();
         $id = Uuid::v4()->toRfc4122();
@@ -624,7 +676,7 @@ final readonly class PurchaseOrderWriter
             <<<'SQL'
             INSERT INTO purchase_order_line
                 (id, tenant_id, purchase_order_id, inventory_item_id, line_number,
-                 quantity_ordered, unit_cost, lead_time_days)
+                 quantity_ordered, unit_cost, lead_time_days, idempotency_key, request_digest)
             VALUES
                 (?::uuid, ?::uuid, ?::uuid, ?::uuid,
                  -- The next free number on this order. `line_number` is
@@ -636,7 +688,7 @@ final readonly class PurchaseOrderWriter
                  (SELECT COALESCE(MAX(line_number), 0) + 1
                     FROM purchase_order_line
                    WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL),
-                 ?::numeric, ?::numeric, ?)
+                 ?::numeric, ?::numeric, ?, ?, ?)
             SQL,
             [
                 $id,
@@ -652,6 +704,8 @@ final readonly class PurchaseOrderWriter
                 $values['quantity'],
                 $values['unitCost'],
                 (int) $leadTime,
+                $keyHash,
+                $digest,
             ],
         );
 
@@ -1027,6 +1081,49 @@ final readonly class PurchaseOrderWriter
         }
 
         return $this->readOrderInside($em, (string) $row['id']);
+    }
+
+    /**
+     * The line this key already created, or null — `orderCreatedByKeyInside()`'s rules, one table down (V2-R-12).
+     *
+     * `deleted_at IS NULL` matches the index's partiality. A digest mismatch — another body, **or another order**, since
+     * the path id is digested — is §6.2's 409, thrown before anything is written. A keyed row without a digest cannot
+     * exist (`purchase_order_line_request_digest_with_key`) and is answered as a conflict anyway, failing closed.
+     */
+    private function lineCreatedByKeyInside(EntityManagerInterface $em, string $orderId, string $keyHash, string $digest): ?PurchaseOrderLineResource
+    {
+        $row = $em->getConnection()->fetchAssociative(
+            'SELECT id, request_digest FROM purchase_order_line WHERE idempotency_key = ? AND deleted_at IS NULL',
+            [$keyHash],
+        );
+
+        if (false === $row) {
+            return null;
+        }
+
+        if (!\is_string($row['request_digest']) || !hash_equals($row['request_digest'], $digest)) {
+            throw ApiProblem::idempotencyKeyConflict();
+        }
+
+        // The digest carries the order id, so a match is a line of THIS order.
+        return $this->readLineInside($em, $orderId, (string) $row['id'])
+            ?? throw new \LogicException('A line found by its key is not readable in the same transaction.');
+    }
+
+    /**
+     * D-B's digest of a single-line create: the **path's order id** plus the three accepted fields, normalised as
+     * `digestedLines()` normalises a nested line (UUID canonical form, quantity at scale 6, cost at scale 4).
+     *
+     * @param array<string, string|null> $values already shape-checked
+     */
+    private static function lineDigest(string $orderId, array $values): string
+    {
+        return RequestDigest::of(self::CREATE_LINE_OPERATION, [
+            'purchase_order_id' => RequestDigest::uuid($orderId),
+            'inventory_item_id' => RequestDigest::uuid($values['inventoryItemId']),
+            'quantity' => bcadd((string) $values['quantity'], '0', 6),
+            'unit_cost' => bcadd((string) $values['unitCost'], '0', 4),
+        ]);
     }
 
     /**
@@ -1430,17 +1527,31 @@ final readonly class PurchaseOrderWriter
     {
         try {
             return $write();
-        } catch (UniqueConstraintViolationException) {
-            // The only uniqueness a write here can hit is
-            // `purchase_order_line_unique` -- (tenant_id, purchase_order_id,
-            // line_number) among live lines -- and it can only be hit by two
-            // concurrent creates picking the same MAX+1. It is a genuine
-            // conflict rather than a client mistake, and the caller's answer is
-            // to retry.
-            throw ApiProblem::businessRuleViolated(
-                'purchase_order_line.line_number_is_unique_per_order',
-                'Another line was added to this order at the same moment. Try again.',
-            );
+        } catch (UniqueConstraintViolationException $e) {
+            // Told apart BY NAME, and anything else is rethrown (V2-R-12). Until
+            // 2026-09-16 every unique violation here was answered as the
+            // line-number race, which was true only while that was the table's
+            // one unique a write could reach.
+            if (self::violated($e, self::LINE_IDEMPOTENCY_INDEX)) {
+                // The same key committed on ANOTHER order between this request's
+                // key lookup and its INSERT: a same-order retry would have waited
+                // at the order's row lock and then found the line. Another order
+                // is in the digest, so this is a key reused for a different
+                // request -- §6.2's 409, as `GoodsReceiptWriter` answers the same
+                // race. "Try again" would be advice into a wall: the key is spent.
+                throw ApiProblem::idempotencyKeyConflict();
+            }
+
+            if (self::violated($e, self::LINE_NUMBER_INDEX)) {
+                // Two concurrent creates picking the same MAX+1. A genuine
+                // conflict rather than a client mistake; the answer is to retry.
+                throw ApiProblem::businessRuleViolated(
+                    'purchase_order_line.line_number_is_unique_per_order',
+                    'Another line was added to this order at the same moment. Try again.',
+                );
+            }
+
+            throw $e;
         } catch (ForeignKeyConstraintViolationException) {
             // `purchase_order_supplier_fk` and `purchase_order_warehouse_fk` are
             // composite on `(tenant_id, id)`, so an id belonging to another
