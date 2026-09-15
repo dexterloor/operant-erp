@@ -72,7 +72,8 @@ use Symfony\Component\Yaml\Yaml;
  *  - **B11** the entity manager repinned to `owner` — **now asserted directly** by
  *    {@see self::theEntityManagerIsPinnedToTheAppConnection};
  *  - **B12** vendor code calling `ManagerRegistry::getConnection()` with no name (DBAL console commands) — CLI today;
- *  - **B13** a network login with the owner's password (PgBouncer userlist until V3-12, `pg_hba`) — not a code route;
+ *  - **B13** a network login with the owner's password (`pg_hba` on the direct port; the PgBouncer userlist entry was removed
+ *    by V3-12 on 2026-09-16) — not a code route;
  *  - **B14** `KernelInterface $kernel` → `getContainer()->get('database_connection')`, a B1 variant;
  *  - **B15** the credential as a string (`#[Autowire(env: 'DATABASE_URL')]`, `%env(DATABASE_URL)%`) into `new \PDO` or
  *    `pg_connect()`, a B2 variant with no DBAL;

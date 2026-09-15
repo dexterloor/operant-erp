@@ -62,8 +62,11 @@ services:
       ERP_AUTHLOG_PASSWORD: ${ERP_AUTHLOG_PASSWORD}
       ERP_RATELIMIT_USER: ${ERP_RATELIMIT_USER}
       ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
-      DB_OWNER: ${DB_OWNER}
-      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      # No owner or superuser variable here, and no userlist line for either
+      # (ARCHITECTURE.md C-4; V3-12, V4 batch B6, 2026-09-16). This service serves
+      # every pooled request; migrations run direct, as the owner, on the postgres
+      # port. Asserted statically by ComposeCredentialExposureTest and against the
+      # running proxy by PoolConfigurationTest.
     volumes:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
     # The auth file is rendered at start-up from the environment and written to
@@ -78,7 +81,6 @@ services:
           printf '"%s" "%s"\n' "$$ERP_AUTH_USER"      "$$ERP_AUTH_PASSWORD"
           printf '"%s" "%s"\n' "$$ERP_AUTHLOG_USER"   "$$ERP_AUTHLOG_PASSWORD"
           printf '"%s" "%s"\n' "$$ERP_RATELIMIT_USER" "$$ERP_RATELIMIT_PASSWORD"
-          printf '"%s" "%s"\n' "$$DB_OWNER"     "$$DB_OWNER_PASSWORD"
         } > /run/pgbouncer/userlist.txt
         exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     tmpfs:
