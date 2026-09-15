@@ -6,6 +6,7 @@ namespace App\Tests\Architecture;
 
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\DatabaseRoles;
+use App\Tests\Support\IntersectionConnectionPlant;
 use App\Tests\Support\PhpSourceScan;
 use App\Tests\Support\RegistryConnectionPlant;
 use App\Tests\Support\UnboundConnectionProbe;
@@ -54,10 +55,37 @@ use Symfony\Component\Yaml\Yaml;
  * {@see self::noClassOutsideTenancyTakesAConnectionThroughARegistryOrTheDriver},
  * with a planted `Tests\Support\RegistryConnectionPlant` as its control.
  *
- * **Still not seen:** a connection fetched by service id from a container or
- * service locator; one built with `DriverManager::getConnection()`; setter or
- * `#[Required]` injection (only constructors are read); a `Connection` reached
- * through another object's getter other than the entity manager's.
+ * **Still not seen** — the blind routes, named (`docs/session10/v3-principals.md` §4.2, V3-2):
+ *  - **B1** a connection fetched by service id from a container or service locator
+ *    (`doctrine.dbal.owner_connection` and `database_connection` are public);
+ *  - **B2** one built with `DriverManager::getConnection()` from a credential read in-process;
+ *  - **B3** setter or `#[Required]` injection (only constructors are read);
+ *  - **B4** a `Connection` reached through another object's getter other than the entity manager's;
+ *  - **B5** intersection and DNF types — **now handled** by the walk (`IntersectionConnectionPlant` is its control);
+ *  - **B6** controller action-argument injection;
+ *  - **B7** the owner credential in a serving runtime's environment — see below;
+ *  - **B8** a class under `App\Platform\Tenancy\`, exempt by A-10's wording;
+ *  - **B9** an untyped / `object` / `mixed` parameter with `#[Autowire(service: 'database_connection')]`, a `\Closure`
+ *    with `#[AutowireServiceClosure]`, or `#[AutowireCallable]`;
+ *  - **B10** config-level consumers of the default connection with no class in `src/` (a DBAL cache pool, lock, session or
+ *    messenger store, a second entity manager on `owner`) — none configured;
+ *  - **B11** the entity manager repinned to `owner` — **now asserted directly** by
+ *    {@see self::theEntityManagerIsPinnedToTheAppConnection};
+ *  - **B12** vendor code calling `ManagerRegistry::getConnection()` with no name (DBAL console commands) — CLI today;
+ *  - **B13** a network login with the owner's password (PgBouncer userlist until V3-12, `pg_hba`) — not a code route;
+ *  - **B14** `KernelInterface $kernel` → `getContainer()->get('database_connection')`, a B1 variant;
+ *  - **B15** the credential as a string (`#[Autowire(env: 'DATABASE_URL')]`, `%env(DATABASE_URL)%`) into `new \PDO` or
+ *    `pg_connect()`, a B2 variant with no DBAL;
+ *  - **B16** a class the walk never examines because its name does not match its file, or a second class in one file —
+ *    **now closed** by {@see self::everyFileInSrcDeclaresExactlyOneClassNamedAfterIt}.
+ *
+ * **Serving processes are now guarded by credential absence** (V3-1(i), 2026-09-16): `public/index.php` refuses to build a
+ * kernel while any environment source holds a non-application database credential in a recognised form
+ * (`App\Platform\Runtime\ServingCredentialGuard`), the prod container is compiled without the owner DSN in a test
+ * (`ProdContainerCredentialTest`), and `EntryPointScanTest` makes a second entry point or a direct connection loud. That is
+ * the structural control for B1–B4, B6–B10, B12, B14 and B15: in a serving process each would fail closed for want of a
+ * credential. This test stays the in-process check, and the owner-service recorder (`OwnerRequestWindow`) watches the
+ * HTTP suite.
  *
  * **Out of scope, named:** `Inventory\Application\ItemWriter` type-hints
  * `Connection` only on private methods fed by `$em->getConnection()` — no
@@ -177,6 +205,60 @@ final class ConnectionBindingTest extends KernelTestCase
     }
 
     /**
+     * **B11: the entity manager is pinned to `app`, asserted directly** (V3-2). Every raw-SQL route on
+     * `$em->getConnection()` (S-7(b)) and every ORM flush runs as `erp_app` only because `config/packages/doctrine.yaml`
+     * pins the default entity manager to the `app` connection; before this test that was caught only indirectly.
+     * Mutation, run 2026-09-16: repin it to `owner` (Rule 17) — red.
+     */
+    #[Test]
+    public function theEntityManagerIsPinnedToTheAppConnection(): void
+    {
+        $container = self::getContainer();
+        $em = $container->get('doctrine.orm.default_entity_manager');
+
+        self::assertSame($container->get('doctrine.dbal.app_connection'), $em->getConnection(),
+            'The default entity manager is not on the app connection. Every ORM flush and every $em->getConnection() '
+            .'statement would run as another principal.');
+        self::assertSame(DatabaseRoles::APP, $em->getConnection()->fetchOne('SELECT current_user'));
+    }
+
+    /**
+     * **B16: the constructor walk examines a class only if its path-derived name exists**, so a class whose name does not
+     * match its file, or a second class in one file, would be skipped and could still be wired by an explicit
+     * `services.yaml` entry. Closed by asserting what PSR-4 promises: every PHP file in `src/` declares exactly one
+     * class-like (class, interface, trait or enum; anonymous classes excluded), named after the file, in the namespace
+     * its path gives. Plant, run 2026-09-16: a second class in one file — red.
+     */
+    #[Test]
+    public function everyFileInSrcDeclaresExactlyOneClassNamedAfterIt(): void
+    {
+        $src = \dirname(__DIR__, 2).'/src/';
+        $failures = [];
+        $files = PhpSourceScan::phpFilesUnder($src);
+        self::assertGreaterThan(100, \count($files), 'the walk found too few files in src/ to be reading the tree');
+
+        foreach ($files as $path) {
+            $expected = 'App\\'.str_replace('/', '\\', substr($path, \strlen($src), -\strlen('.php')));
+            $declared = self::classLikesDeclaredIn((string) file_get_contents($path));
+            if ([$expected] !== $declared) {
+                $failures[] = '  '.substr($path, \strlen($src)).' declares ['.implode(', ', $declared).'], expected ['.$expected.']';
+            }
+        }
+
+        self::assertSame([], $failures, "B16: a file in src/ that does not declare exactly one class named after it is invisible to the constructor walk above.\n".implode("\n", $failures));
+    }
+
+    #[Test]
+    public function theConstructorWalkSeesIntersectionAndDnfTypes(): void
+    {
+        self::assertSame([
+            IntersectionConnectionPlant::class.'::$intersection',
+            IntersectionConnectionPlant::class.'::$dnf',
+        ], self::constructorParametersTyped([IntersectionConnectionPlant::class], [Connection::class]),
+            'B5: the constructor walk does not see a Connection inside an intersection or DNF type.');
+    }
+
+    /**
      * **The types a constructor can reach a connection through that no binding
      * in `config/services.yaml` can pin to a principal** (RED review,
      * 2026-09-14). A Sales class taking `ConnectionRegistry` and calling
@@ -277,10 +359,8 @@ final class ConnectionBindingTest extends KernelTestCase
 
         foreach ($classes as $class) {
             foreach ((new \ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
-                $type = $parameter->getType();
-                $names = $type instanceof \ReflectionNamedType ? [$type] : ($type instanceof \ReflectionUnionType ? $type->getTypes() : []);
-                foreach ($names as $named) {
-                    if ($named instanceof \ReflectionNamedType && [] !== array_filter($types, static fn (string $t): bool => is_a($named->getName(), $t, true))) {
+                foreach (self::namedTypesOf($parameter->getType()) as $named) {
+                    if ([] !== array_filter($types, static fn (string $t): bool => is_a($named->getName(), $t, true))) {
                         $found[] = $class.'::$'.$parameter->getName();
                         break;
                     }
@@ -289,5 +369,46 @@ final class ConnectionBindingTest extends KernelTestCase
         }
 
         return $found;
+    }
+
+    /**
+     * Every named type inside a parameter type: named, union, intersection, and DNF (a union of intersections).
+     *
+     * @return list<\ReflectionNamedType>
+     */
+    private static function namedTypesOf(?\ReflectionType $type): array
+    {
+        if ($type instanceof \ReflectionNamedType) {
+            return [$type];
+        }
+        if ($type instanceof \ReflectionUnionType || $type instanceof \ReflectionIntersectionType) {
+            $named = [];
+            foreach ($type->getTypes() as $member) {
+                array_push($named, ...self::namedTypesOf($member));
+            }
+
+            return $named;
+        }
+
+        return [];
+    }
+
+    /** @return list<string> fully-qualified names of the classes, interfaces, traits and enums a file declares */
+    private static function classLikesDeclaredIn(string $code): array
+    {
+        $tokens = array_values(array_filter(\PhpToken::tokenize($code), static fn (\PhpToken $t): bool => !$t->is([\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT])));
+        $namespace = '';
+        $declared = [];
+        foreach ($tokens as $i => $token) {
+            if ($token->is(\T_NAMESPACE) && ($tokens[$i + 1] ?? null)?->is([\T_NAME_QUALIFIED, \T_STRING])) {
+                $namespace = $tokens[$i + 1]->text;
+            }
+            if ($token->is([\T_CLASS, \T_INTERFACE, \T_TRAIT, \T_ENUM]) && ($tokens[$i + 1] ?? null)?->is(\T_STRING)
+                && !($tokens[$i - 1] ?? null)?->is([\T_DOUBLE_COLON, \T_NEW])) {
+                $declared[] = ('' === $namespace ? '' : $namespace.'\\').$tokens[$i + 1]->text;
+            }
+        }
+
+        return $declared;
     }
 }
