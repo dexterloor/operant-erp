@@ -15,7 +15,8 @@ namespace App\Modules\Purchasing\ApiResource;
  * nowhere on the row to live, and this slice was chartered to close that rather
  * than to discover it — which is the difference between this field and
  * `expected_at` on a purchase order line, where the same shape was found with no
- * destination ruled and the field is therefore **refused**.
+ * destination ruled, the field was **refused**, and owner ruling Q2 (2026-09-15)
+ * then withdrew it from the contract.
  *
  * Here the destination is ruled, in advance, by `AuditEvent::PURCHASE_ORDER_CANCELLED`'s
  * own docblock: *"The cancellation's written reason lands in

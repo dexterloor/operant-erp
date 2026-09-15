@@ -27,14 +27,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * ---------------------------------------------------------------------------
  * `lines[]` — the nested create, built at step 8a (D-C)
  * ---------------------------------------------------------------------------
- * §4.2 names `lines[].inventory_item_id`, `lines[].quantity`,
- * `lines[].unit_cost` and `lines[].expected_at` on this row. **Three of the four
- * are accepted; `expected_at` is not, and it is the same subtraction
- * `CreatePurchaseOrderLine` already makes** — `purchase_order_line` has no such
- * column, and
- * `PurchaseOrderOperationContractTest::lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`
- * is the tie that makes the day the column arrives a red suite. It now covers
- * this operation's nested set as well as the two line writes.
+ * §4.2 names `lines[].inventory_item_id`, `lines[].quantity` and
+ * `lines[].unit_cost` on this row, and all three are accepted. Until 2026-09-15 it
+ * also named `lines[].expected_at`, which this create refused; owner ruling Q2
+ * withdrew it. `PurchaseOrderOperationContractTest::theNestedLineSetIsExactlyTheLineCreateSet`
+ * holds this nested set to `CreatePurchaseOrderLine`'s.
  *
  * **This section used to record the shortfall and its cost.** Until 2026-09-12
  * the field was refused loudly and an order and its lines were therefore not

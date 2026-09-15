@@ -105,10 +105,10 @@ final readonly class PurchaseOrderWriter
      * properties. The field names the client sends are derived from `POINTERS`
      * by {@see self::nestedLineFields()}, so this set has one spelling.
      *
-     * ⚠ **`expectedAt` is deliberately absent.** §4.2 names `lines[].expected_at`
-     * and `purchase_order_line` has no column for it — the same subtraction
-     * `CreatePurchaseOrderLine` makes, held by the same tie
-     * (`lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`).
+     * **`expectedAt` is absent:** a purchase order line has no expected date
+     * (owner ruling Q2, 2026-09-15). `PurchaseOrderOperationContractTest::
+     * theNestedLineSetIsExactlyTheLineCreateSet` holds this set to
+     * `CreatePurchaseOrderLine`'s.
      */
     private const NESTED_LINE_PROPERTIES = ['inventoryItemId', 'quantity', 'unitCost'];
 
@@ -1253,9 +1253,8 @@ final readonly class PurchaseOrderWriter
 
             // API-9 at the nesting level the deserializer cannot reach: `lines`
             // arrives as a decoded array, so `additionalProperties: false` says
-            // nothing about its entries. **`expected_at` is refused here**, which
-            // is the tie Trap 3 asks for -- §4.2 names `lines[].expected_at` and
-            // `purchase_order_line` has no column for it.
+            // nothing about its entries. **`expected_at` is refused here** as
+            // undeclared (Trap 3): a line has no expected date (owner ruling Q2).
             foreach (array_diff(array_keys($line), $accepted) as $unknown) {
                 $errors[] = [
                     'pointer' => '/lines/'.$index.'/'.$unknown, 'code' => 'undeclared', 'message' => 'This field is not accepted.',

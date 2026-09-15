@@ -50,8 +50,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * §4.4.3's.
  *
  * `CreatePurchaseOrder`'s accepted
- * cell names `lines[].inventory_item_id`, `lines[].quantity`, `lines[].unit_cost`
- * and `lines[].expected_at`. Those are fields of **PurchaseOrderLine**, which
+ * cell names `lines[].inventory_item_id`, `lines[].quantity` and
+ * `lines[].unit_cost`. Those are fields of **PurchaseOrderLine**, which
  * §4.4.3 gives an additions row of its own — so it is a resource with its own
  * derived shape, reachable through `ListPurchaseOrderLines`, and the `lines[]`
  * entries in the parent's create cell are that resource's *nested create* rather
@@ -115,7 +115,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 // the deserializer cannot reach is the entries *inside* it: a
                 // decoded array has no declared properties, so API-9 is applied
                 // to each line by `PurchaseOrderWriter::nestedLines()`, which is
-                // also what refuses `lines[].expected_at`.
+                // also what refuses an undeclared entry field such as
+                // `lines[].expected_at`.
                 'allow_extra_attributes' => false,
                 'api_assign_object_to_populate' => false,
             ],

@@ -445,13 +445,12 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * ⚠ **`expected_at` is in §4.2's accepted cell for this operation and the
-     * schema has no column for it, so it is refused as undeclared.**
+     * **A purchase order line has no expected date (owner ruling Q2,
+     * 2026-09-15), so `expected_at` on a line is refused as undeclared.**
      *
-     * This is the *behavioural* half of
-     * `PurchaseOrderOperationContractTest::lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`
-     * — a client sending it is told, loudly, rather than having the value
-     * silently discarded.
+     * §4.2 no longer declares it on this operation. A client sending it is told,
+     * loudly, rather than having the value silently discarded; the order's own
+     * `expected_at` is the one date.
      */
     #[Test]
     public function aLineExpectedDateIsRefusedBecauseThereIsNowhereToPutIt(): void
@@ -467,7 +466,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
         ]);
 
         self::assertSame(422, $this->httpStatus(),
-            'expected_at was accepted on a line. purchase_order_line has no such column, so accepting it '
+            'expected_at was accepted on a line. §4.2 does not declare it (owner ruling Q2, 2026-09-15), so accepting it '
             .'means discarding it -- and a field a client believes it set is worse than one it was refused.');
         self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
     }

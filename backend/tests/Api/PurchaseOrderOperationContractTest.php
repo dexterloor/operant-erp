@@ -128,30 +128,26 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * §4.2's `Accepted request fields` cell per write row, as this package
      * implements it.
      *
-     * ⚠ **Two cells are implemented SHORT and both are `expected_at` on a line.**
-     * §4.2 accepts `expected_at` on `CreatePurchaseOrderLine` and
-     * `UpdatePurchaseOrderLine`; `purchase_order_line` has no such column and no
-     * migration is permitted in this package.
-     * `lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn` is the tie that makes the
-     * day the column arrives a red suite, and
-     * `thePinsMatchTheContractDocument` subtracts the field from the document
-     * side **by name**, so the subtraction is visible rather than silent.
+     * **Every entry is compared with §4.2 directly, with no subtraction.** Until
+     * 2026-09-15 §4.2 accepted `expected_at` on `CreatePurchaseOrderLine`,
+     * `UpdatePurchaseOrderLine` and `CreatePurchaseOrder`'s `lines[]`, which
+     * `purchase_order_line` could not store, and this file subtracted it by name.
+     * Owner ruling Q2 ("Withdraw it") took it out of all three cells: a purchase
+     * order line has no expected date, and the order's own `expected_at` is the
+     * one date.
      *
      * @var array<string, list<string>>
      */
     private const PINNED_ACCEPTED_FIELDS = [
-        // ⚠ **The third short cell was this one, and step 8a closed it (D-C).**
-        // §4.2 names `lines[].inventory_item_id`, `lines[].quantity`,
-        // `lines[].unit_cost` and `lines[].expected_at` on this row; the nested
-        // create is now built and accepts the first three.
-        // **The blind spot that hid the shortfall is closed with it:**
-        // `ContractDocument::acceptedFields()` used to drop every `lines[].*`
-        // token, so nothing here could go red about the missing field — it now
-        // folds them to the top-level `lines`, and
+        // Step 8a built the nested create (D-C). §4.2 names
+        // `lines[].inventory_item_id`, `lines[].quantity` and `lines[].unit_cost`
+        // on this row. `ContractDocument::acceptedFields()` used to drop every
+        // `lines[].*` token, so nothing here could go red about a missing
+        // sub-field — it now folds them to the top-level `lines`, and
         // `theNestedLineCellIsExactlyTheNestedSetTheWriterAccepts` compares the
-        // sub-fields with the writer's own set. `lines[].expected_at` is the one
-        // subtraction, and it is the SAME subtraction the two line writes make,
-        // held by the same column tie.
+        // sub-fields with the writer's own set, while
+        // `theNestedLineSetIsExactlyTheLineCreateSet` holds that set to
+        // `CreatePurchaseOrderLine`'s without reading the document.
         'CreatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'currency_code', 'expected_at', 'lines'],
         'CancelPurchaseOrder' => ['reason'],
         'UpdatePurchaseOrder' => ['supplier_id', 'warehouse_id', 'expected_at'],
@@ -159,9 +155,6 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         'CreatePurchaseOrderLine' => ['inventory_item_id', 'quantity', 'unit_cost'],
         'UpdatePurchaseOrderLine' => ['quantity', 'unit_cost'],
     ];
-
-    /** The field §4.2 accepts on both line writes and the schema cannot store. */
-    private const UNSTORABLE_LINE_FIELD = 'expected_at';
 
     /** @var array<string, class-string> */
     private const INPUT_DTOS = [
@@ -310,53 +303,6 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
     }
 
     /**
-     * ⚠ **`expected_at` on a purchase order line: §4.2 accepts it, the schema has
-     * no column for it, and this is the tie between the two.**
-     *
-     * `Version20260906000100`'s `CREATE TABLE purchase_order_line` declares
-     * twelve columns and none is `expected_at`. Accepting the field and
-     * discarding it is the silent shape this project keeps finding; refusing it
-     * is loud (API-9's `validation-failed` names it as undeclared). What this
-     * test adds is that the refusal cannot outlive its reason: the day a
-     * migration adds the column, the left side flips and this goes red until the
-     * field is accepted — and the day somebody adds the field with no column, it
-     * goes red immediately.
-     *
-     * **The column list is parsed out of the migrations rather than read from the
-     * live database**, so it runs on a clean checkout and cannot be satisfied by
-     * a schema somebody changed by hand.
-     */
-    #[Test]
-    public function lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn(): void
-    {
-        $columns = self::columnsDeclaredOn('purchase_order_line');
-
-        self::assertContains('quantity_ordered', $columns,
-            'The purchase_order_line column list was not parsed, so the comparison below would be decided by a broken reader.');
-
-        foreach ([CreatePurchaseOrderLineInput::class, UpdatePurchaseOrderLineInput::class] as $input) {
-            self::assertSame(
-                \in_array(self::UNSTORABLE_LINE_FIELD, $columns, true),
-                \in_array(self::UNSTORABLE_LINE_FIELD, self::serializedPropertiesOf($input), true),
-                $input.' must accept '.self::UNSTORABLE_LINE_FIELD.' exactly when purchase_order_line has a column for it. '
-                .'Columns found: '.implode(', ', $columns),
-            );
-        }
-
-        // **The third place the same field arrives, added with step 8a's nested
-        // create.** §4.2 names `lines[].expected_at` on `CreatePurchaseOrder`
-        // too, so without this clause the nested path could accept the field the
-        // two line writes refuse and the suite would be green on the
-        // contradiction.
-        self::assertSame(
-            \in_array(self::UNSTORABLE_LINE_FIELD, $columns, true),
-            \in_array(self::UNSTORABLE_LINE_FIELD, PurchaseOrderWriter::nestedLineFields(), true),
-            'CreatePurchaseOrder\'s nested lines[] set must accept '.self::UNSTORABLE_LINE_FIELD
-            .' exactly when purchase_order_line has a column for it.',
-        );
-    }
-
-    /**
      * **§4.2's `lines[].*` sub-fields against the ones the writer accepts — the
      * comparison that could not be written until 2026-09-12.**
      *
@@ -365,10 +311,10 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * **no check in the project could see it**. `CreatePurchaseOrderInput`'s
      * docblock said so and a docblock is not a gate. This is the gate.
      *
-     * The one subtraction is `expected_at`, by name and in one direction, exactly
-     * as `thePinsMatchTheContractDocument` subtracts it from the two line writes —
-     * and `lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn` is what makes it
-     * temporary.
+     * There is no subtraction. Until 2026-09-15 §4.2 also named
+     * `lines[].expected_at`, which the writer refused and `purchase_order_line`
+     * could not store; owner ruling Q2 withdrew it, so the two sets are now
+     * compared exactly.
      */
     #[Test]
     public function theNestedLineCellIsExactlyTheNestedSetTheWriterAccepts(): void
@@ -377,14 +323,34 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
 
         $documented = ContractDocument::nestedAcceptedFields('CreatePurchaseOrder', 'lines');
 
-        self::assertContains(self::UNSTORABLE_LINE_FIELD, $documented,
-            '§4.2 no longer names lines[].'.self::UNSTORABLE_LINE_FIELD.' on CreatePurchaseOrder, so the subtraction below is stale.');
-
         self::assertSame(
-            array_values(array_diff($documented, [self::UNSTORABLE_LINE_FIELD])),
+            $documented,
             PurchaseOrderWriter::nestedLineFields(),
-            'The nested lines[] fields PurchaseOrderWriter accepts are not §4.2\'s, less the one the schema cannot store.',
+            'The nested lines[] fields PurchaseOrderWriter accepts are not §4.2\'s.',
         );
+    }
+
+    /**
+     * The nested `lines[]` set `CreatePurchaseOrder` accepts is exactly the set
+     * `CreatePurchaseOrderLine` accepts — checked against the code alone, so a clean
+     * checkout without `docs/API.md` still pins it; with
+     * `theInputDtosDeclareExactlyTheAcceptedFieldsAndNoId` the chain is DTO = pin =
+     * writer's nested set. It is the code-side half of API-23 step 1's sub-list
+     * condition (owner ruling Q1(a), 2026-09-15).
+     *
+     * Given up deliberately (owner ruling Q2): the old column tie also went red the
+     * day a migration added `purchase_order_line.expected_at`. Nothing does now;
+     * a per-line date is feature work that needs a ruling first.
+     */
+    #[Test]
+    public function theNestedLineSetIsExactlyTheLineCreateSet(): void
+    {
+        $nested = PurchaseOrderWriter::nestedLineFields();
+        $line = self::PINNED_ACCEPTED_FIELDS['CreatePurchaseOrderLine'];
+        self::assertNotSame([], $nested, 'The writer declares no nested line field, so the comparison below is vacuous.');
+        sort($nested);
+        sort($line);
+        self::assertSame($line, $nested, 'CreatePurchaseOrder\'s lines[] set and CreatePurchaseOrderLine\'s set have diverged.');
     }
 
     /**
@@ -498,16 +464,6 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         foreach (self::PINNED_ACCEPTED_FIELDS as $operationId => $expected) {
             $fields = ContractDocument::acceptedFields($operationId);
 
-            // The one subtraction, by name and in one direction only: the
-            // document accepts `expected_at` on a line and the schema cannot
-            // store it. `lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn` is what
-            // makes that temporary.
-            if (\in_array($operationId, ['CreatePurchaseOrderLine', 'UpdatePurchaseOrderLine'], true)) {
-                self::assertContains(self::UNSTORABLE_LINE_FIELD, $fields,
-                    $operationId.' no longer accepts '.self::UNSTORABLE_LINE_FIELD.' in §4.2, so the subtraction below is stale.');
-                $fields = array_values(array_diff($fields, [self::UNSTORABLE_LINE_FIELD]));
-            }
-
             self::assertSame($expected, $fields, $operationId.'\'s accepted set is not §4.2\'s.');
         }
 
@@ -601,44 +557,6 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         }
 
         return array_values(array_unique($names));
-    }
-
-    /**
-     * Every column name a table is declared with, from its `CREATE TABLE` body
-     * plus any `ALTER TABLE … ADD COLUMN`.
-     *
-     * **The `ALTER` half is not optional and is the reason this is not a one-line
-     * regex:** three of the columns `SCHEMA.md` documents on `stock_movement` are
-     * added by an `ALTER` in a later migration, so a reader that saw only the
-     * `CREATE TABLE` would report a column absent that is present — which, on
-     * this check, is the direction that fails **silently**.
-     *
-     * @return list<string>
-     */
-    private static function columnsDeclaredOn(string $table): array
-    {
-        $columns = [];
-
-        foreach (self::migrationSources() as $source) {
-            if (1 === preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'.preg_quote($table, '/').'\s*\((.*?)\n\s*\)\s*$/ims', $source, $body)) {
-                foreach (explode("\n", $body[1]) as $line) {
-                    if (1 === preg_match('/^\s*([a-z_][a-z0-9_]*)\s+[a-z]/i', $line, $column)
-                        && !\in_array(strtoupper($column[1]), ['CONSTRAINT', 'PRIMARY', 'UNIQUE', 'FOREIGN', 'CHECK'], true)
-                    ) {
-                        $columns[] = $column[1];
-                    }
-                }
-            }
-
-            preg_match_all(
-                '/ALTER\s+TABLE\s+'.preg_quote($table, '/').'\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)/i',
-                $source,
-                $altered,
-            );
-            $columns = [...$columns, ...$altered[1]];
-        }
-
-        return array_values(array_unique($columns));
     }
 
     /** @return list<string> */

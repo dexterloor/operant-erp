@@ -7,11 +7,9 @@ namespace App\Modules\Purchasing\ApiResource;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `CreatePurchaseOrderLine`'s accepted request fields (§4.2), **minus
- * `expected_at`, which has no column** — see `PurchaseOrderLineResource`'s
- * docblock for the finding and
- * `PurchaseOrderOperationContractTest::lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`
- * for the tie that makes the day the column arrives a red suite.
+ * `CreatePurchaseOrderLine`'s accepted request fields (§4.2). A line has no
+ * `expected_at`: owner ruling Q2 (2026-09-15) withdrew it from the contract — see
+ * `PurchaseOrderLineResource`'s docblock.
  *
  * **There is no `id`, and that is B-3.** The row identifier is minted server-side
  * by `Uuid::v4()` (API-10, D-12).

@@ -25,7 +25,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * The field list is derived, not chosen (API-23)
  * ---------------------------------------------------------------------------
  *   1. every field in `CreatePurchaseOrderLine`'s `Accepted request fields` cell
- *      — `inventory_item_id`, `quantity`, `unit_cost`, `expected_at` — minus any
+ *      — `inventory_item_id`, `quantity`, `unit_cost` — minus any
  *      `_id` naming a parent implied by the path. The path is
  *      `/purchase-orders/{id}/lines`, so the parent it implies is the **order**;
  *      `inventory_item_id` is not that parent, survives, and is expanded by
@@ -47,28 +47,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * §4.4.3 is the only place that can settle it.
  *
  * ---------------------------------------------------------------------------
- * ⚠ `expected_at` is in §4.2's accepted cell and has NO COLUMN. It is not
- * accepted here, and that is a finding, not an omission
+ * A line has no expected date (owner ruling Q2, 2026-09-15)
  * ---------------------------------------------------------------------------
- * `Version20260906000100`'s `CREATE TABLE purchase_order_line` has twelve columns
- * and none of them is `expected_at`. No migration is permitted in this package,
- * so the choice was between accepting a field and discarding it — the silent
- * shape this project has now found nineteen times — and refusing it loudly.
- * It is refused: the field is absent from both input DTOs, so a request carrying
- * it gets API-9's `validation-failed` naming it as undeclared.
+ * Until 2026-09-15 §4.2 accepted `expected_at` on both line writes, and
+ * `purchase_order_line` never had the column; the field was refused as
+ * undeclared on every path. Owner ruling Q2 ("Withdraw it") took it out of the
+ * contract: the order's own `expected_at` is the one date, set by the buyer. A
+ * request carrying it on a line still gets API-9's `validation-failed` naming it
+ * as undeclared.
  *
- * **The tie is a test, not a note.** `PurchaseOrderOperationContractTest::
- * lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn` reads the column list out of
- * `backend/migrations/` and the DTO out of reflection, and requires them to
- * agree in both directions — so the day the column is added, the suite goes red
- * until the field is accepted, and the day the field is added without the column
- * it goes red immediately.
- *
- * **What the schema does have is `lead_time_days`, and F-2 step 5 suggests that
- * is the real storage:** *"Expected date derives from supplier lead time and is
- * editable."* A per-line expected **date** and a per-line lead **time** are the
- * same fact in two units, and only one of them has a column. Which of §4.2 and
- * the migration is wrong is not this package's to decide.
+ * **What the schema does have is `lead_time_days`**, snapshotted per line from
+ * the supplier catalogue. It is stored, not on the wire, and read by no
+ * production code. A per-line date is feature work that needs a ruling first.
  *
  * ---------------------------------------------------------------------------
  * Every write is refused unless the order is `draft` (L-5)

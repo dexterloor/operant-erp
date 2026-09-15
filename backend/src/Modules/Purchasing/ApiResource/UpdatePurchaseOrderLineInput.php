@@ -7,9 +7,9 @@ namespace App\Modules\Purchasing\ApiResource;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `UpdatePurchaseOrderLine`'s accepted request fields (§4.2), **minus
- * `expected_at`** for the reason `CreatePurchaseOrderLineInput` states: the
- * column does not exist and no migration is permitted here.
+ * `UpdatePurchaseOrderLine`'s accepted request fields (§4.2). A line has no
+ * `expected_at`, for the reason `CreatePurchaseOrderLineInput` states (owner
+ * ruling Q2, 2026-09-15).
  *
  * `inventory_item_id` is deliberately not here either, and that is §4.2's cell
  * rather than a choice: changing which item a line is for is not an edit of that

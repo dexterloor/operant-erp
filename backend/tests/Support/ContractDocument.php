@@ -276,7 +276,8 @@ final class ContractDocument
      * in `PurchaseOrderOperationContractTest`'s own pin: `CreatePurchaseOrder`'s
      * cell named four `lines[].*` fields the code did not implement, and because
      * every one of them was discarded here, no comparison in the project could
-     * see the shortfall — unlike `expected_at` on a line, which had a tie. The
+     * see the shortfall — unlike `expected_at` on a line, which had a tie until
+     * owner ruling Q2 withdrew the field on 2026-09-15. The
      * token is now folded to its top-level field, so the nested cell is visible
      * to the same comparison as every other field; the sub-fields themselves are
      * {@see self::nestedAcceptedFields()}'s.

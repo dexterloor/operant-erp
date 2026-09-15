@@ -637,18 +637,14 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **Trap 3: `lines[].expected_at` is in §4.2's cell and `purchase_order_line`
-     * has no column for it**, so the nested create refuses it exactly as
-     * `CreatePurchaseOrderLine` does. Accepting it and discarding it would be the
-     * failure — the field would look supported and the date would vanish.
-     *
-     * The tie that makes this temporary rather than permanent is
-     * `PurchaseOrderOperationContractTest::lineExpectedAtIsAcceptedIfAndOnlyIfItHasAColumn`,
-     * which now covers this operation's nested set too: the day the column
-     * arrives, that test is red and this one has to be rewritten.
+     * **Trap 3: `lines[].expected_at` is not in §4.2's cell** (owner ruling Q2,
+     * 2026-09-15, withdrew it: a purchase order line has no expected date), so the
+     * nested create refuses it as undeclared, exactly as `CreatePurchaseOrderLine`
+     * does. Accepting it and discarding it would be the failure — the field would
+     * look supported and the date would vanish.
      */
     #[Test]
-    public function anExpectedAtOnANestedLineIsRefusedBecauseTheLineHasNoColumnForIt(): void
+    public function anExpectedAtOnANestedLineIsRefusedAsUndeclared(): void
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
