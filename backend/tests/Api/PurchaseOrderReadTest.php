@@ -151,9 +151,58 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
 
         self::assertSame(200, $this->httpStatus());
         self::assertSame([
-            'id', 'inventory_item', 'quantity', 'unit_cost',
+            'id', 'line_number', 'inventory_item', 'quantity', 'unit_cost',
             'quantity_received', 'quantity_outstanding', 'archived_at',
         ], array_keys($this->json()['items'][0]));
+    }
+
+    /**
+     * **A line shows its own number, and names its item as `{id, sku, name}`**
+     * (owner rulings Q1(b) and Q-A, 2026-09-15; API-23b clause (ii)).
+     *
+     * The values are pinned, not just the keys, and the fixture is built so a
+     * wrong source cannot pass: each item's `name` differs from its `sku` (the
+     * seeder writes `name = sku`), and the two lines are seeded **out of order
+     * with non-contiguous numbers** (5, then 2), so a positional number
+     * (`ROW_NUMBER()`, an index) reads `[1, 2]` where the column reads `[2, 5]`.
+     * The create half pins the mint — the next number after the order's live
+     * lines, `MAX + 1` = 6 — and the same shape on the 201.
+     */
+    #[Test]
+    public function aLineShowsItsNumberAndNamesItsItemBySkuAndName(): void
+    {
+        $d = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $a = $this->seedItem(self::TENANT_A, 'SKU-A');
+        $b = $this->seedItem(self::TENANT_A, 'SKU-B');
+        $c = $this->seedItem(self::TENANT_A, 'SKU-C');
+        foreach ([$a => 'Alpha bolt', $b => 'Beta nut', $c => 'Gamma washer'] as $item => $name) {
+            $this->seedSupplierProduct(self::TENANT_A, $d['supplier'], $item);
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET name = ? WHERE id = ?::uuid', [$name, $item]);
+        }
+
+        $this->seedLine(self::TENANT_A, $d['order'], $a, lineNumber: 5);
+        $this->seedLine(self::TENANT_A, $d['order'], $b, lineNumber: 2);
+
+        $this->send('GET', '/purchase-orders/'.$d['order'].'/lines');
+
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([
+            [2, ['id' => $b, 'sku' => 'SKU-B', 'name' => 'Beta nut']],
+            [5, ['id' => $a, 'sku' => 'SKU-A', 'name' => 'Alpha bolt']],
+        ], array_map(static fn (array $l): array => [$l['line_number'], $l['inventory_item']], $this->json()['items']));
+
+        $this->send('POST', '/purchase-orders/'.$d['order'].'/lines', [
+            'inventory_item_id' => $c,
+            'quantity' => '1',
+            'unit_cost' => '1',
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $body = $this->json();
+        self::assertSame(
+            [6, ['id' => $c, 'sku' => 'SKU-C', 'name' => 'Gamma washer']],
+            [$body['line_number'], $body['inventory_item']],
+        );
     }
 
     /**

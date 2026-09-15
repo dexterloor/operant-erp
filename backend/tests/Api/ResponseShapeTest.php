@@ -153,10 +153,21 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * carrying `id`, other than the envelope's `items` and a nested collection §4.2
      * declares as `name[].field` (`lines`) — those are the resource's own rows, not
      * references. The display field is derived, not chosen: the referenced row is
-     * found by its id in the schema's tables, and its field is that table's `name`
-     * where it has one, else `code`, else `sku`, else its document number
-     * (`*_number`). **Reading taken:** `app_user` has no `name` column and its name
-     * column is `display_name`, which is what §4.4.3 writes for `created_by`.
+     * found by its id in the schema's tables, and {@see self::displayMembers()}
+     * applies the chain to that table's columns — `name` where it has one, else
+     * `code`, else `sku`, else its document number, else `display_name`.
+     * **Reading taken:** `app_user` has no `name` column and its name column is
+     * `display_name`, which is what §4.4.3 writes for `created_by`.
+     *
+     * **Document numbers are derived from the schema, not from a `*_number`
+     * suffix:** {@see self::documentNumberColumns()} reads the live-unique
+     * `*_number_live` / `*_number_unique` indexes, which are exactly `IA.md` R-1's
+     * five, so `line_number` or a future `tax_number` earns nothing from the
+     * suffix. **Clause (ii) is owner ruling Q-A (2026-09-15, "Yes, everywhere"):**
+     * every reference to the one table the clause names — read from §4.4.3's text,
+     * never written here — also carries `sku`, unless `sku` is already its display
+     * field. It is keyed on that table's name, so another table with a `sku`
+     * column gains nothing.
      *
      * One bare reference is excused by {@see self::REGISTERED_BARE_REFERENCES}, by
      * operation and exact path; an entry that is no longer observed is red.
@@ -165,11 +176,14 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * success status; at least one expansion was examined and resolved to a table;
      * the walker flags a planted bare `supplier_id` and a planted three-member
      * expansion; the registry excuses its own path and not the same path under a
-     * different key or operation.
+     * different key or operation; clause (ii)'s table is read from the document
+     * exactly once and has a `sku` column; the document-number indexes are
+     * exactly five; and planted calls of the pure rule pin each branch.
      *
-     * **What this does not check:** the display **value**, and that the expansion's
-     * key is the `_id` field's name less `_id`. Both are pinned per operation where
-     * the expansion is built (`GoodsReceiptCreateTest` for `storage_location`).
+     * **What this does not check:** the display **values** and the key names (the
+     * expansion's key is the `_id` field's name less `_id`). Both are pinned per
+     * operation where the expansion is built (`GoodsReceiptCreateTest` for
+     * `storage_location`, `PurchaseOrderReadTest` for a line's `inventory_item`).
      *
      * Mutations: `docs/session9/progress-C5B.md` row 11; `docs/session10/progress-R1.md`.
      */
@@ -187,6 +201,39 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::walkReferences(['supplier_id' => 'x', 'supplier' => ['id' => 'x', 'name' => 'n', 'code' => 'c']], '$', $nested, $planted);
         self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'bare' === $p[0]), 'The walker missed a planted bare supplier_id.');
         self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'expansion' === $p[0]), 'The walker missed a planted expansion.');
+
+        // Clause (ii)'s table, read from the ruling's own text rather than written
+        // here. This match is also clause (ii)'s rule-text assertion.
+        $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '));
+        self::assertSame(1, preg_match_all('/\*\*\(ii\) Every reference to `([a-z_]+)` also carries `sku`/', $section, $clause),
+            '§4.4.3 does not state API-23b clause (ii) exactly once, so the table that carries sku cannot be read.');
+        $skuTable = $clause[1][0];
+        self::assertArrayHasKey($skuTable, SchemaManifest::TABLES, \sprintf('Clause (ii) names `%s`, which is not a table.', $skuTable));
+        self::assertContains('sku', $this->columnsOf($skuTable), \sprintf('Clause (ii) names `%s`, which has no `sku` column.', $skuTable));
+
+        // Control — the document numbers are IA.md R-1's five.
+        $documentNumbers = $this->documentNumberColumns();
+        self::assertSame(5, \count($documentNumbers),
+            'The live-unique *_number indexes are not IA.md R-1\'s five document numbers: '.json_encode($documentNumbers));
+
+        // Planted controls — each branch of the pure rule, with clause (ii)'s
+        // table passed explicitly.
+        $planted = [
+            'no bare line_number display' => [['x', ['id', 'line_number'], false, null], null],
+            'clause (i)' => [['x', ['id', 'line_number'], true, null], ['id', 'line_number']],
+            'clause (ii) on the named table' => [['inventory_item', ['id', 'name', 'sku'], false, null], ['id', 'name', 'sku']],
+            'a different table with a sku column does not gain sku' => [['supplier_product', ['id', 'name', 'sku'], false, null], ['id', 'name']],
+            'the ruled table without sku is loud' => [['inventory_item', ['id', 'name'], false, null], null],
+            'no code member' => [['warehouse', ['id', 'name', 'code'], false, null], ['id', 'name']],
+            'clause (i) takes precedence over (ii)' => [['inventory_item', ['id', 'name', 'sku', 'line_number'], true, null], ['id', 'line_number']],
+            'unless sku is already the display field' => [['inventory_item', ['id', 'sku'], false, null], ['id', 'sku']],
+            'no *_number spread' => [['x', ['id', 'tax_number'], false, null], null],
+            'document number' => [['purchase_order', ['id', 'order_number'], false, 'order_number'], ['id', 'order_number']],
+        ];
+        foreach ($planted as $label => [[$table, $columns, $subListed, $number], $expected]) {
+            self::assertSame($expected, self::displayMembers($table, $columns, $subListed, $number, 'inventory_item'),
+                'The display rule is wrong on a planted case: '.$label.'.');
+        }
 
         // Control — the registry excuses exactly its own operation and path.
         foreach (self::REGISTERED_BARE_REFERENCES as $operation => $paths) {
@@ -217,13 +264,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 }
 
                 ++$examined;
-                $display = $this->displayFieldOf((string) $value['id']);
+                $want = $this->expectedMembers((string) $value['id'], $skuTable, $documentNumbers);
                 $members = array_keys($value);
                 sort($members);
-                $want = null === $display ? null : ['id', $display];
-                if (null !== $want) {
-                    sort($want);
-                }
                 if (null === $want || $want !== $members) {
                     $defects[] = \sprintf('%s: the expansion at %s carries [%s], not [%s]', $name, $where, implode(', ', $members),
                         null === $want ? 'id and a display field — no table holding that id has one' : implode(', ', $want));
@@ -401,32 +444,112 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
     }
 
-    /** The display field API-23b derives for the table holding this id, or null when none holds it. */
-    private function displayFieldOf(string $id): ?string
+    /**
+     * The sorted member list API-23b expects for an expansion of the row holding
+     * this id, or null when no table holds it or the rule has no answer.
+     *
+     * @param array<string, string> $documentNumbers table => document-number column
+     *
+     * @return list<string>|null
+     */
+    private function expectedMembers(string $id, string $skuTable, array $documentNumbers): ?array
     {
         foreach (SchemaManifest::tenantScopedTables() as $table) {
-            $columns = array_column($this->owner()->fetchAllAssociative(
-                'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', [$table]), 'column_name');
+            $columns = $this->columnsOf($table);
             if (!\in_array('id', $columns, true)) {
                 continue;
             }
             if ([] === $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT 1 FROM '.$table.' WHERE id::text = ?', [$id])) {
                 continue;
             }
-            foreach (['name', 'code', 'sku'] as $candidate) {
-                if (\in_array($candidate, $columns, true)) {
-                    return $candidate;
-                }
-            }
-            $numbers = array_values(array_filter($columns, static fn (string $c): bool => str_ends_with($c, '_number') && 'line_number' !== $c));
-            if (1 === \count($numbers)) {
-                return $numbers[0];
-            }
 
-            return \in_array('display_name', $columns, true) ? 'display_name' : null;
+            return self::displayMembers($table, $columns, false, $documentNumbers[$table] ?? null, $skuTable);
         }
 
         return null;
+    }
+
+    /**
+     * **API-23b as a pure rule**, so each branch can be planted and shown to fail.
+     *
+     *   1. Clause (i) first: a row of a sub-listed line table displays
+     *      `line_number`, and nothing else — no `sku` (clause (i) takes precedence).
+     *   2. Otherwise the display is the first of `name`, `code`, `sku` present;
+     *      else the table's document number (derived from its index, never from a
+     *      `*_number` suffix); else `display_name`; else there is none.
+     *   3. Clause (ii), by table **name** (LEAD ruling D2): the one table the
+     *      clause names must have `sku` — null otherwise, so a ruled table that
+     *      lost its column is loud — and gains it unless it is already the display.
+     *      No other table gains `sku`, whatever its columns.
+     *
+     * @param list<string> $columns
+     *
+     * @return list<string>|null
+     */
+    private static function displayMembers(string $table, array $columns, bool $subListedLine, ?string $documentNumberColumn, string $skuTable): ?array
+    {
+        if ($subListedLine) {
+            return \in_array('line_number', $columns, true) ? ['id', 'line_number'] : null;
+        }
+
+        $display = null;
+        foreach (['name', 'code', 'sku'] as $candidate) {
+            if (\in_array($candidate, $columns, true)) {
+                $display = $candidate;
+                break;
+            }
+        }
+        if (null === $display && null !== $documentNumberColumn) {
+            $display = $documentNumberColumn;
+        }
+        if (null === $display && \in_array('display_name', $columns, true)) {
+            $display = 'display_name';
+        }
+        if (null === $display) {
+            return null;
+        }
+
+        $members = ['id', $display];
+        if ($table === $skuTable) {
+            if (!\in_array('sku', $columns, true)) {
+                return null;
+            }
+            if ('sku' !== $display) {
+                $members[] = 'sku';
+            }
+        }
+        sort($members);
+
+        return $members;
+    }
+
+    /**
+     * Each table's document-number column, from the live-unique indexes the
+     * schema actually has (`*_number_live`, `*_number_unique`): the single
+     * non-`tenant_id` column each one is built on.
+     *
+     * @return array<string, string>
+     */
+    private function documentNumberColumns(): array
+    {
+        $numbers = [];
+        foreach ($this->owner()->fetchAllAssociative(
+            "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname ~ '_number_(live|unique)$'",
+        ) as $index) {
+            self::assertSame(1, preg_match('/\(([^()]*)\)/', (string) $index['indexdef'], $list), 'Unreadable index definition: '.$index['indexdef']);
+            $columns = array_values(array_diff(array_map(trim(...), explode(',', $list[1])), ['tenant_id']));
+            self::assertCount(1, $columns, \sprintf('%s is not built on exactly one column besides tenant_id.', $index['indexname']));
+            $numbers[(string) $index['tablename']] = $columns[0];
+        }
+
+        return $numbers;
+    }
+
+    /** @return list<string> */
+    private function columnsOf(string $table): array
+    {
+        return array_column($this->owner()->fetchAllAssociative(
+            'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', [$table]), 'column_name');
     }
 
     /**

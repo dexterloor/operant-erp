@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
-use App\Modules\Purchasing\ApiResource\NamedReference;
 use App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource;
 
 /**
@@ -65,7 +64,7 @@ final class PurchaseOrderLineRow
         -- scale 6, which is the shape S-12 makes a client compare on. See the
         -- class docblock before adding either back.
         pol.quantity_ordered - pol.quantity_received AS quantity_outstanding,
-        i.id AS inventory_item_id, i.name AS inventory_item_name
+        i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name
         SQL;
 
     /**
@@ -89,7 +88,8 @@ final class PurchaseOrderLineRow
     {
         return new PurchaseOrderLineResource(
             id: (string) $row['id'],
-            inventoryItem: new NamedReference((string) $row['inventory_item_id'], (string) $row['inventory_item_name']),
+            lineNumber: (int) $row['line_number'],
+            inventoryItem: new ItemReference((string) $row['inventory_item_id'], (string) $row['inventory_item_sku'], (string) $row['inventory_item_name']),
             quantity: (string) $row['quantity_ordered'],
             unitCost: (string) $row['unit_cost'],
             quantityReceived: (string) $row['quantity_received'],

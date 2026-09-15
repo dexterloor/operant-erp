@@ -34,8 +34,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Entity]
 #[ORM\Table(name: 'purchase_order_line')]
 #[ORM\UniqueConstraint(name: 'purchase_order_line_tenant_id_id_key', columns: ['tenant_id', 'id'])]
-// Line numbers are stable and unique within their order; the receiving screen
-// and the supplier's paperwork both address lines by number.
+// Line numbers are unique among the order's live lines; a discarded number is
+// reused (the mint is MAX+1 over live lines). The receiving screen and the
+// supplier's paperwork both address lines by number.
 #[ORM\UniqueConstraint(name: 'purchase_order_line_unique', columns: ['tenant_id', 'purchase_order_id', 'line_number'], options: ['where' => '(deleted_at IS NULL)'])]
 // "How much of this item is already on order" — the reorder-point calculation's
 // other input (ADR-004), and the reason a reorder run does not raise a second

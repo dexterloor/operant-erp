@@ -14,6 +14,7 @@ use App\Modules\Purchasing\ApiResource\State\CreatePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\DeletePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderLineProvider;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderLineProcessor;
+use App\Modules\Purchasing\Application\ItemReference;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -34,17 +35,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *   3. plus `archived_at`, because
  *      `SchemaManifest::TABLES['purchase_order_line']['deletion']` is `soft` —
  *      cascaded from the order by trigger, never written by this module;
- *   4. plus §4.4.3's additions row for **PurchaseOrderLine** — `quantity_received`
- *      and `quantity_outstanding` — and nothing else.
+ *   4. plus §4.4.3's additions row for **PurchaseOrderLine** — `line_number`,
+ *      `quantity_received` and `quantity_outstanding` — and nothing else.
  *
- * **`line_number` is a column and is not a field.** No `Create*` cell names it,
- * §4.4.3's additions row does not add it, and *"a column is not a field"* is the
- * rule `ItemResource` states for `unit_cost` and `is_active`. It is minted
- * server-side by `PurchaseOrderWriter` and is invisible on the wire. **Reported
- * as a finding rather than corrected here**: `PurchaseOrderLine`'s own docblock
- * says *"the receiving screen and the supplier's paperwork both address lines by
- * number"*, which is a claim about a field the contract does not return, and
- * §4.4.3 is the only place that can settle it.
+ * `inventory_item` is `{id, sku, name}` — API-23b clause (ii), owner ruling Q-A
+ * (2026-09-15) — through `ItemReference`.
+ *
+ * **`line_number` is a field since 2026-09-15 (owner ruling Q1(b)).** Until then
+ * it was a column and not a field, recorded here as a finding. It is minted
+ * server-side by `PurchaseOrderWriter` as the next number after the order's live
+ * lines, and is unique among an order's **live** lines
+ * (`purchase_order_line_unique`), so a discarded number is reused. API-23b clause
+ * (i) makes it what every reference to a line displays.
  *
  * ---------------------------------------------------------------------------
  * A line has no expected date (owner ruling Q2, 2026-09-15)
@@ -154,8 +156,10 @@ final class PurchaseOrderLineResource
      */
     public function __construct(
         public string $id,
+        #[SerializedName('line_number')]
+        public int $lineNumber,
         #[SerializedName('inventory_item')]
-        public NamedReference $inventoryItem,
+        public ItemReference $inventoryItem,
         /**
          * The column is `purchase_order_line.quantity_ordered`; the field is
          * `quantity`, because that is what `CreatePurchaseOrderLine`'s accepted

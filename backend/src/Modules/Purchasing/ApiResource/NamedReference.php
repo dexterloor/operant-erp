@@ -10,10 +10,11 @@ namespace App\Modules\Purchasing\ApiResource;
  *
  * The display field is **derived, not chosen per resource**: the referenced
  * table's `name` where it has one, else `code`, else `sku`, else its document
- * number. All three references this module returns through this class resolve to
- * `name` — `supplier.name`, `warehouse.name` and `inventory_item.name` are all
- * present in `Version20260906000100` — so one class serves all three rather than
- * three classes with one property each.
+ * number. Both references this module returns through this class resolve to
+ * `name` — `supplier.name` and `warehouse.name` are both present in
+ * `Version20260906000100` — so one class serves both. **`inventory_item` moved to
+ * `Application\ItemReference` on 2026-09-15:** API-23b clause (ii) (owner ruling
+ * Q-A) adds `sku` to every item reference, so it no longer has this shape.
  *
  * **`created_by` does not come through here**, and that is the whole reason
  * `ActorReference` exists beside it: §4.4.3 writes that expansion out as
