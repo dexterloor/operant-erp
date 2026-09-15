@@ -46,6 +46,9 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
 {
     private const OPERATION = 'CreateGoodsReceipt';
 
+    /** How a privilege refusal is named: by message, since RLS refusals share its SQLSTATE (R3). */
+    private const PRIVILEGE_REFUSED = 'permission denied for table';
+
     /**
      * The isolation as behaviour. `SchemaManifestTest` proves the policy exists;
      * this proves it answers.
@@ -109,7 +112,7 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         ];
 
         self::assertSame(
-            ['INSERT' => 'accepted', 'UPDATE' => '42501', 'DELETE' => '42501'],
+            ['INSERT' => 'accepted', 'UPDATE' => self::PRIVILEGE_REFUSED, 'DELETE' => self::PRIVILEGE_REFUSED],
             $outcomes,
             'erp_app must be able to record a key and must not be able to rewrite or remove one. '
             .'API.md §6.1: a replayed key is answered from the stored row, never rewritten — and a '
@@ -136,7 +139,7 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         $this->recordKey(self::TENANT_A, self::OPERATION, 'retried');
 
         self::assertSame('23505',
-            $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'retried')),
+            $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'retried')),
             'A key already recorded for this operation in this workspace was accepted a second time. '
             .'That is E9-2\'s exact consequence: the client that retries a timed-out request gets a '
             .'second goods receipt, and no precondition refuses it because partial receipt is legal.');
@@ -164,8 +167,8 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         self::assertSame(
             ['other operation' => 'accepted', 'other workspace' => 'accepted'],
             [
-                'other operation' => $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, 'CreateFulfilment', 'collides')),
-                'other workspace' => $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_B, self::OPERATION, 'collides'), self::TENANT_B),
+                'other operation' => $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, 'CreateFulfilment', 'collides')),
+                'other workspace' => $this->attemptAsOwnerForTenant(self::TENANT_B, $this->insertSql(), $this->insertParams(self::TENANT_B, self::OPERATION, 'collides')),
             ],
             'A client-generated string in one workspace displaced another workspace\'s — or one '
             .'operation\'s displaced another\'s. §6.2: the key is scoped to (tenant, operation) and is '
@@ -262,7 +265,8 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
             VALUES (gen_random_uuid(), ?::uuid, ?, ?, ?::bytea, ?, sha256(convert_to('{}', 'UTF8')))
             SQL;
 
-        $attempt = fn (string $key, string $digestExpression, int $status): string => $this->attemptAsApplicationRole(
+        $attempt = fn (string $key, string $digestExpression, int $status): string => $this->attemptAsOwnerForTenant(
+            self::TENANT_A,
             str_replace('?::bytea', $digestExpression, $insert),
             [self::TENANT_A, self::OPERATION, $key, $status],
         );
@@ -309,7 +313,7 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
 
     private function attemptKeyOfBytes(string $key): string
     {
-        return $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, $key));
+        return $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, $key));
     }
 
     /**
@@ -321,10 +325,16 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
      * (`TenantContextContainmentTest` allows exactly one production file), and
      * routing through it keeps this file off that test's allow-list.
      *
-     * The return is the SQLSTATE rather than a message, because the three
-     * refusals this file distinguishes — `42501` insufficient privilege,
-     * `23505` unique violation, `23514` check violation — are different findings
-     * and a substring match on a message would let one masquerade as another.
+     * **A privilege refusal is named by its message, never by `42501` alone**
+     * (ADR-002 Amendment 4, rule R3; V4 batch B7): an RLS refusal raises `42501`
+     * too, so the SQLSTATE cannot say which control fired. `permission denied for
+     * table` is returned as {@see self::PRIVILEGE_REFUSED}; anything else returns
+     * its SQLSTATE and message, so it cannot masquerade as the privilege.
+     *
+     * The constraint proofs (`23505`, `23514`) no longer come through here. They
+     * run as the owner in the workspace's context (`attemptAsOwnerForTenant`),
+     * because a constraint binds every role and the subject of those tests is
+     * the constraint, not the principal.
      *
      * @param list<mixed> $params
      */
@@ -339,7 +349,9 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
 
             return 'accepted';
         } catch (DriverException $e) {
-            return $e->getSQLState() ?? $e->getMessage();
+            return str_contains($e->getMessage(), self::PRIVILEGE_REFUSED)
+                ? self::PRIVILEGE_REFUSED
+                : ($e->getSQLState() ?? '?').': '.$e->getMessage();
         } finally {
             $connection->rollBack();
             $connection->close();

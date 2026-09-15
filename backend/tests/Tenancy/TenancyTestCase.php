@@ -216,6 +216,34 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
+     * One statement as the owner in a workspace's context, **always rolled back**,
+     * answering `accepted` or the SQLSTATE it raised.
+     *
+     * For constraint proofs (a unique, a CHECK) whose subject is the constraint
+     * rather than the principal: constraints bind every role, so the owner proves
+     * them as well as `erp_app` would, and it still can after ADR-002 Amendment 4
+     * leaves `erp_app` without the write (V4 batch B7). Locally the owner is
+     * bound by FORCE ROW LEVEL SECURITY, so the context is real.
+     *
+     * @param list<mixed> $params
+     */
+    protected function attemptAsOwnerForTenant(string $tenantId, string $sql, array $params = []): string
+    {
+        $c = $this->owner();
+        $c->beginTransaction();
+        try {
+            $c->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [$tenantId]);
+            $c->executeStatement($sql, $params);
+
+            return 'accepted';
+        } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+            return $e->getSQLState() ?? $e->getMessage();
+        } finally {
+            $c->rollBack();
+        }
+    }
+
+    /**
      * The read-many twin of `countAsOwnerForTenant`, and it is here for the
      * reason `insertAsOwnerForTenant` is: `TenantContextContainmentTest`'s list
      * of files touching the tenant GUC is a control, and every entry added to it

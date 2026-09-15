@@ -20,7 +20,9 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * The three tests below are RED's, in the order it reported them, and they are
  * written to exhibit the damage rather than merely to report "no exception".
- * The last two cover the cases a fix can plausibly break or miss.
+ * The last two cover the cases a fix can plausibly break or miss. (A fourth, the
+ * DELETE variant of the third, was retired in V4 batch B7; see the note where it
+ * stood.)
  */
 final class TenantContextNestingTest extends TenancyTestCase
 {
@@ -111,22 +113,12 @@ final class TenantContextNestingTest extends TenancyTestCase
             'A tenant-predicate-free UPDATE silently rewrote another tenant\'s rows.');
     }
 
-    /** Same mechanism, the other destructive verb. */
-    #[Test]
-    public function aDeleteWithNoTenantPredicateAfterARefusedNestedCallCannotReachTheOtherTenant(): void
-    {
-        $this->seedItem(self::TENANT_A, 'SKU-A');
-        $this->seedItem(self::TENANT_B, 'SKU-B');
-
-        $this->tenantContext()->run(self::TENANT_A, function (): void {
-            $this->attemptNested(self::TENANT_B);
-            $this->app()->executeStatement('DELETE FROM inventory_item');
-        });
-
-        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM inventory_item'));
-        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM inventory_item'),
-            'A tenant-predicate-free DELETE silently removed another tenant\'s rows.');
-    }
+    // `aDeleteWithNoTenantPredicateAfterARefusedNestedCallCannotReachTheOtherTenant` was RETIRED in V4 batch B7
+    // (2026-09-16), with a note to LEAD. ADR-002 Amendment 4 leaves erp_app holding DELETE on no table, so
+    // its statement can no longer run; re-framed as a refusal it would lose its positive control (tenant A's
+    // row really removed) and prove nothing about re-entrancy. The mechanism it exhibited -- a refused nested
+    // run() must not repoint the outer block -- is carried by the UPDATE sibling above, whose verb erp_app
+    // keeps on inventory_item.
 
     /**
      * The case that rules out forbidding nesting outright.

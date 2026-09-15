@@ -4,15 +4,38 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Platform\Tenancy\DatabaseRoles;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
  * RLS is the security boundary (ADR-002). These all run as erp_app through the
  * pooled endpoint.
+ *
+ * **Privilege refusal vs RLS refusal (ADR-002 Amendment 4, rule R3; V4 batch B7,
+ * 2026-09-16).** Both raise SQLSTATE `42501`, so the code alone cannot say which
+ * control fired: a test asserting only `42501` for a `WITH CHECK` refusal stays
+ * green if the privilege is later revoked and proves nothing about RLS. An RLS
+ * refusal here therefore asserts `row-level security` in the message **and**,
+ * in the same test, that `erp_app` holds the verb (`has_table_privilege` = true).
+ * A privilege refusal asserts `permission denied for table`.
  */
 final class TenantIsolationTest extends TenancyTestCase
 {
+    /**
+     * R3's positive precondition: the refusal that follows can only be RLS if the
+     * principal holds the verb. If a later narrowing revokes it, this fails first
+     * and names why, instead of the WITH CHECK test going quietly fake-green.
+     */
+    private function assertApplicationRoleHolds(string $privilege, string $table): void
+    {
+        self::assertTrue((bool) $this->owner()->fetchOne(
+            'SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::APP, $table, $privilege]),
+            sprintf('%s no longer holds %s on %s, so a refusal of that statement is a privilege refusal and says '
+                .'nothing about row-level security. Move this proof to a table and verb erp_app still writes.',
+                DatabaseRoles::APP, $privilege, $table));
+    }
+
     /**
      * The genuinely-unset case, on a backend that has never seen app.tenant_id.
      *
@@ -106,6 +129,8 @@ final class TenantIsolationTest extends TenancyTestCase
     #[Test]
     public function writingIntoAnotherTenantIsRejectedByWithCheck(): void
     {
+        $this->assertApplicationRoleHolds('INSERT', 'inventory_item');
+
         try {
             $this->tenantContext()->run(self::TENANT_A, function (): void {
                 $this->app()->executeStatement(
@@ -117,6 +142,8 @@ final class TenantIsolationTest extends TenancyTestCase
             self::fail('WITH CHECK did not stop a cross-tenant INSERT.');
         } catch (DriverException $e) {
             self::assertSame('42501', $e->getSQLState(), $e->getMessage());
+            self::assertStringContainsString('row-level security', $e->getMessage(),
+                'The INSERT was refused, but not by the tenant policy.');
         }
 
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM inventory_item WHERE sku = ?', ['SMUGGLED']));
@@ -126,6 +153,7 @@ final class TenantIsolationTest extends TenancyTestCase
     #[Test]
     public function aRowCannotBeMovedToAnotherTenantByUpdate(): void
     {
+        $this->assertApplicationRoleHolds('UPDATE', 'inventory_item');
         $this->seedItem(self::TENANT_A, 'SKU-A');
 
         try {
@@ -137,20 +165,19 @@ final class TenantIsolationTest extends TenancyTestCase
             self::fail('WITH CHECK did not stop a cross-tenant UPDATE.');
         } catch (DriverException $e) {
             self::assertSame('42501', $e->getSQLState(), $e->getMessage());
+            self::assertStringContainsString('row-level security', $e->getMessage(),
+                'The UPDATE was refused, but not by the tenant policy.');
         }
     }
 
-    #[Test]
-    public function deleteCannotReachAnotherTenantsRow(): void
-    {
-        $this->seedItem(self::TENANT_B, 'SKU-B');
-
-        $affected = $this->tenantContext()->run(self::TENANT_A, fn (): int =>
-            $this->app()->executeStatement('DELETE FROM inventory_item WHERE sku = ?', ['SKU-B']));
-
-        self::assertSame(0, $affected);
-        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM inventory_item WHERE sku = ?', ['SKU-B']));
-    }
+    // `deleteCannotReachAnotherTenantsRow` was RETIRED in V4 batch B7 (2026-09-16), with a note to LEAD.
+    // It proved RLS bound erp_app's DELETE on inventory_item. ADR-002 Amendment 4 leaves erp_app holding
+    // DELETE on no table at all, because no `src/` path deletes a row: the capability is gone, which is
+    // stronger than a policy filtering it, and a `permission denied` re-frame would duplicate
+    // GrantFootprintTest. It was not moved to the owner: on Neon the owner is BYPASSRLS, so it would prove
+    // the policy expression rather than the principal. Duty (ADR-002 A4.4 item 2): the build that first
+    // grants DELETE on any table adds an erp_app RLS-DELETE isolation test on that table in the same commit,
+    // using the privilege-vs-RLS rule in this class's docblock.
 
     /**
      * R-15. ADR-002 §5: integrity checks always bypass row security, so a bare

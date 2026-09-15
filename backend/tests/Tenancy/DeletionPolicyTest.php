@@ -226,6 +226,18 @@ final class DeletionPolicyTest extends TenancyTestCase
      * `sales_order_line_tenant_item_idx`. Demand from a discarded order is not
      * demand, and a forecast that counts it over-orders instead of
      * under-ordering — the opposite failure, from the same cause.
+     *
+     * **Writes as the owner since V4 batch B7 (2026-09-16).** No `src/` path writes
+     * `customer`, `sales_order` or `sales_order_line`, so under ADR-002 Amendment 4
+     * `erp_app` holds SELECT on them and nothing else. This test therefore proves
+     * the cascade function's body and the trigger's wiring, not that it runs as the
+     * invoker `erp_app`. That invoker property -- a role with UPDATE on a cascade
+     * parent must also hold UPDATE and SELECT on the child -- is held for every
+     * application role by a catalogue check over `pg_trigger` (ADR-002 A4.3
+     * constraint 2), which lands in `GrantFootprintTest` with this batch's migration. The
+     * demand reads still run as `erp_app`. The purchasing twin above keeps
+     * `erp_app` for every `purchase_order*` statement, so the invoker path is still
+     * exercised end to end there.
      */
     #[Test]
     public function softDeletingASalesOrderSoftDeletesItsLinesAndRemovesItFromTheDemandHistory(): void
@@ -234,25 +246,23 @@ final class DeletionPolicyTest extends TenancyTestCase
         $this->seedWarehouse();
 
         $orderId = Uuid::v4()->toRfc4122();
-        $this->tenantContext()->run(self::TENANT_A, function () use ($orderId, $itemId): void {
-            $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO customer (id, tenant_id, code, name, currency_code)
-                VALUES (gen_random_uuid(), ?::uuid, 'CUS-C', 'Cascade Customer', 'EUR')
-                SQL, [self::TENANT_A]);
-            $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO sales_order
-                    (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code)
-                VALUES (?::uuid, ?::uuid, 'SO-CASCADE',
-                        (SELECT id FROM customer  WHERE code = 'CUS-C'),
-                        (SELECT id FROM warehouse WHERE code = 'WH-C'),
-                        'EUR', 'confirmed', now(), 'DE')
-                SQL, [$orderId, self::TENANT_A]);
-            $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO sales_order_line
-                    (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price)
-                VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 1, 40, 12.50)
-                SQL, [self::TENANT_A, $orderId, $itemId]);
-        });
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO customer (id, tenant_id, code, name, currency_code)
+            VALUES (gen_random_uuid(), ?::uuid, 'CUS-C', 'Cascade Customer', 'EUR')
+            SQL, [self::TENANT_A]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO sales_order
+                (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code)
+            VALUES (?::uuid, ?::uuid, 'SO-CASCADE',
+                    (SELECT id FROM customer  WHERE code = 'CUS-C'),
+                    (SELECT id FROM warehouse WHERE code = 'WH-C'),
+                    'EUR', 'confirmed', now(), 'DE')
+            SQL, [$orderId, self::TENANT_A]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO sales_order_line
+                (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price)
+            VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 1, 40, 12.50)
+            SQL, [self::TENANT_A, $orderId, $itemId]);
 
         $demand = fn (): string => $this->tenantContext()->run(self::TENANT_A, fn (): string =>
             (string) $this->app()->fetchOne(
@@ -261,9 +271,7 @@ final class DeletionPolicyTest extends TenancyTestCase
 
         self::assertSame('40.000000', $demand());
 
-        $this->tenantContext()->run(self::TENANT_A, function () use ($orderId): void {
-            $this->app()->executeStatement('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$orderId]);
-        });
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$orderId]);
 
         self::assertSame('0', $demand(),
             'A discarded sales order still contributes to demand history. ADR-004 forecasts from this figure, '
@@ -274,9 +282,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             [$orderId]),
             'The line was hidden by a filter rather than actually marked deleted.');
 
-        $this->tenantContext()->run(self::TENANT_A, function () use ($orderId): void {
-            $this->app()->executeStatement('UPDATE sales_order SET deleted_at = NULL WHERE id = ?::uuid', [$orderId]);
-        });
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = NULL WHERE id = ?::uuid', [$orderId]);
 
         self::assertSame('40.000000', $demand(), 'Restoring the order did not restore its lines.');
     }
