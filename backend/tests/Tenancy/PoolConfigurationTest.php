@@ -95,6 +95,40 @@ final class PoolConfigurationTest extends TenancyTestCase
     }
 
     /**
+     * The application role reads the pool; it does not administer it (V3-7; V4
+     * batch B6, 2026-09-16).
+     *
+     * `admin_users` was `erp_app`: the principal of every authenticated request
+     * held PgBouncer's admin console (PAUSE, KILL, SUSPEND, SHUTDOWN, RELOAD, SET).
+     * `stats_users` alone permits the `SHOW` commands this class issues.
+     *
+     * The refusal is probed with `RESUME erp`, not `PAUSE`: if the regression
+     * returns, `RESUME` of a database that is not paused is refused for a reason
+     * other than admin access, so the probe cannot stall the suite's own pool the
+     * way an accepted `PAUSE` would. `PAUSE` itself was measured refused at build
+     * (`docs/session10/progress-B6.md`).
+     * Mutation, run at build: `admin_users = erp_app` on the running proxy -> red.
+     */
+    #[Test]
+    public function theApplicationRoleCanReadThePoolButNotAdministerIt(): void
+    {
+        $config = $this->runningPgBouncerConfig();
+
+        self::assertSame('', (string) $config['admin_users'],
+            'admin_users names someone. No application role may hold the pooler\'s admin console.');
+        self::assertSame('erp_app', $config['stats_users'],
+            'stats_users changed; this class reads SHOW CONFIG and SHOW USERS through it.');
+
+        try {
+            $this->pgBouncerConsole()->exec('RESUME erp');
+            self::fail('An admin console command from erp_app was accepted.');
+        } catch (\PDOException $e) {
+            self::assertStringContainsString('admin access needed', $e->getMessage(),
+                'An admin console command from erp_app was refused, but not for want of admin access, so erp_app holds the console.');
+        }
+    }
+
+    /**
      * Five application roles is the ceiling (V3-6). A sixth is a new database
      * principal, which ARCHITECTURE.md §3.3 PR-5 gives to the user, not to a code
      * change. Mutation, run at build: a sixth name in `APPLICATION_ROLES` -> red.
