@@ -928,12 +928,27 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
      * **The fixture is built so the three readings differ.** The over-received order line is `line_number` 2 and is sent
      * FIRST in the receipt, so its pointer is `/lines/0` and a 0-based ordinal would say 0. The message is pinned exactly.
      *
-     * **Mutation:** revert the over-receipt message to the pointer text → red on the exact message.
+     * **The two numbers are rendered under QR-2 (`docs/ux/STATES.md` §QR), and this pin moved with the string on
+     * 2026-09-18 — CD-1 step 2.** Until then it read *"would reach 11.000000 received of 10.000000 ordered"*, the
+     * column's scale printed at a person. CD-1's hard trigger is that *a change to the refusal string or to its pin
+     * without the rule landing first re-opens this entry rather than closing it*, so the rule, the string and this
+     * assertion are one commit. Both values are QR-5 system-held — `bcadd(…, 6)` output and a stored
+     * `numeric(19,6)` column — and neither is an echo of what the person typed.
+     *
+     * **Case (a2) is why this test has a second over-receipt and not just a tidier first one.** `10`/`11` are whole,
+     * so a "strip everything after the point" implementation would pass (a) exactly. (a2) orders `10.5` and receives
+     * `0.75`, which must render `11.25` and `10.5` — partial trims, both of which that implementation would get wrong.
+     *
+     * **Mutation:** revert the over-receipt message to the pointer text → red on the exact message. **Second
+     * mutation:** interpolate `$after` and `quantity_ordered` raw again → red on (a) *and* (a2).
      */
     #[Test]
     public function anOverReceiptNamesTheOrderedLineByItsNumberAndADuplicateByItsPointer(): void
     {
         $po = $this->orderedOrderWithLines(['10', '10']);
+        // Both fixtures are seeded before the first request: a refused receipt
+        // closes the EntityManager, so nothing can be seeded after (a).
+        $fractional = $this->orderedOrderWithLines(['10.5'], number: 'PO-2');
 
         // (a) `business-rule-violated` carries no pointer, so the ORDER line is
         //     named in the DETAIL, by its number. Line 2 is over-received and is
@@ -946,9 +961,23 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('purchase_order_line.is_not_over_received', $this->json()['rule']);
         self::assertSame(
-            'Order line 2 would reach 11.000000 received of 10.000000 ordered. Over-receipt is not accepted.',
+            'Order line 2 would reach 11 received of 10 ordered. Over-receipt is not accepted.',
             (string) $this->json()['detail'],
-            'The over-receipt refusal does not name the ordered line by the number the receive page shows (V2-C-19).',
+            'The over-receipt refusal does not name the ordered line by the number the receive page shows (V2-C-19), '
+            .'or does not render its quantities under QR-2 (CD-1).',
+        );
+
+        // (a2) A fractional order line, over-received by a fraction: QR-2 trims
+        //      the scale and keeps every digit the columns hold.
+        $this->receive($fractional['order'], [
+            ['purchase_order_line_id' => $fractional['lines'][0], 'quantity' => '11.25', 'storage_location_id' => $fractional['bin']],
+        ]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(
+            'Order line 1 would reach 11.25 received of 10.5 ordered. Over-receipt is not accepted.',
+            (string) $this->json()['detail'],
+            'QR-2 trims trailing zeros and nothing else: a partial trim must keep every digit the column holds.',
         );
 
         // (b) A validation error carries its own pointer for the DUPLICATE, and

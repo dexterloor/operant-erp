@@ -246,6 +246,30 @@ final class ReceiveStockTest extends ApiTestCase
         } catch (StockReceiptRefused $refused) {
             self::assertSame('stock_movement.quantity_is_positive', $refused->rule());
             self::assertSame(1, $refused->lineIndex(), 'The refusal must name the line at fault, not the first line.');
+            // **The message, pinned — and pinned as a VERBATIM echo (QR-5).**
+            // Added 2026-09-18 with CD-1 step 2. It was unpinned until then, and
+            // an unpinned message is how the over-receipt defect survived to be
+            // found by a reviewer rather than by the suite.
+            //
+            // **This site is deliberately NOT rendered under QR-2, against the
+            // reading in `STATES.md` QR-5.** Measured: the only production
+            // construction of a `StockReceipt` is `GoodsReceiptWriter:340`, and
+            // `GoodsReceiptWriter::lines()` already refuses any quantity failing
+            // this same regex and the same positivity test (`:527`) before it
+            // normalises with `bcadd(…, 6)` (`:547`). A value that survives that
+            // survives the check here too — so this factory **cannot fire on the
+            // production path at all**, and every value that does reach it is one
+            // that FAILED decimal validation, straight from a non-HTTP caller.
+            // QR-5's own test — *could this string have come from the request
+            // body unaltered?* — answers yes, so it is echoed, quoted, exactly as
+            // sent. `'0.000000'` above is the case that tells the two apart: a
+            // QR-2 rendering would report it as `"0"` and hide the scale the
+            // caller actually sent.
+            self::assertSame(
+                \sprintf('Line 1: "%s" is not a positive quantity of at most 13 digits and 6 decimal places.', $quantity),
+                $refused->getMessage(),
+                'The refusal does not echo the quantity it was given, verbatim (QR-5).',
+            );
         }
     }
 

@@ -39,6 +39,24 @@ final class StockReceiptRefused extends \DomainException
         return new self('stock_movement.receipt_has_a_line', null, 'A goods receipt must take in at least one line.');
     }
 
+    /**
+     * **The quantity is echoed verbatim, quoted, and is deliberately NOT rendered
+     * under QR-2** (`docs/ux/STATES.md` §QR; reviewed 2026-09-18 with CD-1 step 2).
+     *
+     * QR-5 decides it by provenance: *could this string have come from the request
+     * body unaltered?* Here it always could. `StockReceipt` calls this only when
+     * the value **failed** its `numeric(19,6)` check, and the one production
+     * construction of a `StockReceipt` — `GoodsReceiptWriter::create()` — applies
+     * that same regex and the same positivity test to the request body first
+     * (`GoodsReceiptWriter:527`) and only then normalises with `bcadd(…, 6)`
+     * (`:547`). **So no value that reached `:547` can arrive here**, and everything
+     * that does arrive is a raw string from a caller off the HTTP path. Rendering
+     * it would be unsound as well as wrong: `"five"`, `"5\n"` and `"1.0000001"`
+     * are not decimals for QR-2 to trim, and `"0.000000"` — which *is* one — would
+     * be reported back as `"0"`, hiding what the caller actually sent.
+     *
+     * Pinned by `ReceiveStockTest::aLineWhoseQuantityIsNotAPositiveReceiptIsRefusedAndNamed`.
+     */
     public static function quantityIsNotPositive(int $lineIndex, string $quantity): self
     {
         return new self(

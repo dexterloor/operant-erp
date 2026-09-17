@@ -15,6 +15,7 @@ use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\Display\QuantityRendering;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -301,8 +302,18 @@ final readonly class GoodsReceiptWriter
                     // it is named by the `line_number` the receive page shows
                     // (V2-C-19, 2026-09-16) -- not by the request's 0-based
                     // pointer, which is not the user's terms (ST-3).
+                    //
+                    // Both numbers are QR-2 values and neither is an echo (QR-5,
+                    // CD-1 step 2): `$after` is `bcadd(..., 6)` output past the
+                    // normalisation boundary below, and `quantity_ordered` is a
+                    // stored `numeric(19,6)` column. Rendered, not interpolated
+                    // raw -- this refusal read "would reach 11.000000 received of
+                    // 10.000000 ordered" until 2026-09-18, which is the defect
+                    // `STATES.md` QR was written to close.
                     \sprintf('Order line %d would reach %s received of %s ordered. Over-receipt is not accepted.',
-                        (int) $row['line_number'], $after, (string) $row['quantity_ordered']),
+                        (int) $row['line_number'],
+                        QuantityRendering::render($after),
+                        QuantityRendering::render((string) $row['quantity_ordered'])),
                 );
             }
         }
