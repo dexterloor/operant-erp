@@ -1,0 +1,107 @@
+{
+    "ApprovePurchaseOrder $.total_amount": [
+        4
+    ],
+    "CancelPurchaseOrder $.total_amount": [
+        4
+    ],
+    "CreateGoodsReceipt $.lines[].quantity": [
+        6
+    ],
+    "CreateItem $.reorder_point": [
+        6
+    ],
+    "CreateItem $.reorder_quantity": [
+        6
+    ],
+    "CreateItem $.safety_stock": [
+        6
+    ],
+    "CreatePurchaseOrder $.total_amount": [
+        4
+    ],
+    "CreatePurchaseOrderLine $.quantity": [
+        6
+    ],
+    "CreatePurchaseOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "CreatePurchaseOrderLine $.quantity_received": [
+        6
+    ],
+    "CreatePurchaseOrderLine $.unit_cost": [
+        4
+    ],
+    "GetGoodsReceipt $.lines[].quantity": [
+        6
+    ],
+    "GetItem $.reorder_point": [
+        6
+    ],
+    "GetItem $.reorder_quantity": [
+        6
+    ],
+    "GetItem $.safety_stock": [
+        6
+    ],
+    "GetPurchaseOrder $.total_amount": [
+        4
+    ],
+    "ListItems $.items[].reorder_point": [
+        6
+    ],
+    "ListItems $.items[].reorder_quantity": [
+        6
+    ],
+    "ListItems $.items[].safety_stock": [
+        6
+    ],
+    "ListPurchaseOrderLines $.items[].quantity": [
+        6
+    ],
+    "ListPurchaseOrderLines $.items[].quantity_outstanding": [
+        6
+    ],
+    "ListPurchaseOrderLines $.items[].quantity_received": [
+        6
+    ],
+    "ListPurchaseOrderLines $.items[].unit_cost": [
+        4
+    ],
+    "ListPurchaseOrders $.items[].total_amount": [
+        4
+    ],
+    "RestoreItem $.reorder_point": [
+        6
+    ],
+    "RestoreItem $.reorder_quantity": [
+        6
+    ],
+    "RestoreItem $.safety_stock": [
+        6
+    ],
+    "UpdateItem $.reorder_point": [
+        6
+    ],
+    "UpdateItem $.reorder_quantity": [
+        6
+    ],
+    "UpdateItem $.safety_stock": [
+        6
+    ],
+    "UpdatePurchaseOrder $.total_amount": [
+        4
+    ],
+    "UpdatePurchaseOrderLine $.quantity": [
+        6
+    ],
+    "UpdatePurchaseOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "UpdatePurchaseOrderLine $.quantity_received": [
+        6
+    ],
+    "UpdatePurchaseOrderLine $.unit_cost": [
+        4
+    ]
+}
