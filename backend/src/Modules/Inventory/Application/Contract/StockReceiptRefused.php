@@ -48,8 +48,8 @@ final class StockReceiptRefused extends \DomainException
      * the value **failed** its `numeric(19,6)` check, and the one production
      * construction of a `StockReceipt` — `GoodsReceiptWriter::create()` — applies
      * that same regex and the same positivity test to the request body first
-     * (`GoodsReceiptWriter:527`) and only then normalises with `bcadd(…, 6)`
-     * (`:547`). **So no value that reached `:547` can arrive here**, and everything
+     * (`GoodsReceiptWriter:539`) and only then normalises with `bcadd(…, 6)`
+     * (`:558`). **So no value that reached `:558` can arrive here**, and everything
      * that does arrive is a raw string from a caller off the HTTP path. Rendering
      * it would be unsound as well as wrong: `"five"`, `"5\n"` and `"1.0000001"`
      * are not decimals for QR-2 to trim, and `"0.000000"` — which *is* one — would

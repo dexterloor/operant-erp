@@ -235,7 +235,13 @@ final class WriteOwnershipTest extends TestCase
             "ARCHITECTURE.md S-7(c) / A-13: a module may write only the tables SchemaManifest assigns to it, and every "
             ."write's table must be a literal the scan can read. A cross-module write goes through the owning module's "
             ."Application\\Contract command interface; a deliberate exception needs an owner decision and an entry in "
-            ."REGISTERED_DEVIATIONS with its reason. A computed table name must become a literal.\n"
+            ."REGISTERED_DEVIATIONS with its reason. A computed table name must become a literal.\n\n"
+            ."If the write you just added is an INSERT INTO stock_movement outside StockReceiver, STOP and read "
+            ."docs/RESIDUAL_GAPS.md CD-2 before going further: the SEC-O-13 'no split' ruling left three E-* rules "
+            ."unwritten, and nothing binds stock_movement.reason to the permission that authorised the write -- so a "
+            ."write authorised by stock_movement.adjust can still be posted as reason = 'receipt', which defeats the "
+            ."visible-pattern control that ruling rests on. This pin moving is the trigger for that work; it is why the "
+            ."pointer lives in this message rather than in a list somebody has to remember to read.\n"
             .implode("\n", $violations));
 
         $stale = [];

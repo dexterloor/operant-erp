@@ -253,10 +253,10 @@ final class ReceiveStockTest extends ApiTestCase
             //
             // **This site is deliberately NOT rendered under QR-2, against the
             // reading in `STATES.md` QR-5.** Measured: the only production
-            // construction of a `StockReceipt` is `GoodsReceiptWriter:340`, and
+            // construction of a `StockReceipt` is `GoodsReceiptWriter:351`, and
             // `GoodsReceiptWriter::lines()` already refuses any quantity failing
-            // this same regex and the same positivity test (`:527`) before it
-            // normalises with `bcadd(…, 6)` (`:547`). A value that survives that
+            // this same regex and the same positivity test (`:539`) before it
+            // normalises with `bcadd(…, 6)` (`:558`). A value that survives that
             // survives the check here too — so this factory **cannot fire on the
             // production path at all**, and every value that does reach it is one
             // that FAILED decimal validation, straight from a non-HTTP caller.
