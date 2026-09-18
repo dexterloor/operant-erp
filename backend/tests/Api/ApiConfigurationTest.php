@@ -52,7 +52,7 @@ final class ApiConfigurationTest extends ApiTestCase
             self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
         }
 
-        // Two, and each is the same vendor behaviour for a different reason.
+        // Three, and each is the same vendor behaviour for a different reason.
         // `Token` has no row and no id, so its fallback lands on the skolem
         // path. `PurchaseOrderLine` **does** have a row-level URI -- §4.2
         // declares `PATCH` and `DELETE` at `/purchase-orders/{id}/lines/{lineId}`
@@ -61,8 +61,16 @@ final class ApiConfigurationTest extends ApiTestCase
         // mints one at the pluralised default path instead. It answers 404 by
         // construction (`NotFoundAction`) and `CreatedRowLocation` is what stops
         // the vendor's `Location` naming it.
+        //
+        // `SalesOrder` is the third, added 2026-09-19, and it is the **transient** case: §4.2 does declare
+        // `GetSalesOrder` at `/sales-orders/{id}`, and ruling R-A deferred it one commit behind its writer.
+        // Until it ships, this resource declares only a `POST`, so API Platform mints the same not-exposed
+        // fallback — and `CreatedRowLocation::OPERATION_URI_TEMPLATE` on `CreateSalesOrder` is what stops
+        // the 201's `Location` naming it. **This entry leaves this list when `GetSalesOrder` lands**, which
+        // is the opposite of the two above.
         self::assertSame([
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
+            '_api_/sales_orders/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the two API Platform mints.');
@@ -80,7 +88,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // **Two more at step 8 (2026-09-11):** `CreateGoodsReceipt`, released by
         // 8-i's retry key and `PurchaseOrder::recordReceipt()`, and
         // `GetGoodsReceipt`, which exists so its 201's `Location` resolves.
-        self::assertCount(22, $checked, 'The route set changed. This slice declares twenty-two operations: '.implode(', ', array_keys($checked)));
+        // **One more on 2026-09-19:** `CreateSalesOrder`, the first sales write, released by
+        // `Version20260919000100`'s retry key and granted its two INSERTs by `Version20260919000200`.
+        self::assertCount(23, $checked, 'The route set changed. This slice declares twenty-three operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

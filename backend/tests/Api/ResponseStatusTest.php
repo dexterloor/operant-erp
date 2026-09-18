@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
+use App\Platform\Http\Location\CreatedRowLocation;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -51,6 +52,21 @@ use Symfony\Component\Uid\Uuid;
  * document, so it runs on a clean checkout too. The branch table itself is a
  * pin, and {@see self::theBranchPinIsTheContractsTable()} holds the pin to the
  * document in both directions wherever the document exists.
+ *
+ * ⚠ **Reading (2) was exact until 2026-09-19 and stopped being so, and the third source below is the
+ * repair.** Ruling R-A shipped `CreateSalesOrder` one commit ahead of `GetSalesOrder`, so for the first
+ * time a `POST` creates a row §4.2 **does** address — `/sales-orders/{id}` — and the registry does not.
+ * Under the registry alone that operation falls to branch 5 and is required to answer **200 with no
+ * `Location`**, which contradicts API-21 branch 4 for a row the contract addresses.
+ * `CreatePurchaseOrderLine` never showed this: its row carries a built `PATCH` and `DELETE`, so the
+ * registry knew the URI even with no item `GET`.
+ *
+ * **(3) A `POST` also creates an addressable row when it DECLARES the row-level URI**, through
+ * `CreatedRowLocation::OPERATION_URI_TEMPLATE`. That is committed code rather than the gitignored
+ * document, it is the declaration the listener actually acts on, and it is not the `status:` attribute —
+ * which this test must never trust, because that is the per-operation claim it exists to check. The
+ * branch-4 `Location` assertion then holds the answer to **that template**, so declaring one is strictly
+ * more checked than not declaring one.
  */
 final class ResponseStatusTest extends PurchaseOrderTestCase
 {
@@ -107,7 +123,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         $members = array_fill_keys(array_keys(self::BRANCHES), []);
 
         foreach ($operations as $name => $operation) {
-            $matched = self::branchesMatching((string) $operation->getMethod(), $paths[$name], $paths);
+            $matched = self::branchesMatching((string) $operation->getMethod(), $paths[$name], $paths, self::declaredRowUri($operation));
 
             if (1 !== \count($matched)) {
                 $wrongCount[] = \sprintf('%s %s %s matches %d branch(es): [%s]', $name, $operation->getMethod(), $paths[$name], \count($matched), implode(', ', $matched));
@@ -180,7 +196,8 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
 
             $operation = $operations[$name];
             $method = (string) $operation->getMethod();
-            $matched = self::branchesMatching($method, $paths[$name], $paths);
+            $declaredRowUri = self::declaredRowUri($operation);
+            $matched = self::branchesMatching($method, $paths[$name], $paths, $declaredRowUri);
             self::assertCount(1, $matched, $name.' does not match exactly one branch, so no status can be derived for it.');
 
             $branch = $matched[0];
@@ -196,7 +213,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
             if (4 === $branch) {
                 ++$locationsExamined;
                 $location = $response->headers->get('Location');
-                $tested = self::addressableRowUris($paths[$name], $paths);
+                $tested = self::addressableRowUris($paths[$name], $paths, $declaredRowUri);
                 $named = null === $location ? null : self::normalisedLocation($location);
 
                 if (null === $named || !\in_array($named, $tested, true)) {
@@ -256,7 +273,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      *
      * @return list<int>
      */
-    private static function branchesMatching(string $method, string $path, array $registryPaths): array
+    private static function branchesMatching(string $method, string $path, array $registryPaths, ?string $declaredRowUri = null): array
     {
         $matched = [];
 
@@ -264,7 +281,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
             if ($branch['method'] !== $method) {
                 continue;
             }
-            if (null !== $branch['creates'] && self::createsAnAddressableRow($path, $registryPaths) !== $branch['creates']) {
+            if (null !== $branch['creates'] && self::createsAnAddressableRow($path, $registryPaths, $declaredRowUri) !== $branch['creates']) {
                 continue;
             }
             $matched[] = $number;
@@ -280,9 +297,9 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      *
      * @param array<string, string> $registryPaths
      */
-    private static function createsAnAddressableRow(string $path, array $registryPaths): bool
+    private static function createsAnAddressableRow(string $path, array $registryPaths, ?string $declaredRowUri = null): bool
     {
-        return [] !== self::addressableRowUris($path, $registryPaths);
+        return [] !== self::addressableRowUris($path, $registryPaths, $declaredRowUri);
     }
 
     /**
@@ -293,12 +310,29 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      *
      * @return list<string>
      */
-    private static function addressableRowUris(string $path, array $registryPaths): array
+    private static function addressableRowUris(string $path, array $registryPaths, ?string $declaredRowUri = null): array
     {
         $segments = explode('/', trim($path, '/'));
         $candidates = [$path.'/{}', '/'.end($segments).'/{}'];
 
-        return array_values(array_unique(array_intersect($candidates, $registryPaths)));
+        $found = array_intersect($candidates, $registryPaths);
+
+        // Reading (3): the declared template, if the operation carries one. It is added rather than
+        // substituted, so an operation whose row IS in the registry is unaffected and a declaration that
+        // named some other URI would widen nothing -- the Location still has to be one of these strings.
+        if (null !== $declaredRowUri) {
+            $found[] = (string) preg_replace('/\{[^}]*\}/', '{}', $declaredRowUri);
+        }
+
+        return array_values(array_unique($found));
+    }
+
+    /** The row-level URI template an operation declares for its 201's `Location`, or null. */
+    private static function declaredRowUri(HttpOperation $operation): ?string
+    {
+        $template = $operation->getExtraProperties()[CreatedRowLocation::OPERATION_URI_TEMPLATE] ?? null;
+
+        return \is_string($template) ? $template : null;
     }
 
     /** A `Location` header with the base path removed and every uuid segment read as a parameter. */

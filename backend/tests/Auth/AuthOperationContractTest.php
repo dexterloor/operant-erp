@@ -115,6 +115,8 @@ final class AuthOperationContractTest extends ApiTestCase
             // Step 8: `GetGoodsReceipt` lives at `/goods-receipts/{id}`, outside
             // the purchase-order pin's paths, so it has a pin of its own.
             array_keys(\App\Tests\Api\GoodsReceiptCreateTest::PINNED_GOODS_RECEIPT_OPERATIONS),
+            // Output 9, sales slice 1: `/sales-orders` is its own path family, so it carries its own pin.
+            array_keys(\App\Tests\Api\SalesOrderCreateTest::PINNED_SALES_ORDER_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);
@@ -123,7 +125,10 @@ final class AuthOperationContractTest extends ApiTestCase
         sort($declared);
 
         self::assertSame($expected, $declared,
-            'The shipped operation set is not the union of the two pins. An operation nobody pinned is an '
+            // ⚠ This message read *"the union of the TWO pins"* until 2026-09-19 and had been false since
+            // step 8 added the goods-receipt pin. It is four now; it is written without a number so the
+            // fifth does not have to remember to correct it.
+            'The shipped operation set is not the union of the per-path-family pins. An operation nobody pinned is an '
             .'operation nobody reviewed against §4.2.');
 
         foreach (self::PINNED_UNSHIPPED as $residual) {

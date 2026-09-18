@@ -105,6 +105,16 @@ services:
             - '../src/Modules/Purchasing/ApiResource/{NamedReference.php,ActorReference.php,CreatePurchaseOrderInput.php,UpdatePurchaseOrderInput.php,ApprovePurchaseOrderInput.php,CancelPurchaseOrderInput.php,CreatePurchaseOrderLineInput.php,UpdatePurchaseOrderLineInput.php}'
             - '../src/Modules/Purchasing/ApiResource/State/QueryParameters.php'
             - '../src/Modules/Purchasing/Application/{PurchaseOrderRow.php,PurchaseOrderLineRow.php,PurchaseOrderListCriteria.php,PurchaseOrderViews.php}'
+            # The Sales slice's data classes (Output 9, sales slice 1, commit 2).
+            # Same rule as the three blocks above: a request DTO the serializer
+            # builds, a reference DTO, and one function-only read model.
+            #
+            # `SalesOrderResource` is deliberately NOT excluded, for the reason
+            # `ItemResource` is not: API Platform discovers resources through the
+            # container's attribute autoconfiguration, so a resource class the
+            # container never sees has no routes at all.
+            - '../src/Modules/Sales/ApiResource/{SalesNamedReference.php,CreateSalesOrderInput.php}'
+            - '../src/Modules/Sales/Application/SalesOrderRow.php'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

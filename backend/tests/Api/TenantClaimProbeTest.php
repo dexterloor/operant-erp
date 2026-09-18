@@ -119,6 +119,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['lines' => [['purchase_order_line_id' => '@placed_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
         ],
         'GetGoodsReceipt' => ['vars' => ['id' => 'receipt'], 'setup' => 'receipt'],
+        // The ship-to address is a symbol of THIS tenant's customer, so the cross-tenant probe drives the
+        // V2-S-9 ownership check as well as the claim: if a supplied tenant id changed which workspace the
+        // lookup ran in, the address would resolve against the other tenant's customer.
+        'CreateSalesOrder' => ['body' => [
+            'customer_id' => '@customer', 'warehouse_id' => '@warehouse', 'ship_to_address_id' => '@customer_address',
+        ]],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -369,6 +375,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         }
 
         $supplier = $this->remember($letter, 'supplier', $this->seedSupplier($tenantId, 'Acme'));
+        $customer = $this->remember($letter, 'customer', $this->seedCustomer($tenantId, 'Acme Retail'));
+        $this->remember($letter, 'customer_address', $this->seedCustomerAddress($tenantId, $customer));
 
         $warehouse = $this->remember($letter, 'warehouse', Uuid::v4()->toRfc4122());
         $this->insertAsOwnerForTenant($tenantId,

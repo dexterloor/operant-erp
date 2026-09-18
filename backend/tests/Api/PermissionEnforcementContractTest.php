@@ -72,6 +72,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // there by ADR-008's third pass and given its dynamic check by
         // Amendment 1.
         'CreatePurchaseOrder' => 'purchase_order.create',
+        'CreateSalesOrder' => 'sales_order.create',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',

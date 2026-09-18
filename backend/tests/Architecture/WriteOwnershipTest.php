@@ -138,6 +138,12 @@ final class WriteOwnershipTest extends TestCase
         'Modules\\AuditLog' => 4,
         'Modules\\Inventory' => 6,
         'Modules\\Purchasing' => 10,
+        // Two, and the number is read off this test's own failure rather than predicted: `SalesOrderWriter`
+        // holds one `INSERT INTO sales_order` (its column list is written once and shared by the two
+        // statement shapes ruling R-B's INSERT-only grant forces) and one `INSERT INTO sales_order_line`.
+        // **There is no UPDATE**, which is the whole of that ruling — `total_amount` is summed inside the
+        // order's own INSERT.
+        'Modules\\Sales' => 2,
         'Modules\\UserManagement' => 5,
     ];
 

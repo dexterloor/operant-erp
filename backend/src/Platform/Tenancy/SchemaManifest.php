@@ -121,6 +121,17 @@ final class SchemaManifest
     /** A tenant table `erp_app` inserts into and updates, from `src/` callers named at the table. */
     private const APP_INSERT_UPDATE = [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']];
 
+    /**
+     * A tenant table `erp_app` only **inserts** into, from `src/` callers named at the table.
+     *
+     * Added 2026-09-19 with `CreateSalesOrder` (ruling R-B). It is a separate constant rather than
+     * `APP_INSERT_UPDATE` because A4.4 duty 1's word is *"exactly"*: the sales create issues no `UPDATE`
+     * — its total is computed inside the order's own `INSERT` — takes no row lock, and its cascade trigger
+     * is `AFTER UPDATE`, so nothing on the write path needs the privilege. Over-grant is the undetectable
+     * direction while A4.5's caller→grant check is unbuilt.
+     */
+    private const APP_INSERT = [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']];
+
     /** Readable by the application and the query agent; written only by the owner. */
     private const READ_ONLY_REFERENCE = [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']];
 
@@ -481,16 +492,25 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Invoices and fulfilments reference it, and a cancelled order is a status rather than a removal; only an unissued draft is ever discarded. **Carries CreateSalesOrder\'s retry key (V2-R-11, Version20260919000100):** idempotency_key holds the hex SHA-256 of the Idempotency-Key header and request_digest the RequestDigest::of() of the request that created the row, each CHECKed to 64 lower-case hex. Both are NOT NULL, on goods_receipt\'s reasoning rather than purchase_order\'s: no sales order predates the columns -- nothing in src/ has ever written one -- so there is no history for a NULL to describe, and a nullable column plus a deferred BEFORE INSERT trigger would have been a promise carried by a sentence in a design document. NOT NULL also makes the unique a real constraint on every live row, where two NULL keys would not collide. The unique sales_order_tenant_idem_live (tenant_id, idempotency_key) is PARTIAL on deleted_at IS NULL, unlike goods_receipt\'s total one, because this table soft-deletes and a discarded draft must stop occupying its key. It is what CreateSalesOrder\'s §4.2 cell names, and it is client-supplied -- which order_number is not, being server-minted, which is why sales_order_tenant_number_live refuses no replay and this one will. erp_ai reads both by table-level inheritance, the state API-O-32 accepted for purchase_order. **This migration grants nothing:** a new column inherits the table-level ACL (measured 2026-09-19, positive control SELECT=false), so the columns arrive readable and not writable, and the INSERT is owed by the commit that ships the writer (ADR-002 A4.1).',
-            // Read-only by default (ADR-002 A4). **The first build that grants ANY UPDATE on sales_order -- a confirm
+            // ADR-002 A4: INSERT from SalesOrderWriter::create, and NOTHING else (Version20260919000200, ruling R-B).
+            // **No UPDATE**: that create computes total_amount inside its own INSERT, from a VALUES list of the
+            // request's lines, so it issues no UPDATE statement; it takes no row lock, there being no row yet, so
+            // A4.3 constraint 1 does not bite either. No DELETE: archival is a soft delete, and nothing archives yet.
+            // **The first build that grants ANY UPDATE on sales_order -- a confirm
             // or cancel, not only a soft delete -- grants UPDATE on sales_order_line in the same migration:**
             // sales_order_cascade_deletion runs as the invoker, and a table-level UPDATE makes SET deleted_at reachable
             // (GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild).
+            'grants' => self::APP_INSERT,
         ],
         'sales_order_line' => [
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Soft for the same reason as purchase_order_line: sales_order_line_tenant_item_idx is ADR-004\'s demand-history input, and demand from a discarded order is not demand. Cascaded from the order by trigger.',
+            // ADR-002 A4: INSERT from SalesOrderWriter::create, which writes the nested lines in the order's own
+            // transaction (Version20260919000200). No UPDATE and no DELETE -- this slice ships no line edit, no line
+            // archive and no order archive, so the cascade trigger has no reachable firing path from erp_app.
+            'grants' => self::APP_INSERT,
         ],
         'fulfilment' => [
             'module' => 'Modules\\Sales',

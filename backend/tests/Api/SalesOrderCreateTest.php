@@ -1,0 +1,370 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Api;
+
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Problem\ProblemType;
+use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Uid\Uuid;
+
+/**
+ * **Output 9, sales slice 1, commit 2 — `CreateSalesOrder` over HTTP.**
+ *
+ * Every assertion that is about what was **written** reads the database as the owner, outside the request,
+ * so what is checked is what was committed rather than what the response said.
+ *
+ * ⚠ **It extends `PurchaseOrderTestCase`, and that is a pin rather than a taxonomy.**
+ * `OperationSuccessRecipes` is `@phpstan-require-extends PurchaseOrderTestCase` and `CreateSalesOrder`'s
+ * recipe has to live inside that trait (RED F-12), so the customer and address fixtures live on that class
+ * too and this test reads them from the same place the recipe does. A sales rig of its own would give the
+ * two paths two sets of fixtures and nothing to keep them equal.
+ */
+final class SalesOrderCreateTest extends PurchaseOrderTestCase
+{
+    /**
+     * The operations shipped under `/sales-orders`. Joined into
+     * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s
+     * whole-registry union, so an operation added to `SalesOrderResource` and not pinned here is red there.
+     *
+     * **`GetSalesOrder`, `ListSalesOrders`, `UpdateSalesOrder`, `ConfirmSalesOrder`, `CancelSalesOrder`,
+     * `DeleteSalesOrder`, `RestoreSalesOrder` and `CreateSalesOrderLine` are all declared in §4.2 and not
+     * built here.** `GetSalesOrder` is the nearest: ruling R-A deferred it one commit behind its writer,
+     * which is why this resource has no item `GET` and why `CreatedRowLocation` supplies the 201's
+     * `Location`.
+     *
+     * @var array<string, array{method: string, path: string, idem: bool}>
+     */
+    public const PINNED_SALES_ORDER_OPERATIONS = [
+        'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
+    ];
+
+    /** The registry's `/sales-orders` operations are exactly the pin, method and path included. */
+    #[Test]
+    public function theSalesOrderPathsDeclareExactlyThePinnedOperations(): void
+    {
+        $declared = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            if (str_starts_with((string) $operation->getUriTemplate(), '/sales-orders')) {
+                $declared[$name] = ['method' => $operation->getMethod(), 'path' => $operation->getUriTemplate()];
+            }
+        }
+
+        self::assertSame(
+            array_map(static fn (array $pin): array => ['method' => $pin['method'], 'path' => $pin['path']], self::PINNED_SALES_ORDER_OPERATIONS),
+            $declared,
+        );
+    }
+
+    /**
+     * API-21 branch 4: **201, the created resource as the body, and a `Location` that IS §4.2's declared
+     * row-level URI** — not merely one that resolves. `GetSalesOrder` does not exist, so the vendor's own
+     * header would name `/sales_orders/<uuid>`, a route that answers 404 by construction; this asserts the
+     * string `CreatedRowLocation` puts there instead.
+     */
+    #[Test]
+    public function aCreateAnswers201WithTheDeclaredRowUriAndTheCreatedOrder(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, [['inventory_item_id' => $c['item'], 'quantity' => '2', 'unit_price' => '3.5']]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $body = $this->json();
+        self::assertTrue(Uuid::isValid((string) $body['id']));
+        self::assertSame(self::BASE.'/sales-orders/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
+        self::assertSame(self::BASE.'/sales-orders/'.$body['id'], $this->client()->getResponse()->headers->get('Content-Location'));
+
+        self::assertSame(['id' => $c['customer'], 'name' => 'Acme Retail'], $body['customer']);
+        self::assertSame(['id' => $c['warehouse'], 'name' => 'WH SO'], $body['warehouse']);
+        self::assertSame('SO-000001', $body['order_number']);
+        self::assertSame(SalesOrder::STATUS_DRAFT, $body['status']);
+        self::assertSame('EUR', $body['currency_code']);
+        self::assertSame('7.0000', $body['total_amount'], 'The total is computed in the order\'s own INSERT from the request\'s lines.');
+        self::assertNull($body['ordered_at']);
+        self::assertNull($body['archived_at']);
+
+        // The read shape carries no `lines` (API-23 step 1's sub-list exception), no `created_by` (B1N-2,
+        // `SEC`'s and genuinely unruled) and no `ship_to_address` — which is **owner ruling O-1 of
+        // 2026-09-19, KEEP-AND-EXCEPT**, not a holding position: the snapshot fields ARE the answer, and
+        // only the §4.4.3 exception that states the rule is deferred to `GetSalesOrder`'s commit.
+        self::assertSame([
+            'id', 'customer', 'warehouse', 'currency_code', 'order_number', 'status', 'total_amount',
+            'ordered_at', 'ship_to_line', 'ship_to_city', 'ship_to_postal_code', 'ship_to_country_code',
+            'archived_at',
+        ], array_keys($body));
+
+        // What was written, read as the owner outside the request.
+        $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount, created_by_user_id, status FROM sales_order');
+        self::assertCount(1, $rows);
+        self::assertSame('7.0000', $rows[0]['total_amount']);
+        self::assertNotNull($rows[0]['created_by_user_id'],
+            '§8.1\'s rule for the purchasing mirror: created_by_user_id is set server-side from the JWT subject on '
+            .'every user-initiated create. A NULL here turns DSoD-1 into a suggestion one INSERT at a time. It is '
+            .'written even though the response does not carry it — B1N-2 is a disclosure question, not a write one.');
+
+        $lines = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT line_number, quantity, unit_price, quantity_fulfilled FROM sales_order_line');
+        self::assertCount(1, $lines);
+        self::assertSame(1, $lines[0]['line_number']);
+        self::assertSame('2.000000', $lines[0]['quantity']);
+        self::assertSame('3.5000', $lines[0]['unit_price']);
+        self::assertSame('0.000000', $lines[0]['quantity_fulfilled'],
+            'quantity_fulfilled is the schema default and is not written. If it ever becomes server-derived, the '
+            .'VALUES-list total in SalesOrderWriter::insertOrderInside() is wrong — see its docblock.');
+    }
+
+    /** D-C's atomicity, one order and its lines in one transaction, with `line_number` minted from position. */
+    #[Test]
+    public function anOrderAndItsLinesAreWrittenAtomicallyAndNumberedByPosition(): void
+    {
+        $c = $this->workspace();
+        $second = $this->seedItem(self::TENANT_A, 'SKU-SO-2');
+
+        $this->create($c, [
+            ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '10'],
+            ['inventory_item_id' => $second, 'quantity' => '3', 'unit_price' => '0.5'],
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('11.5000', $this->json()['total_amount']);
+
+        self::assertSame(
+            [[1, $c['item']], [2, $second]],
+            array_map(
+                static fn (array $row): array => [$row['line_number'], $row['inventory_item_id']],
+                $this->fetchAsOwnerForTenant(self::TENANT_A,
+                    'SELECT line_number, inventory_item_id FROM sales_order_line ORDER BY line_number'),
+            ),
+        );
+    }
+
+    /**
+     * **There is no savepoint and none is wanted.** A line the database refuses takes the order with it —
+     * a create that kept the order and dropped a line is the headless draft the nested create exists to
+     * make impossible.
+     */
+    #[Test]
+    public function aLineNamingAnUnknownItemRollsTheWholeOrderBack(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, [
+            ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '10'],
+            ['inventory_item_id' => Uuid::v4()->toRfc4122(), 'quantity' => '1', 'unit_price' => '10'],
+        ]);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame(ProblemType::ValidationFailed->uri(), $this->json()['type']);
+        self::assertSame('/lines/1/inventory_item_id', $this->json()['errors'][0]['pointer']);
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order_line'));
+    }
+
+    /** F-5's empty draft: `lines` absent is legal, and the literal-`0` statement shape is what writes it. */
+    #[Test]
+    public function anOrderMayBeRaisedWithNoLinesAtAll(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, null);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('0.0000', $this->json()['total_amount']);
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order_line'));
+    }
+
+    /**
+     * `lines: []` is refused. It says nothing omitting the field does not say, and admitting it would put
+     * into the digest a value canonical JSON cannot tell from `{}`.
+     *
+     * **Mutation:** delete the `[] === $raw` branch from `SalesOrderWriter::nestedLines()`.
+     */
+    #[Test]
+    public function anEmptyLineListIsRefused(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, []);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame('at_least_one_line', $this->json()['errors'][0]['code']);
+        self::assertSame('/lines', $this->json()['errors'][0]['pointer']);
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+    }
+
+    /**
+     * An absent `lines` and an explicit `"lines": null` are **one request and one digest**, because
+     * `?array $lines = null` cannot tell them apart. A retry that switches between the two spellings
+     * replays rather than conflicting, and both ask for an order with no lines.
+     */
+    #[Test]
+    public function anExplicitNullLinesIsTheSameRequestAsOmittingIt(): void
+    {
+        $c = $this->workspace();
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-orders', $this->body($c, null), $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/sales-orders', $this->body($c, null) + ['lines' => null], $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($first, $this->json()['id'], 'The two spellings digested differently, so one became a 409.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+    }
+
+    /** D-B: the same key with a different body is `idempotency-key-conflict`, and nothing is written. */
+    #[Test]
+    public function theSameKeyWithADifferentBodyIsAConflict(): void
+    {
+        $c = $this->workspace();
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-orders', $this->body($c, [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']]), $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/sales-orders', $this->body($c, [['inventory_item_id' => $c['item'], 'quantity' => '2', 'unit_price' => '1']]), $key);
+
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame(ProblemType::IdempotencyKeyConflict->uri(), $this->json()['type']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+    }
+
+    /**
+     * **O-2 — the ship-to is snapshotted AT CREATE**, field for field, from the `customer_address` row the
+     * request names. The order stores no address id, which is why `customer_address` is deletion class
+     * `hard`: an order pointing at a live address row would rewrite where a past shipment went every time
+     * the customer moves.
+     */
+    #[Test]
+    public function theShipToSnapshotEqualsTheAddressItWasCopiedFrom(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer,
+            addressLine: '221B Baker Street', city: 'Manchester', postalCode: 'M1 1AE', countryCode: 'GB');
+        $c = [
+            'customer' => $customer,
+            'address' => $address,
+            'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-1'),
+        ];
+
+        $this->create($c, null);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('221B Baker Street', $this->json()['ship_to_line']);
+        self::assertSame('Manchester', $this->json()['ship_to_city']);
+        self::assertSame('M1 1AE', $this->json()['ship_to_postal_code']);
+        self::assertSame('GB', $this->json()['ship_to_country_code']);
+
+        self::assertSame(
+            [['ship_to_line' => '221B Baker Street', 'ship_to_city' => 'Manchester', 'ship_to_postal_code' => 'M1 1AE', 'ship_to_country_code' => 'GB']],
+            $this->fetchAsOwnerForTenant(self::TENANT_A,
+                'SELECT ship_to_line, ship_to_city, ship_to_postal_code, ship_to_country_code FROM sales_order'),
+        );
+    }
+
+    /**
+     * **V2-S-9 — the address must belong to `customer_id`.**
+     *
+     * The refusal is deliberately the same for an address of another customer, a `billing` address and an
+     * id that never existed: ST-5, because three distinguishable answers would make this endpoint an
+     * oracle over the workspace's address book.
+     *
+     * **Mutation:** drop `AND customer_id = ?::uuid` from `SalesOrderWriter::shipToInside()`.
+     * **Second mutation:** drop `AND kind = 'shipping'`.
+     */
+    #[Test]
+    public function anAddressThatIsNotAShippingAddressOfThisCustomerIsRefused(): void
+    {
+        $c = $this->workspace();
+        $other = $this->seedCustomer(self::TENANT_A, 'Other Co');
+
+        foreach ([
+            'another customer\'s shipping address' => $this->seedCustomerAddress(self::TENANT_A, $other),
+            'this customer\'s billing address' => $this->seedCustomerAddress(self::TENANT_A, $c['customer'], kind: 'billing'),
+            'an id no address has' => Uuid::v4()->toRfc4122(),
+        ] as $why => $addressId) {
+            $this->send('POST', '/sales-orders',
+                ['customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'], 'ship_to_address_id' => $addressId],
+                [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+
+            self::assertSame(422, $this->httpStatus(), $why.' was accepted.');
+            self::assertSame(ProblemType::ValidationFailed->uri(), $this->json()['type'], $why);
+            self::assertSame(
+                [['pointer' => '/ship_to_address_id', 'code' => 'unknown_reference',
+                    'message' => 'No shipping address of this customer has this id.']],
+                $this->json()['errors'], $why.' produced a different refusal, which makes this endpoint an oracle.');
+        }
+
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+    }
+
+    /**
+     * `ship_to_address_id` is required, because `sales_order.ship_to_country_code` is `NOT NULL` with no
+     * default: an order without one is a row Postgres refuses, and a named field error is the better
+     * answer.
+     */
+    #[Test]
+    public function theShipToAddressIsRequired(): void
+    {
+        $c = $this->workspace();
+
+        $this->send('POST', '/sales-orders',
+            ['customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse']],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame(
+            [['pointer' => '/ship_to_address_id', 'code' => 'required', 'message' => 'This field is required.']],
+            $this->json()['errors'],
+        );
+    }
+
+    // -----------------------------------------------------------------------
+
+    /** @return array{customer: string, address: string, warehouse: string, item: string} */
+    private function workspace(): array
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail');
+
+        return [
+            'customer' => $customer,
+            'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-1'),
+        ];
+    }
+
+    /**
+     * @param array{customer: string, address: string, warehouse: string, item: string} $c
+     * @param list<array<string, string>>|null                                          $lines
+     *
+     * @return array<string, mixed>
+     */
+    private function body(array $c, ?array $lines): array
+    {
+        $body = [
+            'customer_id' => $c['customer'],
+            'warehouse_id' => $c['warehouse'],
+            'currency_code' => 'EUR',
+            'ship_to_address_id' => $c['address'],
+        ];
+
+        return null === $lines ? $body : $body + ['lines' => $lines];
+    }
+
+    /**
+     * @param array{customer: string, address: string, warehouse: string, item: string} $c
+     * @param list<array<string, string>>|null                                          $lines
+     */
+    private function create(array $c, ?array $lines): void
+    {
+        $this->send('POST', '/sales-orders', $this->body($c, $lines), [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+    }
+}

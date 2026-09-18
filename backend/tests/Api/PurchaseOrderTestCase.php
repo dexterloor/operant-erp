@@ -57,6 +57,73 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
+     * ⚠ **Two SALES fixtures on the purchase-order rig, and the reason is a pin rather than a taxonomy.**
+     *
+     * `OperationSuccessRecipes` is a trait declared `@phpstan-require-extends PurchaseOrderTestCase`
+     * (`:26`), and every registry-wide check that drives each built operation — `ResponseStatusTest`,
+     * `ResponseShapeTest`, `WireScaleTest`, `ErrorContractTest` — consumes it from a subclass of this
+     * class. `CreateSalesOrder`'s recipe therefore has to live in that trait (RED F-12: a separate
+     * `SalesOrderTestCase` does not satisfy the pin), and a recipe can only call fixtures this class
+     * offers. Putting them on `TenancyTestCase` instead would make every test in the project responsible
+     * for keeping them working, which is the rule this class's own docblock states.
+     *
+     * The honest alternatives are to rename this class or to key the trait to a shared rig. Both are
+     * refactors of a pinned test surface and neither belongs in the commit that ships the first sales
+     * writer.
+     *
+     * As the owner, not `erp_app`: no `src/` path writes `customer` or `customer_address`, so after
+     * ADR-002 Amendment 4 `erp_app` holds SELECT on both and nothing else.
+     *
+     * @return string the new row's id
+     */
+    protected function seedCustomer(string $tenantId, string $name = 'Acme Retail'): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        // `code` and `currency_code` are NOT NULL with no usable default, exactly as `supplier`'s are.
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO customer (id, tenant_id, code, name, currency_code)
+            VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')
+            SQL, [$id, $tenantId, strtoupper(substr(md5($name.$id), 0, 8)), $name]);
+
+        return $id;
+    }
+
+    /**
+     * An address of a customer. `kind` is a parameter rather than a constant because V2-S-9's refusal is
+     * *"a shipping address of THIS customer"*, and a test that cannot seed a `billing` one cannot show the
+     * kind half of that rule firing.
+     *
+     * ⚠ **The default postal code deliberately is not all digits, and that is a finding rather than a
+     * flourish.** `WireScaleTest`'s walker decides what a decimal is from the **value** — its pattern is
+     * `-?\d+(\.\d+)?` — so a numeric postal code such as Berlin's `10115` is recorded in the committed
+     * `wire-scale.json` as `CreateSalesOrder $.ship_to_postal_code: [0]`, a `text` column pinned as a
+     * decimal at scale 0. Nothing else on this API had an all-digit string field before; `receipt_number`
+     * escapes only because `GR-` is a prefix. A false entry in a contract artefact is worse than no entry,
+     * and changing the fixture is the one-line answer available to this commit. **Making the walker
+     * field-aware is the real fix and it belongs to whoever owns `WireScaleTest`** — a list of
+     * "fields that are not decimals" is otherwise the second copy of a set nobody maintains.
+     *
+     * @return string the new row's id
+     */
+    protected function seedCustomerAddress(
+        string $tenantId,
+        string $customerId,
+        string $kind = 'shipping',
+        string $addressLine = '9 Threadneedle Street',
+        string $city = 'London',
+        string $postalCode = 'EC2R 8AH',
+        string $countryCode = 'GB',
+    ): string {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            SQL, [$id, $tenantId, $customerId, $kind, $addressLine, $city, $postalCode, $countryCode]);
+
+        return $id;
+    }
+
+    /**
      * A purchase order in whatever state a test needs.
      *
      * `ordered_at` follows `purchase_order_ordered_at_set` — as of

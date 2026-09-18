@@ -32,6 +32,9 @@
     "CreatePurchaseOrderLine $.unit_cost": [
         4
     ],
+    "CreateSalesOrder $.total_amount": [
+        4
+    ],
     "GetGoodsReceipt $.lines[].quantity": [
         6
     ],

@@ -103,6 +103,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'method' => 'replayCreatePurchaseOrder',
             'why' => 'A second purchase_order. Its mechanism is the header-sourced retry key on a live-row unique.',
         ],
+        'CreateSalesOrder' => [
+            'method' => 'replayCreateSalesOrder',
+            'why' => 'A second sales_order, and a second copy of its lines and its total. Its mechanism is the '
+                .'header-sourced retry key on a live-row unique, as CreatePurchaseOrder\'s is.',
+        ],
         'CreateGoodsReceipt' => [
             'method' => 'replayCreateGoodsReceipt',
             'why' => 'A second goods_receipt, and a second helping of quantity_received on the order line.',
@@ -227,6 +232,35 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         $this->send('POST', '/items', $body, $key);
 
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM inventory_item'), $why);
+    }
+
+    /**
+     * The nested lines are sent because the replay this operation has to survive is not only "one order":
+     * `SalesOrderWriter::create()` computes `total_amount` inside the order's own INSERT from the
+     * request's own lines, so a replay that re-ran would produce a second order **and** a second total.
+     * Counting both tables is what makes that visible.
+     */
+    private function replayCreateSalesOrder(string $why): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail');
+        $body = [
+            'customer_id' => $customer,
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main SO'),
+            'ship_to_address_id' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'lines' => [['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-SO-REPLAY'), 'quantity' => '2', 'unit_price' => '3']],
+        ];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-orders', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/sales-orders', $body, $key);
+
+        self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the first order.');
+        self::assertSame('6.0000', $this->json()['total_amount'] ?? null, 'The replay did not return the first order\'s total.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order_line'), $why);
     }
 
     private function replayCreatePurchaseOrder(string $why): void

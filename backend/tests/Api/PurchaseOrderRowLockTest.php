@@ -891,6 +891,37 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     ];
 
     /**
+     * **The Sales half of `ALLOWED_WITHOUT_A_LOCK`** — writers that take no sales-order row lock, each by
+     * name, with the writes it makes and its reason. Keep it short.
+     *
+     * It is a second constant rather than entries in the list above because the two lists are compared
+     * against two different derived sets, and a single list would let a purchase-order entry silently
+     * account for a sales writer (or the reverse) the day a class writes both.
+     *
+     * ⚠ **There is no sales `LOCK_FIRST_CHECKED` and no sales `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN` yet,
+     * and their absence is not an exemption.** This slice ships exactly one sales writer and it creates the
+     * row it writes. The first writer that touches an **existing** sales order — `ConfirmSalesOrder`,
+     * `CancelSalesOrder`, `CreateSalesOrderLine` — needs a lock-first check that actually runs, the way
+     * `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs for purchasing, and a list naming it.
+     */
+    private const SALES_ALLOWED_WITHOUT_A_LOCK = [
+        'SalesOrderWriter::create' => [
+            // Read off this test's own failure, not predicted: both statements are in private helpers, so
+            // the scan credits `create()` with the helpers it reaches rather than with their SQL.
+            'writes' => [
+                'via insertOrderInside()',
+                'via insertLineInside()',
+            ],
+            'why' => 'It inserts the order, so there is no existing row to lock, and no other transaction can address '
+                .'what it inserts until it commits. Its two races are answered by unique indexes: '
+                .'sales_order_tenant_idem_live (a replay of the same key) and sales_order_tenant_number_live (two '
+                .'creates picking the same order number). Its lines are inserted in the same transaction and belong to '
+                .'an order nobody else can reach yet. It issues no UPDATE at all -- total_amount is summed inside the '
+                .'order\'s own INSERT -- which is why Version20260919000200 grants INSERT and nothing more.',
+        ],
+    ];
+
+    /**
      * **What one run of the writer scan looks for — the scan is the same code for
      * every aggregate, and this is everything about it that is not.**
      *
@@ -990,19 +1021,26 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **W-5's Sales half, as a tripwire: nothing in `src/` writes a sales order
-     * yet, and the first thing that does is red here.**
+     * **W-5's Sales half. It was a tripwire asserting `[]` until 2026-09-19; the first sales writer
+     * arrived and it is now the purchase side's accounting, as its own failure message instructed.**
      *
      * `ARCHITECTURE.md` W-5 — *"Sales locks the order, then stock; Purchasing
      * locks the PO, then stock"* — binds both write edges. Step 6c built the
-     * Purchasing half and the scan above keeps it built. The Sales half has no
-     * writer to check, so nothing would notice the first one arriving without its
+     * Purchasing half and the scan above keeps it built. The Sales half had no
+     * writer to check, so nothing would have noticed the first one arriving without its
      * lock (five-calls follow-up, owner ruling on call 1, 2026-09-13).
      *
-     * **Why this asserts `[]` and does not reuse the "not scanning" guard.** The
+     * **What changed and what did not.** `SalesOrderWriter::create` is the arrival the old text predicted
+     * *"will need an allow-list entry: a create has no existing row to lock, and its races belong to its
+     * unique indexes"*. It is in `SALES_ALLOWED_WITHOUT_A_LOCK` with its writes pinned, exactly as
+     * `PurchaseOrderWriter::create` is. **Every control below is unchanged and still runs** — the scanner
+     * still has to prove it works before the accounting means anything, because an accounting over an
+     * empty derived set passes as easily as an emptiness assertion did.
+     *
+     * **Why the controls are split in two.** The
      * purchase-order test refuses an empty result because, there, empty means
-     * the scan is broken. Here empty is the **correct** state today, so that
-     * guard would be red for the right answer. The two questions are split:
+     * the scan is broken. Here the derived set was **correctly** empty until this commit, so that
+     * guard would have been red for the right answer. The two questions are split and stay split:
      *
      *  - *does the scanner work?* — the purchase-order run is the positive
      *    control, **run inside this test**. It is the same `writersOf()`; it
@@ -1020,15 +1058,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *    DQL `UPDATE`/`DELETE FROM`. A regex that could never match its table would
      *    otherwise turn this into a test that passes forever.
      *
-     * **What the first sales writer has to do to turn this green again** —
+     * **What the NEXT sales writer has to do** —
      * take a sales-order row lock as the first statement of its transaction
      * (the `PurchaseOrderRowLock` shape), and be given the same accounting the
      * purchase side has: a lock-first check that runs, and a list naming it; or
-     * be allow-listed with its reason, as `PurchaseOrderWriter::create` is.
-     * Two arrivals are already known:
+     * be allow-listed with its reason, as `SalesOrderWriter::create` now is.
+     * ⚠ **`SALES_ALLOWED_WITHOUT_A_LOCK` is not a second home for that answer** — a writer that touches an
+     * **existing** sales order has a row to lock and the create's reason does not transfer. The next
+     * arrival is already known:
      *
-     *  - **`CreateSalesOrder`** will need an allow-list entry: a create has no
-     *    existing row to lock, and its races belong to its unique indexes;
      *  - **F-5's order-status recompute** on fulfilment posting will change a
      *    sales order's status. **This test sees it only if it is written in a
      *    shape the scan recognises**: SQL text naming the table, or a method that
@@ -1040,9 +1078,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *    scan is blind to it and stays green. The failure message says so too,
      *    because that is where the next builder will read it.
      *
-     * Whether that accounting then lives in this file or in a sales-side twin is
-     * the first sales writer's decision; this test only makes it unavoidable
-     * for the shapes it can see. The blind spots are the purchase-order scan's —
+     * The accounting lives in this file rather than in a sales-side twin, and that was the first sales
+     * writer's decision: the two halves share `writersOf()`, the planted control and the positive control,
+     * and splitting them would have made two copies of the engine whose agreement nobody checks. The
+     * blind spots are the purchase-order scan's —
      * see `PurchaseOrderRowLock`'s docblock — and one of them already writes
      * here: **`sales_order_cascade_deletion`**, the trigger that carries a sales
      * order's `deleted_at` to its lines, is a writer of `sales_order_line`
@@ -1090,7 +1129,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * vacuously.
      */
     #[Test]
-    public function noMethodInSrcWritesASalesOrderYet(): void
+    public function everyMethodThatWritesASalesOrderIsCoveredByALockFirstCheck(): void
     {
         foreach (['purchase order' => self::PURCHASE_ORDER_SCAN, 'sales order' => self::SALES_ORDER_SCAN] as $aggregate => $scan) {
             foreach ($scan['entities'] as $entity) {
@@ -1134,18 +1173,43 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             .'result below may be a blind scan, not an empty tree.');
 
         $derived = self::writersOf(self::SALES_ORDER_SCAN);
+        self::assertNotSame([], $derived,
+            'The sales scan found no writer at all. Since 2026-09-19 SalesOrderWriter::create writes both sales tables, '
+            .'so an empty result here means the scan has stopped seeing them and the accounting below holds over '
+            .'nothing.');
 
-        self::assertSame([], $derived,
-            "A method in src/ now writes sales_order or sales_order_line, and ARCHITECTURE.md W-5 requires Sales to lock "
-            ."the order first (then stock). Nothing checks that for Sales yet. The first sales writer must take a "
-            ."sales-order row lock as the first statement of its transaction and be covered by a lock-first check, or be "
-            ."allow-listed with a reason the way PurchaseOrderWriter::create is (CreateSalesOrder has no row to lock). "
-            ."Then replace this assertion with the purchase-order style accounting.\n"
+        $accounted = array_keys(self::SALES_ALLOWED_WITHOUT_A_LOCK);
+        sort($accounted);
+        $found = array_keys($derived);
+        sort($found);
+
+        $describe = implode("\n", array_map(
+            static fn (string $method, array $writes): string => '  '.$method.' — '.implode(' | ', array_unique($writes)),
+            array_keys($derived),
+            $derived,
+        ));
+
+        self::assertSame($accounted, $found,
+            "The methods that write a sales order or its lines are not the ones covered by a lock-first check, and "
+            ."ARCHITECTURE.md W-5 requires Sales to lock the order first (then stock). A new writer must take a "
+            ."sales-order row lock as the first statement of its transaction and be given a lock-first check that runs "
+            ."and a list naming it; or, only if it creates the row it writes, be added to SALES_ALLOWED_WITHOUT_A_LOCK "
+            ."with its reason.\n"
             ."NOTE: this scan is blind to a write reached through an association (Fulfilment::getSalesOrder(), "
             ."Invoice::getSalesOrder(), SalesOrderLine::getSalesOrder()) that never names SalesOrder::class, and to "
             ."writers outside src/ such as the sales_order_cascade_deletion trigger. A sales writer this test does not "
-            ."list may still exist.\nWriters found in src/:\n"
-            .print_r($derived, true));
+            ."list may still exist.\nWriters found in src/:\n".$describe);
+
+        // The reason half, and it is the half that keeps working after the membership check stops changing:
+        // a method already on the list could grow a second and a third write with the suite green and its
+        // stated reason quietly describing a method that no longer exists. `PurchaseOrderWriter::create` did
+        // exactly that at step 8a. So a new write reddens here and whoever adds it has to re-read the
+        // sentence that excuses the missing lock.
+        foreach (self::SALES_ALLOWED_WITHOUT_A_LOCK as $method => $pin) {
+            self::assertSame($pin['writes'], $derived[$method] ?? [],
+                $method.' writes something its entry does not account for. Its stated reason for taking no lock was '
+                ."written about a different set of writes:\n  ".$pin['why']);
+        }
     }
 
     /**

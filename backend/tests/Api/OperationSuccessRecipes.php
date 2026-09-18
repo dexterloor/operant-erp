@@ -145,6 +145,28 @@ trait OperationSuccessRecipes
             }],
             // One line (V1-R-2, V4 B4a): a recipe that sends no `lines` leaves the
             // nested create unprobed by every check that plants into the body.
+            // The recipe lives **inside this trait** rather than in a sales-side twin, because the trait is
+            // `@phpstan-require-extends PurchaseOrderTestCase` and every consumer holds its keys equal to
+            // `TransactionBoundaryTest::contractOperations()`: a separate rig would not satisfy that pin
+            // and the operation would be red in four tests at once (RED F-12).
+            'CreateSalesOrder' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SO');
+
+                return [
+                    'customer' => $customer,
+                    'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+                    'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
+                    'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-SO'),
+                ];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/sales-orders', [
+                    'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
+                    'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
+                    'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']],
+                ], $key());
+
+                return [201, 'create'];
+            }],
             'CreatePurchaseOrder' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');
                 $item = $this->seedItem(self::TENANT_A, 'SKU-NEW-PO', $supplier);

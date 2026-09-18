@@ -46,13 +46,18 @@ deptrac:
   # known deviation with `BE-LEAD` as owner.
   #
   # The register was 51 edges at Output 5 and 71 after **the purchasing slice
-  # added 20 on 2026-09-10**, 19 A-7 and one A-5. It is **74 now**: counted
+  # added 20 on 2026-09-10**, 19 A-7 and one A-5. It reached **74 by 2026-09-15**: counted
   # on 2026-09-14 it held 76 against this header's 71 (A-7 42, not 38; A-5
   # 4, not 3 — the header had not been kept up), API-O-26's token split
   # removed the one A-1 edge `AuthenticationGate` carried, and on 2026-09-15
   # `PurchaseOrderLineRow` stopped using `NamedReference` (API-23b clause (ii)
   # moved item references to `Application\ItemReference`) — measured 2026-09-15 as
-  # 74 edge lines, 41 of them A-7. Not one of them is a new
+  # 74 edge lines, 41 of them A-7. **Re-counted 2026-09-19 after the sales slice's
+  # first writer: 78 edge lines, 45 of them A-7** — four new lines, all A-7, all
+  # the same Output 4 slice shape (`SalesOrderWriter` and `SalesOrderRow` returning
+  # their own module's `ApiResource` read models). They account for 9 of deptrac's
+  # skipped-violation occurrences, one per site rather than one per pair.
+  # **Recount rather than restate this line.** Not one of them is a new
   # *shape* — every one is the Output 4 slice shape already recorded for
   # `ItemReader`/`ItemWriter`/`ItemRow` and for `ChangePassword`'s call into
   # `PasswordChangeAuditWriter` — and every one has the same cause: an
@@ -87,7 +92,7 @@ deptrac:
   #                   and symfony/messenger is not installed, so the audit path
   #                   is a direct synchronous call by necessity. One of them
   #                   is also A-1 (`PermissionGate` is Platform).
-  #   A-7  (41 edges) A module's `Application` layer depends "up" — on its own
+  #   A-7  (45 edges) A module's `Application` layer depends "up" — on its own
   #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
   #                   `CurrentUserResource` are declared there and returned from
   #                   Application) or on its own `Infrastructure` (entities and
@@ -169,6 +174,12 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\SalesOrderRow:
+      - App\Modules\Sales\ApiResource\SalesNamedReference   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
+    App\Modules\Sales\Application\SalesOrderWriter:
+      - App\Modules\Sales\ApiResource\CreateSalesOrderInput   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
     App\Modules\Sales\Infrastructure\Entity\Fulfilment:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Sales\Infrastructure\Entity\FulfilmentLine:
