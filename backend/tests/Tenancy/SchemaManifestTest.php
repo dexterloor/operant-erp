@@ -257,6 +257,128 @@ final class SchemaManifestTest extends TenancyTestCase
             .'that carries the tenant-isolation property.');
     }
 
+    /**
+     * ADR-007 §A1.3 — a declared `retention_column` resolves to a real
+     * `timestamptz NOT NULL` column on the declaring table. E16-1 clause 1's
+     * second half: *"or the declared column is absent from that table"*.
+     *
+     * **Domain from the server**, via `pg_attribute`, mirroring
+     * {@see self::deletedAtExistsOnExactlyTheSoftDeletedTables} — and
+     * `pg_attribute` rather than `information_schema` for a measured reason:
+     * `information_schema` has no `relispartition` equivalent, and **two of the
+     * three declaring tables are partitioned**, so the whole domain of this check
+     * is tables `information_schema` reports differently. (The project rule that
+     * `information_schema` is not an authority is about *privileges*; column
+     * existence is uncontested there. This is a partitioning concern, not that.)
+     *
+     * **Mutations, ALL FIVE RUN 2026-09-18 (Move 219), not predicted:**
+     *  1. `auth_lockout` → `'last_failure'` (absent column) → **RED**.
+     *  2. `auth_attempt` → `'attempt_count'` (integer, NOT NULL) → **RED**, and
+     *     the message was read, not assumed: *"auth_attempt.attempt_count is
+     *     integer, and ADR-007 A1.3 requires timestamptz."*
+     *  3. `audit_log` given `occurred_at` → **RED** on the sibling tripwire.
+     *  4. the key mistyped `retention_colum` → **RED** on the unknown-key method.
+     *  5. all three declarations deleted → **RED on the anti-vacuity control**,
+     *     message read: *"No table declares a retention_column, so this test
+     *     proves nothing."* This is the mutation that matters most, because it is
+     *     the one a fake-green version of this check would survive.
+     * Restored → **GREEN**. *(Why every one was executed: the tripwire built
+     * earlier the same day was FAKE-GREEN on its first run while its docblock
+     * already claimed a mutation proof. A predicted mutation is not a mutation.)*
+     *
+     * **What this deliberately does NOT catch:** declaring the *wrong but real*
+     * column — `auth_lockout` → `locked_until` resolves and passes. This check
+     * proves resolution, never that the choice is the right predicate. Nothing
+     * today can prove the latter, because no purge exists to predicate.
+     */
+    #[Test]
+    public function everyDeclaredRetentionColumnIsATimestamptzNotNullColumnOnItsTable(): void
+    {
+        $declared = SchemaManifest::retentionColumns();
+
+        self::assertNotSame([], $declared,
+            'No table declares a retention_column, so this test proves nothing. '
+            .'If that is deliberate, delete this method; if a key was mistyped, the declaring set is silently empty '
+            .'and every assertion below is vacuous. Nothing else enforces the manifest key shape -- there is no PHPStan in this repo.');
+
+        $wrong = [];
+        foreach ($declared as $table => $column) {
+            $found = $this->owner()->fetchAllAssociative(<<<'SQL'
+                SELECT a.atttypid::regtype::text AS type, a.attnotnull AS notnull
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = ? AND a.attnum > 0 AND NOT a.attisdropped
+                WHERE n.nspname = 'public' AND c.relname = ? AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+                SQL, [$column, $table]);
+
+            if ([] === $found) {
+                $wrong[] = $table.'.'.$column.' is declared as its retention_column and does not exist on the table.';
+                continue;
+            }
+
+            if ('timestamp with time zone' !== $found[0]['type']) {
+                $wrong[] = $table.'.'.$column.' is '.$found[0]['type'].', and ADR-007 A1.3 requires timestamptz.';
+            }
+
+            if (!$found[0]['notnull']) {
+                $wrong[] = $table.'.'.$column.' is nullable; a purge predicate on a nullable column silently skips rows.';
+            }
+        }
+
+        self::assertSame([], $wrong, implode("\n", $wrong));
+    }
+
+    /**
+     * The other half of E16-1, and the reason the key exists at all: two tables
+     * are **affirmatively refused** a `retention_column`, and until the key
+     * existed that refusal could not be checked.
+     *
+     * - **`audit_log`** — `PO`'s ruling of 2026-09-07: no age-based purge, ever.
+     *   `ADR-007` §A1.3's table still declares `occurred_at` for it; that row was
+     *   superseded the same day (the ruling *"adopts §A1.3's loop and supersedes
+     *   §A1.3's predicate"*) and its removal is **F-18, owed by `ARCH`**. The
+     *   lifecycle purge predicates on `tenant_id`, a `uuid`, which cannot be the
+     *   `timestamptz NOT NULL` column this key is defined as naming.
+     * - **`idempotency_key`** — same refusal, already written in its own `why`:
+     *   *"a retention_column on a table with no authorised age purge is a
+     *   declaration with no catalogue referent"*.
+     *
+     * This method IS E16-1's `audit_log` tripwire — *"a tripwire against silent
+     * reversal, not against a decision"* — and it is non-vacuous for the first
+     * time now that the key is real.
+     */
+    #[Test]
+    public function theTablesRefusedAnAgePurgeDeclareNoRetentionColumn(): void
+    {
+        foreach (['audit_log', 'idempotency_key'] as $refused) {
+            self::assertArrayNotHasKey($refused, SchemaManifest::retentionColumns(),
+                $refused.' declares a retention_column. It is affirmatively refused an age-based purge: PO ruled it '
+                .'2026-09-07 for audit_log, and idempotency_key carries the same refusal in its own why cell. If a ruling '
+                .'has superseded PO\'s, record it and change this method deliberately -- do not delete the assertion to get green. '
+                .'ADR-007 A1.3 still carries the stale audit_log row; removing it is F-18, owed by ARCH.');
+        }
+    }
+
+    /**
+     * Nothing else enforces the manifest's key shape: there is no PHPStan in this
+     * repo, so the `@var` annotation on `SchemaManifest::TABLES` is documentation.
+     * A mistyped optional key — `retention_colum` — is silently ignored by every
+     * accessor, which is how the check above would go vacuously green.
+     */
+    #[Test]
+    public function noTableDeclaresAnUnknownManifestKey(): void
+    {
+        $known = ['module', 'tenant', 'deletion', 'why', 'retention_column', 'retention_why', 'grants', 'column_grants', 'rls_exempt'];
+
+        foreach (SchemaManifest::TABLES as $table => $spec) {
+            $unknown = array_diff(array_keys($spec), $known);
+            self::assertSame([], $unknown,
+                $table.' declares unknown manifest key(s): '.implode(', ', $unknown)
+                .'. Either it is a typo -- in which case every check reading that key is silently vacuous -- or the key is new '
+                .'and belongs in this list and in the @var shape on SchemaManifest::TABLES.');
+        }
+    }
+
     /** ARCHITECTURE S-7(a): exactly one module writes each table, and it is named. */
     #[Test]
     public function everyTableNamesAnOwningModuleAndAReason(): void

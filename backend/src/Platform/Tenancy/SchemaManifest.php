@@ -143,7 +143,16 @@ final class SchemaManifest
      * `grants` is mandatory for a non-tenant table (that is V-10) and defaults
      * to read-only (`TENANT_READ_DEFAULT`) for a tenant-scoped one.
      *
-     * @var array<string, array{module: string, tenant: bool, deletion: string, why: string, grants?: array<string, list<string>>, column_grants?: array<string, array<string, list<string>>>, rls_exempt?: true}>
+     * `retention_column` (ADR-007 §A1.3) names the `timestamptz NOT NULL` column an
+ * owner purge would predicate on, and `retention_why` says why it is declared.
+ * Optional, and **present only where an age purge is AUTHORISED** — absent
+ * everywhere else, asserting nothing. Every one of them is a **FORWARD
+ * declaration**: no purge, no principal and no job runner exists for any.
+ * `SchemaManifestTest` pins the column, its type and the refusals;
+ * `GrantFootprintTest` separately proves from the server that no application role
+ * can DELETE from the declaring tables. **Neither key closes SEC-O-1.**
+ *
+ * @var array<string, array{module: string, tenant: bool, deletion: string, why: string, retention_column?: string, retention_why?: string, grants?: array<string, list<string>>, column_grants?: array<string, array<string, list<string>>>, rls_exempt?: true}>
      */
     public const TABLES = [
         // ------------------------------------------------------------------
@@ -166,6 +175,8 @@ final class SchemaManifest
             'tenant' => false,
             'deletion' => self::NA,
             'why' => 'ADR-006 §2.3. Pre-authentication rate-limit counters, keyed on the client-supplied slug, so there is no tenant to own the row. Retention is DROP PARTITION by the owner, which is why no application role holds DELETE.',
+            'retention_column' => 'window_start',
+            'retention_why' => 'ADR-007 A1.3. Purge shape is DROP PARTITION by the owner. FORWARD DECLARATION: only the DEFAULT partition exists (SCHEMA.md calls the mechanism structurally present and operationally inert), so this column serves as the partition key and no statement evaluates it as an age predicate. An age purge is authorised by ADR-006 2.3 and unbuilt.',
             'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
         ],
         'auth_ip_budget' => [
@@ -173,6 +184,8 @@ final class SchemaManifest
             'tenant' => false,
             'deletion' => self::NA,
             'why' => 'SEC-O-16, ruled 2026-09-09. E-21\'s second pre-auth budget — 300 attempts per fixed 15-minute window per `ip_prefix` — had nowhere to live. It cannot live in `auth_attempt`: E-9 and `API.md` §7.1 step 2 both consume it *before* the `auth_attempt` upsert, so it would be read after the write it exists to authorise, and every row of that table names a workspace because `slug_normalised` leads its primary key. A reserved sentinel slug was rejected on a fact about the column rather than on taste — `auth_attempt.slug_normalised` is client-supplied and deliberately shape-free (that is what makes a slug scrape loud, ADR-006 §2.3), so a client could send the reserved value and choose whether its request was metered at 100 or at 300. Keyed `(ip_prefix, window_start)` and nothing else, so no client-supplied value selects, shares or displaces the row that meters it. Partitioned like `auth_attempt` so retention is DROP PARTITION by the owner: an unpartitioned counter table is SEC-O-1 filed again on the day it is created, and it is what would force a DELETE grant onto the one principal whose narrowness is the point of it existing.',
+            'retention_column' => 'window_start',
+            'retention_why' => 'ADR-007 A1.3 by extension, on the authority in this entry own why cell: SEC-O-16, ruled 2026-09-09, made this table partitioned like auth_attempt so that retention is DROP PARTITION by the owner. It is ABSENT from A1.3 three-row table, which predates it by two days. GrantFootprintTest already corrected the same staleness in itself, where the counter-table list read auth_attempt plus auth_lockout until SEC-O-16 was found. Declared here so the manifest does not sit behind its own test; ARCH still owes A1.3 the row, alongside F-18.',
             'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
         ],
         'auth_lockout' => [
@@ -180,6 +193,8 @@ final class SchemaManifest
             'tenant' => false,
             'deletion' => self::NA,
             'why' => 'ADR-006 §6.6 / ARCHITECTURE S-14. Lockout state lives here, keyed (slug_normalised, email_hash), and never on app_user: a pre-auth UPDATE on a tenant-owned table from an attacker-chosen context is O-9 with a DoS attached. **Also carries E-12\'s daily login-failure trail cap (E4-4 as amended, Version20260914000100):** suppression_count and suppression_day, advanced inside the one step-7 upsert and only on the branches that write the trail, separate from failure_count and reset by nothing but a new UTC day (ADR-006 A1.3, C = 20). No new grant: the table-level grant below covers both columns, so they are reachable by erp_ratelimit alone (GrantFootprintTest::theLoginFailureCapStorageIsReachableByTheRateLimiterAlone). No E-11 column: its half moved to the output that builds the email.',
+            'retention_column' => 'last_failure_at',
+            'retention_why' => 'ADR-007 A1.3, and the weakest of the three. SEC-O-1 measured that partition-and-drop is the WRONG treatment here: it widens the primary key and destroys the ON CONFLICT (slug_normalised, email_hash) identity that ADR-006 6.6 fixes, turning a persistent lockout into a windowed one an attacker outlasts. The right treatment is an owner-run bounded purge needing no schema change, and NO SUCH PRINCIPAL EXISTS OR CAN BE CREATED. Nothing yet says that purge predicates on this column rather than on locked_until. SEC-O-1 STAYS OPEN: this declaration closes E16-1 clause 1 and does NOT close the unbounded growth. RESIDUAL_GAPS.md carries the purge with an owner and a hard trigger.',
             'grants' => [DatabaseRoles::RATE_LIMIT => ['SELECT', 'INSERT', 'UPDATE']],
         ],
         'messenger_messages' => [
@@ -502,6 +517,25 @@ final class SchemaManifest
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
     ];
+
+    /**
+     * The declaring set, table => column. Deliberately a map and not a list: the
+     * column name is the half a check must resolve against the server.
+     *
+     * @return array<string, string>
+     */
+    public static function retentionColumns(): array
+    {
+        $declared = [];
+        foreach (self::TABLES as $name => $spec) {
+            if (isset($spec['retention_column'])) {
+                $declared[$name] = $spec['retention_column'];
+            }
+        }
+        ksort($declared);
+
+        return $declared;
+    }
 
     /** @return list<string> */
     public static function tenantScopedTables(): array
