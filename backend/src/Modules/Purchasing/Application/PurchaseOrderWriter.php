@@ -86,7 +86,15 @@ final readonly class PurchaseOrderWriter
     /** numeric(19,4) — money (S-12). Never a float, in either direction. */
     private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
 
-    /** One sentence for both overflow refusals, so they cannot drift apart. */
+    /**
+     * The exact scale of `quantity_ordered × unit_cost` — `numeric(19,6)` times `numeric(19,4)`, measured
+     * on the cluster (`scale(0.000100::numeric(19,6) * 0.5000::numeric(19,4))` = 10). The pre-flight bounds
+     * multiply and accumulate here and round **once**, because bcmath truncates at its scale argument and
+     * Postgres does not. Ported from `SalesOrderWriter` (`98643f9`), which found it for the same columns.
+     */
+    private const PRODUCT_SCALE = 10;
+
+    /** One sentence for every overflow refusal, so they cannot drift apart. */
     private const TOTAL_OUT_OF_RANGE = 'This line would take the order\'s total past what it can be stored as: '
         .'a total carries at most 15 digits before the decimal point. Lower the quantity or the unit cost, '
         .'or split the order.';
@@ -408,7 +416,14 @@ final readonly class PurchaseOrderWriter
                     }
 
                     if (null !== $lines) {
-                        $this->recomputeTotal($em, $id);
+                        // `/lines` and not `/lines/<n>`: this backstop fires only
+                        // where `nestedLines()`'s per-line bound already passed,
+                        // and the two now do the same arithmetic, so there is no
+                        // honest way to say which line tipped it -- only that the
+                        // lines, taken together, do. Naming an index here would
+                        // be a guess dressed as a measurement. If it ever fires,
+                        // the two have drifted and that is the bug to fix.
+                        $this->recomputeTotal($em, $id, '/lines');
                     }
 
                     return $this->readOrderInside($em, $id)
@@ -570,7 +585,9 @@ final readonly class PurchaseOrderWriter
 
                 $id = $this->insertLineInside($em, $orderId, $values, null, $keyHash, $digest);
 
-                $this->recomputeTotal($em, $orderId);
+                // This request sent exactly one line and both of its fields, so
+                // the refusal names the same field the pre-flight bound names.
+                $this->recomputeTotal($em, $orderId, self::POINTERS['unitCost']);
 
                 return $this->readLineInside($em, $orderId, $id)
                     ?? throw new \LogicException('The line just inserted is not visible to its own transaction.');
@@ -750,7 +767,7 @@ final readonly class PurchaseOrderWriter
                     );
                 }
 
-                $this->recomputeTotal($em, $orderId);
+                $this->recomputeTotal($em, $orderId, self::totalPointerFor($submitted));
 
                 return $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
             },
@@ -781,7 +798,9 @@ final readonly class PurchaseOrderWriter
                 [$lineId],
             );
 
-            $this->recomputeTotal($em, $orderId);
+            // No pointer: a `DELETE` carries no body, and archiving a line can
+            // only lower a sum of non-negative products that already fitted.
+            $this->recomputeTotal($em, $orderId, null);
         });
     }
 
@@ -840,22 +859,130 @@ final readonly class PurchaseOrderWriter
      * The sum is over **live** lines, which is the same set `archiveLine()`
      * removes a row from and the same set the cascade trigger empties when the
      * order is archived.
+     *
+     * ---------------------------------------------------------------------
+     * **It reads the sum, judges it, and only then writes it (RED probe, 2026-09-19)**
+     * ---------------------------------------------------------------------
+     * Until then this was one `UPDATE … SET total_amount = (SELECT SUM(…))`, and
+     * that statement was **the** raise site for four shipped operations:
+     * `SUM(quantity_ordered * unit_cost)` is unconstrained `numeric`, the
+     * assignment into `numeric(19,4)` rounds and range-checks, and `22003` is
+     * neither of the constraint classes {@see self::translatingConstraintFailures()}
+     * or `create()`'s own catch translate — so it reached the client as an
+     * **HTTP 500 with no pointer** on a request whose every field was inside the
+     * range this API publishes.
+     *
+     * **Why the check lives here and not in another PHP guard.** The PHP
+     * pre-flight bounds can only see the lines a request *sent*.
+     * `CreatePurchaseOrderLine` and `UpdatePurchaseOrderLine` send one line and
+     * the order already has others; a `PATCH` naming only `quantity` sends no
+     * cost at all, so `malformedLineFields()`'s bound is skipped entirely. No
+     * arrangement of per-line checking can see that sum. This site can, and it is
+     * the **one** site all four write paths funnel through — `create()`,
+     * `createLine()`, `updateLine()` and `archiveLine()`, which is a fact about
+     * this class that `PurchaseOrderRowLockTest`'s `'via recomputeTotal()'` entry
+     * already depended on.
+     *
+     * **Why the sum is rounded by the server.** `round(x, 4)` on `numeric` is
+     * Postgres's own half-away-from-zero, the same rule the cast into
+     * `numeric(19,4)` applies — measured on the cluster, including the exact-half
+     * and negative cases ({@see self::roundedToMoney()}). So the value judged and
+     * the value stored are the same number by construction, and the guard cannot
+     * be reopened by a change to a bcmath scale. The `UPDATE` then binds the value
+     * that was judged, rather than recomputing it, for the same reason.
+     *
+     * **Why it is race-free.** Every path but `create()` has taken
+     * `PurchaseOrderRowLock::holdInside()` on this order as the first statement
+     * of its transaction, so no concurrent line write can commit between the
+     * read and the write. `create()` holds no lock and needs none: the order is
+     * a freshly minted uuid that has not committed, so no other transaction can
+     * address it or its lines — the reason `PurchaseOrderRowLockTest`'s
+     * `ALLOWED_WITHOUT_A_LOCK` already gives for it.
+     *
+     * **Throwing here is a clean rollback, not the aborted-transaction hazard**
+     * the class docblock warns about: no statement failed. `refuseUnlessDraft()`
+     * throws from inside the same closure for the same reason.
+     *
+     * @param ?string $pointer the JSON Pointer the refusal names — a field of
+     *                         **this** request, so the caller is told what to
+     *                         lower. Null on the paths that cannot raise the
+     *                         total at all; see the branch below.
      */
-    private function recomputeTotal(EntityManagerInterface $em, string $orderId): void
+    private function recomputeTotal(EntityManagerInterface $em, string $orderId, ?string $pointer): void
     {
+        $total = (string) $em->getConnection()->fetchOne(
+            <<<'SQL'
+            SELECT round(COALESCE(SUM(quantity_ordered * unit_cost), 0), 4)
+              FROM purchase_order_line
+             WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL
+            SQL,
+            [$orderId],
+        );
+
+        if (!self::fitsInTheTotalColumn($total)) {
+            // ⚠ **A 500, and it is the right answer, because this branch is
+            // unreachable and a refusal here would be a lie.** The two paths
+            // that pass no pointer are `archiveLine()` -- a `DELETE` with no
+            // request body, so there is no field to name -- and an `updateLine()`
+            // whose `PATCH` changed neither the quantity nor the cost. Every
+            // line product is non-negative (`QUANTITY` refuses zero and a sign,
+            // `MONEY` refuses a sign), and the order's previous total is a value
+            // `numeric(19,4)` already held, so removing a term or changing the
+            // item can only lower or hold a sum that already fitted. Reaching
+            // here means one of those sentences stopped being true, which is a
+            // defect in this class and not in the request.
+            if (null === $pointer) {
+                throw new \LogicException(\sprintf(
+                    'The total of order %s left numeric(19,4) on a write that cannot raise it (%s). '
+                    .'Either a line product became negative or the order was already storing a total it could not hold.',
+                    $orderId, $total,
+                ));
+            }
+
+            throw ApiProblem::validationFailed([[
+                'pointer' => $pointer,
+                'code' => 'total_out_of_range',
+                'message' => self::TOTAL_OUT_OF_RANGE,
+            ]]);
+        }
+
         $em->getConnection()->executeStatement(
             <<<'SQL'
             UPDATE purchase_order
-               SET total_amount = (
-                       SELECT COALESCE(SUM(quantity_ordered * unit_cost), 0)
-                         FROM purchase_order_line
-                        WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL
-                   ),
+               SET total_amount = CAST(? AS numeric),
                    updated_at = now()
              WHERE id = ?::uuid
             SQL,
-            [$orderId, $orderId],
+            [$total, $orderId],
         );
+    }
+
+    /**
+     * Which field {@see self::recomputeTotal()}'s refusal names on
+     * `UpdatePurchaseOrderLine`, where the `PATCH` decides what the caller sent.
+     *
+     * §5.2's `errors[]` addresses a field of **this** request, so naming
+     * `/unit_cost` on a `PATCH` that sent only `quantity` would point at nothing
+     * the caller could edit. `unit_cost` wins when both were sent, matching
+     * `malformedLineFields()`'s own choice of *"the field that is almost always
+     * the one that is wrong"*.
+     *
+     * Null when the `PATCH` changed neither: the sum over the order's lines does
+     * not depend on `inventory_item_id`, so such a request cannot move the total
+     * and the refusal is unreachable — which the branch in `recomputeTotal()`
+     * states rather than papering over with a pointer it invented.
+     *
+     * @param array<string, string|null> $submitted
+     */
+    private static function totalPointerFor(array $submitted): ?string
+    {
+        foreach (['unitCost', 'quantity'] as $property) {
+            if (\array_key_exists($property, $submitted)) {
+                return self::POINTERS[$property];
+            }
+        }
+
+        return null;
     }
 
     private function readOrderInside(EntityManagerInterface $em, string $id): ?PurchaseOrderResource
@@ -1243,7 +1370,24 @@ final readonly class PurchaseOrderWriter
         // range this API published. Checked here, where both values are known and
         // no transaction is open, and on the field that is almost always the one
         // that is wrong.
-        if ([] === $errors && null !== $quantity && null !== $unitCost && !self::fitsInTheTotalColumn(bcmul($quantity, $unitCost, 4))) {
+        //
+        // ⚠ **This bound is about ONE line and it always was.** It reads nothing
+        // else on the order, so two lines each inside it still sum past the
+        // column — measured over HTTP as a 500 on `CreatePurchaseOrderLine` with
+        // a second line of `1 × 1` (RED probe P1). What closes that is
+        // `recomputeTotal()`'s server-derived backstop, not this clause. This one
+        // survives for the pointer it can give: it names the offending line
+        // *before* any transaction opens, which the backstop cannot do for a
+        // nested create.
+        //
+        // **Scale 10, rounded once, for the reason `recomputeTotal()` records:**
+        // the product is exact at scale 10 and bcmath truncates, so a bound taken
+        // at scale 4 was below the value the database would store rather than
+        // above it. It cannot refuse divergently — every product here is
+        // non-negative, so a line whose own rounded product exceeds the column
+        // makes a sum that exceeds it too, and `round()` is monotonic.
+        if ([] === $errors && null !== $quantity && null !== $unitCost
+            && !self::fitsInTheTotalColumn(self::roundedToMoney(bcmul($quantity, $unitCost, self::PRODUCT_SCALE)))) {
             $errors[] = self::error('unitCost', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
         }
 
@@ -1256,12 +1400,44 @@ final readonly class PurchaseOrderWriter
      *
      * **The bound is `MONEY` itself**, the expression that already states that
      * column family's shape for values arriving, rather than a second literal
-     * fifteen. `bcmul`/`bcadd` at scale 4 always produce four decimals and never
-     * a sign here, so the two sides of the column are checked by one expression.
+     * fifteen. It therefore takes a value **already rounded to scale 4**, and
+     * every caller must round before calling.
+     *
+     * ⚠ **That "must" used to read as a feature, and it was the defect.** This
+     * docblock said *"`bcmul`/`bcadd` at scale 4 always produce four decimals and
+     * never a sign here, so the two sides of the column are checked by one
+     * expression"*. The regex sentence is true; the reasoning was not. bcmath's
+     * scale argument **truncates** and Postgres **rounds**, so a caller that
+     * produced its four decimals by truncating handed this method a number
+     * strictly *below* what would be stored — a lower bound presented as an upper
+     * one. Scale 4 is what `MONEY` can judge, and it is the caller's job to reach
+     * it the way the database does: {@see self::roundedToMoney()}, or
+     * `round(…, 4)` on the server as {@see self::recomputeTotal()} does.
      */
     private static function fitsInTheTotalColumn(string $value): bool
     {
         return 1 === preg_match(self::MONEY, $value);
+    }
+
+    /**
+     * A scale-10 value as `numeric(19,4)` will store it: **rounded half away from
+     * zero**, which is Postgres's own rule for the cast, rather than bcmath's
+     * truncation.
+     *
+     * Adding half a unit in the last place and letting `bcadd`'s scale argument
+     * truncate is round-half-up; the sign test makes it half-away-from-zero, which
+     * costs one comparison and means this does not become wrong the day a credit
+     * line is admitted. Values here are non-negative today (`MONEY` and `QUANTITY`
+     * both refuse a sign), so that branch is unreached and deliberately so.
+     *
+     * **Measured against the cluster rather than assumed** (2026-09-19):
+     * `round(0.00005, 4)` → `0.0001`, `round(0.00025, 4)` → `0.0003` (so
+     * half-away-from-zero, not half-to-even), `round(-0.00005, 4)` → `-0.0001`.
+     * Ported from `SalesOrderWriter::roundedToMoney()` (`98643f9`).
+     */
+    private static function roundedToMoney(string $value): string
+    {
+        return bcadd($value, str_starts_with($value, '-') ? '-0.00005' : '0.00005', 4);
     }
 
     /**
@@ -1408,8 +1584,26 @@ final readonly class PurchaseOrderWriter
             // SUM does not. Accumulated over the lines that are themselves
             // sound, and reported against the one that tipped it -- which is the
             // only line the caller can act on.
-            $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitCost'], 4), 4);
-            if (!self::fitsInTheTotalColumn($total)) {
+            //
+            // ⚠ **"Accumulated over the lines" was false while this ran at scale
+            // 4**, and the sentence above said it anyway. The exact product of
+            // `numeric(19,6) × numeric(19,4)` has scale 10 and bcmath's scale
+            // argument **truncates**, so any line whose true product was under
+            // `0.0001` moved this accumulator by **nothing** -- it was not
+            // accumulated at all -- while Postgres carried it at full precision
+            // and rounded it into the cast. `[1 × 999999999999999.9999,
+            // 0.0001 × 0.5]` passed here and made `recomputeTotal()` raise 22003:
+            // an HTTP 500 on the very sentence that says it cannot happen (RED
+            // probe P3, and `98643f9` for the identical sales defect).
+            //
+            // At `PRODUCT_SCALE` every product and every addition is **exact**,
+            // and {@see self::roundedToMoney()} applies the database's own
+            // rounding once, at the check. So this is now an upper bound on what
+            // will be stored, never a value below it, and it agrees with
+            // `recomputeTotal()`'s server-derived backstop by construction rather
+            // than by coincidence.
+            $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitCost'], self::PRODUCT_SCALE), self::PRODUCT_SCALE);
+            if (!self::fitsInTheTotalColumn(self::roundedToMoney($total))) {
                 $errors[] = self::lineError($index, 'unitCost', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
                 continue;
             }

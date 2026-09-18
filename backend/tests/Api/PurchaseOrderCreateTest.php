@@ -1039,10 +1039,25 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
      *
      * The defect is older than the nested create — `CreatePurchaseOrderLine` can
      * reach it too — but 8a made one request able to trigger it and gave that
-     * request up to 200 chances, so it is fixed here for both paths.
+     * request up to 200 chances.
      *
-     * The second case is the one the single-line check cannot see: every line is
-     * individually fine and the **sum** is not. It names the line that tipped it.
+     * ⚠ **This docblock read *"so it is fixed here for both paths"* until
+     * 2026-09-19, and that was false.** Both cases below are nested creates. The
+     * *shared* bound this file leant on is `malformedLineFields()`'s, which is
+     * **per line** — it never reads the order's live lines — so on
+     * `CreatePurchaseOrderLine` a second line of `1 × 1` still reached the same
+     * `22003` and the same 500, measured over HTTP (RED probe P1). What covers
+     * the sub-resource paths is `recomputeTotal()`'s server-derived backstop, and
+     * what drives them is
+     * {@see self::theLinesSubResourceRefusesASingleOverflowingProductAndASumThatOverflowsToo()}
+     * and its neighbours, not this method.
+     *
+     * The second case here is the one the single-line check cannot see: every
+     * line is individually fine and the **sum** is not. It names the line that
+     * tipped it. Both of its lines have exact products, so it is the
+     * *non-truncating* half of that case; the truncating half —
+     * a product under `0.0001`, which the scale-4 accumulator counted as zero —
+     * is {@see self::aNestedTotalThatOverflowsOnlyWhenTheDatabaseRoundsIsRefusedRatherThanAnsweringA500()}.
      *
      * *Mutation, run:* the running-total bound removed. Red — 500.
      *
@@ -1086,12 +1101,36 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`CreatePurchaseOrderLine` reaches the same overflow, and the bound is the
-     * shared one** — the fix is in `malformedLineFields()`, which both write
-     * paths enter, not in the nested path alone.
+     * **`CreatePurchaseOrderLine` reaches the same overflow, and *one* line of it
+     * is refused by the shared per-line bound** in `malformedLineFields()`, which
+     * both write paths enter.
+     *
+     * ⚠ **This docblock claimed the shared bound was the whole fix, and it is
+     * not.** It read: *"the fix is in `malformedLineFields()`, which both write
+     * paths enter, not in the nested path alone"*. That bound reads **one line's
+     * own product** and never the order's live lines, so it closes exactly the
+     * case driven below — a single line whose own product does not fit — and
+     * nothing else. The accumulating case lived only in `nestedLines()`, which
+     * the sub-resource paths never enter, so two individually legal lines still
+     * answered **500** here (RED probe P1). The method drove one overflowing
+     * product, so it could not have seen the gap the sentence claimed to close.
+     *
+     * **Strengthened rather than only re-worded**, because a docblock that names
+     * a gap and a body that cannot reach it is how this defect survived a green
+     * suite: the method now drives **both** halves on this path — the single
+     * overflowing product the per-line bound refuses, and then, on an order left
+     * empty by that refusal, a legal ceiling line followed by a second legal line
+     * that only the running total can refuse. The second half answered **HTTP
+     * 500** with `SQLSTATE[22003]` before this commit.
+     *
+     * **Mutation, run 2026-09-19:** the `total_out_of_range` clause deleted from
+     * `malformedLineFields()` — the first half still answers 422, from the
+     * backstop, so the per-line bound is **not** what this half proves and the
+     * claim is now carried by the second half alone. Both mutations reverted; see
+     * the progress note for the pair actually run.
      */
     #[Test]
-    public function aSingleLineThatWouldOverflowTheOrdersTotalIsRefusedOnTheLinesSubResourceToo(): void
+    public function theLinesSubResourceRefusesASingleOverflowingProductAndASumThatOverflowsToo(): void
     {
         $draft = $this->seedDraft(self::TENANT_A);
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
@@ -1102,6 +1141,254 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('total_out_of_range', array_column($this->json()['errors'], 'code', 'pointer')['/unit_cost'] ?? null);
+
+        // The gap the docblock used to claim was closed here: two lines that are
+        // each inside every published bound, and no crafted rounding.
+        $this->addLine($draft, '1', '999999999999999.9999');
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->addLine($draft, '1', '1');
+
+        $this->assertTheLineWasRefusedAt('/unit_cost');
+        $this->assertTheOrderKeptItsCeilingAndItsOneLine($draft);
+    }
+
+    // -----------------------------------------------------------------------
+    // The running total across lines the request did not send — RED probe
+    // `docs/session11/purchasing-overflow-probe.md`. P1 is driven one method up,
+    // folded into the test whose docblock claimed to cover it; P2-P4 are here,
+    // with P5 — a single line, found while attacking the probe's prescription.
+    // -----------------------------------------------------------------------
+
+    /**
+     * **P2 — the same path, and the shape that survives any fix which only adds
+     * a truncating accumulator.** The second line's exact product is `0.00005`;
+     * `bcmul(…, 4)` gives `0.0000`, so an accumulator at scale 4 would move by
+     * nothing while Postgres carries the digit and rounds it into the cast.
+     * Measured before the fix: **HTTP 500**, `SQLSTATE[22003]`.
+     *
+     * P1 subsumes it on this path today. It is driven anyway because the two
+     * are refused by *different* halves of the fix the day a per-line running
+     * total is reintroduced, and because it is the only case here that holds
+     * the backstop's arithmetic rather than its existence.
+     */
+    #[Test]
+    public function aSecondLineWhoseProductOnlyCountsOnceTheDatabaseRoundsIsRefusedRatherThanAnsweringA500(): void
+    {
+        $draft = $this->seedDraftWithACatalogue();
+
+        $this->addLine($draft, '1', '999999999999999.9999');
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->addLine($draft, '0.0001', '0.5');
+
+        $this->assertTheLineWasRefusedAt('/unit_cost');
+        $this->assertTheOrderKeptItsCeilingAndItsOneLine($draft);
+    }
+
+    /**
+     * **P3 — the nested create, and the exact sales defect `98643f9` fixed.**
+     * `nestedLines()`'s accumulator ran `bcadd($total, bcmul(q, c, 4), 4)`, and
+     * bcmath's scale argument **truncates** while the product of
+     * `numeric(19,6) × numeric(19,4)` is exact at scale **10**. Measured before
+     * the fix: **HTTP 500**, `SQLSTATE[22003]` at `PurchaseOrderWriter.php:846`
+     * through `create()`.
+     *
+     * **Mutation, run:** put either `4` back into `nestedLines()`'s `bcmul`/
+     * `bcadd`, or drop `roundedToMoney()` from its bound — the refusal moves off
+     * `/lines/1/unit_cost`, which is what this pointer assertion catches.
+     */
+    #[Test]
+    public function aNestedTotalThatOverflowsOnlyWhenTheDatabaseRoundsIsRefusedRatherThanAnsweringA500(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme round');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH round');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-PO-ROUND');
+        $this->seedSupplierProduct(self::TENANT_A, $supplier, $item);
+
+        $this->create([
+            'supplier_id' => $supplier,
+            'warehouse_id' => $warehouse,
+            'lines' => [
+                ['inventory_item_id' => $item, 'quantity' => '1', 'unit_cost' => '999999999999999.9999'],
+                ['inventory_item_id' => $item, 'quantity' => '0.0001', 'unit_cost' => '0.5'],
+            ],
+        ]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(
+            'total_out_of_range',
+            array_column($this->json()['errors'], 'code', 'pointer')['/lines/1/unit_cost'] ?? null,
+            'The tipping line is the one the caller can act on, and it is the second.',
+        );
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'));
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order_line'));
+    }
+
+    /**
+     * **P5 — found here, not in the probe: ONE line, no accumulation, and the
+     * scale-4 per-line bound accepted it into a 500.**
+     *
+     * `1.000001 × 999999000000999.9990` is exact at scale 9:
+     * `999999999999999.999999999`. `bcmul(…, 4)` **truncates** it to
+     * `999999999999999.9999`, which fits `numeric(19,4)` — so the per-line bound
+     * said yes — while Postgres rounds it to `1000000000000000.0000`, sixteen
+     * integer digits, and `recomputeTotal()` raised `22003`. Both values measured
+     * on the cluster and in PHP on 2026-09-19.
+     *
+     * So the probe's *"no crafted rounding needed"* is true of the
+     * sub-resource's accumulating hole and understates the per-line one: on an
+     * **empty** order, with one line and nothing to accumulate, the truncating
+     * bound was itself a live 500. Measured on this path at `e8a5b8a`: **HTTP
+     * 500**, `SQLSTATE[22003]`.
+     *
+     * ⚠ **What this does NOT prove, stated because the first draft of this
+     * docblock claimed it and the mutation refuted it.** It does not show that
+     * rounding the *per-line* clause is load-bearing. Run 2026-09-19: with
+     * `bcmul($quantity, $unitCost, 4)` and no `roundedToMoney()` put back into
+     * `malformedLineFields()`, and everything else in place, this file stayed
+     * **green** — `recomputeTotal()`'s backstop answers the identical 422 at the
+     * identical pointer, and on the nested path `nestedLines()`'s accumulator
+     * does. The per-line clause is now **redundant with both**, and it is kept
+     * for the round trip it saves and for the two bounds doing one arithmetic,
+     * not because anything observable depends on it. See
+     * `docs/session11/purchasing-overflow-fix-progress.md`.
+     *
+     * **Mutation that IS red, run 2026-09-19:** the backstop removed *and* the
+     * per-line clause reverted to scale 4 — **HTTP 500**, `SQLSTATE[22003]`, the
+     * shipped behaviour this case describes.
+     */
+    #[Test]
+    public function aSingleLineWhoseProductOnlyOverflowsOnceTheDatabaseRoundsIsRefusedRatherThanAnsweringA500(): void
+    {
+        $draft = $this->seedDraftWithACatalogue();
+
+        $this->addLine($draft, '1.000001', '999999000000999.9990');
+
+        $this->assertTheLineWasRefusedAt('/unit_cost');
+        self::assertSame(
+            [['total_amount' => '0.0000', 'count' => 0]],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                SELECT po.total_amount,
+                       (SELECT count(*)::int FROM purchase_order_line l
+                         WHERE l.purchase_order_id = po.id AND l.deleted_at IS NULL) AS count
+                  FROM purchase_order po WHERE po.id = ?::uuid
+                SQL, [$draft['order']]),
+            'A single line the database could not have stored leaves the order exactly as it was.',
+        );
+    }
+
+    /**
+     * **P4 — `UpdatePurchaseOrderLine`, a `PATCH` naming one field.** Measured
+     * before the fix: `{"quantity":"2"}` on a line whose cost was already
+     * accepted answered **HTTP 500**, `SQLSTATE[22003]`.
+     *
+     * It is the case that settles where the refusal has to live. The `PATCH`
+     * sends no `unit_cost`, so `malformedLineFields()`'s per-line bound is
+     * **skipped entirely** — its clause requires both values — and there is no
+     * arrangement of per-line checking that could have seen this. Only a check
+     * over the order's own lines can.
+     *
+     * The pointer is `/quantity` because that is the field this request sent,
+     * and §5.2's `errors[]` names a field of *this* request.
+     */
+    #[Test]
+    public function aPatchThatOnlyRaisesTheQuantityIsRefusedRatherThanAnsweringA500(): void
+    {
+        $draft = $this->seedDraftWithACatalogue();
+
+        $this->addLine($draft, '1', '999999999999999.9999');
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $line = $this->json()['id'];
+
+        $this->send('PATCH', '/purchase-orders/'.$draft['order'].'/lines/'.$line, ['quantity' => '2']);
+
+        $this->assertTheLineWasRefusedAt('/quantity');
+        $this->assertTheOrderKeptItsCeilingAndItsOneLine($draft);
+        self::assertSame(
+            [['quantity_ordered' => '1.000000']],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT quantity_ordered FROM purchase_order_line WHERE id = ?::uuid', [$line]),
+            'The refused PATCH rolled back with its own UPDATE, so the line keeps the quantity it had.',
+        );
+    }
+
+    /**
+     * **And the ceiling itself is still accepted — the fix rounds, it does not
+     * tighten.** `1 × 999999999999999.9999` is the largest total
+     * `purchase_order.total_amount` can hold, and it is stored unchanged on both
+     * write paths.
+     *
+     * Without this the whole change would be indistinguishable from a guard that
+     * simply refuses more, which is the failure mode `98643f9` named for sales.
+     */
+    #[Test]
+    public function aTotalSittingExactlyOnTheColumnsCeilingIsAcceptedOnBothWritePaths(): void
+    {
+        $draft = $this->seedDraftWithACatalogue();
+
+        $this->addLine($draft, '1', '999999999999999.9999');
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->assertTheOrderKeptItsCeilingAndItsOneLine($draft);
+
+        $second = $this->seedSupplier(self::TENANT_A, 'Acme ceiling');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH ceiling');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-PO-CEIL');
+        $this->seedSupplierProduct(self::TENANT_A, $second, $item);
+
+        $this->create([
+            'supplier_id' => $second,
+            'warehouse_id' => $warehouse,
+            'lines' => [['inventory_item_id' => $item, 'quantity' => '1', 'unit_cost' => '999999999999999.9999']],
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('999999999999999.9999', $this->json()['total_amount']);
+    }
+
+    /** A draft whose item the supplier really sells, so `CreatePurchaseOrderLine` can snapshot a lead time. */
+    private function seedDraftWithACatalogue(): array
+    {
+        $draft = $this->seedDraft(self::TENANT_A);
+        $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
+
+        return $draft;
+    }
+
+    /** @param array{order: string, item: string} $draft */
+    private function addLine(array $draft, string $quantity, string $unitCost): void
+    {
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
+            'inventory_item_id' => $draft['item'], 'quantity' => $quantity, 'unit_cost' => $unitCost,
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+    }
+
+    private function assertTheLineWasRefusedAt(string $pointer): void
+    {
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(
+            [$pointer => 'total_out_of_range'],
+            array_column($this->json()['errors'], 'code', 'pointer'),
+            'The overflow must be a named field defect on the field this request sent, not a 500 with no pointer.',
+        );
+    }
+
+    /**
+     * The refusal rolled back with everything it touched: the order still holds
+     * the ceiling it held before, and its one accepted line is still its only one.
+     *
+     * @param array{order: string} $draft
+     */
+    private function assertTheOrderKeptItsCeilingAndItsOneLine(array $draft): void
+    {
+        self::assertSame(
+            [['total_amount' => '999999999999999.9999']],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]),
+        );
+        self::assertSame(
+            [['count' => 1]],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT count(*)::int AS count FROM purchase_order_line WHERE purchase_order_id = ?::uuid AND deleted_at IS NULL', [$draft['order']]),
+        );
     }
 
     /**
