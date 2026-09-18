@@ -326,6 +326,82 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         );
     }
 
+    /**
+     * **RED exit audit F-2.** The guard and the database must do the *same* arithmetic.
+     *
+     * Line 2's exact product is `0.0000989901`. A guard that accumulates at scale 4 **truncates** it to
+     * `0.0000`, never moves its accumulator, and lets the request through; Postgres sums the `VALUES` list
+     * at full precision and **rounds** the cast into `numeric(19,4)`, giving `1000000000000000.0000` — a
+     * `22003` inside the order's own INSERT, which is neither unique violation `create()` names and reached
+     * the client as an **HTTP 500**. Measured over HTTP before the fix.
+     *
+     * **Mutation:** put either `bcmul(..., 4)`/`bcadd(..., 4)` back into `nestedLines()` and this answers
+     * 500 with `SQLSTATE[22003]` again.
+     */
+    #[Test]
+    public function aTotalThatOverflowsOnlyWhenTheDatabaseRoundsIsRefusedRatherThanAnsweringA500(): void
+    {
+        $c = $this->workspace();
+        $second = $this->seedItem(self::TENANT_A, 'SKU-SO-ROUND');
+
+        $this->create($c, [
+            ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '999999999999999.9999'],
+            ['inventory_item_id' => $second, 'quantity' => '0.000099', 'unit_price' => '0.9999'],
+        ]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(ProblemType::ValidationFailed->uri(), $this->json()['type']);
+        self::assertSame(
+            ['/lines/1/unit_price' => 'total_out_of_range'],
+            array_column($this->json()['errors'], 'code', 'pointer'),
+            'The tipping line is the one the caller can act on, and it is the second.',
+        );
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order_line'));
+    }
+
+    /**
+     * The other direction of the same boundary, so the rounding fix cannot be mistaken for the guard being
+     * loosened: a total that plainly exceeds `numeric(19,4)` is still refused, at the line that tipped it.
+     */
+    #[Test]
+    public function aTotalThatPlainlyExceedsTheColumnIsStillRefused(): void
+    {
+        $c = $this->workspace();
+        $second = $this->seedItem(self::TENANT_A, 'SKU-SO-BIG');
+
+        $this->create($c, [
+            ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '999999999999999.9999'],
+            ['inventory_item_id' => $second, 'quantity' => '1', 'unit_price' => '999999999999999.9999'],
+        ]);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame(
+            ['/lines/1/unit_price' => 'total_out_of_range'],
+            array_column($this->json()['errors'], 'code', 'pointer'),
+        );
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order'));
+    }
+
+    /**
+     * And the ceiling itself is still **accepted** — the fix rounds, it does not tighten. `1 × 999…9.9999`
+     * is the largest total `sales_order.total_amount` can hold, and it is written unchanged.
+     */
+    #[Test]
+    public function aTotalSittingExactlyOnTheColumnsCeilingIsAccepted(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '999999999999999.9999']]);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('999999999999999.9999', $this->json()['total_amount']);
+        self::assertSame(
+            [['total_amount' => '999999999999999.9999']],
+            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT total_amount FROM sales_order'),
+        );
+    }
+
     // -----------------------------------------------------------------------
 
     /** @return array{customer: string, address: string, warehouse: string, item: string} */

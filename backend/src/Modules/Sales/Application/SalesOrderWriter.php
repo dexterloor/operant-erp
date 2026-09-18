@@ -60,6 +60,13 @@ final readonly class SalesOrderWriter
     /** numeric(19,4) — money (S-12). Never a float, in either direction. */
     private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
 
+    /**
+     * The exact scale of `quantity × unit_price` — numeric(19,6) times numeric(19,4). The overflow guard
+     * accumulates here and rounds once, because bcmath truncates at its scale argument and Postgres does
+     * not (RED exit audit F-2).
+     */
+    private const PRODUCT_SCALE = 10;
+
     /** One sentence for both overflow refusals, so they cannot drift apart. */
     private const TOTAL_OUT_OF_RANGE = 'This line would take the order\'s total past what it can be stored as: '
         .'a total carries at most 15 digits before the decimal point. Lower the quantity or the unit price, '
@@ -774,8 +781,16 @@ final readonly class SalesOrderWriter
             // line the caller can act on. **This is also what keeps the VALUES-list total inside
             // numeric(19,4)**: without it the SUM would raise 22003 inside the order's own INSERT, which is
             // neither of the unique violations `create()` names and would reach the client as a 500.
-            $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitPrice'], 4), 4);
-            if (!self::fitsInTheTotalColumn($total)) {
+            //
+            // ⚠ **Scale 10, then one rounding, because that is what the database does** (RED exit audit
+            // F-2). `quantity` is numeric(19,6) and `unit_price` numeric(19,4), so a product is exact at
+            // scale 10 and bcmath's scale argument **truncates**: accumulating at 4 threw away up to
+            // 0.0001 per line while Postgres sums the VALUES list at full precision and ROUNDS the cast
+            // into numeric(19,4). Two lines were enough to make the guard pass and the INSERT raise 22003
+            // -- measured over HTTP. `SalesOrderCreateTest::aTotalThatOverflowsOnlyWhenTheDatabaseRounds…`
+            // holds this; the guard is now an upper bound on the stored total, never below it.
+            $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitPrice'], self::PRODUCT_SCALE), self::PRODUCT_SCALE);
+            if (!self::fitsInTheTotalColumn(self::roundedToMoney($total))) {
                 $errors[] = self::lineError($index, 'unitPrice', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
                 continue;
             }
@@ -827,8 +842,10 @@ final readonly class SalesOrderWriter
 
         // Two fields each inside their own column can still produce a total that is not: `quantity` admits
         // 13 integer digits and `unit_price` 15, and their product lands in `sales_order.total_amount`,
-        // which is numeric(19,4) -- fifteen.
-        if ([] === $errors && null !== $quantity && null !== $unitPrice && !self::fitsInTheTotalColumn(bcmul($quantity, $unitPrice, 4))) {
+        // which is numeric(19,4) -- fifteen. **Rounded, not truncated**, for the reason `nestedLines()`
+        // records: the database rounds, so a guard that truncates is not a bound.
+        if ([] === $errors && null !== $quantity && null !== $unitPrice
+            && !self::fitsInTheTotalColumn(self::roundedToMoney(bcmul($quantity, $unitPrice, self::PRODUCT_SCALE)))) {
             $errors[] = self::error('unitPrice', 'total_out_of_range', self::TOTAL_OUT_OF_RANGE);
         }
 
@@ -839,11 +856,27 @@ final readonly class SalesOrderWriter
      * Whether a money value fits `sales_order.total_amount` — `numeric(19,4)`, so fifteen integer digits.
      *
      * **The bound is `MONEY` itself**, the expression that already states that column family's shape for
-     * values arriving, rather than a second literal fifteen.
+     * values arriving, rather than a second literal fifteen. It therefore takes a value **already rounded
+     * to scale 4** — `MONEY` admits at most four fractional digits, so a scale-10 accumulator handed
+     * straight to it would be refused for its scale rather than judged on its magnitude.
      */
     private static function fitsInTheTotalColumn(string $value): bool
     {
         return 1 === preg_match(self::MONEY, $value);
+    }
+
+    /**
+     * A scale-10 running total as `numeric(19,4)` will store it: **rounded half away from zero**, which is
+     * Postgres's own rule for the cast, rather than bcmath's truncation.
+     *
+     * Adding half a unit in the last place and letting `bcadd`'s scale argument truncate is round-half-up;
+     * the sign test makes it half-away-from-zero, which costs one comparison and means this does not become
+     * wrong the day a credit line is admitted. Values here are non-negative today (`MONEY` and `QUANTITY`
+     * both refuse a sign), so that branch is unreached and deliberately so.
+     */
+    private static function roundedToMoney(string $value): string
+    {
+        return bcadd($value, str_starts_with($value, '-') ? '-0.00005' : '0.00005', 4);
     }
 
     /**

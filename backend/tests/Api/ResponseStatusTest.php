@@ -67,6 +67,24 @@ use Symfony\Component\Uid\Uuid;
  * which this test must never trust, because that is the per-operation claim it exists to check. The
  * branch-4 `Location` assertion then holds the answer to **that template**, so declaring one is strictly
  * more checked than not declaring one.
+ *
+ * ⚠ **Reading (3) is PINNED, and the pin is the whole point** (RED exit audit F-1). As first written it
+ * took the declaration from any operation that carried one, which handed every `POST` a way to move
+ * itself out of branch 5: the auditor gave `ApprovePurchaseOrder` — a transition §4.4.1 names *in terms*
+ * as branch 5 — a false `OPERATION_URI_TEMPLATE` plus `status: 201`, and this test went **green** where
+ * the same mutation before the extension went red by name. That made a derived, structural
+ * classification author-declarable on the one test here whose stated purpose is to be independent of
+ * per-operation declarations. {@see self::DECLARED_ROW_URIS} is therefore the closed set reading (3)
+ * honours, reconciled in both directions inside both probes, so a new declaration is a reviewed edit to
+ * this file rather than something an operation grants itself.
+ *
+ * **What the pin is NOT, and what commit 3 owes.** It is a pin, not a derivation: it says *these two, by
+ * name*, and a reviewer has to agree. The honest derivation is the auditor's second repair — reconcile
+ * the declaring set against §4.2, under `ContractDocument::isAvailable()` the way
+ * {@see self::theBranchPinIsTheContractsTable()} does: the operations declaring a template must be
+ * exactly those whose declared template is a `Path` cell in §4.2 that the registry does not already
+ * serve. That is **`GetSalesOrder`'s commit (commit 3)**, where it goes green-by-redundancy for
+ * `CreateSalesOrder`, and it is deliberately not built here.
  */
 final class ResponseStatusTest extends PurchaseOrderTestCase
 {
@@ -93,6 +111,27 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     ];
 
     /**
+     * **Reading (3)'s closed domain** — operation name → the row-level URI template it may declare
+     * through `CreatedRowLocation::OPERATION_URI_TEMPLATE`, derived from the tree on 2026-09-19 and
+     * pinned here so that it cannot grow by itself.
+     *
+     * Both members are `POST`s whose row §4.2 addresses and the registry does not:
+     * `CreateSalesOrder` because ruling R-A shipped it one commit ahead of `GetSalesOrder`
+     * (`SalesOrderResource.php`), and `CreatePurchaseOrderLine` because its row carries a built `PATCH`
+     * and `DELETE` but no item `GET` (`PurchaseOrderLineResource.php`).
+     *
+     * A template declared by an operation that is not named here, or a template that is not the one
+     * named here, is **red** — not silently honoured. Adding a member is the deliberate act that says a
+     * reviewer agreed the operation really is branch 4.
+     *
+     * @var array<string, string>
+     */
+    private const DECLARED_ROW_URIS = [
+        'CreatePurchaseOrderLine' => '/purchase-orders/{id}/lines/{lineId}',
+        'CreateSalesOrder' => '/sales-orders/{id}',
+    ];
+
+    /**
      * **The probe.** Every built operation matches exactly one branch.
      *
      * The controls are inside this method on purpose: a sibling test does not
@@ -114,6 +153,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // "every operation matches one branch" with nothing examined.
         self::assertNotSame([], $operations, 'The registry produced no operations, so the probe examined nothing.');
 
+        // Control 1b — reading (3)'s domain is the pin and nothing else, so no operation can reclassify
+        // itself out of branch 5 by declaring a template. Inside the method, for the --filter reason above.
+        self::assertTheDeclaringSetIsThePin($operations);
+
         // Control 2 — the counter can report something other than one. An
         // operation no branch names must count zero, or the assertion below
         // could be a constant.
@@ -123,7 +166,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         $members = array_fill_keys(array_keys(self::BRANCHES), []);
 
         foreach ($operations as $name => $operation) {
-            $matched = self::branchesMatching((string) $operation->getMethod(), $paths[$name], $paths, self::declaredRowUri($operation));
+            $matched = self::branchesMatching((string) $operation->getMethod(), $paths[$name], $paths, self::declaredRowUri($name));
 
             if (1 !== \count($matched)) {
                 $wrongCount[] = \sprintf('%s %s %s matches %d branch(es): [%s]', $name, $operation->getMethod(), $paths[$name], \count($matched), implode(', ', $matched));
@@ -175,6 +218,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         $recipes = $this->successRecipes();
 
         self::assertNotSame([], $operations, 'The registry produced no operations, so nothing was driven.');
+        self::assertTheDeclaringSetIsThePin($operations);
         $names = array_keys($operations);
         sort($names);
         $recipeNames = array_keys($recipes);
@@ -196,7 +240,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
 
             $operation = $operations[$name];
             $method = (string) $operation->getMethod();
-            $declaredRowUri = self::declaredRowUri($operation);
+            $declaredRowUri = self::declaredRowUri($name);
             $matched = self::branchesMatching($method, $paths[$name], $paths, $declaredRowUri);
             self::assertCount(1, $matched, $name.' does not match exactly one branch, so no status can be derived for it.');
 
@@ -327,12 +371,61 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         return array_values(array_unique($found));
     }
 
-    /** The row-level URI template an operation declares for its 201's `Location`, or null. */
-    private static function declaredRowUri(HttpOperation $operation): ?string
+    /**
+     * The row-level URI template an operation declares for its 201's `Location`, or null.
+     *
+     * **Read from {@see self::DECLARED_ROW_URIS}, not from the operation**, so that reading (3) cannot be
+     * invoked by an operation this file has not named. The declaration itself is reconciled against the
+     * pin by {@see self::assertTheDeclaringSetIsThePin()}, which is what goes red when they disagree;
+     * here the pin simply wins, so a mutation is red for the branch it actually belongs to rather than
+     * for the pin alone.
+     */
+    private static function declaredRowUri(string $name): ?string
     {
-        $template = $operation->getExtraProperties()[CreatedRowLocation::OPERATION_URI_TEMPLATE] ?? null;
+        return self::DECLARED_ROW_URIS[$name] ?? null;
+    }
 
-        return \is_string($template) ? $template : null;
+    /**
+     * Reading (3)'s domain, both directions: every operation carrying an `OPERATION_URI_TEMPLATE` is in
+     * the pin with that exact template, and every pinned operation still carries it.
+     *
+     * **Mutation, run 2026-09-19:** `ApprovePurchaseOrder` given
+     * `OPERATION_URI_TEMPLATE => '/purchase-orders/{orderId}'` and `status: 201` (the RED exit audit's
+     * F-1 mutation, `var/cache` deleted first) — **both** probes red, each naming
+     * `'ApprovePurchaseOrder' => '/purchase-orders/{orderId}'` as the unpinned declaration. This
+     * reconciliation fires first, so to show that the *classification* is repaired and not merely
+     * guarded, the call below was then commented out and the status probe re-run on the same mutation:
+     * red with `ApprovePurchaseOrder POST /purchase-orders/{}/approval is branch 5 and answered 201, not
+     * 200` — byte-for-byte the message the shipped control gave at `90162a6`, before reading (3) existed
+     * and silenced it. Both mutations reverted.
+     * **Mutation (the other direction), also run:** drop the `extraProperties` entry from
+     * `SalesOrderResource` — both probes red here, naming the pinned operation that stopped declaring.
+     * The pin is a two-way reconciliation, so this direction is caught by this method and not by the
+     * branch-4 `Location` assertion, which never runs.
+     *
+     * @param array<string, HttpOperation> $operations
+     */
+    private static function assertTheDeclaringSetIsThePin(array $operations): void
+    {
+        $declared = [];
+        foreach ($operations as $name => $operation) {
+            $template = $operation->getExtraProperties()[CreatedRowLocation::OPERATION_URI_TEMPLATE] ?? null;
+            if (\is_string($template)) {
+                $declared[$name] = $template;
+            }
+        }
+        ksort($declared);
+
+        $pin = self::DECLARED_ROW_URIS;
+        ksort($pin);
+
+        self::assertNotSame([], $pin, 'Reading (3) has an empty pin, so the reconciliation below is empty against empty.');
+        self::assertSame($pin, $declared,
+            'An operation declares CreatedRowLocation::OPERATION_URI_TEMPLATE that ResponseStatusTest::DECLARED_ROW_URIS '
+            .'does not name, or names a different URI, or a pinned operation has dropped its declaration. Reading (3) is '
+            .'how a POST is classified into branch 4, so an unreviewed declaration would let a transition POST move itself '
+            .'out of branch 5 -- which is exactly what the RED exit audit measured. Add the operation to the pin only if it '
+            .'really does create the row that URI addresses.');
     }
 
     /** A `Location` header with the base path removed and every uuid segment read as a parameter. */
