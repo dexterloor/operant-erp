@@ -110,13 +110,19 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     SQL, [$tenant, self::ORDERS]);
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
-                    INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code)
+                    INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
+                                             idempotency_key, request_digest)
                     SELECT gen_random_uuid(), ?::uuid, 'SO-' || g,
                            (SELECT id FROM customer  ORDER BY code LIMIT 1 OFFSET (g % 200)),
                            (SELECT id FROM warehouse ORDER BY code LIMIT 1 OFFSET (g % 2)),
                            'EUR',
                            CASE WHEN g % 10 = 0 THEN 'confirmed' ELSE 'fulfilled' END,
-                           now() - (g || ' hours')::interval, 'DE'
+                           now() - (g || ' hours')::interval, 'DE',
+                           -- NOT NULL since Version20260919000100, hex SHA-256 by CHECK. Per row,
+                           -- because sales_order_tenant_idem_live is per tenant: one literal here
+                           -- would collide on the second row, exactly as on the purchase side above.
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex')
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
 

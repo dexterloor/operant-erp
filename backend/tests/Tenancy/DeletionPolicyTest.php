@@ -253,11 +253,17 @@ final class DeletionPolicyTest extends TenancyTestCase
             SQL, [self::TENANT_A]);
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO sales_order
-                (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code)
+                (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
+                 idempotency_key, request_digest)
             VALUES (?::uuid, ?::uuid, 'SO-CASCADE',
                     (SELECT id FROM customer  WHERE code = 'CUS-C'),
                     (SELECT id FROM warehouse WHERE code = 'WH-C'),
-                    'EUR', 'confirmed', now(), 'DE')
+                    'EUR', 'confirmed', now(), 'DE',
+                    -- NOT NULL since Version20260919000100, and 64 lower-case hex by CHECK.
+                    -- Generated rather than literal: the live-row unique is per tenant, so a
+                    -- literal here would collide with any second order this fixture ever grows.
+                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
             SQL, [$orderId, self::TENANT_A]);
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO sales_order_line

@@ -189,6 +189,14 @@ final class IdempotencyContractTest extends TenancyTestCase
         // order's, with the path's order id in the request digest.
         // `Version20260916000200` laid it.
         'CreatePurchaseOrderLine' => 'unique:purchase_order_line_tenant_idem_live',
+        // ⚠ **V2-R-11, 2026-09-19 (Output 9, sales slice 1, commit 1).** Was
+        // `⛔ none`, and a retried timeout minted a second sales order — P-5's
+        // defect on the revenue side. The fourth header-sourced key, and the
+        // first whose columns are `NOT NULL` on a **soft-deleting** table: the
+        // unique is partial like the purchase order's, the columns are non-null
+        // like the goods receipt's, because nothing in `src/` has ever written a
+        // `sales_order` row. `Version20260919000100` laid it.
+        'CreateSalesOrder' => 'unique:sales_order_tenant_idem_live',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -223,13 +231,14 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateBulkRoleAssignment' => 'store',
 
         // ⛔ none — declared idempotent, NO mechanism, blocked from shipping.
-        // NINE: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
+        // EIGHT: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
         // and `CreateGoodsReceipt` the same day (step 8); `CreateSalesReturn`
         // and `IssueCreditNote` joined it on 2026-09-14 (owner ruling on OI-2 —
-        // neither table exists, so nothing can refuse a retry). `IssueInvoice`
-        // was redesigned per shipment (D-A as amended) and stays here until
+        // neither table exists, so nothing can refuse a retry); and
+        // `CreateSalesOrder` left it on 2026-09-19 (V2-R-11), which is why the
+        // count reads EIGHT here and not NINE. `IssueInvoice` was redesigned per
+        // shipment (D-A as amended) and stays here until
         // `invoice_tenant_fulfilment_not_void` exists.
-        'CreateSalesOrder' => '⛔ none',
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
         'CreateFulfilment' => '⛔ none',
@@ -265,8 +274,21 @@ final class IdempotencyContractTest extends TenancyTestCase
      * to collide at all.
      *
      * This is the pin that expresses the finding the old column could not.
-     * `CreatePurchaseOrder` is absent from this table and always will be: its
-     * index's key column is `order_number`, which the server mints.
+     *
+     * ⚠ **This docblock read *"`CreatePurchaseOrder` is absent from this table
+     * and always will be: its index's key column is `order_number`, which the
+     * server mints"* until 2026-09-19, and the array three lines below it has
+     * listed that operation since step 5 (2026-09-11).** The sentence was true
+     * when written and was never re-read when the header source was added: the
+     * operation is here, keyed on `IdempotencyKeyGuard::COLUMN`, and its index
+     * is `purchase_order_tenant_idem_live`, not the document-number unique.
+     * **What survives of it is the part that matters and it is asserted rather
+     * than narrated:** a server-minted document number is never a client key,
+     * which is `PINNED_SERVER_MINTED_KEYS` and
+     * `theServerGeneratedDocumentNumbersAreNotClientSuppliedKeys`. Corrected
+     * under standing rule 1 while adding the fourth header-sourced entry,
+     * because leaving a sentence that its own array contradicts is this
+     * project's characteristic defect rather than a nit.
      *
      * @var array<string, list<string>>
      */
@@ -285,6 +307,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreatePurchaseOrder' => [IdempotencyKeyGuard::COLUMN],
         'CreateGoodsReceipt' => [IdempotencyKeyGuard::COLUMN],
         'CreatePurchaseOrderLine' => [IdempotencyKeyGuard::COLUMN],
+        'CreateSalesOrder' => [IdempotencyKeyGuard::COLUMN],
     ];
 
     /**
@@ -339,6 +362,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreatePurchaseOrder',
         'CreateGoodsReceipt',
         'CreatePurchaseOrderLine',
+        // V2-R-11, 2026-09-19. Same ground as `CreatePurchaseOrder`'s: the
+        // order's own unique is on the server-minted `order_number`, so the
+        // client-supplied value is the header and putting a second spelling of
+        // it in the body is what clause 4 forbids.
+        'CreateSalesOrder',
     ];
 
     /**

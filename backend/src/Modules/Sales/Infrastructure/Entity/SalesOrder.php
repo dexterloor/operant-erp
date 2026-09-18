@@ -52,6 +52,10 @@ use Symfony\Component\Uid\Uuid;
 // soft-deleted. UNIQUE (tenant_id, id) above stays total, because a composite
 // FK cannot reference a partial index and children reference deleted parents.
 #[ORM\UniqueConstraint(name: 'sales_order_tenant_number_live', columns: ['tenant_id', 'order_number'], options: ['where' => '(deleted_at IS NULL)'])]
+// A retried CreateSalesOrder collides here (V2-R-11, Version20260919000100).
+// Partial, unlike `goods_receipt_idem_unique`, because this table soft-deletes
+// and a discarded draft must release its key.
+#[ORM\UniqueConstraint(name: 'sales_order_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
 // "Orders waiting to ship" — the warehouse's work queue.
 #[ORM\Index(name: 'sales_order_tenant_open_idx', columns: ['tenant_id', 'ordered_at'], options: ['where' => "((deleted_at IS NULL) AND (status = ANY (ARRAY['confirmed'::text, 'partially_fulfilled'::text])))"])]
 // "This customer's order history" — the account screen.
@@ -129,6 +133,21 @@ class SalesOrder
     #[ORM\JoinColumn(name: 'ship_to_country_code', referencedColumnName: 'code', nullable: false)]
     private Country $shipToCountry;
 
+    /**
+     * The hex SHA-256 of the `Idempotency-Key` header (D-B), never the header.
+     * **Non-nullable, and it follows `GoodsReceipt::$idempotencyKey` rather than
+     * `PurchaseOrder::$idempotencyKey`:** that column is nullable for rows older
+     * than it, and no sales order predates this one — nothing in `src/` has ever
+     * written the table (`Version20260919000100`). Set once, at construction or
+     * in the `INSERT`, and there is no setter.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT)]
+    private string $idempotencyKey;
+
+    /** `RequestDigest::of()` of the request that created the row. Request plumbing, never read into the domain. */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT)]
+    private string $requestDigest;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
@@ -146,6 +165,8 @@ class SalesOrder
         Warehouse $warehouse,
         Currency $currency,
         Country $shipToCountry,
+        string $idempotencyKey,
+        string $requestDigest,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
@@ -154,6 +175,8 @@ class SalesOrder
         $this->warehouse = $warehouse;
         $this->currency = $currency;
         $this->shipToCountry = $shipToCountry;
+        $this->idempotencyKey = $idempotencyKey;
+        $this->requestDigest = $requestDigest;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }
