@@ -67,6 +67,41 @@ use PHPUnit\Framework\TestCase;
  * mutations that do move. Porting `probe.py`'s label unexamined would have
  * shipped three green cases that cannot fail — the fake-green this suite exists
  * to refuse.
+ *
+ * ---------------------------------------------------------------------------
+ * Mutations — run against the committed artifact, not reasoned about
+ * ---------------------------------------------------------------------------
+ * **(1)** `invoice.void` added to SoD-3's controlled half (Amendment 2's A2.1
+ * landing early): **4 of 8 red** — five controlled codes becomes six, `X(admin)`
+ * becomes seven, the conflict graph gains an edge. `admin` stays PC-4-clean,
+ * because the derivation takes `invoice.void` off it in the same breath. That is
+ * PC-14's *"clean by construction, present and future"*, observed rather than
+ * claimed.
+ *
+ * **(2)** E-15b's marker dropped from `AdministrativeCharter::excludedCodes()`,
+ * i.e. `X(admin)` derived wholly from §2: **2 red**, and the second names the
+ * consequence rather than the count — *"E-15b's marker must be held by `owner`
+ * alone"*, because `admin` is now 55 and holds `tenant_settings.edit`, so
+ * E-15b's predicate would admit `admin` and the rule would confer nothing.
+ *
+ * **(3)** SoD-3 written the wrong way round (`invoice.pay` preparing,
+ * `invoice.issue` controlled): **2 red**. PC-4 and the ceiling do not move — they
+ * are symmetric in a row's two halves — but PC-13's table does (`admin + finance`
+ * becomes `admin + sales_rep`) and so does `X(admin)`. This is why ADR-008 makes
+ * the row convention a property of the table with its own violation clause.
+ *
+ * **(4)** `ROWS` emptied: **8 of 8 red**, every one of them on an empty-set clause
+ * rather than on a comparison. The anti-vacuity control is non-vacuous.
+ *
+ * **(5) The honest limit of this file, measured rather than assumed.** Replacing
+ * the derivation in `AdministrativeCharter::excludedCodes()` with the six literals
+ * it computes today is **green** — no test can tell a derivation from a list that
+ * agrees with it. What tells them apart is the *next* table change, and that was
+ * run too: with the literals in place, mutation (1) turns **`admin` into a third
+ * PC-4 exception** (`pc4` becomes `admin, owner, purchasing_manager`), where with
+ * the derivation it stayed clean. The god role returns the first time the table
+ * moves. That difference — not a green — is the evidence for `V2-R-2`'s *fails
+ * if* clause.
  */
 final class SeparationOfDutyTest extends TestCase
 {
@@ -554,7 +589,15 @@ final class SeparationOfDutyTest extends TestCase
         $spanned = [];
 
         foreach ($rows as $id => $row) {
-            if ([] !== array_intersect($row['preparing'], $codes) && [] !== array_intersect($row['controlled'], $codes)) {
+            // `?? []` so that a mutation which removes a half reports as a moved
+            // answer rather than as a TypeError. Measured: emptying `ROWS`
+            // produced `array_intersect(): Argument #1 must be of type array,
+            // null given` — a red, but a red about this harness instead of about
+            // the table.
+            $preparing = $row['preparing'] ?? [];
+            $controlled = $row['controlled'] ?? [];
+
+            if ([] !== array_intersect($preparing, $codes) && [] !== array_intersect($controlled, $codes)) {
                 $spanned[] = $id;
             }
         }
@@ -604,8 +647,8 @@ final class SeparationOfDutyTest extends TestCase
         $edges = [];
 
         foreach ($rows as $row) {
-            foreach ($row['preparing'] as $preparing) {
-                foreach ($row['controlled'] as $controlled) {
+            foreach ($row['preparing'] ?? [] as $preparing) {
+                foreach ($row['controlled'] ?? [] as $controlled) {
                     $edge = [$preparing, $controlled];
                     sort($edge);
 
@@ -629,7 +672,7 @@ final class SeparationOfDutyTest extends TestCase
         $codes = [];
 
         foreach ($rows as $row) {
-            foreach ($row['controlled'] as $code) {
+            foreach ($row['controlled'] ?? [] as $code) {
                 if (!\in_array($code, $codes, true)) {
                     $codes[] = $code;
                 }
