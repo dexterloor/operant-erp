@@ -26,8 +26,18 @@ use PHPUnit\Framework\TestCase;
  *  - **It reads no document.** Every domain in this file comes from
  *    `PermissionCatalogue`, `SeparationOfDuty`, `AdministrativeCharter`,
  *    `OwnerMarker` and `DefaultRoles`, which are committed under `src/`. There is
- *    no `docs/` path, no `isAvailable()` probe and no file read. It behaves
- *    identically on a fresh clone. The reconciliation *against* the documents is
+ *    no `docs/` path, no `isAvailable()` probe and no file read. **Measured, not
+ *    argued:** `git clone`d into a scratch directory, where `docs/` is absent
+ *    because it is gitignored, this file runs `OK (8 tests, 176 assertions)`
+ *    with **0 skipped** — the same figures as in a working tree that has the
+ *    documents, and `DefaultRoleCatalogueDocumentTest` skips all four beside it.
+ *    *(The first attempt at that measurement was worthless and is recorded so
+ *    nobody repeats it: the clone's `backend/vendor` was **symlinked** to the
+ *    real one, and Composer's `autoload_psr4.php` computes `$baseDir` from the
+ *    symlink's resolved path — so `App\` and `App\Tests\` both loaded from the
+ *    original working tree and the run read the real `docs/`. It printed a
+ *    confident green about a file it never executed. Copy `vendor/`.)* The
+ *    reconciliation *against* the documents is
  *    a separate file, `DefaultRoleCatalogueDocumentTest`, which is allowed to
  *    skip because losing it costs a cross-check and not the rule.
  *  - **It cannot skip.** There is no `markTestSkipped` here, and every clause
