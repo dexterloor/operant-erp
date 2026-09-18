@@ -39,11 +39,20 @@ use App\Tests\Support\ContractDocument;
  *
  * A soft table with no subject operation for a clause is **excluded from that
  * clause, with its reason**, and every soft table is accounted for as included
- * or excluded — so none can drop out silently. Measured 2026-09-14 (C5 batch
- * B), the exclusions are the ones owner decision (e) predicted: eight soft tables
- * have no built operation at all; `app_user`'s only built read is `/me`, whose
- * cell names `CurrentUser`, not `User`; and `purchase_order_line` has no
- * built direct-hit `Get`, so it is in the list and write clauses only.
+ * or excluded — so none can drop out silently. The exclusions are the ones owner
+ * decision (e) predicted: the soft tables with no built operation at all;
+ * `app_user`'s only built read is `/me`, whose cell names `CurrentUser`, not
+ * `User`; and `purchase_order_line` has no built direct-hit `Get`, so it is in
+ * the list and write clauses only.
+ *
+ * ⚠ **This paragraph carried a COUNT — *"eight soft tables have no built
+ * operation at all"* — measured 2026-09-14 and never moved again. It was already
+ * false before `GetSalesOrder`** (`CreateSalesOrder` had shipped, so `sales_order`
+ * had a built operation and was excluded for the other reason), and the read made
+ * it falser. **The number is deleted rather than corrected**: it is derived on
+ * every run by the assertions below, which name each excluded table and its
+ * reason in their own failure messages, so a second copy here was a set nobody
+ * maintained. Read the derivation, never this comment.
  *
  * The one per-table part is the fixture that seeds two live rows, because a row
  * cannot be seeded generically. Archiving one of them is generic —
@@ -239,6 +248,15 @@ trait ArchivedRowSubjects
                 $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
                 return ['id' => $draft['order'], 'row' => $draft['order']];
+            },
+            // Added 2026-09-19 with `GetSalesOrder`: `sales_order` is class `soft` and now has a built
+            // direct-hit `Get`, so the Get clause selects it. It is in **that clause only** — no sales
+            // list, PATCH, DELETE or transition is built — and the derivation says so with its own reason
+            // rather than this line having to.
+            'sales_order' => function (string $tag): array {
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-'.$tag.'-'.bin2hex(random_bytes(3)));
+
+                return ['id' => $order, 'row' => $order];
             },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));

@@ -50,6 +50,9 @@
     "GetPurchaseOrder $.total_amount": [
         4
     ],
+    "GetSalesOrder $.total_amount": [
+        4
+    ],
     "ListItems $.items[].reorder_point": [
         6
     ],

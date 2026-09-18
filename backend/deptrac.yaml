@@ -52,13 +52,15 @@ deptrac:
   # removed the one A-1 edge `AuthenticationGate` carried, and on 2026-09-15
   # `PurchaseOrderLineRow` stopped using `NamedReference` (API-23b clause (ii)
   # moved item references to `Application\ItemReference`) — measured 2026-09-15 as
-  # 74 edge lines, 41 of them A-7. **Re-counted 2026-09-19 after the sales slice's
-  # first writer: 78 edge lines, 45 of them A-7** — four new lines, all A-7, all
-  # the same Output 4 slice shape (`SalesOrderWriter` and `SalesOrderRow` returning
-  # their own module's `ApiResource` read models). They account for 9 of deptrac's
-  # skipped-violation occurrences, one per site rather than one per pair.
-  # **Recount rather than restate this line.** Not one of them is a new
-  # *shape* — every one is the Output 4 slice shape already recorded for
+  # 74 edge lines, 41 of them A-7. Re-counted 2026-09-19 after the sales slice's
+  # first writer: 78 edge lines, 45 of them A-7. **Re-counted again the same day
+  # after `GetSalesOrder`: 80 edge lines, 47 of them A-7** — two new lines, both
+  # A-7, both the same Output 4 slice shape (`SalesOrderReader` returning its own
+  # module's `ApiResource` read model, and `SalesOrderRow` building the new
+  # `SalesActorReference` expansion). **Recount rather than restate this line** —
+  # `make deptrac`'s own skipped figure is the authority and it counts occurrences,
+  # one per site rather than one per pair. Not one of them is a new *shape* —
+  # every one is the Output 4 slice shape already recorded for
   # `ItemReader`/`ItemWriter`/`ItemRow` and for `ChangePassword`'s call into
   # `PasswordChangeAuditWriter` — and every one has the same cause: an
   # `ApiResource` read model returned from `Application` (A-7), an entity's
@@ -92,7 +94,7 @@ deptrac:
   #                   and symfony/messenger is not installed, so the audit path
   #                   is a direct synchronous call by necessity. One of them
   #                   is also A-1 (`PermissionGate` is Platform).
-  #   A-7  (45 edges) A module's `Application` layer depends "up" — on its own
+  #   A-7  (47 edges) A module's `Application` layer depends "up" — on its own
   #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
   #                   `CurrentUserResource` are declared there and returned from
   #                   Application) or on its own `Infrastructure` (entities and
@@ -174,7 +176,10 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\SalesOrderReader:
+      - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
     App\Modules\Sales\Application\SalesOrderRow:
+      - App\Modules\Sales\ApiResource\SalesActorReference   # A-7
       - App\Modules\Sales\ApiResource\SalesNamedReference   # A-7
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
     App\Modules\Sales\Application\SalesOrderWriter:

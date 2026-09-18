@@ -63,16 +63,12 @@ final class PermissionEnforcementTest extends ApiTestCase
         // the genid route are the only two routes carrying that controller, and
         // `CreatedRowLocation` is what stops `Location` naming it.
         '_api_/purchase_order_lines/{id}{._format}_get',
-        // Added 2026-09-19 with the sales slice, same vendor behaviour again and
-        // **transient**: `SalesOrderResource` declares only a `POST` because ruling
-        // R-A shipped `CreateSalesOrder` one commit ahead of `GetSalesOrder`, so
-        // the not-exposed IRI route is minted at the pluralised default path. Its
-        // controller is `api_platform.action.not_exposed` — 404 for every request,
-        // authenticated or not — so it discloses nothing. **This entry leaves this
-        // list the day `GetSalesOrder` ships**, which is the opposite of the line
-        // above it, and leaving it behind is a stale exemption the reconciliation
-        // below catches.
-        '_api_/sales_orders/{id}{._format}_get',
+        // **`_api_/sales_orders/{id}{._format}_get` was here from 2026-09-19 until `GetSalesOrder`
+        // shipped the same day, and it has left** — as its own text said it would. `SalesOrderResource`
+        // declared only a `POST` for one commit (ruling R-A), so the vendor minted a not-exposed IRI
+        // route at the pluralised default path; the item `GET` now exists and no such route is minted.
+        // Leaving the entry behind would have been a stale exemption, and the reconciliation below is
+        // what catches that.
     ];
 
     /**

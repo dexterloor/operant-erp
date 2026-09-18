@@ -52,7 +52,7 @@ final class ApiConfigurationTest extends ApiTestCase
             self::assertStringStartsWith($basePath.'/', $route->getPath(), $name.' is mounted outside the versioned base path.');
         }
 
-        // Three, and each is the same vendor behaviour for a different reason.
+        // Two, and each is the same vendor behaviour for a different reason.
         // `Token` has no row and no id, so its fallback lands on the skolem
         // path. `PurchaseOrderLine` **does** have a row-level URI -- §4.2
         // declares `PATCH` and `DELETE` at `/purchase-orders/{id}/lines/{lineId}`
@@ -62,15 +62,15 @@ final class ApiConfigurationTest extends ApiTestCase
         // construction (`NotFoundAction`) and `CreatedRowLocation` is what stops
         // the vendor's `Location` naming it.
         //
-        // `SalesOrder` is the third, added 2026-09-19, and it is the **transient** case: §4.2 does declare
-        // `GetSalesOrder` at `/sales-orders/{id}`, and ruling R-A deferred it one commit behind its writer.
-        // Until it ships, this resource declares only a `POST`, so API Platform mints the same not-exposed
-        // fallback — and `CreatedRowLocation::OPERATION_URI_TEMPLATE` on `CreateSalesOrder` is what stops
-        // the 201's `Location` naming it. **This entry leaves this list when `GetSalesOrder` lands**, which
-        // is the opposite of the two above.
+        // **`SalesOrder` was a third entry from 2026-09-19 until `GetSalesOrder` shipped the same day,
+        // and it has left** — as the entry itself said it would. It was the transient case: §4.2 always
+        // declared `GetSalesOrder` at `/sales-orders/{id}` and ruling R-A merely deferred it one commit
+        // behind its writer, so the resource had no item `GET` for one commit and the vendor minted the
+        // fallback. The `GET` now exists, no fallback is minted, and `CreateSalesOrder`'s
+        // `CreatedRowLocation` declaration went with it. **Its departure is the check, not a tidy-up:**
+        // an entry left behind here would be a stale exemption, and this assertion is what catches it.
         self::assertSame([
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
-            '_api_/sales_orders/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
@@ -90,7 +90,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `GetGoodsReceipt`, which exists so its 201's `Location` resolves.
         // **One more on 2026-09-19:** `CreateSalesOrder`, the first sales write, released by
         // `Version20260919000100`'s retry key and granted its two INSERTs by `Version20260919000200`.
-        self::assertCount(23, $checked, 'The route set changed. This slice declares twenty-three operations: '.implode(', ', array_keys($checked)));
+        // **And one more the same day:** `GetSalesOrder`, which needed no migration at all — `erp_app`
+        // already held SELECT on both sales tables — and whose arrival is also why the not-exposed list
+        // above lost an entry.
+        self::assertCount(24, $checked, 'The route set changed. This slice declares twenty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

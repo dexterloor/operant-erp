@@ -181,9 +181,18 @@ final readonly class SalesOrderWriter
      * `created_by_user_id` and `order_number`
      * ===========================================================================
      * `created_by_user_id` is not an accepted field and is set server-side from the JWT subject on every
-     * user-initiated create — §8.1's rule for the purchasing mirror, and DSoD-1's input on this side too.
-     * **The value is written and not returned:** `SalesOrderResource` holds the member back pending `SEC`'s
-     * B1N-2 ruling, which is a disclosure question and not a write question.
+     * user-initiated create — §8.1's rule for the purchasing mirror.
+     *
+     * ⚠ **This paragraph said *"and DSoD-1's input on this side too"* when it shipped on 2026-09-19, and
+     * that was FALSE.** No DSoD rule names `sales_order`: ADR-008 is purchase-only throughout, SEC-O-9
+     * verified this column records *"the creator, not the confirmer"*, and IA-O-8 states that F-5 *"has no
+     * mirror of this gap … there is no seam"*. The sentence is corrected here the day B1N-2 was ruled,
+     * because the ruling's first amendment is that this justification must not be copied across.
+     *
+     * **The value is returned as of `GetSalesOrder`'s commit** — B1N-2 ruled it visible on PC-11 (4a)
+     * ground (`SECURITY_MODEL.md` PC-15 **O-5**). It was written and withheld for exactly one commit, and
+     * the withholding was always a disclosure question rather than a write one, which is why nothing in
+     * this method changed when the ruling landed.
      *
      * `order_number` is minted here and **no document specifies its form** — the only property anything
      * relies on is that it is server-generated, which is precisely why it cannot serve as a retry key.

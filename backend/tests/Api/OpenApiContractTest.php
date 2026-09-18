@@ -331,6 +331,37 @@ final class OpenApiContractTest extends ApiTestCase
     }
 
     /**
+     * **B1N-2 (2026-09-19): `SalesOrder.created_by` is advertised as a `SalesActorReference` or null.**
+     *
+     * The same claim the method above makes for the purchasing pair, and it **could not be copied
+     * verbatim** — that one compares against `#/components/schemas/ActorReference`, and this module has a
+     * component of its own. `ActorReference` lives only in `Modules\Purchasing\ApiResource` and
+     * `deptrac.yaml` enumerates every Sales→ApiResource edge individually, so importing it is the edge
+     * `make deptrac` exists to refuse; `SalesNamedReference` is the same answer one field earlier. **The
+     * two distinct component names are the cost of that boundary and this is where the spec records it** —
+     * the generated document carries two two-member objects with different names.
+     *
+     * The nullability is not cosmetic: `sales_order.created_by_user_id` is nullable, and a spec promising
+     * an object would promise something the API does not always send.
+     */
+    #[Test]
+    public function theSalesOrderReadSchemaAdvertisesItsCreatorAsNullableUnderItsOwnComponent(): void
+    {
+        $spec = $this->regenerate();
+
+        self::assertSame(
+            ['anyOf' => [['$ref' => '#/components/schemas/SalesActorReference'], ['type' => 'null']]],
+            $spec['components']['schemas']['SalesOrder']['properties']['created_by'] ?? null,
+        );
+
+        // Both components exist and are the same two members under different names — the boundary's cost,
+        // asserted rather than described, so a later merge into one shared DTO is visible here.
+        $members = static fn (string $name): array => array_keys($spec['components']['schemas'][$name]['properties'] ?? []);
+        self::assertSame(['id', 'display_name'], $members('SalesActorReference'));
+        self::assertSame($members('ActorReference'), $members('SalesActorReference'));
+    }
+
+    /**
      * §12.3 — every operation declares an explicit `operationId`, and no two share one.
      *
      * **The derivation check reads `api_`, not `_api_`** (V1-R-18, V4 B4b). API

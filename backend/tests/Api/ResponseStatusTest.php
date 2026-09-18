@@ -115,10 +115,17 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      * through `CreatedRowLocation::OPERATION_URI_TEMPLATE`, derived from the tree on 2026-09-19 and
      * pinned here so that it cannot grow by itself.
      *
-     * Both members are `POST`s whose row §4.2 addresses and the registry does not:
-     * `CreateSalesOrder` because ruling R-A shipped it one commit ahead of `GetSalesOrder`
-     * (`SalesOrderResource.php`), and `CreatePurchaseOrderLine` because its row carries a built `PATCH`
-     * and `DELETE` but no item `GET` (`PurchaseOrderLineResource.php`).
+     * Its one member is a `POST` whose row §4.2 addresses and the registry does not:
+     * `CreatePurchaseOrderLine`, whose row carries a built `PATCH` and `DELETE` but no item `GET`
+     * (`PurchaseOrderLineResource.php`).
+     *
+     * ⚠ **`CreateSalesOrder` was the second member from 2026-09-19 until `GetSalesOrder` shipped the
+     * same day, and its departure is a correctness move rather than a tidy-up.** Ruling R-A shipped the
+     * writer one commit ahead of the read, so for one commit §4.2 addressed `/sales-orders/{id}` and the
+     * registry did not. The read now serves that path, so the operation no longer qualifies —
+     * {@see self::theDeclaringSetIsTheOperationsTheRegistryCannotAddressItself()} is red if a declaration
+     * is left on an operation whose row the registry can address, which is the case that turns a
+     * redundant declaration into a wrong one.
      *
      * A template declared by an operation that is not named here, or a template that is not the one
      * named here, is **red** — not silently honoured. Adding a member is the deliberate act that says a
@@ -128,7 +135,6 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      */
     private const DECLARED_ROW_URIS = [
         'CreatePurchaseOrderLine' => '/purchase-orders/{id}/lines/{lineId}',
-        'CreateSalesOrder' => '/sales-orders/{id}',
     ];
 
     /**
@@ -280,6 +286,110 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         self::assertGreaterThan(0, $deleteBodiesExamined, 'No DELETE body was examined.');
 
         self::assertSame([], $wrong, 'API-21: an operation answered other than its branch requires.');
+    }
+
+    /**
+     * **Reading (3)'s pin, derived rather than asserted by name** — the repair the RED exit audit asked
+     * for (F-1's second half), deferred by `98643f9`'s docblock to this commit and built here.
+     *
+     * The claim, in both directions: an operation may declare
+     * `CreatedRowLocation::OPERATION_URI_TEMPLATE` **iff** the template it declares is a `Path` cell in
+     * §4.2 that **no built `GET` serves**. Two failures are therefore distinguishable — declaring a URI
+     * the contract does not have at all, and declaring one a `GET` has since started serving, which is
+     * what makes a once-correct declaration wrong rather than merely redundant.
+     *
+     * ⚠ **The deferred wording said "that the registry does not already serve", and that is FALSE — it
+     * was measured false the first time this method ran.** `CreatePurchaseOrderLine`'s row URI
+     * `/purchase-orders/{id}/lines/{lineId}` **is** served by the registry: `UpdatePurchaseOrderLine`
+     * and `DeletePurchaseOrderLine` are both built there. Under the literal wording the one operation
+     * reading (3) exists for fails its own reconciliation. The predicate is **`GET`**, not "any
+     * operation", and `CreatedRowLocation`'s own docblock is where that is already written: the vendor
+     * resolves `Location` through `IriConverter` with no operation, which returns the resource's *first
+     * item operation*, and a `PATCH` and a `DELETE` do not make one. The docblock's phrasing is
+     * corrected here rather than implemented as given.
+     *
+     * **Why it does not replace {@see self::DECLARED_ROW_URIS}.** `docs/` is gitignored, so this method
+     * skips on a clean checkout and the by-name pin is the only reading (3) has there — the same
+     * division {@see self::theBranchPinIsTheContractsTable()} already makes. The pin is what the
+     * classification reads; this is what stops the pin drifting from the contract.
+     *
+     * **Mutations, run 2026-09-19** (`backend/var/cache/test` deleted before each mutated run and before
+     * each revert — Rule 17), recorded in `docs/session11/getsalesorder-progress.md`.
+     */
+    #[Test]
+    public function theDeclaringSetIsTheOperationsTheRegistryCannotAddressItself(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored; DECLARED_ROW_URIS is reading (3) on a checkout without it.');
+        }
+
+        $operations = TransactionBoundaryTest::contractOperations();
+        self::assertNotSame([], $operations, 'The registry produced no operations, so nothing was reconciled.');
+        self::assertTheDeclaringSetIsThePin($operations);
+
+        // What the vendor can address by itself: the paths a built `GET` serves. A `PATCH` or a
+        // `DELETE` at a row URI does not make the resource an item operation the IriConverter can
+        // resolve, which is the whole reason `CreatedRowLocation` exists.
+        $served = [];
+        foreach ($operations as $operation) {
+            if ('GET' === $operation->getMethod()) {
+                $served[] = self::normalised($operation);
+            }
+        }
+        $served = array_values(array_unique($served));
+
+        $contractPaths = [];
+        foreach (ContractDocument::operationRows() as $row) {
+            $contractPaths[] = self::normalisedPath($row['path']);
+        }
+        $contractPaths = array_values(array_unique($contractPaths));
+
+        // Control — the document was actually read, and it addresses strictly more than the registry
+        // serves. Without this an empty §4.2 would make every declaration "not served" and pass.
+        self::assertNotSame([], $contractPaths, '§4.2 yielded no paths, so the qualification below is empty.');
+        self::assertNotSame([], array_diff($contractPaths, $served),
+            '§4.2 addresses nothing no built GET serves, so no operation can qualify and this reconciliation '
+            .'would be satisfied only by an empty declaring set.');
+
+        // Control — the qualification is not constant. A path a built GET serves must NOT qualify, or
+        // the second clause below could never fail. `/sales-orders/{}` is in this intersection as of
+        // 2026-09-19, which is why `CreateSalesOrder` left the pin.
+        self::assertNotSame([], array_intersect($contractPaths, $served), 'No contract path is served by a GET, so the "already served" clause is never true.');
+        self::assertContains('/sales-orders/{}', $served, 'GetSalesOrder no longer serves the row URI CreateSalesOrder creates.');
+
+        $qualifies = [];
+        foreach (self::DECLARED_ROW_URIS as $name => $template) {
+            $normalised = self::normalisedPath($template);
+            $qualifies[$name] = \in_array($normalised, $contractPaths, true) && !\in_array($normalised, $served, true);
+        }
+
+        $unqualified = array_keys(array_filter($qualifies, static fn (bool $ok): bool => !$ok));
+        self::assertSame([], $unqualified,
+            'An operation declares CreatedRowLocation::OPERATION_URI_TEMPLATE for a URI that is not a §4.2 Path at all, '
+            .'or for one a built GET already serves. The second case is the one that bites: once the item GET ships, the '
+            .'vendor Location is already right and the declaration is a second, unreconciled source for the same header. '
+            .'CreateSalesOrder left this pin for exactly that reason when GetSalesOrder shipped: '.implode(', ', $unqualified));
+
+        // The other direction: every §4.2 row URI no built `GET` serves and that some built POST creates
+        // must be declared by that POST, or its 201 names the vendor's not-exposed fallback.
+        $missing = [];
+        foreach ($operations as $name => $operation) {
+            if ('POST' !== $operation->getMethod() || \array_key_exists($name, self::DECLARED_ROW_URIS)) {
+                continue;
+            }
+            $path = self::normalised($operation);
+            $segments = explode('/', trim($path, '/'));
+            foreach ([$path.'/{}', '/'.end($segments).'/{}'] as $candidate) {
+                if (\in_array($candidate, $contractPaths, true) && !\in_array($candidate, $served, true)) {
+                    $missing[] = $name.' creates '.$candidate.', which §4.2 addresses and no built GET serves';
+                }
+            }
+        }
+
+        self::assertSame([], $missing,
+            'A built POST creates a row §4.2 addresses at a URI no built GET serves, and declares no '
+            .'CreatedRowLocation template. Its 201 Location would name API Platform\'s not-exposed fallback, which '
+            .'answers 404 by construction. This is the state CreateSalesOrder was in for one commit under ruling R-A.');
     }
 
     /**
@@ -442,6 +552,12 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
 
     private static function normalised(HttpOperation $operation): string
     {
-        return (string) preg_replace('/\{[^}]*\}/', '{}', (string) $operation->getUriTemplate());
+        return self::normalisedPath((string) $operation->getUriTemplate());
+    }
+
+    /** A path template with every `{param}` read as `{}`, so parameter names never decide a comparison. */
+    private static function normalisedPath(string $path): string
+    {
+        return (string) preg_replace('/\{[^}]*\}/', '{}', $path);
     }
 }

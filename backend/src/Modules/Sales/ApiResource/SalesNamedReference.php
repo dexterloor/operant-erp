@@ -44,8 +44,11 @@ namespace App\Modules\Sales\ApiResource;
  * sales order discloses the customer's **name**, which `sales_order.view` already implies, and never
  * `credit_limit`, `payment_terms_days` or anything else `customer.view` gates.
  *
- * **`created_by` does not come through here**, and on this resource it does not come through at all yet —
- * `SalesOrderResource` holds the member back pending `SEC`'s B1N-2 ruling. See that class.
+ * **`created_by` does not come through here, and it is not withheld either** — since B1N-2 was ruled on
+ * 2026-09-19 the sales order returns it through **`SalesActorReference`**, a separate class for a reason
+ * this one shares: `app_user` has no `name` column, so the display-field chain above finds nothing there
+ * and §4.4.3 names `display_name` explicitly. See that class for the ruling and for what its justification
+ * is **not** (no SoD control runs over `sales_order`).
  */
 final readonly class SalesNamedReference
 {

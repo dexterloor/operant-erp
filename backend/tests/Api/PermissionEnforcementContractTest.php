@@ -73,6 +73,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Amendment 1.
         'CreatePurchaseOrder' => 'purchase_order.create',
         'CreateSalesOrder' => 'sales_order.create',
+        // Added 2026-09-19 with the read. `sales_order.view` is the row's own `Perm` cell and it is the
+        // only code this operation wants: `created_by`'s expansion needs no `app_user.view` (PC-15
+        // condition 2, ruled for this field by B1N-2 on PC-11 (4a) ground) and neither customer nor
+        // warehouse reference needs its own `.view` (PC-15 clause 4).
+        'GetSalesOrder' => 'sales_order.view',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',

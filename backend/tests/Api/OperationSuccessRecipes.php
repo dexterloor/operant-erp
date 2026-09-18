@@ -55,6 +55,29 @@ trait OperationSuccessRecipes
 
             return ['order' => $order, 'line' => $line, 'bin' => $bin];
         };
+        // One line (V1-R-2, V4 B4a): a recipe that sends no `lines` leaves the nested create unprobed by
+        // every check that plants into the body. Both closures live **inside this trait** rather than in
+        // a sales-side twin, because the trait is `@phpstan-require-extends PurchaseOrderTestCase` and
+        // every consumer holds its keys equal to `TransactionBoundaryTest::contractOperations()`: a
+        // separate rig would not satisfy that pin and the operations would be red in four tests at once
+        // (RED F-12).
+        $salesWorkspace = function (string $tag): array {
+            $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail '.$tag);
+
+            return [
+                'customer' => $customer,
+                'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+                'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH '.$tag),
+                'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-'.$tag),
+            ];
+        };
+        $raiseSalesOrder = function (array $c) use ($key): void {
+            $this->send('POST', '/sales-orders', [
+                'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
+                'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
+                'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']],
+            ], $key());
+        };
         $receive = function (array $o) use ($key): void {
             $this->send('POST', '/purchase-orders/'.$o['order'].'/goods-receipts',
                 ['lines' => [['purchase_order_line_id' => $o['line'], 'quantity' => '1', 'storage_location_id' => $o['bin']]]], $key());
@@ -143,29 +166,20 @@ trait OperationSuccessRecipes
 
                 return [200, 'read'];
             }],
-            // One line (V1-R-2, V4 B4a): a recipe that sends no `lines` leaves the
-            // nested create unprobed by every check that plants into the body.
-            // The recipe lives **inside this trait** rather than in a sales-side twin, because the trait is
-            // `@phpstan-require-extends PurchaseOrderTestCase` and every consumer holds its keys equal to
-            // `TransactionBoundaryTest::contractOperations()`: a separate rig would not satisfy that pin
-            // and the operation would be red in four tests at once (RED F-12).
-            'CreateSalesOrder' => [function (): array {
-                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SO');
-
-                return [
-                    'customer' => $customer,
-                    'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
-                    'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
-                    'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-SO'),
-                ];
-            }, function (array $c) use ($key): array {
-                $this->send('POST', '/sales-orders', [
-                    'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
-                    'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
-                    'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']],
-                ], $key());
+            'CreateSalesOrder' => [fn (): array => $salesWorkspace('SO'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
 
                 return [201, 'create'];
+            }],
+            // The read is driven through the writer rather than off a fixture, so the row it reads is a
+            // row the operation wrote — which is what makes `created_by` non-null in the body every
+            // reference check walks. A seeded `sales_order` would leave the column NULL and the
+            // expansion unexamined.
+            'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-GET'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, then read'];
             }],
             'CreatePurchaseOrder' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');

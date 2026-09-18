@@ -5,19 +5,20 @@ declare(strict_types=1);
 namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
+use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
-use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `sales_order`'s write shape, and the **one** operation this commit ships.
+ * `sales_order`'s read and write shape, and the two operations built so far.
  *
  * ---------------------------------------------------------------------------
- * The field list is derived, not chosen (API-23) — with two members held back
+ * The field list is derived, not chosen (API-23)
  * ---------------------------------------------------------------------------
  *   1. every field in `CreateSalesOrder`'s `Accepted request fields` cell, minus any `_id` naming a parent
  *      implied by the path — `/sales-orders` implies no parent, so `customer_id` and `warehouse_id` both
@@ -32,29 +33,34 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * sub-list exception (owner ruling Q1(a)) puts those entries there. **The 201 therefore carries no lines**,
  * with `total_amount` reflecting them.
  *
- * ⚠ **Two members the derivation yields are deliberately ABSENT. Neither absence may be read as a
- * decision taken here, and they are absent for two DIFFERENT reasons.**
+ * **`created_by` and `ship_to_address` are both settled, and neither is absent by default.**
  *
- *   - **`created_by`** — **unruled.** `SECURITY_MODEL.md` B1N-2 (owner `SEC`): *"`SalesOrder.created_by =
- *     {id, display_name}`, declared in `API.md` §4.4.3, has no PC-11 (4a) ruling, so under condition 2 it
- *     may not ship."* Exposing it in this commit would be `BE-LEAD` making `SEC`'s ruling, and avoiding
- *     exactly that is why ruling R-A put the writer before the read. The column **is** written —
- *     `created_by_user_id` comes from the JWT subject on every create, as §8.1 demands for the purchasing
- *     mirror — it is only not returned.
- *   - **`ship_to_address`** — **O-1 IS RULED.** The owner ruled **KEEP-AND-EXCEPT** on 2026-09-19
- *     (`docs/session11/output9-sales-1-ruling.md`, section *"⚖ OWNER RULING — O-1 and F-10,
- *     2026-09-19"*): `ship_to_address_id` stays in §4.2, this input accepts it, and §4.4.3 step 1 gains a
- *     third stated exception — *a create field that is a snapshot source derives the snapshot fields the
- *     additions row declares, not `x`*. So the four snapshot fields below are the ruled answer, not a
- *     holding position. **What is deferred is the WRITING of that exception**, which the ruling scopes to
- *     `GetSalesOrder`'s commit in terms, because §4.4.3 governs the read shape and `ResponseShapeTest`'s
- *     domain is GET operations. **Commit 2 must not write it.**
+ *   - **`created_by` — RULED, and it ships.** B1N-2 was ruled on 2026-09-19 on **PC-11 (4a)** ground,
+ *     with **O-4** (PC-15 amendment 1 — `PurchaseOrder.created_by`) controlling and **API-O-33** the
+ *     ground it applies: who raised an order is *"the subject row's own business state"*, not *"a
+ *     principal's credentials, sessions or privileges"*. It is gated on the document's own
+ *     `sales_order.view` and on nothing else. **The decisive reason is the one specific to this
+ *     resource:** `AuditEvent::ALL` has no `sales_order.*` member at all, so with the field withheld
+ *     *"who raised this order"* would be answerable only from the database — which is API-O-33's own
+ *     decisive sentence, and it does **not** apply to purchase orders, where `purchase_order.placed` is
+ *     a catalogue member. ⚠ **It serves no separation-of-duty control here**, and the justifications the
+ *     purchasing and receipt fields carry must not be copied across: `SEC-O-9` verified this column
+ *     records *"the creator, not the confirmer"*, ADR-008 names no DSoD rule on any sales document, and
+ *     `IA.md` IA-O-8 states that F-5 *"has no mirror of this gap … there is no seam"*.
+ *   - **`ship_to_address` — O-1 IS RULED, KEEP-AND-EXCEPT**, by the owner on 2026-09-19
+ *     (`docs/session11/output9-sales-1-ruling.md`): `ship_to_address_id` stays in §4.2, this resource's
+ *     input accepts it, and §4.4.3 step 1 carries a third stated exception — *a create field that is a
+ *     snapshot source (an `x_id` the row copies from and does not store) derives the snapshot fields the
+ *     additions row declares, not `x`*. **That exception is written as of this commit** (`API.md`
+ *     §4.4.3, taught to `ResponseShapeTest`), so the four snapshot fields below are what the derivation
+ *     now yields, not a holding position. The column really is absent — `sales_order` has 19 columns and
+ *     none of them is `ship_to_address_id` — which is what makes the exception decidable rather than
+ *     declared.
  *
- * **What reconciles this shape today, stated exactly rather than hand-waved.** `ResponseShapeTest`'s two
- * methods anchor on GET operations, and this resource declares none, so the **field set** is checked by
- * nothing until `GetSalesOrder` ships. Its decimal **scales** are pinned: `WireScaleTest` demands a recipe
- * for every registry operation, so `$.total_amount` lands in the committed `wire-scale.json` at its
- * column's scale. That gap is one commit wide and is ruling R-A's stated cost, not an oversight.
+ * **What reconciles this shape, now that a `GET` exists.** `ResponseShapeTest`'s two methods anchor on
+ * `GET` operations, so until this commit the **field set** was checked by nothing — ruling R-A's stated
+ * cost, one commit wide. `GetSalesOrder` closes it: the derived field list and this DTO are now compared
+ * in both directions. The decimal **scales** were pinned throughout by `WireScaleTest`.
  *
  * ---------------------------------------------------------------------------
  * Why this is a DTO and not the `SalesOrder` entity (API-8, P-7)
@@ -67,20 +73,29 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 #[ApiResource(
     shortName: 'SalesOrder',
     operations: [
+        new Get(
+            uriTemplate: '/sales-orders/{id}',
+            name: 'GetSalesOrder',
+            openapi: new OpenApiOperation(operationId: 'GetSalesOrder'),
+            provider: SalesOrderProvider::class,
+            // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, which is before
+            // this provider runs — E-1.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.view'],
+        ),
         // API-21 branch 4: §4.2 declares `GetSalesOrder` at `/sales-orders/{id}`, which is the row-level
         // URI this POST creates, so **201** with a `Location` naming it and the created resource as the
         // body.
         //
-        // ⚠ **`GetSalesOrder` is not built yet, and that is exactly why the template is declared.** API
-        // Platform's own `Location` resolves to a resource's *first item operation*; this resource has
-        // none, so `NotExposedOperationResourceMetadataCollectionFactory` mints one at the pluralised
-        // default path and the vendor header would name `/sales_orders/<uuid>`, which answers 404 by
-        // construction. `CreatedRowLocation` replaces it with §4.2's own path. This is the shape
-        // `CreatePurchaseOrderLine` already ships in (`PurchaseOrderLineResource:115`), and
-        // `CreatedRowLocation`'s docblock names `CreateSalesOrderLine`, `CreateFulfilment`, `AssignRole`
-        // and `IssueInvoice` as its other future users. When `GetSalesOrder` ships, this declaration
-        // becomes redundant rather than wrong — the two mechanisms produce the same string — and the
-        // commit that ships it decides whether to drop it.
+        // ⚠ **`CreatedRowLocation::OPERATION_URI_TEMPLATE` was declared here from 2026-09-19 until this
+        // commit and is now REMOVED, deliberately and not as tidying.** API Platform's own `Location`
+        // resolves to a resource's *first item operation*; with no item `GET` the vendor minted one at
+        // the pluralised default path and the header named `/sales_orders/<uuid>`, a route that answers
+        // 404 by construction. `GetSalesOrder` above **is** that first item operation now, so the vendor
+        // header is already §4.2's own path and the listener has nothing to replace. Leaving the
+        // declaration behind would not be harmless: `ResponseStatusTest`'s reconciliation of
+        // `DECLARED_ROW_URIS` against §4.2 — built in this commit — holds the declaring set to exactly
+        // those operations whose declared row URI the registry does **not** already serve, and this one
+        // now does. `CreatedRowLocation` keeps its other user, `CreatePurchaseOrderLine`.
         new Post(
             uriTemplate: '/sales-orders',
             name: 'CreateSalesOrder',
@@ -96,7 +111,6 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             processor: CreateSalesOrderProcessor::class,
             extraProperties: [
-                CreatedRowLocation::OPERATION_URI_TEMPLATE => '/sales-orders/{id}',
                 // §4.2's cell is `unique:sales_order_tenant_idem_live`, so API-14 as amended **demands**
                 // the header — and here that is not a formality, because the header's value IS the indexed
                 // value. `sales_order.idempotency_key` is `NOT NULL`, so a request without the header
@@ -129,6 +143,15 @@ final class SalesOrderResource
         /** Null exactly while the order is `draft` — nothing confirms one yet, so it is null on every row. */
         #[SerializedName('ordered_at')]
         public ?string $orderedAt,
+        /**
+         * B1N-2 (2026-09-19), on PC-11 (4a) ground with O-4 controlling. **Null is a real value and not a
+         * gap:** `sales_order.created_by_user_id` is nullable, so an order raised by anything that is not
+         * a person renders as unknown rather than as a guess. **It is not an SoD input** — see the class
+         * docblock and `SalesActorReference`; the purchasing field's DSoD-1 justification does not
+         * transfer and asserting it would publish a falsehood.
+         */
+        #[SerializedName('created_by')]
+        public ?SalesActorReference $createdBy,
         /**
          * The shipping snapshot, copied from `customer_address` at create (O-2). Never an expansion of a
          * live address row: `customer_address` is deletion class `hard` precisely so these four can be a

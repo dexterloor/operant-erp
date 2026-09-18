@@ -53,6 +53,29 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const FREE_FIELDS = ['id', 'archived_at'];
 
     /**
+     * **Step 1's third exception, and its closed membership** — owner ruling O-1, 2026-09-19
+     * (`docs/session11/output9-sales-1-ruling.md`, *"⚖ OWNER RULING — O-1 and F-10"*): *a create field
+     * that is a **snapshot source** (an `x_id` the row copies from and does not store) derives the
+     * snapshot fields the additions row declares, not `x`*.
+     *
+     * The rule is **not** read from this constant — {@see self::snapshotSourceExceptions()} decides it
+     * from §4.2, §4.4.3 and the live catalogue, and this is the two-way pin on what that decision
+     * returns. It is here for the reason `ResponseStatusTest::DECLARED_ROW_URIS` is there: an exception
+     * to one of the few totally-checked rules in this project must not be able to grow by itself. A
+     * resource that starts qualifying, or stops, is a reviewed edit to this file.
+     *
+     * `SalesOrder` is its only member, which is what the ruling says. The mechanical facts behind that
+     * membership: `CreateSalesOrder` accepts `ship_to_address_id`, `sales_order` has no such column, and
+     * §4.4.3's additions row declares `ship_to_line`, `ship_to_city`, `ship_to_postal_code` and
+     * `ship_to_country_code`, all four of which **are** columns of that table.
+     *
+     * @var array<string, list<string>>
+     */
+    private const SNAPSHOT_SOURCE_EXCEPTIONS = [
+        'SalesOrder' => ['ship_to_address_id'],
+    ];
+
+    /**
      * **The probe.** No built read resource's derived expectation is empty
      * beyond `id` and `archived_at`.
      *
@@ -170,6 +193,59 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertStringContainsString('**and except** a nested', $section, '§4.4.3 step 1 no longer states the sub-list exception.');
         self::assertStringContainsString('not an implied part of the parent', $section, '§4.4.3 step 1 no longer grounds the sub-list exception.');
 
+        // Step 1's third exception (O-1, 2026-09-19), as the rule text states it. Asserted before the
+        // exception is applied, so the code cannot except a field the document has stopped excepting.
+        self::assertStringContainsString('**and except** a create field that is a **snapshot source**', $section,
+            '§4.4.3 step 1 no longer states the snapshot-source exception, which owner ruling O-1 put there.');
+        self::assertStringContainsString('copies from and does not store', $section,
+            '§4.4.3 step 1 no longer states what makes a create field a snapshot source.');
+
+        // The exception's membership, decided from §4.2 + §4.4.3 + the live catalogue and held to the
+        // pin in both directions. A resource that starts or stops qualifying is red here.
+        $snapshotSources = $this->snapshotSourceExceptions($rows, $additions, $softResources);
+        ksort($snapshotSources);
+        $snapshotPin = self::SNAPSHOT_SOURCE_EXCEPTIONS;
+        ksort($snapshotPin);
+        self::assertSame($snapshotPin, $snapshotSources,
+            'Step 1\'s snapshot-source exception does not apply to the resources ResponseShapeTest::SNAPSHOT_SOURCE_EXCEPTIONS '
+            .'names, or applies to one it does not. Owner ruling O-1 gave the exception one member; widening it is a reviewed '
+            .'edit to this file, not something a new create row grants itself.');
+
+        // Control — **clause 2 is decisive, not decoration.** Re-run the predicate against a catalogue in
+        // which `sales_order` DOES store `ship_to_address_id`: the field is then a real reference API-23b
+        // expands, and the exception must refuse it. Without this control clause 2 is unprovable — no
+        // resource in §4.2 today exercises it, so deleting it leaves every assertion green, which was
+        // measured before this control existed.
+        self::assertSame([], $this->snapshotSourceExceptions($rows, $additions, $softResources,
+            fn (string $table): array => [...$this->columnsOf($table), 'ship_to_address_id']),
+            'The snapshot-source exception still fires when the table STORES the _id. An `x_id` the row keeps is an '
+            .'ordinary reference and API-23b returns it expanded; excepting it would delete a real field from the '
+            .'derived shape with nothing to notice.');
+
+        // Control — **clause 3 is decisive too.** With the snapshot fields removed from the additions row
+        // there is nothing for the source to derive *into*, and a bare `x_id` would vanish from the shape
+        // entirely rather than being replaced.
+        self::assertSame([], $this->snapshotSourceExceptions($rows, array_map(
+            static fn (array $fields): array => array_values(array_filter($fields,
+                static fn (string $field): bool => !str_starts_with($field, 'ship_to_'))),
+            $additions), $softResources),
+            'The snapshot-source exception still fires when the additions row declares no snapshot field under the '
+            .'source\'s prefix, so the excepted field would be derived into nothing at all.');
+
+        // Control 0 — the exception is not vacuous. Without it the derivation really does yield the
+        // field the exception removes, so this is the difference the rule makes and not a no-op.
+        foreach ($snapshotPin as $exceptedResource => $sources) {
+            $without = self::derivation($exceptedResource, $rows, $additions, $softResources);
+            $with = self::derivation($exceptedResource, $rows, $additions, $softResources, $snapshotSources);
+            foreach ($sources as $source) {
+                $derived = substr($source, 0, -3);
+                self::assertArrayHasKey($derived, $without,
+                    \sprintf('Step 1 does not derive `%s` for %s even without the exception, so the exception removes nothing.', $derived, $exceptedResource));
+                self::assertArrayNotHasKey($derived, $with,
+                    \sprintf('The snapshot-source exception did not remove `%s` from %s\'s derivation.', $derived, $exceptedResource));
+            }
+        }
+
         // Control 1 — the resource → table tie covers the soft set exactly.
         $tied = array_values($softResources);
         sort($tied);
@@ -215,7 +291,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         foreach ($resources as $resource => $readers) {
             $class = self::dtoClassOf($resource, $rows, $operations);
             $embedded = [];
-            $expected = self::derivation($resource, $rows, $additions, $softResources, $defects, $embedded);
+            $expected = self::derivation($resource, $rows, $additions, $softResources, $snapshotSources, $defects, $embedded);
 
             $hasCreate = [] !== array_filter($rows, static fn (array $row): bool => 'Create / '.$resource === $row['verbResource']);
             if (!$hasCreate && !\array_key_exists($resource, $additions)) {
@@ -791,21 +867,24 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * resources to leave step 3 out (the probe).
      *
      * Step 1's sub-list exception: a nested `n[]` that
-     * {@see self::subListedChild()} names is not a field. A nested field whose
-     * bounded list and same-path create exist but whose sub-fields that create
-     * does not all accept is kept, and recorded as a defect, because step 1
-     * cannot except it. Every nested field that is kept is returned in
+     * {@see self::subListedChild()} names is not a field. Step 1's
+     * snapshot-source exception: an `x_id` named for this resource in
+     * `$snapshotSources` yields nothing at all, neither `x_id` nor `x`.
+     * A nested field whose bounded list and same-path create exist but whose
+     * sub-fields that create does not all accept is kept, and recorded as a
+     * defect, because step 1 cannot except it. Every nested field that is kept is returned in
      * `$embedded` as `n => the Create operation that declares it`.
      *
      * @param array<string, array{operationId: string, verbResource: string, method: string, path: string, query: string}> $rows
      * @param array<string, list<string>>                                                                                 $additions
      * @param array<string, string>                                                                                       $softResources
+     * @param array<string, list<string>>                                                                                 $snapshotSources
      * @param list<string>                                                                                                $defects
      * @param array<string, string>                                                                                       $embedded
      *
      * @return array<string, string>
      */
-    private static function derivation(string $resource, array $rows, array $additions, array $softResources, array &$defects = [], array &$embedded = []): array
+    private static function derivation(string $resource, array $rows, array $additions, array $softResources, array $snapshotSources = [], array &$defects = [], array &$embedded = []): array
     {
         $fields = ['id' => 'step 2'];
         $parents = [];
@@ -833,6 +912,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                     if (\in_array(substr($field, 0, -3), $parents, true)) {
                         continue;
                     }
+                    // Step 1's third exception (O-1): a snapshot source derives the snapshot fields the
+                    // additions row declares — which step 4 adds — and not `x`. The domain is decided by
+                    // {@see self::snapshotSourceExceptions()} and pinned, never asserted here.
+                    if (\in_array($field, $snapshotSources[$resource] ?? [], true)) {
+                        continue;
+                    }
                     $field = substr($field, 0, -3);
                 }
                 $fields[$field] ??= 'step 1 (`'.$operationId.'`)';
@@ -852,6 +937,79 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
 
         return $fields;
+    }
+
+    /**
+     * **API-23 step 1's snapshot-source predicate** (owner ruling O-1, 2026-09-19), resource → the
+     * accepted `_id` fields it excepts.
+     *
+     * Three clauses, each decidable and none of them read from a list:
+     *
+     *   1. the `Create / <Resource>` row accepts `x_id`, and `x` is not a parent the path implies —
+     *      otherwise step 1's **first** exception has already removed it and there is nothing to except;
+     *   2. **the row does not store it** — `x_id` is not a column of the resource's table, measured
+     *      against the live catalogue. This is the clause that does the work: a reference the row
+     *      *does* store is a real reference and API-23b expands it, which is every other `_id` in §4.2;
+     *   3. **the additions row declares the snapshot fields** — `x` less its last `_` segment is a
+     *      prefix (`ship_to_address` → `ship_to_`), and §4.4.3's additions row for the resource names at
+     *      least one field under it that **is** a column of the table. Without this clause an `x_id`
+     *      accepted for any other reason would silently vanish from the derived shape.
+     *
+     * **Reading taken, and stated rather than left to be discovered:** the resource → table tie is
+     * §4.2's `Restore / <Resource>` row, which is the one place §4.2 makes that tie and can only name a
+     * **soft**-deleting table. So a non-soft resource cannot reach this exception at all today. That is
+     * a narrowing, not a decision: the first resource that needs it must widen the tie, and a silent
+     * failure is not possible because the membership above is pinned in both directions.
+     *
+     * @param array<string, array{operationId: string, verbResource: string, method: string, path: string, query: string}> $rows
+     * @param array<string, list<string>>                                                                                  $additions
+     * @param array<string, string>                                                                                        $softResources
+     * @param (callable(string): list<string>)|null                                                                        $columnsOf the live catalogue, or a planted one (the controls below)
+     *
+     * @return array<string, list<string>>
+     */
+    private function snapshotSourceExceptions(array $rows, array $additions, array $softResources, ?callable $columnsOf = null): array
+    {
+        $columnsOf ??= $this->columnsOf(...);
+        $excepted = [];
+
+        foreach ($rows as $operationId => $row) {
+            if (1 !== preg_match('/^Create \/ ([A-Za-z]+)$/', $row['verbResource'], $named)) {
+                continue;
+            }
+            $resource = $named[1];
+            if (!\array_key_exists($resource, $softResources)) {
+                continue;
+            }
+
+            $columns = $columnsOf($softResources[$resource]);
+            self::assertNotSame([], $columns, $softResources[$resource].' has no columns, so clause 2 would except every _id field.');
+            $parents = self::parentsImpliedBy($row['path']);
+
+            foreach (ContractDocument::acceptedFields($operationId) as $field) {
+                $stem = substr($field, 0, -3);
+                if (!str_ends_with($field, '_id') || \in_array($stem, $parents, true) || \in_array($field, $columns, true)) {
+                    continue;
+                }
+
+                $prefix = (string) preg_replace('/[a-z0-9]+$/', '', $stem);
+                if ('' === $prefix) {
+                    continue;
+                }
+
+                $snapshot = array_filter(
+                    $additions[$resource] ?? [],
+                    static fn (string $addition): bool => str_starts_with($addition, $prefix) && \in_array($addition, $columns, true),
+                );
+                if ([] === $snapshot) {
+                    continue;
+                }
+
+                $excepted[$resource][] = $field;
+            }
+        }
+
+        return $excepted;
     }
 
     /**

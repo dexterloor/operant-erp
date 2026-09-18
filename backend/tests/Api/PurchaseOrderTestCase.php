@@ -57,7 +57,10 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
-     * ⚠ **Two SALES fixtures on the purchase-order rig, and the reason is a pin rather than a taxonomy.**
+     * ⚠ **THREE SALES fixtures on the purchase-order rig, and the reason is a pin rather than a taxonomy.**
+     * *(Two until `GetSalesOrder` shipped on 2026-09-19 and added `seedSalesOrder` below; the count is
+     * written here rather than left at "two" because the paragraph is the one that explains why they are
+     * here at all.)*
      *
      * `OperationSuccessRecipes` is a trait declared `@phpstan-require-extends PurchaseOrderTestCase`
      * (`:26`), and every registry-wide check that drives each built operation — `ResponseStatusTest`,
@@ -84,6 +87,41 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
             INSERT INTO customer (id, tenant_id, code, name, currency_code)
             VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')
             SQL, [$id, $tenantId, strtoupper(substr(md5($name.$id), 0, 8)), $name]);
+
+        return $id;
+    }
+
+    /**
+     * A `sales_order` written as the owner, with **no creator and no lines** — the state no built
+     * operation can produce, which is exactly what makes it a fixture and not a second copy of
+     * `CreateSalesOrder` (this class's *"a fixture standing in for an unbuilt operation"*).
+     *
+     * Added with `GetSalesOrder` because three registry-wide checks reached for it at once and none of
+     * them was predicted: `ArchivedRowSubjects` needs a soft `sales_order` pair now that the table has a
+     * built direct-hit `Get`, `TenantClaimProbeTest` needs a subject for that `Get` in both tenants, and
+     * `SalesOrderReadTest` needs the null-creator case.
+     *
+     * `idempotency_key` and `request_digest` are `NOT NULL` since `Version20260919000100` (ruling R-C) and
+     * 64 lower-case hex by `CHECK`. They are **generated, not literal**: the live-row unique is per
+     * tenant, so a literal would collide the moment a caller seeds two orders — which
+     * `ArchivedRowSubjects` does on every run.
+     *
+     * @return string the new row's id
+     */
+    protected function seedSalesOrder(string $tenantId, string $number, ?string $customerId = null, ?string $warehouseId = null): string
+    {
+        $customer = $customerId ?? $this->seedCustomer($tenantId, 'Customer '.$number);
+        $warehouse = $warehouseId ?? $this->seedWarehouse($tenantId, 'WH '.$number);
+        $id = Uuid::v4()->toRfc4122();
+
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO sales_order
+                (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, ship_to_country_code,
+                 idempotency_key, request_digest)
+            VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, 'EUR', 'GB',
+                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+            SQL, [$id, $tenantId, $number, $customer, $warehouse]);
 
         return $id;
     }

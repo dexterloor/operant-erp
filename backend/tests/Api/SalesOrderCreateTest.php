@@ -11,7 +11,8 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **Output 9, sales slice 1, commit 2 — `CreateSalesOrder` over HTTP.**
+ * **Output 9, sales slice 1, commit 2 — `CreateSalesOrder` over HTTP.** The read that commit 3 added is
+ * `SalesOrderReadTest`; this file keeps the create, and the `/sales-orders` operation pin both share.
  *
  * Every assertion that is about what was **written** reads the database as the owner, outside the request,
  * so what is checked is what was committed rather than what the response said.
@@ -29,15 +30,17 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s
      * whole-registry union, so an operation added to `SalesOrderResource` and not pinned here is red there.
      *
-     * **`GetSalesOrder`, `ListSalesOrders`, `UpdateSalesOrder`, `ConfirmSalesOrder`, `CancelSalesOrder`,
+     * **`ListSalesOrders`, `UpdateSalesOrder`, `ConfirmSalesOrder`, `CancelSalesOrder`,
      * `DeleteSalesOrder`, `RestoreSalesOrder` and `CreateSalesOrderLine` are all declared in §4.2 and not
-     * built here.** `GetSalesOrder` is the nearest: ruling R-A deferred it one commit behind its writer,
-     * which is why this resource has no item `GET` and why `CreatedRowLocation` supplies the 201's
-     * `Location`.
+     * built here.** `GetSalesOrder` was the eighth until 2026-09-19; it is built, it is the resource's
+     * first item operation, and its arrival is why `CreateSalesOrder` no longer declares a
+     * `CreatedRowLocation` template — the vendor's own `Location` is already §4.2's path.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_SALES_ORDER_OPERATIONS = [
+        // In declaration order: the registry preserves it and the reconciliation below is `assertSame`.
+        'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
     ];
 
@@ -60,9 +63,13 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
 
     /**
      * API-21 branch 4: **201, the created resource as the body, and a `Location` that IS §4.2's declared
-     * row-level URI** — not merely one that resolves. `GetSalesOrder` does not exist, so the vendor's own
-     * header would name `/sales_orders/<uuid>`, a route that answers 404 by construction; this asserts the
-     * string `CreatedRowLocation` puts there instead.
+     * row-level URI** — not merely one that resolves.
+     *
+     * *(Until `GetSalesOrder` shipped, that string came from `CreatedRowLocation`, because the vendor's
+     * own header would have named `/sales_orders/<uuid>` — a route that answers 404 by construction. The
+     * item `GET` now supplies it and the declaration is gone. **The assertion is unchanged, which is the
+     * point:** it names the string, not the mechanism, so the swap had to keep the header byte-identical
+     * or this is red.)*
      */
     #[Test]
     public function aCreateAnswers201WithTheDeclaredRowUriAndTheCreatedOrder(): void
@@ -75,7 +82,16 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertTrue(Uuid::isValid((string) $body['id']));
         self::assertSame(self::BASE.'/sales-orders/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
-        self::assertSame(self::BASE.'/sales-orders/'.$body['id'], $this->client()->getResponse()->headers->get('Content-Location'));
+        // ⚠ **`Content-Location` gained a `.json` suffix in this commit and that is the vendor's shipped
+        // behaviour, not a regression.** `HttpResponseHeadersTrait` writes `Location` as the bare IRI and
+        // `Content-Location` as `<iri>.<requestFormat>`; `CreatedRowLocation` had been overwriting both
+        // with one string because the vendor's IRI named a 404 route. With `GetSalesOrder` shipped the
+        // vendor's IRI is right, the listener is gone, and this response now matches `CreatePurchaseOrder`
+        // and `CreateGoodsReceipt` byte for byte in shape. The suffixed URI resolves — every API Platform
+        // route carries `{._format}`. **It is asserted here rather than dropped** because it is the one
+        // observable difference removing the declaration made, and an unasserted header is how a silent
+        // change of it would next go unnoticed.
+        self::assertSame(self::BASE.'/sales-orders/'.$body['id'].'.json', $this->client()->getResponse()->headers->get('Content-Location'));
 
         self::assertSame(['id' => $c['customer'], 'name' => 'Acme Retail'], $body['customer']);
         self::assertSame(['id' => $c['warehouse'], 'name' => 'WH SO'], $body['warehouse']);
@@ -86,25 +102,31 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         self::assertNull($body['ordered_at']);
         self::assertNull($body['archived_at']);
 
-        // The read shape carries no `lines` (API-23 step 1's sub-list exception), no `created_by` (B1N-2,
-        // `SEC`'s and genuinely unruled) and no `ship_to_address` — which is **owner ruling O-1 of
-        // 2026-09-19, KEEP-AND-EXCEPT**, not a holding position: the snapshot fields ARE the answer, and
-        // only the §4.4.3 exception that states the rule is deferred to `GetSalesOrder`'s commit.
+        // The read shape carries no `lines` (API-23 step 1's sub-list exception) and no `ship_to_address`
+        // (step 1's snapshot-source exception, owner ruling O-1, written into §4.4.3 with the read). It
+        // **does** carry `created_by`, ruled by B1N-2 on 2026-09-19 — and the create's body and the
+        // read's body are the same shape by construction, because `SalesOrderRow` builds both.
         self::assertSame([
             'id', 'customer', 'warehouse', 'currency_code', 'order_number', 'status', 'total_amount',
-            'ordered_at', 'ship_to_line', 'ship_to_city', 'ship_to_postal_code', 'ship_to_country_code',
-            'archived_at',
+            'ordered_at', 'created_by', 'ship_to_line', 'ship_to_city', 'ship_to_postal_code',
+            'ship_to_country_code', 'archived_at',
         ], array_keys($body));
+        self::assertSame(['id' => $this->actorId, 'display_name' => 'Fixture Actor'], $body['created_by']);
 
         // What was written, read as the owner outside the request.
         $rows = $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount, created_by_user_id, status FROM sales_order');
         self::assertCount(1, $rows);
         self::assertSame('7.0000', $rows[0]['total_amount']);
-        self::assertNotNull($rows[0]['created_by_user_id'],
-            '§8.1\'s rule for the purchasing mirror: created_by_user_id is set server-side from the JWT subject on '
-            .'every user-initiated create. A NULL here turns DSoD-1 into a suggestion one INSERT at a time. It is '
-            .'written even though the response does not carry it — B1N-2 is a disclosure question, not a write one.');
+        // ⚠ **This read `assertNotNull` until 2026-09-19 under a message claiming the stronger property**,
+        // which is B1N-2 amendment A4: the column being non-null says nothing about *whose* id it holds,
+        // and a wrong id was invisible while the field was withheld. Exposure turns it into a
+        // colleague's name on a screen. `assertSame` is the purchasing mirror
+        // (`PurchaseOrderApprovalTest:687`), and the wrong-actor mutation was run rather than predicted.
+        self::assertSame($this->actorId, $rows[0]['created_by_user_id'],
+            'An order created over HTTP does not name its creator. §8.1\'s rule for the purchasing mirror: '
+            .'created_by_user_id is set server-side from the JWT subject on every user-initiated create, and any other '
+            .'id there is now a wrong name rendered on the order screen (B1N-2, 2026-09-19).');
 
         $lines = $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT line_number, quantity, unit_price, quantity_fulfilled FROM sales_order_line');

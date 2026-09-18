@@ -13,10 +13,11 @@ use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * `CreateSalesOrder` — API-21 branch 4, with the `Location` taken from
- * `CreatedRowLocation::OPERATION_URI_TEMPLATE` on the operation rather than from the vendor's IRI, because
- * `GetSalesOrder` does not exist yet and the vendor would name a route that 404s. `SalesOrderResource`
- * says the rest.
+ * `CreateSalesOrder` — API-21 branch 4: 201, the created resource as the body, and a `Location` naming
+ * `/sales-orders/{id}`. That header is the **vendor's own IRI** as of 2026-09-19, because `GetSalesOrder`
+ * now exists and is the resource's first item operation; for the one commit before it did,
+ * `CreatedRowLocation::OPERATION_URI_TEMPLATE` supplied the same string, because the vendor would
+ * otherwise have named a route that 404s. `SalesOrderResource` says the rest.
  *
  * ---------------------------------------------------------------------------
  * The one thing this processor does beyond delegating, and why it is here

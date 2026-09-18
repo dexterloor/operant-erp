@@ -125,6 +125,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'CreateSalesOrder' => ['body' => [
             'customer_id' => '@customer', 'warehouse_id' => '@warehouse', 'ship_to_address_id' => '@customer_address',
         ]],
+        // Added 2026-09-19 with the read. Its subject is a seeded order in each tenant, so a supplied
+        // tenant id that changed which workspace the provider read in would answer with B's order where
+        // A's was asked for — which is what the probe compares.
+        'GetSalesOrder' => ['vars' => ['id' => 'sales_order']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -403,6 +407,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $placed = $this->remember($letter, 'placed',
             $this->seedOrder($tenantId, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED));
         $this->remember($letter, 'placed_line', $this->seedLine($tenantId, $placed, $item));
+
+        // The sales order reuses this tenant's own customer and warehouse rather than seeding fresh ones,
+        // so the response's `customer` expansion is a symbol the digest can name — a cross-tenant answer
+        // shows up as `B.customer` and not as an anonymous uuid.
+        $this->remember($letter, 'sales_order', $this->seedSalesOrder($tenantId, 'SO-1', $customer, $warehouse));
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);
