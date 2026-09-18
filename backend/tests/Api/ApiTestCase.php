@@ -257,9 +257,16 @@ abstract class ApiTestCase extends TenancyTestCase
             [Uuid::v4()->toRfc4122(), $tenantId, $userId, $roleId]);
 
         foreach ($permissionCodes as $code) {
-            // `permission` is a non-tenant reference table the migrations leave
-            // empty and `role_permission` carries a foreign key onto it, so
-            // seeding the code is part of building the fixture.
+            // `permission` is a non-tenant reference table and `role_permission`
+            // carries a foreign key onto it, so the code has to exist before the
+            // grant does. **`Version20260918000100` now seeds all 60**, so for
+            // every code the API declares this statement is a no-op and the
+            // `'Fixture'` module never reaches a row — the `DO NOTHING` is what
+            // makes that true, and removing it would overwrite the catalogue with
+            // a placeholder. It is kept rather than deleted so that a fixture
+            // reaching for a code the catalogue does not have still builds; if one
+            // ever does, `PermissionCatalogueSeedTest` fails naming the code,
+            // which is the correct outcome.
             $this->owner()->executeStatement(
                 "INSERT INTO permission (code, module, description) VALUES (?, 'Fixture', ?) ON CONFLICT (code) DO NOTHING",
                 [$code, $code]);

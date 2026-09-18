@@ -479,6 +479,9 @@ final class PermissionEnforcementTest extends ApiTestCase
         $this->actAs(self::TENANT_A, $granted);
 
         // A second role, then deleted: the two readers must agree about it too.
+        // `inventory_item.delete` is in the catalogue `Version20260918000100` seeds,
+        // so the insert below is a no-op on any migrated database; it is kept for the
+        // foreign key's sake and cannot overwrite the seeded row.
         $deadRole = Uuid::v4()->toRfc4122();
         $this->owner()->executeStatement(
             "INSERT INTO permission (code, module, description) VALUES ('inventory_item.delete', 'Fixture', 'x') ON CONFLICT (code) DO NOTHING");

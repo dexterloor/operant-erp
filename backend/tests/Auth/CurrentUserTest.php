@@ -320,11 +320,17 @@ final class CurrentUserTest extends AuthTestCase
     }
 
     /**
-     * `permission` is a non-tenant reference table the migrations leave empty,
-     * and `role_permission` carries a foreign key onto it. Seeding the codes a
-     * fixture uses is therefore part of building the fixture, not part of the
-     * claim: every assertion in this file compares the response against what
-     * `role_permission` holds, never against this list.
+     * `permission` is a non-tenant reference table and `role_permission` carries a
+     * foreign key onto it, so a code has to exist before a grant of it does.
+     * Seeding it here is part of building the fixture, not part of the claim: every
+     * assertion in this file compares the response against what `role_permission`
+     * holds, never against this list.
+     *
+     * **`Version20260918000100` now seeds all 60 codes**, so for every code this
+     * file uses the statement below is a no-op and the lowercase `module` it would
+     * write — `supplier`, not `Modules\Suppliers` — never reaches a row. The
+     * `ON CONFLICT … DO NOTHING` is what makes that true; without it this fixture
+     * would overwrite the seeded catalogue with a value PC-1a forbids.
      */
     private function seedPermission(string $code): void
     {
