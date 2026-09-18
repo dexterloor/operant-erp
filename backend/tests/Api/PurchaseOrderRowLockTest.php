@@ -950,7 +950,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     ];
 
     /**
-     * W-5's other half — see `noMethodInSrcWritesASalesOrderYet()`.
+     * W-5's other half — see `everyMethodThatWritesASalesOrderIsCoveredByALockFirstCheck()`.
      *
      * @var array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string, class-string}}
      */
@@ -1213,8 +1213,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Planted sales-order writers for `noMethodInSrcWritesASalesOrderYet()`'s
-     * control. `readsOnly` references a constant that is not a write and
+     * Planted sales-order writers for
+     * `everyMethodThatWritesASalesOrderIsCoveredByALockFirstCheck()`'s control. `readsOnly` references a constant that is not a write and
      * `neverRuns` holds the write constant's name only as prose, so a scan that
      * credited every constant to every method would be red too.
      */

@@ -27,7 +27,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * The order stores no address id. The four `ship_to_*` columns are copied from the named
  * `customer_address` row **at create** (owner ruling O-2, 2026-09-19), which is why `customer_address` is
  * deletion class `hard`: *"an order pointing at a live address row would silently rewrite where a past
- * shipment went every time the customer moves"* (`SchemaManifest.php:473`, `SalesOrder.php:35-43`).
+ * shipment went every time the customer moves"* (`SchemaManifest.php:484`, `SalesOrder.php:37-42`).
+ * *(Both offsets corrected by the RED exit audit, F-7: `:473` is `customer`'s unrelated ADR-007 `why`.)*
  *
  * **It is required**, and the schema says so rather than a rule: `sales_order.ship_to_country_code` is
  * `NOT NULL` with **no default** and a foreign key onto `country`, so there is no legal row without a

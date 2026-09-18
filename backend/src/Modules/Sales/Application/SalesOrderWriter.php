@@ -787,7 +787,8 @@ final readonly class SalesOrderWriter
             // scale 10 and bcmath's scale argument **truncates**: accumulating at 4 threw away up to
             // 0.0001 per line while Postgres sums the VALUES list at full precision and ROUNDS the cast
             // into numeric(19,4). Two lines were enough to make the guard pass and the INSERT raise 22003
-            // -- measured over HTTP. `SalesOrderCreateTest::aTotalThatOverflowsOnlyWhenTheDatabaseRounds…`
+            // -- measured over HTTP.
+            // `SalesOrderCreateTest::aTotalThatOverflowsOnlyWhenTheDatabaseRoundsIsRefusedRatherThanAnsweringA500()`
             // holds this; the guard is now an upper bound on the stored total, never below it.
             $total = bcadd($total, bcmul((string) $values['quantity'], (string) $values['unitPrice'], self::PRODUCT_SCALE), self::PRODUCT_SCALE);
             if (!self::fitsInTheTotalColumn(self::roundedToMoney($total))) {

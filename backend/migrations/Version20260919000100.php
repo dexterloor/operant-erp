@@ -33,7 +33,9 @@ use Doctrine\Migrations\AbstractMigration;
  *
  * **`sales_order` has no such history.** Nothing in `src/` has ever written one: there is no
  * `INSERT INTO sales_order` and no `new SalesOrder(` under `backend/src/` at `90162a6`, and
- * `PurchaseOrderRowLockTest::noMethodInSrcWritesASalesOrderYet()` asserts exactly that and is green. The
+ * `PurchaseOrderRowLockTest::everyMethodThatWritesASalesOrderIsCoveredByALockFirstCheck()` asserts
+ * exactly that and is green — it was named `noMethodInSrcWritesASalesOrderYet()` when this migration
+ * shipped, and `CreateSalesOrder` renamed it in the next commit because the set is no longer empty. The
  * matching precedent is therefore `Version20260911000400` (`goods_receipt`), not `Version20260911000100`:
  * *"A nullable column plus a trigger would describe a population that does not exist."* Both columns are
  * plain `NOT NULL`, which says the same thing in one clause and needs no function, no grant and no `WHEN`.

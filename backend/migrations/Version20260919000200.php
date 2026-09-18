@@ -14,7 +14,11 @@ use Doctrine\Migrations\AbstractMigration;
  * ADR-002 Amendment 4.1: `erp_app` holds only the writes a `src/` caller issues, and *"the migration that
  * ships the first caller grants the write and edits `SchemaManifest` in the same commit"*. This is that
  * migration. `Version20260916000300` revoked `INSERT, UPDATE, DELETE` on both tables from `erp_app`
- * (`:109`, `:110`) because no caller existed; `CreateSalesOrder` is the first, and it inserts.
+ * (its `up()`, `:82` and `:83`) because no caller existed; `CreateSalesOrder` is the first, and it
+ * inserts. ⚠ **This read `:109`, `:110` until the RED exit audit (F-7) measured it**: those two lines are
+ * the same file's `down()`, `GRANT INSERT, UPDATE, DELETE ON sales_order TO erp_app` — the statements
+ * that *restore* what the sentence says was revoked. The fact was right and the pointer was inverted, in
+ * the migration whose whole subject is grant narrowness.
  *
  * ---------------------------------------------------------------------------
  * `INSERT` only — no `UPDATE`, and the omission is the decision (ruling R-B)

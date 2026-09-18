@@ -73,7 +73,7 @@ final class ApiConfigurationTest extends ApiTestCase
             '_api_/sales_orders/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
         ], $notExposed,
-            'A route was excluded from the count as "not exposed" that is not one of the two API Platform mints.');
+            'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
 
         // Six for the `/items` slice, three for Output 4 §7's authentication
         // paths (`IssueToken`, `GetCurrentUser`, and `ChangePassword` added
