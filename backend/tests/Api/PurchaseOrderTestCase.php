@@ -127,6 +127,30 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
+     * A live `sales_order_line`, written as the owner.
+     *
+     * Added with `ConfirmSalesOrder`, which is the first operation for which *"a sales order"* is not a
+     * sufficient fixture: its line guard refuses an order with no live line, so every caller that must
+     * reach the **success** path needs one. `seedSalesOrder` deliberately seeds none — the zero-line draft
+     * is itself a case this commit tests — so the two are separate helpers rather than a flag.
+     *
+     * `line_number` is a parameter because `sales_order_line_unique` is partial on
+     * `(tenant_id, sales_order_id, line_number)`: two lines on one order must differ.
+     *
+     * @return string the new row's id
+     */
+    protected function seedSalesOrderLine(string $tenantId, string $orderId, string $itemId, int $lineNumber = 1): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO sales_order_line (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, 1, 1)
+            SQL, [$id, $tenantId, $orderId, $itemId, $lineNumber]);
+
+        return $id;
+    }
+
+    /**
      * An address of a customer. `kind` is a parameter rather than a constant because V2-S-9's refusal is
      * *"a shipping address of THIS customer"*, and a test that cannot seed a `billing` one cannot show the
      * kind half of that rule firing.

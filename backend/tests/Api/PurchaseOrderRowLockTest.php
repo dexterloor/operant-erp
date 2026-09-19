@@ -904,6 +904,132 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * `CancelSalesOrder`, `CreateSalesOrderLine` — needs a lock-first check that actually runs, the way
      * `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs for purchasing, and a list naming it.
      */
+    /**
+     * **Confirm vs confirm: two reps commit the same draft to the customer at once.** A confirms and holds
+     * the order; the HTTP request must wait, then read what A committed and refuse.
+     *
+     * Without the lock first the second confirmation reads `draft`, passes `confirm()`'s status guard,
+     * counts the lines, waits only at its own `UPDATE`, and then writes `confirmed` over `confirmed` with
+     * a **new `ordered_at`** — a customer commitment silently re-dated by a request that changed nothing
+     * else. `ordered_at` is in the comparison below for exactly that reason.
+     *
+     * This is `aSecondCancellationWaitsAndIsRefusedByTheStatusGuard` on the selling side, and it is what
+     * makes the Sales half of W-5 *behaviour* rather than *position*: the per-path check below covers
+     * position, and the purchase-order docblock says in terms that position is a supplement and not
+     * evidence on its own.
+     */
+    #[Test]
+    public function aSecondConfirmationWaitsAndIsRefusedByTheStatusGuard(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ["UPDATE sales_order SET status = 'confirmed', ordered_at = now(), updated_at = now() WHERE id = ?::uuid", [$order]],
+        ], request: fn () => $this->send('POST', '/sales-orders/'.$order.'/confirmation'), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('sales_order.'.self::STATUS_RULE, $this->json()['rule']);
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_CONFIRMED);
+    }
+
+    /**
+     * **Confirm vs archive-the-last-line — the race the line guard names.** A archives the order's only
+     * line and holds the order. The confirmation must wait, then count the lines A left, which is none,
+     * and refuse with `sales_order.has_a_live_line`.
+     *
+     * It is the mirror of `anApprovalWaitsForTheArchiveOfTheLastLineAndThenRefuses`, and it is the case
+     * that makes V2-R-22 Half 1's *"the count is read inside the transaction, under the lock"* a measured
+     * claim rather than a described one: a count read before the lock would see A's line and confirm an
+     * order that has none.
+     */
+    #[Test]
+    public function aConfirmationWaitsForTheArchiveOfTheLastLineAndThenRefuses(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ['UPDATE sales_order_line SET deleted_at = now() WHERE sales_order_id = ?::uuid', [$order]],
+        ], request: fn () => $this->send('POST', '/sales-orders/'.$order.'/confirmation'), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('sales_order.has_a_live_line', $this->json()['rule']);
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_DRAFT);
+    }
+
+    /**
+     * **The Sales half of `theOrderRowLockIsTheFirstStatementToTouchTheOrder`: in every sales write path
+     * the lock is the first statement that touches the order or its lines.**
+     *
+     * Supplement, not evidence on its own — the races above prove behaviour for the shapes they drive;
+     * this covers position, so a later edit that adds a read above the lock is red here even where no race
+     * test happens to reach it. The lock is spelled here independently of `SalesOrderRowLock::SQL`, so a
+     * change to the lock's mode (say, to `FOR UPDATE`) is red here too.
+     *
+     * @param array<string, string>|null $body
+     */
+    #[Test]
+    #[DataProvider('everySalesWritePath')]
+    public function theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $this->recorder()->start();
+        $this->send($method, strtr($path, ['{order}' => $order]), $body, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        $this->recorder()->stop();
+
+        self::assertSame($status, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        // Split at each tenant-context statement, which `TenantContext::run()` issues as a transaction's
+        // first statement. The pattern is written so `TenantContextContainmentTest`'s writer scan does not
+        // read this matcher as a writer of tenant context: this file matches the statement, it never
+        // issues it.
+        $transactions = [];
+        foreach ($this->recorder()->statements() as $sql) {
+            if (1 === preg_match('/^SELECT set_config\(/', $sql)) {
+                $transactions[] = [];
+                continue;
+            }
+            if ([] !== $transactions) {
+                $transactions[\count($transactions) - 1][] = $sql;
+            }
+        }
+
+        $writing = array_values(array_filter($transactions, static fn (array $statements): bool => [] !== preg_grep(
+            '/^\s*(UPDATE|INSERT INTO)\s+sales_order(_line)?\b/i', $statements,
+        )));
+        self::assertCount(1, $writing, 'Expected exactly one transaction writing the sales order or its lines.');
+
+        $touching = array_values(preg_grep('/\bsales_order(_line)?\b/', $writing[0]));
+        self::assertMatchesRegularExpression(
+            '/^SELECT 1 FROM sales_order WHERE id = \S+ FOR NO KEY UPDATE$/',
+            $touching[0],
+            "The first statement to touch the sales order is not its row lock. Statements, in order:\n".implode("\n", $touching),
+        );
+    }
+
+    /** @return iterable<string, array{string, string, array<string, string>|null, int}> */
+    public static function everySalesWritePath(): iterable
+    {
+        yield 'ConfirmSalesOrder' => ['POST', '/sales-orders/{order}/confirmation', null, 200];
+    }
+
+    /**
+     * **The Sales half of `LOCK_FIRST_CHECKED`** — `everySalesWritePath()`'s case => the method it enters.
+     * The keys must be exactly that provider's cases, so the map and the runtime check cannot drift apart.
+     *
+     * It arrived with `ConfirmSalesOrder`, which is what the sibling constant's docblock said the next
+     * sales writer would need: *"a lock-first check that actually runs, the way
+     * `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs for purchasing, and a list naming it"*.
+     * `theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder` is that check and this is that list.
+     */
+    private const SALES_LOCK_FIRST_CHECKED = [
+        'ConfirmSalesOrder' => 'SalesOrderConfirmation::confirm',
+    ];
+
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [
         'SalesOrderWriter::create' => [
             // Read off this test's own failure, not predicted: both statements are in private helpers, so
@@ -1058,11 +1184,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *    DQL `UPDATE`/`DELETE FROM`. A regex that could never match its table would
      *    otherwise turn this into a test that passes forever.
      *
-     * **What the NEXT sales writer has to do** —
-     * take a sales-order row lock as the first statement of its transaction
-     * (the `PurchaseOrderRowLock` shape), and be given the same accounting the
-     * purchase side has: a lock-first check that runs, and a list naming it; or
-     * be allow-listed with its reason, as `SalesOrderWriter::create` now is.
+     * **That demand has been MET once, by `ConfirmSalesOrder` on 2026-09-19.** It takes
+     * `SalesOrderRowLock::holdInside()` as the first statement of its transaction, it has a case in
+     * `everySalesWritePath()` and an entry in `SALES_LOCK_FIRST_CHECKED`,
+     * `theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder` proves the position per path, and
+     * `aSecondConfirmationWaitsAndIsRefusedByTheStatusGuard` proves the behaviour against a real second
+     * connection. **What the NEXT sales writer has to do is the same** — take the lock as its first
+     * statement and be given a check that runs and a list naming it; or be allow-listed with its reason,
+     * as `SalesOrderWriter::create` is.
      * ⚠ **`SALES_ALLOWED_WITHOUT_A_LOCK` is not a second home for that answer** — a writer that touches an
      * **existing** sales order has a row to lock and the create's reason does not transfer. The next
      * arrival is already known:
@@ -1178,7 +1307,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             .'so an empty result here means the scan has stopped seeing them and the accounting below holds over '
             .'nothing.');
 
-        $accounted = array_keys(self::SALES_ALLOWED_WITHOUT_A_LOCK);
+        self::assertSame(
+            array_keys(iterator_to_array(self::everySalesWritePath())),
+            array_keys(self::SALES_LOCK_FIRST_CHECKED),
+            'SALES_LOCK_FIRST_CHECKED must name exactly the cases everySalesWritePath() runs.');
+
+        $accounted = [
+            ...array_values(self::SALES_LOCK_FIRST_CHECKED),
+            ...array_keys(self::SALES_ALLOWED_WITHOUT_A_LOCK),
+        ];
         sort($accounted);
         $found = array_keys($derived);
         sort($found);
@@ -1570,7 +1707,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *
      * @return array{waiter_seen: bool, committed: bool, sqlstate: ?string, error: ?string}
      */
-    private function raceAgainstAHolder(string $orderId, array $before, callable $request, array $after = []): array
+    private function raceAgainstAHolder(string $orderId, array $before, callable $request, array $after = [], string $table = 'purchase_order'): array
     {
         $readyFile = tempnam(sys_get_temp_dir(), 'erp_po_lock_');
         file_put_contents($readyFile, '');
@@ -1584,6 +1721,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 'APP_DIRECT_DATABASE_URL' => $_ENV['APP_DIRECT_DATABASE_URL'],
                 'HOLD_TENANT' => self::TENANT_A,
                 'HOLD_ORDER' => $orderId,
+                'HOLD_TABLE' => $table,
                 'HOLD_BEFORE' => json_encode($before, \JSON_THROW_ON_ERROR),
                 'HOLD_AFTER' => json_encode($after, \JSON_THROW_ON_ERROR),
                 'HOLD_READY_FILE' => $readyFile,
@@ -1645,5 +1783,20 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     {
         self::assertSame([['status' => $status]], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT status FROM purchase_order WHERE id = ?::uuid', [$orderId]));
+    }
+
+    private function assertSalesOrderStatus(string $orderId, string $status): void
+    {
+        self::assertSame([['status' => $status]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status FROM sales_order WHERE id = ?::uuid', [$orderId]));
+    }
+
+    /** A `draft` sales order with one live line, so a confirmation of it is not refused for being empty. */
+    private function seedConfirmableSalesOrder(string $number): string
+    {
+        $order = $this->seedSalesOrder(self::TENANT_A, $number);
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-'.$number));
+
+        return $order;
     }
 }

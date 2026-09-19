@@ -5,6 +5,9 @@
     "CancelPurchaseOrder $.total_amount": [
         4
     ],
+    "ConfirmSalesOrder $.total_amount": [
+        4
+    ],
     "CreateGoodsReceipt $.lines[].quantity": [
         6
     ],

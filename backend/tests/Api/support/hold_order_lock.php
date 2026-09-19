@@ -8,7 +8,8 @@
 // would prove something about the pool, not about the lock.
 //
 // Sequence, every step decided by the database rather than by a clock:
-//   1. BEGIN; set the tenant; take the order's row lock; run HOLD_BEFORE.
+//   1. BEGIN; set the tenant; take the row lock on HOLD_TABLE (whitelisted:
+//      `purchase_order` or `sales_order`, defaulting to the first); run HOLD_BEFORE.
 //   2. Write this backend's pid to HOLD_READY_FILE. The parent sends B now.
 //   3. Wait until Postgres reports some backend blocked BY THIS ONE
 //      (`pg_blocking_pids`). That is the moment B is provably inside its
@@ -49,7 +50,17 @@ try {
     $conn = DriverManager::getConnection($params);
     $conn->beginTransaction();
     $conn->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [getenv('HOLD_TENANT')]);
-    $conn->executeStatement('SELECT 1 FROM purchase_order WHERE id = ?::uuid FOR NO KEY UPDATE', [getenv('HOLD_ORDER')]);
+    // HOLD_TABLE was added with `ConfirmSalesOrder`: the same race harness now drives both aggregates,
+    // and the holder has to take the lock on the table the request will take it on. It is checked against
+    // a literal whitelist rather than interpolated as given -- a table name cannot be a bound parameter,
+    // and an env var reaching a statement unchecked is the one shape this file must not have.
+    $table = (string) getenv('HOLD_TABLE') ?: 'purchase_order';
+
+    if (!in_array($table, ['purchase_order', 'sales_order'], true)) {
+        throw new RuntimeException('HOLD_TABLE names no aggregate this holder locks: '.$table);
+    }
+
+    $conn->executeStatement(sprintf('SELECT 1 FROM %s WHERE id = ?::uuid FOR NO KEY UPDATE', $table), [getenv('HOLD_ORDER')]);
 
     foreach ($before as [$sql, $bind]) {
         $conn->executeStatement($sql, $bind);

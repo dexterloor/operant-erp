@@ -249,12 +249,16 @@ trait ArchivedRowSubjects
 
                 return ['id' => $draft['order'], 'row' => $draft['order']];
             },
-            // Added 2026-09-19 with `GetSalesOrder`: `sales_order` is class `soft` and now has a built
-            // direct-hit `Get`, so the Get clause selects it. It is in **that clause only** — no sales
-            // list, PATCH, DELETE or transition is built — and the derivation says so with its own reason
-            // rather than this line having to.
+            // Added 2026-09-19 with `GetSalesOrder`: `sales_order` is class `soft` and has a built
+            // direct-hit `Get`, so the Get clause selects it. ⚠ **It was in that clause ONLY until
+            // `ConfirmSalesOrder` shipped later the same day**, and the sentence that said so is replaced
+            // rather than left standing: a `POST` transition on this resource now exists, so the write
+            // clause selects it too — which is why the fixture gained a line. Without one, confirming the
+            // **live twin** is refused by the line guard, and this trait asserts the live twin succeeds
+            // precisely so that a refusal of the archived row is the archived state's doing.
             'sales_order' => function (string $tag): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ARC-SO-'.$tag.'-'.bin2hex(random_bytes(3))));
 
                 return ['id' => $order, 'row' => $order];
             },
@@ -278,6 +282,10 @@ trait ArchivedRowSubjects
         return [
             'ApprovePurchaseOrder' => [],
             'CancelPurchaseOrder' => ['reason' => 'Supplier withdrew'],
+            // `null`, not `[]`: `ConfirmSalesOrder` declares `deserialize: false`, and an empty JSON
+            // object would be sent with a `Content-Type` the operation never reads. It accepts nothing
+            // (§4.2's `Accepted request fields` is `—`), so the request carries nothing.
+            'ConfirmSalesOrder' => null,
             'DeleteItem' => null,
             'DeletePurchaseOrder' => null,
             'DeletePurchaseOrderLine' => null,

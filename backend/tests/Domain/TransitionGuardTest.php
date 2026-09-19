@@ -264,6 +264,16 @@ final class TransitionGuardTest extends TestCase
                 .'the line guard is `DomainRefusalTest::theLineGuardRunsBeforeTheWarehouseGuard`\'s — this register '
                 .'refuses one precondition at a time.',
         ],
+        SalesOrder::class.'::confirm($liveLineCount)' => [
+            'satisfying' => 1,
+            'refusing' => 0,
+            'rule' => 'has_a_live_line',
+            'why' => 'V2-R-22 Half 1, which is D-C copied to the selling side: an order with no live line may not be '
+                .'confirmed. 1 satisfies the precondition, so a legal matrix cell is not refused by a rule it is not '
+                .'about; 0 fails it, which is what makes the status guard\'s precedence checkable here too. The state '
+                .'is reachable — CreateSalesOrder accepts an absent or null lines[] as a legal empty draft. '
+                .'`SalesOrderConfirmTest` owns what the 0 case says over HTTP.',
+        ],
         PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
             'satisfying' => true,
             'refusing' => null,

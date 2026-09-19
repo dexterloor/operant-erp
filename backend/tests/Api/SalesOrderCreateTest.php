@@ -30,11 +30,13 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s
      * whole-registry union, so an operation added to `SalesOrderResource` and not pinned here is red there.
      *
-     * **`ListSalesOrders`, `UpdateSalesOrder`, `ConfirmSalesOrder`, `CancelSalesOrder`,
-     * `DeleteSalesOrder`, `RestoreSalesOrder` and `CreateSalesOrderLine` are all declared in §4.2 and not
-     * built here.** `GetSalesOrder` was the eighth until 2026-09-19; it is built, it is the resource's
-     * first item operation, and its arrival is why `CreateSalesOrder` no longer declares a
-     * `CreatedRowLocation` template — the vendor's own `Location` is already §4.2's path.
+     * **`ListSalesOrders`, `UpdateSalesOrder`, `CancelSalesOrder`, `DeleteSalesOrder`, `RestoreSalesOrder`
+     * and `CreateSalesOrderLine` are all declared in §4.2 and not built here.** `GetSalesOrder` was the
+     * eighth until 2026-09-19; it is built, it is the resource's first item operation, and its arrival is
+     * why `CreateSalesOrder` no longer declares a `CreatedRowLocation` template — the vendor's own
+     * `Location` is already §4.2's path. **`ConfirmSalesOrder` left that list later the same day**; its
+     * `idem` is `false` because §4.2 gives it `guard:sales_order.status`, and API-14 as amended demands
+     * the header for `store` and `unique:` only.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
@@ -42,6 +44,7 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // In declaration order: the registry preserves it and the reconciliation below is `assertSame`.
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
+        'ConfirmSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/confirmation', 'idem' => false],
     ];
 
     /** The registry's `/sales-orders` operations are exactly the pin, method and path included. */

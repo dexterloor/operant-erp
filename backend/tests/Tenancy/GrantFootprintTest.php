@@ -604,8 +604,13 @@ final class GrantFootprintTest extends TenancyTestCase
      *
      * **Positive control, same test:** `purchase_order` → `purchase_order_line` must be in the derived set and
      * `erp_app` must hold UPDATE on `purchase_order`, so the implication is exercised, not vacuous.
-     * **Planted control:** `GRANT UPDATE ON sales_order TO erp_app` inside a rolled-back transaction must produce
-     * exactly one violation naming `sales_order_line`.
+     * **Planted control:** a rolled-back `REVOKE UPDATE ON sales_order_line FROM erp_app`, leaving
+     * `sales_order`'s `UPDATE` in place, must produce exactly one violation naming `sales_order_line`.
+     * *(It was `GRANT UPDATE ON sales_order TO erp_app` until 2026-09-19. That plant depended on `erp_app`
+     * holding `UPDATE` on neither sales table, and `ConfirmSalesOrder`'s `Version20260919000300` — written
+     * parent-only first, and reddened here by exactly the violation this control asserts — granted both.
+     * A plant that can no longer reach the forbidden state is not a control, so it was moved to the other
+     * side of the same implication rather than deleted.)*
      */
     #[Test]
     public function aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild(): void
@@ -648,11 +653,22 @@ final class GrantFootprintTest extends TenancyTestCase
             "A role can soft-delete a cascade parent but cannot run the cascade it fires as the invoker. Grant the child's "
             .'UPDATE in the same migration that grants the parent\'s (ADR-002 A4.4 item 3).');
 
+        // ⚠ **The plant CHANGED SIDES on 2026-09-19 with `ConfirmSalesOrder`, and the reason is the whole
+        // point of this test.** It used to be `GRANT UPDATE ON sales_order TO erp_app`, which worked only
+        // while `erp_app` held `UPDATE` on neither sales table. `Version20260919000300` granted both — and
+        // it did so *because this check demanded it*: the migration was written parent-only first and this
+        // method answered with exactly the violation asserted below (P-4, measured, not predicted). With
+        // both grants in place that plant now produces **no** violation, so keeping it would have turned
+        // the control into a test that passes forever. The plant is therefore the same state reached from
+        // the other side: **revoke the child's `UPDATE`** and leave the parent's, which is precisely the
+        // condition A4.4 duty 3 forbids. The asserted string is unchanged, so what the control proves is
+        // unchanged too.
         $this->owner()->beginTransaction();
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE ON sales_order TO %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE ON sales_order_line FROM %s', DatabaseRoles::APP));
             self::assertSame([DatabaseRoles::APP.' can UPDATE sales_order but lacks UPDATE on sales_order_line'], $violations(),
-                'A planted UPDATE on sales_order alone did not make this check fail, so it is not a check.');
+                'A planted revocation of sales_order_line\'s UPDATE, with sales_order\'s left in place, did not make this '
+                .'check fail, so it is not a check.');
         } finally {
             $this->owner()->rollBack();
         }

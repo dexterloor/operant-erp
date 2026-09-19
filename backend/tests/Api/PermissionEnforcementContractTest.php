@@ -78,6 +78,13 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // condition 2, ruled for this field by B1N-2 on PC-11 (4a) ground) and neither customer nor
         // warehouse reference needs its own `.view` (PC-15 clause 4).
         'GetSalesOrder' => 'sales_order.view',
+        // Added 2026-09-19. `sales_order.confirm` is the row's own `Perm` cell and a code of its own
+        // rather than `.edit`: SoD-4 controls it against the movement codes (`SECURITY_MODEL.md` §4's
+        // pair table), so an operation that confirmed under `.edit` would put a revenue-commitment
+        // capability inside an editing one and quietly dissolve that pair. **No DSoD rule applies** —
+        // ADR-008 names none on any sales document, and `sales_order.created_by_user_id` records the
+        // creator, not the confirmer, so one could not be expressed on the columns that exist.
+        'ConfirmSalesOrder' => 'sales_order.confirm',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',

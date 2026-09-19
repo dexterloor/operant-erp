@@ -93,7 +93,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more the same day:** `GetSalesOrder`, which needed no migration at all — `erp_app`
         // already held SELECT on both sales tables — and whose arrival is also why the not-exposed list
         // above lost an entry.
-        self::assertCount(24, $checked, 'The route set changed. This slice declares twenty-four operations: '.implode(', ', array_keys($checked)));
+        // **One more, later on 2026-09-19:** `ConfirmSalesOrder`, the first operation in `src/` to change a
+        // sales order that already exists, granted its `UPDATE` on both sales tables by
+        // `Version20260919000300`.
+        self::assertCount(25, $checked, 'The route set changed. This slice declares twenty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

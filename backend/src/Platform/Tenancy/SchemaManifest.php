@@ -121,16 +121,12 @@ final class SchemaManifest
     /** A tenant table `erp_app` inserts into and updates, from `src/` callers named at the table. */
     private const APP_INSERT_UPDATE = [DatabaseRoles::APP => ['SELECT', 'INSERT', 'UPDATE'], DatabaseRoles::AI => ['SELECT']];
 
-    /**
-     * A tenant table `erp_app` only **inserts** into, from `src/` callers named at the table.
-     *
-     * Added 2026-09-19 with `CreateSalesOrder` (ruling R-B). It is a separate constant rather than
-     * `APP_INSERT_UPDATE` because A4.4 duty 1's word is *"exactly"*: the sales create issues no `UPDATE`
-     * — its total is computed inside the order's own `INSERT` — takes no row lock, and its cascade trigger
-     * is `AFTER UPDATE`, so nothing on the write path needs the privilege. Over-grant is the undetectable
-     * direction while A4.5's caller→grant check is unbuilt.
-     */
-    private const APP_INSERT = [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']];
+    // ⚠ **`APP_INSERT` lived here from 2026-09-19 until `ConfirmSalesOrder` the same day, and is DELETED
+    // rather than kept.** It was minted for `CreateSalesOrder` under ruling R-B (`SELECT, INSERT`, no
+    // `UPDATE`) and both its users — `sales_order` and `sales_order_line` — moved to `APP_INSERT_UPDATE`
+    // when the confirm's `UPDATE` landed, leaving a footprint constant with no table. A shared constant
+    // nothing shares is the next table's easiest wrong answer, and R-B's reasoning survives where it was
+    // argued: `Version20260919000200`'s docblock, which is committed and unchanged.
 
     /** Readable by the application and the query agent; written only by the owner. */
     private const READ_ONLY_REFERENCE = [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']];
@@ -390,7 +386,7 @@ final class SchemaManifest
             'module' => 'Modules\\Inventory',
             'tenant' => true,
             'deletion' => self::HARD,
-            'why' => 'A live aggregate of stock_movement, not a record of anything. Nothing references it and re-deriving it is always possible.',
+            'why' => 'A live aggregate of stock_movement, not a record of anything. Nothing references it and re-deriving it is always possible. **qty_reserved is a FORWARD DECLARATION (V2-R-22 Half 2, model A, ruled 2026-09-19 and applied by ConfirmSalesOrder).** The column exists and NOTHING IN src/ WRITES IT: `new StockLevel`, `StockLevel::class`, `adjustTo` and `getQtyReserved` each resolve to their declaration and to nothing else, measured five ways without an alternation. So every row carries 0, available-to-promise EQUALS qty_on_hand today, and any read that prints qty_on_hand - qty_reserved is printing qty_on_hand. Confirming a sales order writes no reservation: overselling is ACCEPTED for now, unreachable until CreateFulfilment and ListStockLevels ship, and it is a decision to revisit at CreateFulfilment rather than a closed question. **The successor is OPEN between model D at WAREHOUSE grain (derive demand from sales_order_line.quantity - quantity_fulfilled; V2-C-12 first) and model E (a Sales-owned reservation table at warehouse grain). Model D AS WRITTEN IN THE DESIGN IS NOT RATIFIED: it subtracts warehouse-grain demand from bin-grain qty_on_hand, which is wrong per bin and, summed across bins, subtracts the demand once per bin.** ⚠ **The accidental backstop, measured 2026-09-19 (probe U-4b/U-3) and written down because it is load-bearing: this table carries exactly TWO checks, stock_level_reserved_sane (qty_reserved >= 0 AND qty_reserved <= qty_on_hand) and a uuid-v4 shape check. THERE IS NO STANDALONE CHECK (qty_on_hand >= 0).** With qty_reserved pinned at 0, `0 <= qty_on_hand` IS the non-negativity rule: (-1, 0) is refused 23514, with (5, 0) accepted as the positive control in the same probe. Two consequences follow. (1) **CreateFulfilment MUST pre-check on-hand and refuse in domain terms** — the StockReceiptRefused precedent is one module over — because an oversell today reaches the user as a raw 23514 from a constraint whose name is about reservations. (2) **NOBODY MAY RELAX OR DROP stock_level_reserved_sane on the grounds that qty_reserved is unused**: doing so removes the only rule refusing negative stock in the whole schema. The residual, with its event triggers and its owner, is docs/RESIDUAL_GAPS.md G-7.',
             // ADR-002 A4: StockReceiver's INSERT … ON CONFLICT DO UPDATE needs both verbs. No DELETE: no `src/` path
             // removes a level, although the deletion class would allow one; the build that does grants it.
             'grants' => self::APP_INSERT_UPDATE,
@@ -492,15 +488,19 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Invoices and fulfilments reference it, and a cancelled order is a status rather than a removal; only an unissued draft is ever discarded. **Carries CreateSalesOrder\'s retry key (V2-R-11, Version20260919000100):** idempotency_key holds the hex SHA-256 of the Idempotency-Key header and request_digest the RequestDigest::of() of the request that created the row, each CHECKed to 64 lower-case hex. Both are NOT NULL, on goods_receipt\'s reasoning rather than purchase_order\'s: no sales order predates the columns -- nothing in src/ has ever written one -- so there is no history for a NULL to describe, and a nullable column plus a deferred BEFORE INSERT trigger would have been a promise carried by a sentence in a design document. NOT NULL also makes the unique a real constraint on every live row, where two NULL keys would not collide. The unique sales_order_tenant_idem_live (tenant_id, idempotency_key) is PARTIAL on deleted_at IS NULL, unlike goods_receipt\'s total one, because this table soft-deletes and a discarded draft must stop occupying its key. It is what CreateSalesOrder\'s §4.2 cell names, and it is client-supplied -- which order_number is not, being server-minted, which is why sales_order_tenant_number_live refuses no replay and this one will. erp_ai reads both by table-level inheritance, the state API-O-32 accepted for purchase_order. **This migration grants nothing:** a new column inherits the table-level ACL (measured 2026-09-19, positive control SELECT=false), so the columns arrive readable and not writable, and the INSERT is owed by the commit that ships the writer (ADR-002 A4.1).',
-            // ADR-002 A4: INSERT from SalesOrderWriter::create, and NOTHING else (Version20260919000200, ruling R-B).
-            // **No UPDATE**: that create computes total_amount inside its own INSERT, from a VALUES list of the
-            // request's lines, so it issues no UPDATE statement; it takes no row lock, there being no row yet, so
-            // A4.3 constraint 1 does not bite either. No DELETE: archival is a soft delete, and nothing archives yet.
-            // **The first build that grants ANY UPDATE on sales_order -- a confirm
-            // or cancel, not only a soft delete -- grants UPDATE on sales_order_line in the same migration:**
-            // sales_order_cascade_deletion runs as the invoker, and a table-level UPDATE makes SET deleted_at reachable
-            // (GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild).
-            'grants' => self::APP_INSERT,
+            // ADR-002 A4: INSERT from SalesOrderWriter::create (Version20260919000200, ruling R-B), and UPDATE from
+            // SalesOrderConfirmation::confirm, which writes status, ordered_at and updated_at, and from the
+            // SalesOrderRowLock FOR NO KEY UPDATE it takes first (A4.3 constraint 1) -- Version20260919000300.
+            // No DELETE: archival is a soft delete, and nothing archives yet.
+            // **The standing note this entry carried since 2026-09-19 has now FIRED, and it is kept as the record of
+            // what fired it:** *the first build that grants ANY UPDATE on sales_order -- a confirm or cancel, not only
+            // a soft delete -- grants UPDATE on sales_order_line in the same migration*, because
+            // sales_order_cascade_deletion runs as the invoker and a table-level UPDATE makes SET deleted_at
+            // reachable. ConfirmSalesOrder is that build. It was MEASURED rather than taken on the sentence's word:
+            // the migration was written parent-only first and
+            // GrantFootprintTest::aRoleThatCanUpdateACascadeParentCanUpdateAndReadItsChild answered with exactly one
+            // violation, 'erp_app can UPDATE sales_order but lacks UPDATE on sales_order_line'.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'sales_order_line' => [
             'module' => 'Modules\\Sales',
@@ -508,9 +508,13 @@ final class SchemaManifest
             'deletion' => self::SOFT,
             'why' => 'Soft for the same reason as purchase_order_line: sales_order_line_tenant_item_idx is ADR-004\'s demand-history input, and demand from a discarded order is not demand. Cascaded from the order by trigger.',
             // ADR-002 A4: INSERT from SalesOrderWriter::create, which writes the nested lines in the order's own
-            // transaction (Version20260919000200). No UPDATE and no DELETE -- this slice ships no line edit, no line
-            // archive and no order archive, so the cascade trigger has no reachable firing path from erp_app.
-            'grants' => self::APP_INSERT,
+            // transaction (Version20260919000200), and UPDATE from A4.4 duty 3 -- NOT from any statement in src/.
+            // **No sales writer issues an UPDATE of this table**; the privilege is owed because
+            // sales_order_cascade_deletion is SECURITY INVOKER and fires an UPDATE of this table as whoever updates
+            // the parent, and ConfirmSalesOrder's Version20260919000300 gave erp_app that parent UPDATE. Granting it
+            // here is what keeps a soft delete of an order from being a 42501 at the line table. No DELETE: the class
+            // is soft and nothing removes a line.
+            'grants' => self::APP_INSERT_UPDATE,
         ],
         'fulfilment' => [
             'module' => 'Modules\\Sales',

@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Sales\ApiResource\State\ConfirmSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -15,7 +16,7 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `sales_order`'s read and write shape, and the two operations built so far.
+ * `sales_order`'s read and write shape, and the three operations built so far.
  *
  * ---------------------------------------------------------------------------
  * The field list is derived, not chosen (API-23)
@@ -121,6 +122,43 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 PermissionGate::OPERATION_PERMISSION => 'sales_order.create',
             ],
         ),
+        // API-21 branch 5, `ApprovePurchaseOrder`'s branch: a confirmation creates no row and has no
+        // row-level URI to name beyond the one the caller is already on. 200 with the resource in its
+        // **new** state, so F-5 step 3's confirmation renders from the response rather than a refetch.
+        new Post(
+            uriTemplate: '/sales-orders/{id}/confirmation',
+            name: 'ConfirmSalesOrder',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'ConfirmSalesOrder'),
+            // §4.2's `Accepted request fields` cell is `—`: this operation accepts nothing. `input: false`
+            // and `deserialize: false` are what make that true of the code rather than of the table —
+            // `BodylessWriteRefusal` decides its subject from `canDeserialize()`, so a caller who sends a
+            // body gets `validation-failed` with `undeclared_field` per member, the same answer a
+            // body-reading write gives. `RestoreItem` is the shipped precedent for the pair.
+            input: false,
+            deserialize: false,
+            // `read: false` for `ApprovePurchaseOrder`'s reason, and it is not an E-1 shortcut. The row
+            // this operation acts on has to be loaded **inside** the transaction that writes it: the lock,
+            // the archived check, the status guard and the line count are one atomic sequence, and a row
+            // read by a provider before the transaction opens is a row whose status and lines may both
+            // have moved by the time `confirm()` runs. The permission check has already happened either
+            // way — it is on `kernel.controller`, ahead of every state class.
+            read: false,
+            processor: ConfirmSalesOrderProcessor::class,
+            // §4.2's cell is `guard:sales_order.status`, and that mechanism is what makes this operation
+            // shippable without the key store: a replay hits an order that is no longer `draft`,
+            // `confirm()`'s guard refuses it, and the caller is told `business-rule-violated` — which is
+            // how it learns the first attempt committed. **E9-2 does not bite here**: the operation has a
+            // mechanism, which is the property that gate is actually about.
+            //
+            // ⚠ **No `IdempotencyKeyGuard::OPERATION_FLAG`.** API-14 as amended demands the header for
+            // `store` and `unique:` only. A `guard:` operation refuses its own repeat whether or not a
+            // header arrives, so requiring one would refuse a correct request and protect nothing.
+            // `IdempotencyContractTest` reconciles this flag against the cell.
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'sales_order.confirm',
+            ],
+        ),
     ],
 )]
 final class SalesOrderResource
@@ -140,7 +178,11 @@ final class SalesOrderResource
         public string $status,
         #[SerializedName('total_amount')]
         public string $totalAmount,
-        /** Null exactly while the order is `draft` — nothing confirms one yet, so it is null on every row. */
+        /**
+         * Null exactly while the order is `draft`. **Non-null from `ConfirmSalesOrder` on** — that operation
+         * sets it in the same transition that leaves `draft`, so the sentence this comment carried until then
+         * (*"nothing confirms one yet, so it is null on every row"*) is no longer true and is not kept.
+         */
         #[SerializedName('ordered_at')]
         public ?string $orderedAt,
         /**

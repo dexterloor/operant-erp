@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -125,6 +126,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         'CancelPurchaseOrder' => [
             'method' => 'replayCancelPurchaseOrder',
             'why' => 'A second cancellation of a cancelled order. Status guard, as above.',
+        ],
+        'ConfirmSalesOrder' => [
+            'method' => 'replayConfirmSalesOrder',
+            'why' => 'A second confirmation of an order already confirmed. Its mechanism is the status guard, which '
+                .'refuses the repeat with no key at all — §4.2 gives it guard:sales_order.status and no header — so the '
+                .'check is that the row is byte-identical afterwards, ordered_at included.',
         ],
         'RestoreItem' => [
             'method' => 'replayRestoreItem',
@@ -335,6 +342,24 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]), $why);
     }
 
+    private function replayConfirmSalesOrder(string $why): void
+    {
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-1');
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-SO-1'));
+
+        $this->send('POST', '/sales-orders/'.$order.'/confirmation');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->salesRowOf($order);
+
+        $this->send('POST', '/sales-orders/'.$order.'/confirmation');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        // `ordered_at` is in the row read, so a second confirmation that re-stamped the timestamp on an
+        // already-confirmed order would be red here even though the status never moved.
+        self::assertSame($after, $this->salesRowOf($order), $why);
+        self::assertSame(SalesOrder::STATUS_CONFIRMED, $after[0]['status']);
+    }
+
     private function replayApprovePurchaseOrder(string $why): void
     {
         $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
@@ -401,6 +426,14 @@ final class IdempotencyTest extends PurchaseOrderTestCase
     {
         return $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT status, ordered_at, expected_at, updated_at, total_amount FROM purchase_order WHERE id = ?::uuid',
+            [$orderId]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function salesRowOf(string $orderId): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, ordered_at, updated_at, total_amount FROM sales_order WHERE id = ?::uuid',
             [$orderId]);
     }
 

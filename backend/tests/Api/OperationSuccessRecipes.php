@@ -181,6 +181,16 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, then read'];
             }],
+            // Driven through the writer for `GetSalesOrder`'s reason and one of its own: the row it
+            // confirms must have a live line, and `seedSalesOrder` deliberately seeds none. The `Location`
+            // the create returns is §4.2's row URI, so the confirmation path is built from it rather than
+            // from a second copy of the template.
+            'ConfirmSalesOrder' => [fn (): array => $salesWorkspace('SO-CONF'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/confirmation');
+
+                return [200, 'create, then confirm'];
+            }],
             'CreatePurchaseOrder' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');
                 $item = $this->seedItem(self::TENANT_A, 'SKU-NEW-PO', $supplier);

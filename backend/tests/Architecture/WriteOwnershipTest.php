@@ -263,6 +263,179 @@ final class WriteOwnershipTest extends TestCase
             ."excuse a different write later:\n".implode("\n", $stale));
     }
 
+    /**
+     * **`stock_level.qty_reserved` appears in NO write statement under `src/`** — the tripwire for
+     * `docs/RESIDUAL_GAPS.md` **G-7**, and the reason it is here rather than where the design put it.
+     *
+     * ---------------------------------------------------------------------------
+     * The trigger this replaces was MEASURED not to fire
+     * ---------------------------------------------------------------------------
+     * V2-R-22's design deferred every reservation writer and keyed the deferral to
+     * `WriteOwnershipTest::WRITE_STATEMENTS_PER_MODULE`, saying the first commit writing `qty_reserved`
+     * *"cannot land without moving the pin"*. **False, and measured false.** Probe **U-2** (`LEAD`,
+     * 2026-09-19) added `qty_reserved` to `StockReceiver`'s existing `INSERT … ON CONFLICT DO UPDATE` and
+     * ran both named mechanisms: this file's own test answered `OK (1 test, 418 assertions)` and
+     * `GrantFootprintTest` answered `OK (17 tests, 784 assertions)`. Both green. The pin counts
+     * **statements, not columns**, and this class's docblock excludes `DO UPDATE` as a separate write; and
+     * `erp_app` already holds `UPDATE` on `stock_level`, so no grant moves either. That is `SEC-O-1`'s
+     * defect inverted — a gap keyed to a mechanism that does not trip.
+     *
+     * So the residual gets the **Move 219 anti-vacuity shape** instead: assert the absence directly, and
+     * carry the residual's text in the failure message, the way the ownership assertion above carries
+     * CD-2's. **Proven non-vacuous by re-running U-2's mutation against THIS test: it goes red.**
+     *
+     * ---------------------------------------------------------------------------
+     * What it asserts, and why the whole literal rather than the statement
+     * ---------------------------------------------------------------------------
+     * Every PHP string literal under `src/` — the whole tree, not only `src/Modules`, because a reservation
+     * writer put in `Platform` would evade a module-scoped scan — that spells at least one write statement
+     * must not name `qty_reserved`. The unit is the **literal**, not the statement, deliberately: the
+     * statement text this scan records is truncated to the keyword plus sixty characters, so a column named
+     * late in a long upsert would fall outside it. A literal that both writes and merely reads the column
+     * is reported, which is the conservative direction.
+     *
+     * **A read is not a write and is not refused.** `SELECT qty_reserved FROM stock_level` spells no write
+     * statement, so `ListStockLevels` and model D can be built without touching this test — which is
+     * correct, because G-7 is about *storing* a reservation.
+     *
+     * The positive control is inside this test rather than beside it (the empty-set trap, and this project
+     * has a named lesson about it): the same predicate must flag a planted upsert that names the column,
+     * and must leave a read and an unrelated write alone. The domain is asserted non-empty too, so a
+     * scanner that stopped seeing literals cannot pass here by finding nothing.
+     */
+    #[Test]
+    public function noWriteStatementUnderSrcNamesQtyReserved(): void
+    {
+        // 1. The positive control: the predicate must flag exactly the planted upsert.
+        self::assertSame(
+            ['Probe::plant'],
+            array_column(self::qtyReservedWritesIn(self::QTY_RESERVED_PROBE, 'probe'), 'where'),
+            'The qty_reserved predicate does not read its own probe: it must flag an upsert naming the column, and leave '
+            .'a SELECT of the column and a write that does not name it alone. Until it does, the assertion below proves '
+            .'nothing.'
+        );
+
+        // 2. The domain: the same walk must find write statements under src/ at all.
+        $src = \dirname(__DIR__, 2).'/src';
+        $literals = 0;
+        $writes = 0;
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            foreach (self::literalsIn((string) file_get_contents($path)) as [, $literal]) {
+                ++$literals;
+                $writes += \count(self::statementsInLiteral($literal['value']));
+            }
+        }
+        self::assertGreaterThan(0, $literals, 'The scan found no string literal under src/, so it is not reading the tree.');
+        self::assertGreaterThan(0, $writes, 'The scan found no write statement under src/, so the absence below is vacuous.');
+
+        // 3. The assertion.
+        $found = [];
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            $at = substr($path, \strlen(\dirname(__DIR__, 2)) + 1);
+            foreach (self::qtyReservedWritesIn((string) file_get_contents($path), $at) as $hit) {
+                $found[] = '  '.$hit['where'].' ('.$hit['at'].'): '.$hit['statement'];
+            }
+        }
+
+        self::assertSame([], $found,
+            "A write statement under src/ names stock_level.qty_reserved, and nothing has ever written that column.\n\n"
+            ."STOP and read docs/RESIDUAL_GAPS.md G-7 before going further. V2-R-22 Half 2 ruled model A on 2026-09-19: "
+            ."ConfirmSalesOrder writes no reservation, qty_reserved is a FORWARD DECLARATION in SchemaManifest's "
+            ."stock_level entry, available-to-promise EQUALS on-hand, and overselling is accepted only while it is "
+            ."unreachable. Writing this column is the event that ends that acceptance, and it is not a one-line change:\n"
+            ."  - the SUCCESSOR MODEL IS NOT RULED. It is open between model D at WAREHOUSE grain (derive demand from "
+            ."sales_order_line.quantity - quantity_fulfilled; needs V2-C-12 first) and model E (a Sales-owned "
+            ."reservation table). Model D as the design wrote it is NOT ratified — it subtracts warehouse-grain demand "
+            ."from bin-grain qty_on_hand. Storing a reservation at confirm (model B) is REFUSED; do not re-open it.\n"
+            ."  - stock_level_reserved_sane (qty_reserved >= 0 AND qty_reserved <= qty_on_hand) is currently the ONLY "
+            ."constraint in the schema refusing negative on-hand, because there is no standalone "
+            ."CHECK (qty_on_hand >= 0). Writing a non-zero qty_reserved changes what that constraint means. Do not "
+            ."relax it.\n"
+            ."  - CreateFulfilment must pre-check on-hand and refuse in domain terms (the StockReceiptRefused "
+            ."precedent) before an oversell can reach a user as a raw 23514.\n"
+            ."If the successor has been ruled and built, this test is what you move, in that commit, with its "
+            ."docblock.\nWrites found:\n".implode("\n", $found));
+    }
+
+    /**
+     * A planted upsert naming `qty_reserved`, a read of the same column, and a write that does not name it
+     * — the three cases `noWriteStatementUnderSrcNamesQtyReserved()`'s predicate must separate. This is
+     * U-2's mutation in miniature: the column added to an existing `INSERT … ON CONFLICT DO UPDATE`, which
+     * is the exact shape the replaced trigger could not see.
+     */
+    private const QTY_RESERVED_PROBE = <<<'PHP'
+        <?php
+
+        namespace App\Modules\Probe\Infrastructure;
+
+        final class Probe
+        {
+            public function plant(): void
+            {
+                $upsert = 'INSERT INTO stock_level (id, qty_on_hand, qty_reserved) VALUES (1, 2, 3) '
+                    . 'ON CONFLICT (id) DO UPDATE SET qty_on_hand = 1, qty_reserved = stock_level.qty_reserved';
+            }
+
+            public function reads(): void
+            {
+                $read = 'SELECT qty_on_hand, qty_reserved FROM stock_level WHERE id = ?::uuid';
+            }
+
+            public function writesSomethingElse(): void
+            {
+                $other = 'UPDATE stock_level SET qty_on_hand = qty_on_hand + 1 WHERE id = ?::uuid';
+            }
+        }
+        PHP;
+
+    /**
+     * Every literal in `$source` that spells a write statement **and** names `qty_reserved`.
+     *
+     * The match is on the literal's decoded runtime value, so an escaped or concatenated spelling inside
+     * one literal is seen; a column name split across two concatenated literals is not, which is the same
+     * blind spot every scan in this file has and is disclosed rather than papered over.
+     *
+     * @return list<array{where: string, at: string, statement: string}>
+     */
+    private static function qtyReservedWritesIn(string $source, string $at): array
+    {
+        $found = [];
+        foreach (self::literalsIn($source) as [$where, $literal]) {
+            if (1 !== preg_match('/qty_reserved/i', $literal['value'])) {
+                continue;
+            }
+            foreach (self::statementsInLiteral($literal['value']) as $statement) {
+                $found[] = ['where' => $where, 'at' => $at.':'.$literal['line'], 'statement' => $statement['statement']];
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * Every string literal in `$source`, each with the `Class::method` (or `Class (class body)`) that holds
+     * it. The same walk `statementsIn()` makes, without the module and ownership bookkeeping that is
+     * meaningless outside `src/Modules`.
+     *
+     * @return list<array{0: string, 1: array{text: string, value: string, line: int}}>
+     */
+    private static function literalsIn(string $source): array
+    {
+        $scan = PhpSourceScan::scan($source);
+        $literals = [];
+
+        foreach ($scan['outside'] as $literal) {
+            $literals[] = [($literal['class'] ?? '(file)').' (class body)', $literal];
+        }
+        foreach ($scan['methods'] as $key => $method) {
+            foreach ($method['literals'] as $literal) {
+                $literals[] = [$key, $literal];
+            }
+        }
+
+        return $literals;
+    }
+
     private const FIXTURE = <<<'PHP'
         <?php
 

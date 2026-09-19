@@ -11,10 +11,12 @@ use App\Modules\Sales\Application\SalesOrderReader;
 use App\Platform\Http\Problem\ApiProblem;
 
 /**
- * `GetSalesOrder`, and nothing else yet — `UpdateSalesOrder`, `DeleteSalesOrder` and `ConfirmSalesOrder`
- * are declared in §4.2 and unbuilt, and each will decide for itself whether its row belongs to a provider
- * or to the transaction that writes it (`ApprovePurchaseOrder` is the shipped example of the second:
- * §8.1's steps are one atomic sequence and a provider runs before the processor opens one).
+ * `GetSalesOrder`, and nothing else — `UpdateSalesOrder` and `DeleteSalesOrder` are declared in §4.2 and
+ * unbuilt, and each will decide for itself whether its row belongs to a provider or to the transaction
+ * that writes it. **`ConfirmSalesOrder` has now decided, and decided against this class:** it declares
+ * `read: false` and loads its row inside the transaction that writes it, because its lock, its archived
+ * check, its status guard and its line count are one atomic sequence and a provider runs before the
+ * processor opens one. That is `ApprovePurchaseOrder`'s shipped position.
  *
  * §5.3 clause 2: a row RLS does not return is `not-found`, never `permission-denied` — a 403 on a
  * cross-tenant id confirms the id exists somewhere.

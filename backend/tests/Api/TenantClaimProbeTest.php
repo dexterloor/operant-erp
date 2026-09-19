@@ -129,6 +129,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // tenant id that changed which workspace the provider read in would answer with B's order where
         // A's was asked for — which is what the probe compares.
         'GetSalesOrder' => ['vars' => ['id' => 'sales_order']],
+        // Added 2026-09-19 with the confirm. Its subject is the same seeded order, which carries a line so
+        // that the baseline **succeeds** — the line guard would otherwise refuse every drive and the probe
+        // would be comparing two refusals. `freshState()` re-seeds before each drive, so the order is
+        // `draft` again for every one of the five.
+        'ConfirmSalesOrder' => ['vars' => ['id' => 'sales_order']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -411,7 +416,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // The sales order reuses this tenant's own customer and warehouse rather than seeding fresh ones,
         // so the response's `customer` expansion is a symbol the digest can name — a cross-tenant answer
         // shows up as `B.customer` and not as an anonymous uuid.
-        $this->remember($letter, 'sales_order', $this->seedSalesOrder($tenantId, 'SO-1', $customer, $warehouse));
+        $salesOrder = $this->remember($letter, 'sales_order', $this->seedSalesOrder($tenantId, 'SO-1', $customer, $warehouse));
+        // One line, so `ConfirmSalesOrder`'s baseline succeeds. Without it the line guard refuses every
+        // drive with the same 409 and the probe compares a refusal with a refusal.
+        $this->remember($letter, 'sales_order_line', $this->seedSalesOrderLine($tenantId, $salesOrder, $item));
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);

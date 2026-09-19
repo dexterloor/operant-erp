@@ -53,11 +53,18 @@ deptrac:
   # `PurchaseOrderLineRow` stopped using `NamedReference` (API-23b clause (ii)
   # moved item references to `Application\ItemReference`) — measured 2026-09-15 as
   # 74 edge lines, 41 of them A-7. Re-counted 2026-09-19 after the sales slice's
-  # first writer: 78 edge lines, 45 of them A-7. **Re-counted again the same day
-  # after `GetSalesOrder`: 80 edge lines, 47 of them A-7** — two new lines, both
+  # first writer: 78 edge lines, 45 of them A-7. Re-counted again the same day
+  # after `GetSalesOrder`: 80 edge lines, 47 of them A-7 — two new lines, both
   # A-7, both the same Output 4 slice shape (`SalesOrderReader` returning its own
   # module's `ApiResource` read model, and `SalesOrderRow` building the new
-  # `SalesActorReference` expansion). **Recount rather than restate this line** —
+  # `SalesActorReference` expansion). **Re-counted a third time the same day after
+  # `ConfirmSalesOrder`: 82 edge lines, 49 of them A-7** — two more, both A-7 and
+  # both `PurchaseOrderApproval`'s shape exactly (`SalesOrderConfirmation` returning
+  # its own module's `ApiResource` read model, and reading the entity whose status
+  # guard it invokes). **No A-5 line joined them, and that absence is the ruling
+  # rather than an oversight:** this operation writes no audit event, because there
+  # is no `sales_order.confirmed` in the catalogue and `B-4a` owns that deferral.
+  # **Recount rather than restate this line** —
   # `make deptrac`'s own skipped figure is the authority and it counts occurrences,
   # one per site rather than one per pair. Not one of them is a new *shape* —
   # every one is the Output 4 slice shape already recorded for
@@ -176,6 +183,9 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\SalesOrderConfirmation:
+      - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderReader:
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
     App\Modules\Sales\Application\SalesOrderRow:

@@ -233,6 +233,10 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'items' => $draft['item'],
             'purchase-orders' => $draft['order'],
             'lines' => $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']),
+            // Added 2026-09-19 with `ConfirmSalesOrder`. The order carries a line so that the request this
+            // test sends is refused for the field it plants and not for the order being empty: a 409 from
+            // the line guard would look like a refusal of the undeclared field and prove nothing.
+            'sales-orders' => $this->seedConfirmableSalesOrder($orderNumber, $draft['item']),
         ];
 
         $segments = explode('/', $uriTemplate);
@@ -246,5 +250,14 @@ final class RequestContractTest extends PurchaseOrderTestCase
         }
 
         return implode('/', $segments);
+    }
+
+    /** A live `draft` sales order with one live line, so a transition on it is not refused for being empty. */
+    private function seedConfirmableSalesOrder(string $orderNumber, string $itemId): string
+    {
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-'.$orderNumber);
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $itemId);
+
+        return $order;
     }
 }

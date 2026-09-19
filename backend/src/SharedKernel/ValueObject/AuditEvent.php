@@ -117,6 +117,18 @@ namespace App\SharedKernel\ValueObject;
  * the trail, that is the process below and not a code-only change.
  * Recorded here so the decision is refused loudly rather than discovered late.
  *
+ * **The same deferral now covers the SELL side, and it was widened on 2026-09-19 because it did not
+ * already: there is no `sales_order.*` event of any kind.** `ConfirmSalesOrder` shipped that day and
+ * writes none — `FLOWS.md` F-5 step 3 is the flow, and the confirmation is the moment a customer
+ * commitment is made, which makes it the strongest audit candidate on this side. V2-R-22's O-C routed
+ * it into `DELIVERY_LEDGER.md` **B-4a** rather than opening a new `SEC` question, and B-4a now names
+ * `sales_order.confirmed` alongside `goods_receipt.created`, on the same triggers. ⚠ **The paragraph
+ * above and `API.md` §11 both spoke only of `goods_receipt.*` and `fulfilment.*`, so for one commit the
+ * sell side's deferral was real and named nowhere.** Until the event is minted, *"who confirmed this
+ * order and when"* is answerable from `sales_order.ordered_at` and nothing else:
+ * `created_by_user_id` records the creator, not the confirmer (SEC-O-9). `CancelSalesOrder`,
+ * `CreateFulfilment` and `IssueInvoice` inherit the same state when they are built.
+ *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
  *   2. add it to `ALL`;

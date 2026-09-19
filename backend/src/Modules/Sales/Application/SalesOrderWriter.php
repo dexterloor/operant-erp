@@ -22,14 +22,18 @@ use Symfony\Component\Uid\Uuid;
  * The write half of the `/sales-orders` slice — **`CreateSalesOrder` and nothing else**.
  *
  * ===========================================================================
- * This class issues **`INSERT` only**, and that is a grant, not a habit
+ * This class issues **`INSERT` only** — and as of `ConfirmSalesOrder` the grant no longer says so
  * ===========================================================================
- * `Version20260919000200` grants `erp_app` `INSERT` on `sales_order` and `sales_order_line` and **no
- * `UPDATE` and no `DELETE`** (ruling R-B, ADR-002 A4.4 duty 1's *"exactly"*). Every statement below is an
- * `INSERT` or a `SELECT`. **An `UPDATE` added to this class without its own grant is a `42501` at
- * runtime**, which is the loud direction and is the point: the alternative — granting `UPDATE` now against
- * a writer that might issue one later — leaves two revenue tables writable with no caller, silently, while
- * A4.5's caller→grant check is carried and unbuilt.
+ * `Version20260919000200` granted `erp_app` `INSERT` on `sales_order` and `sales_order_line` and no
+ * `UPDATE` (ruling R-B, ADR-002 A4.4 duty 1's *"exactly"*), and every statement below is still an
+ * `INSERT` or a `SELECT`. ⚠ **But the sentence that used to follow — *"an `UPDATE` added to this class
+ * without its own grant is a `42501` at runtime"* — is now FALSE and is struck rather than left to be
+ * quoted.** `Version20260919000300` granted `UPDATE` on both tables for `SalesOrderConfirmation`, which
+ * is a different caller on the same tables, so a stray `UPDATE` written here would now **succeed**. R-B's
+ * narrowness bought exactly what it was argued to buy — one commit of loudness — and what replaces it is
+ * this paragraph plus `PurchaseOrderRowLockTest`'s pinned `writes` list, which reddens on any statement
+ * this method gains. A4.5's caller→grant check, the control that would catch it properly, is still
+ * carried and unbuilt.
  *
  * ===========================================================================
  * W-5 and the lock this method does not take
@@ -41,9 +45,10 @@ use Symfony\Component\Uid\Uuid;
  * claim about callers, and it is `PurchaseOrderWriter::create()`'s position verbatim.
  * `PurchaseOrderRowLockTest::everyMethodThatWritesASalesOrderIsCoveredByALockFirstCheck` is where that
  * exemption is recorded, with the writes it covers pinned — so a second statement added here reddens the
- * pin and whoever adds it has to re-read this paragraph. **The first sales writer that touches an existing
- * order — `ConfirmSalesOrder`, `CancelSalesOrder`, `CreateSalesOrderLine` — takes a row lock as its first
- * statement, and needs `UPDATE` on `sales_order` for `FOR NO KEY UPDATE` alone (A4.3 constraint 1).**
+ * pin and whoever adds it has to re-read this paragraph. **That prediction has now happened:**
+ * `ConfirmSalesOrder` is the first sales writer touching an existing order, it takes `SalesOrderRowLock`
+ * as its first statement, and `Version20260919000300` gave it the `UPDATE` that `FOR NO KEY UPDATE` needs
+ * on its own (A4.3 constraint 1). `CancelSalesOrder` and `CreateSalesOrderLine` are still owed the same.
  *
  * ===========================================================================
  * Where a constraint failure is caught

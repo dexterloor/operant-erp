@@ -8,6 +8,7 @@ use App\Modules\Customers\Infrastructure\Entity\Customer;
 use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Modules\Warehouses\Infrastructure\Entity\Warehouse;
 use App\Platform\Domain\GuardsStatusTransitions;
+use App\Platform\Domain\IllegalTransition;
 use App\SharedKernel\Reference\Country;
 use App\SharedKernel\Reference\Currency;
 use Doctrine\DBAL\Types\Types;
@@ -254,10 +255,54 @@ class SalesOrder
      * PC-4 calls this *"structurally the mirror of `place()`"*, and the mirror of
      * `place()`'s missing guard came with it: unguarded it re-opens a `cancelled`
      * or `fulfilled` order. §8.3: `draft` only.
+     *
+     * -----------------------------------------------------------------------
+     * `$liveLineCount` — V2-R-22 Half 1, and it is D-C copied, not designed
+     * -----------------------------------------------------------------------
+     * D-C already ruled that a zero-line purchase order cannot be approved. The
+     * selling side's analogue is worse rather than milder: a confirmed sales
+     * order is a **customer commitment**, it lands on the warehouse's work queue
+     * through `sales_order_tenant_open_idx`, and `IssueInvoice` would later bill
+     * nothing. **The state is reachable, not hypothetical** —
+     * `CreateSalesOrder` accepts an absent or null `lines[]` as a legal empty
+     * draft, so an order with no lines exists in the database today through a
+     * shipped operation.
+     *
+     * The parameter is **required, with no default**, for `place()`'s reason:
+     * a caller has to *state* a count rather than skip it. **This method checks
+     * only the number it is handed** — it refuses a count below 1 and cannot
+     * tell a true count from a false one, so counting honestly is the caller's
+     * job. The entity maps no lines and must not learn to; the count is read by
+     * `SalesOrderConfirmation` inside the transaction, under RLS, after the row
+     * lock.
+     *
+     * **The status guard runs first**, so a replayed confirmation is still
+     * answered with the status refusal §4.2's `guard:sales_order.status` cell
+     * relies on, and a `cancelled` empty order is told *wrong status* rather
+     * than *add a line* — advice it could not follow, line writes requiring
+     * `draft`. `TransitionGuardTest::theStatusGuardRefusesBeforeAnyPreconditionDoes`
+     * pins that order, and the required scalar forces a
+     * `PRECONDITION_SCALARS` row by reflection, so the guard is a mechanism
+     * rather than a promise.
+     *
+     * **No reservation is written here, and that is ruled rather than omitted.**
+     * V2-R-22 Half 2 adopted model A: `stock_level.qty_reserved` stays unwritten,
+     * confirming is a document transition and nothing else. See
+     * `SchemaManifest`'s `stock_level` entry and `docs/RESIDUAL_GAPS.md` G-7.
      */
-    public function confirm(\DateTimeImmutable $orderedAt): void
+    public function confirm(\DateTimeImmutable $orderedAt, int $liveLineCount): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
+
+        if ($liveLineCount < 1) {
+            throw IllegalTransition::unmetPrecondition(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                'has_a_live_line',
+                'This sales order has no lines. Add at least one line before confirming it.',
+            );
+        }
 
         $this->status = self::STATUS_CONFIRMED;
         $this->orderedAt = $orderedAt;
