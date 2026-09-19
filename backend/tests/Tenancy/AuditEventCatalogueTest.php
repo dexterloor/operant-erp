@@ -108,6 +108,15 @@ final class AuditEventCatalogueTest extends TenancyTestCase
     private const PINNED_ALLOWLIST = [
         'purchase_order.placed',
         'purchase_order.cancelled',
+        // Added 2026-09-19 with `CancelSalesOrder`, and the edit is the second,
+        // independent assertion of the string that (4b) exists to be — made by
+        // hand, in this file, as a literal and never as an `AuditEvent::`
+        // constant. `SEC` had already filed it **business** under PC-11 (4a) in
+        // `SECURITY_MODEL.md` before any code existed, which is what this edit
+        // ratifies rather than decides. It is about the sales order's own
+        // business state and about no principal's credentials, sessions or
+        // privileges; its subject is `sales_order`, so (4c) does not reach it.
+        'sales_order.cancelled',
         'stock_movement.adjusted',
     ];
 

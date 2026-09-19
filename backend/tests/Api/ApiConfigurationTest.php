@@ -96,7 +96,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **One more, later on 2026-09-19:** `ConfirmSalesOrder`, the first operation in `src/` to change a
         // sales order that already exists, granted its `UPDATE` on both sales tables by
         // `Version20260919000300`.
-        self::assertCount(25, $checked, 'The route set changed. This slice declares twenty-five operations: '.implode(', ', array_keys($checked)));
+        // **And one more, last on 2026-09-19:** `CancelSalesOrder`, which needed no grant migration at
+        // all — `erp_app` already held `UPDATE` on both sales tables from `Version20260919000300` and
+        // `INSERT` on `audit_log`, both measured with `has_table_privilege()` — but did need
+        // `Version20260919000400`, the catalogue extension for `sales_order.cancelled`.
+        self::assertCount(26, $checked, 'The route set changed. This slice declares twenty-six operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

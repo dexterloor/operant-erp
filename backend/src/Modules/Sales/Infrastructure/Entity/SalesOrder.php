@@ -309,6 +309,90 @@ class SalesOrder
         $this->updatedAt = new \DateTimeImmutable();
     }
 
+    /**
+     * **§8.3's sales cancel row — the method API-O-17 has been naming *(no method
+     * exists)* since 2026-09-10, and the last of that row's four.**
+     *
+     * The three legal sources are §8.3's and are passed as this class's own
+     * constants, never as literals — API-15, and
+     * `noGuardEnumeratesAStatusAsAStringLiteral` is where a literal fails.
+     * `STATUS_FULFILLED` is **not** among them: an order that has shipped in full
+     * has nothing left to withdraw, which is `PurchaseOrder::cancel()`'s reason
+     * for excluding `received` read onto the sell side.
+     *
+     * =======================================================================
+     * There is NO duty-separation rule here, and ADR-008 REFUSES one
+     * =======================================================================
+     * The purchase mirror runs `PurchaseOrderDutySeparation` between the load and
+     * this guard. **Nothing equivalent exists or may be added here**, and the
+     * distinction is not an omission in ADR-008 — it is a decision ADR-008 §2
+     * states in terms:
+     *
+     * > *"The sales side is deliberately asymmetric, and the asymmetry is stated
+     * > rather than left looking like an oversight. `sales_rep` holds **both**
+     * > `sales_order.confirm` and `sales_order.cancel`, where the buying side
+     * > splits the equivalent pair. … placing a purchase order commits the
+     * > tenant's money to an outside party, while confirming a sales order
+     * > commits *the customer* and moves nothing out. **There is no outbound
+     * > commitment for a cancellation to repudiate.** This is the weaker of the
+     * > two controls and it is knowingly weaker — a rep who cancels confirmed
+     * > orders can conceal lost sales, and **the compensating control is
+     * > `audit_log`, not a second pair of hands.**"*
+     *
+     * ADR-008 **Amendment 1** — which the project notes compress to *"DSoD-1 extends
+     * to cancellation as `canceller != creator`"* — is **purchase-only**, and its
+     * own predicate says so by column: *"`purchase_order.cancel` is refused when
+     * `purchase_order.created_by_user_id` equals the caller's `app_user.id`."*
+     * `sales_order` has no `placed_by`-equivalent column, and SEC-O-9 verified
+     * that `created_by_user_id` records **the creator, not the confirmer**, so the
+     * comparison has no second hand to name even if the rule were wanted.
+     * IA-O-8 states as a tested claim that F-5 *"has no mirror of this gap"*.
+     *
+     * **That quotation is why this operation writes an audit row** (see
+     * `SalesOrderAuditWriter::recordCancelled()`): `audit_log` is not a nicety
+     * here, it is the named compensating control for the split ADR-008 declines.
+     *
+     * =======================================================================
+     * OI-2's remainder rule is a DERIVATION, so this method writes nothing for it
+     * =======================================================================
+     * §8.3's OI-2 block rules that cancelling a `partially_fulfilled` order
+     * cancels the remainder, and defines it: *"per line,
+     * `quantity − quantity_fulfilled` … **derived and never written into
+     * `quantity`**. `quantity` stays what was ordered, so the order still states
+     * what the customer asked for."* **No new status is added.** So the rule
+     * prescribes no statement at all — no line `UPDATE`, no line `DELETE` and no
+     * column — and `erp_app` holds no `DELETE` on either sales table precisely
+     * because none is wanted (A4.4 duty 1's word is *"exactly"*).
+     *
+     * ⚠ **FORWARD DECLARATION — the `partially_fulfilled` source is legal and
+     * UNREACHABLE today, and that is stated rather than implied.**
+     * `sales_order_line.quantity_fulfilled` is written by nothing under `src/`
+     * (V2-R-22 Half 2 / model A; `RESIDUAL_GAPS.md` G-7), and no fulfilment
+     * posting method exists (§8.3's other `SalesOrder` gap), so no order can hold
+     * this status. The guard admits it because §8.3 declares it legal, not because
+     * it has ever been exercised. **Hard trigger: `CreateFulfilment`** — the first
+     * writer of that state and of `quantity_fulfilled`. When it ships, the
+     * remainder derivation stops being vacuous and V2-C-14(b)'s decision below
+     * starts having a number to apply.
+     *
+     * **`ordered_at` is deliberately not touched**, for `PurchaseOrder::cancel()`'s
+     * reason: an order cancelled after it was confirmed keeps the date it was
+     * confirmed on, which is the fact the trail needs, and one cancelled while
+     * still a draft never had one. `sales_order` carries no `ordered_at` `CHECK`
+     * to widen — verified against the catalogue — so no migration is owed for it.
+     */
+    public function cancel(): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [
+            self::STATUS_DRAFT,
+            self::STATUS_CONFIRMED,
+            self::STATUS_PARTIALLY_FULFILLED,
+        ]);
+
+        $this->status = self::STATUS_CANCELLED;
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
     public function isDeleted(): bool
     {
         return null !== $this->deletedAt;

@@ -5,6 +5,9 @@
     "CancelPurchaseOrder $.total_amount": [
         4
     ],
+    "CancelSalesOrder $.total_amount": [
+        4
+    ],
     "ConfirmSalesOrder $.total_amount": [
         4
     ],

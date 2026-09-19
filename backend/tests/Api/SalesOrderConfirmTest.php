@@ -243,24 +243,47 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
 
     /**
      * **There is no `sales_order.confirmed` audit event, and this is where that absence is visible.**
-     * The mirror purchase operation writes `purchase_order.placed`. `AuditEvent::ALL` carries no
-     * `sales_order.*` member at all, and `API.md` §11's **B-4a** owns the deferral for the whole family
-     * with its own *fails if* and `[test]` — V2-R-22's O-C routed this operation into B-4a rather than
-     * minting a new `SEC` question. **Asserted rather than left implicit** so that whoever ships B-4a
-     * finds a test that says what today's answer is, and has to change it deliberately.
+     * The mirror purchase operation writes `purchase_order.placed`. `API.md` §11's **B-4a** owns the
+     * deferral with its own *fails if* and `[test]` — V2-R-22's O-C routed this operation into B-4a
+     * rather than minting a new `SEC` question. **Asserted rather than left implicit** so that whoever
+     * ships B-4a finds a test that says what today's answer is, and has to change it deliberately.
      *
-     * The positive control is in the same test: the purchase analogue IS in the catalogue, so an
-     * `AuditEvent` constant list that had gone empty would not let this pass.
+     * =======================================================================
+     * ⚠ THIS TEST'S CONTROL FIRED ONE COMMIT LATER, EXACTLY AS DESIGNED
+     * =======================================================================
+     * It was written asserting that **no `sales_order.*` member existed at all**, with the message *"give
+     * this operation its event and change this test in the same commit"*. `CancelSalesOrder`, later the
+     * same day, minted `SALES_ORDER_CANCELLED` and turned this red. **That is the control working**, and
+     * the answer it forced was examined rather than suppressed:
+     *
+     *   - **`sales_order.confirmed` is still deferred to B-4a.** The owner's OI-2 named four events and
+     *     `confirmed` is not among them; `SEC` has classified `sales_order.cancelled` under PC-11 (4a) and
+     *     has classified no confirm event. Minting one here would be a `BE-LEAD` decision on a `SEC` step.
+     *   - **`sales_order.cancelled` was NOT deferred**, because `ADR-008` §2 names `audit_log` as the
+     *     compensating control for the sales duty split it declines on cancellation, and says nothing of
+     *     the kind about confirming — which *"moves nothing out"* on its own reasoning.
+     *
+     * So the pin is **narrowed to the one event this operation owes**, not deleted. The class-wide version
+     * had served its purpose and could not survive any sales event; a narrowed pin still goes red the day
+     * `sales_order.confirmed` is minted, which is the day this test has to change.
+     *
+     * **Two positive controls, and the second is new because the first is now weaker.** The purchase
+     * analogue must still be in the catalogue (a list gone empty proves nothing), **and
+     * `SALES_ORDER_CANCELLED` must be in it too** — which proves that a `sales_order.*` event *can* be
+     * catalogued and that the absence below is about `confirmed` specifically rather than about the whole
+     * prefix being unreachable.
      */
     #[Test]
     public function aConfirmationWritesNoAuditRowBecauseB4aOwnsThatDeferral(): void
     {
         self::assertContains(AuditEvent::PURCHASE_ORDER_PLACED, AuditEvent::ALL,
             'The purchase analogue has left the catalogue, so the absence asserted below proves nothing.');
-        self::assertSame([], array_values(array_filter(AuditEvent::ALL,
-            static fn (string $event): bool => str_starts_with($event, 'sales_order.'))),
-            'A sales_order.* audit event exists now. B-4a owns this family — give this operation its event and change '
-            .'this test in the same commit.');
+        self::assertContains(AuditEvent::SALES_ORDER_CANCELLED, AuditEvent::ALL,
+            'The sales cancellation event has left the catalogue, so this test can no longer distinguish '
+            .'"confirmed is deferred" from "no sales_order.* event is reachable at all".');
+        self::assertNotContains('sales_order.confirmed', AuditEvent::ALL,
+            'sales_order.confirmed exists now. B-4a owned that deferral — give this operation its event, write '
+            .'its row, and change this test in the same commit.');
 
         $order = $this->raiseWithALine();
         $this->send('POST', '/sales-orders/'.$order.'/confirmation');

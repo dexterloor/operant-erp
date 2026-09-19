@@ -37,8 +37,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * confirmer"*, ADR-008 names no DSoD rule on any sales document, and `IA.md` IA-O-8 states as a tested
  * claim that *"F-5 has no mirror of this gap — `sales_rep` holds create, edit and confirm … there is no
  * seam"*. **This field serves no SoD control here.** It is disclosed because who raised an order is the
- * order's own business state (PC-11 (4a)), and because `AuditEvent::ALL` has no `sales_order.*` member —
- * so with the field withheld, *"who raised this order"* is answerable only by opening the database.
+ * order's own business state (PC-11 (4a)), and because **no audit event records who RAISED a sales
+ * order** — so with the field withheld, *"who raised this order"* is answerable only by opening the
+ * database.
+ *
+ * ⚠ **That clause read *"`AuditEvent::ALL` has no `sales_order.*` member"* until 2026-09-19, when
+ * `CancelSalesOrder` minted `SALES_ORDER_CANCELLED`.** The ruling is unaffected: that event names the
+ * **canceller**, and SEC-O-9 verified this column records the **creator**, so no trail row answers the
+ * question under either membership. **Re-derive `AuditEvent::ALL` before quoting any sentence about it.**
  */
 final readonly class SalesActorReference
 {

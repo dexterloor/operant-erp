@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -132,6 +133,13 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second confirmation of an order already confirmed. Its mechanism is the status guard, which '
                 .'refuses the repeat with no key at all — §4.2 gives it guard:sales_order.status and no header — so the '
                 .'check is that the row is byte-identical afterwards, ordered_at included.',
+        ],
+        'CancelSalesOrder' => [
+            'method' => 'replayCancelSalesOrder',
+            'why' => 'A second cancellation of a cancelled order. Status guard, as the purchase mirror above -- and '
+                .'the row read is not the whole of the check here: this operation writes an audit row, so the replay '
+                .'must also leave the trail with exactly ONE sales_order.cancelled for the order. audit_log is '
+                .'append-only by grant, so a duplicate would be permanent.',
         ],
         'RestoreItem' => [
             'method' => 'replayRestoreItem',
@@ -358,6 +366,28 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         // already-confirmed order would be red here even though the status never moved.
         self::assertSame($after, $this->salesRowOf($order), $why);
         self::assertSame(SalesOrder::STATUS_CONFIRMED, $after[0]['status']);
+    }
+
+    private function replayCancelSalesOrder(string $why): void
+    {
+        // A seeded draft needs no line: §8.3 makes `draft` a legal source for `cancel()`.
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-CANC');
+
+        $this->send('POST', '/sales-orders/'.$order.'/cancellation', ['reason' => 'First']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->salesRowOf($order);
+
+        $this->send('POST', '/sales-orders/'.$order.'/cancellation', ['reason' => 'Second']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($after, $this->salesRowOf($order), $why);
+        self::assertSame(SalesOrder::STATUS_CANCELLED, $after[0]['status']);
+
+        // The half the row read cannot see: one trail row, carrying the FIRST reason. A replay that got
+        // past the guard would leave two rows naming two reasons for one cancellation, permanently.
+        self::assertSame([['reason' => 'First']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT metadata->>'reason' AS reason FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid",
+            [AuditEvent::SALES_ORDER_CANCELLED, $order]), $why);
     }
 
     private function replayApprovePurchaseOrder(string $why): void

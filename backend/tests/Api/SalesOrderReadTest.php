@@ -82,8 +82,12 @@ final class SalesOrderReadTest extends PurchaseOrderTestCase
      * DSoD-1 justification must not be copied onto it: `SEC-O-9` verified the column records *"the
      * creator, not the confirmer"*, ADR-008 names no DSoD rule on any sales document, and IA-O-8 states
      * that F-5 *"has no mirror of this gap … there is no seam"*. It is disclosed because it is the
-     * document's own business state (PC-11 (4a)) and because `AuditEvent::ALL` has no `sales_order.*`
-     * member, so with it withheld nothing on the API answers who raised the order.
+     * document's own business state (PC-11 (4a)) and because **no audit event records who RAISED a sales
+     * order**, so with it withheld nothing on the API answers who raised the order.
+     *
+     * ⚠ **That clause read *"`AuditEvent::ALL` has no `sales_order.*` member"* until 2026-09-19**, when
+     * `CancelSalesOrder` minted `SALES_ORDER_CANCELLED` — which names the **canceller**, not the creator
+     * (SEC-O-9), so the reasoning survives narrowed. Re-derive `AuditEvent::ALL` before quoting it.
      */
     #[Test]
     public function theCreatorIsExpandedAsIdAndDisplayNameUnderTheDocumentsOwnPermission(): void

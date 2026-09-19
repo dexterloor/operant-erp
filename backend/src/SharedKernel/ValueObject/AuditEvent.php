@@ -117,17 +117,28 @@ namespace App\SharedKernel\ValueObject;
  * the trail, that is the process below and not a code-only change.
  * Recorded here so the decision is refused loudly rather than discovered late.
  *
- * **The same deferral now covers the SELL side, and it was widened on 2026-09-19 because it did not
- * already: there is no `sales_order.*` event of any kind.** `ConfirmSalesOrder` shipped that day and
- * writes none — `FLOWS.md` F-5 step 3 is the flow, and the confirmation is the moment a customer
- * commitment is made, which makes it the strongest audit candidate on this side. V2-R-22's O-C routed
- * it into `DELIVERY_LEDGER.md` **B-4a** rather than opening a new `SEC` question, and B-4a now names
- * `sales_order.confirmed` alongside `goods_receipt.created`, on the same triggers. ⚠ **The paragraph
- * above and `API.md` §11 both spoke only of `goods_receipt.*` and `fulfilment.*`, so for one commit the
- * sell side's deferral was real and named nowhere.** Until the event is minted, *"who confirmed this
- * order and when"* is answerable from `sales_order.ordered_at` and nothing else:
- * `created_by_user_id` records the creator, not the confirmer (SEC-O-9). `CancelSalesOrder`,
- * `CreateFulfilment` and `IssueInvoice` inherit the same state when they are built.
+ * **The same deferral covers PART of the SELL side — and the part shrank the day after it was
+ * written. ⚠ This paragraph said *"there is no `sales_order.*` event of any kind"* and that is NO
+ * LONGER TRUE:** `SALES_ORDER_CANCELLED` was minted on 2026-09-19 with `CancelSalesOrder`, later the
+ * same day, and is the first `sales_order.*` member this catalogue has held. **Re-derive `ALL` before
+ * quoting any sentence about what the sell side does or does not carry** — that is how this very
+ * sentence went stale.
+ *
+ * **What is still deferred, stated narrowly so it cannot be read as wider:** `sales_order.confirmed`.
+ * `ConfirmSalesOrder` shipped on 2026-09-19 and writes no row — `FLOWS.md` F-5 step 3 is the flow, and
+ * the confirmation is the moment a customer commitment is made, which makes it the strongest remaining
+ * audit candidate on this side. V2-R-22's O-C routed it into `DELIVERY_LEDGER.md` **B-4a** rather than
+ * opening a new `SEC` question, and B-4a names `sales_order.confirmed` alongside
+ * `goods_receipt.created`, on the same triggers. ⚠ **The paragraph above and `API.md` §11 both spoke
+ * only of `goods_receipt.*` and `fulfilment.*`, so for one commit the sell side's deferral was real and
+ * named nowhere.** Until that event is minted, *"who confirmed this order and when"* is answerable from
+ * `sales_order.ordered_at` and nothing else: `created_by_user_id` records the creator, not the confirmer
+ * (SEC-O-9). `CreateFulfilment` and `IssueInvoice` inherit the same state when they are built.
+ *
+ * **`CancelSalesOrder` did NOT inherit it, and the reason is a rule rather than a preference** —
+ * ADR-008 §2 makes `audit_log` the *named compensating control* for the duty split it declines on sales
+ * cancellation, the owner's OI-2 named the event, and `SEC` had already filed it. See
+ * `SALES_ORDER_CANCELLED`'s own docblock, where the asymmetry with `confirmed` is argued in full.
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -173,7 +184,8 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Two extensions so far.
+ * rather than only read.** Three extensions so far. *(This line read "Two" until
+ * 2026-09-19 — recount from the entries below, never restate this number.)*
  *
  *   - **`AUTH_PASSWORD_CHANGED`**, 2026-09-09, under entry condition **E4-1** —
  *     `SEC` ruled the name and the `SECURITY` filing (`SECURITY_MODEL.md`
@@ -203,6 +215,22 @@ namespace App\SharedKernel\ValueObject;
  *     catalogue by construction and (4b) would have gone silent. **The pin being
  *     touched is not the weakness; the pin being an independent literal is the
  *     control.**
+ *
+ *   - **`SALES_ORDER_CANCELLED`**, 2026-09-19, under owner ruling **OI-2** (#2
+ *     R1a) — the owner named the event and `SEC` filed it **`BUSINESS`** under
+ *     PC-11 (4a) in `SECURITY_MODEL.md`, both **before any code existed**;
+ *     `BE-LEAD` did steps 3–5 in that order, in the commit that built
+ *     `CancelSalesOrder`. **Step 6 does not apply** — a business event, so no
+ *     `PINNED_IP_BEARING_EVENTS` entry and no re-issue of
+ *     `audit_log_ip_address_scope`. Step 5 is `Version20260919000400`.
+ *     `PINNED_ALLOWLIST` was edited deliberately, which is what (4b) requires of
+ *     a business event and is `PURCHASE_ORDER_CANCELLED`'s note above, unchanged.
+ *
+ *     **Unlike both entries above, this extension shipped its WRITER in the same
+ *     commit** — `SalesOrderAuditWriter::recordCancelled()` — so the catalogue
+ *     entry is not a forward declaration and must not be read as one.
+ *     `PURCHASE_ORDER_CANCELLED`'s docblock had to carry *"Nothing writes this
+ *     event today"* for a day; this one never did.
  *
  *     **Observed rather than assumed**, and this is the other half of it: with
  *     steps 1–2 done and steps 3–5 not, `everyEventIsClassifiedExactlyOnce` and
@@ -451,6 +479,56 @@ final class AuditEvent
     public const PURCHASE_ORDER_CANCELLED = 'purchase_order.cancelled';
 
     /**
+     * **The first `sales_order.*` event this catalogue has ever held** — minted
+     * 2026-09-19 with `CancelSalesOrder`, under owner ruling **OI-2** (#2 R1a),
+     * which names it among the four events the ruling owes.
+     *
+     * **Name and filing were ruled before any code existed**, which is steps 1–2
+     * of the process above and is `SEC`'s, not `BE-LEAD`'s: `SECURITY_MODEL.md`
+     * files it *"sales_order.cancelled — **business**. Subject the sales order. It
+     * matches purchase_order.cancelled, which is already on the business side."*
+     * `BE-LEAD` did steps 3–5 in that order. **Step 6 does not apply**: it is a
+     * business event, so it stays out of `audit_log_ip_address_scope` and out of
+     * `AuditWriterTest::PINNED_IP_BEARING_EVENTS`, and no re-issue of that
+     * constraint was written.
+     *
+     * =======================================================================
+     * Why this one was BUILT and `sales_order.confirmed` was DEFERRED
+     * =======================================================================
+     * The two are one commit apart and got opposite answers, so the ground is
+     * recorded here rather than left to look like inconsistency.
+     *
+     * **ADR-008 §2 names `audit_log` as the compensating control for this exact
+     * transition.** Declining the sales duty split, it says a rep who cancels
+     * confirmed orders can conceal lost sales *"and the compensating control is
+     * `audit_log`, not a second pair of hands."* A cancellation that wrote no row
+     * would ship a knowingly-weaker control with its named compensation absent.
+     * Nothing in ADR-008 says that of *confirming* — on its own reasoning
+     * confirming *"moves nothing out"*.
+     *
+     * Three further asymmetries, each independent: the **owner named this event**
+     * and named no confirm event, so B-4a had to be widened to hold
+     * `sales_order.confirmed` and did not have to be widened for this one; **`SEC`
+     * has classified this one** and has classified no confirm event; and §4.2
+     * accepts a **`reason`** here, where `ConfirmSalesOrder` accepts nothing and so
+     * had no field to drop.
+     *
+     * **The cancellation's written reason lands in `audit_log.metadata`**, on
+     * `PURCHASE_ORDER_CANCELLED`'s ruling above and `STOCK_MOVEMENT_ADJUSTED`'s
+     * precedent behind it. Measured against the live cluster rather than assumed:
+     * `sales_order` has **nineteen columns and not one free-text column**, exactly
+     * as `purchase_order` has none, so `metadata` is not a preference but the only
+     * destination that exists.
+     *
+     * **Name assigned on `PURCHASE_ORDER_CANCELLED`'s `<table>.<verb>` convention**
+     * and on the entity's own `STATUS_CANCELLED` value, so the event name and the
+     * status it records read the same. Unlike that constant, this one **is written**
+     * — `SalesOrderAuditWriter::recordCancelled()` — and `SalesOrderCancellationTest`
+     * reads the row back cell by cell.
+     */
+    public const SALES_ORDER_CANCELLED = 'sales_order.cancelled';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -475,6 +553,7 @@ final class AuditEvent
         self::DATA_EXPORT_COMPLETED,
         self::PURCHASE_ORDER_PLACED,
         self::PURCHASE_ORDER_CANCELLED,
+        self::SALES_ORDER_CANCELLED,
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
@@ -529,6 +608,7 @@ final class AuditEvent
     public const BUSINESS = [
         self::PURCHASE_ORDER_PLACED,
         self::PURCHASE_ORDER_CANCELLED,
+        self::SALES_ORDER_CANCELLED,
         self::STOCK_MOVEMENT_ADJUSTED,
     ];
 
@@ -576,6 +656,7 @@ final class AuditEvent
     public const SUBJECT_TYPES = [
         self::PURCHASE_ORDER_PLACED => 'purchase_order',
         self::PURCHASE_ORDER_CANCELLED => 'purchase_order',
+        self::SALES_ORDER_CANCELLED => 'sales_order',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',

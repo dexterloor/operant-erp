@@ -67,6 +67,20 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const A_PATH_KNOWN_TO_BE_BUILT = 'POST /api/v1/purchase-orders';
 
     /**
+     * `METHOD path` => the operation, for the sales line reads that owe V2-C-14(b)'s
+     * decision. §4.2 declares `ListSalesOrderLines` at the order's row URI + `/lines`,
+     * marked *(bounded)*; `GetSalesOrderLine` is not declared, so the list read is the
+     * only declared consumer today.
+     *
+     * Prefixed `/api/v1` for the measured reason recorded on the sibling constant.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_REMAINDER_DECISION = [
+        'GET /api/v1/sales-orders/{id}/lines' => 'ListSalesOrderLines',
+    ];
+
+    /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
      * `invoice.issue` / `invoice.pay` **or** `invoice.void` **or**
      * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and **unapplied**:
@@ -104,6 +118,76 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         );
 
         self::assertSame([], $arrived, $this->pointer($arrived));
+    }
+
+    /**
+     * **V2-C-14(b)'s decision, carried by a mechanism rather than by a sentence.**
+     *
+     * The carry read: *"`quantity_outstanding` reads 0 on a cancelled order, or a
+     * `quantity_cancelled` column is added — one decision, taken by whichever of
+     * `ListSalesOrderLines` and `CancelSalesOrder` is built first. Both rows carry
+     * the trigger so neither can ship without meeting it."*
+     *
+     * **`CancelSalesOrder` shipped first (2026-09-19) and took it: `quantity_outstanding`
+     * reads 0 on a cancelled order, as a DERIVATION, with no new column.** Ground:
+     * OI-2 defines the cancelled remainder as *"derived and never written into
+     * `quantity`"*, and a `quantity_cancelled` column would write it.
+     *
+     * **But taking the decision built nothing, which is exactly the shape this
+     * project keeps getting caught by.** Nothing in `src/` computes
+     * `quantity_outstanding` for a sales order — no sales line read is built — so
+     * the decision had nowhere to live except prose. `PurchaseOrderLineRow:66`
+     * computes the purchase analogue as a bare subtraction with no status clause,
+     * so the obvious implementation of the sales one is the wrong one, and it would
+     * pass every existing test.
+     *
+     * So the decision is pinned here instead, in the class whose whole charter is
+     * *"an obligation that is recorded but not yet applied is owed at the moment the
+     * operation it governs is built"*. It reddens when a sales line read appears in
+     * the generated spec and prints the decision at the point of use.
+     *
+     * **Positive control:** the same {@see self::A_PATH_KNOWN_TO_BE_BUILT} assertion
+     * the sibling test uses, for the same measured reason — the first version of
+     * that pin compared disjoint sets and a planted built operation left it green.
+     */
+    #[Test]
+    public function noOperationOwingTheCancelledRemainderDecisionHasBeenBuilt(): void
+    {
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+        $built = array_keys(GeneratedSpec::operations($spec));
+
+        self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the spec no longer spells built paths the way this pin does, so the check '
+            .'below would compare two disjoint sets and pass on everything.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_REMAINDER_DECISION, array_fill_keys($built, true));
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built, and V2-C-14(b)'s decision has NOT been applied.\n\n"
+            ."THE DECISION, taken 2026-09-19 when `CancelSalesOrder` shipped first:\n"
+            ."  `sales_order_line.quantity_outstanding` reads **0** when the parent order's status is\n"
+            ."  `cancelled`. It is a DERIVATION in the read's SQL. There is NO `quantity_cancelled`\n"
+            ."  column and none may be added to satisfy this — `API.md` §8.3's OI-2 block defines the\n"
+            ."  cancelled remainder as \"derived and never written into `quantity`\", and a column would\n"
+            ."  write it.\n\n"
+            ."WHY THIS IS NOT THE PURCHASE ANALOGUE, which is the trap:\n"
+            ."  `PurchaseOrderLineRow::COLUMNS` computes `quantity_ordered - quantity_received` with no\n"
+            ."  status clause, because a cancelled purchase order's lines are not read for outstanding\n"
+            ."  work. Copying that expression to sales ships the defect: a cancelled order's lines would\n"
+            ."  keep reporting `quantity - quantity_fulfilled` as work owed, which F-5 step 4 pre-fills\n"
+            ."  from and a reader would take as a commitment the tenant still has.\n\n"
+            ."DO THIS IN THIS COMMIT, or move this pin deliberately and say why:\n"
+            ."  1. Derive `quantity_outstanding` as 0 for a `cancelled` parent, in the read's SQL.\n"
+            ."  2. Drive a cancelled order's lines through the read and assert 0 — with a live order in\n"
+            ."     the same test as the positive control, or the assertion proves only that the query\n"
+            ."     returns nothing.\n"
+            ."  3. Clear this entry and §15.1's V2-C-14(b) note on BOTH rows.\n\n"
+            ."Note `quantity_fulfilled` is written by nothing today (`RESIDUAL_GAPS.md` G-7), so a\n"
+            ."cancelled order's lines currently report their FULL quantity as outstanding — the defect is\n"
+            ."at its widest, not its narrowest.\n\n"
+            ."Full entry: `docs/API.md` §15.1, rows `CancelSalesOrder` and `ListSalesOrderLines`.",
+            implode(', ', $arrived),
+        ));
     }
 
     /**

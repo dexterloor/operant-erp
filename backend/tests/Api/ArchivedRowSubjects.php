@@ -286,6 +286,10 @@ trait ArchivedRowSubjects
             // object would be sent with a `Content-Type` the operation never reads. It accepts nothing
             // (§4.2's `Accepted request fields` is `—`), so the request carries nothing.
             'ConfirmSalesOrder' => null,
+            // `reason` rather than `null`: unlike the confirmation above, §4.2 accepts a field here and
+            // the operation reads a body. The refusal under test is the archived one, which fires before
+            // `cancel()` and before the audit write, so the reason never reaches `metadata` on this path.
+            'CancelSalesOrder' => ['reason' => 'Customer withdrew'],
             'DeleteItem' => null,
             'DeletePurchaseOrder' => null,
             'DeletePurchaseOrderLine' => null,

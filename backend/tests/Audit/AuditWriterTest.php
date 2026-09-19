@@ -149,6 +149,13 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // "this event may carry an address", and this one's is "this event may
         // not", and until now that half of §9.2's table had no subject at all.
         'Modules/AuditLog/Infrastructure/PurchaseOrderAuditWriter.php',
+        // Added 2026-09-19 with `CancelSalesOrder` -- the **first writer of a
+        // `sales_order.*` row this project has had**. Its ip_address rule is the
+        // purchase writer's: `sales_order.cancelled` is a `BUSINESS` event, so the
+        // column must stay null and `audit_log_ip_address_scope` refuses one at the
+        // database. It is listed here AND driven below, because a writer this file
+        // only lists is a writer `onlySecurityEventsCarryAnIpAddress` never checks.
+        'Modules/AuditLog/Infrastructure/SalesOrderAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 

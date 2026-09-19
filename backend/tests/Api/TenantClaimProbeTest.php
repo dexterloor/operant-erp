@@ -134,6 +134,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // would be comparing two refusals. `freshState()` re-seeds before each drive, so the order is
         // `draft` again for every one of the five.
         'ConfirmSalesOrder' => ['vars' => ['id' => 'sales_order']],
+        // Added 2026-09-19 with the cancel. Same seeded order, and it needs no line: §8.3 makes `draft` a
+        // legal source for `cancel()`, so the baseline succeeds on the fixture as it stands. `body` carries
+        // the `reason` §4.2 accepts, which is also what puts a value in the audit row's `metadata` on the
+        // successful drive -- so a supplied tenant id that moved the write would move a trail row too.
+        'CancelSalesOrder' => ['vars' => ['id' => 'sales_order'], 'body' => ['reason' => 'Customer withdrew']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

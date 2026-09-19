@@ -58,13 +58,34 @@ deptrac:
   # A-7, both the same Output 4 slice shape (`SalesOrderReader` returning its own
   # module's `ApiResource` read model, and `SalesOrderRow` building the new
   # `SalesActorReference` expansion). **Re-counted a third time the same day after
-  # `ConfirmSalesOrder`: 82 edge lines, 49 of them A-7** — two more, both A-7 and
+  # `ConfirmSalesOrder`: 49 A-7** — two more, both A-7 and
   # both `PurchaseOrderApproval`'s shape exactly (`SalesOrderConfirmation` returning
   # its own module's `ApiResource` read model, and reading the entity whose status
-  # guard it invokes). **No A-5 line joined them, and that absence is the ruling
-  # rather than an oversight:** this operation writes no audit event, because there
+  # guard it invokes). **No A-5 line joined them, and that absence was the ruling
+  # rather than an oversight:** that operation writes no audit event, because there
   # is no `sales_order.confirmed` in the catalogue and `B-4a` owns that deferral.
-  # **Recount rather than restate this line** —
+  #
+  # ⚠ **EVERY "edge lines" TOTAL IN THE CHAIN ABOVE WAS WRONG, and the A-7
+  # sub-counts were all right.** Measured at `e81cb35`, where this header claimed
+  # **82**: `git show HEAD:backend/deptrac.yaml | grep -c -- "- App"` returns
+  # **72**, while the same file's A-7 count returns **49**, matching. The running
+  # total had been incremented correctly on top of a base that was already
+  # overstated by ten — the 2026-09-14 note above records the base being disputed
+  # ("it held 76 against this header's 71") and the total never being re-derived
+  # afterwards. **So the totals are no longer carried as a chain.** They are
+  # printed once, for this commit only, with the command that produces them:
+  #
+  #   grep -c -- "- App" deptrac.yaml                    ->  76 edge lines
+  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  52 A-7
+  #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   5 A-5
+  #
+  # `CancelSalesOrder` added **four**: three A-7 of the shapes already named, and
+  # **the first A-5 line the Sales module has ever had** — `SalesOrderCancellation`
+  # calling `SalesOrderAuditWriter`, which is `PurchaseOrderCancellation`'s edge
+  # exactly. That A-5 edge is the one this commit's ruling turns on: `ADR-008` §2
+  # makes `audit_log` the named compensating control for the sales duty split it
+  # declines, so the edge is required rather than incidental.
+  # **Recount rather than restate this line, with the commands above** —
   # `make deptrac`'s own skipped figure is the authority and it counts occurrences,
   # one per site rather than one per pair. Not one of them is a new *shape* —
   # every one is the Output 4 slice shape already recorded for
@@ -183,6 +204,11 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\SalesOrderCancellation:
+      - App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter   # A-5
+      - App\Modules\Sales\ApiResource\CancelSalesOrderInput   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderConfirmation:
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7

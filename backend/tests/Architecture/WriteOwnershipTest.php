@@ -135,7 +135,12 @@ final class WriteOwnershipTest extends TestCase
      * reviewer can see that the number moved by the writes the commit added.
      */
     private const WRITE_STATEMENTS_PER_MODULE = [
-        'Modules\\AuditLog' => 4,
+        // 4 -> 5 on 2026-09-19: `SalesOrderAuditWriter::recordCancelled()`'s single `INSERT INTO
+        // audit_log`, which is `PurchaseOrderAuditWriter`'s statement with one event name changed.
+        // `Modules\\Sales` did NOT move and that was read off the run rather than predicted --
+        // `SalesOrderCancellation` issues two `SELECT`s and an ORM flush, and the row lock is a
+        // `FOR NO KEY UPDATE` this scan excludes.
+        'Modules\\AuditLog' => 5,
         'Modules\\Inventory' => 6,
         'Modules\\Purchasing' => 10,
         // Two, and the number is read off this test's own failure rather than predicted: `SalesOrderWriter`

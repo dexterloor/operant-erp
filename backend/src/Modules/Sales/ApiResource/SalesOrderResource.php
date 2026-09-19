@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Sales\ApiResource\State\CancelSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\ConfirmSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
@@ -16,7 +17,9 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `sales_order`'s read and write shape, and the three operations built so far.
+ * `sales_order`'s read and write shape, and the four operations built so far. *(Three until
+ * 2026-09-19, when `CancelSalesOrder` landed. Count the `operations:` entries below rather than
+ * trusting this sentence — it has already been wrong once.)*
  *
  * ---------------------------------------------------------------------------
  * The field list is derived, not chosen (API-23)
@@ -41,10 +44,20 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *     ground it applies: who raised an order is *"the subject row's own business state"*, not *"a
  *     principal's credentials, sessions or privileges"*. It is gated on the document's own
  *     `sales_order.view` and on nothing else. **The decisive reason is the one specific to this
- *     resource:** `AuditEvent::ALL` has no `sales_order.*` member at all, so with the field withheld
+ *     resource:** no audit event records **who raised** a sales order, so with the field withheld
  *     *"who raised this order"* would be answerable only from the database — which is API-O-33's own
  *     decisive sentence, and it does **not** apply to purchase orders, where `purchase_order.placed` is
- *     a catalogue member. ⚠ **It serves no separation-of-duty control here**, and the justifications the
+ *     a catalogue member naming the actor.
+ *     ⚠ **This clause read *"`AuditEvent::ALL` has no `sales_order.*` member at all"* until later the
+ *     same day and that is NO LONGER TRUE** — `CancelSalesOrder` minted `SALES_ORDER_CANCELLED`, the
+ *     first `sales_order.*` member. **The ruling is unaffected and the argument survives, narrowed to
+ *     what it always needed:** that event names the *canceller*, and `SEC-O-9` verified this column
+ *     records the creator, so no trail row answers *"who raised it"* either way. Recorded rather than
+ *     silently rewritten, because a conclusion reached through a premise that has since become false is
+ *     a conclusion the next reader will re-derive wrongly. **Re-derive `AuditEvent::ALL` before quoting
+ *     any sentence about it** — three artefacts carried this same flat claim and all three went stale
+ *     in one day.
+ *     ⚠ **It serves no separation-of-duty control here**, and the justifications the
  *     purchasing and receipt fields carry must not be copied across: `SEC-O-9` verified this column
  *     records *"the creator, not the confirmer"*, ADR-008 names no DSoD rule on any sales document, and
  *     `IA.md` IA-O-8 states that F-5 *"has no mirror of this gap … there is no seam"*.
@@ -157,6 +170,45 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // `IdempotencyContractTest` reconciles this flag against the cell.
             extraProperties: [
                 PermissionGate::OPERATION_PERMISSION => 'sales_order.confirm',
+            ],
+        ),
+        // API-21 branch 5, for the confirmation's reason: a cancellation creates no row and has no
+        // row-level URI to name beyond the one the caller is already on. 200 with the resource in its
+        // **new** state, so F-5 step 6 renders from the response rather than a refetch.
+        new Post(
+            uriTemplate: '/sales-orders/{id}/cancellation',
+            name: 'CancelSalesOrder',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'CancelSalesOrder'),
+            // §4.2's `Accepted request fields` cell is `reason`, and unlike `ConfirmSalesOrder` above
+            // this operation therefore reads a body. `sales_order` has **no free-text column at all**,
+            // so the field's destination is `audit_log.metadata` — see `CancelSalesOrderInput`, and
+            // `SalesOrderAuditWriter` for why the row exists at all rather than being deferred to B-4a
+            // the way the confirmation's was.
+            input: CancelSalesOrderInput::class,
+            denormalizationContext: [
+                // API-9: unknown fields are refused, never ignored.
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                'api_allow_update' => false,
+            ],
+            // `read: false` for `ConfirmSalesOrder`'s reason, and it is not an E-1 shortcut. The row
+            // this operation acts on has to be loaded **inside** the transaction that writes it: the
+            // lock, the archived check and the status guard are one atomic sequence, and a row read by
+            // a provider before the transaction opens is a row whose status may have moved by the time
+            // `cancel()` runs. The permission check has already happened either way — it is on
+            // `kernel.controller`, ahead of every state class.
+            read: false,
+            processor: CancelSalesOrderProcessor::class,
+            // §4.2's cell is `guard:sales_order.status`: a replay hits an order that is already
+            // `cancelled`, `cancel()`'s guard refuses it, and `business-rule-violated` is how the
+            // caller learns the first attempt committed.
+            //
+            // ⚠ **No `IdempotencyKeyGuard::OPERATION_FLAG`.** API-14 as amended demands the header for
+            // `store` and `unique:` only, so a 428 here would refuse a correct request and protect
+            // nothing. `IdempotencyContractTest` reconciles this flag against the cell.
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'sales_order.cancel',
             ],
         ),
     ],

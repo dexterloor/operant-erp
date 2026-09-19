@@ -126,10 +126,16 @@ final class TransitionGuardTest extends TestCase
             'blocks' => ['CreateFulfilment'],
         ],
         [
-            'entity' => SalesOrder::class, 'method' => null, // cancel, ⛔ Output 9
+            // `method` was `null` and `blocks` was `['CancelSalesOrder']` until
+            // 2026-09-19: `SalesOrder::cancel()` now exists and the operation
+            // ships, so API-O-17's last sales row is discharged and clause (c)
+            // has nothing to find here. `partially_fulfilled` stays among the
+            // legal sources because §8.3 declares it, though nothing can reach
+            // that status yet — see `cancel()`'s FORWARD DECLARATION.
+            'entity' => SalesOrder::class, 'method' => 'cancel',
             'from' => [SalesOrder::STATUS_DRAFT, SalesOrder::STATUS_CONFIRMED, SalesOrder::STATUS_PARTIALLY_FULFILLED],
             'to' => [SalesOrder::STATUS_CANCELLED],
-            'blocks' => ['CancelSalesOrder'],
+            'blocks' => [],
         ],
         [
             'entity' => Invoice::class, 'method' => 'markPaid',
@@ -193,7 +199,10 @@ final class TransitionGuardTest extends TestCase
             // `recordReceipt()` reaches both. The purchase side owes nothing.
         ],
         SalesOrder::class => [
-            SalesOrder::STATUS_CANCELLED,              // ⛔ cancel()
+            // `STATUS_CANCELLED` LEFT this pin on 2026-09-19: `cancel()` exists,
+            // the matrix row above names it, and the status is now reachable by
+            // an implemented transition. It was the last of API-O-17's four and
+            // the only one the note above said was "not this package's to write".
             SalesOrder::STATUS_FULFILLED,              // ⛔ fulfilment posting
             SalesOrder::STATUS_PARTIALLY_FULFILLED,    // ⛔ fulfilment posting
         ],

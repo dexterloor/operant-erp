@@ -45,6 +45,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
         'ConfirmSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/confirmation', 'idem' => false],
+        // `idem` false for the confirmation's reason: §4.2's cell is `guard:sales_order.status`, and API-14
+        // as amended demands the header for `store` and `unique:` only.
+        'CancelSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/cancellation', 'idem' => false],
     ];
 
     /** The registry's `/sales-orders` operations are exactly the pin, method and path included. */

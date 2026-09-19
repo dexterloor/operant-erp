@@ -898,11 +898,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * against two different derived sets, and a single list would let a purchase-order entry silently
      * account for a sales writer (or the reverse) the day a class writes both.
      *
-     * ⚠ **There is no sales `LOCK_FIRST_CHECKED` and no sales `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN` yet,
-     * and their absence is not an exemption.** This slice ships exactly one sales writer and it creates the
-     * row it writes. The first writer that touches an **existing** sales order — `ConfirmSalesOrder`,
-     * `CancelSalesOrder`, `CreateSalesOrderLine` — needs a lock-first check that actually runs, the way
-     * `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs for purchasing, and a list naming it.
+     * ⚠ **This docblock said *"there is no sales `LOCK_FIRST_CHECKED` … yet"* and that has been FALSE
+     * since `ConfirmSalesOrder` shipped on 2026-09-19** — it went stale in the commit that built the very
+     * thing it said did not exist, and was found one commit later by `CancelSalesOrder`. `SALES_LOCK_FIRST_CHECKED`
+     * exists below and now names **two** operations. What survives of the sentence is the rule it stated, so
+     * the rule is kept and the false premise struck: **a writer that touches an EXISTING sales order needs a
+     * lock-first check that actually runs**, the way `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs
+     * for purchasing, and a list naming it. `CreateSalesOrderLine` and `UpdateSalesOrder` still owe theirs.
+     * There is still no sales `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, and that absence is not an exemption.
      */
     /**
      * **Confirm vs confirm: two reps commit the same draft to the customer at once.** A confirms and holds
@@ -961,6 +964,45 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Cancel vs cancel: two reps withdraw the same order at once.** A cancels and holds the order; the
+     * HTTP request must wait, then read what A committed and refuse.
+     *
+     * Without the lock first the second cancellation reads `draft`, passes `cancel()`'s status guard,
+     * waits only at its own `UPDATE`, and then writes `cancelled` over `cancelled` — and, because this
+     * operation writes an audit row, **it would also append a SECOND `sales_order.cancelled` row naming a
+     * second canceller for one cancellation.** That is the part with no purchase-side equivalent worth
+     * restating: on an append-only table no role can `UPDATE` or `DELETE`, a duplicated trail row is
+     * permanent, and `ADR-008` §2 leans this operation's whole control on that trail. So the audit count
+     * is in the assertion below, not just the status.
+     *
+     * This is `aSecondCancellationWaitsAndIsRefusedByTheStatusGuard` on the selling side.
+     */
+    #[Test]
+    public function aSecondSalesCancellationWaitsAndIsRefusedByTheStatusGuard(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ["UPDATE sales_order SET status = 'cancelled', updated_at = now() WHERE id = ?::uuid", [$order]],
+        ], request: fn () => $this->send('POST', '/sales-orders/'.$order.'/cancellation', ['reason' => 'Customer withdrew']), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('sales_order.'.self::STATUS_RULE, $this->json()['rule']);
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_CANCELLED);
+
+        // The refused request wrote no trail row. A's `UPDATE` above is raw SQL and writes none either, so
+        // zero is the honest expectation -- and it is asserted against the subject id rather than the whole
+        // table, so a row written for some other order could not satisfy it.
+        self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid',
+            [AuditEvent::SALES_ORDER_CANCELLED, $order]),
+            'A cancellation refused by the status guard appended a sales_order.cancelled row anyway. The '
+            .'audit write is inside the transaction cancel() refuses, so a row here means it is not.');
+    }
+
+    /**
      * **The Sales half of `theOrderRowLockIsTheFirstStatementToTouchTheOrder`: in every sales write path
      * the lock is the first statement that touches the order or its lines.**
      *
@@ -1015,6 +1057,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     public static function everySalesWritePath(): iterable
     {
         yield 'ConfirmSalesOrder' => ['POST', '/sales-orders/{order}/confirmation', null, 200];
+        // `reason` is sent rather than omitted: §4.2 accepts it, and the body is what makes this the
+        // deserializing sibling of the confirmation above. The lock's position is what is under test either
+        // way -- the audit INSERT that consumes the reason happens after `cancel()`, so it cannot be the
+        // first statement to touch the order and cannot mask a missing lock.
+        yield 'CancelSalesOrder' => ['POST', '/sales-orders/{order}/cancellation', ['reason' => 'Customer withdrew'], 200];
     }
 
     /**
@@ -1028,6 +1075,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      */
     private const SALES_LOCK_FIRST_CHECKED = [
         'ConfirmSalesOrder' => 'SalesOrderConfirmation::confirm',
+        // Added 2026-09-19 with the operation. The scan named `SalesOrderCancellation::cancel` on its own,
+        // with both of its derived ORM writes, before this entry existed -- the tripwire fired rather than
+        // being anticipated, which is the whole point of it.
+        'CancelSalesOrder' => 'SalesOrderCancellation::cancel',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [

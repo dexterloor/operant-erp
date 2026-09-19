@@ -191,6 +191,18 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, then confirm'];
             }],
+            // Driven from a DRAFT rather than through the confirmation, and that is deliberate: §8.3
+            // makes `draft` a legal source for `cancel()`, so the shortest success path needs no second
+            // transition, and a recipe that confirmed first would make every probe built on it depend on
+            // two operations instead of one. `reason` is sent because §4.2 accepts it and the audit row
+            // this operation writes is where it lands — a recipe omitting it would drive the
+            // `metadata = '{}'` branch only, and `SalesOrderCancellationTest` owns both branches.
+            'CancelSalesOrder' => [fn (): array => $salesWorkspace('SO-CANC'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/cancellation', ['reason' => 'The customer withdrew the order.']);
+
+                return [200, 'create, then cancel'];
+            }],
             'CreatePurchaseOrder' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');
                 $item = $this->seedItem(self::TENANT_A, 'SKU-NEW-PO', $supplier);

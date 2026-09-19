@@ -85,6 +85,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // ADR-008 names none on any sales document, and `sales_order.created_by_user_id` records the
         // creator, not the confirmer, so one could not be expressed on the columns that exist.
         'ConfirmSalesOrder' => 'sales_order.confirm',
+        // Added 2026-09-19 with the operation. `sales_order.cancel` is the row's own `Perm` cell and a
+        // code of its own in §3's catalogue. ADR-008 §2 records that `sales_rep` holds it **alongside**
+        // `sales_order.confirm`, deliberately and asymmetrically with the buying side — so no
+        // separation-of-duty check sits behind this code, and the audit row is the compensation.
+        'CancelSalesOrder' => 'sales_order.cancel',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',
