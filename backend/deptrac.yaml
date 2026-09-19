@@ -75,9 +75,19 @@ deptrac:
   # afterwards. **So the totals are no longer carried as a chain.** They are
   # printed once, for this commit only, with the command that produces them:
   #
-  #   grep -c -- "- App" deptrac.yaml                    ->  76 edge lines
-  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  52 A-7
-  #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   5 A-5
+  #   grep -c -- "- App" deptrac.yaml                    ->  80 edge lines
+  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  53 A-7
+  #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
+  #
+  # ⚠ **CORRECTED BY `LEAD` 2026-09-19, AND THIS IS THE THIRD GENERATION OF THE
+  # SAME DEFECT IN THIS HEADER.** The block above replaced a chain whose totals
+  # were overstated by ten — correctly diagnosed — and then published **76 / 52 / 5**,
+  # which running its **own three commands verbatim** returns as **80 / 53 / 6**.
+  # The figures were measured before the commit's last edits landed (the A-5 line
+  # and two A-7 lines arrived after), so the fix for a stale measurement was itself
+  # stale. **The lesson is not "count more carefully" — it is that a count written
+  # by hand goes stale between the measuring and the committing.** Re-run the three
+  # commands above; never trust this line, including this correction of it.
   #
   # `CancelSalesOrder` added **four**: three A-7 of the shapes already named, and
   # **the first A-5 line the Sales module has ever had** — `SalesOrderCancellation`
