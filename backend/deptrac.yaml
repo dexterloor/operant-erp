@@ -75,9 +75,15 @@ deptrac:
   # afterwards. **So the totals are no longer carried as a chain.** They are
   # printed once, for this commit only, with the command that produces them:
   #
-  #   grep -c -- "- App" deptrac.yaml                    ->  80 edge lines
-  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  53 A-7
+  #   grep -c -- "- App" deptrac.yaml                    ->  85 edge lines
+  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  58 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
+  #
+  # (Re-derived 2026-09-21 with `ListSalesOrderLines` in the tree, by running the
+  # three commands on the committed file rather than by adding to the previous
+  # figures. `make deptrac` then reported **0 violations / 222 skipped / 1226
+  # allowed**; the skipped figure counts **occurrences**, one per site, so it is
+  # not this file's line count and the two must not be reconciled.)
   #
   # ⚠ **CORRECTED BY `LEAD` 2026-09-19, AND THIS IS THE THIRD GENERATION OF THE
   # SAME DEFECT IN THIS HEADER.** The block above replaced a chain whose totals
@@ -88,6 +94,20 @@ deptrac:
   # stale. **The lesson is not "count more carefully" — it is that a count written
   # by hand goes stale between the measuring and the committing.** Re-run the three
   # commands above; never trust this line, including this correction of it.
+  #
+  # **`ListSalesOrderLines` added five on 2026-09-21, and not one is a new SHAPE.**
+  # Three on `SalesOrderLineRow` — two `ApiResource` read models returned from
+  # `Application` (`SalesOrderLineResource` and its `SalesItemReference`
+  # expansion, `SalesOrderRow`'s shape exactly) and the entity whose `STATUS_*`
+  # constant the `quantity_outstanding` derivation binds, which is
+  # `SalesOrderConfirmation`'s shape exactly. Two on `SalesOrderReader` — the
+  # bounded collection it returns and the element type in its `@var`. **No A-5
+  # line, and that absence is the operation's nature rather than a deferral:** a
+  # read writes no audit event.
+  # **Re-derive the three counts with the commands above rather than adding five
+  # to the last ones you read** — this header has now published a wrong total in
+  # three successive generations, and the standing lesson is that a count written
+  # by hand goes stale between the measuring and the committing.
   #
   # `CancelSalesOrder` added **four**: three A-7 of the shapes already named, and
   # **the first A-5 line the Sales module has ever had** — `SalesOrderCancellation`
@@ -222,7 +242,13 @@ deptrac:
     App\Modules\Sales\Application\SalesOrderConfirmation:
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
+    App\Modules\Sales\Application\SalesOrderLineRow:
+      - App\Modules\Sales\ApiResource\SalesItemReference   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderLineResource   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderReader:
+      - App\Modules\Sales\ApiResource\SalesOrderLineCollection   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderLineResource   # A-7
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
     App\Modules\Sales\Application\SalesOrderRow:
       - App\Modules\Sales\ApiResource\SalesActorReference   # A-7

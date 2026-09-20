@@ -90,6 +90,12 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // `sales_order.confirm`, deliberately and asymmetrically with the buying side — so no
         // separation-of-duty check sits behind this code, and the audit row is the compensation.
         'CancelSalesOrder' => 'sales_order.cancel',
+        // Added 2026-09-21 with the bounded sub-list. `sales_order.view` is the row's own `Perm` cell,
+        // and it is the whole gate: the lines are read under the **parent document's** permission, not a
+        // `sales_order_line.*` code — §3's catalogue mints none, because a line is not a document. The
+        // expanded `inventory_item` needs no `inventory_item.view` either (PC-15 clause 4, the same
+        // reading `GetSalesOrder`'s customer and warehouse references ride on).
+        'ListSalesOrderLines' => 'sales_order.view',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',

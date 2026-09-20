@@ -1150,6 +1150,32 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * The one DTO class a resource is serialized from: the output class of every
      * registry operation whose §4.2 cell names it with a non-`List` verb.
      *
+     * ---------------------------------------------------------------------------
+     * ⚠ A resource whose ONLY built operation is its `List` has no such operation
+     * ---------------------------------------------------------------------------
+     * **Found by running this, not by reading it (2026-09-21, `ListSalesOrderLines`).**
+     * Until then every read resource in the domain happened to have a built
+     * `Create` or `Get` whose output named its DTO, so this method never had to
+     * answer the question. `SalesOrderLine`'s four §4.2 writes are all `unbuilt`
+     * and its bounded sub-list is built, so the loop above found **zero** classes
+     * and this check failed with *"`SalesOrderLine` is not serialized from exactly
+     * one DTO class: []"* — **the check could not run at all**, which is a worse
+     * outcome than either answer.
+     *
+     * A `List`'s own operation class is the **envelope**
+     * (`SalesOrderLineCollection`), and its `items` are a bare `array` —
+     * `phpstan/phpdoc-parser` is not installed, so nothing reads the generic. The
+     * item DTO is therefore not derivable from the metadata, and the fallback is
+     * this project's **naming convention**: the DTO sits beside the envelope, in
+     * the same namespace, named `<Resource>Resource`.
+     *
+     * **The convention is not assumed — it is proven on the built surface every
+     * run.** Wherever a non-`List` operation *does* name a class, that class and
+     * the convention's are compared, so the fallback is only ever used for a
+     * spelling that four shipped resources have just confirmed. If the project
+     * renames its DTOs, the control fails on the resources that have one rather
+     * than this method quietly resolving the wrong class for the one that does not.
+     *
      * @param array<string, array{verbResource: string}> $rows
      * @param array<string, HttpOperation>               $operations
      *
@@ -1158,13 +1184,40 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private static function dtoClassOf(string $resource, array $rows, array $operations): string
     {
         $classes = [];
+        $listEnvelopes = [];
         foreach ($operations as $name => $operation) {
-            if (1 === preg_match('/^(?!List )[A-Za-z]+ \/ '.$resource.'$/', $rows[$name]['verbResource'] ?? '')) {
+            $verbResource = $rows[$name]['verbResource'] ?? '';
+            if (1 === preg_match('/^(?!List )[A-Za-z]+ \/ '.$resource.'$/', $verbResource)) {
                 $classes[] = $operation->getOutput()['class'] ?? $operation->getClass();
+            } elseif (1 === preg_match('/^List \/ '.$resource.'s?$/', $verbResource)) {
+                $listEnvelopes[] = $operation->getOutput()['class'] ?? $operation->getClass();
             }
         }
         $classes = array_values(array_unique(array_filter($classes)));
-        self::assertCount(1, $classes, $resource.' is not serialized from exactly one DTO class: ['.implode(', ', $classes).']');
+
+        $byConvention = null;
+        foreach (array_unique(array_filter($listEnvelopes)) as $envelope) {
+            $candidate = substr($envelope, 0, (int) strrpos($envelope, '\\') + 1).$resource.'Resource';
+            if (class_exists($candidate)) {
+                $byConvention = $candidate;
+            }
+        }
+
+        // The control: where both roads exist they must arrive at the same class,
+        // which is what makes the fallback below evidence rather than a guess.
+        if ([] !== $classes && null !== $byConvention) {
+            self::assertSame($classes[0], $byConvention, \sprintf(
+                '%s\'s DTO is %s by its operations and %s by the `<Resource>Resource` naming convention. '
+                .'A resource whose only built operation is its List is resolved by that convention alone, '
+                .'so a divergence here makes that resolution unsafe.', $resource, $classes[0], $byConvention));
+        }
+
+        if ([] === $classes && null !== $byConvention) {
+            return $byConvention;
+        }
+
+        self::assertCount(1, $classes, $resource.' is not serialized from exactly one DTO class: ['.implode(', ', $classes).']'
+            .(null === $byConvention ? ' and no `'.$resource.'Resource` sits beside its list envelope.' : ''));
 
         return $classes[0];
     }

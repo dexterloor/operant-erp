@@ -18,8 +18,23 @@ use Symfony\Component\Uid\Uuid;
  *   FOREIGN KEY (tenant_id, sales_order_id)    REFERENCES sales_order    (tenant_id, id)
  *   FOREIGN KEY (tenant_id, inventory_item_id) REFERENCES inventory_item (tenant_id, id)
  *
- * No `deleted_at`: a line belongs to its order and is removed with it or not at
- * all, so `sales_order_line_unique` stays total rather than partial.
+ * **The table IS soft-deleted.** `deleted_at` is mapped below, written by the
+ * sales order's cascade trigger and by nothing in PHP, and
+ * `sales_order_line_unique` is therefore **partial** — `WHERE (deleted_at IS
+ * NULL)`, both in the attribute directly below this docblock and on the live
+ * index. `SchemaManifest::TABLES['sales_order_line']['deletion']` is `self::SOFT`
+ * for the reason it records: `sales_order_line_tenant_item_idx` is ADR-004's
+ * demand-history input, and demand from a discarded order is not demand.
+ *
+ * ⚠ *(This paragraph read **"No `deleted_at`: a line belongs to its order and is
+ * removed with it or not at all, so `sales_order_line_unique` stays total rather
+ * than partial"** from the day it was written until 2026-09-21 — both halves
+ * false, and contradicted by the attribute nine lines below it and by the mapping
+ * fifty lines below that. It is **load-bearing**, because API-19c limb 2 turns on
+ * exactly these two facts, so it is the sentence a reader would use to decide
+ * whether `ListSalesOrderLines` may offer `archived`. Found by `RED` while
+ * attacking that operation's design and corrected in the commit that built it,
+ * under the standing rule of 2026-09-13.)*
  *
  * Quantities are numeric(19,6) and prices numeric(19,4) — both strings in PHP
  * (S-12). A float here is a rounding error that reaches an invoice.

@@ -101,6 +101,20 @@ trait ListOperationFixtures
                     return ['supplier' => null, 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListSalesOrderLines' => function (): array {
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-LINES');
+
+                return ['/sales-orders/'.$order.'/lines', function (int $rows) use ($order): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ENV-SL'.$i), $i);
+                    }
+
+                    // Bounded (TB-1c): no `supplier`-shaped filter, no searchable column TB-5 names, and
+                    // one view, because §10.2's exclusion 2 takes it out of `sort`'s domain on both
+                    // sides. The same three nulls `ListPurchaseOrderLines` carries, for the same rule.
+                    return ['supplier' => null, 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListPurchaseOrders' => function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Orders');
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Orders');

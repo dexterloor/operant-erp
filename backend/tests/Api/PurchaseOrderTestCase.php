@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use Symfony\Component\Uid\Uuid;
@@ -106,10 +107,25 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      * tenant, so a literal would collide the moment a caller seeds two orders — which
      * `ArchivedRowSubjects` does on every run.
      *
+     * ⚠ **`$status` and `$orderedAt` are independent parameters, and on this table that is not sloppiness
+     * — it is the schema.** `sales_order` carries **no `ordered_at` CHECK at all** (measured against
+     * `pg_constraint`: the four are `id_is_uuid_v4`, `idempotency_key_sha256`, `request_digest_sha256`
+     * and `status_values`), unlike `purchase_order`, whose `purchase_order_ordered_at_set` is what lets
+     * `seedOrder` derive the date from the status. So every `(status, ordered_at)` combination this
+     * fixture can write is one the database accepts — including `cancelled` with no date, which is
+     * exactly what `CreateSalesOrder` → `CancelSalesOrder` produces today, and which is why
+     * `SalesOrderViews::legalSorts()` refuses `ordered_at` on that view.
+     *
      * @return string the new row's id
      */
-    protected function seedSalesOrder(string $tenantId, string $number, ?string $customerId = null, ?string $warehouseId = null): string
-    {
+    protected function seedSalesOrder(
+        string $tenantId,
+        string $number,
+        ?string $customerId = null,
+        ?string $warehouseId = null,
+        string $status = SalesOrder::STATUS_DRAFT,
+        ?string $orderedAt = null,
+    ): string {
         $customer = $customerId ?? $this->seedCustomer($tenantId, 'Customer '.$number);
         $warehouse = $warehouseId ?? $this->seedWarehouse($tenantId, 'WH '.$number);
         $id = Uuid::v4()->toRfc4122();
@@ -117,11 +133,12 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO sales_order
                 (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, ship_to_country_code,
-                 idempotency_key, request_digest)
+                 status, ordered_at, idempotency_key, request_digest)
             VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, 'EUR', 'GB',
+                    ?, ?::timestamptz,
                     encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
                     encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
-            SQL, [$id, $tenantId, $number, $customer, $warehouse]);
+            SQL, [$id, $tenantId, $number, $customer, $warehouse, $status, $orderedAt]);
 
         return $id;
     }
@@ -137,15 +154,30 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      * `line_number` is a parameter because `sales_order_line_unique` is partial on
      * `(tenant_id, sales_order_id, line_number)`: two lines on one order must differ.
      *
+     * ⚠ **`$quantityFulfilled` is a parameter and nothing in `src/` can produce a non-zero one**
+     * (`RESIDUAL_GAPS.md` G-7 — `CreateFulfilment` is unbuilt). It is here so that
+     * `SalesOrderLineReadTest` can drive the **subtraction** half of `quantity_outstanding` at all: with
+     * every row at `0`, that half is untested and only the V2-C-14(b) status clause is doing work. The
+     * defaults changed from `1, 1` to `10.000000, 2.5000` with `ListSalesOrderLines` so a read can tell
+     * `quantity` from `unit_price` and both from a positional mistake.
+     *
      * @return string the new row's id
      */
-    protected function seedSalesOrderLine(string $tenantId, string $orderId, string $itemId, int $lineNumber = 1): string
-    {
+    protected function seedSalesOrderLine(
+        string $tenantId,
+        string $orderId,
+        string $itemId,
+        int $lineNumber = 1,
+        string $quantity = '10.000000',
+        string $unitPrice = '2.5000',
+        string $quantityFulfilled = '0.000000',
+    ): string {
         $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO sales_order_line (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price)
-            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, 1, 1)
-            SQL, [$id, $tenantId, $orderId, $itemId, $lineNumber]);
+            INSERT INTO sales_order_line
+                (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, quantity_fulfilled, unit_price)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?::numeric, ?::numeric, ?::numeric)
+            SQL, [$id, $tenantId, $orderId, $itemId, $lineNumber, $quantity, $quantityFulfilled, $unitPrice]);
 
         return $id;
     }

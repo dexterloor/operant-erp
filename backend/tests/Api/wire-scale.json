@@ -83,6 +83,18 @@
     "ListPurchaseOrders $.items[].total_amount": [
         4
     ],
+    "ListSalesOrderLines $.items[].quantity": [
+        6
+    ],
+    "ListSalesOrderLines $.items[].quantity_fulfilled": [
+        6
+    ],
+    "ListSalesOrderLines $.items[].quantity_outstanding": [
+        6
+    ],
+    "ListSalesOrderLines $.items[].unit_price": [
+        4
+    ],
     "RestoreItem $.reorder_point": [
         6
     ],

@@ -166,6 +166,17 @@ trait OperationSuccessRecipes
 
                 return [200, 'read'];
             }],
+            // Driven through the writer, like every other sales recipe here: `seedSalesOrder` writes no
+            // creator and `seedSalesOrderLine` no `quantity_fulfilled` history, and a list whose rows the
+            // operation itself produced is the one every reference and scale walker sees in the shape a
+            // client gets. The order is read back from the create's `Location`, so the path is §4.2's own
+            // rather than a second copy of the template.
+            'ListSalesOrderLines' => [fn (): array => $salesWorkspace('SO-LINES'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location').'/lines');
+
+                return [200, 'create, then list its lines'];
+            }],
             'CreateSalesOrder' => [fn (): array => $salesWorkspace('SO'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
 

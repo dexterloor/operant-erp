@@ -68,16 +68,33 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * `METHOD path` => the operation, for the sales line reads that owe V2-C-14(b)'s
-     * decision. §4.2 declares `ListSalesOrderLines` at the order's row URI + `/lines`,
-     * marked *(bounded)*; `GetSalesOrderLine` is not declared, so the list read is the
-     * only declared consumer today.
+     * decision.
+     *
+     * **⚠ CLEARED 2026-09-21, IN THE COMMIT THAT APPLIED THE DECISION.** It held
+     * `'GET /api/v1/sales-orders/{id}/lines' => 'ListSalesOrderLines'`; that
+     * operation shipped with `SalesOrderLineRow`'s `CASE` derivation and with
+     * {@see self::REPLACEMENT_ASSERTION} driving it, which is step 2 of the failure
+     * message below. Moving the entry is the deliberate act that says the decision
+     * was applied — it was not moved to get green, and the diff that clears it is the
+     * diff that adds the derivation and its test.
      *
      * Prefixed `/api/v1` for the measured reason recorded on the sibling constant.
      *
      * @var array<string, string>
      */
-    private const OPERATIONS_OWING_THE_REMAINDER_DECISION = [
-        'GET /api/v1/sales-orders/{id}/lines' => 'ListSalesOrderLines',
+    private const OPERATIONS_OWING_THE_REMAINDER_DECISION = [];
+
+    /**
+     * The assertion that carries V2-C-14(b) now that the pin above is empty.
+     *
+     * It is named here, not merely mentioned in prose, so that
+     * {@see self::noOperationOwingTheCancelledRemainderDecisionHasBeenBuilt} has
+     * something left to fail on: delete or rename that test and this class goes red
+     * naming it, rather than the obligation evaporating quietly.
+     */
+    private const REPLACEMENT_ASSERTION = [
+        \App\Tests\Api\SalesOrderLineReadTest::class,
+        'aCancelledOrdersLinesOweNothingAndALiveOrdersOweTheirRemainder',
     ];
 
     /**
@@ -195,6 +212,33 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * **Positive control:** the same {@see self::A_PATH_KNOWN_TO_BE_BUILT} assertion
      * the sibling test uses, for the same measured reason — the first version of
      * that pin compared disjoint sets and a planted built operation left it green.
+     *
+     * ---------------------------------------------------------------------------
+     * ⚠ 2026-09-21 — THE DECISION HAS BEEN APPLIED, AND THIS PIN IS NOW EMPTY
+     * ---------------------------------------------------------------------------
+     * `ListSalesOrderLines` shipped with the derivation in
+     * `SalesOrderLineRow::COLUMNS` — `CASE WHEN so.status = ? THEN 0::numeric(19,6)
+     * ELSE sol.quantity - sol.quantity_fulfilled END`, the status **bound** from
+     * `SalesOrder::STATUS_CANCELLED` and no `quantity_cancelled` column — and with
+     * the assertion step 2 demands, a cancelled order's lines and a live order's
+     * driven **in one test** so neither an always-zero `CASE` nor an empty result set
+     * can pass. §15.1's note moved on both rows in the same commit.
+     *
+     * **So the intersection below is now vacuous, and that is a real cost, not
+     * nothing.** `array_intersect_key([], …)` is `[]` for every input — the empty-set
+     * trap this very class records having fallen into once. After this commit
+     * V2-C-14(b) is carried by **one HTTP test against one operation**, and a second
+     * consumer — `GetSalesOrderLine` (undeclared), `CreateFulfilment`'s line
+     * projection, the V2-S-1b pick read — could reintroduce the bare subtraction with
+     * nothing at the spec level to catch it. The constant's own former docblock said
+     * the list read was the only declared consumer *"today"*.
+     *
+     * **Whether to delete this method and its constant outright, or keep an empty pin,
+     * is the OWNER'S call and is NOT taken here.** `BE-LEAD` recommended deletion and
+     * `RED` agreed with the recommendation while dissenting from its stated cost of
+     * *"none"*; deleting a tripwire is irreversible, so it is reported rather than
+     * done. Until it is ruled, the method keeps a job: it fails if the replacement
+     * assertion is renamed or removed.
      */
     #[Test]
     public function noOperationOwingTheCancelledRemainderDecisionHasBeenBuilt(): void
@@ -205,6 +249,17 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
             'Positive control: the spec no longer spells built paths the way this pin does, so the check '
             .'below would compare two disjoint sets and pass on everything.');
+
+        // The pin is empty since 2026-09-21, so the intersection below can no longer
+        // fail. What can is this: the obligation moved to a named assertion, and if
+        // that assertion goes, nothing in the suite carries V2-C-14(b) at all.
+        [$replacementClass, $replacementMethod] = self::REPLACEMENT_ASSERTION;
+        self::assertTrue(method_exists($replacementClass, $replacementMethod), \sprintf(
+            "%s::%s no longer exists, and this pin is empty, so NOTHING now carries V2-C-14(b).\n\n"
+            ."The decision: `sales_order_line.quantity_outstanding` reads 0 when the parent order's status\n"
+            ."is `cancelled` - DERIVED in the read's SQL, with no `quantity_cancelled` column. It is applied\n"
+            ."in `SalesOrderLineRow::COLUMNS`. Restore the assertion, or put the obligation back on the pin\n"
+            .'above, before removing this.', $replacementClass, $replacementMethod));
 
         $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_REMAINDER_DECISION, array_fill_keys($built, true));
 

@@ -262,6 +262,17 @@ trait ArchivedRowSubjects
 
                 return ['id' => $order, 'row' => $order];
             },
+            // Added 2026-09-21 with `ListSalesOrderLines`: `sales_order_line` is class `soft` and now has
+            // a built `List`, so the list clause selects it. There is no built direct-hit `Get` and no
+            // built write on this resource, so it is in the list clause only — which is why the fixture
+            // returns the **order** as `id` (the sub-list's path variable) and the **line** as `row`.
+            'sales_order_line' => function (string $tag): array {
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $line = $this->seedSalesOrderLine(self::TENANT_A, $order,
+                    $this->seedItem(self::TENANT_A, 'SKU-ARC-SL-'.$tag.'-'.bin2hex(random_bytes(3))));
+
+                return ['id' => $order, 'row' => $line];
+            },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
                 $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);

@@ -139,6 +139,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // the `reason` §4.2 accepts, which is also what puts a value in the audit row's `metadata` on the
         // successful drive -- so a supplied tenant id that moved the write would move a trail row too.
         'CancelSalesOrder' => ['vars' => ['id' => 'sales_order'], 'body' => ['reason' => 'Customer withdrew']],
+        // Added 2026-09-21 with the bounded sub-list. Its subject is the same seeded order, which already
+        // carries a line in **both** tenants (`freshState()`), so the baseline returns a non-empty page
+        // and a supplied tenant id that moved the read would answer with B's line where A's was asked
+        // for — an empty baseline would make the comparison vacuous.
+        'ListSalesOrderLines' => ['vars' => ['id' => 'sales_order']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

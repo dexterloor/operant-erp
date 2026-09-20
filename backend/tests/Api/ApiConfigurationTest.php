@@ -100,7 +100,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // all — `erp_app` already held `UPDATE` on both sales tables from `Version20260919000300` and
         // `INSERT` on `audit_log`, both measured with `has_table_privilege()` — but did need
         // `Version20260919000400`, the catalogue extension for `sales_order.cancelled`.
-        self::assertCount(26, $checked, 'The route set changed. This slice declares twenty-six operations: '.implode(', ', array_keys($checked)));
+        // **One more on 2026-09-21:** `ListSalesOrderLines`, the bounded sub-list of a sales order's
+        // lines. No migration and no grant change — a read issues no write, and `erp_app` already held
+        // `SELECT` on `sales_order_line`, `sales_order` and `inventory_item`, re-measured with
+        // `has_table_privilege()` in that commit.
+        self::assertCount(27, $checked, 'The route set changed. This slice declares twenty-seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**
