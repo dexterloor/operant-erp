@@ -50,6 +50,11 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         'ListSalesOrderLines' => ['method' => 'GET', 'path' => '/sales-orders/{id}/lines', 'idem' => false],
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
+        // `idem` false, and §4.2's `Idem` cell reads `no` for the reason API-14 asks for: a PATCH sets
+        // absolute values on a row that already exists, so a replay converges on the same state and
+        // there is no duplicate for a key to prevent. Its position here was read off this test's own
+        // failure, not guessed.
+        'UpdateSalesOrder' => ['method' => 'PATCH', 'path' => '/sales-orders/{id}', 'idem' => false],
         'ConfirmSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/confirmation', 'idem' => false],
         // `idem` false for the confirmation's reason: §4.2's cell is `guard:sales_order.status`, and API-14
         // as amended demands the header for `store` and `unique:` only.

@@ -75,14 +75,17 @@ deptrac:
   # afterwards. **So the totals are no longer carried as a chain.** They are
   # printed once, for this commit only, with the command that produces them:
   #
-  #   grep -c -- "- App" deptrac.yaml                    ->  87 edge lines
-  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  60 A-7
+  #   grep -c -- "- App" deptrac.yaml                    ->  89 edge lines
+  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  62 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
-  # (Re-derived 2026-09-21 with `ListSalesOrders` in the tree, by running the three
+  # (Re-derived 2026-09-21 with `UpdateSalesOrder` in the tree, by running the three
   # commands on the file rather than by adding to the previous figures.
-  # `make deptrac` reports **0 violations / 232 skipped / 1248 allowed**; at
-  # `ListSalesOrderLines` earlier the same day it was 85 / 58 / 6 and **0 / 222 /
+  # `make deptrac` reports **0 violations / 240 skipped / 1260 allowed** (re-derived AFTER
+  # `SalesOrder::shipTo()` was deleted -- it read 1261 while that method still used `Country`, and
+  # restating the earlier figure would have published a number no run produces); with
+  # `ListSalesOrders` earlier the same day it was 87 / 60 / 6 and **0 / 232 /
+  # 1248**, and at `ListSalesOrderLines` before that 85 / 58 / 6 and **0 / 222 /
   # 1226**. The skipped figure counts **occurrences**, one per site, so it is not
   # this file's line count and the two must not be reconciled.)
   #
@@ -95,6 +98,17 @@ deptrac:
   # stale. **The lesson is not "count more carefully" — it is that a count written
   # by hand goes stale between the measuring and the committing.** Re-run the three
   # commands above; never trust this line, including this correction of it.
+  #
+  # **`UpdateSalesOrder` added two on 2026-09-21**, both A-7 and both shapes this
+  # file already names elsewhere: `SalesOrderWriter -> UpdateSalesOrderInput`, which
+  # is `ItemWriter -> UpdateItemInput`'s shape exactly, and
+  # `SalesOrderWriter -> Entity\SalesOrder`, which is `SalesOrderConfirmation`'s and
+  # `SalesOrderViews`' — the writer reads `SalesOrder::STATUS_DRAFT` off the entity's
+  # own constant rather than spelling `'draft'`, which `API.md` §8.3a clause (c)
+  # requires of every edit-window guard. **No A-5 line joined them**, and that is
+  # the operation's own finding rather than an omission: `UpdateSalesOrder` writes
+  # no audit row, because `AuditEvent::ALL` has no `*.updated` member of any kind
+  # and `audit_log_event_type_values` refuses anything outside the catalogue.
   #
   # **`ListSalesOrders` added two on 2026-09-21**, both A-7 and both already-named
   # shapes: the collection `SalesOrderReader` returns, and the entity whose
@@ -268,6 +282,8 @@ deptrac:
     App\Modules\Sales\Application\SalesOrderWriter:
       - App\Modules\Sales\ApiResource\CreateSalesOrderInput   # A-7
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
+      - App\Modules\Sales\ApiResource\UpdateSalesOrderInput   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Infrastructure\Entity\Fulfilment:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Sales\Infrastructure\Entity\FulfilmentLine:

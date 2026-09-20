@@ -901,10 +901,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * ⚠ **This docblock said *"there is no sales `LOCK_FIRST_CHECKED` … yet"* and that has been FALSE
      * since `ConfirmSalesOrder` shipped on 2026-09-19** — it went stale in the commit that built the very
      * thing it said did not exist, and was found one commit later by `CancelSalesOrder`. `SALES_LOCK_FIRST_CHECKED`
-     * exists below and now names **two** operations. What survives of the sentence is the rule it stated, so
+     * exists below and now names **three** operations — `ConfirmSalesOrder`, `CancelSalesOrder` and, since
+     * 2026-09-21, `UpdateSalesOrder`. *(It read "**two**" until that day, falsified by the very commit that
+     * moved the sentence two lines below it. **Derive the number from the constant; do not restate it.**)* What survives of the sentence is the rule it stated, so
      * the rule is kept and the false premise struck: **a writer that touches an EXISTING sales order needs a
      * lock-first check that actually runs**, the way `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs
-     * for purchasing, and a list naming it. `CreateSalesOrderLine` and `UpdateSalesOrder` still owe theirs.
+     * for purchasing, and a list naming it. `UpdateSalesOrder` paid its on 2026-09-21; `CreateSalesOrderLine` still owes
+     * one.
      * There is still no sales `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, and that absence is not an exemption.
      */
     /**
@@ -935,6 +938,58 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
         self::assertSame('sales_order.'.self::STATUS_RULE, $this->json()['rule']);
         $this->assertSalesOrderStatus($order, SalesOrder::STATUS_CONFIRMED);
+    }
+
+    /**
+     * **Edit vs confirm: a rep moves the shipping address while the order is being committed to the
+     * customer.** A confirms and holds the order; the `PATCH` must wait, then read `confirmed` and be
+     * refused by §8.3a's edit window.
+     *
+     * ---------------------------------------------------------------------------
+     * The harm, which is the reason this is a behaviour test and not only a position one
+     * ---------------------------------------------------------------------------
+     * Without the lock first, the update reads `draft`, passes `refuseUnlessDraft()`, waits only at its
+     * own `UPDATE`, and then **silently rewrites the shipping address of an order that has already been
+     * confirmed to the customer** — after the moment `SalesOrder::confirm()` is documented to make it a
+     * commitment. Nothing afterwards could detect it: `sales_order` stores no address id, no trail row
+     * is written by this operation, and the four `ship_to_*` columns have no residue
+     * (`RESIDUAL_GAPS.md` G-6). `theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder` proves the
+     * lock's **position**; this proves what the position buys, against a real second connection.
+     */
+    #[Test]
+    public function anUpdateWaitsForAConcurrentConfirmationAndIsRefusedByTheEditWindow(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Race Customer');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Race');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-RACE', $customer, $warehouse);
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-RACE'));
+        $moved = $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', '1 Race Street', 'York', 'YO1 1AA');
+
+        $before = $this->salesOrderShipTo($order);
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ["UPDATE sales_order SET status = 'confirmed', ordered_at = now(), updated_at = now() WHERE id = ?::uuid", [$order]],
+        ], request: fn () => $this->send('PATCH', '/sales-orders/'.$order, ['ship_to_address_id' => $moved]), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('sales_order.is_editable_only_while_draft', $this->json()['rule']);
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_CONFIRMED);
+
+        // The harm itself, not only its refusal: the confirmed order's snapshot is untouched.
+        self::assertSame($before, $this->salesOrderShipTo($order),
+            'A confirmed sales order\'s shipping address was rewritten by an update that should have been refused. '
+            .'Nothing in the schema or the trail could ever detect this afterwards -- see RESIDUAL_GAPS.md G-6.');
+    }
+
+    /** @return array<string, mixed> */
+    private function salesOrderShipTo(string $order): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            SELECT ship_to_line, ship_to_city, ship_to_postal_code, ship_to_country_code
+              FROM sales_order WHERE id = ?::uuid
+            SQL, [$order])[0];
     }
 
     /**
@@ -1018,6 +1073,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     public function theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status): void
     {
         $order = $this->seedConfirmableSalesOrder('SO-1');
+        // `UpdateSalesOrder` is the first sales write path whose body has to name a row. The
+        // substitution is done here rather than in the provider because a `#[DataProvider]` is static
+        // and cannot seed; `{warehouse}` is spelled in the body the same way `{order}` is in the path.
+        $substitutions = ['{warehouse}' => $this->seedWarehouse(self::TENANT_A, 'WH-LOCK')];
+        $body = null === $body ? null : array_map(
+            static fn (string $value): string => strtr($value, $substitutions),
+            $body,
+        );
 
         $this->recorder()->start();
         $this->send($method, strtr($path, ['{order}' => $order]), $body, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
@@ -1062,6 +1125,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // way -- the audit INSERT that consumes the reason happens after `cancel()`, so it cannot be the
         // first statement to touch the order and cannot mask a missing lock.
         yield 'CancelSalesOrder' => ['POST', '/sales-orders/{order}/cancellation', ['reason' => 'Customer withdrew'], 200];
+        // `warehouse_id` is the field sent because it exercises the deserializer and the UPDATE without
+        // dragging the ship-to resolver into a position test -- the resolver issues a SELECT of its own
+        // against `customer_address`, which this assertion would then have to reason about. The order is
+        // seeded `draft`, so the edit window lets it through and the statement is really issued: an
+        // operation that refuses issues no UPDATE and `assertCount(1, $writing)` would fail first.
+        yield 'UpdateSalesOrder' => ['PATCH', '/sales-orders/{order}', ['warehouse_id' => '{warehouse}'], 200];
     }
 
     /**
@@ -1079,6 +1148,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // with both of its derived ORM writes, before this entry existed -- the tripwire fired rather than
         // being anticipated, which is the whole point of it.
         'CancelSalesOrder' => 'SalesOrderCancellation::cancel',
+        // Added 2026-09-21 with the operation, and read off this test's own failure rather than
+        // predicted: the scan named `SalesOrderWriter::update` with `SQL: UPDATE sales_order` before
+        // this entry existed. It is the first entry here whose write is a raw statement rather than an
+        // ORM call -- which is deliberate, see `SalesOrderWriter::update()`'s docblock: an ORM write
+        // reached through an association reddens neither this scan nor the write-ownership scan, and a
+        // raw `UPDATE sales_order` reddens both.
+        'UpdateSalesOrder' => 'SalesOrderWriter::update',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [

@@ -117,6 +117,10 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreatePurchaseOrderLine' => 'purchase_order.edit',
         'UpdatePurchaseOrderLine' => 'purchase_order.edit',
         'DeletePurchaseOrderLine' => 'purchase_order.edit',
+        // `sales_order.edit`, which is a seeded catalogue code -- measured, not assumed:
+        // `SELECT code FROM permission WHERE code LIKE 'sales_order%'` returns
+        // cancel, confirm, create, delete, edit, view.
+        'UpdateSalesOrder' => 'sales_order.edit',
     ];
 
     /**

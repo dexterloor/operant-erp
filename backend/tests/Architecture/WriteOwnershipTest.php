@@ -148,7 +148,19 @@ final class WriteOwnershipTest extends TestCase
         // statement shapes ruling R-B's INSERT-only grant forces) and one `INSERT INTO sales_order_line`.
         // **There is no UPDATE**, which is the whole of that ruling — `total_amount` is summed inside the
         // order's own INSERT.
-        'Modules\\Sales' => 2,
+        // **2 -> 4 on 2026-09-21**, read off this test's own failure twice: `SalesOrderWriter::update()`
+        // spells **two** `UPDATE sales_order` texts and issues exactly **one** of them per request --
+        // the snapshot shape and the shape without it. The split is not cosmetic and it is not a second
+        // write: `everyWriteOfAShipToColumnResolvesTheAddressFirst` matches a single literal spelling
+        // both a write keyword and a `ship_to_` column, and the first version of `update()` scattered
+        // the column names into keyword-less fragments, which that check's own anti-vacuity control
+        // caught. `insertOrderInside()` already carries the same two-texts-one-statement shape. ⚠ **The statement shape is a choice, not an
+        // accident.** `RESIDUAL_GAPS.md` G-6 measured that an ORM write reached through an association
+        // (`$fulfilment->getSalesOrder()->shipTo(…)`) reddens NEITHER this scan nor
+        // `PurchaseOrderRowLockTest`, while a raw `UPDATE sales_order` reddens both — so the update path
+        // writes raw SQL deliberately, to be visible here. The entity mutator that made the blind shape
+        // possible (`SalesOrder::shipTo()`) was deleted in the same commit; it had zero callers.
+        'Modules\\Sales' => 4,
         'Modules\\UserManagement' => 5,
     ];
 
@@ -416,6 +428,214 @@ final class WriteOwnershipTest extends TestCase
 
         return $found;
     }
+
+    /**
+     * **`RESIDUAL_GAPS.md` G-6's closure check — option (a): one shared ownership method, and every
+     * writer of `sales_order.ship_to_*` reaches it.**
+     *
+     * ---------------------------------------------------------------------------
+     * Why this test exists at all
+     * ---------------------------------------------------------------------------
+     * `sales_order` copies four address columns from `customer_address` and **stores no address id**.
+     * `SalesOrderWriter::shipToInside()` proves at write time that the address belongs to the order's
+     * customer and is a `shipping` address (V2-S-9), but the check leaves **no residue**: nothing in the
+     * row, the trail or any index records which address was read, so nothing can ever detect afterwards
+     * that a snapshot came from another customer's book. The owner accepted that on 2026-09-19 and
+     * refused both offered mitigations, on the condition that the **second writer** decides how it is
+     * held to the same rule. `UpdateSalesOrder` is that second writer, and this is that decision: **one
+     * shared method, with its callers derived from `src/`.**
+     *
+     * ---------------------------------------------------------------------------
+     * ⚠ What this check CANNOT see, and it is the shape G-6 itself calls the likely one
+     * ---------------------------------------------------------------------------
+     * The domain is **write statements naming a `ship_to_` column**. An ORM mutator call — the
+     * `$fulfilment->getSalesOrder()->shipTo(…)` shape — **names no column and is not a statement**, so
+     * it is outside this domain exactly as it is outside `PurchaseOrderRowLockTest`'s. **This check does
+     * not close that hole and must not be read as closing it.** What the same commit did instead was
+     * remove the hole's only vehicle: `SalesOrder::shipTo()` was **deleted**, having been measured at
+     * zero callers. A new entity mutator for these columns re-opens G-6 and owes its entry an edit.
+     *
+     * The positive control is inside the test (the empty-set trap): a planted `UPDATE` naming a
+     * `ship_to_` column in a method that does **not** resolve the address must be flagged, and one that
+     * does must not. Without it, a scan that stopped reading literals would pass by finding nothing.
+     */
+    #[Test]
+    public function everyWriteOfAShipToColumnResolvesTheAddressFirst(): void
+    {
+        // 1. The positive control: the predicate must flag the unresolved plant and spare the resolved one.
+        self::assertSame(
+            ['ShipToProbe::unresolved'],
+            self::shipToWritesNotResolvingOwnership(self::SHIP_TO_PROBE, 'probe'),
+            'The ship-to predicate does not read its own probe: it must flag a write naming a ship_to_ column in a '
+            .'method that never calls shipToInside(), and leave one that does alone. Until it does, the assertion '
+            .'below proves nothing.'
+        );
+
+        // 2. The domain: the real tree must contain such writes at all, or the absence is vacuous.
+        $src = \dirname(__DIR__, 2).'/src';
+        $writers = 0;
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            foreach (self::literalsIn((string) file_get_contents($path)) as [$where, $literal]) {
+                if (1 === preg_match('/ship_to_/i', $literal['value']) && [] !== self::statementsInLiteral($literal['value'])) {
+                    ++$writers;
+                }
+            }
+        }
+        self::assertGreaterThan(1, $writers,
+            'The scan found fewer than two write statements naming a ship_to_ column under src/. G-6 fired on the '
+            .'SECOND writer, so if this is 1 or 0 the scan has stopped seeing one of them and the assertion below is '
+            .'vacuous.');
+
+        // 3. The assertion.
+        $found = [];
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            $at = substr($path, \strlen(\dirname(__DIR__, 2)) + 1);
+            $found = [...$found, ...self::shipToWritesNotResolvingOwnership((string) file_get_contents($path), $at)];
+        }
+
+        self::assertSame([], $found,
+            "A write statement under src/ sets a sales_order.ship_to_* column from a method that never reaches "
+            ."SalesOrderWriter::shipToInside().\n\n"
+            ."STOP and read docs/RESIDUAL_GAPS.md G-6. Those four columns are a SNAPSHOT of a customer_address row "
+            ."and the order stores no address id, so a snapshot taken from another customer's address book is "
+            ."undetectable afterwards -- by any constraint, any index and any trail row. shipToInside() is the one "
+            ."place the rule 'this address belongs to this customer' is written (WHERE id = ? AND customer_id = ? AND "
+            ."kind = 'shipping'), and G-6 was closed by option (a): every writer reaches it.\n"
+            ."  - If you are adding a fulfilment- or invoice-side snapshot, call shipToInside() -- or state in G-6 "
+            ."why that rule does not apply to it, which is a DECISION WITH AN OWNER and not a refactor.\n"
+            ."  - Do NOT satisfy this test by moving the write into a method that merely mentions shipToInside().\n"
+            ."  - ⚠ This scan is COLUMN-shaped. An ORM mutator (\$x->getSalesOrder()->shipTo(...)) names no column "
+            ."and is invisible here AND in PurchaseOrderRowLockTest. SalesOrder::shipTo() was deleted on 2026-09-21 "
+            ."to remove that shape's vehicle; re-adding one re-opens G-6.\n\n"
+            .implode("\n", $found));
+    }
+
+    /**
+     * Methods holding a write statement that names a `ship_to_` column while never reaching
+     * `shipToInside()`.
+     *
+     * The reachability step is the same fixpoint over `calls` the rest of this file uses, so a write
+     * placed in a private helper still counts as its public caller's.
+     *
+     * @return list<string>
+     */
+    private static function shipToWritesNotResolvingOwnership(string $source, string $at): array
+    {
+        $scanned = PhpSourceScan::scan($source);
+
+        $resolves = [];
+        $calls = [];
+        foreach ($scanned['methods'] as $method) {
+            $calls[$method['name']] = $method['calls'];
+            if (\in_array('shipToInside', $method['calls'], true)) {
+                $resolves[$method['name']] = true;
+            }
+        }
+
+        // 1. Forward: a method that reaches `shipToInside()` through its own calls resolves.
+        do {
+            $before = \count($resolves);
+            foreach ($calls as $name => $called) {
+                foreach ($called as $one) {
+                    if (isset($resolves[$one])) {
+                        $resolves[$name] = true;
+                    }
+                }
+            }
+        } while (\count($resolves) !== $before);
+
+        // 2. Backward, and this half was added because the check FAILED without it on the tree it was
+        // written for -- which is the outcome that proves it is doing something. `CreateSalesOrder`
+        // resolves the address in `create()` and hands the four values to `insertOrderInside()`, so the
+        // helper holding the write reaches nothing itself. The rule that covers it honestly is *"every
+        // caller of this helper resolved the address"* -- **every**, not *some*: a second caller that
+        // skips the resolver must redden this, which is exactly the harm G-6 describes.
+        //
+        // ⚠ A helper with NO caller in its own class is never credited this way.
+        $callers = [];
+        foreach ($calls as $name => $called) {
+            foreach ($called as $one) {
+                $callers[$one][] = $name;
+            }
+        }
+        do {
+            $before = \count($resolves);
+            foreach ($callers as $name => $its) {
+                if (isset($resolves[$name])) {
+                    continue;
+                }
+                $its = array_values(array_unique(array_filter($its, static fn (string $caller): bool => $caller !== $name)));
+                if ([] !== $its && $its === array_values(array_filter($its, static fn (string $caller): bool => isset($resolves[$caller])))) {
+                    $resolves[$name] = true;
+                }
+            }
+        } while (\count($resolves) !== $before);
+
+        $found = [];
+        foreach (self::literalsIn($source) as [$where, $literal]) {
+            if (1 !== preg_match('/ship_to_/i', $literal['value']) || [] === self::statementsInLiteral($literal['value'])) {
+                continue;
+            }
+
+            $method = str_contains($where, '::') ? substr((string) strrchr($where, ':'), 1) : $where;
+            if (isset($resolves[$method])) {
+                continue;
+            }
+
+            $found[] = $where;
+        }
+
+        return array_values(array_unique($found));
+    }
+
+    /**
+     * G-6's probe, covering **both** directions the predicate walks:
+     *
+     *   - `resolved` writes the columns and reaches the ownership method through a private helper
+     *     (forward);
+     *   - `writesOnBehalf` holds a write and reaches nothing, but its only caller `handsOff` resolved
+     *     the address first (backward) — this is `CreateSalesOrder`'s real shape;
+     *   - `unresolved` writes them and neither reaches nor is called by a resolver.
+     *
+     * **Only `unresolved` may be flagged.** If the backward half is deleted the probe reddens on
+     * `writesOnBehalf`, and if the forward half is deleted it reddens on `resolved` — so neither can be
+     * removed silently.
+     */
+    private const SHIP_TO_PROBE = <<<'PHP'
+        <?php
+
+        namespace App\Modules\Probe\Application;
+
+        final class ShipToProbe
+        {
+            public function resolved(): void
+            {
+                $this->resolve();
+                $sql = 'UPDATE sales_order SET ship_to_city = ? WHERE id = ?';
+            }
+
+            public function unresolved(): void
+            {
+                $sql = 'UPDATE sales_order SET ship_to_city = ? WHERE id = ?';
+            }
+
+            public function handsOff(): void
+            {
+                $this->shipToInside();
+                $this->writesOnBehalf();
+            }
+
+            private function writesOnBehalf(): void
+            {
+                $sql = 'UPDATE sales_order SET ship_to_city = ? WHERE id = ?';
+            }
+
+            private function resolve(): void
+            {
+                $this->shipToInside();
+            }
+        }
+        PHP;
 
     /**
      * Every string literal in `$source`, each with the `Class::method` (or `Class (class body)`) that holds

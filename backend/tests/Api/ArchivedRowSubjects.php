@@ -306,6 +306,20 @@ trait ArchivedRowSubjects
             'DeletePurchaseOrderLine' => null,
             'UpdateItem' => ['name' => 'Renamed'],
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
+            // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
+            // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are
+            // `static` -- so any id spelled here is one no fixture owns. The first attempt sent a
+            // literal uuid and the trait refused it correctly: *"UpdateSalesOrder on the live twin was
+            // refused (422), so a refusal of the archived row proves nothing"*. An empty PATCH is a
+            // legal request (`submitted()` is empty, no column is written, the row is read back 200),
+            // so the live twin succeeds and the archived twin's 409 is the archived state's alone.
+            //
+            // **What this case therefore does NOT prove, said rather than left to be assumed:** that
+            // the archived guard runs *before* reference resolution. That ordering is proved by
+            // `SalesOrderWriteTest::anArchivedOrderIsRefusedBeforeAnyReferenceIsResolved`, which sends
+            // an unresolvable `warehouse_id` at an archived order and demands
+            // `sales_order.is_archived` rather than `unknown_reference`.
+            'UpdateSalesOrder' => [],
             'UpdatePurchaseOrderLine' => ['quantity' => '2'],
         ];
     }

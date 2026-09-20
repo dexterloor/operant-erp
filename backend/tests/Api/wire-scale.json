@@ -130,5 +130,8 @@
     ],
     "UpdatePurchaseOrderLine $.unit_cost": [
         4
+    ],
+    "UpdateSalesOrder $.total_amount": [
+        4
     ]
 }

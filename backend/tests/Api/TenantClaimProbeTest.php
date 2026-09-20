@@ -139,6 +139,13 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // the `reason` §4.2 accepts, which is also what puts a value in the audit row's `metadata` on the
         // successful drive -- so a supplied tenant id that moved the write would move a trail row too.
         'CancelSalesOrder' => ['vars' => ['id' => 'sales_order'], 'body' => ['reason' => 'Customer withdrew']],
+        // Added 2026-09-21 with the edit. The body carries `@customer_address`, a **per-tenant** symbol,
+        // and that is the whole reason to spell it that way rather than move the warehouse: the drive
+        // then exercises V2-S-9's ownership predicate — *"this address belongs to this customer"* —
+        // cross-tenant as well as the claim itself. A supplied tenant id that moved which workspace
+        // `shipToInside()` read in would resolve B's address for A's order, which is precisely what
+        // `sales_order.ship_to_*` can never afterwards be shown to have done (G-6).
+        'UpdateSalesOrder' => ['vars' => ['id' => 'sales_order'], 'body' => ['ship_to_address_id' => '@customer_address']],
         // Added 2026-09-21 with the bounded sub-list. Its subject is the same seeded order, which already
         // carries a line in **both** tenants (`freshState()`), so the baseline returns a non-empty page
         // and a supplied tenant id that moved the read would answer with B's line where A's was asked

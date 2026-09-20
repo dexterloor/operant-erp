@@ -6,12 +6,14 @@ namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CancelSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\ConfirmSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
+use App\Modules\Sales\ApiResource\State\UpdateSalesOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -134,6 +136,29 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'sales_order.create',
             ],
+        ),
+        new Patch(
+            uriTemplate: '/sales-orders/{id}',
+            name: 'UpdateSalesOrder',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateSalesOrder'),
+            input: UpdateSalesOrderInput::class,
+            denormalizationContext: [
+                // API-9: unknown fields are refused, never ignored.
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                // Without this an `id` in the body sends API Platform off to resolve an IRI and the
+                // answer is a bare 400. The row is named by the path and by nothing else (§3.1 case 2).
+                'api_allow_update' => false,
+            ],
+            // Read first, so a PATCH at an id no row answers is the same `not-found` `GetSalesOrder`
+            // returns (§5.3 clause 2).
+            provider: SalesOrderProvider::class,
+            processor: UpdateSalesOrderProcessor::class,
+            // §4.2's `Idem` cell reads `no`, so **no** `IdempotencyKeyGuard::OPERATION_FLAG` here: a
+            // PATCH sets absolute values on a row that already exists, so there is no duplicate for a
+            // key to prevent and API-14 has no mechanism to name.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
         ),
         // API-21 branch 5, `ApprovePurchaseOrder`'s branch: a confirmation creates no row and has no
         // row-level URI to name beyond the one the caller is already on. 200 with the resource in its

@@ -6,6 +6,8 @@ namespace App\Modules\Sales\Application;
 
 use App\Modules\Sales\ApiResource\CreateSalesOrderInput;
 use App\Modules\Sales\ApiResource\SalesOrderResource;
+use App\Modules\Sales\ApiResource\UpdateSalesOrderInput;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
@@ -113,6 +115,27 @@ final readonly class SalesOrderWriter
         'inventoryItemId' => '/inventory_item_id',
         'quantity' => '/quantity',
         'unitPrice' => '/unit_price',
+    ];
+
+    /**
+     * `UpdateSalesOrder`'s writable **columns**, keyed by input property.
+     *
+     * ⚠ **`shipToAddressId` is deliberately absent and that is not an oversight:** `sales_order` has no
+     * `ship_to_address_id` column. That field re-resolves a **snapshot** into four columns, which
+     * {@see self::update()} appends by hand.
+     */
+    private const UPDATE_COLUMNS = [
+        'customerId' => 'customer_id',
+        'warehouseId' => 'warehouse_id',
+    ];
+
+    /**
+     * Written as `CAST(:p AS t)` rather than `:p::t` because DBAL's parser has to tell a Postgres cast
+     * from a named placeholder, and `:customerId::uuid` is exactly the string where that goes wrong.
+     */
+    private const UPDATE_CASTS = [
+        'customerId' => 'uuid',
+        'warehouseId' => 'uuid',
     ];
 
     public function __construct(
@@ -418,6 +441,274 @@ final readonly class SalesOrderWriter
                 SQL, $rows),
             $parameters,
         );
+    }
+
+    /**
+     * **`UpdateSalesOrder` — the second writer of `sales_order.ship_to_*`, and the first `UPDATE`
+     * this class has ever issued.**
+     *
+     * =========================================================================
+     * Three fields, all frozen at confirm, and the freeze is a row and not a sentence
+     * =========================================================================
+     * §4.2's cell is `customer_id`, `warehouse_id`, `ship_to_address_id`. All three are editable
+     * **while the order is `draft` and at no other time**, which is owner ruling **O-2** for the
+     * ship-to and a decision recorded in `API.md` §8.3a for the other two (OI-2's *"nothing issued is
+     * edited"*, the uniform purchasing precedent, and the asymmetric cost — widening a refusal later is
+     * additive and loud, narrowing a success later breaks a client).
+     *
+     * O-2 attached a condition: *"frozen at confirm is a PROMISE and must ship with a named guard and a
+     * test in the commit that introduces it."* {@see self::refuseUnlessDraft()} is the guard and
+     * **`EditWindowGuardTest`** is the test. It is **not** a §8.3 transition guard, and that is a
+     * measured fact rather than a preference: `StatusMachines::ASSIGNMENT` selects methods that assign
+     * `$this->status`, so a status-keyed guard on a non-transition method is invisible to every clause
+     * of §8.3 — `RED` planted one in `SalesOrder::shipTo()` and the **whole suite stayed green**.
+     * §8.3a exists because of that measurement.
+     *
+     * =========================================================================
+     * The ship-to snapshot, and why a `customer_id` **change** drags it along
+     * =========================================================================
+     * `sales_order` holds no address id — it holds four copied columns — and
+     * {@see self::shipToInside()} is the one place the rule *"this address belongs to this customer"*
+     * is written. So if the customer moves and the address does not, the row keeps a shipping address
+     * copied from the **previous** customer's address book, and **no constraint, index or trail row in
+     * this system can ever detect it**. That is `RESIDUAL_GAPS.md` G-6's harm class reached through a
+     * shipped operation.
+     *
+     * Therefore a `customer_id` that **changes** must carry `ship_to_address_id` in the same request.
+     * ⚠ **On change, never on presence.** A client that PATCHes every field it rendered resubmits the
+     * customer it already had; refusing that would 422 an ordinary, correct request. The comparison is
+     * made **inside the transaction against the loaded row**, which is also why this refusal cannot live
+     * in {@see self::refuseMalformedUpdateFields()} with the shape checks.
+     *
+     * **Which customer id the snapshot is resolved against** is the submitted one when the request
+     * carries it, and otherwise the row's current one, read **under the row lock**. Reading it before
+     * the lock would let a concurrent write move the customer between the read and the `UPDATE`, and the
+     * snapshot would then belong to a customer the row no longer names. That ordering is load-bearing.
+     *
+     * =========================================================================
+     * One raw `UPDATE`, and the statement shape is chosen so the scans can see it
+     * =========================================================================
+     * `SalesOrder::shipTo()` is **not** called — it no longer exists. G-6's own shape analysis measured
+     * that an ORM write reached through an association (`$fulfilment->getSalesOrder()->shipTo(…)`)
+     * reddens **neither** the write-ownership scan nor `PurchaseOrderRowLockTest`, while a raw
+     * `UPDATE sales_order` reddens both. Choosing the statement shape the existing scans can read costs
+     * nothing and is the cheapest part of holding a second writer to the rule.
+     *
+     * =========================================================================
+     * No audit row, no idempotency key
+     * =========================================================================
+     * `AuditEvent::ALL` has no `*.updated` member of any kind and `audit_log_event_type_values` refuses
+     * anything outside it, so an event here is not possible without a migration; `UpdatePurchaseOrder`
+     * and `UpdateItem` write none either. **The cost is real and is recorded rather than hidden:**
+     * nobody can answer *"who last moved this draft's shipping address"* — `updated_at` records when,
+     * not who. It is carried in §15.1's cell for B-4a.
+     *
+     * §4.2's `Idem` cell reads `no` and stays `no`: a `PATCH` sets absolute values on a row that already
+     * exists, so a replay converges on the same state and API-14 has no mechanism to name.
+     * ⚠ **One wrinkle worth not "fixing" later:** a client that times out and retries *after* a
+     * concurrent confirm gets **409**, not 200. That is correct — the second call is refused by the edit
+     * window and the first one's effect stands. It is not a retry defect and must not be answered with a
+     * key.
+     */
+    public function update(string $id, UpdateSalesOrderInput $input): SalesOrderResource
+    {
+        $submitted = $input->submitted();
+        $this->refuseMalformedUpdateFields($submitted);
+
+        return $this->translatingUpdateConstraintFailures(fn (): SalesOrderResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($id, $submitted): SalesOrderResource {
+                SalesOrderRowLock::holdInside($em, $id);
+                $current = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
+
+                // ST-9 / §5.2a: an archived row renders read-only, and the refusal is on the
+                // business-rule branch rather than `not-found` -- the caller can see the row, so
+                // pretending it is gone would be a different lie from the one it is being told.
+                // It is before reference resolution deliberately: `ArchivedRowSubjects` drives this
+                // operation with a body of ids and expects this refusal.
+                $this->refuseIfArchived($current);
+                $this->refuseUnlessDraft($current);
+
+                // The customer the snapshot is proved against: the submitted one, or the row's.
+                $customerId = \array_key_exists('customerId', $submitted)
+                    ? (string) $submitted['customerId']
+                    : $current->customer->id;
+                $addressId = $submitted['shipToAddressId'] ?? null;
+
+                if ($customerId !== $current->customer->id && null === $addressId) {
+                    throw ApiProblem::validationFailed([
+                        self::error('shipToAddressId', 'required',
+                            'Changing the customer also changes which addresses are hers, so this request must '
+                            .'name the shipping address to use.'),
+                    ]);
+                }
+
+                $this->refuseUnresolvableUpdateReferences($em, $submitted);
+
+                $columns = [];
+                $parameters = ['id' => $id];
+
+                foreach (self::UPDATE_COLUMNS as $property => $column) {
+                    if (\array_key_exists($property, $submitted)) {
+                        $columns[] = $column.' = '.self::bind($property, self::UPDATE_CASTS);
+                        $parameters[$property] = $submitted[$property];
+                    }
+                }
+
+                if (null !== $addressId) {
+                    // The one place the ownership rule is written, reached by the second writer. G-6
+                    // option (a), and `WriteOwnershipTest`'s `everyWriteOfAShipToColumnResolvesTheAddressFirst`
+                    // is what holds a third writer to it.
+                    $shipTo = $this->shipToInside($em, $customerId, $addressId);
+
+                    $parameters['shipToLine'] = $shipTo['line'];
+                    $parameters['shipToCity'] = $shipTo['city'];
+                    $parameters['shipToPostalCode'] = $shipTo['postalCode'];
+                    $parameters['shipToCountryCode'] = $shipTo['countryCode'];
+                }
+
+                // ⚠ **Two statement TEXTS, one statement ISSUED, and the split is not cosmetic.**
+                // `WriteOwnershipTest::everyWriteOfAShipToColumnResolvesTheAddressFirst` matches on a
+                // single string literal that spells **both** a write keyword and a `ship_to_` column.
+                // The first version of this method appended `'ship_to_line = :shipToLine'` and its three
+                // siblings to an array, so the column names lived in literals that carried no `UPDATE` —
+                // and the check's own anti-vacuity control caught it immediately, finding **one** ship-to
+                // writer in `src/` where G-6's trigger says there are two. **A scan this write is
+                // invisible to is a scan that cannot hold the next writer to anything**, so the snapshot
+                // branch spells its columns in the same literal as its keyword. That is
+                // {@see self::insertOrderInside()}'s own pattern, for the same kind of reason.
+                if (null !== $addressId) {
+                    $em->getConnection()->executeStatement(
+                        'UPDATE sales_order SET ship_to_line = :shipToLine, ship_to_city = :shipToCity, '
+                        .'ship_to_postal_code = :shipToPostalCode, ship_to_country_code = :shipToCountryCode'
+                        .([] === $columns ? '' : ', '.implode(', ', $columns))
+                        .', updated_at = now() WHERE id = CAST(:id AS uuid)',
+                        $parameters,
+                    );
+                } elseif ([] !== $columns) {
+                    $em->getConnection()->executeStatement(
+                        'UPDATE sales_order SET '.implode(', ', $columns)
+                        .', updated_at = now() WHERE id = CAST(:id AS uuid)',
+                        $parameters,
+                    );
+                }
+
+                return $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
+            },
+        ));
+    }
+
+    /**
+     * `UpdateSalesOrder`'s shape rules — everything decidable without the database, so it runs before a
+     * transaction is opened.
+     *
+     * ⚠ **The `customer_id`-implies-`ship_to_address_id` rule is NOT here**, and its absence is the
+     * decision rather than an omission: that rule is about a **change**, which needs the row, which needs
+     * the lock. It lives in {@see self::update()} inside the transaction.
+     *
+     * All three columns behind these fields are `NOT NULL`, so none may be cleared by a `PATCH`.
+     * `ship_to_address_id` is not a column at all, but a `null` there would mean *"clear the snapshot"*,
+     * and `sales_order.ship_to_country_code` is `NOT NULL` with no default and a foreign key onto
+     * `country` — there is nothing to clear it to.
+     *
+     * @param array<string, string|null> $values
+     */
+    private function refuseMalformedUpdateFields(array $values): void
+    {
+        $errors = [];
+
+        foreach (array_keys(self::POINTERS) as $property) {
+            if (!\array_key_exists($property, $values)) {
+                continue;
+            }
+
+            if (null === $values[$property]) {
+                $errors[] = self::error($property, 'not_nullable', 'This field may not be cleared.');
+            } elseif (!Uuid::isValid($values[$property])) {
+                $errors[] = self::error($property, 'not_a_uuid', 'This field must be a UUID naming a row in this workspace.');
+            }
+        }
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * ST-5's oracle for whichever parents this edit names, and the update-side twin of
+     * {@see self::refuseUnresolvableCreateReferences()}.
+     *
+     * The address is **not** checked here — {@see self::shipToInside()} owns it, because its refusal
+     * depends on a `customer_id` and would otherwise be a second copy of that rule.
+     *
+     * @param array<string, string|null> $values
+     */
+    private function refuseUnresolvableUpdateReferences(EntityManagerInterface $em, array $values): void
+    {
+        $connection = $em->getConnection();
+        $errors = [];
+
+        foreach (['customerId' => 'customer', 'warehouseId' => 'warehouse'] as $property => $table) {
+            if (!\array_key_exists($property, $values)) {
+                continue;
+            }
+
+            if (false === $connection->fetchOne("SELECT 1 FROM $table WHERE id = ?::uuid AND deleted_at IS NULL", [$values[$property]])) {
+                $errors[] = self::error($property, 'unknown_reference', 'No live '.$table.' in this workspace has this id.');
+            }
+        }
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    private function refuseIfArchived(SalesOrderResource $order): void
+    {
+        if (null !== $order->archivedAt) {
+            throw ApiProblem::businessRuleViolated(
+                'sales_order.is_archived',
+                'This sales order is archived. Restore it before changing it.',
+            );
+        }
+    }
+
+    /**
+     * **The edit window, in the one place it is written — `API.md` §8.3a's `SalesOrder` row.**
+     *
+     * This is owner ruling **O-2**'s named guard. The legal status is read off the entity's own constant
+     * rather than spelled as a literal, so a rename of `STATUS_DRAFT`'s value moves this rule with it —
+     * the discipline API-15 requires of a transition guard, required here by §8.3a clause (c).
+     */
+    private function refuseUnlessDraft(SalesOrderResource $order): void
+    {
+        if (SalesOrder::STATUS_DRAFT !== $order->status) {
+            throw ApiProblem::businessRuleViolated(
+                'sales_order.is_editable_only_while_draft',
+                'This sales order has been confirmed, so it is read-only except for its transitions.',
+            );
+        }
+    }
+
+    /**
+     * The update path's constraint translation, outside `TenantContext::run()` for the class docblock's
+     * reason: a failed statement leaves the Postgres transaction aborted (25P02).
+     *
+     * Only the foreign keys are reachable here — the update touches neither unique index — and both are
+     * composite on `(tenant_id, id)`, so an id belonging to another tenant fails here rather than at the
+     * lookup above. ST-5 means the caller must not learn which of *"wrong tenant"* and *"no such row"* it
+     * was.
+     */
+    private function translatingUpdateConstraintFailures(callable $write): SalesOrderResource
+    {
+        try {
+            return $write();
+        } catch (ForeignKeyConstraintViolationException) {
+            throw ApiProblem::validationFailed([
+                self::error('customerId', 'unknown_reference', 'One of the ids sent names no row in this workspace.'),
+                self::error('warehouseId', 'unknown_reference', 'One of the ids sent names no row in this workspace.'),
+            ]);
+        }
     }
 
     /**
@@ -926,6 +1217,11 @@ final readonly class SalesOrderWriter
     }
 
     /** @return array{pointer: string, code: string, message: string} */
+    private static function bind(string $property, array $casts): string
+    {
+        return \sprintf('CAST(:%s AS %s)', $property, $casts[$property]);
+    }
+
     private static function error(string $property, string $code, string $message): array
     {
         return ['pointer' => self::POINTERS[$property], 'code' => $code, 'message' => $message];

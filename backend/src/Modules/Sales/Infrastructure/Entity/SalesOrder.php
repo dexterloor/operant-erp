@@ -238,19 +238,28 @@ class SalesOrder
     }
 
     /**
-     * Takes the address by value rather than by reference. The caller reads a
-     * CustomerAddress and hands over its fields; nothing here holds on to the
-     * row, so deleting it later cannot change what this order says.
+     * ⚠ **`shipTo()` USED TO BE HERE AND WAS DELETED ON 2026-09-21, WITH `UpdateSalesOrder`. DO NOT
+     * BRING IT BACK WITHOUT READING `RESIDUAL_GAPS.md` G-6.**
+     *
+     * It was an ORM mutator assigning the four `ship_to_*` columns, and it had **zero callers** —
+     * measured twice, anchored (`grep -rnE "(->|::)shipTo\b" src tests` returned nothing but prose):
+     * `CreateSalesOrder` writes those columns in its raw `INSERT`, and `UpdateSalesOrder` writes them in
+     * a raw `UPDATE`.
+     *
+     * **Why an uncalled method was worth deleting rather than leaving.** G-6's own shape analysis
+     * planted three ways of writing these columns and measured what each reddens. The third —
+     * `$fulfilment->getSalesOrder()->shipTo(…)`, an ORM write reached through an association — reddens
+     * **neither** `WriteOwnershipTest` (it counts SQL statements) **nor** `PurchaseOrderRowLockTest`
+     * (it needs the source to name `SalesOrder::class`). G-6 calls that third shape *"the likely one for
+     * this gap's own candidates"*, because `Fulfilment`, `Invoice` and `SalesOrderLine` all expose
+     * `getSalesOrder()`. **This method was that shape's only vehicle.** Deleting it does not make the
+     * scans see an ORM mutator — nothing does, and G-6 says so in its own text — it removes the thing
+     * they would have to see.
+     *
+     * A fulfilment- or invoice-side snapshot therefore has to write SQL, which both scans read.
+     * **Anyone re-adding an entity mutator for these columns is re-opening G-6 and owes its entry an
+     * edit in the same commit.**
      */
-    public function shipTo(string $line, string $city, string $postalCode, Country $country): void
-    {
-        $this->shipToLine = $line;
-        $this->shipToCity = $city;
-        $this->shipToPostalCode = $postalCode;
-        $this->shipToCountry = $country;
-        $this->updatedAt = new \DateTimeImmutable();
-    }
-
     /**
      * PC-4 calls this *"structurally the mirror of `place()`"*, and the mirror of
      * `place()`'s missing guard came with it: unguarded it re-opens a `cancelled`

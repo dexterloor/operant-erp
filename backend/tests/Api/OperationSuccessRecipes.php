@@ -223,6 +223,29 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, then cancel'];
             }],
+            // Driven through the writer for `GetSalesOrder`'s reason, and the PATCH re-snapshots the
+            // **ship-to address** rather than moving the warehouse: that is O-2's path, the one this
+            // operation exists for, and it is the only field whose effect is four columns rather than
+            // one. The second address belongs to the same customer, so `shipToInside()`'s ownership
+            // predicate is satisfied and the success path is real. The 200 body is a full
+            // `SalesOrderResource`, which is what `WireScaleTest`, `ResponseShapeTest` and
+            // `ResponseStatusTest` walk.
+            'UpdateSalesOrder' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SO-UPD');
+
+                return [
+                    'customer' => $customer,
+                    'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+                    'moved' => $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', '1 Change Alley', 'Leeds', 'LS1 1AA'),
+                    'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO-UPD'),
+                    'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-UPD'),
+                ];
+            }, function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('PATCH', (string) $this->client()->getResponse()->headers->get('Location'), ['ship_to_address_id' => $c['moved']]);
+
+                return [200, 'create, then move its shipping address'];
+            }],
             'CreatePurchaseOrder' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme New');
                 $item = $this->seedItem(self::TENANT_A, 'SKU-NEW-PO', $supplier);
