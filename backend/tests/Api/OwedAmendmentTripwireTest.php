@@ -95,25 +95,36 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_PICK_READ = [
-        'POST /api/v1/sales-orders/{id}/fulfilments' => 'CreateFulfilment',
+        'CreateFulfilment' => 'the V2-S-1b pick read',
     ];
 
     /**
-     * A second positive control, and it is not a duplicate of the first.
+     * The positive control for the pick-read pin, which is keyed by
+     * **`operationId`** and not by path.
      *
-     * {@see self::A_PATH_KNOWN_TO_BE_BUILT} is a FLAT collection path
-     * (`/purchase-orders`), so it proves the `/api/v1` prefix and nothing about
-     * how a NESTED create is spelled. The pin above is a nested create, and the
-     * placeholder is the part that could drift — `{id}`, `{purchaseOrderId}`,
-     * `{orderId}` are all plausible spellings and only one of them matches.
-     * This is the same shape of hole the first version of this class fell into:
-     * a pin whose domain silently does not overlap what it checks.
+     * **Why this replaced a nested-PATH control on 2026-09-20, hours after that
+     * control was added.** The pin used to be the path
+     * `POST /api/v1/sales-orders/{id}/fulfilments`, and that path was a
+     * **guess** — nothing built it yet. Measured against the live spec the same
+     * day, this codebase spells action sub-resources with a **singular** noun
+     * (`.../{id}/cancellation` is `CancelSalesOrder`, `.../{id}/confirmation` is
+     * `ConfirmSalesOrder`) and document creates with a **plural** one
+     * (`.../{id}/goods-receipts` is `CreateGoodsReceipt`). `CreateFulfilment` is
+     * a document create, so `fulfilments` was plausible — **and a coin flip.**
+     * A pin that loses that flip does not fail; it **silently never fires**, and
+     * the gate is gone with nothing to show for it.
      *
-     * `POST /api/v1/purchase-orders/{id}/goods-receipts` is `CreateGoodsReceipt`,
-     * built since Output 9 step 8, and is the exact structural twin of
-     * `CreateFulfilment`'s path.
+     * `operationId` has no such freedom: `API.md` §12.3 fixes it as
+     * *Verb ++ Resource*, it **is** the §4.2 row name, and the generated spec
+     * carries one on **all 26** built operations (measured 2026-09-20). Keying
+     * on it removes the guess instead of documenting it.
+     *
+     * `CreateGoodsReceipt` is the structural twin — a built nested document
+     * create — so if the spec ever stops exposing `operationId`, or spells it
+     * some other way, this control fails **loudly** and the pin below is not
+     * silently compared against an empty set.
      */
-    private const A_NESTED_CREATE_KNOWN_TO_BE_BUILT = 'POST /api/v1/purchase-orders/{id}/goods-receipts';
+    private const AN_OPERATION_ID_KNOWN_TO_BE_BUILT = 'CreateGoodsReceipt';
 
     /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
@@ -248,39 +259,55 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * `SEC-O-1` shape, where a gate was keyed to a state that had been ruled
      * impossible. This trigger is reachable, scheduled and now mechanical.
      *
+     * **Keyed by `operationId`, not by path (changed 2026-09-20, same day).**
+     * The original pin was the path `POST /api/v1/sales-orders/{id}/fulfilments`,
+     * which nothing has built and which was therefore a guess; measured against
+     * the live spec, this codebase spells action sub-resources singular
+     * (`cancellation`, `confirmation`) and document creates plural
+     * (`goods-receipts`), so the guess was a coin flip whose losing side is
+     * **silent**: a path pin that does not match simply never fires.
+     * {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT} for the measurement.
+     *
      * **What it does NOT claim.** It does not detect whether the pick read has
-     * been built — no resource for it exists to name, and inventing a path
-     * pattern to match on would be the fake-green this suite keeps finding.
+     * been built — no resource for it exists to name, and inventing a pattern
+     * to match on would be the fake-green this suite keeps finding.
      * It detects the *trigger* and refuses to let it pass silently. Clearing it
      * is a deliberate edit to {@see self::OPERATIONS_OWING_THE_PICK_READ}, made
      * in the same commit that builds the pick read — the `PINNED_ALLOWLIST`
      * mechanism this suite uses elsewhere, and the same residual the two sibling
      * methods carry.
      *
-     * **Mutation proof (run 2026-09-20).** Planting
-     * `'POST /api/v1/purchase-orders' => 'CreateFulfilment'` — a BUILT operation
-     * — turned this **RED**, naming that path and printing the whole message
-     * below; removing it returned it to **GREEN**. The planted line was grepped
-     * back out of the file before the run, because a green after a mutation that
-     * never applied is this project's recorded trap. A pin nobody has seen fail
-     * is not evidence.
+     * **Mutation proof (re-run 2026-09-20 against the `operationId` keying, not
+     * carried over from the path version).** Planting `'CreateGoodsReceipt'` —
+     * a BUILT operation — turns this **RED**, naming it and printing the whole
+     * message below; removing it returns it to **GREEN**. The planted line was
+     * grepped back out of the file before the run, because a green after a
+     * mutation that never applied is this project's recorded trap. A pin nobody
+     * has seen fail is not evidence — and a mutation proof written for a
+     * previous keying is not evidence for this one.
      */
     #[Test]
     public function noOperationOwingThePickReadHasBeenBuilt(): void
     {
         $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
-        $built = array_keys(GeneratedSpec::operations($spec));
 
-        self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the spec no longer spells built paths the way this pin does, so the check '
-            .'below would compare two disjoint sets and pass on everything.');
+        // Keyed by `operationId`, never by path: the path this row will be built
+        // at is a guess, and a pin that guesses wrong does not fail -- it stops
+        // firing, silently. `operationId` is the §4.2 row name (§12.3).
+        $built = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            $operationId = $data['operation']['operationId'] ?? null;
+            if (\is_string($operationId) && '' !== $operationId) {
+                $built[$operationId] = true;
+            }
+        }
 
-        self::assertContains(self::A_NESTED_CREATE_KNOWN_TO_BE_BUILT, $built,
-            'Positive control for the NESTED path shape specifically: the pin below is a nested create, and '
-            .'its `{id}` placeholder is the part that can drift independently of the `/api/v1` prefix. If this '
-            .'fails, re-derive the placeholder spelling from the spec before trusting any result from this method.');
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it, '
+            .'so the check below would compare the pin against an empty or differently-spelled set and pass '
+            .'on everything. Re-derive the key from the spec before trusting any result from this method.');
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_PICK_READ, array_fill_keys($built, true));
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_PICK_READ, $built);
 
         self::assertSame([], $arrived, \sprintf(
             "%s has been built, and V2-S-1b's pick read has NOT been built.\n\n"
@@ -318,7 +345,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."     never by line number.\n\n"
             ."Full entry: `docs/API.md` 15.1, rows `CreateFulfilment` and `ListSalesOrders`; the ruling is at\n"
             ."`docs/session12/v2s1b-reanchor-ruling.md`. Cite both by name, never by line (Rule 16).",
-            implode(', ', $arrived),
+            implode(', ', array_keys($arrived)),
         ));
     }
 
