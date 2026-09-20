@@ -81,6 +81,41 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     ];
 
     /**
+     * `METHOD path` => the operation that owes **V2-S-1b**, the money-free pick read.
+     *
+     * §4.2 declares `CreateFulfilment` at `POST /sales-orders/{id}/fulfilments`;
+     * the spec prefixes `/api/v1`, for the measured reason recorded on
+     * {@see self::A_PATH_KNOWN_TO_BE_BUILT}.
+     *
+     * **Why only this row, when the carry is recorded on `ListSalesOrders` too.**
+     * The owner re-anchored the gate on 2026-09-20 onto `CreateFulfilment`
+     * alone, so `ListSalesOrders` no longer owes it and pinning that row would
+     * redden on an operation the ruling released.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_PICK_READ = [
+        'POST /api/v1/sales-orders/{id}/fulfilments' => 'CreateFulfilment',
+    ];
+
+    /**
+     * A second positive control, and it is not a duplicate of the first.
+     *
+     * {@see self::A_PATH_KNOWN_TO_BE_BUILT} is a FLAT collection path
+     * (`/purchase-orders`), so it proves the `/api/v1` prefix and nothing about
+     * how a NESTED create is spelled. The pin above is a nested create, and the
+     * placeholder is the part that could drift — `{id}`, `{purchaseOrderId}`,
+     * `{orderId}` are all plausible spellings and only one of them matches.
+     * This is the same shape of hole the first version of this class fell into:
+     * a pin whose domain silently does not overlap what it checks.
+     *
+     * `POST /api/v1/purchase-orders/{id}/goods-receipts` is `CreateGoodsReceipt`,
+     * built since Output 9 step 8, and is the exact structural twin of
+     * `CreateFulfilment`'s path.
+     */
+    private const A_NESTED_CREATE_KNOWN_TO_BE_BUILT = 'POST /api/v1/purchase-orders/{id}/goods-receipts';
+
+    /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
      * `invoice.issue` / `invoice.pay` **or** `invoice.void` **or**
      * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and **unapplied**:
@@ -186,6 +221,103 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."cancelled order's lines currently report their FULL quantity as outstanding — the defect is\n"
             ."at its widest, not its narrowest.\n\n"
             ."Full entry: `docs/API.md` §15.1, rows `CancelSalesOrder` and `ListSalesOrderLines`.",
+            implode(', ', $arrived),
+        ));
+    }
+
+    /**
+     * **V2-S-1b's gate, carried by a mechanism rather than by prose — which is
+     * the whole reason this method exists.**
+     *
+     * **The carry, recorded 2026-09-16 (V4 batch B8b), owner `BE-LEAD` + `SEC` +
+     * `UX`:** the money-free pick read exists as its own resource, with an
+     * additions row, gated on `fulfilment.view`, conferring no `sales_order`
+     * table under PC-8, on IA's N-3/N-8 route.
+     *
+     * **⚖ RE-ANCHORED BY OWNER RULING, 2026-09-20.** The gate read *"before the
+     * first sales read"* and was **crossed on 2026-09-19 when `GetSalesOrder`
+     * shipped** — a sales read, gated on `sales_order.view` — unruled and
+     * unrecorded, and it stood crossed for nine days because the only thing
+     * holding it was a sentence in five documents. The owner moved the trigger
+     * onto `CreateFulfilment`, which is reachable and scheduled.
+     *
+     * **It is a RESCHEDULE, NOT A DISCHARGE, and nothing here may be read as a
+     * reduction.** The obligation is unchanged in scope. `SECURITY_MODEL.md`'s
+     * *"until then no operation projects those fields"* stays true, which is why
+     * the re-anchor costs nothing in exposure — and is also why this is not the
+     * `SEC-O-1` shape, where a gate was keyed to a state that had been ruled
+     * impossible. This trigger is reachable, scheduled and now mechanical.
+     *
+     * **What it does NOT claim.** It does not detect whether the pick read has
+     * been built — no resource for it exists to name, and inventing a path
+     * pattern to match on would be the fake-green this suite keeps finding.
+     * It detects the *trigger* and refuses to let it pass silently. Clearing it
+     * is a deliberate edit to {@see self::OPERATIONS_OWING_THE_PICK_READ}, made
+     * in the same commit that builds the pick read — the `PINNED_ALLOWLIST`
+     * mechanism this suite uses elsewhere, and the same residual the two sibling
+     * methods carry.
+     *
+     * **Mutation proof (run 2026-09-20).** Planting
+     * `'POST /api/v1/purchase-orders' => 'CreateFulfilment'` — a BUILT operation
+     * — turned this **RED**, naming that path and printing the whole message
+     * below; removing it returned it to **GREEN**. The planted line was grepped
+     * back out of the file before the run, because a green after a mutation that
+     * never applied is this project's recorded trap. A pin nobody has seen fail
+     * is not evidence.
+     */
+    #[Test]
+    public function noOperationOwingThePickReadHasBeenBuilt(): void
+    {
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+        $built = array_keys(GeneratedSpec::operations($spec));
+
+        self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the spec no longer spells built paths the way this pin does, so the check '
+            .'below would compare two disjoint sets and pass on everything.');
+
+        self::assertContains(self::A_NESTED_CREATE_KNOWN_TO_BE_BUILT, $built,
+            'Positive control for the NESTED path shape specifically: the pin below is a nested create, and '
+            .'its `{id}` placeholder is the part that can drift independently of the `/api/v1` prefix. If this '
+            .'fails, re-derive the placeholder spelling from the spec before trusting any result from this method.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_PICK_READ, array_fill_keys($built, true));
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built, and V2-S-1b's pick read has NOT been built.\n\n"
+            ."THE GATE, RE-ANCHORED BY OWNER RULING 2026-09-20:\n"
+            ."  V2-S-1b was `before the first sales read`. That gate was CROSSED on 2026-09-19 when\n"
+            ."  `GetSalesOrder` shipped, unruled and unrecorded. The owner re-anchored it onto THIS row.\n"
+            ."  **It is a RESCHEDULE, NOT A DISCHARGE.** Nothing was reduced. If you are reading this\n"
+            ."  message, the new gate has arrived and the work is due IN THIS COMMIT.\n\n"
+            ."THE WHOLE OBLIGATION - all six clauses, not a summary:\n"
+            ."  1. The money-free PICK READ exists as ITS OWN RESOURCE - not a projection bolted onto a\n"
+            ."     sales-order read, and not a field set toggled by permission.\n"
+            ."  2. It has an ADDITIONS ROW in `docs/API.md` 4.2 / 15.1, like any other declared operation.\n"
+            ."  3. It is gated on `fulfilment.view`, NOT on `sales_order.view`. `warehouse_operator` holds\n"
+            ."     no `sales_order.view` since the owner's cost-exposure ruling of 2026-09-15, and the pick\n"
+            ."     read is what F-5 step 4 needs.\n"
+            ."  4. It confers NO `sales_order` table under PC-8. A pick read that hands back the order as a\n"
+            ."     table is the cost exposure this carry exists to prevent.\n"
+            ."  5. IA N-3/N-8 route: it lives on `/sales-orders/[id]/fulfil`, the action on the parent order\n"
+            ."     (N-8a), not a standalone `/new` route. `docs/ux/IA.md` N-8a is already re-planned for it.\n"
+            ."  6. B1N-4 (`SEC` + `BE-LEAD`): record it in `docs/SECURITY_MODEL.md` as a SECOND DELIBERATE\n"
+            ."     PC-9 EXCEPTION, beside `supplier_product`'s, naming the projected columns (no column in\n"
+            ."     PC-12 clause 1's domain) and the code that governs them. PC-9's own text says `until then\n"
+            ."     no operation projects those fields` - building this row makes that sentence false.\n\n"
+            ."ALSO DUE ON THIS ROW, named here because they share the trigger:\n"
+            ."  B1N-12 (`UX`): the pick read or this response shows the resulting order status, or FLOWS F-5\n"
+            ."  step 6 is rewritten - step 6's status change is otherwise invisible to the actor who caused\n"
+            ."  it. B1N-5 (`BE-LEAD`): the pick resource's `.view` derivation resolves to `fulfilment.view`,\n"
+            ."  because a pick resource has no `<resource>.view` of its own.\n\n"
+            ."DO THIS IN THIS COMMIT, or move this pin deliberately and say why:\n"
+            ."  1. Build the pick read to all six clauses above.\n"
+            ."  2. Write the PC-9 exception into `docs/SECURITY_MODEL.md` and drop its `until then` sentence.\n"
+            ."  3. Clear this entry, and clear the V2-S-1b notes on BOTH 15.1 rows (`CreateFulfilment` and\n"
+            ."     `ListSalesOrders`), `docs/ROADMAP.md`'s sales-carry block and its `fails if`, and\n"
+            ."     `docs/ux/FLOWS.md` F-5's open note. FIVE live copies - find them by grepping `V2-S-1b`,\n"
+            ."     never by line number.\n\n"
+            ."Full entry: `docs/API.md` 15.1, rows `CreateFulfilment` and `ListSalesOrders`; the ruling is at\n"
+            ."`docs/session12/v2s1b-reanchor-ruling.md`. Cite both by name, never by line (Rule 16).",
             implode(', ', $arrived),
         ));
     }
