@@ -197,6 +197,18 @@ final class IdempotencyContractTest extends TenancyTestCase
         // like the goods receipt's, because nothing in `src/` has ever written a
         // `sales_order` row. `Version20260919000100` laid it.
         'CreateSalesOrder' => 'unique:sales_order_tenant_idem_live',
+        // ⚠ **V2-R-12, 2026-09-21 (Output 9, sales slice 4, commit 1).** Was
+        // `⛔ none` since 2026-09-16. The fifth header-sourced key, and the
+        // one that inverts `CreateSalesOrder`'s most distinctive decision: these
+        // columns are **NULLABLE**, not `NOT NULL`, and that is forced rather
+        // than preferred. `SalesOrderWriter::insertLineInside()` has written
+        // `sales_order_line` rows since `c761ba8` as `CreateSalesOrder`'s nested
+        // `lines[]`, and it always will — N lines of one request share ONE
+        // `Idempotency-Key`, so `NOT NULL` plus `(tenant_id, idempotency_key)`
+        // would make the second line of every multi-line create collide with the
+        // first. `purchase_order_line` is the worked example, not `sales_order`.
+        // `Version20260921000100` laid it.
+        'CreateSalesOrderLine' => 'unique:sales_order_line_tenant_idem_live',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -231,13 +243,31 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateBulkRoleAssignment' => 'store',
 
         // ⛔ none — declared idempotent, NO mechanism, blocked from shipping.
-        // EIGHT: `CreatePurchaseOrder` left this block on 2026-09-11 (step 5)
-        // and `CreateGoodsReceipt` the same day (step 8); `CreateSalesReturn`
-        // and `IssueCreditNote` joined it on 2026-09-14 (owner ruling on OI-2 —
-        // neither table exists, so nothing can refuse a retry); and
-        // `CreateSalesOrder` left it on 2026-09-19 (V2-R-11), which is why the
-        // count reads EIGHT here and not NINE. `IssueInvoice` was redesigned per
-        // shipment (D-A as amended) and stays here until
+        //
+        // ⚠ **THIS COUNT READ "EIGHT" AND WAS FALSE FROM 2026-09-16 UNTIL
+        // 2026-09-21, AND COMMIT 1 WOULD HAVE MADE IT ACCIDENTALLY TRUE.**
+        // `CreateSalesOrderLine` joined this block on 2026-09-16 under V2-R-12,
+        // taking it to **nine**, and the sentence above it was never re-read.
+        // ⚠ **Count the ARRAY ENTRIES, not the file's matches.** The obvious
+        // `grep -c` for the cell value over this file answers one too many,
+        // because this comment would then contain the literal it is counting —
+        // a measurement that corrupts itself, which is why the spelling is
+        // avoided here. Filter comment lines, or count the keys. Today
+        // `CreateSalesOrderLine` LEAVES the block, so the number becomes eight
+        // — **for a different reason than the one the old sentence gave**. It is
+        // corrected here rather than allowed to heal into invisibility, because a
+        // wrong count that silently becomes right is a wrong count nobody can
+        // ever find. The same false EIGHT was live in shipped `src/`
+        // (`IdempotencyKeyGuard`'s class docblock) and is corrected in the same
+        // commit. **Derive the number — do not restate this line.**
+        //
+        // EIGHT today: `CreatePurchaseOrder` left on 2026-09-11 (step 5) and
+        // `CreateGoodsReceipt` the same day (step 8); `CreateSalesReturn` and
+        // `IssueCreditNote` joined on 2026-09-14 (owner ruling on OI-2 — neither
+        // table exists, so nothing can refuse a retry); `CreateSalesOrder` left
+        // on 2026-09-19 (V2-R-11); `CreateSalesOrderLine` joined on 2026-09-16
+        // and left on 2026-09-21 (V2-R-12, sales slice 4 commit 1). `IssueInvoice`
+        // was redesigned per shipment (D-A as amended) and stays here until
         // `invoice_tenant_fulfilment_not_void` exists.
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
@@ -247,10 +277,6 @@ final class IdempotencyContractTest extends TenancyTestCase
         'IssueInvoice' => '⛔ none',
         'CreateSalesReturn' => '⛔ none',
         'IssueCreditNote' => '⛔ none',
-        // **V2-R-12, 2026-09-16.** Was `no`: the same misfile as the purchase
-        // order line on an unbuilt row. `sales_order_line` has no client key,
-        // so a retry would write a second line. E9-2 names it.
-        'CreateSalesOrderLine' => '⛔ none',
     ];
 
     /**
@@ -308,6 +334,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateGoodsReceipt' => [IdempotencyKeyGuard::COLUMN],
         'CreatePurchaseOrderLine' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesOrder' => [IdempotencyKeyGuard::COLUMN],
+        'CreateSalesOrderLine' => [IdempotencyKeyGuard::COLUMN],
     ];
 
     /**
@@ -367,6 +394,12 @@ final class IdempotencyContractTest extends TenancyTestCase
         // client-supplied value is the header and putting a second spelling of
         // it in the body is what clause 4 forbids.
         'CreateSalesOrder',
+        // V2-R-12, 2026-09-21. Same ground again, one level down: the line
+        // table's other unique is on the server-minted `line_number`, so the
+        // only client-supplied value is the header. The path's order id goes
+        // into the request DIGEST, not into the index key — which is how the
+        // same key sent to a different order is refused rather than replayed.
+        'CreateSalesOrderLine',
     ];
 
     /**

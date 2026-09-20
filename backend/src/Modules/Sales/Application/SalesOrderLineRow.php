@@ -78,7 +78,7 @@ use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
  * outstanding work on a deleted document. That is **unreachable today** —
  * `DeleteSalesOrder` is unbuilt — and it is not this output's to rule. It is
  * carried as `RESIDUAL_GAPS.md` **CD-4** with `DeleteSalesOrder` as its hard
- * trigger, and by `SalesOrderLineReadTest::theArchivedParentBranchIsUnruledAndUnreachable`,
+ * trigger, and by `SalesOrderLineReadTest::theArchivedParentBranchIsUnruledAndStillUnreachable`,
  * which reddens the moment a delete operation on this resource is built.
  */
 final class SalesOrderLineRow

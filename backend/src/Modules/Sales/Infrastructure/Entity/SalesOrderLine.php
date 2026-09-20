@@ -45,6 +45,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'sales_order_line_unique', columns: ['tenant_id', 'sales_order_id', 'line_number'], options: ['where' => '(deleted_at IS NULL)'])]
 // "Demand history for this SKU" — ADR-004's forecast input.
 #[ORM\Index(name: 'sales_order_line_tenant_item_idx', columns: ['tenant_id', 'inventory_item_id'], options: ['where' => '(deleted_at IS NULL)'])]
+// V2-R-12: `CreateSalesOrderLine`'s retry key (`Version20260921000100`). Tenant-wide, like
+// `purchase_order_line_tenant_idem_live`: a header supplies one value, and the request digest carries the order id.
+#[ORM\UniqueConstraint(name: 'sales_order_line_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
 class SalesOrderLine
 {
     #[ORM\Id]
@@ -75,6 +78,19 @@ class SalesOrderLine
     /** S-12: money is numeric(19,4) and a string in PHP. Never a float. */
     #[ORM\Column(name: 'unit_price', type: Types::DECIMAL, precision: 19, scale: 4)]
     private string $unitPrice;
+
+    /**
+     * **V2-R-12 — the `Idempotency-Key` header's lower-case hex SHA-256, written by `CreateSalesOrderLine` in its
+     * `INSERT`.** NULL on a line raised inside `CreateSalesOrder`'s nested `lines[]`, because that request's key is the
+     * order's and N lines cannot share one key on a unique index; and on lines raised before `Version20260921000100`.
+     * No setter: written once, at insert, by the writer.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
+    private ?string $idempotencyKey = null;
+
+    /** D-B: `RequestDigest::of()` of the single-line request that created this row, beside its key (both or neither). */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT, nullable: true)]
+    private ?string $requestDigest = null;
 
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;

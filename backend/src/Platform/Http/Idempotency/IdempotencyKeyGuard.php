@@ -52,9 +52,20 @@ use Symfony\Component\HttpKernel\Event\ControllerEvent;
  * database dependency at all -- it requires the header, bounds it at 255 octets,
  * and discards it. So an operation could carry the flag, pass every gate, and
  * still write a second row on a retried timeout. That is why §4.2 has a fifth
- * cell value, `⛔ none`, and why the **eight** operations carrying it are blocked
- * by `DELIVERY_LEDGER.md` E9-2 rather than merely noted: the header is not a
+ * cell value, `⛔ none`, and why the operations carrying it are blocked by
+ * `DELIVERY_LEDGER.md` E9-2 rather than merely noted: the header is not a
  * mechanism, and a column that could not say so is what hid the gap.
+ *
+ * ⚠ **This sentence read "the **eight** operations" and was FALSE from
+ * 2026-09-16 to 2026-09-21.** `CreateSalesOrderLine` joined the `⛔ none` block
+ * on 2026-09-16 (V2-R-12) and the count was never re-read, so E9-2's condition
+ * cell named **nine** while two copies of this sentence — here and in
+ * `IdempotencyContractTest::PINNED_MECHANISMS`' comment — said eight. It is
+ * eight again today only because `Version20260921000100` gave
+ * `CreateSalesOrderLine` a real mechanism, i.e. **the number became right for a
+ * reason unrelated to why it was written**. Both copies are corrected in that
+ * same commit rather than left to heal silently. **The count lives in E9-2's
+ * condition cell; derive it there and never restate it here.**
  *
  * ⚠ **It was nine until 2026-09-11.** `CreatePurchaseOrder` came off that list
  * when `Version20260911000100` gave `purchase_order` a client-supplied
