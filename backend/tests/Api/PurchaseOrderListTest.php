@@ -243,6 +243,162 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
             'The supplier view must offer ordered_at: `purchase_order_tenant_supplier_idx` is (tenant_id, supplier_id, ordered_at).');
     }
 
+    /**
+     * **The Cancelled segment, filtered to a supplier, must not be ordered by
+     * `ordered_at` — every row it can return is allowed to have none.**
+     *
+     * `purchase_order_ordered_at_set` exempts **two** statuses, not one:
+     * `CHECK (status IN ('draft', 'cancelled') OR ordered_at IS NOT NULL)` since
+     * `Version20260911000200` widened it so that §8.3's legal `draft → cancelled`
+     * stopped being refused with `23514`. `PurchaseOrder::cancel()` accepts
+     * `draft`, so an order cancelled before it was ever placed is reachable
+     * through `CancelPurchaseOrder` and carries a NULL `ordered_at` for good.
+     *
+     * API-18's cursor is a row comparison and `(NULL, id) > (?, ?)` evaluates to
+     * NULL, so such a row is **silently dropped** from every page after the
+     * first. This is the same defect the *filtered to a supplier* deviation was
+     * written for; it was guarded against `draft` alone and the constraint has
+     * named `cancelled` too since the day cancellation shipped.
+     */
+    #[Test]
+    public function theCancelledSupplierViewDoesNotLoseAnOrderCancelledBeforeItWasPlaced(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-02T00:00:00+00:00');
+        // Cancelled while still a draft: never placed, so no ordered date. The
+        // constraint admits it and `cancel()` is the shipped path that makes it.
+        $this->seedOrder(self::TENANT_A, 'PO-3', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+
+        $seen = [];
+        $pages = 0;
+        $cursor = null;
+
+        do {
+            $this->send('GET', '/purchase-orders?status=cancelled&supplier_id='.$supplier.'&limit=2'
+                .(null === $cursor ? '' : '&after='.urlencode($cursor)));
+            self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+            $body = $this->json();
+            $seen = [...$seen, ...array_column($body['items'], 'order_number')];
+            $cursor = $body['next_cursor'];
+            ++$pages;
+            self::assertLessThan(10, $pages, 'The client walked off the end: next_cursor never went null.');
+        } while (null !== $cursor);
+
+        sort($seen);
+        self::assertSame(['PO-1', 'PO-2', 'PO-3'], $seen,
+            'An order cancelled before it was placed has a NULL ordered_at, and the Cancelled supplier view '
+            .'ordered by ordered_at drops it across the page boundary: (NULL, id) > (?, ?) is NULL, not true.');
+    }
+
+    /**
+     * **The second failure mode of the same defect: a `next_cursor` that 500s
+     * when the client follows it.**
+     *
+     * `PurchaseOrderReader::cursors()` builds `new Cursor((string) $row[$sort], …)`
+     * and `(string) null` is the empty string, so a page boundary landing on a
+     * row with no `ordered_at` emits a cursor whose sort key is `''`. It decodes
+     * (it is a string, and the id is a UUID), reaches the statement as
+     * `''::timestamptz`, and Postgres refuses it — a 500 on a cursor this API
+     * handed the client one request earlier.
+     */
+    #[Test]
+    public function theCancelledSupplierViewNeverHandsOutACursorItCannotFollow(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+
+        $this->send('GET', '/purchase-orders?status=cancelled&supplier_id='.$supplier.'&limit=1');
+        self::assertSame(200, $this->httpStatus());
+
+        $next = $this->json()['next_cursor'];
+        self::assertNotNull($next, 'Two rows and a limit of one: there is a second page and this assertion needs it.');
+
+        $this->send('GET', '/purchase-orders?status=cancelled&supplier_id='.$supplier.'&limit=1&after='.urlencode($next));
+        self::assertSame(200, $this->httpStatus(),
+            'Following the next_cursor this API issued one request earlier raised. The empty sort key reached '
+            .'the statement as \'\'::timestamptz.');
+        self::assertSame(['PO-2'], array_column($this->json()['items'], 'order_number'));
+
+        // The reason, asserted separately so a future regression names itself
+        // rather than arriving as an unexplained 500.
+        self::assertNotSame('', Cursor::decode($next)->sortKey,
+            'The cursor carries an empty sort key, which is (string) null on a row with no ordered_at.');
+    }
+
+    /**
+     * **`PurchaseOrderViews::ORDERED_AT_MAY_BE_NULL` is the constraint's own
+     * exempt set, asked of the constraint.**
+     *
+     * The two tests above are about one view. This one is about the premise both
+     * of them rest on, and it exists because that premise was carried by a
+     * docblock for nine days after the migration falsified it: `legalSorts()`
+     * guarded `draft` alone while `purchase_order_ordered_at_set` had named
+     * `cancelled` too since `Version20260911000200`.
+     *
+     * Nothing here is parsed out of a constraint definition and nothing is
+     * listed: the **domain** is every status `purchase_order_status_values`
+     * admits, read off the server, and the **answer** for each is whether the
+     * database accepts that status with a NULL `ordered_at` — which is the fact
+     * `legalSorts()` needs and is independent of how the constraint is worded.
+     *
+     * *Mutation, run:* `ORDERED_AT_MAY_BE_NULL` reduced to `[STATUS_DRAFT]`.
+     * Red, naming `cancelled` as admitted and undeclared.
+     */
+    #[Test]
+    public function theStatusesThatMayHaveNoOrderedDateAreTheOnesTheConstraintExempts(): void
+    {
+        $definition = (string) $this->owner()->fetchOne(
+            'SELECT pg_get_constraintdef(oid) FROM pg_constraint '
+            ."WHERE conrelid = 'purchase_order'::regclass AND conname = ?",
+            ['purchase_order_status_values'],
+        );
+        self::assertNotSame('', $definition, 'purchase_order_status_values is not on the table, so this test has no domain.');
+
+        preg_match_all("/'([a-z_]+)'/", $definition, $matches);
+        $everyStatus = array_values(array_unique($matches[1]));
+        sort($everyStatus);
+        self::assertGreaterThan(3, \count($everyStatus), 'The status domain read off the server is too small to be the real one.');
+        self::assertContains(PurchaseOrder::STATUS_CANCELLED, $everyStatus);
+
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
+
+        $admitted = [];
+        foreach ($everyStatus as $status) {
+            // A placed order, so the only thing the UPDATE changes is the pair
+            // the constraint is about. One row per status: a successful attempt
+            // leaves its row in the state it just proved legal.
+            $order = $this->seedOrder(self::TENANT_A, 'PO-'.$status, $supplier, $warehouse,
+                status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
+
+            try {
+                $this->executeAsOwnerForTenant(self::TENANT_A,
+                    'UPDATE purchase_order SET status = ?, ordered_at = NULL WHERE id = ?::uuid', [$status, $order]);
+                $admitted[] = $status;
+            } catch (\Throwable $e) {
+                self::assertStringContainsString('purchase_order_ordered_at_set', $e->getMessage(),
+                    $status.' with a NULL ordered_at was refused by something other than the constraint under test.');
+            }
+        }
+
+        self::assertNotSame([], $admitted, 'No status was admitted with a NULL ordered_at, so the comparison below is vacuous.');
+        self::assertNotSame($everyStatus, $admitted, 'Every status was admitted, so the constraint is not constraining anything.');
+
+        $declared = PurchaseOrderViews::ORDERED_AT_MAY_BE_NULL;
+        sort($declared);
+        self::assertSame($declared, $admitted,
+            'PurchaseOrderViews::ORDERED_AT_MAY_BE_NULL disagrees with purchase_order_ordered_at_set. '
+            .'legalSorts() offers ordered_at over every view this list does not name, so a status missing '
+            .'from it is a view whose keyset pagination drops rows and emits a cursor that raises.');
+    }
+
     /** An unsegmented, unfiltered list has no manifest row and is ordered by `order_number`. */
     #[Test]
     public function theUnsegmentedListIsOrderedByOrderNumber(): void

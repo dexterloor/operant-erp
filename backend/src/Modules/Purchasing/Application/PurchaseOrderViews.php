@@ -32,10 +32,11 @@ final class PurchaseOrderViews
      * `purchase_order_tenant_open_idx`'s partial predicate, which is what makes
      * that index usable for this segment.
      *
-     * **`draft` is the one segment whose rows may have no `ordered_at`**, and
-     * `purchase_order_ordered_at_set` — `CHECK (status = 'draft' OR ordered_at IS
-     * NOT NULL)` — is what makes that a database fact rather than an observation.
-     * See `legalSorts()`.
+     * **`draft` and `cancelled` are the two segments whose rows may have no
+     * `ordered_at`**, and `purchase_order_ordered_at_set` —
+     * `CHECK (status IN ('draft', 'cancelled') OR ordered_at IS NOT NULL)` — is
+     * what makes that a database fact rather than an observation.
+     * See `ORDERED_AT_MAY_BE_NULL` and `legalSorts()`.
      *
      * @var array<string, non-empty-list<string>>
      */
@@ -57,6 +58,35 @@ final class PurchaseOrderViews
      * @var non-empty-list<string>
      */
     public const SEGMENT_NAMES = ['open', 'draft', 'received', 'cancelled'];
+
+    /**
+     * **The statuses `purchase_order_ordered_at_set` exempts from carrying an
+     * `ordered_at`** — the constraint's own first disjunct, written as this
+     * module's constants rather than as literals (API-15).
+     *
+     * A row in any other status has an `ordered_at` by construction, and that is
+     * the whole premise `legalSorts()` rests on: `ordered_at` is a sort key over
+     * a view that admits neither of these, and a **nullable** one over any view
+     * that admits either.
+     *
+     * ⚠ **This list said `draft` alone until 2026-09-20, and it was false from
+     * the day `CancelPurchaseOrder` shipped.** `Version20260906000100` wrote the
+     * constraint as `status = 'draft' OR ordered_at IS NOT NULL`, and
+     * `Version20260911000200` widened it to admit `cancelled` so that §8.3's
+     * legal `draft → cancelled` stopped being refused with `23514`. The docblock
+     * above went on stating the narrow form, and `legalSorts()` — a correct
+     * implementation of it — offered `ordered_at` over a Cancelled supplier view
+     * in which every row may have none.
+     *
+     * It is no longer carried by prose:
+     * `PurchaseOrderListTest::theStatusesThatMayHaveNoOrderedDateAreTheOnesTheConstraintExempts`
+     * asks the live constraint, one status at a time and over a domain read off
+     * the server, which of them it admits with a NULL `ordered_at`, and compares
+     * the answer with this list.
+     *
+     * @var non-empty-list<string>
+     */
+    public const ORDERED_AT_MAY_BE_NULL = [PurchaseOrder::STATUS_DRAFT, PurchaseOrder::STATUS_CANCELLED];
 
     public const SORT_ORDER_NUMBER = 'order_number';
     public const SORT_ORDERED_AT = 'ordered_at';
@@ -87,17 +117,24 @@ final class PurchaseOrderViews
      * ⚠ **ONE DEVIATION FROM THE MANIFEST, stated rather than smoothed over.**
      * The manifest's *filtered to a supplier* row carries the predicate
      * `deleted_at IS NULL AND supplier_id = ?` — **no status** — and orders it by
-     * `ordered_at`. That set **includes drafts**, and the `CHECK` above permits
-     * `ordered_at IS NULL` on exactly those. So `ordered_at` is a **nullable**
-     * sort key over that view; API-18's cursor is a row comparison,
-     * `(NULL, id) > (?, ?)` evaluates to NULL in SQL, and every draft would be
-     * silently dropped from every page after the first. **A list that loses rows
-     * across a page boundary is worse than one ordered by its second key.**
+     * `ordered_at`. That set **includes drafts and cancellations**, and the
+     * `CHECK` above permits `ordered_at IS NULL` on exactly those
+     * (`ORDERED_AT_MAY_BE_NULL`). So `ordered_at` is a **nullable** sort key over
+     * that view; API-18's cursor is a row comparison, `(NULL, id) > (?, ?)`
+     * evaluates to NULL in SQL, and every such row would be silently dropped
+     * from every page after the first — and, because
+     * `PurchaseOrderReader::cursors()` renders the key with `(string)`, a page
+     * boundary landing on one emits a `next_cursor` carrying `''` that raises
+     * when the client follows it. **A list that loses rows across a page
+     * boundary is worse than one ordered by its second key, and one that hands
+     * out a cursor it cannot answer is worse again.**
      *
      * `ordered_at` is therefore offered **only where every row in the view
-     * carries one** — where the status predicate excludes `draft` — and the
-     * supplier view falls back to `order_number` when it carries no segment or
-     * carries `draft`. §4.4.2 says every document list opens on a segment
+     * carries one** — where the status predicate excludes both exempt statuses —
+     * and the supplier view falls back to `order_number` when it carries no
+     * segment or carries the Draft or the Cancelled one — which is the order the
+     * manifest's own *Received · Cancelled* row already gives that segment.
+     * §4.4.2 says every document list opens on a segment
      * (*"`/purchase-orders` opens on Open"*), so the supplier view in the product
      * always carries one and the deviation is invisible to the screen the
      * manifest row was written for. **Reported as a finding against that manifest
@@ -116,8 +153,10 @@ final class PurchaseOrderViews
         // The **Open** row, and the *filtered to a supplier* row.
         $manifestOffersOrderedAt = self::SEGMENTS['open'] === $statuses || $filteredToASupplier;
 
-        // The deviation above: a nullable sort key is not a sort key.
-        $everyRowCarriesOne = [] !== $statuses && !\in_array(PurchaseOrder::STATUS_DRAFT, $statuses, true);
+        // The deviation above: a nullable sort key is not a sort key. The test
+        // is against the constraint's whole exempt set, never against one of its
+        // members -- naming `draft` alone is exactly the defect this replaces.
+        $everyRowCarriesOne = [] !== $statuses && [] === array_intersect($statuses, self::ORDERED_AT_MAY_BE_NULL);
 
         return $manifestOffersOrderedAt && $everyRowCarriesOne
             ? [self::SORT_ORDERED_AT, self::SORT_ORDER_NUMBER]
