@@ -95,6 +95,9 @@
     "ListSalesOrderLines $.items[].unit_price": [
         4
     ],
+    "ListSalesOrders $.items[].total_amount": [
+        4
+    ],
     "RestoreItem $.reorder_point": [
         6
     ],

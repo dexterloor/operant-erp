@@ -104,7 +104,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // lines. No migration and no grant change — a read issues no write, and `erp_app` already held
         // `SELECT` on `sales_order_line`, `sales_order` and `inventory_item`, re-measured with
         // `has_table_privilege()` in that commit.
-        self::assertCount(27, $checked, 'The route set changed. This slice declares twenty-seven operations: '.implode(', ', array_keys($checked)));
+        // **And one more the same day:** `ListSalesOrders`, the document list. Also no migration and no
+        // grant change, and its `customer_id` filter reads a table `erp_app` holds SELECT on and nothing
+        // else.
+        self::assertCount(28, $checked, 'The route set changed. This slice declares twenty-eight operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -144,6 +144,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and a supplied tenant id that moved the read would answer with B's line where A's was asked
         // for — an empty baseline would make the comparison vacuous.
         'ListSalesOrderLines' => ['vars' => ['id' => 'sales_order']],
+        // Added 2026-09-21 with the document list. It takes no path variable: `freshState()` seeds an
+        // order in **both** tenants, so the baseline page is non-empty and a supplied tenant id that
+        // moved the read would return B's order where A's workspace was asked for.
+        'ListSalesOrders' => [],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

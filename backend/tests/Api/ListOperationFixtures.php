@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 
 /**
  * The list domain and one fixture per list, shared by every registry-wide list
@@ -72,7 +73,7 @@ trait ListOperationFixtures
     }
 
     /**
-     * @return array<string, callable(): array{0: string, 1: callable(int): array{supplier: ?string, search: ?string, views: list<string>}}>
+     * @return array<string, callable(): array{0: string, 1: callable(int): array{filter: array<string, string>, search: ?string, views: list<string>}}>
      */
     protected function listFixtures(): array
     {
@@ -85,7 +86,7 @@ trait ListOperationFixtures
                         $this->seedItem(self::TENANT_A, 'SKU-ENV-'.$i, $supplier);
                     }
 
-                    return ['supplier' => $supplier, 'search' => 'SKU-ENV', 'views' => ['']];
+                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'SKU-ENV', 'views' => ['']];
                 }];
             },
             'ListPurchaseOrderLines' => function (): array {
@@ -98,7 +99,7 @@ trait ListOperationFixtures
                         $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ENV-L'.$i), $i);
                     }
 
-                    return ['supplier' => null, 'search' => null, 'views' => ['']];
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
             'ListSalesOrderLines' => function (): array {
@@ -112,7 +113,25 @@ trait ListOperationFixtures
                     // Bounded (TB-1c): no `supplier`-shaped filter, no searchable column TB-5 names, and
                     // one view, because §10.2's exclusion 2 takes it out of `sort`'s domain on both
                     // sides. The same three nulls `ListPurchaseOrderLines` carries, for the same rule.
-                    return ['supplier' => null, 'search' => null, 'views' => ['']];
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
+            'ListSalesOrders' => function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Sales Orders');
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Sales Orders');
+
+                return ['/sales-orders', function (int $rows) use ($customer, $warehouse): array {
+                    // Every row is `confirmed` with a distinct `ordered_at`, so the default view, the
+                    // Open segment and the customer view all hold every row and **every sort key is
+                    // non-null** -- which is what `SalesOrderViews::legalSorts()` requires before it
+                    // will offer `ordered_at` at all.
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-'.$i, $customer, $warehouse,
+                            status: SalesOrder::STATUS_CONFIRMED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
+                    }
+
+                    return ['filter' => ['customer_id' => $customer], 'search' => 'SO-ENV',
+                        'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
                 }];
             },
             'ListPurchaseOrders' => function (): array {
@@ -128,7 +147,7 @@ trait ListOperationFixtures
                             status: PurchaseOrder::STATUS_ORDERED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
                     }
 
-                    return ['supplier' => $supplier, 'search' => 'PO-ENV', 'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
+                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'PO-ENV', 'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
                 }];
             },
         ];

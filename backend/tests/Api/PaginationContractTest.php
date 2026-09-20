@@ -237,8 +237,12 @@ final class PaginationContractTest extends PurchaseOrderTestCase
             if (\in_array('q', $declared, true) && null !== $context['search']) {
                 $filters[] = 'q='.urlencode($context['search']);
             }
-            if (\in_array('supplier_id', $declared, true) && null !== $context['supplier']) {
-                $filters[] = 'supplier_id='.$context['supplier'];
+            // Whatever the list filters by, keyed by parameter name -- `supplier_id` on
+            // `/items`, `customer_id` on `/sales-orders`.
+            foreach ($context['filter'] as $parameter => $value) {
+                if (\in_array((string) $parameter, $declared, true)) {
+                    $filters[] = $parameter.'='.$value;
+                }
             }
             if ([] !== $filters) {
                 $this->send('GET', $path.'?'.implode('&', $filters));

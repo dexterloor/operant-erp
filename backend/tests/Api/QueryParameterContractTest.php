@@ -354,8 +354,11 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                 'after' => $cursor,
                 'before' => $cursor,
                 'q' => $context['search'],
-                'supplier_id' => $context['supplier'],
                 'archived' => 'true',
+                // The list's own filter parameter, keyed by its name so a list filtered by
+                // something other than `supplier_id` needs no edit here. A list that declares
+                // one and supplies no value is reported below rather than skipped.
+                ...$context['filter'],
             ];
             foreach ($declared as $parameter) {
                 $schema = $operation->getParameters()?->get($parameter)?->getSchema() ?? [];

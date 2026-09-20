@@ -171,6 +171,15 @@ trait OperationSuccessRecipes
             // operation itself produced is the one every reference and scale walker sees in the shape a
             // client gets. The order is read back from the create's `Location`, so the path is §4.2's own
             // rather than a second copy of the template.
+            // Driven through the writer for the same reason: the list row a client sees is then the one
+            // the operation wrote, with a real `created_by` for the reference walkers and a real
+            // `total_amount` for the scale walker. A seeded row leaves both unexamined.
+            'ListSalesOrders' => [fn (): array => $salesWorkspace('SO-LIST'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $this->send('GET', '/sales-orders');
+
+                return [200, 'create, then list'];
+            }],
             'ListSalesOrderLines' => [fn (): array => $salesWorkspace('SO-LINES'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location').'/lines');

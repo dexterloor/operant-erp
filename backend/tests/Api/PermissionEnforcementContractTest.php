@@ -96,6 +96,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // expanded `inventory_item` needs no `inventory_item.view` either (PC-15 clause 4, the same
         // reading `GetSalesOrder`'s customer and warehouse references ride on).
         'ListSalesOrderLines' => 'sales_order.view',
+        // Added 2026-09-21 with the document list. `sales_order.view` is the row's own `Perm` cell, and
+        // the list returns the same document the direct hit does — including `created_by`, which rides on
+        // owner ruling O-5 / PC-15 amendment 2 rather than extending it: §4.2 gates `GetSalesOrder` and
+        // this row on the same code, so the disclosure condition is met identically.
+        'ListSalesOrders' => 'sales_order.view',
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',

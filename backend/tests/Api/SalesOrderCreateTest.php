@@ -42,10 +42,11 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      */
     public const PINNED_SALES_ORDER_OPERATIONS = [
         // In declaration order: the registry preserves it and the reconciliation below is `assertSame`.
-        // `ListSalesOrderLines` is first because the registry preserves **declaration** order and this
-        // operation is declared on `SalesOrderLineCollection`, a class the container reads before
-        // `SalesOrderResource`. The pin follows the registry rather than reading well, because the
-        // comparison below is `assertSame` and a sorted pin would be a second, quieter fact.
+        // The two reads are first, and in **declaration** order: the registry preserves it and the
+        // comparison below is `assertSame`, so a pin sorted to read well would be a second, quieter
+        // fact. Both were measured against the registry rather than guessed -- the first attempt put
+        // `ListSalesOrderLines` first and was red.
+        'ListSalesOrders' => ['method' => 'GET', 'path' => '/sales-orders', 'idem' => false],
         'ListSalesOrderLines' => ['method' => 'GET', 'path' => '/sales-orders/{id}/lines', 'idem' => false],
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
