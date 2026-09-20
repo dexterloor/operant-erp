@@ -183,7 +183,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`RESIDUAL_GAPS.md` CD-3, carried by a mechanism rather than by a sentence.**
+     * **`RESIDUAL_GAPS.md` CD-4, carried by a mechanism rather than by a sentence.**
      *
      * V2-C-14(b) ruled the `cancelled` branch and only that branch. An order
      * **archived** while `confirmed` keeps `status = 'confirmed'`, so its lines still
@@ -216,7 +216,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
             ."     remainder and says nothing about an archived one.\n"
             ."  2. Apply it in `SalesOrderLineRow::COLUMNS`, beside the cancelled branch.\n"
             ."  3. Assert it here, with a live parent in the same test as the control.\n\n"
-            .'Full entry: `docs/RESIDUAL_GAPS.md` CD-3. Raised by `RED` against the slice-2 design, 2026-09-20.');
+            .'Full entry: `docs/RESIDUAL_GAPS.md` CD-4. Raised by `RED` against the slice-2 design, 2026-09-20.');
     }
 
     /**

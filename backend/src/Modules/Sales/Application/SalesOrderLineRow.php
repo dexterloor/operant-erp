@@ -71,13 +71,13 @@ use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
  * negative pre-fill is a defect wearing a 200.
  *
  * ---------------------------------------------------------------------------
- * ⚠ CARRIED, NOT SOLVED: the archived parent (`RESIDUAL_GAPS.md` CD-3)
+ * ⚠ CARRIED, NOT SOLVED: the archived parent (`RESIDUAL_GAPS.md` CD-4)
  * ---------------------------------------------------------------------------
  * V2-C-14(b) ruled the `cancelled` branch and only that branch. An order archived
  * while `confirmed` keeps `status = 'confirmed'`, so its lines still report
  * outstanding work on a deleted document. That is **unreachable today** —
  * `DeleteSalesOrder` is unbuilt — and it is not this output's to rule. It is
- * carried as `RESIDUAL_GAPS.md` **CD-3** with `DeleteSalesOrder` as its hard
+ * carried as `RESIDUAL_GAPS.md` **CD-4** with `DeleteSalesOrder` as its hard
  * trigger, and by `SalesOrderLineReadTest::theArchivedParentBranchIsUnruledAndUnreachable`,
  * which reddens the moment a delete operation on this resource is built.
  */
