@@ -126,7 +126,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more the same day:** `UpdateSalesOrderLine`. It adds no `$notExposed` route -- the
         // `SalesOrderLine` fallback route was already minted by `CreateSalesOrderLine`, and a second
         // write on the same resource does not mint a second one.
-        self::assertCount(31, $checked, 'The route set changed. This slice declares thirty-one operations: '.implode(', ', array_keys($checked)));
+        // **And one more:** `DeleteSalesOrderLine`. A **soft** delete -- an `UPDATE` of `deleted_at` --
+        // so it needs no `DELETE` grant and none was added: `has_table_privilege('erp_app',
+        // 'sales_order_line', 'DELETE')` is false and stays false.
+        self::assertCount(32, $checked, 'The route set changed. This slice declares thirty-two operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

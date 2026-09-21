@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderLineProcessor;
+use App\Modules\Sales\ApiResource\State\DeleteSalesOrderLineProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderLineProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderLineProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -117,6 +119,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no`, and API-14's answer is that a PATCH sets
             // absolute values on a row that already exists, so a replay converges and there is no
             // duplicate for a key to prevent.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
+        ),
+        new Delete(
+            uriTemplate: '/sales-orders/{id}/lines/{lineId}',
+            uriVariables: [
+                'id' => new Link(fromClass: SalesOrderResource::class, identifiers: ['id'], parameterName: 'id'),
+                'lineId' => new Link(fromClass: SalesOrderLineResource::class, identifiers: ['id'], parameterName: 'lineId'),
+            ],
+            name: 'DeleteSalesOrderLine',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteSalesOrderLine'),
+            provider: SalesOrderLineProvider::class,
+            processor: DeleteSalesOrderLineProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
         ),
     ],

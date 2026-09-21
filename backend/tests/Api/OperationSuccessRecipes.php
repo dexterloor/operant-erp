@@ -231,6 +231,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'create the order, then edit its line'];
             }],
+            'DeleteSalesOrderLine' => [fn (): array => $salesWorkspace('SO-DL'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $order = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $order.'/lines');
+                $this->send('DELETE', $order.'/lines/'.$this->json()['items'][0]['id']);
+
+                return [204, 'create the order, then delete its line'];
+            }],
             // The read is driven through the writer rather than off a fixture, so the row it reads is a
             // row the operation wrote — which is what makes `created_by` non-null in the body every
             // reference check walks. A seeded `sales_order` would leave the column NULL and the

@@ -739,6 +739,40 @@ final readonly class SalesOrderWriter
         ));
     }
 
+    /**
+     * **`DeleteSalesOrderLine` — API-21 branch 3: 204, and no body.** `sales_order_line` is
+     * `SchemaManifest::SOFT`, so this is an `UPDATE` of `deleted_at`, not a `DELETE`.
+     *
+     * ⚠ **Order before line, and that ordering is a deadlock fix rather than a style.** It is recorded
+     * on the purchase twin: before it, that path locked the line (its own `UPDATE`) and then the order
+     * (`recomputeTotal()`), which is the reverse of archiving the order — whose cascade trigger locks the
+     * order and then its lines. The two orders deadlocked. This path takes the order's row lock first.
+     */
+    public function archiveLine(string $orderId, string $lineId): void
+    {
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($orderId, $lineId): void {
+            SalesOrderRowLock::holdInside($em, $orderId);
+            $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+            $this->refuseIfArchived($order);
+            $this->refuseUnlessDraft($order);
+
+            $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+
+            if (null !== $line->archivedAt) {
+                throw self::lineArchived();
+            }
+
+            $em->getConnection()->executeStatement(
+                'UPDATE sales_order_line SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid',
+                [$lineId],
+            );
+
+            // No pointer: a `DELETE` carries no body, so there is no field to name, and archiving a line
+            // can only lower a sum of non-negative products that already fitted.
+            $this->recomputeTotal($em, $orderId, null);
+        });
+    }
+
     // -----------------------------------------------------------------------
 
     /**

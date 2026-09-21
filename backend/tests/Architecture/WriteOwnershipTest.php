@@ -167,7 +167,10 @@ final class WriteOwnershipTest extends TestCase
         // possible (`SalesOrder::shipTo()`) was deleted in the same commit; it had zero callers.
         // **5 -> 6 on 2026-09-21** with `UpdateSalesOrderLine`: one `UPDATE sales_order_line`, built from
         // `LINE_COLUMNS`/`LINE_CASTS` so the column list is written once.
-        'Modules\\Sales' => 6,
+        // **6 -> 7 on 2026-09-21** with `DeleteSalesOrderLine`: one `UPDATE sales_order_line SET
+        // deleted_at`. A soft delete, so it is an UPDATE this scan counts and not a DELETE it would
+        // have to see a grant for.
+        'Modules\\Sales' => 7,
         'Modules\\UserManagement' => 5,
     ];
 

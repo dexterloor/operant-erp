@@ -330,6 +330,8 @@ trait ArchivedRowSubjects
             // operation needs, and the live twin must SUCCEED with it -- which is the trait's own control
             // that a refusal of the archived row is the archived state's doing and not the body's.
             'UpdateSalesOrderLine' => ['quantity' => '2'],
+            // A `DELETE` carries no body, and the trait's selector puts it in the domain anyway.
+            'DeleteSalesOrderLine' => null,
         ];
     }
 

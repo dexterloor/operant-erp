@@ -103,6 +103,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 // derived-but-unlisted, which is what §8.3a's *fails if* (b) is for.
                 'CreateSalesOrderLine',
                 'UpdateSalesOrderLine',
+                'DeleteSalesOrderLine',
             ],
         ],
     ];
@@ -592,6 +593,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             // copying it verbatim would give four cells proving the window refuses a *quantity* change
             // and saying nothing about D-A's frozen column.
             'UpdateSalesOrderLine' => $this->send('PATCH', '/sales-orders/'.$order.'/lines/'.$line, ['quantity' => '2', 'unit_price' => '3'], $key),
+            'DeleteSalesOrderLine' => $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line, null, $key),
             default => self::fail('§8.3a names a sales-order operation this test cannot drive: '.$operation),
         };
     }

@@ -314,4 +314,54 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
             'sales_order_line_qty_sane did not refuse a direct write that lowers quantity below quantity_fulfilled, '
             .'so the pre-check above is the only thing standing between this and a corrupt line.');
     }
+
+    /**
+     * **`DeleteSalesOrderLine` is a SOFT delete, and the order's total falls with it.**
+     *
+     * Three things at once, because they are one behaviour: the row survives with `deleted_at` set (a
+     * hard `DELETE` would fail at `fulfilment_line_order_line_fk` or orphan a shipment record), the
+     * answer is 204 with no body (API-21 branch 3), and `recomputeTotal()` runs with a **null pointer**
+     * because a `DELETE` carries no field a refusal could name.
+     *
+     * `erp_app` holds no `DELETE` on this table and needs none — measured in this commit, not inherited.
+     */
+    #[Test]
+    public function deletingALineArchivesItAndLowersTheOrdersTotal(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail DEL');
+        $this->send('POST', '/sales-orders', [
+            'customer_id' => $customer,
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'WH DEL'),
+            'ship_to_address_id' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'lines' => [
+                ['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-DEL-A'), 'quantity' => '2', 'unit_price' => '1'],
+                ['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-DEL-B'), 'quantity' => '3', 'unit_price' => '1'],
+            ],
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = $this->json()['id'];
+        self::assertSame('5.0000', $this->json()['total_amount']);
+
+        $this->send('GET', '/sales-orders/'.$order.'/lines');
+        $line = $this->json()['items'][1]['id'];
+
+        $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line);
+
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('', (string) $this->client()->getResponse()->getContent(), 'API-21 branch 3: 204 and no body.');
+
+        // Soft: the row is still there, archived.
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM sales_order_line WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$line]),
+            'The line was hard-deleted, or not archived at all.');
+
+        self::assertSame([['total_amount' => '2.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]),
+            'The order total did not fall when a line was archived, so recomputeTotal() is not counting live lines only.');
+
+        // A repeat is refused by the line guard -- which is why §4.2's Idem cell is `no` and needs no key.
+        $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line);
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('sales_order_line.is_archived', $this->json()['rule'] ?? null);
+    }
 }

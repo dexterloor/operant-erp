@@ -153,6 +153,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'vars' => ['id' => 'sales_order', 'lineId' => 'sales_order_line'],
             'body' => ['quantity' => '7.000000', 'unit_price' => '9.5000'],
         ],
+        'DeleteSalesOrderLine' => ['vars' => ['id' => 'sales_order', 'lineId' => 'sales_order_line']],
         // Added 2026-09-21 with the edit. The body carries `@customer_address`, a **per-tenant** symbol,
         // and that is the whole reason to spell it that way rather than move the warehouse: the drive
         // then exercises V2-S-9's ownership predicate — *"this address belongs to this customer"* —

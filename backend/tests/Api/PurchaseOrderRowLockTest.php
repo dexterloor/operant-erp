@@ -1150,6 +1150,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `{line}` is substituted the same way `{order}` and `{item}` are, and for the same reason: a
         // `#[DataProvider]` is static and cannot seed.
         yield 'UpdateSalesOrderLine' => ['PATCH', '/sales-orders/{order}/lines/{line}', ['quantity' => '2', 'unit_price' => '3'], 200];
+        // 204 and no body: API-21 branch 3. A soft delete, so the statement this check watches for is an
+        // `UPDATE` of `deleted_at` and not a `DELETE`.
+        yield 'DeleteSalesOrderLine' => ['DELETE', '/sales-orders/{order}/lines/{line}', null, 204];
     }
 
     /**
@@ -1181,6 +1184,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // same shape.
         'CreateSalesOrderLine' => 'SalesOrderWriter::createLine',
         'UpdateSalesOrderLine' => 'SalesOrderWriter::updateLine',
+        'DeleteSalesOrderLine' => 'SalesOrderWriter::archiveLine',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [
