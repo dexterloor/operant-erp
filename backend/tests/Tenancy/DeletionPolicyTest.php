@@ -227,6 +227,14 @@ final class DeletionPolicyTest extends TenancyTestCase
      * demand, and a forecast that counts it over-orders instead of
      * under-ordering — the opposite failure, from the same cause.
      *
+     * **The order is a DRAFT, and until 2026-09-21 it was `confirmed`.** The
+     * owner's CD-4 ruling makes an archived sales order always a draft, and
+     * `sales_order_archived_only_while_draft` refuses the confirmed fixture this
+     * test used to archive. The demand query carries no status predicate, so a
+     * draft's lines count as demand while it is live, and the property is
+     * unchanged: a draft somebody discards was never going to be shipped, and
+     * its lines must stop counting the moment it is.
+     *
      * **Writes as the owner since V4 batch B7 (2026-09-16).** No `src/` path writes
      * `customer`, `sales_order` or `sales_order_line`, so under ADR-002 Amendment 4
      * `erp_app` holds SELECT on them and nothing else. This test therefore proves
@@ -258,7 +266,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             VALUES (?::uuid, ?::uuid, 'SO-CASCADE',
                     (SELECT id FROM customer  WHERE code = 'CUS-C'),
                     (SELECT id FROM warehouse WHERE code = 'WH-C'),
-                    'EUR', 'confirmed', now(), 'DE',
+                    'EUR', 'draft', NULL, 'DE',
                     -- NOT NULL since Version20260919000100, and 64 lower-case hex by CHECK.
                     -- Generated rather than literal: the live-row unique is per tenant, so a
                     -- literal here would collide with any second order this fixture ever grows.
@@ -281,8 +289,8 @@ final class DeletionPolicyTest extends TenancyTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$orderId]);
 
         self::assertSame('0', $demand(),
-            'A discarded sales order still contributes to demand history. ADR-004 forecasts from this figure, '
-            .'so the order that was never really placed becomes stock that was never really needed.');
+            'A discarded draft sales order still contributes to demand history. ADR-004 forecasts from this figure, '
+            .'so a draft somebody threw away becomes stock that was never really needed.');
 
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM sales_order_line WHERE sales_order_id = ?::uuid AND deleted_at IS NOT NULL',
@@ -292,6 +300,70 @@ final class DeletionPolicyTest extends TenancyTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = NULL WHERE id = ?::uuid', [$orderId]);
 
         self::assertSame('40.000000', $demand(), 'Restoring the order did not restore its lines.');
+    }
+
+    /**
+     * **CD-4, ruled by the owner 2026-09-21 as option (i): an archived sales order is always a draft** — made a
+     * mechanism at the database, not left to the edit window alone.
+     *
+     * CD-4 asked what `quantity_outstanding` means on an order archived while `confirmed`. Under L-8 (*"a document is
+     * deletable only while `status = 'draft'`"*) no shipped path produces that state, and
+     * `sales_order_archived_only_while_draft` makes sure no path ever can, raw SQL included. It also FREEZES an
+     * archived order's status: a transition cannot run underneath the API on a discarded order either.
+     *
+     * Raw SQL as the owner on purpose — the subject is the constraint, which binds every role, and the point is that it
+     * holds for a writer that never touches the ORM or the edit window.
+     */
+    #[Test]
+    public function aSalesOrderCanBeArchivedOnlyWhileItIsADraft(): void
+    {
+        $this->seedWarehouse();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO customer (id, tenant_id, code, name, currency_code)
+            VALUES (gen_random_uuid(), ?::uuid, 'CUS-D', 'Draft Customer', 'EUR')
+            SQL, [self::TENANT_A]);
+        $order = function (string $number, string $status): string {
+            $id = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO sales_order
+                    (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
+                     idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?, (SELECT id FROM customer WHERE code = 'CUS-D'),
+                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', ?,
+                        CASE WHEN ? = 'draft' THEN NULL ELSE now() END, 'DE',
+                        encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                SQL, [$id, self::TENANT_A, $number, $status, $status]);
+
+            return $id;
+        };
+        $refusal = function (string $sql, string $id): ?string {
+            try {
+                $this->executeAsOwnerForTenant(self::TENANT_A, $sql, [$id]);
+            } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+                return $e->getSQLState().' '.$e->getMessage();
+            }
+
+            return null;
+        };
+
+        $draft = $order('SO-D1', 'draft');
+        self::assertNull($refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $draft),
+            'Control: archiving a DRAFT sales order was refused, so the refusals below could be refusing everything.');
+
+        foreach (['confirmed', 'partially_fulfilled', 'fulfilled', 'cancelled'] as $n => $status) {
+            $id = $order('SO-N'.$n, $status);
+            $refused = $refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $id);
+            self::assertNotNull($refused,
+                "A $status sales order was archived underneath the API. CD-4 (ruled 2026-09-21, option (i)): an archived "
+                .'sales order is always a draft, so SalesOrderLineRow never has to decide what a deleted COMMITMENT owes. '
+                .'If this is being widened on purpose, CD-4 is open again and is the owner\'s to rule.');
+            self::assertStringStartsWith('23514', $refused);
+            self::assertStringContainsString('sales_order_archived_only_while_draft', $refused);
+        }
+
+        $refused = $refusal("UPDATE sales_order SET status = 'confirmed', ordered_at = now() WHERE id = ?::uuid", $draft);
+        self::assertNotNull($refused, 'An ARCHIVED draft was confirmed underneath the API — the discarded order became a commitment.');
+        self::assertStringContainsString('sales_order_archived_only_while_draft', $refused);
     }
 
     /**
