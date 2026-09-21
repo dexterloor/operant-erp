@@ -57,9 +57,19 @@ final class RequestContractTest extends PurchaseOrderTestCase
      * the three shapes V1-R-1 names at once: a delete keeps `deleted_at IS NULL`,
      * `RestoreItem` leaves its row archived, a PATCH leaves `updated_at` and every
      * touched column as they were — and a create adds no row.
-     * - **A `Restore…` operation is driven at an archived row.** At a live row its
-     *   processor refuses before any write, so the no-write check would be
-     *   vacuous for it; a control asserts the row really is archived.
+     * - **A `Restore…` operation is driven at an archived row — THE row it binds.**
+     *   At a live row its processor refuses before any write, so the no-write check
+     *   would be vacuous for it; a control asserts that very row is archived.
+     *   ⚠ **Until 2026-09-21 this archived the inventory item for EVERY `Restore*`**,
+     *   which is `RestoreItem`'s row and no other: `RestoreSalesOrderLine` was driven
+     *   at a LIVE sales line, answered its own 409 (`sales_order_line.is_not_archived`),
+     *   and the control passed for a row the operation never touches. `RED` measured
+     *   it (sales slice 5, §6.1). The whole test still reddened on a bypass — through
+     *   `$accepted`, because 409 is not the named 422 — but its **no-write clause could
+     *   never fire** for that operation. Mutation (processor restores, then answers the
+     *   named 422 — "applied and still refused"): before the fix, RED only through
+     *   `$accepted` with that 409; after it, RED through the no-write clause naming
+     *   `sales_order_line`.
      * - **Positive control inside:** the fingerprint taken before seeding must
      *   differ, after seeding, on `inventory_item`, `purchase_order` and
      *   `purchase_order_line`, so it can see a row change on the tables the
@@ -241,14 +251,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
      * refusal that proved nothing. **A 404 wearing a refusal's clothes is not a
      * red; it is a green that means nothing.**
      */
-    private function pathFor(string $uriTemplate, string $orderNumber, bool $archivedItem = false): string
+    private function pathFor(string $uriTemplate, string $orderNumber, bool $restore = false): string
     {
         $draft = $this->seedDraft(self::TENANT_A, $orderNumber);
-        if ($archivedItem) {
-            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$draft['item']]);
-            self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$draft['item']]),
-                $uriTemplate.': the row a Restore operation is driven at is not archived, so its no-write check proves nothing.');
-        }
         // Added 2026-09-19 with `ConfirmSalesOrder`. The order carries a line so that the request this
         // test sends is refused for the field it plants and not for the order being empty: a 409 from
         // the line guard would look like a refusal of the undeclared field and prove nothing.
@@ -264,6 +269,7 @@ final class RequestContractTest extends PurchaseOrderTestCase
 
         $segments = explode('/', $uriTemplate);
         $collections = [];
+        $bound = null;
         foreach ($segments as $i => $segment) {
             if (1 !== preg_match('/^\{\w+\}$/', $segment)) {
                 if ('' !== $segment) {
@@ -276,9 +282,43 @@ final class RequestContractTest extends PurchaseOrderTestCase
             $collection = implode('/', $collections);
             self::assertArrayHasKey($collection, $rows, \sprintf('%s: no seeded row answers the parameter after "/%s".', $uriTemplate, $collection));
             $segments[$i] = $rows[$collection];
+            $bound = $collection;
+        }
+
+        if ($restore) {
+            $this->archiveTheRowARestoreBinds($uriTemplate, $bound, $rows);
         }
 
         return implode('/', $segments);
+    }
+
+    /**
+     * Archive the row a `Restore*` operation binds — the one its LAST path parameter names, which is the resource
+     * being restored (`/items/{id}/restoration` → the item; `/sales-orders/{id}/lines/{lineId}/restoration` → the
+     * line, not its order) — and assert that very row is archived.
+     *
+     * A collection this map does not know is a failure, not a skip: a new `Restore*` must be taught which table its
+     * row lives in here, or its no-write check is vacuous again, which is exactly the defect this method replaced.
+     *
+     * @param array<string, string> $rows
+     */
+    private function archiveTheRowARestoreBinds(string $uriTemplate, ?string $bound, array $rows): void
+    {
+        $tables = [
+            'items' => 'inventory_item',
+            'purchase-orders' => 'purchase_order',
+            'purchase-orders/lines' => 'purchase_order_line',
+            'sales-orders' => 'sales_order',
+            'sales-orders/lines' => 'sales_order_line',
+        ];
+
+        self::assertNotNull($bound, $uriTemplate.': a Restore operation binds no row, so there is nothing to archive.');
+        self::assertArrayHasKey($bound, $tables, \sprintf('%s: no table is known for the row "/%s" binds; teach archiveTheRowARestoreBinds() it.', $uriTemplate, $bound));
+
+        $table = $tables[$bound];
+        $this->executeAsOwnerForTenant(self::TENANT_A, "UPDATE $table SET deleted_at = now() WHERE id = ?::uuid", [$rows[$bound]]);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM $table WHERE id = ?::uuid AND deleted_at IS NOT NULL", [$rows[$bound]]),
+            $uriTemplate.': the row a Restore operation binds ('.$table.') is not archived, so its no-write check proves nothing.');
     }
 
     /**
