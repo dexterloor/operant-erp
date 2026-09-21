@@ -1143,18 +1143,29 @@ final readonly class PurchaseOrderWriter
     /**
      * The next free document number for this workspace.
      *
-     * Over **live** rows, matching `purchase_order_tenant_number_live`'s own
-     * partiality, and bounded to numbers this method could have minted — the
-     * regexp is what stops a hand-seeded `PO-DRAFT-1` turning the cast into an
-     * error. RLS supplies the tenant bound, so no `tenant_id` predicate is
-     * written here.
+     * Over **every** row, archived ones included — **the owner's Q4 ruling,
+     * extended to purchasing on 2026-09-21: a deleted purchase order's number is
+     * never issued again.** Until then this counted live rows only, matching
+     * `purchase_order_tenant_number_live`'s partiality, so deleting the newest
+     * draft (`DeletePurchaseOrder`, shipped 2026-09-10) handed its number to the
+     * next order; the two then shared a number for good and a future
+     * `RestorePurchaseOrder` could never bring the archived one back. The unique
+     * stays partial (`SchemaManifest` requires it on a soft table) and is now a
+     * race guard only. `MAX` over all rows cannot use the partial index; said
+     * here so nobody "restores" the predicate for speed. The sales twin is
+     * `SalesOrderWriter::nextOrderNumber()`; both are held by
+     * `…CreateTest::a…NumberIsNeverIssuedAgain`.
+     *
+     * Bounded to numbers this method could have minted — the regexp is what
+     * stops a hand-seeded `PO-DRAFT-1` turning the cast into an error. RLS
+     * supplies the tenant bound, so no `tenant_id` predicate is written here.
      */
     private function nextOrderNumber(EntityManagerInterface $em): string
     {
         $next = (int) $em->getConnection()->fetchOne(<<<'SQL'
             SELECT COALESCE(MAX(substring(order_number from 4)::bigint), 0) + 1
               FROM purchase_order
-             WHERE deleted_at IS NULL AND order_number ~ '^PO-[0-9]+$'
+             WHERE order_number ~ '^PO-[0-9]+$'
             SQL);
 
         return 'PO-'.str_pad((string) $next, 6, '0', STR_PAD_LEFT);

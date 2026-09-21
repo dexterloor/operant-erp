@@ -247,7 +247,7 @@ final readonly class SalesOrderWriter
      * relies on is that it is server-generated, which is precisely why it cannot serve as a retry key.
      * `MAX + 1` over the tenant's rows is `nextOrderNumber()`'s shape — over **all** of them since the owner's
      * Q4 ruling (2026-09-21), archived included, so a discarded order's number is never reissued; the purchase
-     * twin still counts live rows and is held for the owner. **Reported as a decision taken here rather than
+     * twin does the same since the owner extended Q4 to purchasing the same day. **Reported as a decision taken here rather than
      * presented as derived.**
      */
     public function create(CreateSalesOrderInput $input, string $idempotencyKey): SalesOrderResource
@@ -1436,8 +1436,8 @@ final readonly class SalesOrderWriter
      * turning the cast into an error, and `DeletionPolicyTest` seeds exactly that. RLS supplies the tenant
      * bound, so no `tenant_id` predicate is written here.
      *
-     * ⚠ **`PurchaseOrderWriter::nextOrderNumber()` still counts live rows only.** Whether Q4 covers purchasing
-     * was not put to the owner in those terms, so its twin is held for the owner, not changed here.
+     * **`PurchaseOrderWriter::nextOrderNumber()` does the same since the owner extended Q4 to purchasing
+     * (2026-09-21).** Until then it counted live rows only, and its twin was held for the owner.
      */
     private function nextOrderNumber(EntityManagerInterface $em): string
     {

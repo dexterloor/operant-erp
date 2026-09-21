@@ -1661,6 +1661,35 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         self::assertSame('PO-000002', $this->json()['order_number']);
     }
 
+    /**
+     * **The owner's Q4 ruling, extended to purchasing (2026-09-21): a deleted purchase order's number is never
+     * issued again.** The sales twin is `SalesOrderCreateTest::aDiscardedOrdersNumberIsNeverIssuedAgain`.
+     *
+     * `nextOrderNumber()` minted `MAX + 1` over LIVE rows only, so *discard the newest draft, raise another*
+     * handed the discarded number on. `DeletePurchaseOrder` has shipped since 2026-09-10, so this was reachable
+     * through the API: two documents then share a number for good, and a future `RestorePurchaseOrder` could never
+     * bring the archived one back (`purchase_order_tenant_number_live` refuses it). Driven through the operations
+     * themselves — `DeletePurchaseOrder` is built.
+     */
+    #[Test]
+    public function aDeletedOrdersNumberIsNeverIssuedAgain(): void
+    {
+        $this->create($this->body());
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('PO-000001', $this->json()['order_number'], 'Control: the first order is not PO-000001, so the next assertion measures nothing.');
+        $first = (string) $this->json()['id'];
+
+        $this->send('DELETE', '/purchase-orders/'.$first);
+        self::assertSame(204, $this->httpStatus(), 'Control: the draft was not deleted, so no number was discarded.');
+
+        $this->create($this->body());
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('PO-000002', $this->json()['order_number'],
+            'A deleted purchase order\'s number was issued again. The two documents now share a number for good, and '
+            .'the deleted one can never be restored (purchase_order_tenant_number_live). The owner ruled Q4 for '
+            .'purchasing on 2026-09-21: never reuse -- nextOrderNumber() must count archived orders too.');
+    }
+
     /** T-1 — the tenant is the token's claim, so a create lands in the caller's workspace and nowhere else. */
     #[Test]
     public function aCreateLandsInTheCallersOwnWorkspace(): void
