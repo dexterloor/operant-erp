@@ -217,9 +217,29 @@ final class RequestContractTest extends PurchaseOrderTestCase
 
     /**
      * The operation's path with each parameter bound to a row seeded for this
-     * operation. A parameter after a collection segment this method does not
-     * know is a failure, not a skip: the operation it belongs to is new, and
-     * this is where it has to be taught.
+     * operation. A parameter after a collection path this method does not know
+     * is a failure, not a skip: the operation it belongs to is new, and this is
+     * where it has to be taught.
+     *
+     * ⚠ **The key is the WHOLE collection path, not the last segment, and that
+     * is a correction rather than a style choice.** Until 2026-09-21 `$rows` was
+     * keyed by the preceding segment alone, so `lines` meant one thing and the
+     * map held exactly one of them — a `purchase_order_line`. The moment a
+     * second resource offered a `/lines` sub-collection, every parameter under
+     * it bound to a row belonging to **another order in another module**, and
+     * the guard below could not see it: its own check is
+     * `assertArrayHasKey($collection, $rows)`, and `lines` *is* a key.
+     *
+     * **`RED` measured both halves on 2026-09-21.** A probe printed
+     * `{lineId} in sales_order_line=0 | in purchase_order_line=1` for
+     * `/sales-orders/{id}/lines/{lineId}`, and the control — a template whose
+     * collection is a name this map has never seen — failed **loudly**. So the
+     * old keying was silent exactly and only for names it had already seen,
+     * which is the worst possible failure surface: three of sales slice 4's
+     * four operations would have been driven at a foreign row and answered
+     * **404**, while `everyWriteOperationRefusesAnUndeclaredField` reported a
+     * refusal that proved nothing. **A 404 wearing a refusal's clothes is not a
+     * red; it is a green that means nothing.**
      */
     private function pathFor(string $uriTemplate, string $orderNumber, bool $archivedItem = false): string
     {
@@ -229,22 +249,31 @@ final class RequestContractTest extends PurchaseOrderTestCase
             self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$draft['item']]),
                 $uriTemplate.': the row a Restore operation is driven at is not archived, so its no-write check proves nothing.');
         }
+        // Added 2026-09-19 with `ConfirmSalesOrder`. The order carries a line so that the request this
+        // test sends is refused for the field it plants and not for the order being empty: a 409 from
+        // the line guard would look like a refusal of the undeclared field and prove nothing.
+        $sales = $this->seedConfirmableSalesOrder($orderNumber, $draft['item']);
+
         $rows = [
             'items' => $draft['item'],
             'purchase-orders' => $draft['order'],
-            'lines' => $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']),
-            // Added 2026-09-19 with `ConfirmSalesOrder`. The order carries a line so that the request this
-            // test sends is refused for the field it plants and not for the order being empty: a 409 from
-            // the line guard would look like a refusal of the undeclared field and prove nothing.
-            'sales-orders' => $this->seedConfirmableSalesOrder($orderNumber, $draft['item']),
+            'purchase-orders/lines' => $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']),
+            'sales-orders' => $sales['order'],
+            'sales-orders/lines' => $sales['line'],
         ];
 
         $segments = explode('/', $uriTemplate);
+        $collections = [];
         foreach ($segments as $i => $segment) {
             if (1 !== preg_match('/^\{\w+\}$/', $segment)) {
+                if ('' !== $segment) {
+                    $collections[] = $segment;
+                }
+
                 continue;
             }
-            $collection = $segments[$i - 1] ?? '';
+
+            $collection = implode('/', $collections);
             self::assertArrayHasKey($collection, $rows, \sprintf('%s: no seeded row answers the parameter after "/%s".', $uriTemplate, $collection));
             $segments[$i] = $rows[$collection];
         }
@@ -252,12 +281,18 @@ final class RequestContractTest extends PurchaseOrderTestCase
         return implode('/', $segments);
     }
 
-    /** A live `draft` sales order with one live line, so a transition on it is not refused for being empty. */
-    private function seedConfirmableSalesOrder(string $orderNumber, string $itemId): string
+    /**
+     * A live `draft` sales order with one live line, so a transition on it is not refused for being empty.
+     *
+     * Returns **both** ids: the line is what `/sales-orders/{id}/lines/{lineId}` binds, and before 2026-09-21
+     * it was not returned at all, which is how that parameter came to be answered by a purchase-order line.
+     *
+     * @return array{order: string, line: string}
+     */
+    private function seedConfirmableSalesOrder(string $orderNumber, string $itemId): array
     {
         $order = $this->seedSalesOrder(self::TENANT_A, 'SO-'.$orderNumber);
-        $this->seedSalesOrderLine(self::TENANT_A, $order, $itemId);
 
-        return $order;
+        return ['order' => $order, 'line' => $this->seedSalesOrderLine(self::TENANT_A, $order, $itemId)];
     }
 }

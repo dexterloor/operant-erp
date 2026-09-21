@@ -69,8 +69,17 @@ final class ApiConfigurationTest extends ApiTestCase
         // fallback. The `GET` now exists, no fallback is minted, and `CreateSalesOrder`'s
         // `CreatedRowLocation` declaration went with it. **Its departure is the check, not a tidy-up:**
         // an entry left behind here would be a stale exemption, and this assertion is what catches it.
+        //
+        // **A third entry arrived 2026-09-21 with `CreateSalesOrderLine`**, and it is the
+        // `PurchaseOrderLine` case exactly: `SalesOrderLine` now has a built write at
+        // `/sales-orders/{id}/lines` and **no item `GET`**, so API Platform mints the pluralised
+        // fallback. Unlike `SalesOrder`'s transient 2026-09-19 entry this one is **permanent** — §4.2
+        // declares no `GetSalesOrderLine` at all, where it always declared `GetSalesOrder`. It was
+        // predicted from the purchase twin's shape before the operation was declared and then read off
+        // this failure, which is the order that matters: the prediction was checked, not trusted.
         self::assertSame([
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
+            '_api_/sales_order_lines/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderLineResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
@@ -111,7 +120,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `erp_app` already held `UPDATE` on `sales_order` from `Version20260919000300`, re-measured
         // with `has_table_privilege()` in that commit, and the operation issues nothing outside that
         // footprint (ADR-002 A4.4 duty 1's *"exactly"*).
-        self::assertCount(29, $checked, 'The route set changed. This slice declares twenty-nine operations: '.implode(', ', array_keys($checked)));
+        // **And one more on 2026-09-21:** `CreateSalesOrderLine`, the first write on the sales line
+        // resource. Its migration (`Version20260921000100`) grants nothing -- a new column inherits the
+        // table-level ACL -- and `erp_app` already held `INSERT` and `UPDATE` on both sales tables.
+        self::assertCount(30, $checked, 'The route set changed. This slice declares thirty operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -87,13 +87,17 @@ final class SalesOrderLineCollection
     public function __construct(
         // `phpstan/phpdoc-parser` is not installed, so nothing reads the generic in
         // the docblock above and the generated schema would type the members
-        // `string|null`. The shape is written out instead — **inline rather than as a
-        // `$ref`, because no `SalesOrderLine` component exists to point at**: API
-        // Platform mints one from an operation's input or output, and every §4.2
-        // operation on that resource is unbuilt. `SalesOrderLineResource::WIRE_SCHEMA`
-        // holds it beside the constructor it describes, with a reflection test between
-        // the two.
-        #[ApiProperty(schema: ['type' => 'array', 'items' => SalesOrderLineResource::WIRE_SCHEMA])]
+        // `string|null`. A `$ref` is written instead.
+        //
+        // ⚠ **This was an inline shape until 2026-09-21, and the swap is the point.**
+        // API Platform mints a component from an operation's input or output, and
+        // every §4.2 write on `SalesOrderLine` was unbuilt — so a `$ref` dangled and
+        // `SalesOrderLineResource::WIRE_SCHEMA` carried the shape by hand, with a
+        // reflection test holding the two spellings equal. `CreateSalesOrderLine`
+        // ships in that same commit, the component exists from it on, and the
+        // constant is deleted. `OpenApiContractTest::everyReferenceInTheSpecResolves`
+        // is what fails if this reference ever dangles again.
+        #[ApiProperty(schema: ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/SalesOrderLine']])]
         public array $items,
         /** Always null on a bounded list (§4.4.2), and it is the same member a paged list carries. */
         #[SerializedName('next_cursor')]

@@ -69,6 +69,14 @@ final class PermissionEnforcementTest extends ApiTestCase
         // route at the pluralised default path; the item `GET` now exists and no such route is minted.
         // Leaving the entry behind would have been a stale exemption, and the reconciliation below is
         // what catches that.
+        //
+        // Added 2026-09-21 with `CreateSalesOrderLine`, and it is `purchase_order_lines`' entry exactly:
+        // `SalesOrderLine` has a built write and **no item `GET`**, so the vendor mints the same
+        // not-exposed IRI route at the pluralised default path, with the same
+        // `api_platform.action.not_exposed` controller answering 404 for every request whether or not a
+        // token is present. **Unlike the `sales_orders` entry above, this one is not transient:** §4.2
+        // declares no `GetSalesOrderLine` at all, so no future commit removes it.
+        '_api_/sales_order_lines/{id}{._format}_get',
     ];
 
     /**

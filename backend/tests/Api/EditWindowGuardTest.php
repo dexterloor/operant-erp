@@ -96,7 +96,13 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             'entity' => SalesOrder::class,
             'rule' => 'sales_order.is_editable_only_while_draft',
             'from' => [SalesOrder::STATUS_DRAFT],
-            'operations' => ['UpdateSalesOrder'],
+            'operations' => [
+                'UpdateSalesOrder',
+                // Added 2026-09-21. Its writer calls `refuseUnlessDraft()`, so clause (b) forces the
+                // name here -- and it fired in the REVERSE direction first, naming this operation as
+                // derived-but-unlisted, which is what §8.3a's *fails if* (b) is for.
+                'CreateSalesOrderLine',
+            ],
         ],
     ];
 
@@ -519,8 +525,23 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse, $status);
         $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6)));
 
-        self::assertSame('UpdateSalesOrder', $operation);
-        $this->send('PATCH', '/sales-orders/'.$order, ['ship_to_address_id' => $address], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        $key = ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
+
+        // ⚠ **This was a bare `assertSame('UpdateSalesOrder', $operation)` until 2026-09-21**, so the
+        // FIRST cell of any second sales operation failed here rather than where it meant anything.
+        // `RED` measured the cost before it was paid: planting one extra operation into the row produced
+        // **five** failures from that single line -- the four illegal-status cells and clause (a)'s
+        // legal-status anti-vacuity drive. The `default` arm keeps the loudness the `assertSame` had,
+        // which is the half worth keeping: a row naming an operation nothing can drive must fail, not
+        // silently pass.
+        match ($operation) {
+            'UpdateSalesOrder' => $this->send('PATCH', '/sales-orders/'.$order, ['ship_to_address_id' => $address], $key),
+            'CreateSalesOrderLine' => $this->send('POST', '/sales-orders/'.$order.'/lines', [
+                'inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-EW2-'.substr(md5($operation.$status), 0, 6)),
+                'quantity' => '1', 'unit_price' => '1',
+            ], $key),
+            default => self::fail('§8.3a names a sales-order operation this test cannot drive: '.$operation),
+        };
     }
 
     private function drivePurchaseOrderEdit(string $operation, string $status): void

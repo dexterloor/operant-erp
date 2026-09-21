@@ -191,6 +191,34 @@ trait OperationSuccessRecipes
 
                 return [201, 'create'];
             }],
+            // Driven through the writer, for `GetSalesOrder`'s reason: the line is added to an order the
+            // operation itself raised, so the `Location` the create returned is §4.2's row URI and the
+            // path is built from it rather than from a second copy of the template. A SECOND item is
+            // seeded rather than reusing the order's, because the order already carries a line for that
+            // one and a create that happens to duplicate an existing line would still pass while proving
+            // nothing about a line this operation is the only writer of.
+            // ⚠ **The second item is seeded in the PREPARE half, not the drive half**, and that was read
+            // off a failure rather than reasoned: `ClientChosenIdTest` runs a drive closure **twice** --
+            // once for the baseline and once with a planted id -- so a `seedItem()` inside it collided on
+            // `inventory_item_tenant_sku_live` the second time. This trait's own rule says every fixture
+            // is created before any request; the failure is what made the rule concrete.
+            'CreateSalesOrderLine' => [function () use ($salesWorkspace): array {
+                $c = $salesWorkspace('SO-CL');
+                // A SECOND item, because the order already carries a line for the workspace's own: a line
+                // create that happened to duplicate an existing line would still pass while proving
+                // nothing about the operation this recipe exists to drive.
+                $c['second_item'] = $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-CL-2');
+
+                return $c;
+            }, function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $order = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $order.'/lines', [
+                    'inventory_item_id' => $c['second_item'], 'quantity' => '2', 'unit_price' => '3',
+                ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+
+                return [201, 'create the order, then add a line'];
+            }],
             // The read is driven through the writer rather than off a fixture, so the row it reads is a
             // row the operation wrote — which is what makes `created_by` non-null in the body every
             // reference check walks. A seeded `sales_order` would leave the column NULL and the

@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Modules\Sales\ApiResource\SalesItemReference;
 use App\Modules\Sales\ApiResource\SalesOrderLineResource;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -58,34 +59,43 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **The second spelling of that field list, held to the first.**
+     * **The PUBLISHED shape of a line is this class's own members — read off the generated spec.**
      *
-     * `SalesOrderLineCollection.items` publishes
-     * `SalesOrderLineResource::WIRE_SCHEMA` inline rather than a
-     * `$ref: '#/components/schemas/SalesOrderLine'`, because **API Platform mints
-     * a component only from an operation's input or output and every §4.2 write on
-     * `SalesOrderLine` is unbuilt** — measured: with the resource declared
-     * `#[ApiResource(shortName: 'SalesOrderLine')]`, both with `operations: []` and
-     * with an explicit `NotExposed`, `OpenApiContractTest::everyReferenceInTheSpecResolves`
-     * failed with *"#/components/schemas/SalesOrderLine names no component"*.
+     * ⚠ **This test changed shape on 2026-09-21 and is strictly stronger than what it replaced.** Until
+     * then `SalesOrderLineCollection.items` published `SalesOrderLineResource::WIRE_SCHEMA`, a hand-written
+     * constant, **because no `SalesOrderLine` component existed to `$ref`**: API Platform mints one from an
+     * operation's input or output and every §4.2 write on the resource was unbuilt — measured, with
+     * `everyReferenceInTheSpecResolves` failing *"#/components/schemas/SalesOrderLine names no component"*.
+     * This test then held two hand-written spellings equal to each other.
      *
-     * Two spellings of one list is the drift this project logs, so this is the
-     * comparison that makes it safe — the pattern `PurchaseOrderViews::SEGMENT_NAMES`
-     * established. **When the first `SalesOrderLine` write ships, delete the constant
-     * and use a `$ref`;** this test is then what goes red until it is.
+     * `CreateSalesOrderLine` ships in the commit that rewrites this, so the component exists, the constant
+     * is deleted and the collection carries the `$ref` its own docblock pre-announced. **The comparison is
+     * now between the spec API Platform actually publishes and the class**, which closes the gap the old
+     * form could not see: two agreeing hand-written lists are one list, and neither of them was the wire.
      */
     #[Test]
     public function theWireSchemaIsTheResourcesOwnMembers(): void
     {
-        $schema = SalesOrderLineResource::WIRE_SCHEMA;
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+
+        self::assertArrayHasKey('SalesOrderLine', $spec['components']['schemas'],
+            'API Platform minted no SalesOrderLine component, so SalesOrderLineCollection.items points at a dangling $ref.');
+
+        $schema = $spec['components']['schemas']['SalesOrderLine'];
 
         self::assertSame(self::serializedMembers(SalesOrderLineResource::class), array_keys($schema['properties']),
-            'SalesOrderLineCollection publishes a member list the resource does not have, or omits one it does.');
-        self::assertSame(self::serializedMembers(SalesItemReference::class), array_keys($schema['properties']['inventory_item']['properties']),
+            'The published SalesOrderLine component has a member list the resource does not have, or omits one it does.');
+
+        $item = $schema['properties']['inventory_item'];
+        $reference = \is_array($item) && isset($item['$ref'])
+            ? $spec['components']['schemas'][substr((string) $item['$ref'], 21)]
+            : $item;
+
+        self::assertSame(self::serializedMembers(SalesItemReference::class), array_keys($reference['properties']),
             'The published inventory_item shape is not SalesItemReference\'s own members.');
 
-        // The control: the comparison is against a non-empty list read off the
-        // class, not against whatever the constant happens to contain.
+        // The control: the comparison is against a non-empty list read off the class, not against whatever
+        // the spec happens to contain.
         self::assertContains('quantity_outstanding', self::serializedMembers(SalesOrderLineResource::class),
             'The reflection helper returned nothing recognisable, so both assertions above would compare two empty lists.');
     }

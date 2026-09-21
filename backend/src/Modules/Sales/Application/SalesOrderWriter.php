@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Application;
 
 use App\Modules\Sales\ApiResource\CreateSalesOrderInput;
+use App\Modules\Sales\ApiResource\CreateSalesOrderLineInput;
+use App\Modules\Sales\ApiResource\SalesOrderLineResource;
 use App\Modules\Sales\ApiResource\SalesOrderResource;
 use App\Modules\Sales\ApiResource\UpdateSalesOrderInput;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
@@ -87,6 +89,15 @@ final readonly class SalesOrderWriter
 
     /** §4.2's operation id, digested with the request so no other operation's request can match it. */
     private const CREATE_OPERATION = 'CreateSalesOrder';
+
+    /** §6.2's operation name in `CreateSalesOrderLine`'s request digest. */
+    private const CREATE_LINE_OPERATION = 'CreateSalesOrderLine';
+
+    /** `Version20260921000100`. The line's retry key — tenant-wide, partial on `deleted_at IS NULL`. */
+    private const LINE_IDEMPOTENCY_INDEX = 'sales_order_line_tenant_idem_live';
+
+    /** `(tenant_id, sales_order_id, line_number) WHERE deleted_at IS NULL` — the line-number race. */
+    private const LINE_NUMBER_INDEX = 'sales_order_line_unique';
 
     /**
      * §4.2's `lines[]` sub-fields that `CreateSalesOrder` accepts, as input properties. The field names the
@@ -171,31 +182,28 @@ final readonly class SalesOrderWriter
      * second order.
      *
      * ===========================================================================
-     * `total_amount` is computed **inside this `INSERT`**, and the expression is throwaway
+     * `total_amount` comes from the TABLE, and the forward declaration that said so has FIRED
      * ===========================================================================
-     * `sales_order.total_amount` is `numeric(19,4) NOT NULL DEFAULT 0` and no document says who maintains
-     * it. The purchasing side recomputes it with an `UPDATE` after the lines land; **this side cannot, and
-     * must not** — ruling R-B grants `INSERT` only, so the total is summed from a `VALUES` list of the
-     * request's own lines in the order's own `INSERT`. It is `numeric` throughout, never a float, so S-12
-     * is satisfied and the result is numerically identical to summing the stored rows.
+     * ⚠ **This block described a `VALUES`-list expression inside the order's own `INSERT` until
+     * 2026-09-21, and called itself *"deliberate throwaway code, dead the day `CreateSalesOrderLine`
+     * ships"*. That day is this commit**, so the expression is gone and
+     * {@see self::recomputeTotal()} runs after the lines land — the same statement
+     * {@see self::createLine()} runs, because a line added to an existing order is in no request this
+     * method saw and two totals computed two ways are two totals that drift.
      *
-     * **It is sound only because no `sales_order_line` column is server-derived.** The line's columns are
-     * `inventory_item_id`, `line_number`, `quantity`, `quantity_fulfilled` (default 0) and `unit_price` —
-     * all from the request or defaulted (`Version20260906000100.php:964-981`). The purchase side's line
-     * snapshots `lead_time_days` from the supplier catalogue, so a `VALUES` total would be wrong there.
-     * **If a sales line ever gains a server-derived money column, this expression is wrong and the total
-     * must come from the table** — which needs `UPDATE`, which needs a migration.
+     * ⚠ **One sentence of that declaration was already FALSE when it fired, and it is corrected rather
+     * than quietly dropped.** It read *"the commit that adds it **grants `UPDATE`**"*. No grant is owed:
+     * `e81cb35` (`ConfirmSalesOrder`, `Version20260919000300`) widened `erp_app` to `SELECT, INSERT,
+     * UPDATE` on `sales_order` on 2026-09-20, and `has_table_privilege('erp_app','sales_order','UPDATE')`
+     * was **re-measured `true`** in this commit rather than inherited. The sentence was written on
+     * 2026-09-19 under ruling R-B's `INSERT`-only footprint and went stale the next day — which is why a
+     * forward declaration must be re-measured when it fires, not read.
      *
-     * **⚠ This expression is deliberate throwaway code, dead the day `CreateSalesOrderLine` ships.** That
-     * operation must recompute from the table, because a line added to an existing order is not in any
-     * request this method saw; so the commit that adds it grants `UPDATE`, writes one `recomputeTotal()`,
-     * and **deletes {@see self::insertOrderInside()}'s two statement shapes down to one**. Saying so here is
-     * what stops it becoming the second copy of a money rule — the thing that makes two totals drift.
-     *
-     * **Two statement shapes rather than one**, because an empty `VALUES` list is a **syntax error** in
-     * Postgres. The empty-draft path takes a literal `0`. The alternative — a synthetic `(0, 0)` row inside
-     * a money computation — is the dishonest one: it puts a fake line into an arithmetic expression to
-     * avoid an `if`.
+     * The old expression's soundness condition is retired with it and recorded here because it explains
+     * why the shape was available at all: **no `sales_order_line` column is server-derived** — the columns
+     * are `inventory_item_id`, `line_number`, `quantity`, `quantity_fulfilled` (default 0) and
+     * `unit_price`, all from the request or defaulted — where the purchase side's line snapshots
+     * `lead_time_days` from the supplier catalogue and a `VALUES` total would have been wrong there.
      *
      * ===========================================================================
      * The ship-to snapshot (O-2) and V2-S-9
@@ -300,7 +308,7 @@ final readonly class SalesOrderWriter
                     // refusal E4-3 exists to produce.
                     $currencyCode = $values['currencyCode'] ?? $this->settings->defaultCurrencyCode();
 
-                    $this->insertOrderInside($em, $id, $values, $shipTo, $currencyCode, $createdBy, $keyHash, $digest, $lines);
+                    $this->insertOrderInside($em, $id, $values, $shipTo, $currencyCode, $createdBy, $keyHash, $digest);
 
                     // D-C's shape: the lines, in the SAME transaction as the order. Any refusal below rolls
                     // the order back with them -- there is no savepoint and none is wanted, because a create
@@ -309,6 +317,11 @@ final readonly class SalesOrderWriter
                     foreach ($lines ?? [] as $index => $line) {
                         $this->insertLineInside($em, $id, $line, $index);
                     }
+
+                    // The money rule, in the one place it is now written. The pre-flight per-line bound in
+                    // `malformedLineFields()` stays and is not redundant: it names the offending FIELD,
+                    // which a sum over the stored rows cannot.
+                    $this->recomputeTotal($em, $id, self::POINTERS['unitPrice']);
 
                     return $this->readOrderInside($em, $id)
                         ?? throw new \LogicException('The order just inserted is not visible to its own transaction.');
@@ -357,20 +370,19 @@ final readonly class SalesOrderWriter
     // -----------------------------------------------------------------------
 
     /**
-     * The order's `INSERT`, in the **two shapes** ruling R-B's `INSERT`-only grant forces.
+     * The order's `INSERT`, in **one shape**, with `total_amount` written as a literal `0`.
      *
-     * With lines, the total is `COALESCE(SUM(t.q * t.p), 0)` over a `VALUES` list built from the request;
-     * without them it is a literal `0`, because an empty `VALUES` list is a syntax error in Postgres. Both
-     * shapes write the same column list, in the same order, so the two cannot drift in what they store —
-     * only in where the total comes from.
-     *
-     * **Everything about why this is an expression and not an `UPDATE` is in {@see self::create()}'s
-     * docblock, including the condition it depends on and the commit that deletes it.** It is not repeated
-     * here; a money rule written twice is a money rule that drifts.
+     * ⚠ **Until 2026-09-21 this method had TWO statement shapes and computed the total itself**, from a
+     * `VALUES` list of the request's own lines, because ruling R-B granted `INSERT` only and an empty
+     * `VALUES` list is a syntax error in Postgres. {@see self::create()}'s docblock called that expression
+     * *"deliberate throwaway code, dead the day `CreateSalesOrderLine` ships"* and named the deletion as
+     * that commit's work. **This is that commit.** The total is now `recomputeTotal()`'s, read back from the
+     * table after the lines land, which is the only source that can be right for an order whose lines did
+     * not all arrive in one request — and it is the same statement `CreateSalesOrderLine` uses, so the
+     * money rule lives in exactly one place instead of two that drift.
      *
      * @param array<string, string|null>             $values
      * @param array{line: string, city: string, postalCode: string, countryCode: string} $shipTo
-     * @param list<array<string, string|null>>|null  $lines
      */
     private function insertOrderInside(
         EntityManagerInterface $em,
@@ -381,7 +393,6 @@ final readonly class SalesOrderWriter
         ?string $createdBy,
         string $keyHash,
         string $digest,
-        ?array $lines,
     ): void {
         $columns = <<<'SQL'
             INSERT INTO sales_order
@@ -409,36 +420,13 @@ final readonly class SalesOrderWriter
             $digest,
         ];
 
-        if (null === $lines || [] === $lines) {
-            $em->getConnection()->executeStatement(
-                $columns."\n".<<<'SQL'
-                VALUES
-                    (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid,
-                     ?, ?, ?, ?, ?,
-                     0, ?, ?)
-                SQL,
-                $parameters,
-            );
-
-            return;
-        }
-
-        // The `?` placeholders are positional, so the select list's thirteen come first and the VALUES
-        // list's two-per-line follow, in the order the SQL text reads them.
-        $rows = implode(', ', array_fill(0, \count($lines), '(?::numeric, ?::numeric)'));
-
-        foreach ($lines as $line) {
-            $parameters[] = $line['quantity'];
-            $parameters[] = $line['unitPrice'];
-        }
-
         $em->getConnection()->executeStatement(
-            $columns."\n".\sprintf(<<<'SQL'
-                SELECT ?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid,
-                       ?, ?, ?, ?, ?,
-                       COALESCE(SUM(t.q * t.p), 0), ?, ?
-                  FROM (VALUES %s) AS t(q, p)
-                SQL, $rows),
+            $columns."\n".<<<'SQL'
+            VALUES
+                (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid,
+                 ?, ?, ?, ?, ?,
+                 0, ?, ?)
+            SQL,
             $parameters,
         );
     }
@@ -613,6 +601,267 @@ final readonly class SalesOrderWriter
      *
      * @param array<string, string|null> $values
      */
+    /**
+     * **`CreateSalesOrderLine` — one line added to an order that already exists.**
+     *
+     * The order of the steps IS the design, ported from `PurchaseOrderWriter::createLine()` because that
+     * ordering is itself a ruling (ST-5, §6.2, and the replay exemption):
+     *
+     *   1. shape check **outside** any transaction;
+     *   2. the row lock, as the **first statement** inside it (the sales lock-first tripwire demands it);
+     *   3. **not-found before the key lookup** — ST-5: a key lookup first would tell a caller that their
+     *      key was used in this workspace;
+     *   4. the **key lookup**: a different digest is 409 `idempotency-key-conflict`; the same digest is the
+     *      line that key created, with **no insert and no total recompute** — §6.2's domain-key replay;
+     *   5. only **then** the archived and draft guards, so a retry arriving after the order was confirmed
+     *      is handed its line rather than refused for an act that already committed. This is §8.3a's
+     *      **replay exemption**, and it is declared in that table rather than left in this comment;
+     *   6. the insert, carrying the key hash and the digest;
+     *   7. `recomputeTotal()`, from the table.
+     *
+     * **The digest includes the path's order id.** The unique is tenant-wide (a header supplies one
+     * value), so without it the same key sent to another order would replay that other order's line. A
+     * same-key request on another order that races past step 4 is refused at the index, and
+     * {@see self::translatingConstraintFailures()} maps that violation **by name** to 409.
+     *
+     * **Uncapped.** `MAXIMUM_LINES` bounds one *request*, not an order, and each of these calls is its own
+     * transaction — which is what that constant's own docblock says.
+     */
+    public function createLine(string $orderId, CreateSalesOrderLineInput $input, string $idempotencyKey): SalesOrderLineResource
+    {
+        $values = [
+            'inventoryItemId' => $input->inventoryItemId,
+            'quantity' => $input->quantity,
+            'unitPrice' => $input->unitPrice,
+        ];
+
+        $this->refuseMalformedLineFields($values, required: self::NESTED_LINE_PROPERTIES);
+
+        // D-B: the column holds the header's hash, never its value.
+        $keyHash = IdempotencyKeyHash::of($idempotencyKey);
+
+        return $this->translatingConstraintFailures(fn (): SalesOrderLineResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($orderId, $values, $keyHash): SalesOrderLineResource {
+                SalesOrderRowLock::holdInside($em, $orderId);
+                $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+
+                // After not-found, so the path id is a valid UUID here and the digest's normaliser
+                // accepts it.
+                $digest = self::lineDigest($orderId, $values);
+
+                $replay = $this->lineCreatedByKeyInside($em, $orderId, $keyHash, $digest);
+                if (null !== $replay) {
+                    return $replay;
+                }
+
+                $this->refuseIfArchived($order);
+                $this->refuseUnlessDraft($order);
+
+                $id = $this->insertLineInside($em, $orderId, $values, null, $keyHash, $digest);
+
+                // This request sent exactly one line and both of its money fields, so the refusal names
+                // the same field the pre-flight bound names.
+                $this->recomputeTotal($em, $orderId, self::POINTERS['unitPrice']);
+
+                return $this->readLineInside($em, $orderId, $id)
+                    ?? throw new \LogicException('The line just inserted is not visible to its own transaction.');
+            },
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+
+    /**
+     * One line's own rules, thrown rather than collected — the single-line path has one line to report on.
+     *
+     * @param array<string, string|null> $values
+     * @param list<string>               $required
+     */
+    private function refuseMalformedLineFields(array $values, array $required): void
+    {
+        $errors = self::malformedLineFields($values, $required);
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * **`sales_order.total_amount`, summed from the table — the one place the money rule is written.**
+     *
+     * Read, judged in PHP, then written with a bound value. **Never one
+     * `UPDATE … SET total = (SELECT SUM(…))`** — that single statement was the raise site of a shipped
+     * HTTP 500 on the purchase side, because `22003` (numeric field overflow) is neither constraint class
+     * any translator catches. Do not rebuild it.
+     *
+     * Throwing here is a clean rollback and not the aborted-transaction hazard the class docblock warns
+     * about: no statement has failed.
+     *
+     * @param ?string $pointer the JSON Pointer the refusal names — a field of **this** request, so the
+     *                         caller is told what to lower. Null on the paths that cannot raise the total
+     *                         at all; see the branch below.
+     */
+    private function recomputeTotal(EntityManagerInterface $em, string $orderId, ?string $pointer): void
+    {
+        $total = (string) $em->getConnection()->fetchOne(
+            <<<'SQL'
+            SELECT round(COALESCE(SUM(quantity * unit_price), 0), 4)
+              FROM sales_order_line
+             WHERE sales_order_id = ?::uuid AND deleted_at IS NULL
+            SQL,
+            [$orderId],
+        );
+
+        if (!self::fitsInTheTotalColumn($total)) {
+            // ⚠ **A 500, and it is the right answer, because this branch is unreachable and a refusal
+            // here would be a lie.** The paths that pass no pointer are `archiveLine()` -- a `DELETE` with
+            // no request body, so there is no field to name -- and an `updateLine()` whose `PATCH` moved
+            // neither the quantity nor the price. Every line product is non-negative (`QUANTITY` refuses
+            // zero and a sign, `MONEY` refuses a sign) and the order's previous total is a value
+            // numeric(19,4) already held, so removing a term can only lower a sum that already fitted.
+            // Reaching here means one of those sentences stopped being true, which is a defect in this
+            // class and not in the request.
+            if (null === $pointer) {
+                throw new \LogicException(\sprintf(
+                    'The total of order %s left numeric(19,4) on a write that cannot raise it (%s). '
+                    .'Either a line product became negative or the order was already storing a total it could not hold.',
+                    $orderId, $total,
+                ));
+            }
+
+            throw ApiProblem::validationFailed([[
+                'pointer' => $pointer,
+                'code' => 'total_out_of_range',
+                'message' => self::TOTAL_OUT_OF_RANGE,
+            ]]);
+        }
+
+        $em->getConnection()->executeStatement(
+            <<<'SQL'
+            UPDATE sales_order
+               SET total_amount = CAST(? AS numeric),
+                   updated_at = now()
+             WHERE id = ?::uuid
+            SQL,
+            [$total, $orderId],
+        );
+    }
+
+    /**
+     * The line this key already created, or null — `orderCreatedByKeyInside()`'s rules, one table down.
+     *
+     * `deleted_at IS NULL` matches the index's partiality. A digest mismatch — another body, **or another
+     * order**, since the path id is digested — is §6.2's 409, thrown before anything is written. A keyed
+     * row without a digest cannot exist (`sales_order_line_request_digest_with_key`) and is answered as a
+     * conflict anyway, failing closed.
+     */
+    private function lineCreatedByKeyInside(EntityManagerInterface $em, string $orderId, string $keyHash, string $digest): ?SalesOrderLineResource
+    {
+        $row = $em->getConnection()->fetchAssociative(
+            'SELECT id, request_digest FROM sales_order_line WHERE idempotency_key = ? AND deleted_at IS NULL',
+            [$keyHash],
+        );
+
+        if (false === $row) {
+            return null;
+        }
+
+        if (!\is_string($row['request_digest']) || !hash_equals($row['request_digest'], $digest)) {
+            throw ApiProblem::idempotencyKeyConflict();
+        }
+
+        // The digest carries the order id, so a match is a line of THIS order.
+        return $this->readLineInside($em, $orderId, (string) $row['id'])
+            ?? throw new \LogicException('A line found by its key is not readable in the same transaction.');
+    }
+
+    /**
+     * D-B's digest of a single-line create: the **path's order id** plus the three accepted fields,
+     * normalised as `digestedLines()` normalises a nested line (UUID canonical form, quantity at scale 6,
+     * price at scale 4), so `"2"`, `"2.0"` and `"2.000000"` are one request.
+     *
+     * @param array<string, string|null> $values already shape-checked
+     */
+    private static function lineDigest(string $orderId, array $values): string
+    {
+        return RequestDigest::of(self::CREATE_LINE_OPERATION, [
+            'sales_order_id' => RequestDigest::uuid($orderId),
+            'inventory_item_id' => RequestDigest::uuid($values['inventoryItemId']),
+            'quantity' => bcadd((string) $values['quantity'], '0', 6),
+            'unit_price' => bcadd((string) $values['unitPrice'], '0', 4),
+        ]);
+    }
+
+    /** One line of this order, by id, including an archived one — §5.2a: the refusal is the writer's. */
+    private function readLineInside(EntityManagerInterface $em, string $orderId, string $lineId): ?SalesOrderLineResource
+    {
+        if (!Uuid::isValid($lineId)) {
+            return null;
+        }
+
+        $row = $em->getConnection()->fetchAssociative(
+            'SELECT '.SalesOrderLineRow::COLUMNS.' '.SalesOrderLineRow::FROM
+            .' WHERE sol.sales_order_id = ?::uuid AND sol.id = ?::uuid',
+            [...SalesOrderLineRow::columnParameters(), $orderId, $lineId],
+        );
+
+        return false === $row ? null : SalesOrderLineRow::toResource($row);
+    }
+
+    /**
+     * **The line paths' constraint translation, and it is a PORT this commit paid for rather than found.**
+     *
+     * ⚠ The slice-4 design named `translatingConstraintFailures()` as if it already existed on this
+     * class, in three separate sections. It did not: `grep` returned `PurchaseOrderWriter` and `ItemWriter`
+     * only, and this side had a bare `catch (UniqueConstraintViolationException)` in `create()` and
+     * {@see self::translatingUpdateConstraintFailures()} for the update path. The port is written here,
+     * declared as unbudgeted work rather than smuggled in.
+     *
+     * Outside `TenantContext::run()`, never inside it: a failed statement leaves the Postgres transaction
+     * aborted (25P02).
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T
+     */
+    private function translatingConstraintFailures(callable $write): mixed
+    {
+        try {
+            return $write();
+        } catch (UniqueConstraintViolationException $e) {
+            // Told apart BY NAME, and anything else is rethrown. Answering every 23505 on this table the
+            // same way would hand a line-number race the idempotency answer, or the reverse.
+            if (self::violated($e, self::LINE_IDEMPOTENCY_INDEX)) {
+                // The same key committed on ANOTHER order between this request's key lookup and its
+                // INSERT: a same-order retry would have waited at the order's row lock and then found the
+                // line. Another order is in the digest, so this is a key reused for a different request --
+                // §6.2's 409. "Try again" would be advice into a wall: the key is spent.
+                throw ApiProblem::idempotencyKeyConflict();
+            }
+
+            if (self::violated($e, self::LINE_NUMBER_INDEX)) {
+                // Two concurrent creates picking the same MAX + 1. A genuine conflict rather than a client
+                // mistake; the answer is to retry.
+                throw ApiProblem::businessRuleViolated(
+                    'sales_order_line.line_number_is_unique_per_order',
+                    'Another line was added to this order at the same moment. Try again.',
+                );
+            }
+
+            throw $e;
+        } catch (ForeignKeyConstraintViolationException) {
+            // `sales_order_line`'s two foreign keys are composite on `(tenant_id, id)`, so an id belonging
+            // to another tenant fails here rather than at a lookup -- and ST-5 means the caller must not
+            // learn which of "wrong tenant" and "no such row" it was.
+            throw ApiProblem::validationFailed([
+                self::error('inventoryItemId', 'unknown_reference', 'One of the ids sent names no row in this workspace.'),
+            ]);
+        }
+    }
+
     private function refuseMalformedUpdateFields(array $values): void
     {
         $errors = [];
@@ -718,10 +967,26 @@ final readonly class SalesOrderWriter
      * {@see self::insertOrderInside()}'s total depends on.** `quantity_fulfilled` defaults to `0` in the
      * schema and is not written; everything else comes from the request.
      *
+     * **Both write paths enter here**, and `$index` is what tells them apart. `CreateSalesOrder`'s nested
+     * `lines[]` passes the line's 0-based position, which is the JSON Pointer base — `/lines/0/quantity`;
+     * `CreateSalesOrderLine` passes **null**, pointing its errors at `/quantity` instead, because its
+     * request is one line and has no array to index into.
+     *
+     * **`$keyHash` and `$digest` are the single-line path's retry key (V2-R-12) and are both null on the
+     * nested path**: that request's key is the order's, and N lines sharing it would collide on
+     * `sales_order_line_tenant_idem_live`. This is the whole reason `Version20260921000100`'s columns are
+     * nullable — see that migration, and note that it inverts `sales_order`'s own decision deliberately.
+     *
      * @param array<string, string|null> $values already shape-checked
      */
-    private function insertLineInside(EntityManagerInterface $em, string $orderId, array $values, int $index): void
-    {
+    private function insertLineInside(
+        EntityManagerInterface $em,
+        string $orderId,
+        array $values,
+        ?int $index,
+        ?string $keyHash = null,
+        ?string $digest = null,
+    ): string {
         $connection = $em->getConnection();
         $itemId = (string) $values['inventoryItemId'];
 
@@ -730,14 +995,19 @@ final readonly class SalesOrderWriter
         // `validation-failed` on the *field* rather than a `not-found` on a row the caller never addressed.
         if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL', [$itemId])) {
             throw ApiProblem::validationFailed([
-                self::lineError($index, 'inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.'),
+                null === $index
+                    ? self::error('inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.')
+                    : self::lineError($index, 'inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.'),
             ]);
         }
+
+        $id = Uuid::v4()->toRfc4122();
 
         $connection->executeStatement(
             <<<'SQL'
             INSERT INTO sales_order_line
-                (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price)
+                (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price,
+                 idempotency_key, request_digest)
             VALUES
                 (?::uuid, ?::uuid, ?::uuid, ?::uuid,
                  -- The next free number on this order. `line_number` is NOT NULL, §4.2 accepts no field for
@@ -749,10 +1019,10 @@ final readonly class SalesOrderWriter
                  (SELECT COALESCE(MAX(line_number), 0) + 1
                     FROM sales_order_line
                    WHERE sales_order_id = ?::uuid AND deleted_at IS NULL),
-                 ?::numeric, ?::numeric)
+                 ?::numeric, ?::numeric, ?, ?)
             SQL,
             [
-                Uuid::v4()->toRfc4122(),
+                $id,
                 // Bound explicitly rather than read back out of the GUC, so a mismatch with the
                 // transaction's tenant is refused by the RLS WITH CHECK clause rather than accepted.
                 $this->tenant->tenantId(),
@@ -761,8 +1031,12 @@ final readonly class SalesOrderWriter
                 $orderId,
                 $values['quantity'],
                 $values['unitPrice'],
+                $keyHash,
+                $digest,
             ],
         );
+
+        return $id;
     }
 
     /**

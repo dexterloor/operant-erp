@@ -143,11 +143,16 @@ final class WriteOwnershipTest extends TestCase
         'Modules\\AuditLog' => 5,
         'Modules\\Inventory' => 6,
         'Modules\\Purchasing' => 10,
-        // Two, and the number is read off this test's own failure rather than predicted: `SalesOrderWriter`
-        // holds one `INSERT INTO sales_order` (its column list is written once and shared by the two
-        // statement shapes ruling R-B's INSERT-only grant forces) and one `INSERT INTO sales_order_line`.
-        // **There is no UPDATE**, which is the whole of that ruling — `total_amount` is summed inside the
-        // order's own INSERT.
+        // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
+        // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
+        // `CreateSalesOrderLine` deleted that expression -- `insertOrderInside()`'s own docblock named
+        // this commit as the one that would -- and `recomputeTotal()` now issues a real
+        // `UPDATE sales_order`. The grant it needs was already held: `Version20260919000300` widened
+        // `erp_app` for `ConfirmSalesOrder` on 2026-09-20, re-measured with `has_table_privilege()` here.
+        // **4 -> 5 on 2026-09-21**, read off this test's own failure: `recomputeTotal()`'s single
+        // `UPDATE sales_order`. `insertOrderInside()` did NOT move -- collapsing its two statement shapes
+        // to one removed a second *shape*, not a second statement *text*: the column list was always
+        // written once and shared, which is what this scan counts.
         // **2 -> 4 on 2026-09-21**, read off this test's own failure twice: `SalesOrderWriter::update()`
         // spells **two** `UPDATE sales_order` texts and issues exactly **one** of them per request --
         // the snapshot shape and the shape without it. The split is not cosmetic and it is not a second
@@ -160,7 +165,7 @@ final class WriteOwnershipTest extends TestCase
         // `PurchaseOrderRowLockTest`, while a raw `UPDATE sales_order` reddens both — so the update path
         // writes raw SQL deliberately, to be visible here. The entity mutator that made the blind shape
         // possible (`SalesOrder::shipTo()`) was deleted in the same commit; it had zero callers.
-        'Modules\\Sales' => 4,
+        'Modules\\Sales' => 5,
         'Modules\\UserManagement' => 5,
     ];
 

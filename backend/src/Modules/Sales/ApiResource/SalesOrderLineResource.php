@@ -4,13 +4,33 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Link;
+use ApiPlatform\Metadata\Post;
+use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Sales\ApiResource\State\CreateSalesOrderLineProcessor;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Location\CreatedRowLocation;
+use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `sales_order_line`'s read shape. **Read only today** — §4.2 declares four
- * writes on this resource (`Create`, `Update`, `Delete`, `Restore`) and none of
- * them is built, so this class carries no operation of its own and exists as the
- * schema `SalesOrderLineCollection.items` refers to.
+ * `sales_order_line`'s read shape and its write operations.
+ *
+ * ⚠ *(This class read **"Read only today — §4.2 declares four writes on this
+ * resource and none of them is built, so this class carries no operation of its
+ * own"** until 2026-09-21, when `CreateSalesOrderLine` shipped. **The consequence
+ * was not confined to that sentence**, which is why the reversal is recorded here
+ * rather than only in a commit message: a `WIRE_SCHEMA` constant published this
+ * shape inline **because** no built operation meant API Platform minted no
+ * `SalesOrderLine` component and a `$ref` naming one would dangle. That was
+ * measured, not assumed, and it stopped being true in the same commit — so the
+ * constant is deleted, `SalesOrderLineCollection.items` points at
+ * `#/components/schemas/SalesOrderLine`, and
+ * `SalesOrderLineReadTest::theWireSchemaIsTheResourcesOwnMembers` now holds the
+ * **generated component** to this class's members instead of holding two
+ * hand-written spellings to each other. Three places, one decision, reversed
+ * together — which is what the constant's own docblock pre-announced.)*
  *
  * ---------------------------------------------------------------------------
  * The field list is derived, not chosen (API-23)
@@ -39,64 +59,45 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `unit_price` is `numeric(19,4)`, money, scale 4. Never floats — a float here is
  * a rounding error that reaches an invoice.
  */
+#[ApiResource(
+    shortName: 'SalesOrderLine',
+    operations: [
+        // API-21 branch 4: §4.2 declares operations at `/sales-orders/{id}/lines/{lineId}`, which is the
+        // row-level URI this POST creates, so the answer is **201** with a `Location` naming it. §4.4.1's
+        // `AssignRole` paragraph is the precedent for a `Location` whose URI answers `PATCH`/`DELETE` and
+        // not `GET`: RFC 9110 makes `Location` *identify* the created resource and does not promise a
+        // representation, and the body carries the created line so no client has to follow it.
+        new Post(
+            uriTemplate: '/sales-orders/{id}/lines',
+            uriVariables: [
+                'id' => new Link(fromClass: SalesOrderResource::class, identifiers: ['id'], parameterName: 'id'),
+            ],
+            name: 'CreateSalesOrderLine',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateSalesOrderLine'),
+            input: CreateSalesOrderLineInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            processor: CreateSalesOrderLineProcessor::class,
+            // §4.2's `Idem` cell is `unique:sales_order_line_tenant_idem_live` since
+            // `Version20260921000100`: until then it read `⛔ none` and a retry wrote a second line and
+            // raised the order's total. The header's value IS the indexed value, so API-14 as amended
+            // demands it (428 without one). `IdempotencyContractTest` reconciles this flag against the cell.
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'sales_order.edit',
+                // The URI §4.2 declares this row at. Without it API Platform derives `Location` from its
+                // own `NotExposed` fallback and names `/sales_order_lines/{id}`, a path that answers 404 --
+                // measured on the purchase side, and the reason `CreatedRowLocation` exists.
+                CreatedRowLocation::OPERATION_URI_TEMPLATE => '/sales-orders/{id}/lines/{lineId}',
+            ],
+        ),
+    ],
+)]
 final class SalesOrderLineResource
 {
-    /**
-     * **The shape `SalesOrderLineCollection.items` publishes, written here rather
-     * than as a `$ref` — and the difference from the purchase twin is a fact about
-     * API Platform, not a preference.**
-     *
-     * `PurchaseOrderLineCollection` refers to `#/components/schemas/PurchaseOrderLine`,
-     * and that component exists **because `PurchaseOrderLine` has three built write
-     * operations** whose input and output API Platform walks. This resource has
-     * **no built operation at all** — §4.2 declares `Create`, `Update`, `Delete` and
-     * `Restore` on it and every one is `unbuilt` — so API Platform mints no
-     * component for it, and a `$ref` naming one would dangle.
-     * **Measured, not assumed:** with `#[ApiResource(shortName: 'SalesOrderLine')]`
-     * on this class, `operations: []` and again with an explicit `NotExposed`, the
-     * generated spec carried **no `SalesOrderLine` schema** and
-     * `OpenApiContractTest::everyReferenceInTheSpecResolves` failed with
-     * *"#/components/schemas/SalesOrderLine names no component"*. The alternative —
-     * leaving `items` untyped — publishes `string|null` members, which is the defect
-     * `PurchaseOrderCollection`'s own comment records `phpstan/phpdoc-parser`'s
-     * absence causing.
-     *
-     * **This is a second spelling of the constructor below, so it is held to it by a
-     * test** — `SalesOrderLineReadTest::theWireSchemaIsTheResourcesOwnMembers`
-     * compares both this map's keys and the nested reference's against the classes
-     * by reflection. Two spellings of one list with nothing comparing them is the
-     * drift this project logs; two with a comparison is `SEGMENT_NAMES`' pattern.
-     *
-     * **When the first `SalesOrderLine` write ships, delete this and use a `$ref`,**
-     * because the component will exist from that commit on.
-     *
-     * @var array<string, mixed>
-     */
-    public const WIRE_SCHEMA = [
-        'type' => 'object',
-        'properties' => [
-            'id' => ['type' => 'string'],
-            'line_number' => ['type' => 'integer'],
-            'inventory_item' => [
-                'type' => 'object',
-                'properties' => [
-                    'id' => ['type' => 'string'],
-                    'sku' => ['type' => 'string'],
-                    'name' => ['type' => 'string'],
-                ],
-            ],
-            // Decimal strings, never numbers (S-12): scale 6 for the quantities,
-            // scale 4 for the money. `archived_at` is nullable, which OpenAPI 3.1
-            // spells as a type union -- the form API Platform itself emits for
-            // `PurchaseOrderLine.archived_at` (measured).
-            'quantity' => ['type' => 'string'],
-            'unit_price' => ['type' => 'string'],
-            'quantity_fulfilled' => ['type' => 'string'],
-            'quantity_outstanding' => ['type' => 'string'],
-            'archived_at' => ['type' => ['string', 'null']],
-        ],
-    ];
-
     /**
      * @param string $quantity            numeric(19,6) — carried as a decimal string
      * @param string $unitPrice           numeric(19,4) — money, never a float

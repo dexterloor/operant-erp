@@ -135,6 +135,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      */
     private const DECLARED_ROW_URIS = [
         'CreatePurchaseOrderLine' => '/purchase-orders/{id}/lines/{lineId}',
+        // Added 2026-09-21. The sales twin, and it really does create the row that URI addresses --
+        // §4.2 declares `Update`, `Delete` and `Restore` there and no `Get`, which is the whole reason
+        // the registry cannot address it and `CreatedRowLocation` must.
+        'CreateSalesOrderLine' => '/sales-orders/{id}/lines/{lineId}',
     ];
 
     /**

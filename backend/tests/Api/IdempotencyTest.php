@@ -119,6 +119,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
                 .'mechanism is the header-sourced retry key on a live-row unique.',
         ],
+        'CreateSalesOrderLine' => [
+            'method' => 'replayCreateSalesOrderLine',
+            'why' => 'A second sales_order_line, and a second helping of its amount on the order total (V2-R-12, the '
+                .'revenue-side twin). Its mechanism is the header-sourced retry key on a live-row unique.',
+        ],
         'ApprovePurchaseOrder' => [
             'method' => 'replayApprovePurchaseOrder',
             'why' => 'A second placement of an order already placed. Its mechanism is the status guard, which refuses '
@@ -327,6 +332,42 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_received FROM purchase_order_line WHERE id = ?::uuid', [$line]),
             'The replay applied the delivery a second time to the order line, which is the effect the row count alone '
             .'cannot see.');
+    }
+
+    /**
+     * The sales twin of {@see self::replayCreatePurchaseOrderLine()}.
+     *
+     * The order is raised through the API rather than seeded, so the line is added to an order whose
+     * `total_amount` a writer computed — which is what makes the total assertion below meaningful. The
+     * order's own line contributes `2.0000`; the retried line contributes `6.0000`; a replay that wrote a
+     * second line would read `14.0000`.
+     */
+    private function replayCreateSalesOrderLine(string $why): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SOL');
+        $this->send('POST', '/sales-orders', [
+            'customer_id' => $customer,
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main SOL'),
+            'ship_to_address_id' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'lines' => [['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-SOL-A'), 'quantity' => '2', 'unit_price' => '1']],
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = $this->json()['id'];
+
+        $body = ['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-SOL-B'), 'quantity' => '2', 'unit_price' => '3'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-orders/'.$order.'/lines', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/sales-orders/'.$order.'/lines', $body, $key);
+
+        // The id, not only the count: the replay read is what turns the retry into an answer.
+        self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the first line.');
+        self::assertCount(2, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_order_line'), $why);
+        self::assertSame([['total_amount' => '8.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
     }
 
     private function replayCreatePurchaseOrderLine(string $why): void

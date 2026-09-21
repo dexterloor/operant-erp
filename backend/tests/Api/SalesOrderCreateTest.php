@@ -48,6 +48,12 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // `ListSalesOrderLines` first and was red.
         'ListSalesOrders' => ['method' => 'GET', 'path' => '/sales-orders', 'idem' => false],
         'ListSalesOrderLines' => ['method' => 'GET', 'path' => '/sales-orders/{id}/lines', 'idem' => false],
+        // `idem` **true**: §4.2's cell is `unique:sales_order_line_tenant_idem_live` since
+        // `Version20260921000100`, and API-14 as amended demands the header for `unique:` and `store`.
+        // **Its position was read off this test's own failure, not guessed** -- it sorts beside its
+        // sibling on the same path rather than with the other POSTs, because the registry orders by
+        // resource-class declaration and this operation lives on `SalesOrderLineResource`.
+        'CreateSalesOrderLine' => ['method' => 'POST', 'path' => '/sales-orders/{id}/lines', 'idem' => true],
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
         // `idem` false, and §4.2's `Idem` cell reads `no` for the reason API-14 asks for: a PATCH sets

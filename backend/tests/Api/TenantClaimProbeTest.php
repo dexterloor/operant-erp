@@ -139,6 +139,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // the `reason` §4.2 accepts, which is also what puts a value in the audit row's `metadata` on the
         // successful drive -- so a supplied tenant id that moved the write would move a trail row too.
         'CancelSalesOrder' => ['vars' => ['id' => 'sales_order'], 'body' => ['reason' => 'Customer withdrew']],
+        // Added 2026-09-21 with the line create. `@loose_item` rather than `@item`, because the seeded
+        // order already carries a line for `@item` and a per-tenant symbol is what makes a cross-tenant
+        // answer legible in the digest. The `Idempotency-Key` header the operation requires is supplied
+        // by the driver for every recipe whose operation carries `OPERATION_FLAG`.
+        'CreateSalesOrderLine' => [
+            'vars' => ['id' => 'sales_order'],
+            'body' => ['inventory_item_id' => '@loose_item', 'quantity' => '3.500000', 'unit_price' => '4.5000'],
+        ],
         // Added 2026-09-21 with the edit. The body carries `@customer_address`, a **per-tenant** symbol,
         // and that is the whole reason to spell it that way rather than move the warehouse: the drive
         // then exercises V2-S-9's ownership predicate — *"this address belongs to this customer"* —

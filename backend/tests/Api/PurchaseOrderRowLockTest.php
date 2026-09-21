@@ -901,13 +901,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * ⚠ **This docblock said *"there is no sales `LOCK_FIRST_CHECKED` … yet"* and that has been FALSE
      * since `ConfirmSalesOrder` shipped on 2026-09-19** — it went stale in the commit that built the very
      * thing it said did not exist, and was found one commit later by `CancelSalesOrder`. `SALES_LOCK_FIRST_CHECKED`
-     * exists below and now names **three** operations — `ConfirmSalesOrder`, `CancelSalesOrder` and, since
-     * 2026-09-21, `UpdateSalesOrder`. *(It read "**two**" until that day, falsified by the very commit that
-     * moved the sentence two lines below it. **Derive the number from the constant; do not restate it.**)* What survives of the sentence is the rule it stated, so
-     * the rule is kept and the false premise struck: **a writer that touches an EXISTING sales order needs a
-     * lock-first check that actually runs**, the way `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs
-     * for purchasing, and a list naming it. `UpdateSalesOrder` paid its on 2026-09-21; `CreateSalesOrderLine` still owes
-     * one.
+     * exists below and names several operations. *(It read "**two**" until 2026-09-21 and "**three**"
+     * within the same day, each figure falsified by the very commit that moved the sentence two lines
+     * below it — twice, in two days. **The number is deliberately not written here any more: derive it
+     * from the constant.** A count restated in prose beside the array it counts is a second copy of a set
+     * nobody maintains, and this one has now gone stale twice in a row.)* What survives of the sentence is
+     * the rule it stated, so the rule is kept and the false premise struck: **a writer that touches an
+     * EXISTING sales order needs a lock-first check that actually runs**, the way
+     * `theOrderRowLockIsTheFirstStatementToTouchTheOrder` runs for purchasing, and a list naming it.
+     * `UpdateSalesOrder` paid its on 2026-09-21 and `CreateSalesOrderLine` paid its the same day.
      * There is still no sales `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`, and that absence is not an exemption.
      */
     /**
@@ -1076,7 +1078,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `UpdateSalesOrder` is the first sales write path whose body has to name a row. The
         // substitution is done here rather than in the provider because a `#[DataProvider]` is static
         // and cannot seed; `{warehouse}` is spelled in the body the same way `{order}` is in the path.
-        $substitutions = ['{warehouse}' => $this->seedWarehouse(self::TENANT_A, 'WH-LOCK')];
+        $substitutions = [
+            '{warehouse}' => $this->seedWarehouse(self::TENANT_A, 'WH-LOCK'),
+            // Added 2026-09-21 with `CreateSalesOrderLine`, the same way and for the same reason: a
+            // static provider cannot seed, so the item the body names is substituted here.
+            '{item}' => $this->seedItem(self::TENANT_A, 'SKU-LOCK'),
+        ];
         $body = null === $body ? null : array_map(
             static fn (string $value): string => strtr($value, $substitutions),
             $body,
@@ -1131,6 +1138,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // seeded `draft`, so the edit window lets it through and the statement is really issued: an
         // operation that refuses issues no UPDATE and `assertCount(1, $writing)` would fail first.
         yield 'UpdateSalesOrder' => ['PATCH', '/sales-orders/{order}', ['warehouse_id' => '{warehouse}'], 200];
+        // 201, not 200: API-21 branch 4. The order is seeded `draft`, so the edit window lets it through
+        // and the INSERT is really issued -- an operation refused by the window issues no write at all and
+        // `assertCount(1, $writing)` would fail first, which is what stops a green here meaning nothing.
+        yield 'CreateSalesOrderLine' => ['POST', '/sales-orders/{order}/lines', ['inventory_item_id' => '{item}', 'quantity' => '2', 'unit_price' => '3'], 201];
     }
 
     /**
@@ -1155,6 +1166,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // reached through an association reddens neither this scan nor the write-ownership scan, and a
         // raw `UPDATE sales_order` reddens both.
         'UpdateSalesOrder' => 'SalesOrderWriter::update',
+        // Added 2026-09-21 with the operation, and read off this test's own failure: the scan named
+        // `SalesOrderWriter::createLine — via recomputeTotal() | via insertLineInside()` before this
+        // entry existed. Both of its writes are in private helpers, so the scan credits the public method
+        // with the helpers it reaches rather than with their SQL -- `create()`'s entry below records the
+        // same shape.
+        'CreateSalesOrderLine' => 'SalesOrderWriter::createLine',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [
@@ -1163,14 +1180,22 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // the scan credits `create()` with the helpers it reaches rather than with their SQL.
             'writes' => [
                 'via insertOrderInside()',
+                'via recomputeTotal()',
                 'via insertLineInside()',
             ],
             'why' => 'It inserts the order, so there is no existing row to lock, and no other transaction can address '
                 .'what it inserts until it commits. Its two races are answered by unique indexes: '
                 .'sales_order_tenant_idem_live (a replay of the same key) and sales_order_tenant_number_live (two '
                 .'creates picking the same order number). Its lines are inserted in the same transaction and belong to '
-                .'an order nobody else can reach yet. It issues no UPDATE at all -- total_amount is summed inside the '
-                .'order\'s own INSERT -- which is why Version20260919000200 grants INSERT and nothing more.',
+                .'an order nobody else can reach yet -- and so is the recomputeTotal() UPDATE that follows them, which '
+                .'targets the row this transaction just inserted. '
+                .'** This entry read "It issues no UPDATE at all -- total_amount is summed inside the order\'s own '
+                .'INSERT -- which is why Version20260919000200 grants INSERT and nothing more" until 2026-09-21, and '
+                .'BOTH halves are now false.** CreateSalesOrderLine deleted that expression, as insertOrderInside()\'s '
+                .'own docblock said the commit building it would; and the UPDATE grant arrived earlier still, with '
+                .'ConfirmSalesOrder (Version20260919000300), so the "INSERT and nothing more" clause had already been '
+                .'overtaken on 2026-09-20. The scan is what found it: recomputeTotal() appeared in this method\'s write '
+                .'list and the sentence beside it still denied the write existed.',
         ],
     ];
 

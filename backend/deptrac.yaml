@@ -75,12 +75,14 @@ deptrac:
   # afterwards. **So the totals are no longer carried as a chain.** They are
   # printed once, for this commit only, with the command that produces them:
   #
-  #   grep -c -- "- App" deptrac.yaml                    ->  89 edge lines
-  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  62 A-7
+  #   grep -c -- "- App" deptrac.yaml                    ->  91 edge lines
+  #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  64 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
-  # (Re-derived 2026-09-21 with `UpdateSalesOrder` in the tree, by running the three
+  # (Re-derived 2026-09-21 with `CreateSalesOrderLine` in the tree, by running the three
   # commands on the file rather than by adding to the previous figures.
+  # `make deptrac` reports **0 violations / 246 skipped / 1288 allowed**; with
+  # `UpdateSalesOrder` earlier the same day it was 89 / 62 / 6 and **0 / 240 / 1260**.
   # `make deptrac` reports **0 violations / 240 skipped / 1260 allowed** (re-derived AFTER
   # `SalesOrder::shipTo()` was deleted -- it read 1261 while that method still used `Country`, and
   # restating the earlier figure would have published a number no run produces); with
@@ -281,6 +283,11 @@ deptrac:
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderWriter:
       - App\Modules\Sales\ApiResource\CreateSalesOrderInput   # A-7
+      # `CreateSalesOrderLine` added two on 2026-09-21, and neither is a new SHAPE: an `ApiResource`
+      # input DTO accepted by an `Application` writer, and an `ApiResource` read model returned from
+      # one. Both pairs already appear on this class for the order; these are the line's.
+      - App\Modules\Sales\ApiResource\CreateSalesOrderLineInput   # A-7
+      - App\Modules\Sales\ApiResource\SalesOrderLineResource   # A-7
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
       - App\Modules\Sales\ApiResource\UpdateSalesOrderInput   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7

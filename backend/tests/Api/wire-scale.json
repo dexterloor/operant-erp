@@ -41,6 +41,18 @@
     "CreateSalesOrder $.total_amount": [
         4
     ],
+    "CreateSalesOrderLine $.quantity": [
+        6
+    ],
+    "CreateSalesOrderLine $.quantity_fulfilled": [
+        6
+    ],
+    "CreateSalesOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "CreateSalesOrderLine $.unit_price": [
+        4
+    ],
     "GetGoodsReceipt $.lines[].quantity": [
         6
     ],
