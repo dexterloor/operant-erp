@@ -48,7 +48,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *      parent, survives, and is expanded by API-23b;
  *   2. plus `id`;
  *   3. plus `archived_at`, because `SchemaManifest::TABLES['sales_order_line']['deletion']`
- *      is `soft` — cascaded from the order by trigger, never written by this module;
+ *      is `soft` — written by the order's cascade trigger and by `DeleteSalesOrderLine`;
  *   4. plus §4.4.3's additions row for **SalesOrderLine** — `line_number`,
  *      `quantity_fulfilled` and `quantity_outstanding` — and nothing else.
  *
@@ -198,8 +198,10 @@ final class SalesOrderLineResource
         #[SerializedName('quantity_outstanding')]
         public string $quantityOutstanding,
         /**
-         * Non-null iff the row is archived (ST-9). On this table it is written by
-         * the sales order's cascade trigger and by nothing in PHP.
+         * Non-null iff the row is archived (ST-9). Written by `DeleteSalesOrderLine`
+         * (`SalesOrderWriter::archiveLine()`) and by the order's cascade trigger, which
+         * since `Version20260921000200` archives only LIVE lines — so a line discarded
+         * on its own keeps the instant the user discarded it, not the order's.
          */
         #[SerializedName('archived_at')]
         public ?string $archivedAt,

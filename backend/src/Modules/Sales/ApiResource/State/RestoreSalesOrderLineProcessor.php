@@ -27,9 +27,12 @@ use App\Modules\Sales\Application\SalesOrderWriter;
  * partial on `deleted_at IS NULL`, so an archived line releases its retry key and a live line may take
  * it. Restoring the first then puts two live rows on one key — `23505`. `RED` measured that hazard and
  * measured that it has **two** triggers, not one: this operation, which owns its statement and translates
- * the violation by name, and `RestoreSalesOrder`, whose `sales_order_cascade_deletion` trigger sets
+ * the violation by name, and `RestoreSalesOrder`, whose `sales_order_cascade_deletion` trigger then set
  * **every** line live in one statement it did not write. Deferring this operation would not defer the
  * hazard; it would relocate it into a trigger-raised violation inside a commit about orders.
+ * *(Since `Version20260921000200` the trigger revives only the lines archived WITH the order — the owner's
+ * Q3 ruling — so the same-order collision is gone from the order path; a key reused on ANOTHER order's
+ * line can still collide there, because the key is tenant-wide.)*
  *
  * @implements ProcessorInterface<mixed, SalesOrderLineResource>
  */

@@ -385,10 +385,13 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
      * refusal for the restore path than for the create path, precisely because
      * `idempotency-key-conflict` would name a mechanism this caller never used.
      *
-     * ⚠ **The identical hazard has a SECOND trigger this test cannot reach: `RestoreSalesOrder`**, whose
-     * `sales_order_cascade_deletion` trigger sets every line live in one statement the writer did not
-     * issue. That operation is unbuilt and is step 4 of the build order; it is named in this slice's
-     * §15.1 rows and in the retry key's migration so it arrives as a handover rather than a discovery.
+     * ⚠ **The identical hazard had a SECOND trigger this test cannot reach: `RestoreSalesOrder`**, whose
+     * `sales_order_cascade_deletion` trigger set every line live in one statement the writer did not
+     * issue. `Version20260921000200` changed that trigger to revive only the lines archived WITH the order,
+     * so the same-order case is now proved impossible at the database by
+     * `DeletionPolicyTest::restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds`,
+     * on both parents. A key reused on ANOTHER order's line can still collide on the order path, because
+     * the key is tenant-wide; that is `RestoreSalesOrder`'s to translate when it is built.
      */
     #[Test]
     public function restoringALineWhoseRetryKeyALiveLineNowHoldsIsRefusedAndNeverA500(): void

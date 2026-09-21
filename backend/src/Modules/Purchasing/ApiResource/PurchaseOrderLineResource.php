@@ -196,9 +196,10 @@ final class PurchaseOrderLineResource
         #[SerializedName('quantity_outstanding')]
         public string $quantityOutstanding,
         /**
-         * Non-null iff the row is archived (ST-9). On this table it is written by
-         * `purchase_order_cascade_deletion` — the order's trigger — and by
-         * nothing in PHP.
+         * Non-null iff the row is archived (ST-9). Written by `DeletePurchaseOrderLine`
+         * (`PurchaseOrderWriter`) and by `purchase_order_cascade_deletion` — the order's
+         * trigger — which since `Version20260921000200` archives only LIVE lines, so a
+         * line discarded on its own keeps its own instant instead of the order's.
          */
         #[SerializedName('archived_at')]
         public ?string $archivedAt,

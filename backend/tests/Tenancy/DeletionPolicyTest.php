@@ -295,6 +295,215 @@ final class DeletionPolicyTest extends TenancyTestCase
     }
 
     /**
+     * The two parents `cascade_deletion_to_lines` serves. **One function, two triggers** — so every property below is
+     * proved on BOTH, never on one. The two tests above record why: the cascade was once fixed on both tables and
+     * proved on one, and `RED` removed the unproved trigger with the whole suite still green.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function cascadeParents(): iterable
+    {
+        yield 'purchase_order' => ['purchase_order'];
+        yield 'sales_order' => ['sales_order'];
+    }
+
+    /**
+     * An individually discarded line keeps ITS OWN stamp when its order is discarded after it.
+     *
+     * Before `Version20260921000200` the archive branch matched `deleted_at IS DISTINCT FROM $1`, which is every line
+     * not already carrying the order's stamp — **including a line the user had already discarded on purpose**. It was
+     * re-stamped with the order's instant, and from that moment nothing (timestamp, query or human) could tell it
+     * from the lines the order took with it. On purchasing that was visible on the wire:
+     * `GET …/purchase-orders/{id}/lines?archived=true` reported the order's `archived_at`, not the one the user caused.
+     *
+     * **Delete direction ONLY, asserted before any restore** — so a mutation of the archive branch alone reddens this
+     * test and nothing is borrowed from the restore branch (`RED` §3: the other two tests redden under that mutation
+     * too, because a re-stamped line is then also matched by the restore).
+     */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('cascadeParents')]
+    public function anIndividuallyArchivedLineKeepsItsOwnStampWhenItsOrderIsArchived(string $parent): void
+    {
+        $o = $this->seedDraftOrderWithTwoLines($parent);
+
+        $this->writeAsApp("UPDATE {$o['child']} SET deleted_at = '2026-01-01T00:00:00+00' WHERE id = ?::uuid", [$o['line2']]);
+        $this->writeAsApp("UPDATE $parent SET deleted_at = '2026-02-01T00:00:00+00' WHERE id = ?::uuid", [$o['order']]);
+
+        $stamps = $this->lineStamps($o);
+        self::assertSame('2026-02-01 00:00:00', $stamps[$o['line1']],
+            "Control: archiving the $parent did not archive its live line, so the cascade never ran and the next "
+            .'assertion would prove nothing.');
+        self::assertSame('2026-01-01 00:00:00', $stamps[$o['line2']],
+            "Archiving the $parent re-stamped a line the user had ALREADY discarded with the order's own instant. "
+            .'From here on nothing can tell that line from the ones the order took with it, so a restore can only '
+            .'resurrect it (or collide on it). cascade_deletion_to_lines must archive LIVE lines only.');
+    }
+
+    /**
+     * The owner's Q3 ruling (2026-09-21): **a restore revives only the lines deleted WITH the order**, never a line
+     * deleted individually before it. The shipped restore branch matched every line not already live, so a restore
+     * brought the discarded line back **silently** whenever nothing collided — and then `total_amount` no longer
+     * matched the lines, because the trigger writes only the line table.
+     */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('cascadeParents')]
+    public function restoringAnOrderDoesNotResurrectALineArchivedBeforeIt(string $parent): void
+    {
+        $o = $this->seedDraftOrderWithTwoLines($parent);
+
+        $this->writeAsApp("UPDATE {$o['child']} SET deleted_at = '2026-01-01T00:00:00+00' WHERE id = ?::uuid", [$o['line2']]);
+        $this->writeAsApp("UPDATE $parent SET deleted_at = '2026-02-01T00:00:00+00' WHERE id = ?::uuid", [$o['order']]);
+        $this->writeAsApp("UPDATE $parent SET deleted_at = NULL WHERE id = ?::uuid", [$o['order']]);
+
+        $stamps = $this->lineStamps($o);
+        self::assertNull($stamps[$o['line1']],
+            "Control: restoring the $parent did not bring back the line it archived, so a function that restores "
+            .'nothing would pass the next assertion.');
+        self::assertSame('2026-01-01 00:00:00', $stamps[$o['line2']],
+            "Restoring the $parent resurrected a line the user had deleted BEFORE deleting the order — silently, "
+            .'with no error. The owner ruled (Q3, 2026-09-21) that only the lines archived with the order return.');
+    }
+
+    /**
+     * The collision `ff281dc` found and translated on the LINE restore path, reached here through the ORDER's cascade
+     * — V2-R-12b's second trigger, which until this test nothing in `backend/` went red about.
+     *
+     * A replacement line is created exactly as the shipped writers create one: `line_number = MAX + 1` over LIVE lines
+     * (so it takes the discarded line's number) and the same retry key (the key lookup is live-only). Under the shipped
+     * function the order's restore tried to bring the discarded line back beside it and raised `23505` on
+     * `…_line_unique` — first, before the key's unique could fire. Under Q3's rule the discarded line stays where it is,
+     * so there is nothing to collide with.
+     */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('cascadeParents')]
+    public function restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds(string $parent): void
+    {
+        $o = $this->seedDraftOrderWithTwoLines($parent);
+
+        $this->writeAsApp("UPDATE {$o['child']} SET deleted_at = '2026-01-01T00:00:00+00' WHERE id = ?::uuid", [$o['line2']]);
+        $replacement = $this->insertLine($o, 2, withTheArchivedLinesKey: true);
+        $this->writeAsApp("UPDATE $parent SET deleted_at = '2026-02-01T00:00:00+00' WHERE id = ?::uuid", [$o['order']]);
+
+        try {
+            $this->writeAsApp("UPDATE $parent SET deleted_at = NULL WHERE id = ?::uuid", [$o['order']]);
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
+            self::fail("Restoring the $parent collided with its own replacement line — the cascade tried to bring back "
+                .'a line the user had discarded before the order, beside the line that replaced it: '.$e->getMessage());
+        }
+
+        $stamps = $this->lineStamps($o);
+        self::assertNull($stamps[$o['line1']], 'Control: the line archived with the order did not come back.');
+        self::assertNull($stamps[$replacement], 'Control: the replacement line archived with the order did not come back.');
+        self::assertSame('2026-01-01 00:00:00', $stamps[$o['line2']],
+            'The line discarded before the order was resurrected by the order\'s restore.');
+    }
+
+    /**
+     * A draft order with two lines, written as `erp_app` so the cascade runs as the invoker it runs as in production:
+     * line 1 carries no retry key (as a nested create's lines do not), line 2 carries one (as a sub-resource create's
+     * does). Drafts from the start, on both tables: `sales_order_archived_only_while_draft` refuses an archived
+     * non-draft, and purchasing's own write path archives only drafts.
+     *
+     * `purchase_order_idempotency_key_required` refuses a keyless `purchase_order` insert (`RED` §2.1), so both parents
+     * carry a generated key.
+     *
+     * @return array{parent: string, child: string, fk: string, order: string, line1: string, line2: string, item: string}
+     */
+    private function seedDraftOrderWithTwoLines(string $parent): array
+    {
+        $this->seedWarehouse();
+        $order = Uuid::v4()->toRfc4122();
+
+        if ('purchase_order' === $parent) {
+            $supplierId = Uuid::v4()->toRfc4122();
+            $this->insertSupplier($supplierId, self::TENANT_A, 'Cascade', 'CAS');
+            $item = $this->seedItem(self::TENANT_A, 'SKU-KEEP', $supplierId);
+            $this->writeAsApp(<<<'SQL'
+                INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, 'PO-KEEP', ?::uuid, (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft',
+                        encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                SQL, [$order, self::TENANT_A, $supplierId]);
+            $o = ['parent' => $parent, 'child' => 'purchase_order_line', 'fk' => 'purchase_order_id'];
+        } else {
+            $item = $this->seedItem(self::TENANT_A, 'SKU-KEEP');
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO customer (id, tenant_id, code, name, currency_code)
+                VALUES (gen_random_uuid(), ?::uuid, 'CUS-K', 'Keep Customer', 'EUR')
+                SQL, [self::TENANT_A]);
+            $this->writeAsApp(<<<'SQL'
+                INSERT INTO sales_order
+                    (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ship_to_country_code,
+                     idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, 'SO-KEEP', (SELECT id FROM customer WHERE code = 'CUS-K'),
+                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft', 'DE',
+                        encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                SQL, [$order, self::TENANT_A]);
+            $o = ['parent' => $parent, 'child' => 'sales_order_line', 'fk' => 'sales_order_id'];
+        }
+
+        $o += ['order' => $order, 'item' => $item];
+        $o['line1'] = $this->insertLine($o, 1, withTheArchivedLinesKey: false);
+        $o['line2'] = $this->insertLine($o, 2, withTheArchivedLinesKey: true);
+
+        return $o;
+    }
+
+    /**
+     * One line. `withTheArchivedLinesKey` gives it the fixed retry key line 2 is created with, so a replacement line
+     * holds exactly the key the shipped live-only key lookup would let it reuse.
+     *
+     * @param array{parent: string, child: string, fk: string, order: string, item: string} $o
+     */
+    private function insertLine(array $o, int $lineNumber, bool $withTheArchivedLinesKey): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $key = $withTheArchivedLinesKey ? hash('sha256', 'the-archived-lines-key') : null;
+        $digest = $withTheArchivedLinesKey ? hash('sha256', 'the-archived-lines-body') : null;
+
+        if ('purchase_order' === $o['parent']) {
+            $this->writeAsApp(<<<'SQL'
+                INSERT INTO purchase_order_line
+                    (id, tenant_id, purchase_order_id, inventory_item_id, line_number, quantity_ordered, unit_cost, lead_time_days,
+                     idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, 10, 5.00, 7, ?, ?)
+                SQL, [$id, self::TENANT_A, $o['order'], $o['item'], $lineNumber, $key, $digest]);
+        } else {
+            $this->writeAsApp(<<<'SQL'
+                INSERT INTO sales_order_line
+                    (id, tenant_id, sales_order_id, inventory_item_id, line_number, quantity, unit_price, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, 10, 12.50, ?, ?)
+                SQL, [$id, self::TENANT_A, $o['order'], $o['item'], $lineNumber, $key, $digest]);
+        }
+
+        return $id;
+    }
+
+    /** @param list<mixed> $params */
+    private function writeAsApp(string $sql, array $params): void
+    {
+        $this->tenantContext()->run(self::TENANT_A, function () use ($sql, $params): void {
+            $this->app()->executeStatement($sql, $params);
+        });
+    }
+
+    /**
+     * Every line of the order, archived or not, keyed by id: `null` when live, else its stamp in UTC to the second.
+     *
+     * @param array{child: string, fk: string, order: string} $o
+     *
+     * @return array<string, string|null>
+     */
+    private function lineStamps(array $o): array
+    {
+        $rows = $this->fetchAsOwnerForTenant(self::TENANT_A, <<<SQL
+            SELECT id::text AS id, to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS stamp
+            FROM {$o['child']} WHERE {$o['fk']} = ?::uuid
+            SQL, [$o['order']]);
+
+        return array_column($rows, 'stamp', 'id');
+    }
+
+    /**
      * `RED`'s MAJOR-3. ADR-006 §2.1 step 2's sentinel exists so an unresolved
      * slug still runs the `app_user` SELECT and finds nothing -- which is what
      * makes the statement sequence identical on every miss path (V-8). "Owns no
