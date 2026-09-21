@@ -6,9 +6,12 @@ namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Link;
+use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderLineProcessor;
+use App\Modules\Sales\ApiResource\State\SalesOrderLineProvider;
+use App\Modules\Sales\ApiResource\State\UpdateSalesOrderLineProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
@@ -93,6 +96,28 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 // measured on the purchase side, and the reason `CreatedRowLocation` exists.
                 CreatedRowLocation::OPERATION_URI_TEMPLATE => '/sales-orders/{id}/lines/{lineId}',
             ],
+        ),
+        new Patch(
+            uriTemplate: '/sales-orders/{id}/lines/{lineId}',
+            uriVariables: [
+                'id' => new Link(fromClass: SalesOrderResource::class, identifiers: ['id'], parameterName: 'id'),
+                'lineId' => new Link(fromClass: SalesOrderLineResource::class, identifiers: ['id'], parameterName: 'lineId'),
+            ],
+            name: 'UpdateSalesOrderLine',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateSalesOrderLine'),
+            input: UpdateSalesOrderLineInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                'api_allow_update' => false,
+            ],
+            provider: SalesOrderLineProvider::class,
+            processor: UpdateSalesOrderLineProcessor::class,
+            // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no`, and API-14's answer is that a PATCH sets
+            // absolute values on a row that already exists, so a replay converges and there is no
+            // duplicate for a key to prevent.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
         ),
     ],
 )]

@@ -9,6 +9,7 @@ use App\Modules\Sales\ApiResource\CreateSalesOrderLineInput;
 use App\Modules\Sales\ApiResource\SalesOrderLineResource;
 use App\Modules\Sales\ApiResource\SalesOrderResource;
 use App\Modules\Sales\ApiResource\UpdateSalesOrderInput;
+use App\Modules\Sales\ApiResource\UpdateSalesOrderLineInput;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
@@ -95,6 +96,18 @@ final readonly class SalesOrderWriter
 
     /** `Version20260921000100`. The line's retry key — tenant-wide, partial on `deleted_at IS NULL`. */
     private const LINE_IDEMPOTENCY_INDEX = 'sales_order_line_tenant_idem_live';
+
+    /** `UpdateSalesOrderLine`'s writable columns, keyed by input property, so no UPDATE restates the list. */
+    private const LINE_COLUMNS = [
+        'quantity' => 'quantity',
+        'unitPrice' => 'unit_price',
+    ];
+
+    /** `CAST(:p AS t)`, never `:p::t` — DBAL's parser cannot tell a Postgres cast from a named placeholder. */
+    private const LINE_CASTS = [
+        'quantity' => 'numeric',
+        'unitPrice' => 'numeric',
+    ];
 
     /** `(tenant_id, sales_order_id, line_number) WHERE deleted_at IS NULL` — the line-number race. */
     private const LINE_NUMBER_INDEX = 'sales_order_line_unique';
@@ -668,6 +681,140 @@ final readonly class SalesOrderWriter
                     ?? throw new \LogicException('The line just inserted is not visible to its own transaction.');
             },
         ));
+    }
+
+    /**
+     * **`UpdateSalesOrderLine` — `quantity` and `unit_price` on a draft order's line.**
+     *
+     * Lock the order first (W-5), then the order's guards, then the line's. An **empty `PATCH` is legal**:
+     * no statement is issued, the row is read back and the answer is 200. `ArchivedRowSubjects` depends
+     * on exactly that shape, because its write bodies are `static` and may carry no seeded id.
+     *
+     * ⚠ **`unit_price` is D-A's frozen column and the freeze is NOT written here.** It is carried by
+     * §8.3a's draft-only edit window, which is strictly stronger — every request the freeze would refuse,
+     * the window already refuses, from every non-draft status — and by
+     * `EditWindowGuardTest::theUnitPriceFreezeIsCarriedByTheEditWindowOnlyWhileTheWindowIsDraftOnly`,
+     * which asserts the window of **every row naming this operation**. A guard written here as well would
+     * be a second copy of a rule, which is the shape this project keeps finding; what is not acceptable is
+     * the rule living in neither place, and the pin is what makes that impossible.
+     */
+    public function updateLine(string $orderId, string $lineId, UpdateSalesOrderLineInput $input): SalesOrderLineResource
+    {
+        $submitted = $input->submitted();
+        $this->refuseMalformedLineFields($submitted, required: []);
+
+        return $this->translatingConstraintFailures(fn (): SalesOrderLineResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($orderId, $lineId, $submitted): SalesOrderLineResource {
+                SalesOrderRowLock::holdInside($em, $orderId);
+                $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+                $this->refuseIfArchived($order);
+                $this->refuseUnlessDraft($order);
+
+                $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+
+                // A line whose order is a draft cannot itself be archived -- the trigger only ever
+                // archives lines with their order -- but the check is written rather than argued, because
+                // it is one `UPDATE` away from being false and §5.2a requires the refusal either way.
+                if (null !== $line->archivedAt) {
+                    throw self::lineArchived();
+                }
+
+                $this->refuseIfQuantityWouldFallBelowWhatIsFulfilled($line, $submitted);
+
+                if ([] !== $submitted) {
+                    $em->getConnection()->executeStatement(
+                        'UPDATE sales_order_line SET '.implode(', ', array_map(
+                            static fn (string $property): string => self::LINE_COLUMNS[$property].' = '.self::bind($property, self::LINE_CASTS),
+                            array_keys($submitted),
+                        )).', updated_at = now() WHERE id = CAST(:id AS uuid)',
+                        [...$submitted, 'id' => $lineId],
+                    );
+                }
+
+                $this->recomputeTotal($em, $orderId, self::totalPointerFor($submitted));
+
+                return $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+            },
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+
+    /**
+     * **`sales_order_line_qty_sane`, refused in DOMAIN terms before the statement rather than translated
+     * after it — and the shape was chosen by measurement, not by symmetry.**
+     *
+     * The constraint is `CHECK (quantity > 0 AND quantity_fulfilled >= 0 AND quantity_fulfilled <=
+     * quantity)`. Lowering `quantity` below `quantity_fulfilled` violates its third clause, which is
+     * SQLSTATE **`23514`**.
+     *
+     * ⚠ **A translator was the obvious answer and it is NOT available.** `RED` measured on 2026-09-21
+     * that DBAL's PostgreSQL `ExceptionConverter` maps `23502`, `23503` and `23505` and nothing else in
+     * the `23` class, so `23514` falls through to a plain `DriverException` — catching it by name would
+     * mean catching **every** database error and re-throwing the rest. It also measured that the purchase
+     * twin never translated its own `purchase_order_line_not_over_received` either: `GoodsReceiptWriter`
+     * pre-checks in domain terms and leaves the CHECK as a backstop. **This is that shape**, and it is
+     * also what `SchemaManifest`'s G-7 note instructs `CreateFulfilment` to do for
+     * `stock_level_reserved_sane`.
+     *
+     * **Unreachable today, and that premise has a known expiry.** Nothing under `src/` writes
+     * `quantity_fulfilled` (`RESIDUAL_GAPS.md` **G-7**, whose trigger list names `CreateFulfilment`
+     * first), so the column is always `0` and `malformedLineFields()`'s `quantity > 0` rule already
+     * refuses everything this could. It is written now rather than recorded, because *"unreachable
+     * today"* is precisely the premise that expires at `CreateFulfilment`, in a commit whose author will
+     * be thinking about stock rather than about a two-module-old CHECK. The line is read under the
+     * order's row lock already, so it costs no round trip.
+     *
+     * @param array<string, string|null> $submitted
+     */
+    private function refuseIfQuantityWouldFallBelowWhatIsFulfilled(SalesOrderLineResource $line, array $submitted): void
+    {
+        $quantity = $submitted['quantity'] ?? null;
+
+        if (null === $quantity || bccomp($quantity, $line->quantityFulfilled, 6) >= 0) {
+            return;
+        }
+
+        throw ApiProblem::businessRuleViolated(
+            'sales_order_line.quantity_is_not_below_what_is_fulfilled',
+            \sprintf('This line has already been fulfilled to %s, so its quantity cannot be lowered to %s.',
+                $line->quantityFulfilled, $quantity),
+        );
+    }
+
+    /** §5.2a's refusal: the row is readable, the write is not. */
+    private static function lineArchived(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated(
+            'sales_order_line.is_archived',
+            'This line is archived. Restore it before changing it.',
+        );
+    }
+
+    /**
+     * Which field {@see self::recomputeTotal()}'s refusal names on a `PATCH`, where the request decides
+     * what the caller sent.
+     *
+     * §5.2's `errors[]` addresses a field of **this** request, so naming `/unit_price` on a `PATCH` that
+     * sent only `quantity` would point at nothing the caller could edit. `unitPrice` wins when both were
+     * sent, matching `malformedLineFields()`'s own choice.
+     *
+     * Null when the `PATCH` moved neither: such a request cannot move the total at all, so the refusal is
+     * unreachable — which `recomputeTotal()`'s own branch states rather than papering over with a
+     * pointer it invented.
+     *
+     * @param array<string, string|null> $submitted
+     */
+    private static function totalPointerFor(array $submitted): ?string
+    {
+        foreach (['unitPrice', 'quantity'] as $property) {
+            if (\array_key_exists($property, $submitted)) {
+                return self::POINTERS[$property];
+            }
+        }
+
+        return null;
     }
 
     // -----------------------------------------------------------------------

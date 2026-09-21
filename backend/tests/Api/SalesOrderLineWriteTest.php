@@ -225,4 +225,93 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
             'The refusal must name a field of THIS request, which is the only thing the caller can lower.');
         self::assertSame(1, $this->lineCount($order), 'The refused line survived the transaction it was refused in.');
     }
+
+    /**
+     * **An empty `PATCH` is legal: no statement, the row read back, 200.**
+     *
+     * This is not a curiosity — `ArchivedRowSubjects`' write bodies are `static`, so they may carry no
+     * seeded id, and the trait's control requires the **live** twin to succeed with the same body. A
+     * writer that refused an empty `PATCH` would make that control impossible to satisfy.
+     */
+    #[Test]
+    public function anEmptyPatchOfALineIsLegalAndChangesNothing(): void
+    {
+        $draft = $this->draftWithASecondItem();
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $draft['order'], $draft['item'],
+            quantity: '4.000000', unitPrice: '2.5000');
+
+        $this->send('PATCH', '/sales-orders/'.$draft['order'].'/lines/'.$line, []);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('4.000000', $this->json()['quantity']);
+        self::assertSame('2.5000', $this->json()['unit_price']);
+    }
+
+    /**
+     * **A line of ANOTHER order is `not-found`, not an edit of somebody else's line.**
+     *
+     * The pair `(id, lineId)` is what names the row, in the provider and again in the writer's own read
+     * inside the transaction. A provider's read is outside the transaction, so the second one is not
+     * redundant.
+     */
+    #[Test]
+    public function aLineIdBelongingToAnotherOrderIsNotFound(): void
+    {
+        $a = $this->draftWithASecondItem('SO-1');
+        $b = $this->draftWithASecondItem('SO-2');
+        $lineOfB = $this->seedSalesOrderLine(self::TENANT_A, $b['order'], $b['item']);
+
+        $this->send('PATCH', '/sales-orders/'.$a['order'].'/lines/'.$lineOfB, ['quantity' => '9']);
+
+        self::assertSame(404, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([['quantity' => '10.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity FROM sales_order_line WHERE id = ?::uuid', [$lineOfB]),
+            'The line of the other order was edited through a path that does not name it.');
+    }
+
+    /**
+     * **`sales_order_line_qty_sane`'s third clause, refused in domain terms — and the CHECK proved to be
+     * a live backstop by a direct statement.**
+     *
+     * ⚠ **The operation cannot reach this refusal today and the test says so out loud.** Nothing under
+     * `src/` writes `quantity_fulfilled` (G-7), so the column is always `0` and `quantity > 0` already
+     * refuses everything below it. The fixture therefore sets `quantity_fulfilled` **as the schema
+     * owner**, which no built operation can do. *A green run here says nothing about what the API can
+     * produce* — the same caveat `EditWindowGuardTest` carries for `fulfilled` and `partially_fulfilled`.
+     * It is written now because *"unreachable today"* is the premise that expires at `CreateFulfilment`,
+     * where G-7's trigger list names it first.
+     *
+     * The second half is the anti-vacuity control **and** the reason the pre-check is not merely
+     * decorative: the same write issued as raw SQL, bypassing the writer, is refused by the database with
+     * `23514`. So the CHECK is real, the pre-check is what turns it into a 409 with a rule name instead
+     * of an untyped `DriverException` and an HTTP 500.
+     */
+    #[Test]
+    public function loweringAQuantityBelowWhatIsFulfilledIsRefusedInDomainTermsAndTheCheckStillBacksIt(): void
+    {
+        $draft = $this->draftWithASecondItem();
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $draft['order'], $draft['item'], quantity: '10.000000');
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE sales_order_line SET quantity_fulfilled = 4 WHERE id = ?::uuid', [$line]);
+
+        $this->send('PATCH', '/sales-orders/'.$draft['order'].'/lines/'.$line, ['quantity' => '3']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order_line.quantity_is_not_below_what_is_fulfilled', $this->json()['rule'] ?? null);
+        self::assertSame([['quantity' => '10.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity FROM sales_order_line WHERE id = ?::uuid', [$line]));
+
+        // The backstop, proved by a statement the writer does not issue.
+        $refused = false;
+        try {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'UPDATE sales_order_line SET quantity = 3 WHERE id = ?::uuid', [$line]);
+        } catch (\Throwable $e) {
+            $refused = str_contains($e->getMessage(), 'sales_order_line_qty_sane');
+        }
+
+        self::assertTrue($refused,
+            'sales_order_line_qty_sane did not refuse a direct write that lowers quantity below quantity_fulfilled, '
+            .'so the pre-check above is the only thing standing between this and a corrupt line.');
+    }
 }

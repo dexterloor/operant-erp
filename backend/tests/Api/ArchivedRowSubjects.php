@@ -262,16 +262,21 @@ trait ArchivedRowSubjects
 
                 return ['id' => $order, 'row' => $order];
             },
-            // Added 2026-09-21 with `ListSalesOrderLines`: `sales_order_line` is class `soft` and now has
-            // a built `List`, so the list clause selects it. There is no built direct-hit `Get` and no
-            // built write on this resource, so it is in the list clause only — which is why the fixture
-            // returns the **order** as `id` (the sub-list's path variable) and the **line** as `row`.
+            // Added 2026-09-21 with `ListSalesOrderLines`. ⚠ **The sentence that stood here — *"There is
+            // no built direct-hit `Get` and no built write on this resource, so it is in the list clause
+            // only — which is why the fixture returns the order as `id` and the line as `row`"* — stopped
+            // being true the same week**: `UpdateSalesOrderLine` is a built write at
+            // `/sales-orders/{id}/lines/{lineId}`, so the write clause selects this table too and
+            // `archivedRowPath()` now has a `{lineId}` to substitute. **The `lineId` key is added here in
+            // that commit**, mirroring `purchase_order_line`'s. The failure would have been loud either
+            // way -- `archivedRowPath()` asserts the key exists -- which is one point in its favour and
+            // not a reason to have left it.
             'sales_order_line' => function (string $tag): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
                 $line = $this->seedSalesOrderLine(self::TENANT_A, $order,
                     $this->seedItem(self::TENANT_A, 'SKU-ARC-SL-'.$tag.'-'.bin2hex(random_bytes(3))));
 
-                return ['id' => $order, 'row' => $line];
+                return ['id' => $order, 'lineId' => $line, 'row' => $line];
             },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
@@ -321,6 +326,10 @@ trait ArchivedRowSubjects
             // `sales_order.is_archived` rather than `unknown_reference`.
             'UpdateSalesOrder' => [],
             'UpdatePurchaseOrderLine' => ['quantity' => '2'],
+            // These bodies are `static`, so no seeded id may appear in one. A quantity is all this
+            // operation needs, and the live twin must SUCCEED with it -- which is the trait's own control
+            // that a refusal of the archived row is the archived state's doing and not the body's.
+            'UpdateSalesOrderLine' => ['quantity' => '2'],
         ];
     }
 

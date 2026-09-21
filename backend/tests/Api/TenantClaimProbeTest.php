@@ -147,6 +147,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'vars' => ['id' => 'sales_order'],
             'body' => ['inventory_item_id' => '@loose_item', 'quantity' => '3.500000', 'unit_price' => '4.5000'],
         ],
+        // The seeded line of the seeded order. `unit_price` is sent as well as `quantity` because that is
+        // D-A's frozen column and a probe that never sends it says nothing about it.
+        'UpdateSalesOrderLine' => [
+            'vars' => ['id' => 'sales_order', 'lineId' => 'sales_order_line'],
+            'body' => ['quantity' => '7.000000', 'unit_price' => '9.5000'],
+        ],
         // Added 2026-09-21 with the edit. The body carries `@customer_address`, a **per-tenant** symbol,
         // and that is the whole reason to spell it that way rather than move the warehouse: the drive
         // then exercises V2-S-9's ownership predicate — *"this address belongs to this customer"* —

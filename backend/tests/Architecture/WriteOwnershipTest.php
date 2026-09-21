@@ -165,7 +165,9 @@ final class WriteOwnershipTest extends TestCase
         // `PurchaseOrderRowLockTest`, while a raw `UPDATE sales_order` reddens both — so the update path
         // writes raw SQL deliberately, to be visible here. The entity mutator that made the blind shape
         // possible (`SalesOrder::shipTo()`) was deleted in the same commit; it had zero callers.
-        'Modules\\Sales' => 5,
+        // **5 -> 6 on 2026-09-21** with `UpdateSalesOrderLine`: one `UPDATE sales_order_line`, built from
+        // `LINE_COLUMNS`/`LINE_CASTS` so the column list is written once.
+        'Modules\\Sales' => 6,
         'Modules\\UserManagement' => 5,
     ];
 

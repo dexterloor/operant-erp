@@ -123,7 +123,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more on 2026-09-21:** `CreateSalesOrderLine`, the first write on the sales line
         // resource. Its migration (`Version20260921000100`) grants nothing -- a new column inherits the
         // table-level ACL -- and `erp_app` already held `INSERT` and `UPDATE` on both sales tables.
-        self::assertCount(30, $checked, 'The route set changed. This slice declares thirty operations: '.implode(', ', array_keys($checked)));
+        // **And one more the same day:** `UpdateSalesOrderLine`. It adds no `$notExposed` route -- the
+        // `SalesOrderLine` fallback route was already minted by `CreateSalesOrderLine`, and a second
+        // write on the same resource does not mint a second one.
+        self::assertCount(31, $checked, 'The route set changed. This slice declares thirty-one operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

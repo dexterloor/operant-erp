@@ -145,5 +145,17 @@
     ],
     "UpdateSalesOrder $.total_amount": [
         4
+    ],
+    "UpdateSalesOrderLine $.quantity": [
+        6
+    ],
+    "UpdateSalesOrderLine $.quantity_fulfilled": [
+        6
+    ],
+    "UpdateSalesOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "UpdateSalesOrderLine $.unit_price": [
+        4
     ]
 }

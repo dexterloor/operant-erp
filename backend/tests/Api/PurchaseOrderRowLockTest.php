@@ -1084,6 +1084,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // static provider cannot seed, so the item the body names is substituted here.
             '{item}' => $this->seedItem(self::TENANT_A, 'SKU-LOCK'),
         ];
+        // `{line}` the same way, for `UpdateSalesOrderLine`: `seedConfirmableSalesOrder()` seeds exactly
+        // one line and returns only the order, so the line is read back rather than the helper's
+        // signature changed under its three other callers.
+        $path = strtr($path, ['{line}' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM sales_order_line WHERE sales_order_id = ?::uuid', [$order])[0]['id']]);
         $body = null === $body ? null : array_map(
             static fn (string $value): string => strtr($value, $substitutions),
             $body,
@@ -1142,6 +1147,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // and the INSERT is really issued -- an operation refused by the window issues no write at all and
         // `assertCount(1, $writing)` would fail first, which is what stops a green here meaning nothing.
         yield 'CreateSalesOrderLine' => ['POST', '/sales-orders/{order}/lines', ['inventory_item_id' => '{item}', 'quantity' => '2', 'unit_price' => '3'], 201];
+        // `{line}` is substituted the same way `{order}` and `{item}` are, and for the same reason: a
+        // `#[DataProvider]` is static and cannot seed.
+        yield 'UpdateSalesOrderLine' => ['PATCH', '/sales-orders/{order}/lines/{line}', ['quantity' => '2', 'unit_price' => '3'], 200];
     }
 
     /**
@@ -1172,6 +1180,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // with the helpers it reaches rather than with their SQL -- `create()`'s entry below records the
         // same shape.
         'CreateSalesOrderLine' => 'SalesOrderWriter::createLine',
+        'UpdateSalesOrderLine' => 'SalesOrderWriter::updateLine',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [

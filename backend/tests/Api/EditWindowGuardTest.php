@@ -102,6 +102,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 // name here -- and it fired in the REVERSE direction first, naming this operation as
                 // derived-but-unlisted, which is what §8.3a's *fails if* (b) is for.
                 'CreateSalesOrderLine',
+                'UpdateSalesOrderLine',
             ],
         ],
     ];
@@ -149,6 +150,52 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             '%s from %s is a legal edit window and must not be refused by it. Answer: %s',
             $operation, $status, substr((string) $this->client()->getResponse()->getContent(), 0, 400),
         ));
+    }
+
+    /**
+     * **V2-S-13 / D-A: `sales_order_line.unit_price` freezes once the order is confirmed — and THIS
+     * ASSERTION is the only thing making a per-operation window carry a per-column rule.**
+     *
+     * D-A (amended 2026-09-13): *"`sales_order_line.unit_price` freezes once confirmed."* §8.3a is **per
+     * operation**, not per field, so it records *that* the window is draft-only and not *why*
+     * `unit_price` in particular must never move after confirm. Draft-only editing is strictly stronger
+     * than the freeze — every request the freeze would refuse, the window already refuses, from
+     * `confirmed`, `partially_fulfilled`, `fulfilled` and `cancelled` alike — so the freeze needs no
+     * guard of its own **while the window stays draft-only**. That proviso is what this method holds.
+     *
+     * ⚠ **This is `RED`'s form, not the design's, and the difference was MEASURED rather than argued.**
+     * The design proposed `assertSame([STATUS_DRAFT], self::ROWS['SalesOrder']['from'])`. `RED` planted
+     * three states and ran them on 2026-09-21: that form is **GREEN** when `UpdateSalesOrderLine` is
+     * moved to a **row of its own** whose `from` admits `confirmed` — which is exactly how §8.3a's own
+     * text describes the next step, a per-document row for the line resource. Under that edit D-A's
+     * freeze evaporates and **nothing anywhere goes red**: clause (b) flattens every row's operations
+     * into one set and asks only for membership, so a row exists, the operation is named, and it passes.
+     *
+     * This form asserts the window of **every row naming the operation**, so it is red on the row split,
+     * red on a widened `from`, and red if the operation is dropped from the table altogether. `RED` ran
+     * all three, the positive control included.
+     *
+     * **If this ever needs to change**, §8.3a needs its *frozen fields* column **and** clause (a) needs
+     * to drive per field, in the same commit. Widening the window without both is how a price moves on a
+     * confirmed order with nothing to show for it.
+     */
+    #[Test]
+    public function theUnitPriceFreezeIsCarriedByTheEditWindowOnlyWhileTheWindowIsDraftOnly(): void
+    {
+        $windows = [];
+        foreach (self::ROWS as $name => $row) {
+            if (\in_array('UpdateSalesOrderLine', $row['operations'], true)) {
+                $windows[$name] = $row['from'];
+            }
+        }
+
+        self::assertSame(['SalesOrder' => [SalesOrder::STATUS_DRAFT]], $windows,
+            'D-A freezes sales_order_line.unit_price at confirm, and §8.3a is per OPERATION rather than per field: '
+            ."this assertion is the only thing making the per-operation window carry that per-column rule.\n"
+            ."UpdateSalesOrderLine must be named by exactly one row, 'SalesOrder', whose window is STATUS_DRAFT alone.\n"
+            .'Widening that window -- or moving the operation to a row of its own with a wider one, which is what '
+            ."§8.3a's own text describes as the next step -- requires §8.3a to gain a *frozen fields* column AND "
+            .'clause (a) to drive per field, in the same commit. Nothing else in this project would notice.');
     }
 
     /**
@@ -523,7 +570,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         // `purchase_order`, which is why this seed needs no date. `fulfilled` and `partially_fulfilled`
         // are seeded here and are reachable through no built operation (G-7).
         $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse, $status);
-        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6)));
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6)));
 
         $key = ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
 
@@ -540,6 +587,11 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 'inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-EW2-'.substr(md5($operation.$status), 0, 6)),
                 'quantity' => '1', 'unit_price' => '1',
             ], $key),
+            // ⚠ **`unit_price` is sent, and that is the difference between a test that carries V2-S-13
+            // and a test that sits next to it.** The purchase twin's drive sends `['quantity' => '2']`;
+            // copying it verbatim would give four cells proving the window refuses a *quantity* change
+            // and saying nothing about D-A's frozen column.
+            'UpdateSalesOrderLine' => $this->send('PATCH', '/sales-orders/'.$order.'/lines/'.$line, ['quantity' => '2', 'unit_price' => '3'], $key),
             default => self::fail('§8.3a names a sales-order operation this test cannot drive: '.$operation),
         };
     }

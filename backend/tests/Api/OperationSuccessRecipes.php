@@ -219,6 +219,18 @@ trait OperationSuccessRecipes
 
                 return [201, 'create the order, then add a line'];
             }],
+            // Driven through the writer for the same reason, and the PATCH sends **both** fields: D-A
+            // freezes `unit_price`, and a recipe that only ever sent `quantity` would leave every
+            // registry-wide walker (shapes, scales, statuses) blind to the frozen column.
+            'UpdateSalesOrderLine' => [fn (): array => $salesWorkspace('SO-UL'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $order = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $order.'/lines');
+                $line = $this->json()['items'][0]['id'];
+                $this->send('PATCH', $order.'/lines/'.$line, ['quantity' => '4', 'unit_price' => '5']);
+
+                return [200, 'create the order, then edit its line'];
+            }],
             // The read is driven through the writer rather than off a fixture, so the row it reads is a
             // row the operation wrote — which is what makes `created_by` non-null in the body every
             // reference check walks. A seeded `sales_order` would leave the column NULL and the

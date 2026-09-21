@@ -77,6 +77,33 @@ final readonly class SalesOrderReader
         });
     }
 
+    /**
+     * **One line of one order, by the pair `(orderId, lineId)`** — the row load behind the line's
+     * item-level write operations, through `SalesOrderLineProvider`.
+     *
+     * The pair is what names the row, so a `lineId` belonging to a different order reads as absent and
+     * the operation answers `not-found` rather than editing somebody else's line.
+     *
+     * §5.2a: there is **no `deleted_at` predicate**, deliberately. An archived line inside the caller's
+     * tenant is read, and the refusal on writing it is the writer's `business-rule-violated` — which is
+     * also what makes `RestoreSalesOrderLine` able to address its own subject at all.
+     */
+    public function getLine(string $orderId, string $lineId): ?SalesOrderLineResource
+    {
+        if (!Uuid::isValid($orderId) || !Uuid::isValid($lineId)) {
+            return null;
+        }
+
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($orderId, $lineId): ?SalesOrderLineResource {
+            $row = $em->getConnection()->fetchAssociative(
+                'SELECT '.SalesOrderLineRow::COLUMNS.' '.SalesOrderLineRow::FROM
+                .' WHERE sol.sales_order_id = ?::uuid AND sol.id = ?::uuid',
+                [...SalesOrderLineRow::columnParameters(), $orderId, $lineId],
+            );
+
+            return false === $row ? null : SalesOrderLineRow::toResource($row);
+        });
+    }
 
 
     public function list(SalesOrderListCriteria $criteria): SalesOrderCollection

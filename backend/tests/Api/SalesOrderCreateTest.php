@@ -54,6 +54,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // sibling on the same path rather than with the other POSTs, because the registry orders by
         // resource-class declaration and this operation lives on `SalesOrderLineResource`.
         'CreateSalesOrderLine' => ['method' => 'POST', 'path' => '/sales-orders/{id}/lines', 'idem' => true],
+        // `idem` false: §4.2's cell is `no`, and API-14's answer is that a PATCH sets absolute values on
+        // a row that already exists, so a replay converges and there is no duplicate to prevent.
+        'UpdateSalesOrderLine' => ['method' => 'PATCH', 'path' => '/sales-orders/{id}/lines/{lineId}', 'idem' => false],
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
         // `idem` false, and §4.2's `Idem` cell reads `no` for the reason API-14 asks for: a PATCH sets
