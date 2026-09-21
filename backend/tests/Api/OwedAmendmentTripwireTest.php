@@ -144,6 +144,27 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const AN_OPERATION_ID_KNOWN_TO_BE_BUILT = 'CreateGoodsReceipt';
 
     /**
+     * `operationId` => what it owes: **V2-R-12b's order-level restore collisions**, which no restore of an ORDER
+     * may ship without.
+     *
+     * Keyed by `operationId` for `1076ba3`'s reason (a path pin that guesses wrong never fires). Both order restores
+     * are named, not only the sales one: the purchase twin has the same four uniques and the same reissue history.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_RESTORE_COLLISIONS = [
+        'RestoreSalesOrder' => 'sales_order',
+        'RestorePurchaseOrder' => 'purchase_order',
+    ];
+
+    /**
+     * The restore-collision pin's positive control: a BUILT restore, so the spec is known to carry `Restore*`
+     * operationIds the way the pin reads them. `RestoreSalesOrderLine` is the nearest twin — it owns and translates
+     * the line-level half of the same hazard.
+     */
+    private const A_RESTORE_KNOWN_TO_BE_BUILT = 'RestoreSalesOrderLine';
+
+    /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
      * `invoice.issue` / `invoice.pay` **or** `invoice.void` **or**
      * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and **unapplied**:
@@ -400,6 +421,67 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."     never by line number.\n\n"
             ."Full entry: `docs/API.md` 15.1, rows `CreateFulfilment` and `ListSalesOrders`; the ruling is at\n"
             ."`docs/session12/v2s1b-reanchor-ruling.md`. Cite both by name, never by line (Rule 16).",
+            implode(', ', array_keys($arrived)),
+        ));
+    }
+
+    /**
+     * **V2-R-12b's second trigger — the ORDER restore — carried by a mechanism rather than by a handover.**
+     *
+     * Until 2026-09-21 this obligation was named in a migration docblock, §15.1 and a processor's docblock, and
+     * **nothing in `backend/` went red about it**. `Version20260921000200` removed the same-order half at the database
+     * (the cascade now revives only the lines archived with the order, the owner's Q3 ruling), and
+     * `DeletionPolicyTest` proves that on both parents. What remains is what the trigger cannot see, and it is owed
+     * by whichever commit ships an order restore. This method goes red the moment either one appears in the spec.
+     *
+     * **It detects the trigger, not the translations** — clearing the pin without building them defeats it, the
+     * residual every sibling method here carries. Mutation proof (run 2026-09-21): planting the positive control's
+     * own id, `RestoreSalesOrderLine`, into the pin turns this RED naming it; renaming the control to a non-existent
+     * id turns it RED loudly; both restored byte-identical.
+     */
+    #[Test]
+    public function noOperationOwingTheRestoreCollisionsHasBeenBuilt(): void
+    {
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+
+        $built = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            $operationId = $data['operation']['operationId'] ?? null;
+            if (\is_string($operationId) && '' !== $operationId) {
+                $built[$operationId] = true;
+            }
+        }
+
+        self::assertArrayHasKey(self::A_RESTORE_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec does not carry a built restore\'s `operationId` the way this pin '
+            .'reads it, so the check below would compare the pin against nothing and pass on everything.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_RESTORE_COLLISIONS, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built. An ORDER restore owes V2-R-12b's collisions, IN THIS COMMIT.\n\n"
+            ."ALREADY DONE AT THE DATABASE (do not redo): `Version20260921000200` revives only the lines archived\n"
+            ."WITH the order (owner ruling Q3, 2026-09-21), so a replacement line on the SAME order cannot collide.\n"
+            ."`DeletionPolicyTest::restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds`\n"
+            ."proves it on both parents.\n\n"
+            ."STILL OWED, each translated BY CONSTRAINT NAME on the restore path only, each with a test that reaches\n"
+            ."its branch ALONE (sales slice 4's lesson: the unpredicted collision fired first):\n"
+            ."  1. `<order>_tenant_idem_live` -- REACHABLE: a client that retries a create after the order was\n"
+            ."     deleted gets a NEW order holding the same key (the key lookup is live-only). Refuse in domain\n"
+            ."     terms: an order created since holds this order's retry key.\n"
+            ."  2. `<order>_line_tenant_idem_live` -- REACHABLE ACROSS ORDERS: the line key is tenant-wide, so a key\n"
+            ."     on an archived order's line may be reused on ANOTHER order's line, and the restore then collides\n"
+            ."     inside the cascade trigger's statement (SQLSTATE 23505, the message still names the constraint).\n"
+            ."  3. `<order>_tenant_number_live` -- UNREACHABLE for sales since the owner's Q4 ruling (a discarded\n"
+            ."     order's number is never reissued): PROVE it with a test, do not translate it. For PURCHASING it is\n"
+            ."     STILL REACHABLE -- `PurchaseOrderWriter::nextOrderNumber()` counts live rows only and its Q4 twin\n"
+            ."     was held for the owner. Ask before `RestorePurchaseOrder` ships.\n"
+            ."  4. `<order>_line_unique` -- unreachable under the new cascade; prove it, do not translate it.\n\n"
+            ."ALSO DUE WITH THE RESTORE: E9-3 (`theArchivedIdProblemIsWhyNo*RestoreShips`) must have gone green on\n"
+            ."`archived` arriving; `RESIDUAL_GAPS.md` G-8 closes and G-9's `*.restored` event is owed to B-4a;\n"
+            ."`RequestContractTest::archiveTheRowARestoreBinds()` must know the order's collection; and §8.3a --\n"
+            ."under `sales_order_archived_only_while_draft` a restore needs no draft guard (the CHECK is the guard).\n\n"
+            ."Then clear this entry deliberately. Record: `docs/session12/output9-sales-5-design.md` §5.",
             implode(', ', array_keys($arrived)),
         ));
     }

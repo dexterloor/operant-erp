@@ -239,6 +239,20 @@ trait OperationSuccessRecipes
 
                 return [204, 'create the order, then delete its line'];
             }],
+            // Seeded in the PREPARE half and deleted in the drive: `ClientChosenIdTest` runs a drive twice, and
+            // a draft raised inside the drive would be a second order rather than a repeat (sales slice 4).
+            // Seeded as the owner rather than raised through `CreateSalesOrder`: a delete reads nothing back,
+            // so there is no body for `created_by` to be examined in, and the prepare half stays free of HTTP.
+            'DeleteSalesOrder' => [function (): array {
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-DO');
+                $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-DO'));
+
+                return ['order' => $order];
+            }, function (array $c): array {
+                $this->send('DELETE', '/sales-orders/'.$c['order']);
+
+                return [204, 'seed a draft with a line, then delete it'];
+            }],
             // The line is created, deleted and then restored through the operations themselves, so the
             // row this drives at is archived by a writer rather than by a fixture -- which is what makes
             // the 200 mean the restore worked rather than that the guard happened to be satisfied.

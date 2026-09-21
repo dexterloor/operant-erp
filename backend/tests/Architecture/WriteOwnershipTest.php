@@ -172,7 +172,10 @@ final class WriteOwnershipTest extends TestCase
         // have to see a grant for.
         // **7 -> 8 on 2026-09-21** with `RestoreSalesOrderLine`: one `UPDATE sales_order_line SET
         // deleted_at = NULL`, the mirror of the archive above.
-        'Modules\\Sales' => 8,
+        // **8 -> 9 on 2026-09-21** with `DeleteSalesOrder`: one `UPDATE sales_order SET deleted_at =
+        // clock_timestamp()`. A soft delete; the lines are archived by the cascade trigger, which is outside
+        // `src/` and outside this scan.
+        'Modules\\Sales' => 9,
         'Modules\\UserManagement' => 5,
     ];
 

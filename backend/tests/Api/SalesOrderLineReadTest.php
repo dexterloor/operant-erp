@@ -193,40 +193,49 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`RESIDUAL_GAPS.md` CD-4, carried by a mechanism rather than by a sentence.**
+     * **`RESIDUAL_GAPS.md` CD-4, RULED by the owner 2026-09-21 as option (i) — and asserted here, CD-4's closing
+     * step 3.**
      *
-     * V2-C-14(b) ruled the `cancelled` branch and only that branch. An order
-     * **archived** while `confirmed` keeps `status = 'confirmed'`, so its lines still
-     * report outstanding work on a deleted document — and §2.4's parent probe
-     * deliberately carries no `deleted_at` predicate (§5.2a), so those lines are
-     * readable. Nobody has ruled what that figure should be.
+     * CD-4 asked what `quantity_outstanding` means on an order archived while `confirmed`. The owner's answer is
+     * that the state must not exist: **an archived sales order is always a draft**, so its lines owe exactly what a
+     * live draft's lines owe — the remainder, `quantity - quantity_fulfilled`. No new branch in
+     * `SalesOrderLineRow::COLUMNS` was needed, and none was added.
      *
-     * It is **unreachable today**: no built operation archives a sales order. This
-     * method pins that, so the day `DeleteSalesOrder` ships it goes red and the
-     * question is asked before the behaviour exists rather than after.
+     * Three things hold that together, and this test is only the read half of it:
+     *   - `DeleteSalesOrder` refuses every non-draft (§8.3a, L-8), and
+     *     `EditWindowGuardTest::theArchivedParentQuestionStaysMootOnlyWhileDeleteIsDraftOnly` pins that window —
+     *     that pin used to live here as `theArchivedParentBranchIsUnruledAndStillUnreachable`, keyed on the
+     *     operation's mere existence, and was RE-KEYED onto the window when `DeleteSalesOrder` shipped;
+     *   - `sales_order_archived_only_while_draft` refuses an archived non-draft for every writer, raw SQL included
+     *     (`DeletionPolicyTest::aSalesOrderCanBeArchivedOnlyWhileItIsADraft`);
+     *   - this: the lines of a draft discarded THROUGH THE API read the same remainder under `?archived=true` as
+     *     they did live, with the live read as the control in the same test.
+     *
+     * ⚠ **The child-side note on CD-4 (an archived LINE under a LIVE parent) is not answered here** — it is
+     * recorded on CD-4 for the owner, and `PurchaseOrderLineRow` ships the identical behaviour.
      */
     #[Test]
-    public function theArchivedParentBranchIsUnruledAndStillUnreachable(): void
+    public function anArchivedOrdersLinesOweWhatTheDraftTheyBelongToOwes(): void
     {
-        $built = array_keys(TransactionBoundaryTest::contractOperations());
+        $o = $this->orderWithTwoLines('SO-ARCH');
+        $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0], quantity: '10.000000');
+        $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][1], lineNumber: 2, quantity: '3.500000');
 
-        // The control: the registry is real and spells operation names the way this
-        // pin reads them, so the assertion below is not comparing against nothing.
-        self::assertContains('CancelSalesOrder', $built,
-            'The registry does not name operations the way this pin does, so the check below would pass on everything.');
+        $this->send('GET', '/sales-orders/'.$o['order'].'/lines');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame(['10.000000', '3.500000'], array_column($this->json()['items'], 'quantity_outstanding'),
+            'Control: the LIVE draft does not report its remainder, so the comparison below measures nothing.');
 
-        self::assertSame([], array_values(array_intersect(['DeleteSalesOrder', 'RestoreSalesOrder'], $built)),
-            "A sales order can now be archived, and `quantity_outstanding` on an ARCHIVED parent is UNRULED.\n\n"
-            ."V2-C-14(b) ruled the `cancelled` branch alone. An order archived while `confirmed` keeps\n"
-            ."`status = 'confirmed'`, so `SalesOrderLineRow`'s CASE falls to the subtraction and the lines\n"
-            ."report outstanding work on a deleted document. `SalesOrderReader::listLines()` probes the parent\n"
-            ."with no `deleted_at` predicate (§5.2a's direct-hit carve-out), so those lines are readable.\n\n"
-            ."DO THIS IN THIS COMMIT, or move this pin deliberately and say why:\n"
-            ."  1. Get the branch RULED. It is not `BE-LEAD`'s to invent: OI-2 defines the cancelled\n"
-            ."     remainder and says nothing about an archived one.\n"
-            ."  2. Apply it in `SalesOrderLineRow::COLUMNS`, beside the cancelled branch.\n"
-            ."  3. Assert it here, with a live parent in the same test as the control.\n\n"
-            .'Full entry: `docs/RESIDUAL_GAPS.md` CD-4. Raised by `RED` against the slice-2 design, 2026-09-20.');
+        $this->send('DELETE', '/sales-orders/'.$o['order']);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('GET', '/sales-orders/'.$o['order'].'/lines?archived=true');
+        self::assertSame(200, $this->httpStatus());
+        self::assertCount(2, $this->json()['items'], 'The discarded order\'s lines are not readable under ?archived=true.');
+        self::assertSame(['10.000000', '3.500000'], array_column($this->json()['items'], 'quantity_outstanding'),
+            "CD-4 (ruled 2026-09-21, option (i)): an archived sales order is always a draft, and its lines owe what a\n"
+            .'draft\'s lines owe. If this changed, somebody gave the archived branch a rule of its own -- that is the '
+            .'owner\'s to rule, not an implementer\'s.');
     }
 
     /**

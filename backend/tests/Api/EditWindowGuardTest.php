@@ -105,6 +105,10 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 'UpdateSalesOrderLine',
                 'DeleteSalesOrderLine',
                 'RestoreSalesOrderLine',
+                // Added 2026-09-21 (sales slice 5). L-8: a document is deletable only while it is a draft. Clause
+                // (b) forced the name the moment `archive()` called `refuseUnlessDraft()`, and
+                // {@see self::theArchivedParentQuestionStaysMootOnlyWhileDeleteIsDraftOnly} holds the window.
+                'DeleteSalesOrder',
             ],
         ],
     ];
@@ -198,6 +202,40 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             .'Widening that window -- or moving the operation to a row of its own with a wider one, which is what '
             ."§8.3a's own text describes as the next step -- requires §8.3a to gain a *frozen fields* column AND "
             .'clause (a) to drive per field, in the same commit. Nothing else in this project would notice.');
+    }
+
+    /**
+     * **`RESIDUAL_GAPS.md` CD-4, ruled by the owner 2026-09-21 as option (i), and RE-KEYED here from where it was.**
+     *
+     * CD-4 asked what `quantity_outstanding` means on a sales order archived while `confirmed`. Its pin used to be
+     * `SalesOrderLineReadTest::theArchivedParentBranchIsUnruledAndStillUnreachable`, which went red the moment
+     * `DeleteSalesOrder` entered the registry — and it did, in this commit. The owner's answer is that the state must
+     * not exist: an archived sales order is always a draft, and a draft's lines owe their remainder whether it is live
+     * or archived. **That answer holds only while the delete's window is draft-only**, so this is now keyed on the
+     * window rather than on the operation's existence — V2-S-13's shape, one method up.
+     *
+     * **The CHECK is the real mechanism and this pin is secondary** (`RED`, sales slice 5, §4):
+     * `sales_order_archived_only_while_draft` refuses an archived non-draft for every writer, raw SQL included, and
+     * `DeletionPolicyTest::aSalesOrderCanBeArchivedOnlyWhileItIsADraft` holds it. Widening this window turns the first
+     * archived non-draft into a `23514` → HTTP 500, which is loud; this pin makes it loud earlier and says why.
+     */
+    #[Test]
+    public function theArchivedParentQuestionStaysMootOnlyWhileDeleteIsDraftOnly(): void
+    {
+        $windows = [];
+        foreach (self::ROWS as $name => $row) {
+            if (\in_array('DeleteSalesOrder', $row['operations'], true)) {
+                $windows[$name] = $row['from'];
+            }
+        }
+
+        self::assertSame(['SalesOrder' => [SalesOrder::STATUS_DRAFT]], $windows,
+            "CD-4 (ruled 2026-09-21, option (i)): an archived sales order is always a DRAFT, so SalesOrderLineRow never\n"
+            ."has to decide what a deleted COMMITMENT owes. That holds only while DeleteSalesOrder is named by exactly one\n"
+            ."row, 'SalesOrder', whose window is STATUS_DRAFT alone.\n"
+            .'Widening it re-opens CD-4 -- the owner\'s question, not an implementer\'s -- and the database will refuse the '
+            .'first archived non-draft anyway (sales_order_archived_only_while_draft, 23514 -> HTTP 500). Rule CD-4 '
+            .'again, apply the answer in SalesOrderLineRow::COLUMNS, and move the CHECK, in the same commit.');
     }
 
     /**
@@ -602,6 +640,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             // and saying nothing about D-A's frozen column.
             'UpdateSalesOrderLine' => $this->send('PATCH', '/sales-orders/'.$order.'/lines/'.$line, ['quantity' => '2', 'unit_price' => '3'], $key),
             'DeleteSalesOrderLine' => $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line, null, $key),
+            'DeleteSalesOrder' => $this->send('DELETE', '/sales-orders/'.$order, null, $key),
             // Driven at the archived line: a live one is refused by the restore's own guard, which would
             // answer 409 for the wrong reason and make the cell prove nothing about the edit window.
             'RestoreSalesOrderLine' => $this->send('POST', '/sales-orders/'.$order.'/lines/'.$archived.'/restoration', null, $key),

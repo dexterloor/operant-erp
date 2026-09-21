@@ -57,9 +57,10 @@ final readonly class SalesOrderReader
      * is not a uuid at all takes the same path — so "another tenant's", "hard-deleted" and "never
      * existed" answer identically.
      *
-     * **`RestoreSalesOrder` is declared in §4.2 and unbuilt**, so today this carve-out leads nowhere on
-     * this resource either; it is still right for ST-9's reason — an archived order stays readable
-     * because a fulfilment or an invoice legitimately references it.
+     * **`DeleteSalesOrder` archives orders since 2026-09-21, and `RestoreSalesOrder` is still unbuilt** (E9-3;
+     * owner ruling Q1, `RESIDUAL_GAPS.md` G-8), so the direct hit is how a holder of a discarded draft's id
+     * can still read it. It is right for ST-9's reason too — an archived order stays readable because a
+     * fulfilment or an invoice legitimately references it.
      */
     public function get(string $id): ?SalesOrderResource
     {

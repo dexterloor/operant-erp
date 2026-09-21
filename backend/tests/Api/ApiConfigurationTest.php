@@ -132,7 +132,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And the last of this slice:** `RestoreSalesOrderLine`. It ships while its purchase twin does
         // not, and the asymmetry is deliberate -- see `RestoreSalesOrderLineProcessor`'s docblock and
         // `PurchaseOrderOperationContractTest::PINNED_UNSHIPPED`'s note.
-        self::assertCount(33, $checked, 'The route set changed. This slice declares thirty-three operations: '.implode(', ', array_keys($checked)));
+        // **And one more on 2026-09-21 (sales slice 5):** `DeleteSalesOrder`. A **soft** delete as well --
+        // `has_table_privilege('erp_app', 'sales_order', 'DELETE')` is false before and after -- and it adds no
+        // `$notExposed` route: `SalesOrderResource` already has its item `Get`. `RestoreSalesOrder` is NOT
+        // declared: E9-3 blocks it (owner ruling Q1, 2026-09-21).
+        self::assertCount(34, $checked, 'The route set changed. This slice declares thirty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

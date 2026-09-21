@@ -71,15 +71,19 @@ use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
  * negative pre-fill is a defect wearing a 200.
  *
  * ---------------------------------------------------------------------------
- * ⚠ CARRIED, NOT SOLVED: the archived parent (`RESIDUAL_GAPS.md` CD-4)
+ * ⚖ RULED 2026-09-21: the archived parent (`RESIDUAL_GAPS.md` CD-4, option (i))
  * ---------------------------------------------------------------------------
- * V2-C-14(b) ruled the `cancelled` branch and only that branch. An order archived
- * while `confirmed` keeps `status = 'confirmed'`, so its lines still report
- * outstanding work on a deleted document. That is **unreachable today** —
- * `DeleteSalesOrder` is unbuilt — and it is not this output's to rule. It is
- * carried as `RESIDUAL_GAPS.md` **CD-4** with `DeleteSalesOrder` as its hard
- * trigger, and by `SalesOrderLineReadTest::theArchivedParentBranchIsUnruledAndStillUnreachable`,
- * which reddens the moment a delete operation on this resource is built.
+ * V2-C-14(b) ruled the `cancelled` branch and only that branch, and CD-4 asked
+ * what an order archived while `confirmed` owes. The owner ruled that such an
+ * order must not exist: **an archived sales order is always a draft**, so its
+ * lines owe exactly what a live draft's owe and this CASE needs no branch for
+ * it. Held by `DeleteSalesOrder`'s draft-only window (pinned by
+ * `EditWindowGuardTest::theArchivedParentQuestionStaysMootOnlyWhileDeleteIsDraftOnly`),
+ * by `sales_order_archived_only_while_draft` at the database, and asserted by
+ * `SalesOrderLineReadTest::anArchivedOrdersLinesOweWhatTheDraftTheyBelongToOwes`.
+ * **Do not add an archived branch here to "complete" the CASE** — widening the
+ * delete's window is what would make one necessary, and that is the owner's.
+ * CD-4's child-side note (an archived LINE under a live parent) is still open.
  */
 final class SalesOrderLineRow
 {

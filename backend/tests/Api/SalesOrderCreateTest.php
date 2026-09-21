@@ -30,13 +30,15 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s
      * whole-registry union, so an operation added to `SalesOrderResource` and not pinned here is red there.
      *
-     * **`ListSalesOrders`, `UpdateSalesOrder`, `CancelSalesOrder`, `DeleteSalesOrder`, `RestoreSalesOrder`
-     * and `CreateSalesOrderLine` are all declared in §4.2 and not built here.** `GetSalesOrder` was the
-     * eighth until 2026-09-19; it is built, it is the resource's first item operation, and its arrival is
-     * why `CreateSalesOrder` no longer declares a `CreatedRowLocation` template — the vendor's own
-     * `Location` is already §4.2's path. **`ConfirmSalesOrder` left that list later the same day**; its
-     * `idem` is `false` because §4.2 gives it `guard:sales_order.status`, and API-14 as amended demands
-     * the header for `store` and `unique:` only.
+     * **Of §4.2's `/sales-orders` rows, only `RestoreSalesOrder` is not built here** — E9-3 blocks it while
+     * `ListSalesOrders` declares no `archived` parameter (owner ruling Q1, 2026-09-21), and
+     * {@see self::theArchivedIdProblemIsWhyNoOrderRestoreShips} holds that both ways. *(This sentence listed
+     * `ListSalesOrders`, `UpdateSalesOrder`, `CancelSalesOrder` and `CreateSalesOrderLine` as unbuilt until
+     * 2026-09-21, while all four were built and pinned directly below it — the step-4 design's stale claim
+     * S-3.)* `GetSalesOrder` is the resource's first item operation, and its arrival is why `CreateSalesOrder`
+     * no longer declares a `CreatedRowLocation` template — the vendor's own `Location` is already §4.2's
+     * path. `ConfirmSalesOrder`'s `idem` is `false` because §4.2 gives it `guard:sales_order.status`, and
+     * API-14 as amended demands the header for `store` and `unique:` only.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
@@ -71,6 +73,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // there is no duplicate for a key to prevent. Its position here was read off this test's own
         // failure, not guessed.
         'UpdateSalesOrder' => ['method' => 'PATCH', 'path' => '/sales-orders/{id}', 'idem' => false],
+        // `idem` false: §4.2's cell is `no`. A repeat finds the order archived and is refused by the archived
+        // guard, `DeletePurchaseOrder`'s answer. Position read off this test's own failure.
+        'DeleteSalesOrder' => ['method' => 'DELETE', 'path' => '/sales-orders/{id}', 'idem' => false],
         'ConfirmSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/confirmation', 'idem' => false],
         // `idem` false for the confirmation's reason: §4.2's cell is `guard:sales_order.status`, and API-14
         // as amended demands the header for `store` and `unique:` only.
@@ -466,8 +471,8 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * `sales_order_tenant_number_live` refuses it (`23505`, measured by the step-4 design and by `RED`). A number
      * the user cannot choose would turn ADR-007 §4's *"designed error message"* into a permanent refusal.
      *
-     * The order is archived as the schema owner because `DeleteSalesOrder` is not built in this commit; the
-     * property is the MINT's, whatever archived the row. Free now — no archived sales order has ever existed —
+     * The order is archived as the schema owner because `DeleteSalesOrder` was not yet built when this test
+     * landed (the commit before it); the property is the MINT's, whatever archived the row. Free now — no archived sales order has ever existed —
      * and permanent once one does.
      */
     #[Test]
@@ -594,5 +599,54 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
             .'say so rather than keeping an exception nothing needs.');
         self::assertContains('RestoreItem', $declared,
             'The carve-out above is vacuous unless `RestoreItem` really is shipped.');
+    }
+
+    /**
+     * **E9-3 for the ORDER, and — since `DeleteSalesOrder` shipped — the only thing that goes red on
+     * `RestoreSalesOrder` for E9-3's reason.** The sales twin of the shipped
+     * `PurchaseOrderOperationContractTest::theArchivedIdProblemIsWhyNoRestoreShips`, bidirectional like it:
+     * `RestoreSalesOrder` ships exactly when `ListSalesOrders` declares `archived`.
+     *
+     * **Why it lands in `DeleteSalesOrder`'s commit and not later (`RED`, sales slice 5, §1.3).** Until that
+     * commit, `SalesOrderLineReadTest`'s CD-4 pin intersected `['DeleteSalesOrder', 'RestoreSalesOrder']` with the
+     * registry, so a `RestoreSalesOrder` added then DID go red — for CD-4's reason. The CD-4 pin had to be re-keyed
+     * when `DeleteSalesOrder` entered the registry, and after the re-key nothing would have fired on the restore at
+     * all. This test and `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt` are what
+     * replace it, in the same commit.
+     *
+     * **`RESIDUAL_GAPS.md` G-8** (owner-accepted 2026-09-21, Q1): until this goes red on purpose, a discarded draft
+     * is recoverable only by direct SQL, and `IA.md` L-9's reversal-register row *"Delete a draft"* asserts a
+     * reversal that does not exist for either document type. **Before `RestoreSalesOrder` ships,
+     * `RequestContractTest::archiveTheRowARestoreBinds()` must know `sales-orders`** — it does since 2026-09-21 —
+     * or that operation's no-write check is vacuous, the fake-green `RED` measured for `RestoreSalesOrderLine`.
+     *
+     * **The `status` control is `RED`'s**: without it, a renamed `ListSalesOrders` makes the lookup an undefined
+     * key and the whole check leans on PHP's warning handling — the empty-set trap.
+     */
+    #[Test]
+    public function theArchivedIdProblemIsWhyNoOrderRestoreShips(): void
+    {
+        $operations = TransactionBoundaryTest::contractOperations();
+        self::assertArrayHasKey('ListSalesOrders', $operations,
+            'Control: `ListSalesOrders` is not in the registry under that name, so the check below would compare nothing.');
+        $list = $operations['ListSalesOrders'];
+        \assert($list instanceof \ApiPlatform\Metadata\HttpOperation);
+
+        $declaredParameters = [];
+        foreach ($list->getParameters() ?? [] as $key => $parameter) {
+            $declaredParameters[] = (string) ($parameter->getKey() ?? $key);
+        }
+        self::assertContains('status', $declaredParameters,
+            'Control: `ListSalesOrders` no longer declares `status`, so its parameters are not being read the way '
+            .'this check reads them and the `archived` test below would pass on nothing.');
+
+        self::assertSame(\in_array('archived', $declaredParameters, true), \array_key_exists('RestoreSalesOrder', $operations),
+            'E9-3: `RestoreSalesOrder` ships exactly when an archived order\'s id is obtainable by a caller who does '
+            ."not already hold it -- i.e. exactly when `ListSalesOrders` declares `archived`.\n"
+            .'A restore nobody can reach is not a shipped operation, and it is the kind that passes every test '
+            ."because the test holds the id.\n"
+            .'If this went red because `archived` arrived: `RESIDUAL_GAPS.md` G-8 is due -- build the restore, '
+            .'annotate IA L-9, and read `OwedAmendmentTripwireTest`\'s restore-collision pin, which carries the '
+            .'constraint translations the restore owes.');
     }
 }

@@ -332,6 +332,9 @@ trait ArchivedRowSubjects
             'UpdateSalesOrderLine' => ['quantity' => '2'],
             // A `DELETE` carries no body, and the trait's selector puts it in the domain anyway.
             'DeleteSalesOrderLine' => null,
+            // The `sales_order` fixture is a draft (`seedSalesOrder` defaults to it), so the LIVE twin succeeds
+            // -- the trait's own control -- and the archived twin's 409 is `sales_order.is_archived`'s alone.
+            'DeleteSalesOrder' => null,
         ];
     }
 

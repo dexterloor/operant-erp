@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
@@ -12,6 +13,7 @@ use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CancelSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\ConfirmSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
+use App\Modules\Sales\ApiResource\State\DeleteSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -19,9 +21,10 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `sales_order`'s read and write shape, and the four operations built so far. *(Three until
- * 2026-09-19, when `CancelSalesOrder` landed. Count the `operations:` entries below rather than
- * trusting this sentence — it has already been wrong once.)*
+ * `sales_order`'s read and write shape, and the operations built on it. *(This sentence said "the four
+ * operations built so far" and was wrong twice — it read "three" until `CancelSalesOrder` landed on
+ * 2026-09-19, and "four" while six were declared. Count the `operations:` entries below; it no longer
+ * states a number.)*
  *
  * ---------------------------------------------------------------------------
  * The field list is derived, not chosen (API-23)
@@ -159,6 +162,20 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // PATCH sets absolute values on a row that already exists, so there is no duplicate for a
             // key to prevent and API-14 has no mechanism to name.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
+        ),
+        // API-21 branch 3: 204, no body. `DeletePurchaseOrder`'s declaration, one module over. Read first, so a
+        // DELETE at an id no row answers is the same `not-found` `GetSalesOrder` returns (§5.3 clause 2); the
+        // writer then reads the row again under its lock. §4.2's `Idem` cell is `no`: a repeat is refused by the
+        // archived guard, so no `IdempotencyKeyGuard::OPERATION_FLAG`. **`RestoreSalesOrder` is not declared** —
+        // E9-3 blocks it (owner ruling Q1, 2026-09-21; `RESIDUAL_GAPS.md` G-8).
+        new Delete(
+            uriTemplate: '/sales-orders/{id}',
+            name: 'DeleteSalesOrder',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteSalesOrder'),
+            provider: SalesOrderProvider::class,
+            processor: DeleteSalesOrderProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.delete'],
         ),
         // API-21 branch 5, `ApprovePurchaseOrder`'s branch: a confirmation creates no row and has no
         // row-level URI to name beyond the one the caller is already on. 200 with the resource in its

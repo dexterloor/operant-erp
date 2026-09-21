@@ -79,9 +79,15 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
-  # (Re-derived 2026-09-21 with the whole `sales_order_line` write slice in the tree, by running the
-  # three commands on the file rather than by adding to the previous figures.
-  # `make deptrac` reports **0 violations / 256 skipped / 1317 allowed** — re-derived AFTER the last
+  # (Re-derived 2026-09-21 with `DeleteSalesOrder` in the tree (sales slice 5): the three commands still
+  # return **92 / 65 / 6 — no edge line was added**, and `make deptrac` reports **0 violations / 258 skipped /
+  # 1321 allowed**. The +2 skipped are OCCURRENCES of an already-registered pair, not new pairs:
+  # `SalesOrderWriter::archive()` reads `SalesOrder::STATUS_CONFIRMED` and `STATUS_PARTIALLY_FULFILLED` off the
+  # entity to choose its refusal's advice (`SalesOrderWriter -> Entity\SalesOrder`, registered with
+  # `UpdateSalesOrder`). The +4 allowed are the new processor's in-module edges. Measured after the commit's
+  # last edit, per the instruction below.
+  # With the whole `sales_order_line` write slice in the tree, before this, it was
+  # **0 violations / 256 skipped / 1317 allowed** — re-derived AFTER the last
   # commit's tests landed. ⚠ It read **1315** for the length of one commit, measured before those
   # tests existed: the same shape this header has now recorded three times, which is why the
   # instruction below is to re-run the commands and never trust this line. At `UpdateSalesOrderLine`

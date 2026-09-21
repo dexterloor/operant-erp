@@ -776,6 +776,46 @@ final readonly class SalesOrderWriter
     }
 
     /**
+     * **`DeleteSalesOrder` — API-21 branch 3: 204, and no body.** `sales_order` is `SchemaManifest::SOFT`, so this is
+     * an `UPDATE` of `deleted_at`, never a `DELETE` — and `erp_app` holds no `DELETE` on the table, measured before and
+     * after this operation was built. The database's `sales_order_cascade_deletion` trigger takes the LIVE lines with
+     * the order; since `Version20260921000200` a line discarded on its own keeps its own stamp.
+     *
+     * **The order of the guards is `PurchaseOrderWriter::archive()`'s:** row lock first (the lock-first tripwire
+     * demands it), then not-found, then archived (a repeat `DELETE` is refused here — `Idem = no`), then **L-8** — a
+     * document is deletable only while it is a draft, so disposing of a draft and repudiating a commitment stay two
+     * acts with two permissions. `sales_order_archived_only_while_draft` (CD-4, ruled 2026-09-21) is the same rule at
+     * the database: widening this window would turn the first archived non-draft into a `23514`, loudly.
+     *
+     * ⚠ **`clock_timestamp()`, not `now()`, and it is not a style.** The cascade identifies the lines to restore by
+     * "same stamp as the order", so an order's stamp must be DISTINCT from any line's that was archived on its own.
+     * Every line archive holds this row lock and commits before it is granted here, and `clock_timestamp()` is read
+     * after the lock is held, so the two instants differ except across a backward wall-clock step. `now()` would
+     * collide only if both transactions STARTED in the same microsecond — negligible, and this removes even that.
+     * Do not "normalise" it. `total_amount` is left as it was: the order's lines leave with it.
+     *
+     * **No audit row** — `RESIDUAL_GAPS.md` G-9, a named B-4a carry, held by
+     * `SalesOrderDeleteTest::aDeletionWritesNoAuditRowBecauseB4aOwnsThatDeferral`.
+     */
+    public function archive(string $id): void
+    {
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+            SalesOrderRowLock::holdInside($em, $id);
+            $order = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
+
+            $this->refuseIfArchived($order);
+            $this->refuseUnlessDraft($order, \in_array($order->status, [SalesOrder::STATUS_CONFIRMED, SalesOrder::STATUS_PARTIALLY_FULFILLED], true)
+                ? ' Cancel it instead: only a draft can be deleted.'
+                : ' Only a draft can be deleted.');
+
+            $em->getConnection()->executeStatement(
+                'UPDATE sales_order SET deleted_at = clock_timestamp(), updated_at = now() WHERE id = ?::uuid',
+                [$id],
+            );
+        });
+    }
+
+    /**
      * **`RestoreSalesOrderLine` — `guard:sales_order_line.deleted_at`, so a repeat is refused by the
      * guard itself and no retry key is needed** (API-14 as amended demands the header for `store` and
      * `unique:` only).
@@ -1211,12 +1251,14 @@ final readonly class SalesOrderWriter
      * rather than spelled as a literal, so a rename of `STATUS_DRAFT`'s value moves this rule with it —
      * the discipline API-15 requires of a transition guard, required here by §8.3a clause (c).
      */
-    private function refuseUnlessDraft(SalesOrderResource $order): void
+    private function refuseUnlessDraft(SalesOrderResource $order, string $instead = ''): void
     {
         if (SalesOrder::STATUS_DRAFT !== $order->status) {
+            // The status is NAMED, never assumed. Until 2026-09-21 this said *"has been confirmed"* of every
+            // non-draft — false of a `cancelled` order, which `cancel()` admits from `draft` (`RED`, sales slice 5).
             throw ApiProblem::businessRuleViolated(
                 'sales_order.is_editable_only_while_draft',
-                'This sales order has been confirmed, so it is read-only except for its transitions.',
+                \sprintf('This sales order is %s, not a draft, so it is read-only except for its transitions.%s', $order->status, $instead),
             );
         }
     }

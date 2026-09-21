@@ -11,9 +11,10 @@ use App\Modules\Sales\Application\SalesOrderReader;
 use App\Platform\Http\Problem\ApiProblem;
 
 /**
- * `GetSalesOrder`, and nothing else — `UpdateSalesOrder` and `DeleteSalesOrder` are declared in §4.2 and
- * unbuilt, and each will decide for itself whether its row belongs to a provider or to the transaction
- * that writes it. **`ConfirmSalesOrder` has now decided, and decided against this class:** it declares
+ * `GetSalesOrder`, `UpdateSalesOrder` and `DeleteSalesOrder` — each of the two writes reads its row here
+ * first, so an id no row answers is the same `not-found` the read returns (§5.3 clause 2), and then reads it
+ * again under its lock. *(This sentence called both writes unbuilt until 2026-09-21.)*
+ * **`ConfirmSalesOrder` decided against this class:** it declares
  * `read: false` and loads its row inside the transaction that writes it, because its lock, its archived
  * check, its status guard and its line count are one atomic sequence and a provider runs before the
  * processor opens one. That is `ApprovePurchaseOrder`'s shipped position.

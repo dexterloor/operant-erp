@@ -154,6 +154,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['quantity' => '7.000000', 'unit_price' => '9.5000'],
         ],
         'DeleteSalesOrderLine' => ['vars' => ['id' => 'sales_order', 'lineId' => 'sales_order_line']],
+        // The seeded order is a DRAFT, so the baseline delete succeeds (204) -- a probe whose baseline is
+        // refused would compare a refusal with a refusal.
+        'DeleteSalesOrder' => ['vars' => ['id' => 'sales_order']],
         // ⚠ Its subject must be an ARCHIVED line, because the baseline drive has to SUCCEED -- a probe
         // whose baseline is refused compares a refusal with a refusal. `archived_sales_order_line` is a
         // per-tenant symbol seeded beside the live one.

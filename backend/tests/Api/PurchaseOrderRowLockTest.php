@@ -1060,6 +1060,92 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Delete vs confirm (sales slice 5): a rep discards a draft while a colleague commits it to the customer.**
+     * A confirms and holds the order; the `DELETE` must wait, then read `confirmed` and be refused by L-8.
+     *
+     * Without the lock first, the delete would read `draft`, pass `refuseUnlessDraft()`, wait only at its own
+     * `UPDATE`, and then archive an order that had just been confirmed — which
+     * `sales_order_archived_only_while_draft` would refuse as a `23514`, i.e. an HTTP 500 where the caller should
+     * be told the order is no longer a draft. So the lock is what turns a database refusal into a domain one.
+     */
+    #[Test]
+    public function aSalesDeleteWaitsForAConcurrentConfirmationAndThenRefuses(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ["UPDATE sales_order SET status = 'confirmed', ordered_at = now(), updated_at = now() WHERE id = ?::uuid", [$order]],
+        ], request: fn () => $this->send('DELETE', '/sales-orders/'.$order), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.is_editable_only_while_draft', $this->json()['rule']);
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_CONFIRMED);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM sales_order WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$order]),
+            'A delete refused by the edit window archived the confirmed order anyway.');
+    }
+
+    /**
+     * **Delete vs delete: two reps discard the same draft at once.** A archives the order and holds it; the second
+     * `DELETE` must wait, then read the archive A committed and be refused as `is_archived` — the `Idem = no`
+     * answer — rather than re-stamping the order (and, through the cascade, nothing, since its lines are no longer
+     * live).
+     */
+    #[Test]
+    public function aSecondSalesDeleteWaitsAndIsRefusedAsArchived(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+
+        $holder = $this->raceAgainstAHolder($order, before: [
+            ['UPDATE sales_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid', [$order]],
+        ], request: fn () => $this->send('DELETE', '/sales-orders/'.$order), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.is_archived', $this->json()['rule']);
+    }
+
+    /**
+     * **The sales twin of `archivingALineWhileTheOrderIsArchivedWaitsInsteadOfDeadlocking`**, reachable on the
+     * sales side for the first time now that `DeleteSalesOrder` archives an order through the API.
+     *
+     * A holds the order and waits until the line `DELETE` is blocked on it; only then does A archive the order, so
+     * its cascade reaches for the line. `archiveLine()` takes the order lock FIRST, so the request is blocked on its
+     * first statement holding nothing, A's cascade takes the line freely and commits, and the request reads an
+     * archived order and refuses. Line-then-order would have deadlocked (40P01), which is the purchase twin's
+     * recorded history.
+     */
+    #[Test]
+    public function archivingASalesLineWhileTheOrderIsArchivedWaitsInsteadOfDeadlocking(): void
+    {
+        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $line = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM sales_order_line WHERE sales_order_id = ?::uuid', [$order])[0]['id'];
+
+        $holder = $this->raceAgainstAHolder(
+            $order,
+            before: [],
+            request: fn () => $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line),
+            after: [
+                ['UPDATE sales_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid', [$order]],
+            ],
+            table: 'sales_order',
+        );
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.is_archived', $this->json()['rule']);
+
+        // The line was archived by the cascade, with its order, at the order's instant -- not by the refused request.
+        self::assertSame([['same_instant' => true]], $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            SELECT sol.deleted_at = so.deleted_at AS same_instant
+              FROM sales_order_line sol JOIN sales_order so ON so.id = sol.sales_order_id
+             WHERE sol.id = ?::uuid
+            SQL, [$line]));
+    }
+
+    /**
      * **The Sales half of `theOrderRowLockIsTheFirstStatementToTouchTheOrder`: in every sales write path
      * the lock is the first statement that touches the order or its lines.**
      *
@@ -1164,6 +1250,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // a refused drive issues no write, so `assertCount(1, $writing)` would fail before the position
         // check said anything.
         yield 'RestoreSalesOrderLine' => ['POST', '/sales-orders/{order}/lines/{archivedLine}/restoration', null, 200];
+        // 204, API-21 branch 3. The order is seeded `draft`, so L-8 lets it through and the `UPDATE sales_order
+        // SET deleted_at` is really issued; the cascade's line UPDATE runs inside the trigger, below the PHP
+        // statement log, so exactly one write is seen.
+        yield 'DeleteSalesOrder' => ['DELETE', '/sales-orders/{order}', null, 204];
     }
 
     /**
@@ -1197,6 +1287,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'UpdateSalesOrderLine' => 'SalesOrderWriter::updateLine',
         'DeleteSalesOrderLine' => 'SalesOrderWriter::archiveLine',
         'RestoreSalesOrderLine' => 'SalesOrderWriter::restoreLine',
+        // Added 2026-09-21 (sales slice 5), read off the scan's own failure: `SalesOrderWriter::archive — SQL:
+        // UPDATE sales_order` was named before this entry existed.
+        'DeleteSalesOrder' => 'SalesOrderWriter::archive',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [
