@@ -78,6 +78,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateSalesOrderLine' => 'sales_order.edit',
         'UpdateSalesOrderLine' => 'sales_order.edit',
         'DeleteSalesOrderLine' => 'sales_order.edit',
+        'RestoreSalesOrderLine' => 'sales_order.edit',
         // Added 2026-09-19 with the read. `sales_order.view` is the row's own `Perm` cell and it is the
         // only code this operation wants: `created_by`'s expansion needs no `app_user.view` (PC-15
         // condition 2, ruled for this field by B1N-2 on PC-11 (4a) ground) and neither customer nor

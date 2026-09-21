@@ -12,6 +12,7 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderLineProcessor;
 use App\Modules\Sales\ApiResource\State\DeleteSalesOrderLineProcessor;
+use App\Modules\Sales\ApiResource\State\RestoreSalesOrderLineProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderLineProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderLineProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -132,6 +133,29 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeleteSalesOrderLine'),
             provider: SalesOrderLineProvider::class,
             processor: DeleteSalesOrderLineProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
+        ),
+        // It mints nothing -- it clears `deleted_at` on a row the caller already holds the id of -- so
+        // **200 with the resource in its new state, and no `Location`**. `RestoreItem` is the model.
+        new Post(
+            uriTemplate: '/sales-orders/{id}/lines/{lineId}/restoration',
+            uriVariables: [
+                'id' => new Link(fromClass: SalesOrderResource::class, identifiers: ['id'], parameterName: 'id'),
+                'lineId' => new Link(fromClass: SalesOrderLineResource::class, identifiers: ['id'], parameterName: 'lineId'),
+            ],
+            name: 'RestoreSalesOrderLine',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreSalesOrderLine'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreSalesOrderLineProcessor::class,
+            // ⚠ **No `IdempotencyKeyGuard::OPERATION_FLAG`, and its absence is the point rather than an
+            // omission.** §4.2's cell is `guard:sales_order_line.deleted_at`: a replayed restore finds a
+            // live row and the writer answers `business-rule-violated`, which tells the caller their first
+            // attempt committed. API-14 as amended demands the header for `store` and `unique:` only,
+            // because a guard refuses its own repeat whether or not a header arrives.
+            // `IdempotencyContractTest` is what holds this flag and that cell to each other.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.edit'],
         ),
     ],

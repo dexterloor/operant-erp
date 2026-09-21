@@ -119,6 +119,18 @@
     "RestoreItem $.safety_stock": [
         6
     ],
+    "RestoreSalesOrderLine $.quantity": [
+        6
+    ],
+    "RestoreSalesOrderLine $.quantity_fulfilled": [
+        6
+    ],
+    "RestoreSalesOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "RestoreSalesOrderLine $.unit_price": [
+        4
+    ],
     "UpdateItem $.reorder_point": [
         6
     ],

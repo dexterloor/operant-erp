@@ -79,11 +79,17 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
-  # (Re-derived 2026-09-21 with `UpdateSalesOrderLine` in the tree, by running the three
-  # commands on the file rather than by adding to the previous figures.
-  # `make deptrac` reports **0 violations / 253 skipped / 1300 allowed**; with
-  # `CreateSalesOrderLine` earlier the same day it was 91 / 64 / 6 and **0 / 246 / 1288**, and with
-  # `UpdateSalesOrder` before that 89 / 62 / 6 and **0 / 240 / 1260**.
+  # (Re-derived 2026-09-21 with the whole `sales_order_line` write slice in the tree, by running the
+  # three commands on the file rather than by adding to the previous figures.
+  # `make deptrac` reports **0 violations / 256 skipped / 1317 allowed** — re-derived AFTER the last
+  # commit's tests landed. ⚠ It read **1315** for the length of one commit, measured before those
+  # tests existed: the same shape this header has now recorded three times, which is why the
+  # instruction below is to re-run the commands and never trust this line. At `UpdateSalesOrderLine`
+  # earlier the same day it was 92 / 65 / 6 and **0 / 253 / 1300**, at `CreateSalesOrderLine`
+  # 91 / 64 / 6 and **0 / 246 / 1288**, and at `UpdateSalesOrder` 89 / 62 / 6 and **0 / 240 / 1260**.
+  # ⚠ `DeleteSalesOrderLine` and `RestoreSalesOrderLine` added NO edge line: their processors take
+  # `SalesOrderWriter` and return `null` or an already-registered read model, so the register did not
+  # move for either -- read off the run rather than assumed from the pattern.
   # `make deptrac` reports **0 violations / 240 skipped / 1260 allowed** (re-derived AFTER
   # `SalesOrder::shipTo()` was deleted -- it read 1261 while that method still used `Country`, and
   # restating the earlier figure would have published a number no run produces); with

@@ -1089,6 +1089,13 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // signature changed under its three other callers.
         $path = strtr($path, ['{line}' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT id::text AS id FROM sales_order_line WHERE sales_order_id = ?::uuid', [$order])[0]['id']]);
+        // `{archivedLine}` for `RestoreSalesOrderLine`, whose guard refuses a live row: a refused drive
+        // issues no write, and `assertCount(1, $writing)` would fail before the position check ran.
+        $archived = $this->seedSalesOrderLine(self::TENANT_A, $order,
+            $this->seedItem(self::TENANT_A, 'SKU-LOCK-ARC'), lineNumber: 2);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
+        $path = strtr($path, ['{archivedLine}' => $archived]);
         $body = null === $body ? null : array_map(
             static fn (string $value): string => strtr($value, $substitutions),
             $body,
@@ -1153,6 +1160,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // 204 and no body: API-21 branch 3. A soft delete, so the statement this check watches for is an
         // `UPDATE` of `deleted_at` and not a `DELETE`.
         yield 'DeleteSalesOrderLine' => ['DELETE', '/sales-orders/{order}/lines/{line}', null, 204];
+        // Driven at the ARCHIVED line, not the live one: the restore's own guard refuses a live row, and
+        // a refused drive issues no write, so `assertCount(1, $writing)` would fail before the position
+        // check said anything.
+        yield 'RestoreSalesOrderLine' => ['POST', '/sales-orders/{order}/lines/{archivedLine}/restoration', null, 200];
     }
 
     /**
@@ -1185,6 +1196,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CreateSalesOrderLine' => 'SalesOrderWriter::createLine',
         'UpdateSalesOrderLine' => 'SalesOrderWriter::updateLine',
         'DeleteSalesOrderLine' => 'SalesOrderWriter::archiveLine',
+        'RestoreSalesOrderLine' => 'SalesOrderWriter::restoreLine',
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [

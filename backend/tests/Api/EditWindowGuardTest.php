@@ -104,6 +104,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 'CreateSalesOrderLine',
                 'UpdateSalesOrderLine',
                 'DeleteSalesOrderLine',
+                'RestoreSalesOrderLine',
             ],
         ],
     ];
@@ -572,6 +573,13 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         // are seeded here and are reachable through no built operation (G-7).
         $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse, $status);
         $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6)));
+        // A SECOND line, archived, so `RestoreSalesOrderLine` has a subject its own guard admits. Without
+        // it that operation's cells would answer 409 for `sales_order_line.is_not_archived` and prove
+        // nothing about the edit window -- a refusal for the wrong reason is not evidence.
+        $archived = $this->seedSalesOrderLine(self::TENANT_A, $order,
+            $this->seedItem(self::TENANT_A, 'SKU-EWA-'.substr(md5($status), 0, 6)), lineNumber: 2);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
         $key = ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
 
@@ -594,6 +602,9 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             // and saying nothing about D-A's frozen column.
             'UpdateSalesOrderLine' => $this->send('PATCH', '/sales-orders/'.$order.'/lines/'.$line, ['quantity' => '2', 'unit_price' => '3'], $key),
             'DeleteSalesOrderLine' => $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line, null, $key),
+            // Driven at the archived line: a live one is refused by the restore's own guard, which would
+            // answer 409 for the wrong reason and make the cell prove nothing about the edit window.
+            'RestoreSalesOrderLine' => $this->send('POST', '/sales-orders/'.$order.'/lines/'.$archived.'/restoration', null, $key),
             default => self::fail('§8.3a names a sales-order operation this test cannot drive: '.$operation),
         };
     }

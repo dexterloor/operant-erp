@@ -60,6 +60,10 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // `idem` false: §4.2's cell is `no`. A repeat finds the line already archived and is refused by
         // the line guard, so there is no duplicate for a key to prevent.
         'DeleteSalesOrderLine' => ['method' => 'DELETE', 'path' => '/sales-orders/{id}/lines/{lineId}', 'idem' => false],
+        // `idem` FALSE even though §4.2 marks it: the cell is `guard:sales_order_line.deleted_at`, and
+        // API-14 as amended demands the header for `store` and `unique:` only. A guard refuses its own
+        // repeat whether or not a header arrives.
+        'RestoreSalesOrderLine' => ['method' => 'POST', 'path' => '/sales-orders/{id}/lines/{lineId}/restoration', 'idem' => false],
         'GetSalesOrder' => ['method' => 'GET', 'path' => '/sales-orders/{id}', 'idem' => false],
         'CreateSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders', 'idem' => true],
         // `idem` false, and §4.2's `Idem` cell reads `no` for the reason API-14 asks for: a PATCH sets
@@ -493,5 +497,69 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
     private function create(array $c, ?array $lines): void
     {
         $this->send('POST', '/sales-orders', $this->body($c, $lines), [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+    }
+
+    /**
+     * **E9-3 as a CHECK rather than a category, and the clause it reconciles was rewritten to make this
+     * test possible** (Output 9, sales slice 4, commit 5).
+     *
+     * E9-3 used to block *"`RestoreItem`, any other `Restore\*`, or `CreateBulkRestoration`"* — **a
+     * category**, which is the exact defect E9-2's clause 1 was rewritten to remove on 2026-09-12: *"a
+     * category is a second, unmaintained copy of a set, and the two drift."* It had drifted the same way
+     * here. API-O-11's substantive ground is *"no list can produce an archived row's id"*, and that
+     * ground is **false** of the line restores: `ListSalesOrderLines` declares `archived` and is built.
+     *
+     * So the clause now blocks on a property **computable from §4.2's own Query-parameters column**, and
+     * this is its reconciliation — modelled on the **shipped**
+     * `PurchaseOrderOperationContractTest::theArchivedIdProblemIsWhyNoRestoreShips`, which already
+     * implements the clause bidirectionally for `RestorePurchaseOrder`. **Bidirectional matters:** it is
+     * red if the operation ships while the parameter is gone, *and* red if the parameter arrives while
+     * the operation is withdrawn. A gate that can only fire one way is a gate that gets walked past.
+     *
+     * ⚠ **Obtainability is necessary and not sufficient, and this test deliberately does not claim
+     * otherwise.** The purchase twin stays unshipped on a **different** ground its own processor records
+     * in shipped code — coherence with the parent — which `RestoreSalesOrderLine` answers with
+     * `refuseIfArchived($order)` and `refuseUnlessDraft($order)` rather than by disputing it.
+     */
+    #[Test]
+    public function theArchivedIdProblemIsWhyNoLineRestoreShips(): void
+    {
+        $operation = TransactionBoundaryTest::contractOperations()['ListSalesOrderLines'];
+        \assert($operation instanceof \ApiPlatform\Metadata\HttpOperation);
+
+        $declaredParameters = [];
+        foreach ($operation->getParameters() ?? [] as $key => $parameter) {
+            $declaredParameters[] = (string) ($parameter->getKey() ?? $key);
+        }
+
+        $reachable = \in_array('archived', $declaredParameters, true);
+        $declared = array_keys(TransactionBoundaryTest::contractOperations());
+
+        self::assertSame($reachable, \in_array('RestoreSalesOrderLine', $declared, true),
+            'E9-3 as rewritten 2026-09-21: `RestoreSalesOrderLine` ships exactly when an archived line\'s id is '
+            ."obtainable by a caller who does not already hold it.\n"
+            .'A restore nobody can reach is not a shipped operation, and it is the kind that passes every test '
+            ."because the test holds the id.\n"
+            .'If `ListSalesOrderLines` ever drops its `archived` parameter, this operation must be withdrawn in the '
+            .'same commit -- and if this operation is withdrawn while the parameter stands, that is red too.');
+
+        // The control, and it is the carve-out E9-3's rewritten clause names explicitly: `RestoreItem`
+        // SHIPS while `ListItems` declares NO `archived`. A naive computable clause makes a shipped
+        // operation retroactively illegal on its first run, which is why the carve-out is written into
+        // the ledger cell rather than left as a comment.
+        $items = TransactionBoundaryTest::contractOperations()['ListItems'];
+        \assert($items instanceof \ApiPlatform\Metadata\HttpOperation);
+
+        $itemParameters = [];
+        foreach ($items->getParameters() ?? [] as $key => $parameter) {
+            $itemParameters[] = (string) ($parameter->getKey() ?? $key);
+        }
+
+        self::assertNotContains('archived', $itemParameters,
+            '`ListItems` has gained an `archived` parameter. E9-3 carves `RestoreItem` out BY NAME precisely because '
+            .'it ships without one; if that has changed, the carve-out is now unnecessary and the ledger cell should '
+            .'say so rather than keeping an exception nothing needs.');
+        self::assertContains('RestoreItem', $declared,
+            'The carve-out above is vacuous unless `RestoreItem` really is shipped.');
     }
 }

@@ -170,7 +170,9 @@ final class WriteOwnershipTest extends TestCase
         // **6 -> 7 on 2026-09-21** with `DeleteSalesOrderLine`: one `UPDATE sales_order_line SET
         // deleted_at`. A soft delete, so it is an UPDATE this scan counts and not a DELETE it would
         // have to see a grant for.
-        'Modules\\Sales' => 7,
+        // **7 -> 8 on 2026-09-21** with `RestoreSalesOrderLine`: one `UPDATE sales_order_line SET
+        // deleted_at = NULL`, the mirror of the archive above.
+        'Modules\\Sales' => 8,
         'Modules\\UserManagement' => 5,
     ];
 

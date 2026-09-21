@@ -239,6 +239,19 @@ trait OperationSuccessRecipes
 
                 return [204, 'create the order, then delete its line'];
             }],
+            // The line is created, deleted and then restored through the operations themselves, so the
+            // row this drives at is archived by a writer rather than by a fixture -- which is what makes
+            // the 200 mean the restore worked rather than that the guard happened to be satisfied.
+            'RestoreSalesOrderLine' => [fn (): array => $salesWorkspace('SO-RL'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $order = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $order.'/lines');
+                $line = $this->json()['items'][0]['id'];
+                $this->send('DELETE', $order.'/lines/'.$line);
+                $this->send('POST', $order.'/lines/'.$line.'/restoration');
+
+                return [200, 'create the order, delete its line, then restore it'];
+            }],
             // The read is driven through the writer rather than off a fixture, so the row it reads is a
             // row the operation wrote — which is what makes `created_by` non-null in the body every
             // reference check walks. A seeded `sales_order` would leave the column NULL and the

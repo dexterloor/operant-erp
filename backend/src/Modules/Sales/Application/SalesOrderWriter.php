@@ -773,6 +773,78 @@ final readonly class SalesOrderWriter
         });
     }
 
+    /**
+     * **`RestoreSalesOrderLine` — `guard:sales_order_line.deleted_at`, so a repeat is refused by the
+     * guard itself and no retry key is needed** (API-14 as amended demands the header for `store` and
+     * `unique:` only).
+     *
+     * The two order-level guards run **in front**, and they are what answers the coherence objection the
+     * purchase twin's processor records: a cascade-archived line has an archived order, so
+     * `refuseIfArchived()` refuses it and a line can never be restored inside an order that is not. The
+     * only restorable line is one deleted individually while its order was a live draft.
+     *
+     * ⚠ **The total must RISE here, so this passes a pointer where `archiveLine()` passes null.** A
+     * restore adds a term back to the sum, which is the one thing archiving cannot do, and a null pointer
+     * would send an overflow down `recomputeTotal()`'s `LogicException` branch — a 500 where the caller
+     * should be told which order they cannot restore into.
+     *
+     * ⚠ **V2-R-12b's hazard is REAL on this table and this is where it is translated.**
+     * `sales_order_line_tenant_idem_live` is partial on `deleted_at IS NULL`, so this sequence is
+     * reachable and was measured: create line L with key K → delete L → create L2 with key K again (the
+     * index no longer constrains L, and `lineCreatedByKeyInside()` looks only at live rows) → restore L
+     * → **two live rows on one key → `23505`**. Untranslated that is an HTTP 500 on an operation the
+     * caller cannot possibly have understood. {@see self::translatingConstraintFailures()} maps it by
+     * name, and a test drives all four steps rather than asserting it in a docblock.
+     */
+    public function restoreLine(string $orderId, string $lineId): SalesOrderLineResource
+    {
+        return $this->translatingConstraintFailures(fn (): SalesOrderLineResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($orderId, $lineId): SalesOrderLineResource {
+                SalesOrderRowLock::holdInside($em, $orderId);
+                $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+                $this->refuseIfArchived($order);
+                $this->refuseUnlessDraft($order);
+
+                $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+
+                // The declared mechanism: a repeat finds a LIVE row and is refused here, with no key.
+                if (null === $line->archivedAt) {
+                    throw ApiProblem::businessRuleViolated(
+                        'sales_order_line.is_not_archived',
+                        'This line is not archived, so there is nothing to restore.',
+                    );
+                }
+
+                $em->getConnection()->executeStatement(
+                    'UPDATE sales_order_line SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid',
+                    [$lineId],
+                );
+
+                $this->recomputeTotal($em, $orderId, self::POINTERS['unitPrice']);
+
+                return $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+            },
+        ), [
+            // ⚠ **BOTH uniques, and the line-number one was found by RUNNING the four-step test, not by
+            // predicting it.** The hazard was written up as an idempotency-key collision; in fact
+            // `sales_order_line_unique` fires FIRST, because `line_number` is minted as `MAX + 1` over
+            // **live** lines, so the replacement line takes the archived line's number as well as its key.
+            // Left untranslated the caller would have been told *"another line was added at the same
+            // moment, try again"* — advice into a wall, since nothing about a retry can change it.
+            self::LINE_NUMBER_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'sales_order_line.line_number_is_taken_by_a_live_line',
+                'A newer line on this order now has this line\'s number, so this line cannot be restored. '
+                .'Delete the newer line first, or add this line again.',
+            ),
+            self::LINE_IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'sales_order_line.retry_key_is_held_by_a_live_line',
+                'A newer line on this order was created with the same retry key as this one, so this line cannot be '
+                .'restored. Delete the newer line first, or add this line again.',
+            ),
+        ]);
+    }
+
     // -----------------------------------------------------------------------
 
     /**
@@ -1004,11 +1076,22 @@ final readonly class SalesOrderWriter
      *
      * @template T
      *
-     * @param callable(): T $write
+     * ⚠ **`$onCollision` exists because a unique violation means DIFFERENT THINGS on different paths, and
+     * that was found by running the V2-R-12b test rather than by design.** On a create, both of this
+     * table's uniques are **races**: two requests picking the same `MAX + 1`, or the same key committing
+     * on another order between the lookup and the insert. *Try again* is sound advice, because a later
+     * attempt reads different state. **On a restore neither is a race and *try again* is advice into a
+     * wall** — the archived line's number and key are held by a live line that is not going anywhere, and
+     * retrying will fail identically forever. The caller has to be told what to do instead.
+     *
+     * @param callable(): T                      $write
+     * @param array<string, callable(): ApiProblem> $onCollision index name => how to answer a violation of
+     *                                                            it. An index not named here falls through
+     *                                                            to the create-path answers below
      *
      * @return T
      */
-    private function translatingConstraintFailures(callable $write): mixed
+    private function translatingConstraintFailures(callable $write, array $onCollision = []): mixed
     {
         try {
             return $write();
@@ -1016,14 +1099,30 @@ final readonly class SalesOrderWriter
             // Told apart BY NAME, and anything else is rethrown. Answering every 23505 on this table the
             // same way would hand a line-number race the idempotency answer, or the reverse.
             if (self::violated($e, self::LINE_IDEMPOTENCY_INDEX)) {
-                // The same key committed on ANOTHER order between this request's key lookup and its
-                // INSERT: a same-order retry would have waited at the order's row lock and then found the
-                // line. Another order is in the digest, so this is a key reused for a different request --
-                // §6.2's 409. "Try again" would be advice into a wall: the key is spent.
+                // ⚠ **Two different requests reach this branch and they get DIFFERENT answers**, which is
+                // why the restore is told apart rather than folded in.
+                //
+                // **`restoreLine()` — V2-R-12b.** The archived line being restored holds a retry key that
+                // a LIVE line has since taken, because the index is partial on `deleted_at IS NULL`. The
+                // caller did nothing wrong and no retry is involved, so `idempotency-key-conflict` would
+                // name a mechanism they never used. It is a business rule about these two rows.
+                if (isset($onCollision[self::LINE_IDEMPOTENCY_INDEX])) {
+                    throw $onCollision[self::LINE_IDEMPOTENCY_INDEX]();
+                }
+
+                // **`createLine()`.** The same key committed on ANOTHER order between this request's key
+                // lookup and its INSERT: a same-order retry would have waited at the order's row lock and
+                // then found the line. Another order is in the digest, so this is a key reused for a
+                // different request -- §6.2's 409. "Try again" would be advice into a wall: the key is
+                // spent.
                 throw ApiProblem::idempotencyKeyConflict();
             }
 
             if (self::violated($e, self::LINE_NUMBER_INDEX)) {
+                if (isset($onCollision[self::LINE_NUMBER_INDEX])) {
+                    throw $onCollision[self::LINE_NUMBER_INDEX]();
+                }
+
                 // Two concurrent creates picking the same MAX + 1. A genuine conflict rather than a client
                 // mistake; the answer is to retry.
                 throw ApiProblem::businessRuleViolated(

@@ -146,6 +146,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'must also leave the trail with exactly ONE sales_order.cancelled for the order. audit_log is '
                 .'append-only by grant, so a duplicate would be permanent.',
         ],
+        'RestoreSalesOrderLine' => [
+            'method' => 'replayRestoreSalesOrderLine',
+            'why' => 'A second restoration of a live line. Its mechanism is the soft-delete predicate rather than a '
+                .'status, which is why §4.2 spells it guard:<table>.deleted_at -- and the order TOTAL is part of the '
+                .'check here, because a restore raises it and a second one would raise it twice.',
+        ],
         'RestoreItem' => [
             'method' => 'replayRestoreItem',
             'why' => 'A second restoration of a live row. Its mechanism is the soft-delete predicate rather than a '
@@ -342,6 +348,39 @@ final class IdempotencyTest extends PurchaseOrderTestCase
      * order's own line contributes `2.0000`; the retried line contributes `6.0000`; a replay that wrote a
      * second line would read `14.0000`.
      */
+    /**
+     * The order is raised, a line deleted and restored through the operations themselves, then restored
+     * again. The second restore must be refused by the guard, and the order total must not move.
+     */
+    private function replayRestoreSalesOrderLine(string $why): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail RSOL');
+        $this->send('POST', '/sales-orders', [
+            'customer_id' => $customer,
+            'warehouse_id' => $this->seedWarehouse(self::TENANT_A, 'Main RSOL'),
+            'ship_to_address_id' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'lines' => [['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-RSOL'), 'quantity' => '2', 'unit_price' => '3']],
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = $this->json()['id'];
+
+        $this->send('GET', '/sales-orders/'.$order.'/lines');
+        $line = $this->json()['items'][0]['id'];
+
+        $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line);
+        self::assertSame(204, $this->httpStatus());
+
+        $this->send('POST', '/sales-orders/'.$order.'/lines/'.$line.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/sales-orders/'.$order.'/lines/'.$line.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), $why);
+        self::assertSame('sales_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
+        self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
+    }
+
     private function replayCreateSalesOrderLine(string $why): void
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SOL');

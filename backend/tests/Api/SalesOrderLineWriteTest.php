@@ -364,4 +364,114 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus());
         self::assertSame('sales_order_line.is_archived', $this->json()['rule'] ?? null);
     }
+
+    /**
+     * **V2-R-12b on the sales side: restoring a line whose retry key a LIVE line now holds is refused in
+     * domain terms, never with a 500 — and the four steps are DRIVEN rather than asserted.**
+     *
+     * The hazard is created by the retry key's own partiality and it is reachable through nothing but
+     * shipped operations:
+     *
+     *   1. `CreateSalesOrderLine` with key **K** → line L, live, holding K;
+     *   2. `DeleteSalesOrderLine` L → archived. `sales_order_line_tenant_idem_live` is partial on
+     *      `deleted_at IS NULL`, so it no longer constrains L;
+     *   3. `CreateSalesOrderLine` with key **K again** → `lineCreatedByKeyInside()` looks only at live
+     *      rows, finds none, and inserts **L2, also holding K**. This step is a success, not a replay,
+     *      and that is the whole trap;
+     *   4. `RestoreSalesOrderLine` L → two live rows on one key → **`23505`**.
+     *
+     * Untranslated, step 4 is an HTTP 500 on an operation whose caller sent no key at all and could not
+     * possibly have understood the answer. `translatingConstraintFailures()` is handed a **different**
+     * refusal for the restore path than for the create path, precisely because
+     * `idempotency-key-conflict` would name a mechanism this caller never used.
+     *
+     * ⚠ **The identical hazard has a SECOND trigger this test cannot reach: `RestoreSalesOrder`**, whose
+     * `sales_order_cascade_deletion` trigger sets every line live in one statement the writer did not
+     * issue. That operation is unbuilt and is step 4 of the build order; it is named in this slice's
+     * §15.1 rows and in the retry key's migration so it arrives as a handover rather than a discovery.
+     */
+    #[Test]
+    public function restoringALineWhoseRetryKeyALiveLineNowHoldsIsRefusedAndNeverA500(): void
+    {
+        $draft = $this->draftWithASecondItem();
+        $key = Uuid::v4()->toRfc4122();
+
+        // 1. the line that holds the key
+        $this->createLine($draft['order'], self::body($draft['item']), $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        // 2. archived, so the partial unique stops constraining it
+        $this->send('DELETE', '/sales-orders/'.$draft['order'].'/lines/'.$first);
+        self::assertSame(204, $this->httpStatus());
+
+        // 3. the same key again — and this SUCCEEDS, which is the trap
+        $this->createLine($draft['order'], self::body($this->seedItem(self::TENANT_A, 'SKU-R12B')), $key);
+        self::assertSame(201, $this->httpStatus(),
+            'Step 3 was not a success, so the rest of this test proves nothing: the hazard needs TWO rows holding K.');
+        self::assertNotSame($first, $this->json()['id'], 'Step 3 replayed the archived line instead of inserting a second one.');
+
+        // 4. the restore that would collide
+        $this->send('POST', '/sales-orders/'.$draft['order'].'/lines/'.$first.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        // ⚠ **`line_number`, not the retry key — and the difference was found by RUNNING this test.**
+        // The hazard was written up as a key collision. It is BOTH, and `sales_order_line_unique` fires
+        // first, because `line_number` is minted as `MAX + 1` over **live** lines: step 3's line took the
+        // archived line's number as well as its key. The rule name is asserted rather than just the
+        // status, so a future change that silently answers with the other one shows up here.
+        self::assertSame('sales_order_line.line_number_is_taken_by_a_live_line', $this->json()['rule'] ?? null,
+            'V2-R-12b: the unique violation must be translated BY NAME to a domain refusal. A 500 here is the defect '
+            .'this test exists for -- and so is the shipped create-path message "another line was added at the same '
+            .'moment, try again", which on a restore is advice into a wall.');
+
+        // And the archived line really is still archived: the refusal rolled the restore back.
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM sales_order_line WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$first]));
+    }
+
+    /**
+     * **The same hazard reaching the RETRY KEY index instead of the line-number one — so the second
+     * translation is not dead code.**
+     *
+     * The test above cannot distinguish them: there, one line is archived and its replacement takes both
+     * its number and its key. Here a second live line is kept in between, so `MAX + 1` gives the
+     * replacement a **fresh number** while it still takes the **archived line's key** — and the restore
+     * therefore collides on `sales_order_line_tenant_idem_live` alone.
+     *
+     * Without this case the `LINE_IDEMPOTENCY_INDEX` branch of `restoreLine()`'s collision map would
+     * never execute, and a translation nothing reaches is a translation nobody can trust.
+     */
+    #[Test]
+    public function restoringALineCollidesOnTheRetryKeyAloneWhenItsNumberIsFree(): void
+    {
+        $draft = $this->draftWithASecondItem();
+        $key = Uuid::v4()->toRfc4122();
+
+        // L1, number 1, key K.
+        $this->createLine($draft['order'], self::body($draft['item']), $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        // L2, number 2, a different key -- this is what keeps number 1 from being re-minted below.
+        $this->createLine($draft['order'], self::body($this->seedItem(self::TENANT_A, 'SKU-KEY-B')), Uuid::v4()->toRfc4122());
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('DELETE', '/sales-orders/'.$draft['order'].'/lines/'.$first);
+        self::assertSame(204, $this->httpStatus());
+
+        // L3 takes K again -- and number 3, because MAX over live lines is 2.
+        $this->createLine($draft['order'], self::body($this->seedItem(self::TENANT_A, 'SKU-KEY-C')), $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(3, $this->json()['line_number'],
+            'The replacement line did not get a fresh number, so this case collapses into the previous test and '
+            .'proves nothing about the retry-key branch.');
+
+        $this->send('POST', '/sales-orders/'.$draft['order'].'/lines/'.$first.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order_line.retry_key_is_held_by_a_live_line', $this->json()['rule'] ?? null,
+            'The retry-key branch of restoreLine()\'s collision map was not reached, so it is untested code.');
+    }
 }

@@ -154,6 +154,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['quantity' => '7.000000', 'unit_price' => '9.5000'],
         ],
         'DeleteSalesOrderLine' => ['vars' => ['id' => 'sales_order', 'lineId' => 'sales_order_line']],
+        // ⚠ Its subject must be an ARCHIVED line, because the baseline drive has to SUCCEED -- a probe
+        // whose baseline is refused compares a refusal with a refusal. `archived_sales_order_line` is a
+        // per-tenant symbol seeded beside the live one.
+        'RestoreSalesOrderLine' => ['vars' => ['id' => 'sales_order', 'lineId' => 'archived_sales_order_line']],
         // Added 2026-09-21 with the edit. The body carries `@customer_address`, a **per-tenant** symbol,
         // and that is the whole reason to spell it that way rather than move the warehouse: the drive
         // then exercises V2-S-9's ownership predicate — *"this address belongs to this customer"* —
@@ -456,6 +460,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // One line, so `ConfirmSalesOrder`'s baseline succeeds. Without it the line guard refuses every
         // drive with the same 409 and the probe compares a refusal with a refusal.
         $this->remember($letter, 'sales_order_line', $this->seedSalesOrderLine($tenantId, $salesOrder, $item));
+        // A second line of the same order, ARCHIVED, so `RestoreSalesOrderLine`'s baseline drive succeeds.
+        // A probe whose baseline is refused compares a refusal with a refusal and can see nothing.
+        $archivedLine = $this->remember($letter, 'archived_sales_order_line',
+            $this->seedSalesOrderLine($tenantId, $salesOrder, $item, lineNumber: 2));
+        $this->insertAsOwnerForTenant($tenantId,
+            'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archivedLine]);
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);
