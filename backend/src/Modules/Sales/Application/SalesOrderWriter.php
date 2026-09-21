@@ -245,8 +245,10 @@ final readonly class SalesOrderWriter
      *
      * `order_number` is minted here and **no document specifies its form** — the only property anything
      * relies on is that it is server-generated, which is precisely why it cannot serve as a retry key.
-     * `MAX + 1` over the tenant's live rows, matching the partial unique, is `nextOrderNumber()`'s shape one
-     * module over. **Reported as a decision taken here rather than presented as derived.**
+     * `MAX + 1` over the tenant's rows is `nextOrderNumber()`'s shape — over **all** of them since the owner's
+     * Q4 ruling (2026-09-21), archived included, so a discarded order's number is never reissued; the purchase
+     * twin still counts live rows and is held for the owner. **Reported as a decision taken here rather than
+     * presented as derived.**
      */
     public function create(CreateSalesOrderInput $input, string $idempotencyKey): SalesOrderResource
     {
@@ -1379,17 +1381,28 @@ final readonly class SalesOrderWriter
     /**
      * The next free document number for this workspace.
      *
-     * Over **live** rows, matching `sales_order_tenant_number_live`'s own partiality, and bounded to numbers
-     * this method could have minted — the regexp is what stops a hand-seeded `SO-CASCADE` turning the cast
-     * into an error, and `DeletionPolicyTest` seeds exactly that. RLS supplies the tenant bound, so no
-     * `tenant_id` predicate is written here.
+     * Over **every** row, archived ones included — **the owner's Q4 ruling (2026-09-21): a deleted order's
+     * number is never issued again.** Until then this counted live rows only, matching
+     * `sales_order_tenant_number_live`'s partiality, so discarding the newest order handed its number to the
+     * next one; the two then shared a number for good and the archived one could never be restored (that
+     * unique refuses it). The unique stays partial — `SchemaManifest` requires it on a soft table — and is now
+     * a race guard only. `MAX` over all rows cannot use the partial index; at this scale that is a scan of one
+     * tenant's orders under RLS, and it is said here so nobody "restores" the predicate for speed.
+     * `SalesOrderCreateTest::aDiscardedOrdersNumberIsNeverIssuedAgain` holds it.
+     *
+     * Bounded to numbers this method could have minted — the regexp is what stops a hand-seeded `SO-CASCADE`
+     * turning the cast into an error, and `DeletionPolicyTest` seeds exactly that. RLS supplies the tenant
+     * bound, so no `tenant_id` predicate is written here.
+     *
+     * ⚠ **`PurchaseOrderWriter::nextOrderNumber()` still counts live rows only.** Whether Q4 covers purchasing
+     * was not put to the owner in those terms, so its twin is held for the owner, not changed here.
      */
     private function nextOrderNumber(EntityManagerInterface $em): string
     {
         $next = (int) $em->getConnection()->fetchOne(<<<'SQL'
             SELECT COALESCE(MAX(substring(order_number from 4)::bigint), 0) + 1
               FROM sales_order
-             WHERE deleted_at IS NULL AND order_number ~ '^SO-[0-9]+$'
+             WHERE order_number ~ '^SO-[0-9]+$'
             SQL);
 
         return 'SO-'.str_pad((string) $next, 6, '0', STR_PAD_LEFT);

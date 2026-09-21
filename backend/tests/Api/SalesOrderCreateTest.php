@@ -457,6 +457,39 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         );
     }
 
+    /**
+     * **The owner's Q4 ruling (2026-09-21): a deleted order's number is never issued again.**
+     *
+     * `nextOrderNumber()` minted `MAX + 1` over LIVE rows only, so *discard the newest order, raise another*
+     * handed the discarded order's number to the new one. Two documents then share a number for good — the
+     * archived one stays readable by direct hit — and the archived one can never be restored:
+     * `sales_order_tenant_number_live` refuses it (`23505`, measured by the step-4 design and by `RED`). A number
+     * the user cannot choose would turn ADR-007 §4's *"designed error message"* into a permanent refusal.
+     *
+     * The order is archived as the schema owner because `DeleteSalesOrder` is not built in this commit; the
+     * property is the MINT's, whatever archived the row. Free now — no archived sales order has ever existed —
+     * and permanent once one does.
+     */
+    #[Test]
+    public function aDiscardedOrdersNumberIsNeverIssuedAgain(): void
+    {
+        $c = $this->workspace();
+
+        $this->create($c, null);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('SO-000001', $this->json()['order_number'], 'Control: the first order is not SO-000001, so the next assertion measures nothing.');
+        $first = (string) $this->json()['id'];
+
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$first]);
+
+        $this->create($c, null);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('SO-000002', $this->json()['order_number'],
+            'A discarded order\'s number was issued again. The two documents now share a number for good, and the '
+            .'discarded one can never be restored (sales_order_tenant_number_live). The owner ruled Q4 (2026-09-21): '
+            .'never reissue — nextOrderNumber() must count archived orders too.');
+    }
+
     // -----------------------------------------------------------------------
 
     /** @return array{customer: string, address: string, warehouse: string, item: string} */
