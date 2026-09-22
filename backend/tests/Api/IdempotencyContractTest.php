@@ -298,10 +298,14 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-09-16 (V2-R-12):** `CreatePurchaseOrderLine` → `unique:` and
      * `CreateSalesOrderLine` → `⛔ none`, so 74 − 2 = 72 unmarked; 43 marked.
+     *
+     * **2026-09-22 (sales step 5 C3, owner ruling R7):** `GetPickList` joins §4.2 as the 116th row, `Idem`
+     * `no`, so 115 + 1 = 116 rows and 72 + 1 = 73 unmarked; 43 marked, unchanged. Every row addition to
+     * date has been an owner ruling, and this one is.
      */
-    private const PINNED_ROW_COUNT = 115;
+    private const PINNED_ROW_COUNT = 116;
 
-    private const PINNED_UNMARKED_COUNT = 72;
+    private const PINNED_UNMARKED_COUNT = 73;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —

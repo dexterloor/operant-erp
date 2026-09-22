@@ -65,6 +65,18 @@
     "GetItem $.safety_stock": [
         6
     ],
+    "GetPickList $.lines[].candidate_bins[].qty_on_hand": [
+        6
+    ],
+    "GetPickList $.lines[].quantity": [
+        6
+    ],
+    "GetPickList $.lines[].quantity_fulfilled": [
+        6
+    ],
+    "GetPickList $.lines[].quantity_outstanding": [
+        6
+    ],
     "GetPurchaseOrder $.total_amount": [
         4
     ],

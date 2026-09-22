@@ -6,6 +6,7 @@ namespace App\Modules\Inventory\Application;
 
 use App\Modules\Inventory\Application\Contract\DepleteStock;
 use App\Modules\Inventory\Application\Contract\NoCallerTransaction;
+use App\Modules\Inventory\Application\Contract\PickableStock;
 use App\Modules\Inventory\Application\Contract\StockDepletion;
 use App\Modules\Inventory\Application\Contract\StockDepletionLine;
 use App\Modules\Inventory\Application\Contract\StockDepletionRefused;
@@ -32,15 +33,6 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class StockDepleter implements DepleteStock
 {
-    /**
-     * `storage_location.kind`'s one value that is never pickable (owner ruling R2).
-     * A literal of the Warehouses module's CHECK value rather than an import of
-     * `StorageLocation::KIND_QUARANTINE`: Inventory reads that table (the accepted
-     * A-2 residual `StockReceiver` already carries) but must not depend on the
-     * other module's entity.
-     */
-    private const QUARANTINE = 'quarantine';
-
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
@@ -171,7 +163,8 @@ final readonly class StockDepleter implements DepleteStock
 
     /**
      * Owner ruling R2: a line may pick only from a live, non-quarantine location
-     * of the fulfilling warehouse. Read before any write, so a refusal leaves
+     * of the fulfilling warehouse — the complement of what `PickableStock` lists,
+     * with the one never-pickable kind held on that contract for both. Read before any write, so a refusal leaves
      * nothing to undo. A bin this workspace cannot see (RLS) or of another
      * warehouse is not a location of this one; a bin of this warehouse that is
      * archived or quarantine is one, and is refused as not pickable.
@@ -199,7 +192,7 @@ final readonly class StockDepleter implements DepleteStock
             }
 
             $archived = true === $bin['archived'] || 't' === $bin['archived'] || 1 === $bin['archived'];
-            if ($archived || self::QUARANTINE === $bin['kind']) {
+            if ($archived || PickableStock::NEVER_PICKABLE_KIND === $bin['kind']) {
                 throw StockDepletionRefused::binIsNotPickable($index, $line->storageLocationId, $archived);
             }
         }

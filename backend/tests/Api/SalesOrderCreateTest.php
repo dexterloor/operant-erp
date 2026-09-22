@@ -48,6 +48,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // comparison below is `assertSame`, so a pin sorted to read well would be a second, quieter
         // fact. Both were measured against the registry rather than guessed -- the first attempt put
         // `ListSalesOrderLines` first and was red.
+        // Sales step 5 C3 (2026-09-22): the pick read. FIRST, read off this test's own failure -- the registry
+        // orders by resource-class declaration and `PickListResource` sorts before the others. `idem` false: a GET.
+        'GetPickList' => ['method' => 'GET', 'path' => '/sales-orders/{id}/pick-list', 'idem' => false],
         'ListSalesOrders' => ['method' => 'GET', 'path' => '/sales-orders', 'idem' => false],
         'ListSalesOrderLines' => ['method' => 'GET', 'path' => '/sales-orders/{id}/lines', 'idem' => false],
         // `idem` **true**: §4.2's cell is `unique:sales_order_line_tenant_idem_live` since

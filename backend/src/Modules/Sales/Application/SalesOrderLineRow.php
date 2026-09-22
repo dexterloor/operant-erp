@@ -97,9 +97,18 @@ final class SalesOrderLineRow
      * that order is written down; every caller prepends it rather than typing the
      * constant again.
      */
-    public const COLUMNS = <<<'SQL'
-        sol.id, sol.line_number, sol.quantity, sol.quantity_fulfilled, sol.unit_price,
-        sol.deleted_at,
+    public const COLUMNS = 'sol.id, sol.line_number, sol.quantity, sol.quantity_fulfilled, sol.unit_price, sol.deleted_at, '
+        .self::QUANTITY_OUTSTANDING.' AS quantity_outstanding, '
+        .'i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name';
+
+    /**
+     * **The derivation itself, shared — never copied** (sales step 5, commit 3). The pick read
+     * (`PickListReader`) selects this same expression over the same `sol` / `so` aliases, because a copy is
+     * where the bare subtraction comes back (design §4 C3; `SECURITY_MODEL.md` PC-9's second exception names
+     * "a copy of the `quantity_outstanding` derivation" as a violation). It binds ONE positional parameter,
+     * {@see self::columnParameters()}. Extracted from `COLUMNS` unchanged, byte for byte in its SQL.
+     */
+    public const QUANTITY_OUTSTANDING = <<<'SQL'
         -- V2-C-14(b): 0 on a cancelled order, DERIVED, with no `quantity_cancelled`
         -- column. The cast is NOT redundant -- a bare 0 renders "0" at scale 0
         -- beside its neighbour's "0.000000" (measured). See the class docblock
@@ -107,8 +116,7 @@ final class SalesOrderLineRow
         CASE WHEN so.status = ?
              THEN 0::numeric(19,6)
              ELSE sol.quantity - sol.quantity_fulfilled
-        END AS quantity_outstanding,
-        i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name
+        END
         SQL;
 
     /**

@@ -136,7 +136,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `has_table_privilege('erp_app', 'sales_order', 'DELETE')` is false before and after -- and it adds no
         // `$notExposed` route: `SalesOrderResource` already has its item `Get`. `RestoreSalesOrder` is NOT
         // declared: E9-3 blocks it (owner ruling Q1, 2026-09-21).
-        self::assertCount(34, $checked, 'The route set changed. This slice declares thirty-four operations: '.implode(', ', array_keys($checked)));
+        // **And one more on 2026-09-22 (sales step 5, commit 3):** `GetPickList`, the 116th §4.2 row (owner ruling
+        // R7). A read over tables `erp_app` already SELECTs; its `Get` is its resource's only operation, so it adds
+        // no `$notExposed` fallback route.
+        self::assertCount(35, $checked, 'The route set changed. This slice declares thirty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

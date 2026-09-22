@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\CountingKdf;
 use PHPUnit\Framework\Attributes\Test;
@@ -177,6 +178,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // order in **both** tenants, so the baseline page is non-empty and a supplied tenant id that
         // moved the read would return B's order where A's workspace was asked for.
         'ListSalesOrders' => [],
+        // Added 2026-09-22 with the pick read (sales step 5 C3). Its subject must be a CONFIRMED order, because the
+        // baseline has to SUCCEED -- a draft is not-found here by design (E-2), and a probe whose baseline is
+        // refused compares a refusal with a refusal. `confirmed_sales_order` is seeded in both tenants.
+        'GetPickList' => ['vars' => ['id' => 'confirmed_sales_order']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -469,6 +474,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $this->seedSalesOrderLine($tenantId, $salesOrder, $item, lineNumber: 2));
         $this->insertAsOwnerForTenant($tenantId,
             'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archivedLine]);
+
+        // A CONFIRMED order with a line, so `GetPickList`'s baseline answers 200 (a draft is not-found there).
+        $confirmed = $this->remember($letter, 'confirmed_sales_order', $this->seedSalesOrder(
+            $tenantId, 'SO-2', $customer, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z'));
+        $this->remember($letter, 'confirmed_sales_order_line', $this->seedSalesOrderLine($tenantId, $confirmed, $item));
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);

@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-22 with `GetPickList` in the tree (sales step 5, commit 3): the three commands return
+  # **94 / 66 / 6** -- ONE edge line added, A-7: `PickListReader -> Entity\SalesOrder` (its visibility predicate
+  # binds `STATUS_*`, `SalesOrderViews`' shape). `make deptrac` reports **0 violations / 266 skipped / 1370
+  # allowed**. ⚠ At commit 2 the first command returned 94, not the 93 recorded below, because the A-12 note
+  # added in that commit spelled the command out and matched itself; corrected here.)
   # (Re-derived 2026-09-22 with the `fulfilment` retry key and shipper in the tree (sales step 5, commit 2): the
   # three commands return **93 / 65 / 6** -- ONE edge line added, and it is A-12, not A-7 or A-5:
   # `Fulfilment -> AppUser` for `shipped_by_user_id` (see its entry). `make deptrac` reports **0 violations /
@@ -213,8 +218,13 @@ deptrac:
   #                   §5.3 as a known deviation with an owner. This register is
   #                   the first time its size has been counted: 19 edges.
   #                   (20 from 2026-09-22: `Fulfilment -> AppUser`, forced by
-  #                   `shipped_by_user_id`'s composite FK -- re-derive with
-  #                   `grep -- "- App" deptrac.yaml | grep -c "A-12"`.)
+  #                   `shipped_by_user_id`'s composite FK -- re-derive by
+  #                   counting the edge lines tagged A-12 with the edge-line
+  #                   command below piped to a count of "A-12". ⚠ This note
+  #                   spelled that command out literally in commit `30c2e3b`,
+  #                   so the edge-line count read one high at that commit:
+  #                   a measurement corrupting itself, the trap
+  #                   `IdempotencyContractTest`'s comment records.)
   # ------------------------------------------------------------------------
   skip_violations:
     App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
@@ -282,6 +292,12 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\PickListReader:
+      # `GetPickList` (sales step 5 C3, 2026-09-22) binds the four statuses of its visibility predicate from
+      # `SalesOrder::STATUS_*` rather than spelling them as SQL literals (API-15) -- `SalesOrderViews`' and
+      # `SalesOrderLineRow`'s shape exactly, and not a new one. Its read model is an Application view
+      # (`PickListView`), so it adds no `Application -> ApiResource` pair.
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderCancellation:
       - App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter   # A-5
       - App\Modules\Sales\ApiResource\CancelSalesOrderInput   # A-7

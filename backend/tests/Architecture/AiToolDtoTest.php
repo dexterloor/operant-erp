@@ -163,8 +163,15 @@ final class AiToolDtoTest extends TenancyTestCase
             "AI-4's subject and this file's pin disagree. %s\n"
             .'Found: %s',
             self::THE_AI_MODULE_IS_UNBUILT
-                ? 'The Ai module now exists, so the scan below is no longer vacuous: set THE_AI_MODULE_IS_UNBUILT to '
-                    .'false and make sure the scan covers the DTOs the tools return.'
+                ? 'The Ai module now exists, so the scan below is no longer vacuous -- but do NOT flip '
+                    .'THE_AI_MODULE_IS_UNBUILT yet. ALSO DUE BEFORE THE FIRST ASK TOOL (owner ruling R8 of 2026-09-22, '
+                    .'V2-S-1b clause 4, owner SEC): the pick read GetPickList confers NO sales_order or sales_order_line '
+                    .'table under PC-8 (SECURITY_MODEL.md PC-8 addendum, PC-12 clause 5). Ask must not map either table to '
+                    .'fulfilment.view, must not expose GetPickList as a tool, and PC-8\'s table-to-code intersection must be '
+                    .'built as a check (AI-SQL-1) before any tool reads a sales table. The same moment owes PC-12 clause 1\'s '
+                    .'inventory_item.unit_cost exclusion. ONLY once SEC has confirmed both: set THE_AI_MODULE_IS_UNBUILT to '
+                    .'false and make sure the scan covers the DTOs the tools return. Clearing this pin clears that carry -- '
+                    .'the residual every sibling tripwire carries.'
                 : 'The pin says the Ai module is built and there is no class under '.self::AI_NAMESPACE.'. A pin '
                     .'flipped ahead of the code would make the check below demand a non-empty scan it can never get.',
             [] === $classes ? '(nothing)' : implode(', ', $classes),
@@ -205,6 +212,9 @@ final class AiToolDtoTest extends TenancyTestCase
         $offenders = [];
 
         foreach ($classes as $class) {
+            if (!class_exists($class) && !interface_exists($class) && !trait_exists($class) && !enum_exists($class)) {
+                continue; // a file with no loadable class-like: the pin above counts it, this scan has nothing to read
+            }
             foreach ((new \ReflectionClass($class))->getProperties() as $property) {
                 if (\in_array($property->getName(), $names, true)) {
                     $offenders[] = $class.'::$'.$property->getName();
@@ -247,9 +257,15 @@ final class AiToolDtoTest extends TenancyTestCase
             /** @var class-string $class */
             $class = self::AI_NAMESPACE.str_replace('/', '\\', $relative);
 
-            if (class_exists($class)) {
-                $found[] = $class;
-            }
+            // ⚠ `class_exists()` alone is FALSE for an interface and a trait (measured, `-sec-red.md` F-4), and
+            // this codebase's contracts are interfaces (`ReceiveStock`): the most likely first Ai file,
+            // `Application/Contract/<Tool>.php`, would have left the pin green and V2-S-1b clause 4's carry with
+            // no trigger. Fixed 2026-09-22 under the standing rule for shipped test defects. And a `.php` file that
+            // declares no loadable class-like at all still counts, by its path, so nothing under src/Modules/Ai is
+            // invisible to the pin.
+            $found[] = class_exists($class) || interface_exists($class) || trait_exists($class) || enum_exists($class)
+                ? $class
+                : $class.' (no class-like of that name loads from '.$file->getFilename().')';
         }
 
         sort($found);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Platform\Security\PermissionGate;
 use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -102,7 +103,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     ];
 
     /**
-     * `METHOD path` => the operation that owes **V2-S-1b**, the money-free pick read.
+     * **`operationId` => the pick read it may never ship without** (converted 2026-09-22, sales step 5 C3 —
+     * it read `'CreateFulfilment' => 'the V2-S-1b pick read'` while the read was unbuilt). The map is an
+     * implication now, not a pin to be emptied: an empty pin is the empty-set trap this class already records.
+     *
+     * *(History:)* `METHOD path` => the operation that owes **V2-S-1b**, the money-free pick read.
      *
      * §4.2 declares `CreateFulfilment` at `POST /sales-orders/{id}/fulfilments`;
      * the spec prefixes `/api/v1`, for the measured reason recorded on
@@ -116,8 +121,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_PICK_READ = [
-        'CreateFulfilment' => 'the V2-S-1b pick read',
+        'CreateFulfilment' => 'GetPickList',
     ];
+
+    /** The pick read's gate: V2-S-1b clause 3, `fulfilment.view` ALONE, read from the registry (owner ruling R7). */
+    private const THE_PICK_READS_PERMISSION = 'fulfilment.view';
 
     /**
      * The positive control for the pick-read pin, which is keyed by
@@ -320,6 +328,25 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * **V2-S-1b's gate, carried by a mechanism rather than by prose — which is
      * the whole reason this method exists.**
      *
+     * ---------------------------------------------------------------------------
+     * ⚖ CONVERTED 2026-09-22 (sales step 5, commit 3) — from a pin into an IMPLICATION
+     * ---------------------------------------------------------------------------
+     * `GetPickList` shipped one commit ahead of `CreateFulfilment`, so the pin was
+     * **not emptied** — an empty pin holds over nothing, the trap this class records —
+     * but turned into *"`CreateFulfilment` is never in the spec without `GetPickList`,
+     * and `GetPickList` is gated on `fulfilment.view` alone"*. The consequent is
+     * asserted **unconditionally** (it is shipped), and its permission is read from
+     * the **registry** (`TransactionBoundaryTest::contractOperations()`), because the
+     * spec carries none. V2-S-1b **ships in part** (owner ruling R8): clauses 1, 2, 3,
+     * 6 and clause 5's backend half are met, clause 4 is re-carried to `SEC` and clause
+     * 5's frontend half to `FE` + `UX` (see the sibling method), and the obligation is
+     * not called discharged anywhere.
+     *
+     * **Mutations run for the conversion (2026-09-22):** see the progress note
+     * `docs/session12/output9-sales-6-progress.md`, C3.
+     *
+     * *(What follows is the pin's history, kept.)*
+     *
      * **The carry, recorded 2026-09-16 (V4 batch B8b), owner `BE-LEAD` + `SEC` +
      * `UX`:** the money-free pick read exists as its own resource, with an
      * additions row, gated on `fulfilment.view`, conferring no `sales_order`
@@ -348,9 +375,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * **silent**: a path pin that does not match simply never fires.
      * {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT} for the measurement.
      *
-     * **What it does NOT claim.** It does not detect whether the pick read has
-     * been built — no resource for it exists to name, and inventing a pattern
-     * to match on would be the fake-green this suite keeps finding.
+     * **What it did NOT claim, while it was a pin.** It could not detect whether the
+     * pick read had been built — no resource for it existed to name. *(False from
+     * 2026-09-22: the resource exists and the converted check names it.)*
      * It detects the *trigger* and refuses to let it pass silently. Clearing it
      * is a deliberate edit to {@see self::OPERATIONS_OWING_THE_PICK_READ}, made
      * in the same commit that builds the pick read — the `PINNED_ALLOWLIST`
@@ -387,46 +414,97 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'so the check below would compare the pin against an empty or differently-spelled set and pass '
             .'on everything. Re-derive the key from the spec before trusting any result from this method.');
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_PICK_READ, $built);
+        // Anti-vacuity: the implication has an antecedent. Emptying the map is the
+        // empty-set trap -- every implication over nothing holds.
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_PICK_READ,
+            'The pick-read implication has no antecedent, so it asserts nothing. It was converted from a pin on '
+            .'2026-09-22 precisely so it could never be cleared; restore CreateFulfilment => GetPickList.');
 
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built, and V2-S-1b's pick read has NOT been built.\n\n"
-            ."THE GATE, RE-ANCHORED BY OWNER RULING 2026-09-20:\n"
-            ."  V2-S-1b was `before the first sales read`. That gate was CROSSED on 2026-09-19 when\n"
-            ."  `GetSalesOrder` shipped, unruled and unrecorded. The owner re-anchored it onto THIS row.\n"
-            ."  **It is a RESCHEDULE, NOT A DISCHARGE.** Nothing was reduced. If you are reading this\n"
-            ."  message, the new gate has arrived and the work is due IN THIS COMMIT.\n\n"
-            ."THE WHOLE OBLIGATION - all six clauses, not a summary:\n"
-            ."  1. The money-free PICK READ exists as ITS OWN RESOURCE - not a projection bolted onto a\n"
-            ."     sales-order read, and not a field set toggled by permission.\n"
-            ."  2. It has an ADDITIONS ROW in `docs/API.md` 4.2 / 15.1, like any other declared operation.\n"
-            ."  3. It is gated on `fulfilment.view`, NOT on `sales_order.view`. `warehouse_operator` holds\n"
-            ."     no `sales_order.view` since the owner's cost-exposure ruling of 2026-09-15, and the pick\n"
-            ."     read is what F-5 step 4 needs.\n"
-            ."  4. It confers NO `sales_order` table under PC-8. A pick read that hands back the order as a\n"
-            ."     table is the cost exposure this carry exists to prevent.\n"
-            ."  5. IA N-3/N-8 route: it lives on `/sales-orders/[id]/fulfil`, the action on the parent order\n"
-            ."     (N-8a), not a standalone `/new` route. `docs/ux/IA.md` N-8a is already re-planned for it.\n"
-            ."  6. B1N-4 (`SEC` + `BE-LEAD`): record it in `docs/SECURITY_MODEL.md` as a SECOND DELIBERATE\n"
-            ."     PC-9 EXCEPTION, beside `supplier_product`'s, naming the projected columns (no column in\n"
-            ."     PC-12 clause 1's domain) and the code that governs them. PC-9's own text says `until then\n"
-            ."     no operation projects those fields` - building this row makes that sentence false.\n\n"
-            ."ALSO DUE ON THIS ROW, named here because they share the trigger:\n"
-            ."  B1N-12 (`UX`): the pick read or this response shows the resulting order status, or FLOWS F-5\n"
-            ."  step 6 is rewritten - step 6's status change is otherwise invisible to the actor who caused\n"
-            ."  it. B1N-5 (`BE-LEAD`): the pick resource's `.view` derivation resolves to `fulfilment.view`,\n"
-            ."  because a pick resource has no `<resource>.view` of its own.\n\n"
-            ."DO THIS IN THIS COMMIT, or move this pin deliberately and say why:\n"
-            ."  1. Build the pick read to all six clauses above.\n"
-            ."  2. Write the PC-9 exception into `docs/SECURITY_MODEL.md` and drop its `until then` sentence.\n"
-            ."  3. Clear this entry, and clear the V2-S-1b notes on BOTH 15.1 rows (`CreateFulfilment` and\n"
-            ."     `ListSalesOrders`), `docs/ROADMAP.md`'s sales-carry block and its `fails if`, and\n"
-            ."     `docs/ux/FLOWS.md` F-5's open note. FIVE live copies - find them by grepping `V2-S-1b`,\n"
-            ."     never by line number.\n\n"
-            ."Full entry: `docs/API.md` 15.1, rows `CreateFulfilment` and `ListSalesOrders`; the ruling is at\n"
-            ."`docs/session12/v2s1b-reanchor-ruling.md`. Cite both by name, never by line (Rule 16).",
-            implode(', ', array_keys($arrived)),
+        // The permission is read from the REGISTRY: the spec carries none, and
+        // reading §4.2 instead would SKIP wherever docs/ is absent.
+        $registry = TransactionBoundaryTest::contractOperations();
+
+        $defects = [];
+        foreach (self::OPERATIONS_OWING_THE_PICK_READ as $operation => $pickRead) {
+            // The consequent is shipped, so it is asserted whether or not the
+            // antecedent is: a pick read that disappears is red today, not only on
+            // the day CreateFulfilment ships.
+            if (!isset($built[$pickRead])) {
+                $defects[] = \sprintf('%s is not in the generated spec%s.', $pickRead,
+                    isset($built[$operation]) ? ', and '.$operation.' IS' : '');
+                continue;
+            }
+            $permission = isset($registry[$pickRead])
+                ? ($registry[$pickRead]->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null)
+                : null;
+            if (self::THE_PICK_READS_PERMISSION !== $permission) {
+                $defects[] = \sprintf('%s is gated on %s, not on %s alone.', $pickRead, var_export($permission, true), self::THE_PICK_READS_PERMISSION);
+            }
+        }
+
+        self::assertSame([], $defects, \sprintf(
+            "V2-S-1b's pick read is missing or mis-gated:\n  %s\n\n"
+            ."THE OBLIGATION (V2-S-1b, owner re-anchor 2026-09-20; shipped IN PART on 2026-09-22 by owner ruling R8 --\n"
+            ."it is NOT closed, and nothing here may be read as a reduction):\n"
+            ."  1. The money-free PICK READ exists as ITS OWN RESOURCE -- `GetPickList`, not a projection of a\n"
+            ."     sales-order read and not a field set toggled by permission. Money-free is held by\n"
+            ."     PickListReadTest::thePickReadCarriesNoMoneyColumn (server-derived).\n"
+            ."  2. It has its own rows in `docs/API.md` 4.2 / 4.4.3 / 15.1.\n"
+            ."  3. It is gated on `fulfilment.view` ALONE -- warehouse_operator holds no `sales_order.view` since\n"
+            ."     the owner's cost-exposure ruling of 2026-09-15. THIS is what this method checks.\n"
+            ."  4. It confers NO `sales_order` table under PC-8 -- RE-CARRIED to SEC on AiToolDtoTest's pin (the\n"
+            ."     first class under src/Modules/Ai), not met by anything here.\n"
+            ."  5. IA N-3/N-8: it lives on `/sales-orders/[id]/fulfil`. The BACKEND half is this read; the\n"
+            ."     FRONTEND half + B1N-12's screen are RE-CARRIED to FE + UX on noFrontendShipsWithoutThePickRouteCarry.\n"
+            ."  6. PC-9's SECOND DELIBERATE EXCEPTION names its columns -- held by\n"
+            ."     PickListReadTest::pc9sSecondExceptionNamesExactlyTheColumnsThisReadProjects.\n\n"
+            ."CreateFulfilment may never be in the spec without the pick read, gated as above. Do not clear the map\n"
+            ."to get green: it is an implication, and an empty one holds over nothing.\n"
+            ."Copies of V2-S-1b: derive them with `grep -rn V2-S-1b docs backend` -- never by a count written here\n"
+            ."(this message said FIVE until 2026-09-22; there were ten in five files).\n"
+            ."Full entry: `docs/API.md` 15.1, rows `GetPickList` and `CreateFulfilment`; rulings at\n"
+            ."`docs/session12/v2s1b-reanchor-ruling.md` and `docs/session12/output9-sales-6-ruling.md` (R7, R8).",
+            implode("\n  ", $defects),
         ));
+    }
+
+    /**
+     * **V2-S-1b clause 5's FRONTEND half and B1N-12's screen, re-carried to `FE` + `UX` by owner ruling R8
+     * (2026-09-22) — carried by a mechanism, keyed on the directory existing, not on a guessed path.**
+     *
+     * The backend half shipped with `GetPickList`. The route (`/sales-orders/[id]/fulfil`, IA N-8a) and the
+     * screen that shows the resulting order status (B1N-12) belong to Output 6, and there is no frontend in
+     * this repository (`ls` at the root: `backend docs infra`). This goes red the moment a `frontend/`
+     * directory appears beside `backend/`, whatever it contains.
+     *
+     * **Deliberately NOT keyed on a frontend file path.** Guessing `frontend/src/app/sales-orders/…` would
+     * repeat the coin-flip-path defect `1076ba3` removed: a guess that loses never fires. The cost is
+     * coarseness — it fires on the first frontend commit, whatever that commit is — and that is the
+     * owner-visible trade (design §4 C3, OQ-B).
+     *
+     * **Positive control:** `backend/` is resolved by the same path arithmetic, so a wrong root fails loudly
+     * instead of reporting a `frontend/` that is simply looked for in the wrong place.
+     */
+    #[Test]
+    public function noFrontendShipsWithoutThePickRouteCarry(): void
+    {
+        $root = \dirname(__DIR__, 3);
+
+        self::assertDirectoryExists($root.'/backend',
+            'Positive control: the repository root was not resolved (no backend/ beside where frontend/ is looked for), '
+            .'so the check below would pass by looking in the wrong place.');
+
+        self::assertDirectoryDoesNotExist($root.'/frontend',
+            "A frontend/ directory exists, and V2-S-1b clause 5's FRONTEND half is owed with it (owner ruling R8, "
+            ."2026-09-22; owner FE + UX).\n\n"
+            ."  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n"
+            ."    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n"
+            ."  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n"
+            ."    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n"
+            ."  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n"
+            ."  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n"
+            ."Do this in the commit that builds the screen, then move this test deliberately -- key it on the route's\n"
+            ."real file once it exists. Until then V2-S-1b is shipped IN PART and must not be called discharged.");
     }
 
     /**

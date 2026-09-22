@@ -51,6 +51,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'ChangePassword' => null,
         'ListItems' => 'inventory_item.view',
         'GetItem' => 'inventory_item.view',
+        // Sales step 5 C3 (2026-09-22): the pick read, `fulfilment.view` ALONE (V2-S-1b clause 3, owner ruling R7).
+        'GetPickList' => 'fulfilment.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',
         'DeleteItem' => 'inventory_item.delete',

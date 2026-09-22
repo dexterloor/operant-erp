@@ -262,6 +262,10 @@ services:
     # writer lands, so the test env reaches it through a public alias of THIS id.
     App\Modules\Inventory\Application\Contract\DepleteStock: '@App\Modules\Inventory\Application\StockDepleter'
 
+    # The pick read's candidate bins (sales step 5, commit 3): a read contract, so the rule for what is
+    # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.
+    App\Modules\Inventory\Application\Contract\PickableStock: '@App\Modules\Inventory\Application\PickableStockReader'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test
