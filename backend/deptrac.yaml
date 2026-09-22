@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-22 with `CreateFulfilment` + `GetFulfilment` in the tree (sales step 5, commit 4): the three
+  # commands return **94 / 66 / 6 — no edge line added**: the writer reaches Inventory through `InventoryContract`
+  # (already allowed for `SalesApplication`), the status transition is inverted through an Application interface
+  # implemented in Infrastructure (`PurchaseOrderReceiptStatus`'s shape), and the resource serializes Application
+  # views. `make deptrac` reports **0 violations / 266 skipped / 1435 allowed** (+65 allowed: the new classes' edges).)
   # (Re-derived 2026-09-22 with `GetPickList` in the tree (sales step 5, commit 3): the three commands return
   # **94 / 66 / 6** -- ONE edge line added, A-7: `PickListReader -> Entity\SalesOrder` (its visibility predicate
   # binds `STATUS_*`, `SalesOrderViews`' shape). `make deptrac` reports **0 violations / 266 skipped / 1370

@@ -8,10 +8,11 @@ namespace App\Modules\Inventory\Application\Contract;
  * Take stock out on behalf of another module — ARCHITECTURE §5.5's
  * `Sales → Inventory::DepleteStock` edge, the second of the exactly two
  * cross-module write edges W-3 permits (the other is `ReceiveStock`). Built in
- * sales step 5, commit 1 (2026-09-22), **with no caller in `src/`**: its caller,
- * `CreateFulfilment`'s writer, lands in that step's last commit, and
+ * sales step 5, commit 1 (2026-09-22), with no caller; its one caller,
+ * `Sales\Application\FulfilmentWriter` (`CreateFulfilment`), landed in that
+ * step's last commit, and
  * `WriteOwnershipTest::everyStockWriteContractIsCalledOnlyByItsRegisteredCaller`
- * pins who may call it.
+ * pins it as the only one.
  *
  * ---------------------------------------------------------------------------
  * What it writes

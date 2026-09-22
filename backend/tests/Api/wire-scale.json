@@ -11,6 +11,9 @@
     "ConfirmSalesOrder $.total_amount": [
         4
     ],
+    "CreateFulfilment $.lines[].quantity": [
+        6
+    ],
     "CreateGoodsReceipt $.lines[].quantity": [
         6
     ],
@@ -52,6 +55,9 @@
     ],
     "CreateSalesOrderLine $.unit_price": [
         4
+    ],
+    "GetFulfilment $.lines[].quantity": [
+        6
     ],
     "GetGoodsReceipt $.lines[].quantity": [
         6

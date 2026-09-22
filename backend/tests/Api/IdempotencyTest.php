@@ -114,6 +114,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'method' => 'replayCreateGoodsReceipt',
             'why' => 'A second goods_receipt, and a second helping of quantity_received on the order line.',
         ],
+        'CreateFulfilment' => [
+            'method' => 'replayCreateFulfilment',
+            'why' => 'A second fulfilment, a second helping of quantity_fulfilled on the order line, and the stock taken '
+                .'out twice (sales step 5). Its mechanism is the header-sourced retry key on a TOTAL unique.',
+        ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
@@ -338,6 +343,43 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_received FROM purchase_order_line WHERE id = ?::uuid', [$line]),
             'The replay applied the delivery a second time to the order line, which is the effect the row count alone '
             .'cannot see.');
+    }
+
+    /**
+     * `replayCreateGoodsReceipt()`'s twin (sales step 5, commit 4): the retry must be ANSWERED with the first
+     * fulfilment (the returned id), not merely not duplicated, and none of its three effects may apply twice —
+     * the fulfilment row, the line's `quantity_fulfilled`, and the stock.
+     */
+    private function replayCreateFulfilment(string $why): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main FUL');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-IDEM-FUL', warehouseId: $warehouse, status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-IDEM-FUL');
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: '5');
+        $bin = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+            [$bin, self::TENANT_A, $warehouse, 'A-01']);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 10)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin]);
+        $body = ['lines' => [['sales_order_line_id' => $line, 'quantity' => '2', 'storage_location_id' => $bin]]];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-orders/'.$order.'/fulfilments', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/sales-orders/'.$order.'/fulfilments', $body, $key);
+
+        self::assertSame($first, $this->json()['id'] ?? null,
+            'The replay did not return the fulfilment the first call recorded. A retry that is refused rather than '
+            .'answered is not idempotent; it is merely not duplicated.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM fulfilment'), $why);
+        self::assertSame([['q' => '2.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity_fulfilled::text AS q FROM sales_order_line WHERE id = ?::uuid', [$line]), $why);
+        self::assertSame([['q' => '8.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
     }
 
     /**

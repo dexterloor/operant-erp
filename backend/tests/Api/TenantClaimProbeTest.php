@@ -182,6 +182,15 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // baseline has to SUCCEED -- a draft is not-found here by design (E-2), and a probe whose baseline is
         // refused compares a refusal with a refusal. `confirmed_sales_order` is seeded in both tenants.
         'GetPickList' => ['vars' => ['id' => 'confirmed_sales_order']],
+        // Added 2026-09-22 with the fulfilment create (sales step 5 C4). The confirmed order's line, shipped from
+        // this tenant's `@bin`, which `freshState()` stocks with the line's item -- per-tenant symbols, so a supplied
+        // tenant id that moved the write would take B's stock or post against B's order, which the digest names.
+        'CreateFulfilment' => [
+            'vars' => ['id' => 'confirmed_sales_order'],
+            'body' => ['lines' => [['sales_order_line_id' => '@confirmed_sales_order_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
+        ],
+        // Its subject is a fulfilment booked through the operation itself in each tenant, as `GetGoodsReceipt`'s is.
+        'GetFulfilment' => ['vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -338,6 +347,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $this->seedReceipt('A');
             $this->seedReceipt('B');
         }
+        if ('fulfilment' === ($recipe['setup'] ?? null)) {
+            $this->seedFulfilment('A');
+            $this->seedFulfilment('B');
+        }
 
         $before = $this->tenantBDigest();
 
@@ -479,6 +492,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $confirmed = $this->remember($letter, 'confirmed_sales_order', $this->seedSalesOrder(
             $tenantId, 'SO-2', $customer, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z'));
         $this->remember($letter, 'confirmed_sales_order_line', $this->seedSalesOrderLine($tenantId, $confirmed, $item));
+        // Stock of that item in this tenant's `@bin` (same warehouse), so `CreateFulfilment`'s baseline succeeds.
+        $this->insertAsOwnerForTenant($tenantId,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 50)',
+            [Uuid::v4()->toRfc4122(), $tenantId, $item, $this->id($letter, 'bin')]);
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);
@@ -499,6 +516,22 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
 
         $this->remember($letter, 'receipt', (string) $this->json()['id']);
+    }
+
+    /** A fulfilment booked through the operation itself, in the tenant's own token, so `GetFulfilment` has a subject. */
+    private function seedFulfilment(string $letter): void
+    {
+        $this->send('POST', '/sales-orders/'.$this->id($letter, 'confirmed_sales_order').'/fulfilments', [
+            'lines' => [['sales_order_line_id' => $this->id($letter, 'confirmed_sales_order_line'), 'quantity' => '2', 'storage_location_id' => $this->id($letter, 'bin')]],
+        ], [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), 'The fulfilment fixture for tenant '.$letter.' was not booked: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+
+        $this->remember($letter, 'fulfilment', (string) $this->json()['id']);
     }
 
     private function remember(string $letter, string $name, string $id): string

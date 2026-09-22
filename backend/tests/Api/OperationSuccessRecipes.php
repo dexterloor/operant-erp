@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
-use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Tests\Support\CountingKdf;
 use Symfony\Component\Uid\Uuid;
@@ -78,6 +77,36 @@ trait OperationSuccessRecipes
                 'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
                 'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']],
             ], $key());
+        };
+        // Sales step 5: a sales workspace with a bin of its warehouse holding the item, seeded as the owner in the
+        // PREPARE half, and one drive that raises, confirms and part-fulfils an order through the operations.
+        $stockedSalesWorkspace = function (string $tag) use ($salesWorkspace): array {
+            $c = $salesWorkspace($tag);
+            $c['bin'] = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [$c['bin'], self::TENANT_A, $c['warehouse'], 'A-01']);
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 100.25)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $c['item'], $c['bin']]);
+
+            return $c;
+        };
+        $raiseConfirmAndFulfil = function (array $c) use ($key): string {
+            $this->send('POST', '/sales-orders', [
+                'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
+                'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
+                'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '3', 'unit_price' => '1']],
+            ], $key());
+            $order = (string) $this->client()->getResponse()->headers->get('Location');
+            $this->send('POST', $order.'/confirmation');
+            $this->send('GET', $order.'/lines');
+            $line = $this->json()['items'][0]['id'];
+            $this->send('POST', $order.'/fulfilments', ['lines' => [
+                ['sales_order_line_id' => $line, 'quantity' => '1.5', 'storage_location_id' => $c['bin']],
+            ]], $key());
+
+            return $order;
         };
         $receive = function (array $o) use ($key): void {
             $this->send('POST', '/purchase-orders/'.$o['order'].'/goods-receipts',
@@ -271,42 +300,27 @@ trait OperationSuccessRecipes
             // row the operation wrote — which is what makes `created_by` non-null in the body every
             // reference check walks. A seeded `sales_order` would leave the column NULL and the
             // expansion unexamined.
-            // Sales step 5 C3. The order is raised and confirmed through the operations, so the pick list reads
-            // rows the API wrote. A candidate bin with stock is seeded in the PREPARE half (no HTTP there), so the
-            // walkers see a `candidate_bins` entry and its `qty_on_hand`.
-            // ⚠ **`quantity_fulfilled` is then set to a non-zero value as the OWNER**, with the matching status:
-            // `CreateFulfilment` is not built in this commit, so the API cannot produce a partially fulfilled
-            // order yet, and without it `WireScaleTest` would only ever observe `0.000000` on that field -- the
-            // "guard never armed" finding of sales step 1. The state is one the API cannot produce today (`RED`
-            // P9: nothing in the schema ties status to `quantity_fulfilled`); step 5's last commit replaces it
-            // with a real fulfilment.
-            'GetPickList' => [function () use ($salesWorkspace): array {
-                $c = $salesWorkspace('SO-PICK');
-                $c['bin'] = Uuid::v4()->toRfc4122();
-                $this->insertAsOwnerForTenant(self::TENANT_A,
-                    'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
-                    [$c['bin'], self::TENANT_A, $c['warehouse'], 'A-01']);
-                $this->insertAsOwnerForTenant(self::TENANT_A,
-                    'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 7.25)',
-                    [Uuid::v4()->toRfc4122(), self::TENANT_A, $c['item'], $c['bin']]);
-
-                return $c;
-            }, function (array $c) use ($key): array {
-                $this->send('POST', '/sales-orders', [
-                    'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
-                    'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
-                    'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '3', 'unit_price' => '1']],
-                ], $key());
-                $order = (string) $this->client()->getResponse()->headers->get('Location');
-                $this->send('POST', $order.'/confirmation');
-                $orderId = substr((string) strrchr($order, '/'), 1);
-                $this->insertAsOwnerForTenant(self::TENANT_A,
-                    'UPDATE sales_order SET status = ? WHERE id = ?::uuid', [SalesOrder::STATUS_PARTIALLY_FULFILLED, $orderId]);
-                $this->insertAsOwnerForTenant(self::TENANT_A,
-                    'UPDATE sales_order_line SET quantity_fulfilled = 1.5 WHERE sales_order_id = ?::uuid', [$orderId]);
+            // Sales step 5. The order is raised, confirmed and PART-FULFILLED through the operations, so every row
+            // these three recipes read was written by the API -- including a non-zero `quantity_fulfilled`, which
+            // `WireScaleTest` must observe or its guard never arms (the sales step 1 finding). The candidate bin and
+            // its stock are seeded in the PREPARE half (no HTTP there). C3's version of the pick-list recipe set
+            // `quantity_fulfilled` as the OWNER because `CreateFulfilment` did not exist yet; this replaced it.
+            'GetPickList' => [fn (): array => $stockedSalesWorkspace('SO-PICK'), function (array $c) use ($raiseConfirmAndFulfil): array {
+                $order = $raiseConfirmAndFulfil($c);
                 $this->send('GET', $order.'/pick-list');
 
-                return [200, 'create, confirm, (owner: part-fulfil), then read the pick list'];
+                return [200, 'create, confirm, part-fulfil, then read the pick list'];
+            }],
+            'CreateFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-FUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+                $raiseConfirmAndFulfil($c);
+
+                return [201, 'create, confirm, then fulfil part of it'];
+            }],
+            'GetFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-GFUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, then read the fulfilment'];
             }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-GET'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);

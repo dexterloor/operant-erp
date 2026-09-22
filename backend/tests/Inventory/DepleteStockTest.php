@@ -22,7 +22,7 @@ use Symfony\Component\Uid\Uuid;
 /**
  * `Inventory\Application\Contract\DepleteStock` — the fulfilment half of
  * ARCHITECTURE §5.5's two cross-module write edges (W-3), built in sales step 5
- * commit 1 **with no caller in `src/`**, and driven here the way
+ * commit 1 with no caller (its one caller, `FulfilmentWriter`, landed in commit 4), and driven here the way
  * `CreateFulfilment`'s writer will drive it: inside a tenancy transaction the
  * caller opened. `ReceiveStockTest`'s mirror, plus the one thing a depletion
  * has that a receipt does not — **it can be refused for want of stock, and

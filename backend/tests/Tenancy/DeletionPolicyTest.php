@@ -350,6 +350,9 @@ final class DeletionPolicyTest extends TenancyTestCase
         self::assertNull($refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $draft),
             'Control: archiving a DRAFT sales order was refused, so the refusals below could be refusing everything.');
 
+        // ⚠ `partially_fulfilled` and `fulfilled` are SEEDED with nothing shipped -- states the API cannot produce as
+        // seeded (a fulfilled order it produces has shipped every line; RED P9, 2026-09-22). The CHECK under test
+        // reads only `status`, so the seed is sufficient for it.
         foreach (['confirmed', 'partially_fulfilled', 'fulfilled', 'cancelled'] as $n => $status) {
             $id = $order('SO-N'.$n, $status);
             $refused = $refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $id);

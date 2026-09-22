@@ -10,6 +10,7 @@ use App\Modules\Inventory\Application\StockDepleter;
 use App\Modules\Inventory\Application\StockReceiver;
 use App\Modules\Inventory\Infrastructure\Entity\StockMovement;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
+use App\Modules\Sales\Application\FulfilmentWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\PhpSourceScan;
@@ -191,7 +192,11 @@ final class WriteOwnershipTest extends KernelTestCase
         // **8 -> 9 on 2026-09-21** with `DeleteSalesOrder`: one `UPDATE sales_order SET deleted_at =
         // clock_timestamp()`. A soft delete; the lines are archived by the cascade trigger, which is outside
         // `src/` and outside this scan.
-        'Modules\\Sales' => 9,
+        // **9 -> 12 on 2026-09-22** with `CreateFulfilment` (sales step 5, commit 4), read off this test's own
+        // failure: `FulfilmentWriter`'s `INSERT INTO fulfilment`, `INSERT INTO fulfilment_line` and `UPDATE
+        // sales_order_line SET quantity_fulfilled`. The status is an ORM flush and is not counted; the stock
+        // statements are Inventory's (`StockDepleter`), counted there.
+        'Modules\\Sales' => 12,
         'Modules\\UserManagement' => 5,
     ];
 
@@ -393,18 +398,21 @@ final class WriteOwnershipTest extends KernelTestCase
             "A write statement under src/ names stock_level.qty_reserved, and nothing has ever written that column.\n\n"
             ."STOP and read docs/RESIDUAL_GAPS.md G-7 before going further. V2-R-22 Half 2 ruled model A on 2026-09-19: "
             ."ConfirmSalesOrder writes no reservation, qty_reserved is a FORWARD DECLARATION in SchemaManifest's "
-            ."stock_level entry, available-to-promise EQUALS on-hand, and overselling is accepted only while it is "
-            ."unreachable. Writing this column is the event that ends that acceptance, and it is not a one-line change:\n"
-            ."  - the SUCCESSOR MODEL IS NOT RULED. It is open between model D at WAREHOUSE grain (derive demand from "
-            ."sales_order_line.quantity - quantity_fulfilled; needs V2-C-12 first) and model E (a Sales-owned "
-            ."reservation table). Model D as the design wrote it is NOT ratified — it subtracts warehouse-grain demand "
-            ."from bin-grain qty_on_hand. Storing a reservation at confirm (model B) is REFUSED; do not re-open it.\n"
+            ."stock_level entry, and available-to-promise EQUALS on-hand. Overselling is REACHABLE since CreateFulfilment "
+            ."(2026-09-22) and model A was RENEWED on that premise by owner ruling R1: refused at the pick in domain terms, "
+            ."never negative stock, never a 500, no priority. Writing this column ends that acceptance, and it is not a "
+            ."one-line change:\n"
+            ."  - the SUCCESSOR MODEL IS RULED (owner ruling R4, 2026-09-22): model D at WAREHOUSE grain (derive demand "
+            ."from sales_order_line.quantity - quantity_fulfilled), over model E, and it DERIVES -- it never stores a "
+            ."reservation in this column. 'Needs V2-C-12 first' was STRUCK as measured false. Model D at bin grain, as the "
+            ."V2-R-22 design wrote it, is NOT ratified. Storing a reservation at confirm (model B) is REFUSED; do not "
+            ."re-open it. So a write of this column contradicts a ruling -- it needs the owner first.\n"
             ."  - stock_level_reserved_sane (qty_reserved >= 0 AND qty_reserved <= qty_on_hand) is currently the ONLY "
             ."constraint in the schema refusing negative on-hand, because there is no standalone "
             ."CHECK (qty_on_hand >= 0). Writing a non-zero qty_reserved changes what that constraint means. Do not "
             ."relax it.\n"
-            ."  - CreateFulfilment must pre-check on-hand and refuse in domain terms (the StockReceiptRefused "
-            ."precedent) before an oversell can reach a user as a raw 23514.\n"
+            ."  - CreateFulfilment pre-checks on-hand and refuses in domain terms (built 2026-09-22) so an oversell never "
+            ."reaches a user as a raw 23514 -- keep it that way.\n"
             ."  - StockDepleter's conditional decrement (WHERE ... AND qty_on_hand >= ?) ASSUMES qty_reserved = 0 and "
             ."deliberately does not name the column. Whoever writes the column must change that predicate in the same "
             ."commit.\n"
@@ -624,8 +632,8 @@ final class WriteOwnershipTest extends KernelTestCase
      *
      * A consumer of the interface **or** its implementation, other than the implementation itself, must be
      * exactly the registered caller: `GoodsReceiptWriter` for `ReceiveStock` (PC-10's first named write),
-     * and for `DepleteStock` **nobody yet** — its caller, `CreateFulfilment`'s writer, lands in sales step
-     * 5's last commit and is registered there (PC-10's second).
+     * and `FulfilmentWriter` for `DepleteStock` (PC-10's second) — registered in sales step 5's last commit,
+     * the one that built it; the contract had no caller from commit 1 until then.
      *
      * **Disclosed limits:** a service fetched from the container by id, a class name held in configuration,
      * and a closure typed `callable` are not types this sees. The positive control is inside the test:
@@ -687,10 +695,11 @@ final class WriteOwnershipTest extends KernelTestCase
             'implementation' => StockReceiver::class,
             'callers' => [GoodsReceiptWriter::class],
         ],
-        // No caller in src/ until CreateFulfilment's writer lands (sales step 5, commit 4).
+        // `CreateFulfilment`'s writer, registered in the commit that builds it (sales step 5, commit 4) -- PC-10's
+        // second named cross-module write. It had no caller from commit 1 until then.
         DepleteStock::class => [
             'implementation' => StockDepleter::class,
-            'callers' => [],
+            'callers' => [FulfilmentWriter::class],
         ],
     ];
 

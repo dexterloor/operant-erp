@@ -48,7 +48,11 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // comparison below is `assertSame`, so a pin sorted to read well would be a second, quieter
         // fact. Both were measured against the registry rather than guessed -- the first attempt put
         // `ListSalesOrderLines` first and was red.
-        // Sales step 5 C3 (2026-09-22): the pick read. FIRST, read off this test's own failure -- the registry
+        // Sales step 5 C4 (2026-09-22): the fulfilment create, FIRST -- read off this test's own failure; the
+        // registry orders by resource-class declaration and `FulfilmentResource` sorts first. `idem` TRUE: §4.2's
+        // cell is `unique:fulfilment_idem_unique` (C2), and API-14 as amended demands the header for `unique:`.
+        'CreateFulfilment' => ['method' => 'POST', 'path' => '/sales-orders/{id}/fulfilments', 'idem' => true],
+        // Sales step 5 C3 (2026-09-22): the pick read. Was FIRST until C4, read off this test's own failure -- the registry
         // orders by resource-class declaration and `PickListResource` sorts before the others. `idem` false: a GET.
         'GetPickList' => ['method' => 'GET', 'path' => '/sales-orders/{id}/pick-list', 'idem' => false],
         'ListSalesOrders' => ['method' => 'GET', 'path' => '/sales-orders', 'idem' => false],

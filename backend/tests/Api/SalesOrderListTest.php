@@ -103,6 +103,8 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
         foreach ([
             SalesOrder::STATUS_DRAFT => null,
             SalesOrder::STATUS_CONFIRMED => '2026-01-01T00:00:00+00:00',
+            // ⚠ The two fulfilment statuses are SEEDED with nothing shipped -- states the API cannot produce as seeded
+            // (RED P9, 2026-09-22). The segments under test read only `status`.
             SalesOrder::STATUS_PARTIALLY_FULFILLED => '2026-01-02T00:00:00+00:00',
             SalesOrder::STATUS_FULFILLED => '2026-01-03T00:00:00+00:00',
             SalesOrder::STATUS_CANCELLED => null,

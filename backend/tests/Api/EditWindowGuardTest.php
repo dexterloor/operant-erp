@@ -57,10 +57,14 @@ use Symfony\Component\Uid\Uuid;
  * {@see self::theReplayExemptionIsRealAndIsNotAnEscapeHatch} drives the exemption itself, so it is a
  * tested behaviour here and not only a sentence in §8.3a's table.
  *
- * ⚠ **Reachability, so a green run is not over-read.** `SalesOrder`'s `fulfilled` and
- * `partially_fulfilled` are **not reachable through any built operation** — nothing writes
- * `quantity_fulfilled` (`RESIDUAL_GAPS.md` G-7) — so those cells are seeded by direct `UPDATE` as the
- * schema owner. Nobody may conclude from this class that the API can produce those states.
+ * ⚠ **Reachability, so a green run is not over-read.** Since 2026-09-22 (`CreateFulfilment`, sales step 5
+ * commit 4) **the `partially_fulfilled` cells are PRODUCED BY THE API**: the order is seeded `confirmed` and a
+ * real fulfilment of part of its line moves it, so the caveat that stood here — *"a green run says nothing
+ * about what the API can produce"* — is **false for those cells** and is withdrawn for them. **The `fulfilled`
+ * cells are still SEEDED** by direct `UPDATE` as the schema owner, with `quantity_fulfilled` left at 0 — a
+ * state the API CANNOT produce (a fulfilled order it produces has every live line shipped in full; `RED` P9:
+ * nothing in the schema ties `status` to `quantity_fulfilled`, so the seed is accepted). Nobody may conclude
+ * from those cells that the API produces them as seeded.
  *
  * ⚠ **Clause (b)'s blind spot, stated rather than hidden.** The scan is **name-shaped**: it looks for a
  * call whose method name matches `/^refuseUnless[A-Z]/`. A guard spelled `assertDraft()`, or inlined at
@@ -607,10 +611,28 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'EW WH '.$status);
         // `sales_order` carries NO `ordered_at` CHECK -- measured against `pg_constraint`, and unlike
-        // `purchase_order`, which is why this seed needs no date. `fulfilled` and `partially_fulfilled`
-        // are seeded here and are reachable through no built operation (G-7).
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse, $status);
-        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6)));
+        // `purchase_order`, which is why this seed needs no date. ⚠ `fulfilled` is SEEDED here with nothing
+        // shipped -- a state the API cannot produce (see the class docblock). `partially_fulfilled` is NOT
+        // seeded since 2026-09-22: the order is seeded `confirmed` and a real `CreateFulfilment` moves it below.
+        $apiProduced = SalesOrder::STATUS_PARTIALLY_FULFILLED === $status;
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse,
+            $apiProduced ? SalesOrder::STATUS_CONFIRMED : $status);
+        $item = $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6));
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item);
+        if ($apiProduced) {
+            $bin = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [$bin, self::TENANT_A, $warehouse, 'EW-01']);
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 5)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin]);
+            $this->send('POST', '/sales-orders/'.$order.'/fulfilments', ['lines' => [
+                ['sales_order_line_id' => $line, 'quantity' => '1', 'storage_location_id' => $bin],
+            ]], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+            self::assertSame(201, $this->httpStatus(), 'The partially fulfilled cell could not be produced by the API: '
+                .(string) $this->client()->getResponse()->getContent());
+        }
         // A SECOND line, archived, so `RestoreSalesOrderLine` has a subject its own guard admits. Without
         // it that operation's cells would answer 409 for `sales_order_line.is_not_archived` and prove
         // nothing about the edit window -- a refusal for the wrong reason is not evidence.

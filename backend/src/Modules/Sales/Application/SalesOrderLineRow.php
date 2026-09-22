@@ -29,16 +29,15 @@ use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
  * a commitment the tenant still has.
  *
  * ---------------------------------------------------------------------------
- * Today the status clause does ALL the work and the subtraction does none
+ * Both halves do work since 2026-09-22
  * ---------------------------------------------------------------------------
- * **Nothing under `src/` writes `sales_order_line.quantity_fulfilled`** —
- * `docs/RESIDUAL_GAPS.md` **G-7**, whose trigger list names `CreateFulfilment`
- * first. So every non-cancelled line reports its full `quantity`, and the
- * `partially_fulfilled` half of the expression is a **forward declaration** with
- * the same hard trigger `SalesOrder::cancel()`'s docblock already names. That
- * means the defect this expression avoids is at its **widest** right now, not its
- * narrowest: without the `CASE`, a cancelled order would report its entire
- * quantity as outstanding.
+ * **`CreateFulfilment` writes `sales_order_line.quantity_fulfilled`** (sales step
+ * 5, commit 4), so the subtraction is live and the `partially_fulfilled` half is
+ * no longer a forward declaration; `FulfilmentCreateTest` drives OI-2's
+ * cancelled remainder through the API (owner ruling R5). *(Until then nothing
+ * wrote the column, every non-cancelled line reported its full `quantity`, and
+ * the status clause did all the work.)* The pick read (`PickListReader`) selects
+ * {@see self::QUANTITY_OUTSTANDING} rather than a copy.
  *
  * ---------------------------------------------------------------------------
  * ⚠ The `::numeric(19,6)` cast on the zero is load-bearing, not decoration

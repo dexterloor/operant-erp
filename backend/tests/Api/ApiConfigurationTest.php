@@ -139,7 +139,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more on 2026-09-22 (sales step 5, commit 3):** `GetPickList`, the 116th §4.2 row (owner ruling
         // R7). A read over tables `erp_app` already SELECTs; its `Get` is its resource's only operation, so it adds
         // no `$notExposed` fallback route.
-        self::assertCount(35, $checked, 'The route set changed. This slice declares thirty-five operations: '.implode(', ', array_keys($checked)));
+        // **And two more on 2026-09-22 (sales step 5, commit 4):** `GetFulfilment` and `CreateFulfilment`. Stock moves:
+        // the migration grants `erp_app` exactly INSERT on `fulfilment` and `fulfilment_line` (measured before and
+        // after with `has_table_privilege()`), and `GetFulfilment` is the resource's item `Get`, declared first, so the
+        // 201's `Location` names it and no `$notExposed` fallback route is minted.
+        self::assertCount(37, $checked, 'The route set changed. This slice declares thirty-seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

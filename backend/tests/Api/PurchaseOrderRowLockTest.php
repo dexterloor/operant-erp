@@ -8,8 +8,10 @@ use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine;
 use App\Modules\Purchasing\Infrastructure\OrmPurchaseOrderReceiptStatus;
+use App\Modules\Sales\Application\SalesOrderRowLock;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrderLine;
+use App\Modules\Sales\Infrastructure\OrmSalesOrderFulfilmentStatus;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
@@ -558,6 +560,41 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $writer.' read the order before locking it, and LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN says it locks first. '
             .'Its caller may hold the lock today; this method must not depend on that.');
         $then();
+    }
+
+    /**
+     * **The sales twin: every sales writer with no path of its own takes the order's row lock as the first thing
+     * it sends, called on its own** (sales step 5, commit 4). Driven directly, inside a transaction that has taken
+     * no lock; the first statement naming `sales_order` must be `SalesOrderRowLock::SQL`, before `find()`'s SELECT.
+     *
+     * **Mutation, run 2026-09-22:** the `holdInside()` call removed from `OrmSalesOrderFulfilmentStatus` — red here
+     * (see the progress note); the accounting check stays green, which is the gap this closes.
+     */
+    #[Test]
+    public function aSalesWriterWithNoPathOfItsOwnTakesTheOrdersLockAsItsFirstStatement(): void
+    {
+        self::assertSame(['OrmSalesOrderFulfilmentStatus::recordFulfilment'], array_keys(self::SALES_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN),
+            'A sales no-path writer is listed that this test cannot drive. Add a driver below.');
+
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-NOPATH', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $subject = new OrmSalesOrderFulfilmentStatus();
+
+        $this->recorder()->start();
+        try {
+            $this->tenantContext()->run(self::TENANT_A, static function (EntityManagerInterface $em) use ($subject, $order): void {
+                $subject->recordFulfilment($em, $order, false);
+                $em->flush();
+            });
+        } finally {
+            $this->recorder()->stop();
+        }
+
+        $touching = array_values(array_filter($this->recorder()->statements(), static fn (string $sql): bool => str_contains($sql, 'sales_order')));
+        self::assertNotSame([], $touching, 'recordFulfilment() sent nothing naming sales_order, so it did not run.');
+        self::assertSame(SalesOrderRowLock::SQL, $touching[0],
+            'OrmSalesOrderFulfilmentStatus::recordFulfilment read the order before locking it. Its caller holds the lock '
+            .'today; this method must not depend on that.');
+        $this->assertSalesOrderStatus($order, SalesOrder::STATUS_PARTIALLY_FULFILLED);
     }
 
     /** @return iterable<string, array{string}> */
@@ -1146,6 +1183,124 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Two fulfilments of ONE order serialise on the order's row lock, and the second is refused as
+     * over-fulfilled** (sales step 5, commit 4; design §6's first race). Connection A holds the order's lock and,
+     * under it, raises the line's `quantity_fulfilled` by 4 — a hand-written stand-in for a concurrent
+     * fulfilment's line write. The real request asks 3 more of a line of 5: it waits at the lock, then reads 4,
+     * and 4 + 3 > 5 is refused in domain terms. Nothing it wrote survives.
+     */
+    #[Test]
+    public function twoFulfilmentsOfOneOrderSerialiseAndTheSecondIsRefusedAsOverFulfilled(): void
+    {
+        $f = $this->confirmedSalesOrderWithStock('SO-RACE1', '5', ['10']);
+
+        $holder = $this->raceAgainstAHolder(
+            $f['order'],
+            [['UPDATE sales_order_line SET quantity_fulfilled = quantity_fulfilled + 4 WHERE id = ?::uuid', [$f['line']]]],
+            fn () => $this->send('POST', '/sales-orders/'.$f['order'].'/fulfilments',
+                ['lines' => [['sales_order_line_id' => $f['line'], 'quantity' => '3', 'storage_location_id' => $f['bins'][0]]]],
+                [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            table: 'sales_order',
+        );
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order_line.is_not_over_fulfilled', $this->json()['rule']);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM fulfilment'));
+        self::assertSame([['q' => '10.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$f['bins'][0]]));
+    }
+
+    /**
+     * **Two orders racing on one bin: exactly one takes the stock, the other is refused in domain terms — never a
+     * 23514, never a lost update, never negative stock** (owner ruling R1; design §6's second race). Connection A
+     * holds ANOTHER order's lock and, under it, decrements the shared level by 7 with the depletion's own
+     * conditional statement (a hand-written copy of `StockDepleter`'s). The real request for 7 of the same bin
+     * blocks on the level's row lock, and when A commits, Postgres re-evaluates its `qty_on_hand >= 7` against 3
+     * (EvalPlanQual) and matches nothing. **Under M3 (an unconditional decrement) this is a 23514 → 500.**
+     *
+     * ⚠ It proves the refusal, not lock ORDER: one shared row cannot deadlock. The order proof is the two-row
+     * test below.
+     */
+    #[Test]
+    public function twoOrdersRacingOnOneBinCommitOneAndRefuseTheOther(): void
+    {
+        $f = $this->confirmedSalesOrderWithStock('SO-RACE2', '7', ['10']);
+        $other = $this->seedSalesOrder(self::TENANT_A, 'SO-RACE2-OTHER', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+
+        $holder = $this->raceAgainstAHolder(
+            $other,
+            [[
+                'UPDATE stock_level SET qty_on_hand = qty_on_hand - ?::numeric, version = version + 1, updated_at = now()
+                  WHERE inventory_item_id = ?::uuid AND storage_location_id = ?::uuid AND qty_on_hand >= ?::numeric',
+                ['7', $f['item'], $f['bins'][0], '7'],
+            ]],
+            fn () => $this->send('POST', '/sales-orders/'.$f['order'].'/fulfilments',
+                ['lines' => [['sales_order_line_id' => $f['line'], 'quantity' => '7', 'storage_location_id' => $f['bins'][0]]]],
+                [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            table: 'sales_order',
+        );
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('stock_level.on_hand_covers_the_depletion', $this->json()['rule']);
+        self::assertStringContainsString('which held 3 when this was checked', $this->json()['detail']);
+        self::assertSame([['q' => '3.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$f['bins'][0]]));
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM fulfilment'));
+    }
+
+    /**
+     * **W-5's cross-flow test — a fulfilment and a receipt over TWO shared stock levels never deadlock** (design
+     * §6, rebuilt after `RED` R-5: one shared row cannot deadlock under any ordering, so the design's first version
+     * could not fail). One item, two bins of one warehouse, levels L1 < L2 in `(inventory_item_id,
+     * storage_location_id)` order.
+     *
+     *  - **Connection A** (out of process): takes a purchase order's lock, then upserts L1 the way
+     *    `StockReceiver` does, waits until the real request is blocked on it, then upserts L2, and commits.
+     *  - **Connection B** (the real `CreateFulfilment`, over L1 + L2): ascends, so it blocks on L1 behind A; A takes
+     *    L2 unopposed and commits; B proceeds. 201, A committed, no `40P01`.
+     *  - **Under M4** (`StockDepleter` descending): B takes L2 first, then blocks on L1 (A); A's L2 blocks on B —
+     *    a cycle, and Postgres aborts one with `40P01`. RED. (`RED` measured this exact cycle in a scratch database.)
+     *
+     * ⚠ **What this does NOT prove, in the design's words:** connection A is **a hand-written copy of
+     * `StockReceiver`'s lock order**, not `StockReceiver`. It proves the depleter against that copy. If
+     * `StockReceiver`'s order drifts, this test stays green. **O-10 stays "asserted, by inspection, plus this run".**
+     */
+    #[Test]
+    public function aFulfilmentAndAReceiptOverTwoSharedLevelsNeverDeadlock(): void
+    {
+        $f = $this->confirmedSalesOrderWithStock('SO-W5', '4', ['10', '10']);
+        [$l1, $l2] = $f['bins']; // ascending: confirmedSalesOrderWithStock() sorts them
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme W5');
+        $po = $this->seedOrder(self::TENANT_A, 'PO-W5', $supplier, $f['warehouse'], status: PurchaseOrder::STATUS_ORDERED);
+
+        $upsert = 'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand)
+                   VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)
+                   ON CONFLICT (tenant_id, inventory_item_id, storage_location_id) DO UPDATE
+                       SET qty_on_hand = stock_level.qty_on_hand + EXCLUDED.qty_on_hand,
+                           version     = stock_level.version + 1,
+                           updated_at  = now()';
+
+        $holder = $this->raceAgainstAHolder(
+            $po,
+            [[$upsert, [Uuid::v4()->toRfc4122(), self::TENANT_A, $f['item'], $l1, '1']]],
+            fn () => $this->send('POST', '/sales-orders/'.$f['order'].'/fulfilments', ['lines' => [
+                ['sales_order_line_id' => $f['line'], 'quantity' => '2', 'storage_location_id' => $l2],
+                ['sales_order_line_id' => $f['line'], 'quantity' => '2', 'storage_location_id' => $l1],
+            ]], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            after: [[$upsert, [Uuid::v4()->toRfc4122(), self::TENANT_A, $f['item'], $l2, '1']]],
+        );
+
+        self::assertNull($holder['sqlstate'], 'The holder failed -- a 40P01 here is the deadlock W-5 exists to prevent: '.json_encode($holder));
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([['q' => '9.000000'], ['q' => '9.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id IN (?::uuid, ?::uuid) ORDER BY storage_location_id', [$l1, $l2]),
+            'Each level should be 10 + 1 received - 2 shipped.');
+    }
+
+    /**
      * **The Sales half of `theOrderRowLockIsTheFirstStatementToTouchTheOrder`: in every sales write path
      * the lock is the first statement that touches the order or its lines.**
      *
@@ -1182,10 +1337,31 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A,
             'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
         $path = strtr($path, ['{archivedLine}' => $archived]);
-        $body = null === $body ? null : array_map(
-            static fn (string $value): string => strtr($value, $substitutions),
-            $body,
-        );
+        // `{fulfil}` (sales step 5, commit 4): confirm the order and stock a bin of its warehouse for its live
+        // line, so `CreateFulfilment`'s drive succeeds and really writes.
+        if (str_contains($path, '{fulfil}')) {
+            $path = str_replace('{fulfil}', '', $path);
+            $line = $this->fetchAsOwnerForTenant(self::TENANT_A,
+                'SELECT sol.id::text AS id, sol.inventory_item_id::text AS item, so.warehouse_id::text AS warehouse
+                   FROM sales_order_line sol JOIN sales_order so ON so.id = sol.sales_order_id
+                  WHERE sol.sales_order_id = ?::uuid AND sol.deleted_at IS NULL', [$order])[0];
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                "UPDATE sales_order SET status = ?, ordered_at = now() WHERE id = ?::uuid", [SalesOrder::STATUS_CONFIRMED, $order]);
+            $bin = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [$bin, self::TENANT_A, $line['warehouse'], 'LOCK-01']);
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 5)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $line['item'], $bin]);
+            $substitutions['{line}'] = $line['id'];
+            $substitutions['{bin}'] = $bin;
+        }
+        if (null !== $body) {
+            array_walk_recursive($body, static function (mixed &$value) use ($substitutions): void {
+                $value = \is_string($value) ? strtr($value, $substitutions) : $value;
+            });
+        }
 
         $this->recorder()->start();
         $this->send($method, strtr($path, ['{order}' => $order]), $body, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
@@ -1254,6 +1430,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // SET deleted_at` is really issued; the cascade's line UPDATE runs inside the trigger, below the PHP
         // statement log, so exactly one write is seen.
         yield 'DeleteSalesOrder' => ['DELETE', '/sales-orders/{order}', null, 204];
+        // 201, API-21 branch 4 (sales step 5, commit 4). `{fulfil}` tells the test to CONFIRM the seeded order and
+        // stock a bin for its line first: a draft is refused by `recordFulfilment()`'s guard and a refused drive
+        // issues no write, so `assertCount(1, $writing)` would fail before the position check ran. The body is
+        // nested, so the test substitutes recursively.
+        yield 'CreateFulfilment' => ['POST', '/sales-orders/{order}/fulfilments{fulfil}',
+            ['lines' => [['sales_order_line_id' => '{line}', 'quantity' => '1', 'storage_location_id' => '{bin}']]], 201];
     }
 
     /**
@@ -1290,6 +1472,26 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // Added 2026-09-21 (sales slice 5), read off the scan's own failure: `SalesOrderWriter::archive — SQL:
         // UPDATE sales_order` was named before this entry existed.
         'DeleteSalesOrder' => 'SalesOrderWriter::archive',
+        // Added 2026-09-22 (sales step 5, commit 4), read off the scan's own failure: `FulfilmentWriter::create — via
+        // createInside()` was named before this entry existed. Its three statements (the two fulfilment INSERTs and
+        // `UPDATE sales_order_line SET quantity_fulfilled`) are in the private helper, so the scan credits `create()`.
+        'CreateFulfilment' => 'FulfilmentWriter::create',
+    ];
+
+    /**
+     * **The sales twin of `LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`** (sales step 5, commit 4): writers that take the
+     * order's lock themselves and are entered through another writer rather than through a path of their own.
+     * `OrmSalesOrderFulfilmentStatus::recordFulfilment` is `OrmPurchaseOrderReceiptStatus::recordReceipt`'s
+     * mirror, and the scan named it before this list existed. Its reason is measured by
+     * `aSalesWriterWithNoPathOfItsOwnTakesTheOrdersLockAsItsFirstStatement`, not trusted.
+     */
+    private const SALES_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
+        'OrmSalesOrderFulfilmentStatus::recordFulfilment' => [
+            'writes' => ['ORM: names a sales-order entity class and calls recordFulfilment() on it'],
+            'why' => 'It calls SalesOrderRowLock::holdInside() first. Its only caller, FulfilmentWriter::createInside, '
+                .'already holds that lock, and the second take is re-entrant for the same transaction, so this costs one '
+                .'cheap statement and removes the dependence on the caller.',
+        ],
     ];
 
     private const SALES_ALLOWED_WITHOUT_A_LOCK = [
@@ -1584,6 +1786,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
         $accounted = [
             ...array_values(self::SALES_LOCK_FIRST_CHECKED),
+            ...array_keys(self::SALES_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN),
             ...array_keys(self::SALES_ALLOWED_WITHOUT_A_LOCK),
         ];
         sort($accounted);
@@ -1612,7 +1815,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // stated reason quietly describing a method that no longer exists. `PurchaseOrderWriter::create` did
         // exactly that at step 8a. So a new write reddens here and whoever adds it has to re-read the
         // sentence that excuses the missing lock.
-        foreach (self::SALES_ALLOWED_WITHOUT_A_LOCK as $method => $pin) {
+        foreach ([...self::SALES_ALLOWED_WITHOUT_A_LOCK, ...self::SALES_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN] as $method => $pin) {
             self::assertSame($pin['writes'], $derived[$method] ?? [],
                 $method.' writes something its entry does not account for. Its stated reason for taking no lock was '
                 ."written about a different set of writes:\n  ".$pin['why']);
@@ -2062,6 +2265,36 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /** A `draft` sales order with one live line, so a confirmation of it is not refused for being empty. */
+    /**
+     * A CONFIRMED sales order with one line of `$quantity`, and one stocked bin per entry of `$stock` in its
+     * warehouse, the bins returned in ascending uuid order (W-5's order within one item).
+     *
+     * @param list<string> $stock
+     *
+     * @return array{order: string, line: string, item: string, warehouse: string, bins: list<string>}
+     */
+    private function confirmedSalesOrderWithStock(string $number, string $quantity, array $stock): array
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH '.$number);
+        $order = $this->seedSalesOrder(self::TENANT_A, $number, warehouseId: $warehouse, status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-'.$number);
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: $quantity);
+        $bins = [];
+        foreach ($stock as $i => $qty) {
+            $bin = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [$bin, self::TENANT_A, $warehouse, 'R-0'.$i]);
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin, $qty]);
+            $bins[] = $bin;
+        }
+        sort($bins, \SORT_STRING);
+
+        return ['order' => $order, 'line' => $line, 'item' => $item, 'warehouse' => $warehouse, 'bins' => $bins];
+    }
+
     private function seedConfirmableSalesOrder(string $number): string
     {
         $order = $this->seedSalesOrder(self::TENANT_A, $number);

@@ -48,6 +48,11 @@ use PHPUnit\Framework\TestCase;
  * (API-O-17, Output 9's). §8.3 says in terms that it *"stays red until
  * Output 9 writes `cancel()`"*.
  *
+ * ⚖ **2026-09-22: the pin retired itself.** `SalesOrder::recordFulfilment()` (sales step 5, commit 4)
+ * reached `fulfilled` and `partially_fulfilled`, the last two pinned statuses, so `PINNED_UNREACHABLE` is
+ * empty for every entity and §8.3 clause (b) now holds LITERALLY. What follows is the history of why it
+ * was a pin.
+ *
  * A suite is not allowed to ship red, and a clause (b) that passed today would be
  * the fourteenth fake-green — green over the exact defect it exists to find.
  * **The resolution taken here is a two-sided pin**, `PINNED_UNREACHABLE`:
@@ -120,10 +125,14 @@ final class TransitionGuardTest extends TestCase
             'blocks' => [],
         ],
         [
-            'entity' => SalesOrder::class, 'method' => null, // fulfilment posting, ⛔ Output 9
+            // ⚠ `method` was `null` (fulfilment posting, ⛔ Output 9) and `blocks` was `['CreateFulfilment']`
+            // until 2026-09-22: sales step 5 commit 4 wrote `recordFulfilment()` and ships the operation, so the
+            // row names it, both statuses leave `PINNED_UNREACHABLE`, and `blocks` empties. **The last of API-O-17's
+            // four.** (The Invoice payment-reversal row below still names no method.) All three edits are forced by the code.
+            'entity' => SalesOrder::class, 'method' => 'recordFulfilment',
             'from' => [SalesOrder::STATUS_CONFIRMED, SalesOrder::STATUS_PARTIALLY_FULFILLED],
             'to' => [SalesOrder::STATUS_PARTIALLY_FULFILLED, SalesOrder::STATUS_FULFILLED],
-            'blocks' => ['CreateFulfilment'],
+            'blocks' => [],
         ],
         [
             // `method` was `null` and `blocks` was `['CancelSalesOrder']` until
@@ -203,8 +212,8 @@ final class TransitionGuardTest extends TestCase
             // the matrix row above names it, and the status is now reachable by
             // an implemented transition. It was the last of API-O-17's four and
             // the only one the note above said was "not this package's to write".
-            SalesOrder::STATUS_FULFILLED,              // ⛔ fulfilment posting
-            SalesOrder::STATUS_PARTIALLY_FULFILLED,    // ⛔ fulfilment posting
+            // `STATUS_FULFILLED` and `STATUS_PARTIALLY_FULFILLED` LEFT this pin on 2026-09-22: `recordFulfilment()`
+            // reaches both (sales step 5, commit 4). The sales side now owes nothing either.
         ],
         Invoice::class => [],
     ];
@@ -282,6 +291,14 @@ final class TransitionGuardTest extends TestCase
                 .'about; 0 fails it, which is what makes the status guard\'s precedence checkable here too. The state '
                 .'is reachable — CreateSalesOrder accepts an absent or null lines[] as a legal empty draft. '
                 .'`SalesOrderConfirmTest` owns what the 0 case says over HTTP.',
+        ],
+        SalesOrder::class.'::recordFulfilment($allLinesFulfilled)' => [
+            'satisfying' => true,
+            'refusing' => null,
+            'rule' => null,
+            'why' => 'Sales step 5\'s outcome flag, `recordReceipt()`\'s mirror. Either value is legal from either source '
+                .'-- it chooses between `partially_fulfilled` and `fulfilled`, it does not gate the transition -- so '
+                .'there is no refusing value to give it. What the flag decides is `FulfilmentCreateTest`\'s.',
         ],
         PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
             'satisfying' => true,
@@ -762,7 +779,24 @@ final class TransitionGuardTest extends TestCase
             }
         }
 
-        self::assertGreaterThan(0, $pinned, 'The pin was empty, so this clause had no subject — and clause (b) would then be the literal assertion, which §8.3 says is red.');
+        // ⚠ **The pin RETIRED ITSELF on 2026-09-22** (sales step 5, commit 4: `SalesOrder::recordFulfilment()`
+        // reached the last two pinned statuses), exactly as the class docblock says it would. This assertion
+        // read `assertGreaterThan(0, $pinned)` until then -- "the pin was empty, so this clause had no subject"
+        // -- because an empty pin used to mean a broken rig. It now means §8.3 clause (b) holds LITERALLY, so
+        // the anti-vacuity moves to what clause (b) itself asserts: every status of every matrix entity is
+        // reached by an implemented transition, over a domain that is not empty.
+        if (0 === $pinned) {
+            $statuses = 0;
+            $uncovered = [];
+            foreach (self::matrixEntities() as $entity) {
+                $statuses += \count(self::statusesOf($entity));
+                foreach (array_diff(self::statusesOf($entity), self::coveredStatusesOf($entity)) as $status) {
+                    $uncovered[] = $entity.'::"'.$status.'"';
+                }
+            }
+            self::assertGreaterThan(0, $statuses, 'The matrix entities declare no status at all, so clause (b) holds over nothing.');
+            self::assertSame([], $uncovered, 'The pin is empty, so §8.3 clause (b) must hold literally -- and a status is unreached.');
+        }
         self::assertSame([], $unowed, 'A status is pinned as unreachable and no matrix row owes a transition that would reach it.');
     }
 

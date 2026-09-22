@@ -373,16 +373,12 @@ class SalesOrder
      * column — and `erp_app` holds no `DELETE` on either sales table precisely
      * because none is wanted (A4.4 duty 1's word is *"exactly"*).
      *
-     * ⚠ **FORWARD DECLARATION — the `partially_fulfilled` source is legal and
-     * UNREACHABLE today, and that is stated rather than implied.**
-     * `sales_order_line.quantity_fulfilled` is written by nothing under `src/`
-     * (V2-R-22 Half 2 / model A; `RESIDUAL_GAPS.md` G-7), and no fulfilment
-     * posting method exists (§8.3's other `SalesOrder` gap), so no order can hold
-     * this status. The guard admits it because §8.3 declares it legal, not because
-     * it has ever been exercised. **Hard trigger: `CreateFulfilment`** — the first
-     * writer of that state and of `quantity_fulfilled`. When it ships, the
-     * remainder derivation stops being vacuous and V2-C-14(b)'s decision below
-     * starts having a number to apply.
+     * **The `partially_fulfilled` source is REACHABLE since 2026-09-22** (`CreateFulfilment`, sales step 5
+     * commit 4, which writes that status and `quantity_fulfilled` through `recordFulfilment()` above). It was a
+     * forward declaration with that hard trigger until then. Cancelling such an order cancels the derived
+     * remainder and nothing else (owner ruling R5: OI-2 applied as ruled): `quantity_fulfilled` is preserved,
+     * the shipped fulfilments stay billable under D-A, and `SalesOrderLineRow`'s V2-C-14(b) CASE reads the
+     * remainder as 0. `FulfilmentCreateTest` drives it through the API.
      *
      * **`ordered_at` is deliberately not touched**, for `PurchaseOrder::cancel()`'s
      * reason: an order cancelled after it was confirmed keeps the date it was
@@ -399,6 +395,33 @@ class SalesOrder
         ]);
 
         $this->status = self::STATUS_CANCELLED;
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
+    /**
+     * **§8.3's fulfilment-posting row — the transition API-O-17 named *(no method exists)* for, and the
+     * last of its four.** Built with `CreateFulfilment` (sales step 5, commit 4, 2026-09-22), the mirror of
+     * `PurchaseOrder::recordReceipt()`.
+     *
+     * Legal from `confirmed` and `partially_fulfilled`. The result is `fulfilled` when every live line has
+     * reached its quantity with this fulfilment, and `partially_fulfilled` otherwise. **This method checks
+     * only the flag it is handed**, as `recordReceipt()` does: the caller (`FulfilmentWriter`) decides it
+     * from the locked lines plus the request, inside the transaction, after the row lock. The sources are
+     * this class's own constants (API-15, `noGuardEnumeratesAStatusAsAStringLiteral`).
+     *
+     * `draft` (never released to the warehouse), `cancelled` (the remainder will not ship; OI-2) and
+     * `fulfilled` (nothing left) are refused by the guard, which `TransitionGuardTest` pins, and
+     * **`ordered_at` is untouched**: it records the confirmation. Nothing in the schema ties `status` to
+     * `quantity_fulfilled` (`RED` P9, 2026-09-22) — this method and its one caller carry that rule alone.
+     */
+    public function recordFulfilment(bool $allLinesFulfilled): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [
+            self::STATUS_CONFIRMED,
+            self::STATUS_PARTIALLY_FULFILLED,
+        ]);
+
+        $this->status = $allLinesFulfilled ? self::STATUS_FULFILLED : self::STATUS_PARTIALLY_FULFILLED;
         $this->updatedAt = new \DateTimeImmutable();
     }
 

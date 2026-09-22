@@ -53,7 +53,11 @@ namespace App\Modules\Inventory\Application\Contract;
  * `UPDATE` of a key column — not with the `FOR NO KEY UPDATE` lock this
  * command's upsert of non-key columns takes. What is NOT safe after the call
  * is taking a lock another receipt or fulfilment could hold while it waits for
- * a stock level. This is argued by inspection; no two-connection test exists.
+ * a stock level. This is argued by inspection, plus one run: since 2026-09-22
+ * `PurchaseOrderRowLockTest::aFulfilmentAndAReceiptOverTwoSharedLevelsNeverDeadlock`
+ * races a real `CreateFulfilment` over two shared levels against a hand-written
+ * copy of this command's lock order (not this command itself — O-10 stays
+ * "asserted, by inspection, plus this run").
  *
  * **W-4 — depth 1.** It calls no other module's command.
  *

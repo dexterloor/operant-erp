@@ -117,6 +117,9 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\GoodsReceiptCreateTest::PINNED_GOODS_RECEIPT_OPERATIONS),
             // Output 9, sales slice 1: `/sales-orders` is its own path family, so it carries its own pin.
             array_keys(\App\Tests\Api\SalesOrderCreateTest::PINNED_SALES_ORDER_OPERATIONS),
+            // Sales step 5, commit 4: `GetFulfilment` lives at `/fulfilments/{id}`, outside the sales-order pin's paths,
+            // so it has a pin of its own -- `GetGoodsReceipt`'s shape exactly.
+            array_keys(\App\Tests\Api\FulfilmentCreateTest::PINNED_FULFILMENT_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);
