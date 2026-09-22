@@ -136,18 +136,17 @@ class AppUser
     }
 
     /**
-     * The single writer of `password_hash` after construction. **It has two
-     * callers and they are not the same thing**, so the docblock names both
-     * rather than the one it was written for.
+     * The single writer of `password_hash` after construction. **It has one
+     * caller: `ChangePassword` (E-23)** — the password changes, and the change is
+     * audited. The method replaces the stored digest and moves `updated_at`.
      *
-     * 1. **Rehash on login (ADR-006)** — the hash changes and the password does
-     *    not. This was the only caller when the method landed, and the old
-     *    one-line docblock said so; citing it afterwards as evidence that a
-     *    credential-change path was ready would have been reading a comment as a
-     *    capability.
-     * 2. **`ChangePassword` (E-23)** — the password changes too, and the change
-     *    is audited. The method itself is correct for both because it does the
-     *    same thing in both: replace the stored digest and move `updated_at`.
+     * **Rehash on login (ADR-006) is NOT built.** This docblock named it as a
+     * first caller until 2026-09-22, and that was a sentence without a
+     * mechanism: `VerifiesPasswords::needsRehash()` (`PasswordVerifier.php`)
+     * has no caller in `src/`, and `SignIn` never writes a hash. The method
+     * would serve a rehash unchanged — the hash changes and the password does
+     * not — but nothing does one today, so do not cite this method as evidence
+     * that stored hashes are upgraded when the KDF's cost moves.
      *
      * **What it deliberately does not do**, so no caller has to guess: it does
      * not hash (the KDF runs outside every transaction — ADR-006 §6.1, O-1's
@@ -156,10 +155,10 @@ class AppUser
      * and it revokes nothing (there is no session store — **API-O-13** — so a
      * live token outlives this call for up to E-20's eight hours).
      *
-     * The class-level rule still holds over both callers: **nothing on this class
-     * may be written before authentication has succeeded.** A rehash happens
-     * after the credential verified; a change happens behind
-     * `AuthenticationGate` and costs the current password as well.
+     * The class-level rule holds: **nothing on this class may be written before
+     * authentication has succeeded.** A change happens behind
+     * `AuthenticationGate` and costs the current password as well; a rehash, if
+     * one is ever built, must run only after the credential has verified.
      */
     public function replacePasswordHash(string $passwordHash): void
     {
