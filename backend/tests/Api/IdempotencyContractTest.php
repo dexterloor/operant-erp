@@ -209,6 +209,14 @@ final class IdempotencyContractTest extends TenancyTestCase
         // first. `purchase_order_line` is the worked example, not `sales_order`.
         // `Version20260921000100` laid it.
         'CreateSalesOrderLine' => 'unique:sales_order_line_tenant_idem_live',
+        // ⚠ **Sales step 5, commit 2, 2026-09-22.** Was `⛔ none`: a retried
+        // timeout would have posted a second fulfilment and taken the stock out
+        // twice. The sixth header-sourced key, and `CreateGoodsReceipt`'s shape
+        // exactly -- `NOT NULL` (no fulfilment predates it; one row per request)
+        // on a TOTAL unique (the table has no `deleted_at`). The path's order id
+        // is digested, so the same key on another order is a conflict.
+        // `Version20260922000100` laid it.
+        'CreateFulfilment' => 'unique:fulfilment_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -268,10 +276,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         // on 2026-09-19 (V2-R-11); `CreateSalesOrderLine` joined on 2026-09-16
         // and left on 2026-09-21 (V2-R-12, sales slice 4 commit 1). `IssueInvoice`
         // was redesigned per shipment (D-A as amended) and stays here until
-        // `invoice_tenant_fulfilment_not_void` exists.
+        // `invoice_tenant_fulfilment_not_void` exists. **`CreateFulfilment` left on
+        // 2026-09-22** (sales step 5 C2), so the block is one shorter again --
+        // count the entries below; do not read a number here.
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
-        'CreateFulfilment' => '⛔ none',
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
         'IssueInvoice' => '⛔ none',
@@ -335,6 +344,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreatePurchaseOrderLine' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesOrder' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesOrderLine' => [IdempotencyKeyGuard::COLUMN],
+        'CreateFulfilment' => [IdempotencyKeyGuard::COLUMN],
     ];
 
     /**
@@ -400,6 +410,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         // into the request DIGEST, not into the index key — which is how the
         // same key sent to a different order is refused rather than replayed.
         'CreateSalesOrderLine',
+        // Sales step 5 C2, 2026-09-22. `CreateGoodsReceipt`'s ground: the
+        // table's other unique is on the server-minted `fulfilment_number`.
+        'CreateFulfilment',
     ];
 
     /**

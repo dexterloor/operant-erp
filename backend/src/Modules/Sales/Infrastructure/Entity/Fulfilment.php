@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Infrastructure\Entity;
 
+use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Modules\Warehouses\Infrastructure\Entity\Warehouse;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -40,6 +41,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Table(name: 'fulfilment')]
 #[ORM\UniqueConstraint(name: 'fulfilment_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'fulfilment_number_unique', columns: ['tenant_id', 'fulfilment_number'])]
+// A retried CreateFulfilment collides here (Version20260922000100, sales step 5 C2). TOTAL, like
+// `goods_receipt_idem_unique`, because this table has no `deleted_at`.
+#[ORM\UniqueConstraint(name: 'fulfilment_idem_unique', columns: ['tenant_id', 'idempotency_key'])]
 // "What has shipped against this order" — the fulfilment screen, newest last.
 #[ORM\Index(name: 'fulfilment_tenant_order_idx', columns: ['tenant_id', 'sales_order_id', 'shipped_at'])]
 class Fulfilment
@@ -60,8 +64,30 @@ class Fulfilment
     #[ORM\JoinColumn(name: 'warehouse_id', referencedColumnName: 'id', nullable: false)]
     private Warehouse $warehouse;
 
+    /**
+     * Who declared the goods shipped — the authenticated caller at write time. **NOT NULL**, unlike
+     * `GoodsReceipt::$receivedBy`: owner ruling R6 of 2026-09-22 (V2-R-23). A fulfilment is the event
+     * SoD-4 exists to attribute and no `fulfilment.*` audit event exists (B-4a), so this is the only
+     * attribution. Evidence for SoD-4, not enforcement.
+     */
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'shipped_by_user_id', referencedColumnName: 'id', nullable: false)]
+    private AppUser $shippedBy;
+
     #[ORM\Column(name: 'fulfilment_number', type: Types::TEXT)]
     private string $fulfilmentNumber;
+
+    /**
+     * The hex SHA-256 of the `Idempotency-Key` header (D-B), never the header. **Non-nullable,
+     * following `GoodsReceipt::$idempotencyKey`**: no fulfilment predates it (`Version20260922000100`).
+     * Set once, in the `INSERT`, and there is no setter.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT)]
+    private string $idempotencyKey;
+
+    /** `RequestDigest::of()` of the request that created the row. Request plumbing, never read into the domain. */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT)]
+    private string $requestDigest;
 
     #[ORM\Column(name: 'shipped_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $shippedAt;
@@ -77,14 +103,20 @@ class Fulfilment
         Uuid $tenantId,
         SalesOrder $salesOrder,
         Warehouse $warehouse,
+        AppUser $shippedBy,
         string $fulfilmentNumber,
+        string $idempotencyKey,
+        string $requestDigest,
         ?\DateTimeImmutable $shippedAt = null,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->salesOrder = $salesOrder;
         $this->warehouse = $warehouse;
+        $this->shippedBy = $shippedBy;
         $this->fulfilmentNumber = $fulfilmentNumber;
+        $this->idempotencyKey = $idempotencyKey;
+        $this->requestDigest = $requestDigest;
         $this->createdAt = new \DateTimeImmutable();
         $this->shippedAt = $shippedAt ?? $this->createdAt;
         $this->updatedAt = $this->createdAt;
@@ -108,6 +140,11 @@ class Fulfilment
     public function getWarehouse(): Warehouse
     {
         return $this->warehouse;
+    }
+
+    public function getShippedBy(): AppUser
+    {
+        return $this->shippedBy;
     }
 
     public function getFulfilmentNumber(): string

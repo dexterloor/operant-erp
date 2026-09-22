@@ -65,7 +65,9 @@ use Symfony\Component\HttpKernel\Event\ControllerEvent;
  * `CreateSalesOrderLine` a real mechanism, i.e. **the number became right for a
  * reason unrelated to why it was written**. Both copies are corrected in that
  * same commit rather than left to heal silently. **The count lives in E9-2's
- * condition cell; derive it there and never restate it here.**
+ * condition cell; derive it there and never restate it here.** *(And "eight
+ * again today" is itself history from 2026-09-22: `Version20260922000100` gave
+ * `CreateFulfilment` its key and it left the block.)*
  *
  * ⚠ **It was nine until 2026-09-11.** `CreatePurchaseOrder` came off that list
  * when `Version20260911000100` gave `purchase_order` a client-supplied

@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-22 with the `fulfilment` retry key and shipper in the tree (sales step 5, commit 2): the
+  # three commands return **93 / 65 / 6** -- ONE edge line added, and it is A-12, not A-7 or A-5:
+  # `Fulfilment -> AppUser` for `shipped_by_user_id` (see its entry). `make deptrac` reports **0 violations /
+  # 262 skipped / 1350 allowed**: +4 skipped are that pair's four occurrences in the entity.)
   # (Re-derived 2026-09-22 with `DepleteStock` in the tree (sales step 5, commit 1): the three commands still
   # return **92 / 65 / 6 — no edge line was added** (every new class is `Inventory\Application` or its
   # `Contract`, and the contract is already a layer `SalesApplication` may reach), and `make deptrac` reports
@@ -208,6 +212,9 @@ deptrac:
   #   A-12 (19 edges) Cross-module Doctrine associations. Already recorded in
   #                   §5.3 as a known deviation with an owner. This register is
   #                   the first time its size has been counted: 19 edges.
+  #                   (20 from 2026-09-22: `Fulfilment -> AppUser`, forced by
+  #                   `shipped_by_user_id`'s composite FK -- re-derive with
+  #                   `grep -- "- App" deptrac.yaml | grep -c "A-12"`.)
   # ------------------------------------------------------------------------
   skip_violations:
     App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
@@ -313,6 +320,12 @@ deptrac:
       - App\Modules\Sales\ApiResource\UpdateSalesOrderLineInput   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Infrastructure\Entity\Fulfilment:
+      # Sales step 5 C2, 2026-09-22: `shipped_by_user_id` (owner ruling R6) carries the composite
+      # `fulfilment_shipper_fk`, and `DoctrineMappingTest` requires every composite tenant FK on a mapped
+      # table to have its single-column association -- so this edge is forced by the mapping decision, not
+      # chosen. It is `SalesOrder -> AppUser`'s and `GoodsReceipt -> AppUser`'s shape exactly (the actor on
+      # a document), which this register already carries under A-12.
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Sales\Infrastructure\Entity\FulfilmentLine:
       - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12

@@ -520,9 +520,10 @@ final class SchemaManifest
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'The event that depleted stock (ARCHITECTURE W-3). Corrected by a return, never deleted.',
+            'why' => 'The event that depleted stock (ARCHITECTURE W-3). Corrected by a return, never deleted. **Carries CreateFulfilment\'s retry key (Version20260922000100, sales step 5 C2):** idempotency_key holds the hex SHA-256 of the Idempotency-Key header and request_digest the RequestDigest::of() of the request that created the row, each CHECKed to 64 lower-case hex. Both are NOT NULL, on goods_receipt\'s reasoning and not purchase_order_line\'s: no fulfilment predates the columns -- nothing has ever been able to write one -- and each request writes ONE header row, its lines carrying no key. The unique fulfilment_idem_unique (tenant_id, idempotency_key) is TOTAL, like goods_receipt\'s, because this table has no deleted_at. **And shipped_by_user_id, NOT NULL (owner ruling R6, V2-R-23):** who declared the goods shipped, the authenticated caller, never a request field; the only attribution a fulfilment has, since no fulfilment.* audit event exists (B-4a). **The migration grants nothing:** a new column inherits the table-level ACL (M-1), so the columns arrive readable and not writable.',
             // ADR-002 A4: read-only until CreateFulfilment is built; that migration grants the INSERT (and any UPDATE)
-            // its writer issues. Never DELETE (deletion class none).
+            // its writer issues. Never DELETE (deletion class none). Unchanged by Version20260922000100, which adds
+            // columns only.
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
         'fulfilment_line' => [
