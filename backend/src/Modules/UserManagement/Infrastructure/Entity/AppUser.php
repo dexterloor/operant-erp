@@ -177,6 +177,11 @@ class AppUser
         $this->updatedAt = $at;
     }
 
+    /**
+     * No caller yet (E-15g). `erp_app` holds no UPDATE on `is_active` or `deleted_at` (H0,
+     * `Version20260922000300`), so the first caller of this or `delete()` is a `42501` until it grants
+     * `UPDATE (is_active, deleted_at)` in its own migration (ADR-002 A4.4 duty 1) — never table-level UPDATE.
+     */
     public function deactivate(): void
     {
         $this->isActive = false;

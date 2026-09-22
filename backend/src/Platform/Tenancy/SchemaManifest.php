@@ -317,12 +317,27 @@ final class SchemaManifest
             // erp_ai holds nothing: the query agent has no business reading a
             // credential table, and a column-scoped grant would still put
             // password_hash one widening away from a model-driven query.
-            // erp_app: SELECT and UPDATE only (ADR-002 Amendment 4). UPDATE is
-            // the ORM flush of LoginRecorder (last_login_at) and ChangePassword
-            // (password_hash). No `src/` path creates or deletes a user --
-            // CreateUser and provisioning grant INSERT when they are built.
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'UPDATE']],
-            'column_grants' => [DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active']]],
+            // erp_app: table-level SELECT (ORM hydration reads every column) and
+            // COLUMN-level UPDATE only (H0, ADR-002 A4.0, 2026-09-22,
+            // Version20260922000300). The columns are the union of the two ORM
+            // flushes that write this table:
+            //   LoginRecorder  -> recordLogin()         last_login_at, updated_at
+            //   ChangePassword -> replacePasswordHash() password_hash, updated_at
+            // Nothing else in `src/` writes a user, and nothing creates or deletes
+            // one -- CreateUser and provisioning grant INSERT when they are built.
+            // A NEW COLUMN HERE INHERITS SELECT BUT NO UPDATE: the table-level ACL
+            // no longer carries UPDATE. So a writer grants its own columns with
+            // itself (A4.4 duty 1): E-15g's deactivate/delete add
+            // UPDATE (is_active, deleted_at), (e)-cred adds UPDATE (password_mac),
+            // each to this list and to its own migration. A 42501 from such a
+            // writer is fixed by granting that column, never by restoring
+            // table-level UPDATE. password_hash stays writable, so H0 does not
+            // close lockout or takeover through it (RESIDUAL_GAPS G-12).
+            'grants' => [DatabaseRoles::APP => ['SELECT']],
+            'column_grants' => [
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active']],
+                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at']],
+            ],
         ],
         'role' => [
             'module' => 'Modules\\UserManagement',

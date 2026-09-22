@@ -6,6 +6,7 @@ namespace App\Tests\Tenancy;
 
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\SchemaManifest;
+use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -582,6 +583,141 @@ final class GrantFootprintTest extends TenancyTestCase
         }
 
         self::assertSame([], $wrong, "Column privileges do not match SchemaManifest:\n  ".implode("\n  ", $wrong));
+    }
+
+    /**
+     * The columns of `app_user` that `sign-in` and a password change write, and no others (H0, ADR-002 A4.0,
+     * 2026-09-22, `Version20260922000300`). Written here by hand from the callers, **never** read from
+     * `SchemaManifest` — see the method's docblock for why that matters.
+     *
+     *   LoginRecorder  -> AppUser::recordLogin()         -> last_login_at, updated_at
+     *   ChangePassword -> AppUser::replacePasswordHash() -> password_hash, updated_at
+     *
+     * Both SET lists were measured from the server log at build, not inferred.
+     */
+    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['last_login_at', 'password_hash', 'updated_at'];
+
+    /**
+     * **H0: `erp_app` can UPDATE exactly the `app_user` columns its callers write — proved by running the
+     * statement as `erp_app`, not by reading the catalogue.**
+     *
+     * The two pins above compare the catalogue with `SchemaManifest`. If the manifest and a migration widen
+     * **together** (say `email` added to both), both stay green. This method's expected set is the callers',
+     * written as a literal in this class, so it fails when the grant widens even though the manifest agrees.
+     * **That is the only reason it exists, and it holds only while the literal stays a literal:** a later hand
+     * that "tidies" the constant into `SchemaManifest::columnGrantsFor('app_user', …)` leaves every assertion
+     * and the planted control below green while the check goes blind to a joint widening. No plant can catch
+     * that; only re-running the joint-widening mutation (M6 in `docs/session12/h0-progress.md`) can.
+     *
+     * **Domain, server-derived:** every live column of `app_user` from `pg_attribute`, never a list.
+     * **Per column, one connection and one transaction** (never a loop inside one transaction: a refused
+     * statement aborts it, and every later column would read `25P02`). Each runs
+     * `UPDATE app_user SET <col> = <col> WHERE id = ?` as `erp_app` in tenant A's context, set through
+     * `TenantContext::establishOn` (TenantContextContainmentTest scans this directory), then rolls back.
+     * `SET col = col` satisfies every CHECK and unique, so the only refusal it can meet is the privilege.
+     *
+     * **A refusal is SQLSTATE `42501` AND `permission denied for table app_user`** — ADR-002 A4.3 R3 forbids
+     * identifying one by `42501` alone, because RLS raises it too. Anything else is reported verbatim as a
+     * third outcome and fails, so an environment fault cannot pass as a refusal.
+     *
+     * **What H0 does not buy** (RED H-1): `password_hash` stays writable, so lockout and the credential takeover
+     * both remain through it (`RESIDUAL_GAPS.md` G-12, `(e)-cred`), and `last_login_at` / `updated_at` stay
+     * forgeable. This method pins the routes H0 closes; it does not certify the table as safe.
+     *
+     * **Planted control, committed then undone in `finally`** — the precedent is
+     * `theCoverageConstantsNameEveryPrivilegePostgresHas`. A grant on the owner's *uncommitted* transaction is
+     * invisible to `erp_app`'s separate session, and the owner cannot `SET ROLE erp_app` (it is not a member,
+     * measured), so the plant has to be real to reach the probe. `display_name` is chosen because its `attacl`
+     * is otherwise empty. A crash that skips `finally` leaves the grant behind, and
+     * `everyColumnLevelPrivilegeIsExactlyTheDeclaredSet` fails loudly on the next run.
+     */
+    #[Test]
+    public function theApplicationCanUpdateOnlyTheUserColumnsItsCallersWrite(): void
+    {
+        $userId = '11111111-1111-4111-8111-0000000000a1';
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)
+            VALUES (?::uuid, ?::uuid, 'h0-probe@example.com', 'x', 'H0 Probe')
+            SQL, [$userId, self::TENANT_A]);
+
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'app_user'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns, $userId): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                $connection = $this->secondClient();
+                $connection->beginTransaction();
+                try {
+                    $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                    $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                    $rows = $connection->executeStatement(
+                        sprintf('UPDATE app_user SET %1$s = %1$s WHERE id = ?::uuid', $quoted), [$userId]);
+                    $outcomes[$column] = 'accepted:'.$rows;
+                } catch (DriverException $e) {
+                    $outcomes[$column] = '42501' === $e->getSQLState()
+                        && str_contains($e->getMessage(), 'permission denied for table app_user')
+                        ? 'refused'
+                        : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                } finally {
+                    $connection->rollBack();
+                    $connection->close();
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $column => $outcome) {
+                $callerWrites = \in_array($column, self::APP_USER_COLUMNS_THE_CALLERS_WRITE, true);
+                if ($callerWrites && 'accepted:1' !== $outcome) {
+                    $wrong[] = sprintf('app_user.%s: a caller writes it, but erp_app got "%s"', $column, $outcome);
+                } elseif (!$callerWrites && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('app_user.%s: no caller writes it, but erp_app got "%s"', $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        // Positive control: the connection, the tenant context and the fixture are real, so a
+        // refusal below is the privilege, not RLS or an empty table.
+        self::assertSame('accepted:1', $outcomes['last_login_at'] ?? null,
+            'The positive control failed: erp_app could not update last_login_at on its own tenant\'s user, '
+            .'so the refusals in this test prove nothing about the privilege.');
+
+        // Anti-vacuity: the routes H0 closes are in the domain and are refused.
+        foreach (['email', 'is_active', 'deleted_at', 'display_name'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null,
+                "H0 closes erp_app writing app_user.{$closed}, and the probe did not see it refused.");
+        }
+        foreach (self::APP_USER_COLUMNS_THE_CALLERS_WRITE as $written) {
+            self::assertArrayHasKey($written, $outcomes, "A column the callers write, {$written}, is not in app_user.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's UPDATE on app_user is not exactly the columns its callers write (H0). A 42501 from a new "
+            ."writer is fixed by granting that column with its caller, never by restoring table-level UPDATE:\n  "
+            .implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (display_name) ON app_user TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['app_user.display_name: no caller writes it, but erp_app got "accepted:1"'],
+                $violations($probe()),
+                'A committed UPDATE (display_name) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (display_name) ON app_user FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted display_name grant survived its REVOKE.');
     }
 
     /**

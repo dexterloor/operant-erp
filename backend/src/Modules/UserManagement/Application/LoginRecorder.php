@@ -18,10 +18,16 @@ use Symfony\Component\Uid\Uuid;
  * ---------------------------------------------------------------------------
  * ADR-006 §2.1: *"the successful-login follow-on happens on `erp_app` **after**
  * the JWT is minted, i.e. on an authenticated path"*. Everything before it runs
- * on a principal that can do one thing. This runs on the principal that can do
- * everything, which is admissible exactly because authentication has already
- * succeeded — and it is why `SignIn` calls it last rather than folding it into
- * the success branch's other writes.
+ * on a principal that can do one thing. This runs on the application principal,
+ * which is admissible exactly because authentication has already succeeded —
+ * and it is why `SignIn` calls it last rather than folding it into the success
+ * branch's other writes. (This read *"the principal that can do everything"*
+ * until 2026-09-22. That has been false since ADR-002 Amendment 4 narrowed
+ * `erp_app` to its callers' writes, and on `app_user` it now holds UPDATE on
+ * three columns only — `last_login_at` and `updated_at`, which this flush
+ * writes, and `password_hash` (H0, `Version20260922000300`). A new field
+ * assigned in `AppUser::recordLogin()` is a `42501` here until its column is
+ * granted with it.)
  *
  * **Step 9 records no session.** §7.1's revision 1 said *"session record,
  * `last_login_at`"* and `SchemaManifest::TABLES` declares no session table, so
