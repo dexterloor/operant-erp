@@ -121,6 +121,31 @@ class StockMovement
             throw new \InvalidArgumentException('source_type and source_id are set together or not at all.');
         }
 
+        // `SECURITY_MODEL.md` E-26's entity half: `reason` is one of this class's own
+        // `REASON_*` values -- the constructor validated quantity and the source pairing
+        // and NOT this, which is the defect `SESSION_LOG.md` Move 74 found (CD-2 (ii)).
+        // No `src/` path constructs this entity today (the writers are raw SQL, bound by
+        // the write-path half of E-26 in `WriteOwnershipTest`); this is the guard the
+        // first ORM writer meets.
+        if (!\in_array($reason, [
+            self::REASON_RECEIPT,
+            self::REASON_FULFILMENT,
+            self::REASON_TRANSFER_IN,
+            self::REASON_TRANSFER_OUT,
+            self::REASON_ADJUSTMENT,
+            self::REASON_RETURN,
+        ], true)) {
+            throw new \InvalidArgumentException(\sprintf('"%s" is not a stock movement reason.', $reason));
+        }
+
+        // E-27: `return` stays in the database CHECK (the value domain) and is authorised
+        // by no permission until `CreateSalesReturn` ships `sales_return.create`, in the
+        // commit that lifts this refusal and rewrites E-27.
+        if (self::REASON_RETURN === $reason) {
+            throw new \InvalidArgumentException('A stock movement with reason "return" is refused until CreateSalesReturn '
+                .'ships the permission that authorises it (SECURITY_MODEL.md E-27).');
+        }
+
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->inventoryItem = $inventoryItem;

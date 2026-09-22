@@ -7,7 +7,7 @@ namespace App\Modules\Inventory\Application\Contract;
 /**
  * Take stock in on behalf of another module — ARCHITECTURE §5.5's
  * `Purchasing → Inventory::ReceiveStock` edge, one of the exactly two
- * cross-module write edges W-3 permits (the other, `DepleteStock`, is not built).
+ * cross-module write edges W-3 permits (the other is `DepleteStock`, built 2026-09-22).
  *
  * ---------------------------------------------------------------------------
  * What it writes

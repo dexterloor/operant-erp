@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace App\Tests\Architecture;
 
+use App\Modules\Inventory\Application\Contract\DepleteStock;
+use App\Modules\Inventory\Application\Contract\ReceiveStock;
+use App\Modules\Inventory\Application\StockDepleter;
+use App\Modules\Inventory\Application\StockReceiver;
+use App\Modules\Inventory\Infrastructure\Entity\StockMovement;
+use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
+use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
 /**
  * **`ARCHITECTURE.md` S-7(c): a module writes, in raw SQL or DQL, only the
@@ -104,8 +110,14 @@ use PHPUnit\Framework\TestCase;
  *  - **Reads.** Cross-module SQL reads are a disclosed residual, not a rule:
  *    `UserManagement\Application\PasswordChangeThrottle` reads `audit_log` by
  *    design.
+ *
+ * **A `KernelTestCase` since 2026-09-22, for one method only:**
+ * `everyStockMovementReasonIsRegisteredToItsWriterAndPermission` reads its domain
+ * from the live `stock_movement_reason_values` CHECK, so it boots the kernel for
+ * the `erp_app` connection. Every other method is a pure source scan and boots
+ * nothing.
  */
-final class WriteOwnershipTest extends TestCase
+final class WriteOwnershipTest extends KernelTestCase
 {
     /**
      * **The exact write-statement count, per module — a pin, not a floor.**
@@ -141,7 +153,11 @@ final class WriteOwnershipTest extends TestCase
         // `SalesOrderCancellation` issues two `SELECT`s and an ORM flush, and the row lock is a
         // `FOR NO KEY UPDATE` this scan excludes.
         'Modules\\AuditLog' => 5,
-        'Modules\\Inventory' => 6,
+        // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
+        // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
+        // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
+        // everyStockMovementReasonIsRegisteredToItsWriterAndPermission, and the message below.
+        'Modules\\Inventory' => 8,
         'Modules\\Purchasing' => 10,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
@@ -213,7 +229,11 @@ final class WriteOwnershipTest extends TestCase
             'The write scan found a different number of write statements per module under src/Modules than '
             .'WRITE_STATEMENTS_PER_MODULE pins. If this commit added or removed a raw SQL/DQL write, update the pin in '
             .'the same commit so the change is visible in review. If it did not, the scanner has stopped seeing '
-            .'statements (or started seeing prose) and every ownership assertion below holds over the wrong set.');
+            .'statements (or started seeing prose) and every ownership assertion below holds over the wrong set.'
+            ."\n\nIf the statement you added is an INSERT INTO stock_movement, the count is the least of it: "
+            ."everyStockMovementReasonIsRegisteredToItsWriterAndPermission must also be red, and its registry entry is "
+            ."the review point (SECURITY_MODEL.md E-25 / E-26 / E-27; history in docs/RESIDUAL_GAPS.md CD-2, closed). "
+            ."If that test is green after you add such a write, the scan has gone blind -- stop.");
 
         // 2. The positive control, in this test so a --filter run carries it:
         //    the same statement parser must resolve a write to every manifest
@@ -274,12 +294,9 @@ final class WriteOwnershipTest extends TestCase
             ."write's table must be a literal the scan can read. A cross-module write goes through the owning module's "
             ."Application\\Contract command interface; a deliberate exception needs an owner decision and an entry in "
             ."REGISTERED_DEVIATIONS with its reason. A computed table name must become a literal.\n\n"
-            ."If the write you just added is an INSERT INTO stock_movement outside StockReceiver, STOP and read "
-            ."docs/RESIDUAL_GAPS.md CD-2 before going further: the SEC-O-13 'no split' ruling left three E-* rules "
-            ."unwritten, and nothing binds stock_movement.reason to the permission that authorised the write -- so a "
-            ."write authorised by stock_movement.adjust can still be posted as reason = 'receipt', which defeats the "
-            ."visible-pattern control that ruling rests on. This pin moving is the trigger for that work; it is why the "
-            ."pointer lives in this message rather than in a list somebody has to remember to read.\n"
+            ."A stock_movement write belongs to Inventory: a writer in another module goes through an "
+            ."Inventory\\Application\\Contract command (W-3; PC-10 names the only two), and its reason is bound to that "
+            ."writer by SECURITY_MODEL.md E-26 and checked by everyStockMovementReasonIsRegisteredToItsWriterAndPermission.\n"
             .implode("\n", $violations));
 
         $stale = [];
@@ -313,8 +330,11 @@ final class WriteOwnershipTest extends TestCase
      * defect inverted — a gap keyed to a mechanism that does not trip.
      *
      * So the residual gets the **Move 219 anti-vacuity shape** instead: assert the absence directly, and
-     * carry the residual's text in the failure message, the way the ownership assertion above carries
-     * CD-2's. **Proven non-vacuous by re-running U-2's mutation against THIS test: it goes red.**
+     * carry the residual's text in the failure message. **Proven non-vacuous by re-running U-2's mutation
+     * against THIS test: it goes red.** *(This sentence said "the way the ownership assertion above carries
+     * CD-2's" until 2026-09-22. That pointer sat on an assertion a correct Inventory writer never trips --
+     * measured by `RED` and the spar -- and it was replaced by
+     * `everyStockMovementReasonIsRegisteredToItsWriterAndPermission` when CD-2 closed.)*
      *
      * ---------------------------------------------------------------------------
      * What it asserts, and why the whole literal rather than the statement
@@ -385,6 +405,12 @@ final class WriteOwnershipTest extends TestCase
             ."relax it.\n"
             ."  - CreateFulfilment must pre-check on-hand and refuse in domain terms (the StockReceiptRefused "
             ."precedent) before an oversell can reach a user as a raw 23514.\n"
+            ."  - StockDepleter's conditional decrement (WHERE ... AND qty_on_hand >= ?) ASSUMES qty_reserved = 0 and "
+            ."deliberately does not name the column. Whoever writes the column must change that predicate in the same "
+            ."commit.\n"
+            ."  - A WHERE or any other clause naming the column counts here, not only a SET: the unit is the whole "
+            ."write literal. If you tripped this with a read inside a write's predicate, the test is not wrong -- it is "
+            ."telling you the statement now depends on the column.\n"
             ."If the successor has been ruled and built, this test is what you move, in that commit, with its "
             ."docblock.\nWrites found:\n".implode("\n", $found));
     }
@@ -443,6 +469,652 @@ final class WriteOwnershipTest extends TestCase
 
         return $found;
     }
+
+    /**
+     * **`SECURITY_MODEL.md` E-26's write-path half: every `stock_movement` reason is bound to the one
+     * writer class that may post it, and through that writer to the permission that authorises it.** CD-2
+     * closed whole on it (owner ruling R3 of 2026-09-22, option (c)); E-25 and E-27 are its per-kind
+     * messages.
+     *
+     * The registry is keyed on **reason**, and its keys must equal the **live**
+     * `stock_movement_reason_values` CHECK (read from `pg_constraint`, never typed) and
+     * `StockMovement::REASON_*`. Each entry names the writer classes allowed to post that reason — one
+     * today, and `adjustment` / `transfer_*` none — the permission, and the rule the failure prints.
+     *
+     * **What reddens it** (each one planted in the probe below, which must be read exactly):
+     *  1. an unregistered *(class, reason)* pair — a new reason in a registered writer, **or an
+     *     already-registered reason written by a NEW class**: a concealing adjustment posted as a receipt
+     *     or a shipment, which is CD-2 (ii)'s exact shape;
+     *  2. a registered pair no longer found (a stale entry cannot excuse a later write);
+     *  3. a `reason` that is not a SQL string literal — a `?`, a concatenation, an interpolation, a
+     *     constant — which fails closed as unresolved; and an `INSERT` with no column list, or that is not
+     *     `INSERT … VALUES` (`INSERT … SELECT`, `DEFAULT VALUES`);
+     *  4. **every tuple of a multi-row `VALUES`** is read — a transfer writer posts a pair (E-25 (b));
+     *  5. any other write of the table — `UPDATE`, `DELETE`, `MERGE`, `COPY … FROM` — which the grant
+     *     forbids and this names;
+     *  6. `'return'` anywhere: refused under E-27;
+     *  7. a string literal that is exactly the table name (`'stock_movement'`, bare, quoted or
+     *     schema-qualified) outside the three files that legitimately hold it — the shape a DBAL
+     *     convenience writer takes, `$connection->insert('stock_movement', …)`, which spells no `INSERT
+     *     INTO` (`-sec-red.md` F-2);
+     *  8. **any reference to the `StockMovement` entity** — `new StockMovement(`, an import (aliased or
+     *     not, grouped or not), `StockMovement::class`, a qualified name, or a literal naming its FQCN —
+     *     anywhere under `src/` but the entity's own file. **No constructor site is registered: there
+     *     were none on 2026-09-22**, so any is red, and an aliased `new M(` or a
+     *     `newInstanceWithoutConstructor()` still needs the class named once (F-3.1).
+     *
+     * **The whole of `src/`, and the whole literal** (F-3.2, F-3.3): not `src/Modules` only, and not the
+     * sixty-character statement excerpt the ownership scan records — a column list alone is longer than
+     * that.
+     *
+     * **Controls:** positive — `StockReceiver → 'receipt'` must be found in the real tree; anti-vacuity —
+     * the probe must be read exactly, and the live CHECK must yield at least one value.
+     *
+     * **Disclosed limits:** the registry binds a reason to a **class**; the class → permission link is
+     * derived by {@see self::everyStockWriteContractIsCalledOnlyByItsRegisteredCaller()}, not by this
+     * test. SQL assembled from keyword-less pieces, a table name built at run time, `new $class` of a name
+     * held in configuration, and SQL issued outside `src/` (a console session as `erp_app`) are outside
+     * every static scan in this project.
+     */
+    #[Test]
+    public function everyStockMovementReasonIsRegisteredToItsWriterAndPermission(): void
+    {
+        // 1. The domain, from the server.
+        self::bootKernel();
+        $definition = (string) self::getContainer()->get('doctrine.dbal.app_connection')->fetchOne(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'stock_movement_reason_values'",
+        );
+        preg_match_all("/'([a-z_]+)'::text/", $definition, $m);
+        $live = $m[1];
+        sort($live);
+        self::assertNotSame([], $live, 'The live stock_movement_reason_values CHECK yielded no value: '.$definition);
+
+        $registered = array_keys(self::STOCK_MOVEMENT_REASONS);
+        sort($registered);
+        self::assertSame($live, $registered,
+            "STOCK_MOVEMENT_REASONS' keys are not the live stock_movement_reason_values CHECK. A reason added to or "
+            .'dropped from the CHECK is a decision SECURITY_MODEL.md E-26 must be edited for in the same commit, and so '
+            .'is its registry entry here.');
+
+        $declared = [];
+        foreach ((new \ReflectionClass(StockMovement::class))->getReflectionConstants() as $constant) {
+            if (str_starts_with($constant->getName(), 'REASON_') && \is_string($value = $constant->getValue())) {
+                $declared[] = $value;
+            }
+        }
+        sort($declared);
+        self::assertSame($live, $declared, 'StockMovement::REASON_* is not the live CHECK.');
+
+        // 2. The probe must be read exactly, or the assertions below hold over the wrong set.
+        self::assertSame(self::REASON_PROBE_EXPECTED, self::stockMovementFindingsIn(self::REASON_PROBE, 'probe'),
+            'The stock_movement reason scan misreads its probe -- the shapes CD-2 (ii), -sec-red.md F-2 and F-3 name. '
+            .'Until it reads them exactly, the registry assertion below proves nothing.');
+
+        // 3. The real tree.
+        $src = \dirname(__DIR__, 2).'/src';
+        $found = [];
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            $at = substr($path, \strlen(\dirname(__DIR__, 2)) + 1);
+            array_push($found, ...self::stockMovementFindingsIn((string) file_get_contents($path), $at));
+        }
+
+        self::assertContains(['write', StockReceiver::class, 'receipt'], array_map(
+            static fn (array $f): array => [$f[0], $f[1], $f[2]], $found),
+            'The positive control failed: the scan did not find StockReceiver writing reason = \'receipt\', so it is not '
+            .'reading the tree it is asserting over.');
+
+        $violations = [];
+        $seen = [];
+        foreach ($found as [$kind, $class, $detail, $where]) {
+            if ('write' === $kind) {
+                $entry = self::STOCK_MOVEMENT_REASONS[$detail] ?? null;
+                if (null === $entry) {
+                    $violations[] = \sprintf('  %s (%s) writes reason \'%s\', which the live CHECK does not hold.', $class, $where, $detail);
+                } elseif (!\in_array($class, $entry['writers'], true)) {
+                    $violations[] = \sprintf("  %s (%s) writes reason '%s', which is not registered to it.\n      %s",
+                        $class, $where, $detail, $entry['rule']);
+                } else {
+                    $seen[$detail][$class] = true;
+                }
+                continue;
+            }
+            if ('allowed-name' === $kind && \in_array($where, self::STOCK_MOVEMENT_NAME_HOLDERS, true)) {
+                $seen['(name)'][$where] = true;
+                continue;
+            }
+            $violations[] = \sprintf('  %s (%s) — %s', $class, $where, $detail);
+        }
+
+        foreach (self::STOCK_MOVEMENT_REASONS as $reason => $entry) {
+            foreach ($entry['writers'] as $writer) {
+                if (!isset($seen[$reason][$writer])) {
+                    $violations[] = \sprintf("  STALE: %s is registered to write '%s' and the scan does not find it doing so. "
+                        .'Remove the entry, so it cannot excuse a different write later.', $writer, $reason);
+                }
+            }
+        }
+        foreach (self::STOCK_MOVEMENT_NAME_HOLDERS as $holder) {
+            if (!isset($seen['(name)'][$holder])) {
+                $violations[] = '  STALE: '.$holder.' is allowed to hold the literal \'stock_movement\' and no longer does.';
+            }
+        }
+
+        self::assertSame([], $violations,
+            "A stock_movement write, or a route to one, is not registered to its writer and permission "
+            ."(SECURITY_MODEL.md E-25 / E-26 / E-27; history in docs/RESIDUAL_GAPS.md CD-2, closed 2026-09-22).\n\n"
+            ."This is the review point for any new stock_movement writer. Register the (class, reason) pair in "
+            ."STOCK_MOVEMENT_REASONS in the commit that builds the writer, with the permission that authorises it, and "
+            ."only if SECURITY_MODEL.md already binds that reason to that writer -- if it does not, the binding is a SEC "
+            ."decision, not an edit here. Do NOT register a class to a reason another writer already posts to make this "
+            ."green: that is the concealment E-26 exists to make visible.\n"
+            .implode("\n", $violations));
+    }
+
+    /**
+     * **The class → permission half of E-26, derived rather than declared (`-sec-red.md` F-1, High).**
+     *
+     * E-26 binds each reason to a writer **class**. That alone does not close CD-2 (ii): a concealing
+     * adjustment writer need not write its own `INSERT` at all — it can inject `ReceiveStock` and hand it
+     * a made-up goods-receipt id, and the row it produces comes from the *registered* pair
+     * `StockReceiver → 'receipt'`. So each stock-write contract's `src/` consumers are pinned here, by
+     * **reflection on declared types** — every constructor and method parameter and every property of
+     * every class under `src/`, union and intersection members included — the method §8.3a clause (b)
+     * already uses (`EditWindowGuardTest`), plus a token scan for the names spelled any other way
+     * (`::class`, `new`, a static call). Reflection resolves `use … as` aliases, which a name scan cannot.
+     *
+     * A consumer of the interface **or** its implementation, other than the implementation itself, must be
+     * exactly the registered caller: `GoodsReceiptWriter` for `ReceiveStock` (PC-10's first named write),
+     * and for `DepleteStock` **nobody yet** — its caller, `CreateFulfilment`'s writer, lands in sales step
+     * 5's last commit and is registered there (PC-10's second).
+     *
+     * **Disclosed limits:** a service fetched from the container by id, a class name held in configuration,
+     * and a closure typed `callable` are not types this sees. The positive control is inside the test:
+     * `GoodsReceiptWriter` must be found as a consumer of `ReceiveStock`.
+     */
+    #[Test]
+    public function everyStockWriteContractIsCalledOnlyByItsRegisteredCaller(): void
+    {
+        $src = \dirname(__DIR__, 2).'/src/';
+        $consumers = [];
+        foreach (self::STOCK_WRITE_CONTRACTS as $contract => $spec) {
+            $consumers[$contract] = [];
+        }
+
+        foreach (PhpSourceScan::phpFilesUnder(rtrim($src, '/')) as $path) {
+            $class = 'App\\'.str_replace('/', '\\', substr($path, \strlen($src), -\strlen('.php')));
+            $source = (string) file_get_contents($path);
+
+            foreach (self::STOCK_WRITE_CONTRACTS as $contract => $spec) {
+                if ($class === $contract || $class === $spec['implementation']) {
+                    continue;
+                }
+                $names = [$contract, $spec['implementation']];
+                if (self::declaresATypeOf($class, $names) || self::namesAnyOf($source, $names)) {
+                    $consumers[$contract][] = $class;
+                }
+            }
+        }
+
+        self::assertContains(GoodsReceiptWriter::class, $consumers[ReceiveStock::class],
+            'The positive control failed: GoodsReceiptWriter was not found consuming ReceiveStock, so the resolution '
+            .'step is not reading the tree.');
+
+        $expected = array_map(static fn (array $spec): array => $spec['callers'], self::STOCK_WRITE_CONTRACTS);
+        foreach ($consumers as &$list) {
+            sort($list);
+        }
+        unset($list);
+
+        self::assertSame($expected, $consumers,
+            "A stock-write contract is consumed by a class that is not its registered caller.\n\n"
+            ."SECURITY_MODEL.md E-26: each stock_movement reason is bound to one writer, and each writer is reached only "
+            ."through its one Application\\Contract interface, whose one src/ caller is the operation PC-10 names -- "
+            ."ReceiveStock by CreateGoodsReceipt's writer (goods_receipt.create), DepleteStock by CreateFulfilment's "
+            ."(fulfilment.create). A second caller posts that reason under ITS operation's permission: a stock "
+            ."adjustment calling ReceiveStock with a made-up goods receipt id books a concealing adjustment as a "
+            ."receipt, from the registered pair, and everyStockMovementReasonIsRegisteredToItsWriterAndPermission stays "
+            ."green. That is -sec-red.md F-1. A new caller is a SEC decision (PC-10 names exactly two cross-module "
+            ."writes); register it in STOCK_WRITE_CONTRACTS only in the commit that builds it, with that ruling.");
+    }
+
+    /**
+     * Contract interface => its one implementation, and the `src/` classes that may consume either.
+     *
+     * @var array<class-string, array{implementation: class-string, callers: list<class-string>}>
+     */
+    private const STOCK_WRITE_CONTRACTS = [
+        ReceiveStock::class => [
+            'implementation' => StockReceiver::class,
+            'callers' => [GoodsReceiptWriter::class],
+        ],
+        // No caller in src/ until CreateFulfilment's writer lands (sales step 5, commit 4).
+        DepleteStock::class => [
+            'implementation' => StockDepleter::class,
+            'callers' => [],
+        ],
+    ];
+
+    /**
+     * **`stock_movement.reason` → the writer classes that may post it → the permission → the rule the
+     * failure prints.** Keys equal the live `stock_movement_reason_values` CHECK, asserted above.
+     *
+     * @var array<string, array{writers: list<class-string>, permission: ?string, rule: non-empty-string}>
+     */
+    private const STOCK_MOVEMENT_REASONS = [
+        'receipt' => [
+            'writers' => [StockReceiver::class],
+            'permission' => 'goods_receipt.create',
+            'rule' => "SECURITY_MODEL.md E-26: 'receipt' is posted by StockReceiver alone, reached through ReceiveStock by "
+                ."CreateGoodsReceipt (goods_receipt.create). A second writer of it is a concealment shape, not a refactor.",
+        ],
+        'fulfilment' => [
+            'writers' => [StockDepleter::class],
+            'permission' => 'fulfilment.create',
+            'rule' => "SECURITY_MODEL.md E-26: 'fulfilment' is posted by StockDepleter alone, reached through DepleteStock "
+                ."by CreateFulfilment (fulfilment.create). A second writer of it is a concealment shape, not a refactor.",
+        ],
+        'adjustment' => [
+            'writers' => [],
+            'permission' => 'stock_movement.adjust',
+            'rule' => "SECURITY_MODEL.md E-25 (a): 'adjustment' has NO registered writer. The first is CreateStockAdjustment's "
+                ."(stock_movement.adjust); register it in the commit that builds it, as its own class posting 'adjustment' "
+                ."and no other reason, with an audit_log entry naming its actor (stock_movement has no actor column) -- "
+                ."that audit half is owed as a test in the same commit. Pre-registering it silences this trigger.",
+        ],
+        'transfer_out' => [
+            'writers' => [],
+            'permission' => 'stock_movement.adjust',
+            'rule' => "SECURITY_MODEL.md E-25 (b): 'transfer_out' has NO registered writer. The first is CreateStockTransfer's "
+                ."(stock_movement.adjust): one class posting transfer_out AND transfer_in only, as pairs of one item, equal "
+                ."and opposite, between two distinct locations. The net-zero property is behaviour, not shape: it is OWED "
+                ."AS A TEST in the commit that builds CreateStockTransfer.",
+        ],
+        'transfer_in' => [
+            'writers' => [],
+            'permission' => 'stock_movement.adjust',
+            'rule' => "SECURITY_MODEL.md E-25 (b): 'transfer_in' has NO registered writer -- see transfer_out. A lone "
+                ."transfer_in is stock from nowhere: an adjustment wearing a transfer's name.",
+        ],
+        'return' => [
+            'writers' => [],
+            'permission' => null,
+            'rule' => "SECURITY_MODEL.md E-27: reason = 'return' is REFUSED on every write path until CreateSalesReturn "
+                ."ships sales_return.create in §3, in the commit that lifts StockMovement's constructor refusal, lands "
+                ."V2-R-15 and rewrites E-27. No permission authorises it, so no writer may be registered to it here.",
+        ],
+    ];
+
+    /** The three files that legitimately hold the literal `'stock_movement'` (measured 2026-09-22, F-2). */
+    private const STOCK_MOVEMENT_NAME_HOLDERS = [
+        'src/Modules/Inventory/Infrastructure/Entity/StockMovement.php',
+        'src/Platform/Tenancy/SchemaManifest.php',
+        'src/SharedKernel/ValueObject/AuditEvent.php',
+    ];
+
+    private const STOCK_MOVEMENT_ENTITY = 'App\\Modules\\Inventory\\Infrastructure\\Entity\\StockMovement';
+
+    /**
+     * Every finding one source yields: `['write', class, reason, at]` per parsed tuple, and
+     * `[problem-kind, class, detail, at]` for everything that fails closed. `allowed-name` findings carry
+     * the file path as `at`, so the caller can hold them against {@see self::STOCK_MOVEMENT_NAME_HOLDERS}.
+     *
+     * @return list<array{0: string, 1: string, 2: string, 3: string}>
+     */
+    private static function stockMovementFindingsIn(string $source, string $at): array
+    {
+        $scan = PhpSourceScan::scan($source);
+        $namespace = $scan['namespace'];
+        $findings = [];
+
+        $literals = [];
+        foreach ($scan['outside'] as $literal) {
+            $literals[] = [(string) $literal['class'], $literal];
+        }
+        foreach ($scan['methods'] as $method) {
+            foreach ($method['literals'] as $literal) {
+                $literals[] = [$method['class'], $literal];
+            }
+        }
+
+        $isEntityFile = str_ends_with($at, 'Inventory/Infrastructure/Entity/StockMovement.php');
+
+        foreach ($literals as [$short, $literal]) {
+            $class = ltrim($namespace.'\\'.$short, '\\');
+            $where = $at.':'.$literal['line'];
+            $value = self::blankDollarQuoteTags($literal['value']);
+
+            // F-2: the bare table name, the shape a DBAL convenience writer takes.
+            if (1 === preg_match('/\A\s*(?:"?public"?\.)?"?stock_movement"?\s*\z/i', $value)) {
+                $findings[] = ['allowed-name', $class, 'holds the literal \'stock_movement\' -- the shape of a DBAL '
+                    .'convenience writer ($connection->insert(\'stock_movement\', ...)), which spells no INSERT INTO', $at];
+            }
+
+            // F-3.1: the entity's FQCN in a literal (DQL, a class name held as a string).
+            if (!$isEntityFile && false !== stripos(str_replace('\\\\', '\\', $value), 'Entity\\StockMovement')) {
+                $findings[] = ['entity', $class, 'names the StockMovement entity in a string literal', $where];
+            }
+
+            $writes = array_values(array_filter(self::statementsInLiteral($literal['value']),
+                static fn (array $s): bool => 'stock_movement' === $s['table']));
+            if ([] === $writes) {
+                continue;
+            }
+
+            $gap = self::GAP;
+            preg_match_all("~(?<![\\w\$\\\\])INSERT{$gap}+INTO{$gap}+(?:\"?public\"?\\.)?\"?stock_movement\"?(?![\\w\$])~is",
+                $value, $inserts, \PREG_OFFSET_CAPTURE);
+
+            foreach ($inserts[0] as [$match, $offset]) {
+                foreach (self::reasonsOfInsert(substr($value, $offset + \strlen($match))) as [$ok, $detail]) {
+                    $findings[] = $ok ? ['write', $class, $detail, $where] : ['unresolved', $class, $detail, $where];
+                }
+            }
+
+            if (\count($writes) > \count($inserts[0])) {
+                $findings[] = ['non-insert', $class, 'writes stock_movement other than by INSERT … VALUES (UPDATE, '
+                    .'DELETE, MERGE, COPY or a form this scan cannot read). The table is append-only: erp_app holds '
+                    .'SELECT and INSERT on it and nothing else.', $where];
+            }
+        }
+
+        // F-3.1: any reference to the entity class other than from its own file.
+        if (!$isEntityFile) {
+            foreach (self::entityReferencesIn($source) as $line) {
+                $findings[] = ['entity', ltrim($namespace, '\\'), 'references the StockMovement entity (new, an import, '
+                    .'::class or a qualified name). No constructor site is registered: an ORM writer of stock_movement is '
+                    .'a new writer and owes a registry entry and SECURITY_MODEL.md E-26\'s review', $at.':'.$line];
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * The `reason` of every tuple of one `INSERT INTO stock_movement`, from the text right after the table
+     * name: the column list, then `VALUES` and its tuples. Each result is `[true, reason]` for a SQL string
+     * literal, or `[false, why]` for anything that fails closed.
+     *
+     * @return list<array{0: bool, 1: string}>
+     */
+    private static function reasonsOfInsert(string $rest): array
+    {
+        $gap = self::GAP;
+        if (1 !== preg_match("~\\A{$gap}*\\(~s", $rest, $lead)) {
+            return [[false, 'an INSERT INTO stock_movement with no column list, so its reason cannot be located']];
+        }
+        $columns = self::balanced($rest, \strlen($lead[0]) - 1);
+        if (null === $columns) {
+            return [[false, 'an INSERT INTO stock_movement whose column list does not close inside the literal']];
+        }
+        $names = array_map(static fn (string $c): string => strtolower(trim($c, " \t\n\r\"")), self::topLevelSplit($columns[0]));
+        $position = array_search('reason', $names, true);
+        if (false === $position) {
+            return [[false, 'an INSERT INTO stock_movement that names no reason column (the column has no default, so this is unreadable)']];
+        }
+
+        $after = substr($rest, $columns[1]);
+        if (1 !== preg_match("~\\A{$gap}*VALUES{$gap}*~is", $after, $values)) {
+            return [[false, 'an INSERT INTO stock_movement that is not INSERT … VALUES (INSERT … SELECT, DEFAULT VALUES): its reason is not a literal this scan can read']];
+        }
+
+        $results = [];
+        $cursor = \strlen($values[0]);
+        while (true) {
+            if ('(' !== ($after[$cursor] ?? null)) {
+                $results[] = [false, 'a VALUES tuple that does not open where one should'];
+                break;
+            }
+            $tuple = self::balanced($after, $cursor);
+            if (null === $tuple) {
+                $results[] = [false, 'a VALUES tuple that does not close inside the literal (interpolated, concatenated or computed)'];
+                break;
+            }
+            $elements = self::topLevelSplit($tuple[0]);
+            $element = trim($elements[$position] ?? '');
+            $results[] = 1 === preg_match("/\\A'([a-z_]+)'(?:::text)?\\z/", $element, $r)
+                ? [true, $r[1]]
+                : [false, 'a reason that is not a SQL string literal ('.('' === $element ? 'missing' : $element).'): it fails closed as unresolved'];
+
+            if (1 !== preg_match("~\\A{$gap}*,{$gap}*~s", substr($after, $tuple[1]), $comma)) {
+                break;
+            }
+            $cursor = $tuple[1] + \strlen($comma[0]);
+        }
+
+        return $results;
+    }
+
+    /**
+     * The inside of the parenthesis opening at `$open`, and the offset just past its close, respecting
+     * single-quoted SQL strings; null when it does not close.
+     *
+     * @return array{0: string, 1: int}|null
+     */
+    private static function balanced(string $text, int $open): ?array
+    {
+        $depth = 0;
+        $quoted = false;
+        for ($i = $open, $n = \strlen($text); $i < $n; ++$i) {
+            $c = $text[$i];
+            if ($quoted) {
+                if ("'" === $c) {
+                    $quoted = false;
+                }
+                continue;
+            }
+            if ("'" === $c) {
+                $quoted = true;
+            } elseif ('(' === $c) {
+                ++$depth;
+            } elseif (')' === $c && 0 === --$depth) {
+                return [substr($text, $open + 1, $i - $open - 1), $i + 1];
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<string> `$text` split on commas outside parentheses and single-quoted strings */
+    private static function topLevelSplit(string $text): array
+    {
+        $parts = [];
+        $depth = 0;
+        $quoted = false;
+        $current = '';
+        for ($i = 0, $n = \strlen($text); $i < $n; ++$i) {
+            $c = $text[$i];
+            if ($quoted) {
+                $quoted = "'" !== $c;
+            } elseif ("'" === $c) {
+                $quoted = true;
+            } elseif ('(' === $c) {
+                ++$depth;
+            } elseif (')' === $c) {
+                --$depth;
+            } elseif (',' === $c && 0 === $depth) {
+                $parts[] = $current;
+                $current = '';
+                continue;
+            }
+            $current .= $c;
+        }
+        $parts[] = $current;
+
+        return $parts;
+    }
+
+    /**
+     * Lines of `$source` on which the `StockMovement` entity is named as code: a short name `StockMovement`
+     * (after `new`, before `::`, in a `use` list or as a type), or any qualified name ending in it.
+     *
+     * @return list<int>
+     */
+    private static function entityReferencesIn(string $source): array
+    {
+        $lines = [];
+        foreach (token_get_all($source) as $token) {
+            if (!\is_array($token)) {
+                continue;
+            }
+            [$id, $text, $line] = $token;
+            if (\T_STRING === $id && 'StockMovement' === $text) {
+                $lines[] = $line;
+            } elseif (\in_array($id, [\T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)
+                && 1 === preg_match('/(?:^|\\\\)StockMovement$/', $text)) {
+                $lines[] = $line;
+            }
+        }
+
+        return array_values(array_unique($lines));
+    }
+
+    /**
+     * Whether `$class` (if it loads) declares any of `$names` as a type: constructor and method parameters,
+     * properties, union and intersection members. Reflection resolves `use … as` aliases.
+     *
+     * @param list<class-string> $names
+     */
+    private static function declaresATypeOf(string $class, array $names): bool
+    {
+        if (!class_exists($class) && !interface_exists($class) && !trait_exists($class)) {
+            return false;
+        }
+        $reflection = new \ReflectionClass($class);
+
+        $types = [];
+        foreach ($reflection->getMethods() as $method) {
+            if ($method->getDeclaringClass()->getName() !== $class) {
+                continue;
+            }
+            foreach ($method->getParameters() as $parameter) {
+                $types[] = $parameter->getType();
+            }
+            $types[] = $method->getReturnType();
+        }
+        foreach ($reflection->getProperties() as $property) {
+            if ($property->getDeclaringClass()->getName() === $class) {
+                $types[] = $property->getType();
+            }
+        }
+
+        foreach ($types as $type) {
+            $named = match (true) {
+                $type instanceof \ReflectionNamedType => [$type],
+                $type instanceof \ReflectionUnionType, $type instanceof \ReflectionIntersectionType => $type->getTypes(),
+                default => [],
+            };
+            foreach ($named as $one) {
+                if ($one instanceof \ReflectionNamedType && !$one->isBuiltin()) {
+                    foreach ($names as $name) {
+                        if (is_a($one->getName(), $name, true)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether `$source` names any of `$names` as code — the short name or a qualified name ending in it —
+     * which catches `X::class`, `new X`, `X::method()` and an import, whether or not a type declares it.
+     *
+     * @param list<class-string> $names
+     */
+    private static function namesAnyOf(string $source, array $names): bool
+    {
+        $shorts = array_map(static fn (string $n): string => substr((string) strrchr('\\'.$n, '\\'), 1), $names);
+        foreach (token_get_all($source) as $token) {
+            if (!\is_array($token)) {
+                continue;
+            }
+            if (\T_STRING === $token[0] && \in_array($token[1], $shorts, true)) {
+                return true;
+            }
+            if (\in_array($token[0], [\T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)) {
+                foreach ($shorts as $short) {
+                    if (1 === preg_match('/(?:^|\\\\)'.preg_quote($short, '/').'$/', $token[1])) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The shapes the reason scan must separate. Every class here is in `Modules\Inventory` so none of it
+     * is a cross-module finding for the ownership scan; each method is one case.
+     */
+    private const REASON_PROBE = <<<'PHP'
+        <?php
+
+        namespace App\Modules\Inventory\Application;
+
+        use App\Modules\Inventory\Infrastructure\Entity\StockMovement as M;
+
+        final class ReasonProbe
+        {
+            private const SQL = "INSERT INTO stock_movement (id, reason, source_type) VALUES (?::uuid, 'receipt', 'goods_receipt')";
+
+            public function pairOfReasons(): void
+            {
+                $sql = "INSERT INTO stock_movement (id, quantity, reason) VALUES (?, -1, 'transfer_out'), (?, 1, 'transfer_in')";
+            }
+
+            public function bound(): void
+            {
+                $sql = 'INSERT INTO stock_movement (id, reason) VALUES (?::uuid, ?)';
+            }
+
+            public function concatenated(string $r): void
+            {
+                $sql = "INSERT INTO stock_movement (id, reason) VALUES (?::uuid, '".$r."')";
+            }
+
+            public function selected(): void
+            {
+                $sql = 'INSERT INTO stock_movement (id, reason) SELECT id, reason FROM stock_movement';
+            }
+
+            public function columnless(): void
+            {
+                $sql = "INSERT INTO stock_movement VALUES (?::uuid, 'receipt')";
+            }
+
+            public function updated(): void
+            {
+                $sql = "UPDATE stock_movement SET reason = 'receipt' WHERE id = ?::uuid";
+            }
+
+            public function convenience(): void
+            {
+                $this->connection->insert('stock_movement', ['reason' => 'adjustment']);
+            }
+
+            public function constructed(): void
+            {
+                $movement = new M();
+            }
+        }
+        PHP;
+
+    /** What the probe must yield, in order: literals in the class body first, then per method. */
+    private const REASON_PROBE_EXPECTED = [
+        ['write', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'receipt', 'probe:9'],
+        ['write', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'transfer_out', 'probe:13'],
+        ['write', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'transfer_in', 'probe:13'],
+        ['unresolved', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'a reason that is not a SQL string literal (?): it fails closed as unresolved', 'probe:18'],
+        ['unresolved', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'a VALUES tuple that does not close inside the literal (interpolated, concatenated or computed)', 'probe:23'],
+        ['unresolved', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'an INSERT INTO stock_movement that is not INSERT … VALUES (INSERT … SELECT, DEFAULT VALUES): its reason is not a literal this scan can read', 'probe:28'],
+        ['unresolved', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'an INSERT INTO stock_movement with no column list, so its reason cannot be located', 'probe:33'],
+        ['non-insert', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'writes stock_movement other than by INSERT … VALUES (UPDATE, DELETE, MERGE, COPY or a form this scan cannot read). The table is append-only: erp_app holds SELECT and INSERT on it and nothing else.', 'probe:38'],
+        ['allowed-name', 'App\\Modules\\Inventory\\Application\\ReasonProbe', 'holds the literal \'stock_movement\' -- the shape of a DBAL convenience writer ($connection->insert(\'stock_movement\', ...)), which spells no INSERT INTO', 'probe'],
+        ['entity', 'App\\Modules\\Inventory\\Application', 'references the StockMovement entity (new, an import, ::class or a qualified name). No constructor site is registered: an ORM writer of stock_movement is a new writer and owes a registry entry and SECURITY_MODEL.md E-26\'s review', 'probe:5'],
+    ];
 
     /**
      * **`RESIDUAL_GAPS.md` G-6's closure check — option (a): one shared ownership method, and every

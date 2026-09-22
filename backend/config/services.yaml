@@ -256,6 +256,12 @@ services:
     # of THIS id (below), so what is tested is this binding and not a copy.
     App\Modules\Inventory\Application\Contract\ReceiveStock: '@App\Modules\Inventory\Application\StockReceiver'
 
+    # ARCHITECTURE §5.5 W-1/W-3 — `Sales → Inventory::DepleteStock`, the
+    # fulfilment half of the two cross-module write edges (sales step 5, commit 1).
+    # Explicit for the same reason. It has no consumer until `CreateFulfilment`'s
+    # writer lands, so the test env reaches it through a public alias of THIS id.
+    App\Modules\Inventory\Application\Contract\DepleteStock: '@App\Modules\Inventory\Application\StockDepleter'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test
@@ -288,6 +294,11 @@ when@test:
         # implementation) keeps the production binding the thing under test.
         test.inventory.receive_stock:
             alias: App\Modules\Inventory\Application\Contract\ReceiveStock
+            public: true
+
+        # The same, for `DepleteStock`, until `CreateFulfilment` consumes it.
+        test.inventory.deplete_stock:
+            alias: App\Modules\Inventory\Application\Contract\DepleteStock
             public: true
 
         App\Tests\Support\SqlRecorder:

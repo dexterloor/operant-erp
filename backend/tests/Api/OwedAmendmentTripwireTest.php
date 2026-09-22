@@ -15,10 +15,14 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * **Why this class is a test and not a register entry.** ADR-008's own D2 rule
  * is that work stays owed *"ON THE SEEDER … not on a date, and not on someone
- * remembering"*, and `docs/RESIDUAL_GAPS.md` CD-2 is carried the same way — its
- * pointer lives in `WriteOwnershipTest`'s failure message, where the person is
- * already standing. This class applies that pattern to ADR-008 **Amendment 2.1**.
- * A prose reminder cannot fail; this can.
+ * remembering"*, and `docs/RESIDUAL_GAPS.md` CD-2 was carried the same way —
+ * its pointer lived in `WriteOwnershipTest`'s failure message, where the person
+ * is already standing. *(⚠ That pointer sat on the cross-module ownership
+ * assertion, which a correct Inventory writer never trips — measured by `RED`
+ * and the spar on 2026-09-22 — and CD-2 then CLOSED whole with `DepleteStock`,
+ * on `WriteOwnershipTest::everyStockMovementReasonIsRegisteredToItsWriterAndPermission`:
+ * a pointer is only as good as the assertion it hangs on.)* This class applies
+ * that pattern to ADR-008 **Amendment 2.1**. A prose reminder cannot fail; this can.
  *
  * **The domain is the GENERATED SPEC, deliberately, not the documents.** Every
  * doc-parsing test in this suite SKIPS where `docs/` is absent (it is gitignored
