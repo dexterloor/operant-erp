@@ -555,7 +555,7 @@ final class SchemaManifest
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. Status and payment state change by UPDATE, so IssueInvoice and the payment and void operations grant INSERT and UPDATE in their own migrations when built (ADR-002 Amendment 4); until then no `src/` path writes an invoice and erp_app only reads it.',
+            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. It bills exactly one fulfilment (`fulfilment_id`, D-A) and names its issuer (`issued_by_user_id`, owner ruling Q5), and at most one LIVE invoice exists per fulfilment (`invoice_tenant_fulfilment_not_void`, partial on `status <> \'void\'`, so a void releases the shipment for a corrected re-issue) — sales step 6 C2. Status and payment state change by UPDATE, so IssueInvoice and the payment and void operations grant INSERT and UPDATE in their own migrations when built (ADR-002 Amendment 4), IssueInvoice\'s as a column-level INSERT on exactly the columns its raw-SQL writer names; until then no `src/` path writes an invoice and erp_app only reads it.',
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
         ],
     ];

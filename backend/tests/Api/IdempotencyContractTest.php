@@ -217,6 +217,15 @@ final class IdempotencyContractTest extends TenancyTestCase
         // is digested, so the same key on another order is a conflict.
         // `Version20260922000100` laid it.
         'CreateFulfilment' => 'unique:fulfilment_idem_unique',
+        // ⚠ **Sales step 6, commit C2, 2026-09-23.** Was `⛔ none` since the
+        // D-A redesign. The first `unique:` whose client-supplied key is bound
+        // by the PATH alone (`/fulfilments/{id}/invoices` → `fulfilment_id`),
+        // and the first whose index is partial on a LIFECYCLE predicate rather
+        // than the deletion marker: `invoice` is class `none`, and a voided
+        // invoice must release the shipment for a corrected re-issue. Allowed by
+        // name in LIFECYCLE_PARTIALS. **Refused, never replayed** — the header is
+        // demanded (API-14) and unused. `Version20260923000100` laid it.
+        'IssueInvoice' => 'unique:invoice_tenant_fulfilment_not_void',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -276,14 +285,14 @@ final class IdempotencyContractTest extends TenancyTestCase
         // on 2026-09-19 (V2-R-11); `CreateSalesOrderLine` joined on 2026-09-16
         // and left on 2026-09-21 (V2-R-12, sales slice 4 commit 1). `IssueInvoice`
         // was redesigned per shipment (D-A as amended) and stays here until
-        // `invoice_tenant_fulfilment_not_void` exists. **`CreateFulfilment` left on
+        // `invoice_tenant_fulfilment_not_void` exists -- **it left on 2026-09-23**
+        // (sales step 6 C2), when that index was laid. **`CreateFulfilment` left on
         // 2026-09-22** (sales step 5 C2), so the block is one shorter again --
         // count the entries below; do not read a number here.
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
-        'IssueInvoice' => '⛔ none',
         'CreateSalesReturn' => '⛔ none',
         'IssueCreditNote' => '⛔ none',
     ];
@@ -349,6 +358,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateSalesOrder' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesOrderLine' => [IdempotencyKeyGuard::COLUMN],
         'CreateFulfilment' => [IdempotencyKeyGuard::COLUMN],
+        // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
+        // the client supplies it by addressing the shipment it bills.
+        'IssueInvoice' => ['fulfilment_id'],
     ];
 
     /**
@@ -417,6 +429,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         // Sales step 5 C2, 2026-09-22. `CreateGoodsReceipt`'s ground: the
         // table's other unique is on the server-minted `fulfilment_number`.
         'CreateFulfilment',
+        // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
+        // not the header, so it is not header-sourced.
     ];
 
     /**
@@ -444,6 +458,22 @@ final class IdempotencyContractTest extends TenancyTestCase
      * it. See `everyUniqueIndexIsLiveRowPartialExactlyWhenItsTableSoftDeletes`.
      */
     private const LIVE_ROW_PREDICATE = '(deleted_at IS NULL)';
+
+    /**
+     * **The named-predicate allowance: a `unique:` index on a deletion-class
+     * `none` table that is partial on a LIFECYCLE predicate, pinned by name AND by
+     * exact predicate** (sales step 6 C2, 2026-09-23). Its one member is D-A's
+     * one-live-invoice-per-shipment rule — a voided invoice releases the shipment.
+     * The spelling is the catalogue's normalisation, measured with `indexdef` and
+     * `pg_get_expr(indpred, indrelid)` after the migration (M-5): both read
+     * `(status <> 'void'::text)`. `SchemaManifestTest` carries its **own literal**
+     * of the same fact on purpose (one shared constant would be one source).
+     *
+     * @var array<string, string>
+     */
+    private const LIFECYCLE_PARTIALS = [
+        'invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)",
+    ];
 
     private const UNDECIDABLE_CATEGORIES = [
         'create-a-child',
@@ -622,10 +652,11 @@ final class IdempotencyContractTest extends TenancyTestCase
      * normalises and parenthesises, so the comparison is against what the server
      * holds rather than against the migration's spelling.
      *
-     * **This is where `IssueInvoice` arrives when D-A is built**: its ruled index
-     * is partial on `status <> 'void'` and `invoice` is class `none`, so it must
-     * teach this check that predicate by name. That is the point — it will have
-     * to say so, rather than pass silently as it would have before.
+     * **This is where `IssueInvoice` arrived when D-A's schema was built (sales
+     * step 6 C2, 2026-09-23)**: its ruled index is partial on `status <> 'void'`
+     * and `invoice` is class `none`, so it taught this check that predicate BY
+     * NAME, in {@see self::LIFECYCLE_PARTIALS} — exact, not "contains", so a
+     * narrower lifecycle predicate (`status = 'issued'`) is still red.
      *
      * **Mutations, run** (against the live catalogue, each restored from the
      * migration's exact definition): **(a)** `goods_receipt_idem_unique` dropped
@@ -651,7 +682,9 @@ final class IdempotencyContractTest extends TenancyTestCase
             $softDeletes = SchemaManifest::SOFT === SchemaManifest::TABLES[$table]['deletion'];
             $predicate = self::predicateOf($catalogue[$indexName]['def']);
 
-            self::assertSame($softDeletes ? self::LIVE_ROW_PREDICATE : null, $predicate,
+            $expected = $softDeletes ? self::LIVE_ROW_PREDICATE : (self::LIFECYCLE_PARTIALS[$indexName] ?? null);
+
+            self::assertSame($expected, $predicate,
                 $operationId.'\'s unique '.$indexName.' on '.$table.' is '
                 .(null === $predicate ? 'total' : 'partial on '.$predicate)
                 .' while the manifest classes the table '.SchemaManifest::TABLES[$table]['deletion'].'. '

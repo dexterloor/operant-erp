@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Infrastructure\Entity;
 
 use App\Modules\Customers\Infrastructure\Entity\Customer;
+use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Platform\Domain\GuardsStatusTransitions;
 use App\SharedKernel\Reference\Currency;
 use Doctrine\DBAL\Types\Types;
@@ -38,11 +39,21 @@ use Symfony\Component\Uid\Uuid;
  * document that is sent to a customer would make "we failed to price it" look
  * like "it was free"; a failed INSERT is the safer failure.
  *
- * Two tenant-scoped parents, both single-column associations whose composite
- * keys are hand-written in the migration and not mapped (A1.6):
+ * Four tenant-scoped parents, all single-column associations whose composite
+ * keys are hand-written in the migrations and not mapped (A1.6):
  *
- *   FOREIGN KEY (tenant_id, sales_order_id) REFERENCES sales_order (tenant_id, id)
- *   FOREIGN KEY (tenant_id, customer_id)    REFERENCES customer    (tenant_id, id)
+ *   FOREIGN KEY (tenant_id, sales_order_id)    REFERENCES sales_order (tenant_id, id)
+ *   FOREIGN KEY (tenant_id, customer_id)       REFERENCES customer    (tenant_id, id)
+ *   FOREIGN KEY (tenant_id, fulfilment_id)     REFERENCES fulfilment  (tenant_id, id)   -- sales step 6 C2
+ *   FOREIGN KEY (tenant_id, issued_by_user_id) REFERENCES app_user    (tenant_id, id)   -- sales step 6 C2
+ *
+ * **The billed shipment and the issuer (sales step 6, C2, `Version20260923000100`).** An invoice bills exactly one
+ * fulfilment (D-A as amended), and at most one LIVE invoice exists per fulfilment —
+ * `invoice_tenant_fulfilment_not_void`, a partial unique index whose predicate is a **lifecycle** predicate on this
+ * deletion-class-`none` table (declared below so SchemaTool does not propose dropping it). `issued_by_user_id` is
+ * NOT NULL by owner ruling Q5 (*"Column + audit event"*). **Nothing in `src/` constructs this entity:** `IssueInvoice`
+ * (C3) writes it with raw SQL naming only its column-granted columns, because the ORM would insert columns
+ * `erp_app` is not granted.
  *
  * The customer is denormalised onto the invoice rather than reached through the
  * order because the collections screen filters by account and must not join
@@ -52,6 +63,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Table(name: 'invoice')]
 #[ORM\UniqueConstraint(name: 'invoice_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'invoice_number_unique', columns: ['tenant_id', 'invoice_number'])]
+// One LIVE invoice per shipment (D-A). The `where` is the catalogue's normalised spelling, measured with
+// `pg_get_expr(indpred, indrelid)` after the migration (M-5): `(status <> 'void'::text)`.
+#[ORM\UniqueConstraint(name: 'invoice_tenant_fulfilment_not_void', columns: ['tenant_id', 'fulfilment_id'], options: ['where' => "(status <> 'void'::text)"])]
 // "Overdue invoices, oldest first" — ADR-004's at-risk-account signal and the
 // collections screen, in one index. Partial on status, not on a delete flag.
 #[ORM\Index(name: 'invoice_tenant_due_idx', columns: ['tenant_id', 'due_at'], options: ['where' => "(status = ANY (ARRAY['issued'::text, 'overdue'::text]))"])]
@@ -81,6 +95,16 @@ class Invoice
     #[ORM\ManyToOne(targetEntity: Customer::class)]
     #[ORM\JoinColumn(name: 'customer_id', referencedColumnName: 'id', nullable: false)]
     private Customer $customer;
+
+    /** The shipment this invoice bills (D-A). */
+    #[ORM\ManyToOne(targetEntity: Fulfilment::class)]
+    #[ORM\JoinColumn(name: 'fulfilment_id', referencedColumnName: 'id', nullable: false)]
+    private Fulfilment $fulfilment;
+
+    /** Who issued it (owner ruling Q5). Never exposed on a read (`SEC` §2). */
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'issued_by_user_id', referencedColumnName: 'id', nullable: false)]
+    private AppUser $issuedBy;
 
     #[ORM\Column(name: 'invoice_number', type: Types::TEXT)]
     private string $invoiceNumber;
@@ -116,6 +140,8 @@ class Invoice
         Uuid $tenantId,
         SalesOrder $salesOrder,
         Customer $customer,
+        Fulfilment $fulfilment,
+        AppUser $issuedBy,
         string $invoiceNumber,
         Currency $currency,
         string $totalAmount,
@@ -125,6 +151,8 @@ class Invoice
         $this->tenantId = $tenantId;
         $this->salesOrder = $salesOrder;
         $this->customer = $customer;
+        $this->fulfilment = $fulfilment;
+        $this->issuedBy = $issuedBy;
         $this->invoiceNumber = $invoiceNumber;
         $this->currency = $currency;
         $this->totalAmount = $totalAmount;

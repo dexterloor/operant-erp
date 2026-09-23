@@ -215,6 +215,16 @@ final class SchemaManifestTest extends TenancyTestCase
      * table: on a soft-deletable table every unique index other than the
      * primary key and the composite foreign key target is partial, and on a
      * table that is not soft-deletable none of them is.
+     *
+     * **One ruled exception, allowed BY NAME and BY EXACT PREDICATE** (sales step 6,
+     * C2): `invoice_tenant_fulfilment_not_void` — at most one LIVE invoice per
+     * shipment (D-A; `API.md` §4.2 `IssueInvoice`). Its predicate is a *lifecycle*
+     * predicate on a deletion-class-`none` table, which ADR-007 §1 (written for
+     * soft-deleted tables) does not address; this test is stricter than the ADR.
+     * **The allowance is this test's own literal**, deliberately not a constant
+     * shared with `IdempotencyContractTest`'s: one constant read by both checks is
+     * one source, and a wrong entry would pass both (`ARCH` §7.1). A second partial
+     * unique on `invoice`, or this one with any other predicate, is still red.
      */
     #[Test]
     public function businessUniquenessIsPartialOnSoftDeletedTablesAndTotalElsewhere(): void
@@ -235,9 +245,16 @@ final class SchemaManifestTest extends TenancyTestCase
 
         $soft = SchemaManifest::softDeletedTables();
         $wrong = [];
+        // index => its exact normalised predicate (`pg_get_expr(indpred, indrelid)`, measured at C2: M-5).
+        $lifecyclePartials = ['invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)"];
 
         foreach ($rows as $r) {
             if (!\in_array($r['tbl'], SchemaManifest::tenantScopedTables(), true)) {
+                continue;
+            }
+            if (\array_key_exists($r['idx'], $lifecyclePartials) && !\in_array($r['tbl'], $soft, true)) {
+                self::assertSame($lifecyclePartials[$r['idx']], $r['pred'],
+                    $r['idx'].' is allowed partial on exactly one lifecycle predicate, and carries another.');
                 continue;
             }
             $shouldBePartial = \in_array($r['tbl'], $soft, true);

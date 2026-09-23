@@ -54,8 +54,11 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 // writes. warehouse, storage_location, supplier, customer,
                 // sales_order and invoice have no such caller, so those six seeds
                 // run as the owner in this tenant's context (committed, so the
-                // `erp_app` INSERTs below that read them see them). The plans
-                // under test are all read as `erp_app`.
+                // `erp_app` INSERTs below that read them see them). `app_user` and
+                // `fulfilment` (sales step 6 C2) are owner-seeded too: the first has
+                // no `erp_app` INSERT, and the second must be committed before the
+                // owner-seeded invoice reads it. The plans under test are all read
+                // as `erp_app`.
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO warehouse (id, tenant_id, code, name, country_code)
@@ -128,15 +131,46 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
 
+                // Sales step 6 C2 (`Version20260923000100`): an invoice now bills a FULFILMENT and names its ISSUER,
+                // both NOT NULL. One shipper, as the owner -- `app_user` has no `erp_app` INSERT (ADR-002 A4; H0) --
+                // with a lower-case email (`app_user_email_normalised`).
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
-                    INSERT INTO invoice (id, tenant_id, sales_order_id, customer_id, invoice_number, status, currency_code, total_amount, issued_at, due_at, paid_at)
-                    SELECT gen_random_uuid(), s.tenant_id, s.id, s.customer_id, 'INV-' || s.order_number,
+                    INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)
+                    VALUES (gen_random_uuid(), ?::uuid, 'plan-seed@example.com', 'x', 'Plan Seed')
+                    SQL, [$tenant]);
+
+                // One fulfilment per order. **As the owner, not `erp_app`** (which does hold INSERT on `fulfilment`
+                // since `Version20260922000200`): the owner-seeded invoice below JOINs these rows, and `erp_app`'s
+                // insert would still be uncommitted inside this `run()` -- invisible to the owner's connection, so
+                // the invoice seed would silently insert nothing (measured: the count assertion read `invoice => 0`
+                // on the first run). The number reuses the order's own digits, padded to six: `g <= ORDERS`
+                // (< 1,000,000), so SQL `lpad`'s truncation cannot bite (`ARCH` §2).
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
+                    INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number,
+                                            shipped_by_user_id, idempotency_key, request_digest)
+                    SELECT gen_random_uuid(), s.tenant_id, s.id, s.warehouse_id,
+                           'FUL-' || lpad(substring(s.order_number FROM 4), 6, '0'),
+                           (SELECT id FROM app_user WHERE email = 'plan-seed@example.com'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                    FROM sales_order s
+                    SQL);
+
+                // Joined to its fulfilment, so a dropped join shows in the count assertion below. The number
+                // satisfies `invoice_number_shape` (`^INV-[0-9]{6}$`, owner ruling Q12); the due date sits inside
+                // `invoice_due_window` in any session zone; the total is not negative.
+                $this->insertAsOwnerForTenant($tenant, <<<'SQL'
+                    INSERT INTO invoice (id, tenant_id, sales_order_id, customer_id, fulfilment_id, issued_by_user_id,
+                                         invoice_number, status, currency_code, total_amount, issued_at, due_at, paid_at)
+                    SELECT gen_random_uuid(), s.tenant_id, s.id, s.customer_id, f.id, f.shipped_by_user_id,
+                           'INV-' || lpad(substring(s.order_number FROM 4), 6, '0'),
                            CASE WHEN right(s.order_number, 1) = '0' THEN 'issued' ELSE 'paid' END,
                            'EUR', 100.00, s.ordered_at, s.ordered_at + interval '30 days',
                            -- invoice_paid_at_set: a paid invoice must say when.
                            -- The constraint caught this seed the first time it ran.
                            CASE WHEN right(s.order_number, 1) = '0' THEN NULL ELSE s.ordered_at + interval '10 days' END
                     FROM sales_order s
+                    JOIN fulfilment f ON f.tenant_id = s.tenant_id AND f.sales_order_id = s.id
                     SQL);
 
                 $c->executeStatement(<<<'SQL'
@@ -181,6 +215,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 'inventory_item' => (int) $this->app()->fetchOne('SELECT count(*) FROM inventory_item'),
                 'storage_location' => (int) $this->app()->fetchOne('SELECT count(*) FROM storage_location'),
                 'purchase_order' => (int) $this->app()->fetchOne('SELECT count(*) FROM purchase_order'),
+                'fulfilment' => (int) $this->app()->fetchOne('SELECT count(*) FROM fulfilment'),
                 'invoice' => (int) $this->app()->fetchOne('SELECT count(*) FROM invoice'),
                 'stock_level' => (int) $this->app()->fetchOne('SELECT count(*) FROM stock_level'),
                 'stock_movement' => (int) $this->app()->fetchOne('SELECT count(*) FROM stock_movement'),
@@ -189,7 +224,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
 
             self::assertSame(
                 ['inventory_item' => self::ITEMS, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
-                    'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
+                    'fulfilment' => self::ORDERS, 'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
                     'stock_movement' => self::EVENTS, 'audit_log' => self::EVENTS],
                 $counts,
                 'The seed did not produce the world these plans are measured against.');
