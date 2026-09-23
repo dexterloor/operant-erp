@@ -89,6 +89,9 @@
     "GetSalesOrder $.total_amount": [
         4
     ],
+    "ListFulfilments $.items[].lines[].quantity": [
+        6
+    ],
     "ListItems $.items[].reorder_point": [
         6
     ],

@@ -43,37 +43,48 @@ use PHPUnit\Framework\Attributes\Test;
 final class OwedAmendmentTripwireTest extends ApiTestCase
 {
     /**
-     * `METHOD path` (as {@see GeneratedSpec::operations()} keys them) => the
-     * amendment that must be applied in the same commit that builds it.
+     * **`operationId` => the §4.2 path the row declares (for the reader; the
+     * check compares keys only)** — the operations that owe an amendment that
+     * must be applied in the same commit that builds them.
      *
-     * Paths are the ones `docs/API.md` §4.2 gives these rows; all three are
-     * `unbuilt` in §15.1 at `e87d731`. **Keyed by path rather than operationId
-     * because the path is what the spec exposes** — an operation renamed on its
-     * way to being built would slip an operationId pin.
+     * ---------------------------------------------------------------------------
+     * ⚖ RE-KEYED BY `operationId` 2026-09-23 (sales step 6, commit C1; design F-1)
+     * ---------------------------------------------------------------------------
+     * This map was keyed by `METHOD path`, and its docblock argued for that:
+     * *"the path is what the spec exposes — an operation renamed on its way to
+     * being built would slip an operationId pin."* **The argument was backwards,
+     * and `1076ba3` had already measured why for the sibling pick-read pin.**
+     * `API.md` §12.3 fixes the `operationId` as *Verb ++ Resource*, and it **is**
+     * the §4.2 row name, so it cannot drift without the contract row moving with
+     * it. A path is a spelling the builder chooses — and `/void` is the one
+     * sub-resource §4.2 itself calls an exception — so a builder who wrote
+     * `/invoices/{id}/voidance` would get a GREEN tripwire and A2.1 would ship
+     * unapplied with nothing red. **A path pin that guesses wrong does not fail;
+     * it stops firing, silently.** The positive control moved with the key: it is
+     * {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT}, the one the sibling methods
+     * already use, and the path control this map used to carry
+     * (`'POST /api/v1/purchase-orders'`) is deleted rather than left, because a
+     * control whose domain no longer overlaps what the check compares is the
+     * exact hole it was written to prevent.
+     *
+     * **Mutations re-run against THIS keying (a proof written for the path keying
+     * is not evidence for this one):** planting `CreateGoodsReceipt` into the map
+     * → RED naming it; breaking the control to `CreateGoodsReceiptX` → RED,
+     * loudly. Recorded in `docs/session13/output9-sales-7-progress.md`, C1.
+     *
+     * @var array<string, string>
      */
     private const OPERATIONS_OWING_AN_UNAPPLIED_AMENDMENT = [
-        'POST /api/v1/invoices/{id}/void' => 'VoidInvoice',
-        'POST /api/v1/invoices/{id}/credit-notes' => 'IssueCreditNote',
-        'POST /api/v1/fulfilments/{id}/returns' => 'CreateSalesReturn',
+        'VoidInvoice' => 'POST /invoices/{id}/void',
+        'IssueCreditNote' => 'POST /invoices/{id}/credit-notes',
+        'CreateSalesReturn' => 'POST /fulfilments/{id}/returns',
     ];
 
     /**
-     * The positive control, and it is not decoration. **The first version of this
-     * class was FAKE-GREEN**: it pinned the paths `docs/API.md` §4.2 prints
-     * (`/invoices/{id}/void`) while the generated spec prefixes every path with
-     * `/api/v1`, so the intersection was vacuously empty and a planted BUILT
-     * operation did not turn it red. This is the empty-set trap this suite has
-     * recorded before — an exhaustive check whose domain silently does not
-     * overlap what it is checking.
-     *
-     * Held here so the prefix assumption cannot rot again: if the spec's path
-     * shape moves, THIS fails, rather than the tripwire going quietly blind.
-     */
-    private const A_PATH_KNOWN_TO_BE_BUILT = 'POST /api/v1/purchase-orders';
-
-    /**
-     * `METHOD path` => the operation, for the sales line reads that owe V2-C-14(b)'s
-     * decision.
+     * `operationId` => its §4.2 path, for the sales line reads that owe V2-C-14(b)'s
+     * decision. *(Keyed by `METHOD path` until 2026-09-23; re-keyed with the A2.1
+     * map above so that no method in this class compares against a path. The map
+     * was already empty, so no behaviour moved.)*
      *
      * **⚠ CLEARED 2026-09-21, IN THE COMMIT THAT APPLIED THE DECISION.** It held
      * `'GET /api/v1/sales-orders/{id}/lines' => 'ListSalesOrderLines'`; that
@@ -82,8 +93,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * message below. Moving the entry is the deliberate act that says the decision
      * was applied — it was not moved to get green, and the diff that clears it is the
      * diff that adds the derivation and its test.
-     *
-     * Prefixed `/api/v1` for the measured reason recorded on the sibling constant.
      *
      * @var array<string, string>
      */
@@ -110,8 +119,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * *(History:)* `METHOD path` => the operation that owes **V2-S-1b**, the money-free pick read.
      *
      * §4.2 declares `CreateFulfilment` at `POST /sales-orders/{id}/fulfilments`;
-     * the spec prefixes `/api/v1`, for the measured reason recorded on
-     * {@see self::A_PATH_KNOWN_TO_BE_BUILT}.
+     * the spec prefixes `/api/v1` (the history of the path control this class
+     * carried until 2026-09-23 is on the A2.1 map's docblock).
      *
      * **Why only this row, when the carry is recorded on `ListSalesOrders` too.**
      * The owner re-anchored the gate on 2026-09-20 onto `CreateFulfilment`
@@ -128,8 +137,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const THE_PICK_READS_PERMISSION = 'fulfilment.view';
 
     /**
-     * The positive control for the pick-read pin, which is keyed by
-     * **`operationId`** and not by path.
+     * The positive control for **every** pin in this class — each is keyed by
+     * **`operationId`** and not by path (the A2.1 map and the remainder map
+     * joined the pick-read pin on 2026-09-23).
      *
      * **Why this replaced a nested-PATH control on 2026-09-20, hours after that
      * control was added.** The pin used to be the path
@@ -190,28 +200,24 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * Planting `'POST /purchase-orders' => 'CreatePurchaseOrder'` — a BUILT
      * operation — left this **GREEN**, because the pin used `docs/API.md` §4.2's
      * unprefixed paths while the spec prefixes `/api/v1`. The check was comparing
-     * disjoint sets. Fixed by prefixing the pin and adding
-     * {@see self::A_PATH_KNOWN_TO_BE_BUILT} as a positive control; re-planting
-     * `'POST /api/v1/purchase-orders'` then turned it **RED**, naming that path
-     * and printing the whole message below, and removing it returned it to GREEN
-     * on the three unbuilt rows. **A pin nobody has seen fail is not evidence,
-     * and this one was not evidence until the second run.**
+     * disjoint sets. Fixed then by prefixing the pin and adding a path positive
+     * control; re-planting `'POST /api/v1/purchase-orders'` then turned it
+     * **RED**. **Superseded 2026-09-23 by the `operationId` keying** (see the
+     * map's docblock): the path control is gone, and both mutations were re-run
+     * against the new key. **A pin nobody has seen fail is not evidence, and a
+     * proof written for a previous keying is not evidence for this one.**
      */
     #[Test]
     public function noOperationOwingAnUnappliedAmendmentHasBeenBuilt(): void
     {
-        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
-        $built = array_keys(GeneratedSpec::operations($spec));
+        $built = $this->builtOperationIds();
 
-        self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the spec no longer spells built paths the way this pin does, so the '
-            .'tripwire below would compare two disjoint sets and pass on everything. Re-derive the '
-            .'path shape from the spec before trusting any result from this class.');
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it, '
+            .'so the tripwire below would compare the pin against an empty or differently-spelled set and pass '
+            .'on everything. Re-derive the key from the spec before trusting any result from this class.');
 
-        $arrived = array_intersect_key(
-            self::OPERATIONS_OWING_AN_UNAPPLIED_AMENDMENT,
-            array_fill_keys($built, true),
-        );
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_AN_UNAPPLIED_AMENDMENT, $built);
 
         self::assertSame([], $arrived, $this->pointer($arrived));
     }
@@ -242,9 +248,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * operation it governs is built"*. It reddens when a sales line read appears in
      * the generated spec and prints the decision at the point of use.
      *
-     * **Positive control:** the same {@see self::A_PATH_KNOWN_TO_BE_BUILT} assertion
-     * the sibling test uses, for the same measured reason — the first version of
-     * that pin compared disjoint sets and a planted built operation left it green.
+     * **Positive control:** the same {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT}
+     * assertion the sibling tests use, for the same measured reason — the first
+     * version of the A2.1 pin compared disjoint sets and a planted built operation
+     * left it green.
      *
      * ---------------------------------------------------------------------------
      * ⚠ 2026-09-21 — THE DECISION HAS BEEN APPLIED, AND THIS PIN IS NOW EMPTY
@@ -276,12 +283,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     #[Test]
     public function noOperationOwingTheCancelledRemainderDecisionHasBeenBuilt(): void
     {
-        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
-        $built = array_keys(GeneratedSpec::operations($spec));
+        $built = $this->builtOperationIds();
 
-        self::assertContains(self::A_PATH_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the spec no longer spells built paths the way this pin does, so the check '
-            .'below would compare two disjoint sets and pass on everything.');
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it, so '
+            .'the check below would compare the pin against nothing and pass on everything.');
 
         // The pin is empty since 2026-09-21, so the intersection below can no longer
         // fail. What can is this: the obligation moved to a named assertion, and if
@@ -294,7 +300,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."in `SalesOrderLineRow::COLUMNS`. Restore the assertion, or put the obligation back on the pin\n"
             .'above, before removing this.', $replacementClass, $replacementMethod));
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_REMAINDER_DECISION, array_fill_keys($built, true));
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_REMAINDER_DECISION, $built);
 
         self::assertSame([], $arrived, \sprintf(
             "%s has been built, and V2-C-14(b)'s decision has NOT been applied.\n\n"
@@ -320,7 +326,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."cancelled order's lines currently report their FULL quantity as outstanding — the defect is\n"
             ."at its widest, not its narrowest.\n\n"
             ."Full entry: `docs/API.md` §15.1, rows `CancelSalesOrder` and `ListSalesOrderLines`.",
-            implode(', ', $arrived),
+            implode(', ', array_keys($arrived)),
         ));
     }
 
@@ -569,6 +575,28 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
+     * The `operationId`s the generated spec carries, as a set. Every pin in this
+     * class is keyed by `operationId` (§12.3: it is the §4.2 row name), never by a
+     * path a builder chooses.
+     *
+     * @return array<string, true>
+     */
+    private function builtOperationIds(): array
+    {
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+
+        $built = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            $operationId = $data['operation']['operationId'] ?? null;
+            if (\is_string($operationId) && '' !== $operationId) {
+                $built[$operationId] = true;
+            }
+        }
+
+        return $built;
+    }
+
+    /**
      * The pointer goes in the failure message, not in a list somebody has to
      * remember to read. Owner ruling 2026-09-18: the project's read-before list
      * is load-bearing *because* it is short, so a new obligation earns its place
@@ -600,7 +628,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."Full entry: `docs/DELIVERY_LEDGER.md` risk register, row R-39 (scheduled Output 9 / M2, on this build).\n"
             ."Whether A2.1 may be applied in halves (A2.1a `invoice.void` / A2.1b `credit_note.issue`)\n"
             ."is the OWNER's call and was still open at Move 217 — do not split it unasked.",
-            implode(', ', $arrived),
+            implode(', ', array_keys($arrived)),
         );
     }
 }

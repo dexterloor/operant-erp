@@ -322,6 +322,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, then read the fulfilment'];
             }],
+            // Sales step 6 C1: the register, read after a fulfilment the API wrote, so the row every reference and
+            // scale walker sees is a real one -- lines included (`quantity` is a decimal WireScaleTest must observe).
+            'ListFulfilments' => [fn (): array => $stockedSalesWorkspace('SO-LFUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('GET', '/fulfilments');
+
+                return [200, 'create, confirm, fulfil, then list the fulfilments'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-GET'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));

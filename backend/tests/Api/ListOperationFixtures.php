@@ -102,6 +102,33 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListFulfilments' => function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Fulfilments');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-FUL', null, $warehouse,
+                    SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+
+                return ['/fulfilments', function (int $rows) use ($order, $warehouse): array {
+                    // Line-less fulfilments of ONE order, as the owner, each with a distinct number and shipment
+                    // time, so both views (the register and the order's) hold every row. Numbered from
+                    // `FUL-900001` so they cannot collide with a fulfilment a success recipe booked through the
+                    // API earlier in the same test (the writer mints `FUL-000001` upwards).
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number, shipped_at,
+                                                    shipped_by_user_id, idempotency_key, request_digest)
+                            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?::timestamptz, ?::uuid,
+                                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $order, $warehouse,
+                                \sprintf('FUL-9%05d', $i), \sprintf('2026-01-%02dT00:00:00+00:00', $i), (string) $this->actorId]);
+                    }
+
+                    // `sales_order_id` is the only filter; TB-5 names `fulfilment_number`; no `sort` (IA §5.6
+                    // gives each view one order), so the two views are the register and the order's.
+                    return ['filter' => ['sales_order_id' => $order], 'search' => 'FUL-9',
+                        'views' => ['', 'sales_order_id='.$order]];
+                }];
+            },
             'ListPermissions' => function (): array {
                 // The vocabulary is global and seeded (IA §6.2), so there is nothing to seed and the "empty"
                 // path is already populated. Bounded (TB-1c): no filter, no searchable column TB-5 names, one view.

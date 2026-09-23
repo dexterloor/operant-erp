@@ -199,6 +199,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         ],
         // Its subject is a fulfilment booked through the operation itself in each tenant, as `GetGoodsReceipt`'s is.
         'GetFulfilment' => ['vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment'],
+        // Sales step 6 C1: the register, over a fulfilment booked through the operation in each tenant, so the
+        // baseline page is non-empty and a supplied tenant id that moved the read would list B's shipment.
+        'ListFulfilments' => ['setup' => 'fulfilment'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

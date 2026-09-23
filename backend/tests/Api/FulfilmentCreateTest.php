@@ -28,11 +28,12 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
      * The operations shipped under `/fulfilments` — `GoodsReceiptCreateTest::PINNED_GOODS_RECEIPT_OPERATIONS`'s
      * twin. `CreateFulfilment` hangs off the order (N-8) and is pinned in `SalesOrderCreateTest`; `GetFulfilment` has
      * a path of its own, so it is pinned here and joined into `AuthOperationContractTest`'s whole-registry union.
-     * `ListFulfilments` is declared in §4.2 and stays unbuilt until step 6 (owner ruling R9).
+     * `ListFulfilments` joined it in sales step 6, commit C1 (2026-09-23).
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_FULFILMENT_OPERATIONS = [
+        'ListFulfilments' => ['method' => 'GET', 'path' => '/fulfilments', 'idem' => false],
         'GetFulfilment' => ['method' => 'GET', 'path' => '/fulfilments/{id}', 'idem' => false],
     ];
 

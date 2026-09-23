@@ -54,6 +54,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 5 C4 (2026-09-22): SoD-4 -- `fulfilment.create` is held by `owner` and `warehouse_operator` only.
         'CreateFulfilment' => 'fulfilment.create',
         'GetFulfilment' => 'fulfilment.view',
+        // Sales step 6 C1 (2026-09-23): the register, the row's own `Perm` cell. `warehouse_operator` holds it.
+        'ListFulfilments' => 'fulfilment.view',
         // Sales step 5 C3 (2026-09-22): the pick read, `fulfilment.view` ALONE (V2-S-1b clause 3, owner ruling R7).
         'GetPickList' => 'fulfilment.view',
         // Roles slice 1 (2026-09-23): the three role reads are `role.view`, which `viewer` holds -- so nothing
