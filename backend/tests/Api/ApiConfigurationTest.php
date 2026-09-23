@@ -143,7 +143,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // the migration grants `erp_app` exactly INSERT on `fulfilment` and `fulfilment_line` (measured before and
         // after with `has_table_privilege()`), and `GetFulfilment` is the resource's item `Get`, declared first, so the
         // 201's `Location` names it and no `$notExposed` fallback route is minted.
-        self::assertCount(37, $checked, 'The route set changed. This slice declares thirty-seven operations: '.implode(', ', array_keys($checked)));
+        // **And one more on 2026-09-23 (roles slice 1, C2):** `ListPermissions`, a read of the global `permission`
+        // table `erp_app` already SELECTs (measured with `has_table_privilege()` before and after -- no migration). Its
+        // item DTO `PermissionResource` is not an ApiResource, so no `$notExposed` fallback route is minted.
+        self::assertCount(38, $checked, 'The route set changed. This slice declares thirty-eight operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -102,6 +102,11 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListPermissions' => function (): array {
+                // The vocabulary is global and seeded (IA §6.2), so there is nothing to seed and the "empty"
+                // path is already populated. Bounded (TB-1c): no filter, no searchable column TB-5 names, one view.
+                return ['/permissions', static fn (int $rows): array => ['filter' => [], 'search' => null, 'views' => ['']]];
+            },
             'ListSalesOrderLines' => function (): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-LINES');
 

@@ -215,7 +215,10 @@ final class SearchContractTest extends PurchaseOrderTestCase
                 $resources[] = $m[1];
             }
         }
-        $resources = array_values(array_unique($resources));
+        // §4.4.3's additions table names resources too, as in `ResponseShapeTest::knownResources()`: `Permission`
+        // (roles slice 1) has only a `List` row, so no non-List row names it and "List / Permissions" would resolve to
+        // nothing. Found by running `ListPermissions`, 2026-09-23.
+        $resources = array_values(array_unique([...$resources, ...array_keys(ResponseShapeTest::declaredAdditions())]));
 
         $fixtures = $this->listFixtures();
         $subjects = [];

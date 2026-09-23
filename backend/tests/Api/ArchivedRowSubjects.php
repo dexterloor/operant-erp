@@ -152,7 +152,11 @@ trait ArchivedRowSubjects
         self::assertSame($manifest, $tied, '§4.2\'s Restore guards and SchemaManifest\'s soft tables disagree, so no soft table can be tied to a resource.');
 
         $rows = ContractDocument::operationRows();
-        $known = ResponseShapeTest::knownResources($rows, []);
+        // The additions table is part of the known set, as it is in `ResponseShapeTest`: a resource whose only
+        // built operation is its `List` and which has no `Get`/`Create` row (`Permission`, roles slice 1) is
+        // named by §4.4.3 alone. Found by running `ListPermissions` (2026-09-23): with `[]` here, "List /
+        // Permissions" resolved to nothing and every consumer of this trait failed before reaching a soft table.
+        $known = ResponseShapeTest::knownResources($rows, ResponseShapeTest::declaredAdditions());
         $builtOnResource = [];
         $selected = [];
 

@@ -76,6 +76,24 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     ];
 
     /**
+     * **Step 2's one exception, and its closed membership** — owner ruling Q3+Q4 of roles slice 1,
+     * 2026-09-23 (`docs/session13/roles-s1-ruling.md`): *`Permission` is `{code, module, description}`,
+     * with no `id`*, because the `permission` table has none (its primary key is `code`) and a synthetic
+     * `id` would be a second name for one value.
+     *
+     * **The pin is the domain; the database is the check.** Only a member loses step 2's `id` — every other
+     * resource keeps it, tableless ones included (`CurrentUser`, `PickList`), which is why this is a pin and
+     * not a general *"the table has an `id`"* rule: that rule would throw on both shipped reads (RED F2).
+     * For each member {@see self::noIdDefects()} resolves the table by snake case and asserts from
+     * `pg_attribute` that it **exists** and has **no `id` column**, so the exception goes red the day the
+     * table gains one, and cannot be granted to a resource that has no table at all.
+     *
+     * `Password`'s §4.4.3 row states the same exception in prose, but it has no `GET`, so it never reaches
+     * this test and is deliberately not a member — a member with no subject would be vacuous.
+     */
+    private const NO_ID_RESOURCES = ['Permission'];
+
+    /**
      * **The probe.** No built read resource's derived expectation is empty
      * beyond `id` and `archived_at`.
      *
@@ -246,6 +264,21 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
         }
 
+        // Step 2's exception (Q3+Q4, 2026-09-23), as the rule text states it. Asserted before the exception
+        // is applied, so the code cannot drop an `id` the document has stopped excepting.
+        self::assertStringContainsString('ResponseShapeTest::NO_ID_RESOURCES', $section,
+            '§4.4.3 step 2 no longer points at the pinned no-`id` exception that owner ruling Q3+Q4 put there.');
+
+        // Controls for the no-`id` exception, each a planted column list or a planted member.
+        self::assertSame([], self::noIdDefects(self::NO_ID_RESOURCES, $this->attributesOf(...)),
+            'A NO_ID_RESOURCES member\'s table is missing or has an `id` column, so the exception is stale.');
+        self::assertSame(['Permission: its table `permission` has an `id` column, so the no-`id` exception is stale'],
+            self::noIdDefects(['Permission'], fn (string $table): array => [...$this->attributesOf($table), 'id']),
+            'The no-`id` check accepted a table that has an `id` column.');
+        self::assertSame(['CurrentUser: no table `current_user` exists, so the no-`id` exception has nothing to check it against'],
+            self::noIdDefects(['CurrentUser'], $this->attributesOf(...)),
+            'The no-`id` check accepted a planted member that has no table.');
+
         // Control 1 — the resource → table tie covers the soft set exactly.
         $tied = array_values($softResources);
         sort($tied);
@@ -288,10 +321,18 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         $bodies = null;
         $entriesExamined = 0;
+        $noIdSeen = [];
         foreach ($resources as $resource => $readers) {
             $class = self::dtoClassOf($resource, $rows, $operations);
             $embedded = [];
             $expected = self::derivation($resource, $rows, $additions, $softResources, $snapshotSources, $defects, $embedded);
+            if (\in_array($resource, self::NO_ID_RESOURCES, true)) {
+                // Control — the pin is what makes the difference: without it the DTO really lacks `id`.
+                self::assertContains('lacks `id`', self::compare($expected, self::serializedFields($class)),
+                    $resource.' is in NO_ID_RESOURCES but its DTO carries `id`, so the exception excepts nothing.');
+                unset($expected['id']);
+                $noIdSeen[] = $resource;
+            }
 
             $hasCreate = [] !== array_filter($rows, static fn (array $row): bool => 'Create / '.$resource === $row['verbResource']);
             if (!$hasCreate && !\array_key_exists($resource, $additions)) {
@@ -340,6 +381,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
 
         self::assertSame([], $defects, 'API-23: a built read DTO and its derived field list disagree.');
+        self::assertSame(self::NO_ID_RESOURCES, $noIdSeen, 'A NO_ID_RESOURCES member is not a built read resource, so its exception has no subject.');
         self::assertGreaterThan(0, $entriesExamined, 'No embedded list entry was compared, so the nested half had no subject.');
     }
 
@@ -814,6 +856,44 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         return $numbers;
     }
 
+    /**
+     * Step 2's exception as a pure rule over an injected column source, so each branch can be planted.
+     * A member resolves to its table by snake case; the table must exist and must have no `id`.
+     *
+     * @param list<string>                  $members
+     * @param callable(string): list<string> $attributesOf
+     *
+     * @return list<string>
+     */
+    private static function noIdDefects(array $members, callable $attributesOf): array
+    {
+        $defects = [];
+        foreach ($members as $resource) {
+            $table = strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+            $columns = $attributesOf($table);
+            if ([] === $columns) {
+                $defects[] = \sprintf('%s: no table `%s` exists, so the no-`id` exception has nothing to check it against', $resource, $table);
+            } elseif (\in_array('id', $columns, true)) {
+                $defects[] = \sprintf('%s: its table `%s` has an `id` column, so the no-`id` exception is stale', $resource, $table);
+            }
+        }
+
+        return $defects;
+    }
+
+    /**
+     * A table's live columns from `pg_attribute` — not `information_schema`, which answers only for what
+     * the reading role may see. An absent table yields `[]` (`to_regclass` is null).
+     *
+     * @return list<string>
+     */
+    private function attributesOf(string $table): array
+    {
+        return array_map(strval(...), array_column($this->owner()->fetchAllAssociative(
+            'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(?) AND attnum > 0 AND NOT attisdropped ORDER BY attnum',
+            [$table]), 'attname'));
+    }
+
     /** @return list<string> */
     private function columnsOf(string $table): array
     {
@@ -1104,7 +1184,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      *
      * @return array<string, list<string>>
      */
-    private static function declaredAdditions(?array &$nested = null): array
+    public static function declaredAdditions(?array &$nested = null): array
     {
         $table = [];
         $nested = [];

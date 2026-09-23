@@ -407,6 +407,11 @@ trait OperationSuccessRecipes
 
                 return [200, 'cancel'];
             }],
+            'ListPermissions' => [$none, function (): array {
+                $this->send('GET', '/permissions');
+
+                return [200, 'read the global vocabulary'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

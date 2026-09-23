@@ -56,6 +56,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'GetFulfilment' => 'fulfilment.view',
         // Sales step 5 C3 (2026-09-22): the pick read, `fulfilment.view` ALONE (V2-S-1b clause 3, owner ruling R7).
         'GetPickList' => 'fulfilment.view',
+        // Roles slice 1 (2026-09-23): the three role reads are `role.view`, which `viewer` holds -- so nothing
+        // they serve may carry privilege history (PC-16 condition 1, IA §6.8).
+        'ListPermissions' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',
         'DeleteItem' => 'inventory_item.delete',
