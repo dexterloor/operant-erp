@@ -537,6 +537,11 @@ final class PermissionEnforcementTest extends ApiTestCase
             CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
             \App\Platform\Security\IdentityReader::joinedTablesRequiringNoDeletionPredicate(),
             'The two readers no longer make the same assumption about the same joins.');
+        // Roles slice 1 (RED F9): `RoleReader` joins the same two tables without a deletion predicate.
+        self::assertSame(
+            CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
+            \App\Modules\UserManagement\Application\RoleReader::joinedTablesRequiringNoDeletionPredicate(),
+            'RoleReader no longer makes the same assumption about the same joins as CurrentUserReader and IdentityReader.');
     }
 
     /**

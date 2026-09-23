@@ -122,6 +122,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\FulfilmentCreateTest::PINNED_FULFILMENT_OPERATIONS),
             // Roles slice 1: `/permissions` is its own path family.
             array_keys(\App\Tests\Api\PermissionListTest::PINNED_PERMISSION_OPERATIONS),
+            // Roles slice 1: `/roles` is its own path family.
+            array_keys(\App\Tests\Api\RoleReadTest::PINNED_ROLE_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

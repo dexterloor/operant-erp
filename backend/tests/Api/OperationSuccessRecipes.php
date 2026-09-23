@@ -412,6 +412,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'read the global vocabulary'];
             }],
+            // The principal's own fixture role, read back through `/me`, so the role read is of a real row with a
+            // real holder and real codes rather than a bare seeded name.
+            'GetRole' => [$none, function (): array {
+                $this->send('GET', '/me');
+                $this->send('GET', '/roles/'.$this->json()['roles'][0]['id']);
+
+                return [200, 'read the caller\'s own role'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

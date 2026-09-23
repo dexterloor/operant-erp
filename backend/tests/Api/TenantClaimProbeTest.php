@@ -99,6 +99,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Roles slice 1 (2026-09-23). The vocabulary is global -- no tenant column, no RLS -- so a supplied tenant
         // id has nothing to move; the fourth assertion (no response names one of tenant B's rows) holds trivially.
         'ListPermissions' => [],
+        // `role` is already remembered per tenant by `seedMirror()`, with names normalised to 'Fixture Role'.
+        'GetRole' => ['vars' => ['id' => 'role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],

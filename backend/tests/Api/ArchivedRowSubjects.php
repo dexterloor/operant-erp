@@ -282,6 +282,15 @@ trait ArchivedRowSubjects
 
                 return ['id' => $order, 'lineId' => $line, 'row' => $line];
             },
+            // Added 2026-09-23 with `GetRole` (roles slice 1, C3): `role` is class `soft` and has a built direct-hit
+            // `Get`. No write on the resource is built, so the write clause does not select it.
+            'role' => function (string $tag): array {
+                $role = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'ROLE-ARC-'.$tag.'-'.bin2hex(random_bytes(3))]);
+
+                return ['id' => $role, 'row' => $role];
+            },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
                 $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
