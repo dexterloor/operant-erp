@@ -149,7 +149,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (roles slice 1, C3):** `GetRole`, a read over `role`, `role_permission`, `user_role` and
         // `app_user`, all of which `erp_app` already SELECTs -- no migration. Its `Get` is `RoleResource`'s only
         // operation, so no `$notExposed` fallback route is minted.
-        self::assertCount(39, $checked, 'The route set changed. This slice declares thirty-nine operations: '.implode(', ', array_keys($checked)));
+        // **And the last of roles slice 1 (C4):** `ListRoles`, the same four tables, bounded, `archived` + `q`. No
+        // migration; no `$notExposed` route (its item DTO is `GetRole`'s `RoleResource`).
+        self::assertCount(40, $checked, 'The route set changed. This slice declares forty operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

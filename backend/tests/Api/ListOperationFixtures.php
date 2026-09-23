@@ -107,6 +107,18 @@ trait ListOperationFixtures
                 // path is already populated. Bounded (TB-1c): no filter, no searchable column TB-5 names, one view.
                 return ['/permissions', static fn (int $rows): array => ['filter' => [], 'search' => null, 'views' => ['']]];
             },
+            'ListRoles' => function (): array {
+                return ['/roles', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, 'ROLE-ENV-'.$i]);
+                    }
+
+                    // Bounded (TB-1c): no filter; TB-5 names `role.name`, so `q` is probed with the seeded prefix;
+                    // one view, because §10.2's exclusion 2 takes a bounded row out of `sort`'s domain.
+                    return ['filter' => [], 'search' => 'ROLE-ENV', 'views' => ['']];
+                }];
+            },
             'ListSalesOrderLines' => function (): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-LINES');
 

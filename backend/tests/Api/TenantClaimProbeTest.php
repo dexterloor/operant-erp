@@ -101,6 +101,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'ListPermissions' => [],
         // `role` is already remembered per tenant by `seedMirror()`, with names normalised to 'Fixture Role'.
         'GetRole' => ['vars' => ['id' => 'role']],
+        // Every tenant holds its principal's fixture role, so the baseline page is non-empty and a supplied tenant
+        // id that moved the read would return B's roles where A's were asked for.
+        'ListRoles' => [],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],

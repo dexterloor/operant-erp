@@ -420,6 +420,11 @@ trait OperationSuccessRecipes
 
                 return [200, 'read the caller\'s own role'];
             }],
+            'ListRoles' => [$none, function (): array {
+                $this->send('GET', '/roles');
+
+                return [200, 'list the workspace\'s roles'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

@@ -38,6 +38,7 @@ final class RoleReadTest extends ApiTestCase
      */
     public const PINNED_ROLE_OPERATIONS = [
         'GetRole' => ['method' => 'GET', 'path' => '/roles/{id}', 'idem' => false],
+        'ListRoles' => ['method' => 'GET', 'path' => '/roles', 'idem' => false],
     ];
 
     /**

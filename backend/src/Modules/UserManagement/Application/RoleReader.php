@@ -75,6 +75,35 @@ final readonly class RoleReader
     }
 
     /**
+     * `ListRoles` — the live view (`deleted_at IS NULL`) or the archived one (`IS NOT NULL`), optionally
+     * narrowed by `q`, a **case-sensitive prefix of `role.name`** and of nothing else (TB-5 names `role.name`;
+     * `%` and `_` escaped, so they match themselves). One statement for the page, ordered by `name`, then `id`
+     * (the manifest's *"client-side by name"*; *(bounded)*, so no cursor).
+     *
+     * API-22: `tenant_has_rows` is probed **only on an empty page**, as `EXISTS` against `role` under RLS with
+     * no filter predicate — archived and `q` are filters, so neither is in the probe.
+     *
+     * @return array{items: list<RoleView>, tenantHasRows: bool}
+     */
+    public function list(bool $archived, ?string $search): array
+    {
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($archived, $search): array {
+            $connection = $em->getConnection();
+            $where = ['r.deleted_at IS '.($archived ? 'NOT NULL' : 'NULL')];
+            $parameters = [];
+            if (null !== $search) {
+                $where[] = 'r.name LIKE ?';
+                $parameters[] = addcslashes($search, '%_\\').'%';
+            }
+
+            $rows = $connection->fetchAllAssociative(self::SELECT.' WHERE '.implode(' AND ', $where).' ORDER BY r.name, r.id', $parameters);
+            $tenantHasRows = [] !== $rows || (bool) $connection->fetchOne('SELECT EXISTS (SELECT 1 FROM role)');
+
+            return ['items' => array_map(self::view(...), $rows), 'tenantHasRows' => $tenantHasRows];
+        });
+    }
+
+    /**
      * The two joins inside {@see self::SELECT} carry no deletion predicate, which is correct only while
      * `user_role` and `role_permission` stay deletion class `hard`. Held equal to `CurrentUserReader`'s and
      * `IdentityReader`'s by `PermissionEnforcementTest` (RED F9), so the three readers cannot drift apart.
