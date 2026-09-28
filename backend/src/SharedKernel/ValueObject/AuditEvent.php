@@ -529,6 +529,23 @@ final class AuditEvent
     public const SALES_ORDER_CANCELLED = 'sales_order.cancelled';
 
     /**
+     * **The first `invoice.*` event this catalogue holds** — minted 2026-09-28 with `IssueInvoice` (sales step 6,
+     * C3), under owner ruling **Q5** of that step (*"Column + audit event"*, 2026-09-23): the issuer is recorded twice,
+     * as `invoice.issued_by_user_id` (NOT NULL, C2) and as this row's actor.
+     *
+     * **Name and filing were ruled before any code existed** (steps 1–2, `SEC`'s): `output9-sales-7-sec.md` §5.1 files
+     * it **business**, subject the invoice, and rules its `metadata` **`{}`** — the number, customer and fulfilment are
+     * PC-15 display data (condition 6 forbids copying them into `metadata`), `fulfilment_number` would reach `finance`,
+     * who lacks `fulfilment.view`, and a copy of `total_amount` adds no detection (SQL able to forge the invoice can
+     * forge this row too — G-10's premise). `BE-LEAD` did steps 3–5; **step 6 does not apply** (a business event: no
+     * IP, no entry in `audit_log_ip_address_scope`, none in `AuditWriterTest::PINNED_IP_BEARING_EVENTS`).
+     *
+     * Written by `InvoiceAuditWriter::recordIssued()` in the issuing transaction; `InvoiceIssueTest` reads the row
+     * back cell by cell, `metadata` included.
+     */
+    public const INVOICE_ISSUED = 'invoice.issued';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -554,6 +571,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_PLACED,
         self::PURCHASE_ORDER_CANCELLED,
         self::SALES_ORDER_CANCELLED,
+        self::INVOICE_ISSUED,
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
@@ -609,6 +627,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_PLACED,
         self::PURCHASE_ORDER_CANCELLED,
         self::SALES_ORDER_CANCELLED,
+        self::INVOICE_ISSUED,
         self::STOCK_MOVEMENT_ADJUSTED,
     ];
 
@@ -657,6 +676,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_PLACED => 'purchase_order',
         self::PURCHASE_ORDER_CANCELLED => 'purchase_order',
         self::SALES_ORDER_CANCELLED => 'sales_order',
+        self::INVOICE_ISSUED => 'invoice',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',

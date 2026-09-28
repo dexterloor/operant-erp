@@ -119,6 +119,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second fulfilment, a second helping of quantity_fulfilled on the order line, and the stock taken '
                 .'out twice (sales step 5). Its mechanism is the header-sourced retry key on a TOTAL unique.',
         ],
+        'IssueInvoice' => [
+            'method' => 'repeatIssueInvoice',
+            'why' => 'A second live invoice for one shipment, and a second invoice.issued row (sales step 6 C3). Its '
+                .'mechanism is `unique:invoice_tenant_fulfilment_not_void`, partial on the LIFECYCLE, and a repeat is '
+                .'REFUSED, never replayed (API.md 4.2 item 1): the key header is required and unused.',
+        ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
@@ -380,6 +386,43 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_fulfilled::text AS q FROM sales_order_line WHERE id = ?::uuid', [$line]), $why);
         self::assertSame([['q' => '8.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
+    }
+
+    /**
+     * **A REFUSAL case, not a replay case** (design §19 C3): `IssueInvoice`'s repeat is refused — a second call is as
+     * likely a human re-issue as a network retry (§4.2 item 1) — so the same key and the same path answer 409, and the
+     * one invoice and its one trail row are all that exist afterwards.
+     */
+    private function repeatIssueInvoice(string $why): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main INV');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-163000', warehouseId: $warehouse, status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-IDEM-INV');
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: '5');
+        $bin = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+            [$bin, self::TENANT_A, $warehouse, 'A-01']);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 10)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin]);
+        $this->send('POST', '/sales-orders/'.$order.'/fulfilments',
+            ['lines' => [['sales_order_line_id' => $line, 'quantity' => '2', 'storage_location_id' => $bin]]],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $fulfilment = $this->json()['id'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/fulfilments/'.$fulfilment.'/invoices', null, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/fulfilments/'.$fulfilment.'/invoices', null, $key);
+
+        self::assertSame(409, $this->httpStatus(), 'The repeat was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.fulfilment_is_not_already_invoiced', $this->json()['rule']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM invoice'), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT id FROM audit_log WHERE event_type = 'invoice.issued'"), $why);
     }
 
     /**

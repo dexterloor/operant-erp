@@ -9,6 +9,7 @@ use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\SerializedName;
+use Symfony\Component\Uid\Uuid;
 
 /**
  * `docs/API.md` §2.3 (API-9) — every write operation refuses a request body
@@ -264,6 +265,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'purchase-orders/lines' => $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']),
             'sales-orders' => $sales['order'],
             'sales-orders/lines' => $sales['line'],
+            // Sales step 6, C3: `IssueInvoice` hangs off a shipment. Seeded as the owner against the same order,
+            // so the path names a real fulfilment and the refusal is the planted field's, not a 404's.
+            'fulfilments' => $this->seedFulfilmentOf($sales['order']),
         ];
 
         $segments = explode('/', $uriTemplate);
@@ -328,6 +332,20 @@ final class RequestContractTest extends PurchaseOrderTestCase
      *
      * @return array{order: string, line: string}
      */
+    private function seedFulfilmentOf(string $orderId): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number, shipped_by_user_id,
+                                    idempotency_key, request_digest)
+            SELECT ?::uuid, so.tenant_id, so.id, so.warehouse_id, ?, ?::uuid,
+                   encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+              FROM sales_order so WHERE so.id = ?::uuid
+            SQL, [$id, self::freshNumber('FUL'), (string) $this->actorId, $orderId]);
+
+        return $id;
+    }
+
     private function seedConfirmableSalesOrder(string $itemId): array
     {
         $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'));

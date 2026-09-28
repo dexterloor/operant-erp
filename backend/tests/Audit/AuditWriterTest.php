@@ -6,6 +6,7 @@ namespace App\Tests\Audit;
 
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
+use App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
@@ -156,6 +157,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // database. It is listed here AND driven below, because a writer this file
         // only lists is a writer `onlySecurityEventsCarryAnIpAddress` never checks.
         'Modules/AuditLog/Infrastructure/SalesOrderAuditWriter.php',
+        // Added 2026-09-28 with `IssueInvoice` (sales step 6, C3): `invoice.issued`, a `BUSINESS` event, so its
+        // ip_address is null by construction (the method has no parameter for one). Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/InvoiceAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -280,6 +284,17 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             actorUserId: $actor,
             actorLabel: 'Probe Actor',
             purchaseOrderId: Uuid::v4()->toRfc4122(),
+        );
+
+        // Sales step 6, C3: the invoice writer, driven for the same reason -- a second business writer that
+        // structurally cannot carry an address, measured on the row it writes.
+        $invoiceWriter = self::getContainer()->get(InvoiceAuditWriter::class);
+        \assert($invoiceWriter instanceof InvoiceAuditWriter);
+        $invoiceWriter->recordIssued(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
+            invoiceId: Uuid::v4()->toRfc4122(),
         );
 
         $withIp = [];

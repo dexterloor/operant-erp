@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-28 with `IssueInvoice` + `GetInvoice` in the tree (sales step 6, C3): the three commands
+  # return **98 / 68 / 7** -- THREE edge lines added: `InvoiceIssuer -> InvoiceAuditWriter` (A-5, the synchronous
+  # `invoice.issued` row), `InvoiceIssuer -> Entity\Invoice` and `InvoiceReader -> Entity\Invoice` (A-7, status
+  # constants bound rather than spelled). The resource serializes Application views, so no `Application -> ApiResource`
+  # pair. `make deptrac` reports **0 violations / 274 skipped / 1521 allowed**.)
   # (Re-derived 2026-09-23 with the invoice schema in the tree (sales step 6, C2): the three commands return
   # **95 / 66 / 6** -- ONE edge line added, A-12: `Invoice -> AppUser` for `issued_by_user_id` (see its entry).
   # `make deptrac` reports **0 violations / 269 skipped / 1477 allowed**: +3 skipped are that pair's three occurrences
@@ -304,6 +309,15 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\InvoiceIssuer:
+      # `IssueInvoice` (sales step 6 C3, 2026-09-28): the synchronous `invoice.issued` row
+      # (`SalesOrderCancellation`'s A-5 shape exactly -- messenger is not installed), and
+      # `Invoice::STATUS_VOID` bound into the live-invoice read rather than spelled as a literal (API-15).
+      - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\InvoiceReader:
+      # `GetInvoice`'s derived status binds `Invoice::STATUS_*` (`SalesOrderLineRow`'s shape).
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\PickListReader:
       # `GetPickList` (sales step 5 C3, 2026-09-22) binds the four statuses of its visibility predicate from
       # `SalesOrder::STATUS_*` rather than spelling them as SQL literals (API-15) -- `SalesOrderViews`' and

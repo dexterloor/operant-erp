@@ -28,13 +28,15 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
      * The operations shipped under `/fulfilments` — `GoodsReceiptCreateTest::PINNED_GOODS_RECEIPT_OPERATIONS`'s
      * twin. `CreateFulfilment` hangs off the order (N-8) and is pinned in `SalesOrderCreateTest`; `GetFulfilment` has
      * a path of its own, so it is pinned here and joined into `AuthOperationContractTest`'s whole-registry union.
-     * `ListFulfilments` joined it in sales step 6, commit C1 (2026-09-23).
+     * `ListFulfilments` joined it in sales step 6, commit C1 (2026-09-23), and `IssueInvoice` in C3 (2026-09-28).
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_FULFILMENT_OPERATIONS = [
         'ListFulfilments' => ['method' => 'GET', 'path' => '/fulfilments', 'idem' => false],
         'GetFulfilment' => ['method' => 'GET', 'path' => '/fulfilments/{id}', 'idem' => false],
+        // Sales step 6, C3 (2026-09-28): the invoice hangs off the shipment it bills (N-8), so its create is here.
+        'IssueInvoice' => ['method' => 'POST', 'path' => '/fulfilments/{id}/invoices', 'idem' => true],
     ];
 
     /** The registry's `/fulfilments` operations are exactly the pin, method and path included. */

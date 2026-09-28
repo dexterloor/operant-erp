@@ -117,6 +117,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // business state and about no principal's credentials, sessions or
         // privileges; its subject is `sales_order`, so (4c) does not reach it.
         'sales_order.cancelled',
+        // Added 2026-09-28 with `IssueInvoice` (sales step 6, C3), by hand and as a literal, ratifying `SEC`'s filing
+        // (`output9-sales-7-sec.md` §5.1: business, subject the invoice, metadata `{}`), which preceded the code.
+        // About the invoice's own business state; its subject is `invoice`, so (4c) does not reach it.
+        'invoice.issued',
         'stock_movement.adjusted',
     ];
 
@@ -661,5 +665,117 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         );
 
         self::assertSame(AuditEvent::AUTH_LOGIN_FAILURE, $entry->getEventType());
+    }
+
+    /**
+     * **`SEC` §5.2 rule 4 — the catalogue history is monotone, checked at source level** (sales step 6, C3; required,
+     * not conditional, after SEC-RED S-RED-14). Two tracks re-issue `audit_log_event_type_values` (the invoice chain and
+     * roles slice 2's B-4a), and a rebase can drop the other side's member from the list a later file writes. On a
+     * destroyed volume `theServersLegalSetIsExactlyTheCodeCatalogue` catches that; on a persistent database an
+     * earlier-versioned file landing later runs out of order (`RESIDUAL_GAPS.md` R-E), and nothing else sees it.
+     *
+     * The rule, over every migration whose **`up()`** issues `ADD CONSTRAINT … audit_log_event_type_values CHECK
+     * (event_type IN (…))` — `down()` bodies and files that only mention the name (`Version20260910000300` re-issues
+     * the IP-scope constraint) are excluded:
+     *   1. the **highest-versioned** re-issue's literal set **equals** `AuditEvent::ALL`;
+     *   2. every re-issue's set is a **superset** of every earlier one's (no member is ever removed or renamed).
+     *
+     * Measured when written (M-27): four re-issues — 9, 10, 11, 12 members — plus this commit's 13, no removal.
+     * **Anti-vacuity:** at least five re-issues are found. **Planted control, same test:** a scratch re-issue appended
+     * after the newest, missing one member, must produce violations naming that member under both rules.
+     */
+    #[Test]
+    public function theNewestCatalogueReissueIsTheCodeCatalogueAndASupersetOfEveryEarlierOne(): void
+    {
+        $sources = [];
+        foreach (glob(\dirname(__DIR__, 2).'/migrations/Version*.php') ?: [] as $file) {
+            $sources[basename($file, '.php')] = (string) file_get_contents($file);
+        }
+        ksort($sources);
+
+        $reissues = self::catalogueReissues($sources);
+        self::assertGreaterThanOrEqual(5, \count($reissues),
+            'Fewer catalogue re-issues were found than exist (M-27 counted five with invoice.issued), so the parser is blind.');
+
+        self::assertSame([], self::catalogueHistoryViolations($reissues),
+            "The catalogue migrations are not monotone, or the newest is not AuditEvent::ALL:\n  "
+            .implode("\n  ", self::catalogueHistoryViolations($reissues)));
+
+        // Planted control: a later re-issue that dropped a member.
+        $dropped = AuditEvent::INVOICE_ISSUED;
+        $plant = $sources;
+        $plant['Version99991231000000'] = "<?php final class Version99991231000000 { public function up(\$s): void { \$this->addSql(sprintf(<<<'SQL'\n"
+            ."ALTER TABLE audit_log ADD CONSTRAINT %s CHECK (event_type IN (\n"
+            .implode(",\n", array_map(static fn (string $e): string => "'".$e."'", array_values(array_diff(AuditEvent::ALL, [$dropped]))))
+            ."\n)) NOT VALID\nSQL, self::CONSTRAINT)); } public function down(\$s): void {} private const CONSTRAINT = 'audit_log_event_type_values'; }";
+        $violations = self::catalogueHistoryViolations(self::catalogueReissues($plant));
+        self::assertCount(2, $violations, 'A planted re-issue that dropped a member did not fail both rules: '.implode(' | ', $violations));
+        foreach ($violations as $violation) {
+            self::assertStringContainsString($dropped, $violation);
+        }
+    }
+
+    /**
+     * @param array<string, string> $sources version => file contents, in version order
+     *
+     * @return array<string, list<string>> version => the literal set its `up()` installs, in version order
+     */
+    private static function catalogueReissues(array $sources): array
+    {
+        $reissues = [];
+        foreach ($sources as $version => $source) {
+            if (!str_contains($source, 'audit_log_event_type_values')) {
+                continue;
+            }
+            if (1 !== preg_match('/function up\(.*?(?=function down\()/s', $source, $up)) {
+                continue;
+            }
+            if (1 !== preg_match('/ADD CONSTRAINT (?:%s|audit_log_event_type_values) CHECK \(event_type IN \((.*?)\)\)/s', $up[0], $list)) {
+                continue;
+            }
+            // A `%s` constraint name is this family only if the file's CONSTRAINT constant says so.
+            if (!str_contains($up[0], 'ADD CONSTRAINT audit_log_event_type_values')
+                && 1 !== preg_match("/const CONSTRAINT = 'audit_log_event_type_values'/", $source)) {
+                continue;
+            }
+            preg_match_all("/'([a-z_.]+)'/", $list[1], $literals);
+            $set = array_values(array_unique($literals[1]));
+            sort($set);
+            $reissues[$version] = $set;
+        }
+
+        return $reissues;
+    }
+
+    /**
+     * @param array<string, list<string>> $reissues
+     *
+     * @return list<string>
+     */
+    private static function catalogueHistoryViolations(array $reissues): array
+    {
+        $violations = [];
+        $seen = [];
+        foreach ($reissues as $version => $set) {
+            $lost = array_values(array_diff($seen, $set));
+            if ([] !== $lost) {
+                $violations[] = \sprintf('%s drops %s, which an earlier re-issue admitted', $version, implode(', ', $lost));
+            }
+            $seen = array_values(array_unique([...$seen, ...$set]));
+        }
+
+        if ([] !== $reissues) {
+            $newest = (string) array_key_last($reissues);
+            $all = AuditEvent::ALL;
+            sort($all);
+            $missing = array_values(array_diff($all, $reissues[$newest]));
+            $extra = array_values(array_diff($reissues[$newest], $all));
+            if ([] !== $missing || [] !== $extra) {
+                $violations[] = \sprintf('the newest re-issue, %s, is not AuditEvent::ALL: missing [%s], extra [%s]',
+                    $newest, implode(', ', $missing), implode(', ', $extra));
+            }
+        }
+
+        return $violations;
     }
 }

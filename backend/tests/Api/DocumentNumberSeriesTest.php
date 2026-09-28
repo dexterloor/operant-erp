@@ -14,6 +14,7 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * **CD-7 — the four document-number series are six digits wide, and the millionth is refused, not misordered.**
+ * *(And the fifth, `INV-`, since `IssueInvoice` shipped in sales step 6 C3 — see its two methods below.)*
  *
  * Owner ruling CD7-1 (2026-09-28, `docs/session13/cd7-ruling.md`): `SO-`, `PO-`, `FUL-` and `GR-` take the invoice's
  * Q12 shape. Before it, the writers zero-padded to six digits with no cap, so a workspace's 1,000,000th sales order
@@ -142,6 +143,63 @@ final class DocumentNumberSeriesTest extends PurchaseOrderTestCase
             self::assertSame(409, $this->httpStatus(), $table.': '.(string) $this->client()->getResponse()->getContent());
             self::assertSame($table.'.number_series_is_exhausted', $this->json()['rule']);
         }
+    }
+
+    /**
+     * **The fifth series, `INV-` (Q12 + CD7-1) — shipped with `IssueInvoice` (sales step 6, C3).** Its CHECK is
+     * `invoice_number_shape` (C2, proved in `InvoiceSchemaTest`); this is the refusal and its position.
+     *
+     * `IssueInvoice` has no replay — a repeat is refused, never replayed (§4.2 item 1) — so CD-7's *"a retry of the
+     * last create gets its own document"* has no invoice analogue. What stands in its place is the ORDER of the two
+     * refusals: the live-invoice pre-check (step 3) runs before the number (step 6), so a repeat on the shipment billed
+     * as `INV-999999` is told it is already invoiced, **not** that the series is exhausted. A cap hoisted ahead of the
+     * pre-check (mutation M7-INV) answers the wrong rule there.
+     */
+    #[Test]
+    public function theLastInvoiceNumberIsIssuedTheNextIsRefusedAndARepeatIsStillToldItIsAlreadyInvoiced(): void
+    {
+        $ship = $this->creatorFor('fulfilment');
+        $ship(Uuid::v4()->toRfc4122());
+        $first = $this->json()['id'];
+        $ship(Uuid::v4()->toRfc4122());
+        $second = $this->json()['id'];
+        $this->seedInvoice($this->insertRow('fulfilment', self::freshNumber('FUL')), 'INV-999998');
+
+        // Boundary: the cap is `> 999999`, not `>= 999999`.
+        $this->send('POST', '/fulfilments/'.$first.'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('INV-999999', $this->json()['invoice_number']);
+        $written = $this->invoiceFootprint();
+
+        // The millionth: refused in domain terms, by rule, and nothing written (no invoice, no trail row).
+        $this->send('POST', '/fulfilments/'.$second.'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(ProblemType::BusinessRuleViolated->uri(), $this->json()['type']);
+        self::assertSame('invoice.number_series_is_exhausted', $this->json()['rule'],
+            'The millionth invoice was refused, but not by the exhaustion rule.');
+        self::assertSame($written, $this->invoiceFootprint(), 'A refused issue left something behind.');
+
+        // A repeat on the shipment that took INV-999999 meets the pre-check first.
+        $this->send('POST', '/fulfilments/'.$first.'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('invoice.fulfilment_is_not_already_invoiced', $this->json()['rule'],
+            'A repeat on the last-numbered shipment was not told it is already invoiced -- is the cap ahead of the pre-check?');
+        self::assertSame($written, $this->invoiceFootprint());
+    }
+
+    /** Numbers are never reissued: a VOIDED invoice holding `INV-999999` still exhausts the series. */
+    #[Test]
+    public function aVoidedInvoiceHoldingTheLastNumberStillExhaustsTheInvoiceSeries(): void
+    {
+        $ship = $this->creatorFor('fulfilment');
+        $ship(Uuid::v4()->toRfc4122());
+        $fulfilment = $this->json()['id'];
+        $held = $this->seedInvoice($this->insertRow('fulfilment', self::freshNumber('FUL')), 'INV-999999');
+        $this->executeAsOwnerForTenant(self::TENANT_A, "UPDATE invoice SET status = 'void' WHERE id = ?::uuid", [$held]);
+
+        $this->send('POST', '/fulfilments/'.$fulfilment.'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.number_series_is_exhausted', $this->json()['rule']);
     }
 
     /**
@@ -303,6 +361,30 @@ final class DocumentNumberSeriesTest extends PurchaseOrderTestCase
         }
 
         return $footprint;
+    }
+
+    /** An invoice of `$fulfilmentId` carrying `$number`, written as the schema owner from the shipment's own order. */
+    private function seedInvoice(string $fulfilmentId, string $number): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number, currency_code,
+                                 total_amount, due_at, issued_by_user_id)
+            SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 1, now() + interval '30 days', ?::uuid
+              FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+             WHERE f.id = ?::uuid
+            SQL, [$id, $number, (string) $this->actorId, $fulfilmentId]);
+
+        return $id;
+    }
+
+    /** @return array{invoices: int, issued_rows: int} */
+    private function invoiceFootprint(): array
+    {
+        return [
+            'invoices' => $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM invoice'),
+            'issued_rows' => $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type = 'invoice.issued'"),
+        ];
     }
 
     private function refusalOf(callable $write): string

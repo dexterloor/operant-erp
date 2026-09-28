@@ -187,6 +187,46 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const A_RESTORE_KNOWN_TO_BE_BUILT = 'RestoreSalesOrderLine';
 
     /**
+     * **`operationId` => what it owes: Q1's returned-before-issue deduction** (sales step 6, C3, 2026-09-28; owner
+     * ruling Q1 *"What shipped"*). `IssueInvoice` bills what the fulfilment shipped because no return can exist yet;
+     * the day `CreateSalesReturn` ships, a return recorded before the invoice must come off it. Keyed by
+     * `operationId` for `1076ba3`'s reason; positive control {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT}.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_RETURNED_DEDUCTION = [
+        'CreateSalesReturn' => 'IssueInvoice bills shipped - returned-before-issue',
+    ];
+
+    /**
+     * **`operationId` => what it owes: V2-R-17's enforcement and the invoice's credit fields** (sales step 6, C3).
+     * The failure message is `SEC`'s text (`output9-sales-7-sec.md` §7.3), verbatim, plus item 6 as `SEC` signed it
+     * on 2026-09-23 (§16).
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS = [
+        'IssueCreditNote' => 'V2-R-17 + V2-C-10 + V2-R-16 + A2.1b + V2-S-9',
+    ];
+
+    /**
+     * **The D-1 residual (design §19 C3; owner ruling Q6 *"Four chunks"*): `IssueInvoice` ships in chunk 2, before
+     * the operations that correct an issued invoice.** While `IssueInvoice` is in the spec, each correction must be in
+     * the spec too — or named here, against the `RESIDUAL_GAPS.md` row that carries its absence. Both directions are
+     * held: a correction that is built but still listed here is red too, so its half of G-14 is closed in the same
+     * commit that builds it. C7 empties the map and G-14 closes.
+     *
+     * @var array<string, string> correction operationId => the residual row carrying its absence
+     */
+    private const INVOICE_CORRECTIONS_NOT_YET_BUILT = [
+        'ReverseInvoicePayment' => 'RESIDUAL_GAPS.md G-14 (payment half; closed by C6)',
+        'VoidInvoice' => 'RESIDUAL_GAPS.md G-14 (void half; closed by C7)',
+    ];
+
+    /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
+    private const THE_INVOICE_CORRECTIONS = ['ReverseInvoicePayment', 'VoidInvoice'];
+
+    /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
      * `invoice.issue` / `invoice.pay` **or** `invoice.void` **or**
      * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and **unapplied**:
@@ -572,6 +612,144 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."Then clear this entry deliberately. Record: `docs/session12/output9-sales-5-design.md` §5.",
             implode(', ', array_keys($arrived)),
         ));
+    }
+
+    /**
+     * **Q1's deduction, carried by a mechanism** (design §19 C3). Goes red the moment `CreateSalesReturn` is in the
+     * spec, printing what that commit owes. It detects the trigger, not the deduction — clearing the pin without
+     * building it defeats it, the residual every sibling here carries.
+     */
+    #[Test]
+    public function noOperationOwingTheReturnedDeductionHasBeenBuilt(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION, 'The returned-deduction pin is empty, so it asserts nothing.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built. IssueInvoice's amount rule owes Q1's deduction, IN THIS COMMIT:\n\n"
+            ."  1. Q1 (owner ruling 2026-09-23, \"What shipped\"): IssueInvoice bills what the fulfilment shipped MINUS\n"
+            ."     what was returned against it BEFORE the invoice was issued. A return recorded AFTER issue reduces the\n"
+            ."     invoice only through a credit note (IssueCreditNote) -- never by editing the invoice (OI-2).\n"
+            ."  2. A return `recorded_in_error` against a shipment that already has a LIVE invoice is refused.\n"
+            ."  3. THE LOCK REMEDY (ARCH 6): CreateSalesReturn and IssueInvoice both take SalesOrderRowLock FIRST;\n"
+            ."     IssueInvoice changes in the same commit (today it takes no lock -- nothing concurrent writes what it\n"
+            ."     reads). No grant on `fulfilment` is added for this.\n"
+            ."  4. API.md 8.3's \"less any returned quantity\" sentence becomes true of the code.\n\n"
+            ."Then clear this entry deliberately. Record: docs/session13/output9-sales-7-design.md 19 C3.",
+            implode(', ', array_keys($arrived)),
+        ));
+    }
+
+    /**
+     * **V2-R-17 and the invoice's credit fields, carried by a mechanism** (design §19 C3; `SEC` §7.3 and §16).
+     * Red the moment `IssueCreditNote` is in the spec.
+     */
+    #[Test]
+    public function noOperationOwingTheInvoiceCreditFieldsHasBeenBuilt(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS, 'The credit-fields pin is empty, so it asserts nothing.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built. It owes, IN THIS COMMIT:\n"
+            ."  1. V2-R-17 (ruled text 2026-09-23, SEC + PO, owner-approved; API.md 8.3's OI-2 block):\n"
+            ."     \"An invoice against which any credit note has been issued cannot be voided.\"\n"
+            ."     - VoidInvoice refuses it: 409 business-rule-violated, rule `invoice.is_not_credited`,\n"
+            ."       checked under InvoiceRowLock after the re-read.\n"
+            ."     - IssueCreditNote takes InvoiceRowLock before reading the invoice's status or credit state,\n"
+            ."       after SalesOrderRowLock if it takes one (order -> invoice, W-5), and REFUSES an invoice\n"
+            ."       whose status, re-read under the lock, is `void`.\n"
+            ."     - Tests: void after one credit note -> 409; credit note after a void -> refused;\n"
+            ."       a two-connection race of void || credit note on one invoice -> exactly one succeeds,\n"
+            ."       in BOTH commit orders; mutations: drop either check -> RED.\n"
+            ."  2. V2-C-10: GetInvoice's amount_credited / amount_due.\n"
+            ."  3. V2-R-16: how a fully credited invoice leaves collections -- V2-R-17 removed voiding as a route.\n"
+            ."  4. ADR-008 A2.1b (A2.7): see the R-39 map's message.\n"
+            ."  5. V2-S-9: credit-note lines belong to the invoice's fulfilment; credited <= returned - already credited.\n"
+            ."  6. B' (ruled 2026-09-23) already guards VoidInvoice: an invoice whose payment was ever reversed is voidable only by\n"
+            ."     an owner-marker holder (`invoice.is_not_payment_reversed`). The precedence is FIXED: status guard, then\n"
+            ."     V2-R-17, then B'. Test: an invoice that is BOTH credited AND payment-reversed, voided (a) by a marker-less\n"
+            ."     delegate holding `invoice.void` and (b) by the owner -> 409 `invoice.is_not_credited` in both cases, the invoice\n"
+            ."     unchanged and no `invoice.voided` row written (V2-R-17 precedes B', and no one is exempt from V2-R-17).\n"
+            ."     Mutation: swap the two checks -> case (a) answers `invoice.is_not_payment_reversed` -> RED.\n\n"
+            ."Then clear this entry deliberately. Record: docs/session13/output9-sales-7-sec.md 7.3 and 16.",
+            implode(', ', array_keys($arrived)),
+        ));
+    }
+
+    /**
+     * **The D-1 residual: an issued invoice cannot yet be corrected, and that cannot be forgotten** (design §19 C3).
+     * While `IssueInvoice` is in the spec, every correction in {@see self::THE_INVOICE_CORRECTIONS} is built or is
+     * named in {@see self::INVOICE_CORRECTIONS_NOT_YET_BUILT} against its `RESIDUAL_GAPS.md` row; and a correction
+     * that IS built may not stay listed. So C6 turns this red until the payment half is closed, and C7 until the
+     * void half is — the implication holds literally only once the map is empty.
+     *
+     * **Planted controls, same test:** the check is a pure function of (built set, pending map); run with
+     * `ReverseInvoicePayment` both built and pending → red naming it; run with `VoidInvoice` neither built nor pending
+     * → red naming it.
+     */
+    #[Test]
+    public function anIssuedInvoiceCannotShipWithoutItsCorrectionsOrTheirResidualRow(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+
+        self::assertSame([], self::invoiceCorrectionDefects($built, self::INVOICE_CORRECTIONS_NOT_YET_BUILT), \sprintf(
+            "IssueInvoice is built, and the operations that correct an issued invoice are not all accounted for:\n  %s\n\n"
+            ."OI-2: nothing issued is edited -- an issued invoice is corrected only by ReverseInvoicePayment (a recorded payment)\n"
+            ."and VoidInvoice (the invoice). Until both ship, RESIDUAL_GAPS.md G-14 carries the gap (owner ruling Q6, four\n"
+            ."chunks; triggers: the first non-demo tenant, any deployment off a laptop, hosted credentials).\n"
+            ."When a correction ships: remove it from INVOICE_CORRECTIONS_NOT_YET_BUILT and close its half of G-14 IN THE SAME\n"
+            ."COMMIT. Never list a correction here to get green without its residual row.",
+            implode("\n  ", self::invoiceCorrectionDefects($built, self::INVOICE_CORRECTIONS_NOT_YET_BUILT)),
+        ));
+
+        // Planted controls: the function is not vacuous in either direction.
+        $plantBuilt = $built + ['IssueInvoice' => true, 'ReverseInvoicePayment' => true];
+        self::assertSame(['ReverseInvoicePayment is built and still listed as not built: close its half of the residual.'],
+            self::invoiceCorrectionDefects(array_diff_key($plantBuilt, ['VoidInvoice' => true]), self::INVOICE_CORRECTIONS_NOT_YET_BUILT),
+            'A built correction still listed as pending did not fail the check.');
+        self::assertSame(['VoidInvoice is neither built nor named against a residual row.'],
+            self::invoiceCorrectionDefects(['IssueInvoice' => true], ['ReverseInvoicePayment' => 'x']),
+            'An unbuilt correction with no residual row did not fail the check.');
+    }
+
+    /**
+     * @param array<string, true>   $built
+     * @param array<string, string> $pending
+     *
+     * @return list<string>
+     */
+    private static function invoiceCorrectionDefects(array $built, array $pending): array
+    {
+        if (!isset($built['IssueInvoice'])) {
+            return [];
+        }
+
+        $defects = [];
+        foreach (self::THE_INVOICE_CORRECTIONS as $correction) {
+            $isBuilt = isset($built[$correction]);
+            $isPending = isset($pending[$correction]);
+            if ($isBuilt && $isPending) {
+                $defects[] = $correction.' is built and still listed as not built: close its half of the residual.';
+            } elseif (!$isBuilt && !$isPending) {
+                $defects[] = $correction.' is neither built nor named against a residual row.';
+            }
+        }
+
+        return $defects;
     }
 
     /**

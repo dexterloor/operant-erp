@@ -202,6 +202,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Sales step 6 C1: the register, over a fulfilment booked through the operation in each tenant, so the
         // baseline page is non-empty and a supplied tenant id that moved the read would list B's shipment.
         'ListFulfilments' => ['setup' => 'fulfilment'],
+        // Sales step 6 C3: the issue hangs off a shipment booked through the operation in each tenant; the body is
+        // empty (the operation accepts none), so only a header or query can carry the probe.
+        'IssueInvoice' => ['vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment'],
+        // An invoice issued through the operation in each tenant, so a probe that moved the read would answer B's.
+        'GetInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -361,6 +366,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('fulfilment' === ($recipe['setup'] ?? null)) {
             $this->seedFulfilment('A');
             $this->seedFulfilment('B');
+        }
+        if ('invoice' === ($recipe['setup'] ?? null)) {
+            $this->seedInvoice('A');
+            $this->seedInvoice('B');
         }
 
         $before = $this->tenantBDigest();
@@ -543,6 +552,20 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
 
         $this->remember($letter, 'fulfilment', (string) $this->json()['id']);
+    }
+
+    private function seedInvoice(string $letter): void
+    {
+        $this->seedFulfilment($letter);
+        $this->send('POST', '/fulfilments/'.$this->id($letter, 'fulfilment').'/invoices', null, [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), 'The invoice fixture for tenant '.$letter.' was not issued: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+
+        $this->remember($letter, 'invoice', (string) $this->json()['id']);
     }
 
     private function remember(string $letter, string $name, string $id): string

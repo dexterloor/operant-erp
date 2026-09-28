@@ -153,7 +153,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // `Modules\\Sales` did NOT move and that was read off the run rather than predicted --
         // `SalesOrderCancellation` issues two `SELECT`s and an ORM flush, and the row lock is a
         // `FOR NO KEY UPDATE` this scan excludes.
-        'Modules\\AuditLog' => 5,
+        // **5 -> 6 on 2026-09-28** (sales step 6, C3): `InvoiceAuditWriter::recordIssued()`'s single `INSERT INTO
+        // audit_log` for `invoice.issued`, the same statement with one event name changed and `metadata` '{}'.
+        'Modules\\AuditLog' => 6,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
@@ -196,7 +198,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // failure: `FulfilmentWriter`'s `INSERT INTO fulfilment`, `INSERT INTO fulfilment_line` and `UPDATE
         // sales_order_line SET quantity_fulfilled`. The status is an ORM flush and is not counted; the stock
         // statements are Inventory's (`StockDepleter`), counted there.
-        'Modules\\Sales' => 12,
+        // **12 -> 13 on 2026-09-28** (sales step 6, C3): `InvoiceIssuer`'s one `INSERT INTO invoice (<the ten>)
+        // SELECT …`, the first write of `invoice` from `src/`. `invoice` is `Modules\\Sales`' own table.
+        'Modules\\Sales' => 13,
         'Modules\\UserManagement' => 5,
     ];
 

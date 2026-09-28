@@ -62,6 +62,9 @@
     "GetGoodsReceipt $.lines[].quantity": [
         6
     ],
+    "GetInvoice $.total_amount": [
+        4
+    ],
     "GetItem $.reorder_point": [
         6
     ],
@@ -87,6 +90,9 @@
         4
     ],
     "GetSalesOrder $.total_amount": [
+        4
+    ],
+    "IssueInvoice $.total_amount": [
         4
     ],
     "ListFulfilments $.items[].lines[].quantity": [

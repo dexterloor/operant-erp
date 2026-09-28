@@ -555,8 +555,14 @@ final class SchemaManifest
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. It bills exactly one fulfilment (`fulfilment_id`, D-A) and names its issuer (`issued_by_user_id`, owner ruling Q5), and at most one LIVE invoice exists per fulfilment (`invoice_tenant_fulfilment_not_void`, partial on `status <> \'void\'`, so a void releases the shipment for a corrected re-issue) — sales step 6 C2. Status and payment state change by UPDATE, so IssueInvoice and the payment and void operations grant INSERT and UPDATE in their own migrations when built (ADR-002 Amendment 4), IssueInvoice\'s as a column-level INSERT on exactly the columns its raw-SQL writer names; until then no `src/` path writes an invoice and erp_app only reads it.',
+            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. It bills exactly one fulfilment (`fulfilment_id`, D-A) and names its issuer (`issued_by_user_id`, owner ruling Q5), and at most one LIVE invoice exists per fulfilment (`invoice_tenant_fulfilment_not_void`, partial on `status <> \'void\'`, so a void releases the shipment for a corrected re-issue) — sales step 6 C2. IssueInvoice (sales step 6 C3, `Version20260928000200`) holds a COLUMN-level INSERT on exactly the ten columns its raw-SQL writer names — never `status`, `paid_at`, `issued_at`, `created_at` or `updated_at`, which default — and table-level INSERT stays false; a 42501 from that writer is fixed by removing the column from its statement, never by widening the grant. Status and payment state change by UPDATE, so the payment and void operations grant column-level UPDATE in their own migrations when built (ADR-002 Amendment 4).',
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            // InvoiceIssuer's one INSERT, column for column. GrantFootprintTest holds a hand-typed copy
+            // (INVOICE_COLUMNS_THE_ISSUER_INSERTS) and runs the statement as erp_app, so a joint widening of this
+            // list and the migration still fails.
+            'column_grants' => [
+                DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'fulfilment_id', 'sales_order_id', 'customer_id', 'invoice_number', 'currency_code', 'total_amount', 'due_at', 'issued_by_user_id']],
+            ],
         ],
     ];
 

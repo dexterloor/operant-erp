@@ -330,6 +330,22 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, then list the fulfilments'];
             }],
+            // Sales step 6, C3: an invoice issued THROUGH THE API on a shipment the API wrote, so the row every
+            // reference, scale and audit walker sees is a real one (`total_amount` is numeric(19,4) — WireScaleTest
+            // must observe it, and `IssueInvoice` writes `invoice.issued`, which AuditWriterTest classifies).
+            'IssueInvoice' => [fn (): array => $stockedSalesWorkspace('SO-161000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+
+                return [201, 'create, confirm, fulfil, then invoice the shipment'];
+            }],
+            'GetInvoice' => [fn (): array => $stockedSalesWorkspace('SO-162000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, invoice, then read the invoice'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));

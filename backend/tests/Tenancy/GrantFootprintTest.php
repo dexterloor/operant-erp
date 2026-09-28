@@ -721,6 +721,106 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The `invoice` columns `IssueInvoice` inserts, and no others (sales step 6, C3, `Version20260928000200`).
+     * **Typed by hand from `InvoiceIssuer`'s one `INSERT INTO invoice (…)` statement, never read from
+     * `SchemaManifest`** — `APP_USER_COLUMNS_THE_CALLERS_WRITE`'s reason: a copy derived from the manifest cannot
+     * see the manifest and the migration widen together.
+     */
+    private const INVOICE_COLUMNS_THE_ISSUER_INSERTS = [
+        'currency_code', 'customer_id', 'due_at', 'fulfilment_id', 'id', 'invoice_number', 'issued_by_user_id',
+        'sales_order_id', 'tenant_id', 'total_amount',
+    ];
+
+    /**
+     * **C3: `erp_app` can INSERT exactly the `invoice` columns `IssueInvoice` names — proved by running the statement
+     * as `erp_app`** (design §19 C3; M-10). H0's method's shape, for INSERT.
+     *
+     * **Domain, server-derived:** every live column of `invoice` from `pg_attribute`. **One connection and one
+     * transaction per column**, each running the zero-row probe `INSERT INTO invoice (<c>) SELECT <c> FROM invoice
+     * WHERE false` in tenant A's context and rolling back. Zero rows, so no CHECK, NOT NULL, unique or RLS policy can
+     * refuse it — only the privilege can. A refusal is SQLSTATE `42501` **and** `permission denied for table invoice`
+     * (ADR-002 A4.3 R3); anything else is reported verbatim and fails.
+     *
+     * **Positive control:** `total_amount` is accepted. **Anti-vacuity:** `status`, `paid_at` and `issued_at` are in
+     * the domain and refused. **Planted control, committed then undone in `finally`** (RED-3 F-3): `GRANT INSERT
+     * (status)` — a column OUTSIDE the ten — must produce exactly one violation naming `invoice.status`.
+     */
+    #[Test]
+    public function theIssuerCanInsertOnlyTheInvoiceColumnsItWrites(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'invoice'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                $connection = $this->secondClient();
+                $connection->beginTransaction();
+                try {
+                    $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                    $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                    $connection->executeStatement(sprintf('INSERT INTO invoice (%1$s) SELECT %1$s FROM invoice WHERE false', $quoted));
+                    $outcomes[$column] = 'accepted';
+                } catch (DriverException $e) {
+                    $outcomes[$column] = '42501' === $e->getSQLState()
+                        && str_contains($e->getMessage(), 'permission denied for table invoice')
+                        ? 'refused'
+                        : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                } finally {
+                    $connection->rollBack();
+                    $connection->close();
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $column => $outcome) {
+                $inserted = \in_array($column, self::INVOICE_COLUMNS_THE_ISSUER_INSERTS, true);
+                if ($inserted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('invoice.%s: IssueInvoice inserts it, but erp_app got "%s"', $column, $outcome);
+                } elseif (!$inserted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('invoice.%s: IssueInvoice does not insert it, but erp_app got "%s"', $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        self::assertSame('accepted', $outcomes['total_amount'] ?? null,
+            'The positive control failed: erp_app could not insert invoice.total_amount, so the refusals below prove nothing.');
+        foreach (['status', 'paid_at', 'issued_at'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null, "erp_app must not insert invoice.{$closed}, and the probe did not see it refused.");
+        }
+        foreach (self::INVOICE_COLUMNS_THE_ISSUER_INSERTS as $inserted) {
+            self::assertArrayHasKey($inserted, $outcomes, "A column IssueInvoice inserts, {$inserted}, is not in invoice.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's INSERT on invoice is not exactly the columns IssueInvoice names. A 42501 from the writer is fixed by "
+            ."removing the column from its statement, never by widening the grant:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT INSERT (status) ON invoice TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['invoice.status: IssueInvoice does not insert it, but erp_app got "accepted"'],
+                $violations($probe()),
+                'A committed INSERT (status) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE INSERT (status) ON invoice FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted status grant survived its REVOKE.');
+    }
+
+    /**
      * **ADR-002 Amendment 4, constraint 2 — the invoker cascade trigger pairs its parent's UPDATE with its child's**
      * (V4 batch B7, 2026-09-16; RED `red-adr002-a4-attack.md` R7).
      *

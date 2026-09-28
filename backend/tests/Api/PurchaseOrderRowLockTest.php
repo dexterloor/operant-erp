@@ -12,6 +12,7 @@ use App\Modules\Sales\Application\SalesOrderRowLock;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrderLine;
 use App\Modules\Sales\Infrastructure\OrmSalesOrderFulfilmentStatus;
+use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
@@ -1217,6 +1218,106 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM fulfilment'));
         self::assertSame([['q' => '10.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$f['bins'][0]]));
+    }
+
+    /**
+     * **`IssueInvoice`'s step 9 — the three 23505 branches, each reached ALONE** (sales step 6, C3; design §19 C3,
+     * D-3). Connection A holds an UNCOMMITTED invoice; the real issue of shipment F computes its number from committed
+     * rows, inserts, and blocks on whichever unique A's row occupies. A commits; B raises 23505 outside its failed
+     * transaction and re-reads, in a fresh one, whether F now has a live invoice.
+     *
+     *   - `number, live`:  A holds F's invoice under the next number → `invoice_number_unique` → live found → the
+     *     already-invoiced 409 (R-14: the number only with `invoice.view`);
+     *   - `number, none`:  A holds ANOTHER shipment's invoice under the next number → `invoice_number_unique` → no
+     *     live invoice for F → "try again", naming nothing;
+     *   - `not_void`:      A holds F's invoice under a number the test asserts is NOT the next → only
+     *     `invoice_tenant_fulfilment_not_void` can refuse → the already-invoiced 409.
+     *
+     * Each runs with and without `invoice.view`. A takes the ORDER's lock only because the harness takes one;
+     * `IssueInvoice` locks nothing, so B's wait is on the index, which `pg_blocking_pids` reports all the same.
+     * **M-7:** the branch split itself is the measurement that a unique INDEX reports its name in the violation — the
+     * writer routes on it, and branches 1 and 2 answer differently.
+     *
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function invoiceIssueCollisions(): iterable
+    {
+        foreach (['number, live', 'number, none', 'not_void'] as $branch) {
+            yield $branch.', with invoice.view' => [$branch, true];
+            yield $branch.', without invoice.view' => [$branch, false];
+        }
+    }
+
+    #[Test]
+    #[DataProvider('invoiceIssueCollisions')]
+    public function aConcurrentIssueIsAnsweredByWhatTheShipmentNowHas(string $branch, bool $holdsView): void
+    {
+        $f = $this->shippedForInvoicing('F');
+        $other = $this->shippedForInvoicing('G');
+        $next = 'INV-000001';
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM invoice'),
+            'Control: an invoice already exists, so the next number is not '.$next.'.');
+
+        [$heldFulfilment, $heldNumber] = match ($branch) {
+            'number, live' => [$f['fulfilment'], $next],
+            'number, none' => [$other['fulfilment'], $next],
+            'not_void' => [$f['fulfilment'], 'INV-000500'],
+        };
+        if ('not_void' === $branch) {
+            self::assertNotSame($next, $heldNumber, 'The not_void branch must not also collide on the number.');
+        }
+
+        $this->actAs(self::TENANT_A, $holdsView ? DefaultRoles::codesFor(DefaultRoles::SALES_REP) : ['invoice.issue', 'fulfilment.view']);
+        $holder = $this->raceAgainstAHolder($f['order'], [[<<<'SQL'
+            INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number,
+                                 currency_code, total_amount, due_at, issued_by_user_id)
+            SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 1,
+                   now() + interval '30 days', ?::uuid
+              FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+             WHERE f.id = ?::uuid
+            SQL, [Uuid::v4()->toRfc4122(), $heldNumber, (string) $this->actorId, $heldFulfilment]]],
+            fn () => $this->send('POST', '/fulfilments/'.$f['fulfilment'].'/invoices', null,
+                [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            table: 'sales_order',
+        );
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        $raw = (string) $this->client()->getResponse()->getContent();
+        self::assertSame(409, $this->httpStatus(), $raw);
+
+        if ('number, none' === $branch) {
+            self::assertSame('invoice.invoice_number_is_unique_per_workspace', $this->json()['rule']);
+            self::assertSame('Another invoice was issued at the same moment. Try again.', $this->json()['detail']);
+            self::assertStringNotContainsString('INV-', $raw, 'The "try again" answer named an invoice.');
+        } else {
+            self::assertSame('invoice.fulfilment_is_not_already_invoiced', $this->json()['rule']);
+            if ($holdsView) {
+                self::assertStringContainsString('It is '.$heldNumber.'.', $this->json()['detail']);
+            } else {
+                self::assertStringNotContainsString($heldNumber, $raw, 'A caller without invoice.view was told the number (R-14).');
+            }
+        }
+
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM invoice'), 'The loser\'s invoice survived.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type = 'invoice.issued'"),
+            'The loser wrote a trail row.');
+    }
+
+    /**
+     * A confirmed order with one line of 5, shipped 1 through the API; the actor is left holding everything.
+     *
+     * @return array{order: string, fulfilment: string}
+     */
+    private function shippedForInvoicing(string $tag): array
+    {
+        $this->actAs(self::TENANT_A);
+        $o = $this->confirmedSalesOrderWithStock(self::freshNumber('SO'), '5', ['5']);
+        $this->send('POST', '/sales-orders/'.$o['order'].'/fulfilments',
+            ['lines' => [['sales_order_line_id' => $o['line'], 'quantity' => '1', 'storage_location_id' => $o['bins'][0]]]],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), 'Fixture '.$tag.': '.(string) $this->client()->getResponse()->getContent());
+
+        return ['order' => $o['order'], 'fulfilment' => $this->json()['id']];
     }
 
     /**
