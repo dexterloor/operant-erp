@@ -288,6 +288,12 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
      * The fixture is a real source string put through the same `PhpSourceScan` and the same reachability
      * closure clause (b) uses — not a second, friendlier parser. It plants the guard **behind a private
      * helper**, so it also proves the closure step rather than only the name match.
+     *
+     * The planted writer has a **promoted constructor**, as every real writer does. Until 2026-09-28 it had
+     * no constructor at all, and that is why it stayed green through finding N-2: the scan lent the
+     * promoted parameter's `private` to the first method after the constructor, so clause (b) never
+     * considered `InvoiceIssuer::issue()` or any writer's `create()`. With the constructor here, that
+     * defect reddens this control too (`docs/session13/n2-red.md` F-5).
      */
     #[Test]
     public function theWriterScanFindsAPlantedGuard(): void
@@ -297,6 +303,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             namespace App\Modules\Nowhere\Application;
             final class NowhereWriter
             {
+                public function __construct(private readonly \stdClass $connection) {}
                 public function edit(string $id): void { $this->check($id); }
                 public function read(string $id): void { }
                 private function check(string $id): void { $this->refuseUnlessSomething($id); }

@@ -54,6 +54,28 @@ namespace App\Tests\Support;
  *
  * Comments and docblocks are never literals, so prose in them is invisible to
  * every scan built on this walk.
+ *
+ * **Methods and their visibility (N-2 and its `RED` review, 2026-09-28).** A
+ * method's name is any identifier after `function`, including keyword-shaped
+ * names (`list`, `match`, `for`, `print`) and a by-reference `function &x()`.
+ * Its body is the first `{` after its parameter list **closes**, so a `{` inside
+ * that list is not the body. Examples: a property hook on a promoted parameter,
+ * or a PHP 8.5 closure default. A visibility modifier inside the parameter list
+ * belongs to a promoted parameter and is never given to a method. The modifiers
+ * before a class-level property hook end at its closing `}`.
+ * `tests/Meta/PhpSourceScanTest` checks all of this against reflection, both
+ * ways, over every class PHP declares from `src/` and `tests/`.
+ *
+ * **Limits that remain:**
+ *  - The PHP 8.5 closure-default shape is checked only as tokens. This PHP (8.4)
+ *    cannot load it, so no reflection answer exists for it.
+ *  - A literal inside a closure default is filed under `outside` but is not
+ *    credited to that parameter's property, because a `{` ends a default's
+ *    property tracking. That was already the behaviour and is unchanged.
+ *  - A closure inside an ATTRIBUTE argument (also PHP 8.5) is unmodelled.
+ *  - Files not named like a class (`bootstrap.php`, the `support/hold_*.php`
+ *    scripts) are outside the reflection check, because loading them would run
+ *    them.
  */
 final class PhpSourceScan
 {
@@ -99,6 +121,9 @@ final class PhpSourceScan
         $pendingMethod = null;
         $pendingPublic = true;
         $modifiers = [];
+        $inSignature = false;
+        $signatureParens = 0;
+        $signatureOpened = false;
         $current = null;
         $methodDepth = null;
         $quoting = null;
@@ -122,6 +147,14 @@ final class PhpSourceScan
                 $quoting = null;
             }
 
+            // Inside a method's signature, count its parentheses: the body is the first `{` after the
+            // parameter list has CLOSED. A `{` inside it (a property hook on a promoted parameter, a
+            // PHP 8.5 closure default) is not the body.
+            if ($inSignature && ('(' === $token || ')' === $token)) {
+                $signatureParens += '(' === $token ? 1 : -1;
+                $signatureOpened = true;
+            }
+
             if (\T_NAMESPACE === $id && null === $class) {
                 $next = self::nextMeaningful($tokens, $i);
                 if (\in_array(self::idAt($tokens, $next), [\T_STRING, \T_NAME_QUALIFIED], true)) {
@@ -140,7 +173,17 @@ final class PhpSourceScan
             $atClassBody = null !== $classDepth && $depth === $classDepth && null === $current;
 
             if ($atClassBody && \in_array($id, [\T_PUBLIC, \T_PROTECTED, \T_PRIVATE], true)) {
-                $modifiers[] = $id;
+                // A modifier between `function` and the body (or the `;` of a signature) belongs to a
+                // PROMOTED CONSTRUCTOR PARAMETER, never to a method: a `(` does not change `$depth`, so
+                // without this it was handed to the next method, and `public function create()` after
+                // `__construct(private readonly Connection $c)` was recorded not public (N-2, 2026-09-28).
+                // "The body" is the first `{` after the parameter list closes, not any `{` (see above).
+                // ⚠ The class-body `}` reset below ALSO clears these (a constructor with promoted
+                // parameters always has a body), so each of the two alone keeps N-2 fixed. A mutation removing
+                // only this guard stays green; removing both reddens PhpSourceScanTest and clause (b)'s control.
+                if (!$inSignature) {
+                    $modifiers[] = $id;
+                }
                 continue;
             }
 
@@ -167,11 +210,24 @@ final class PhpSourceScan
             }
 
             if ($atClassBody && \T_FUNCTION === $id) {
+                if ($inSignature && $signatureParens > 0) {
+                    // A closure inside a parameter list (a PHP 8.5 closure default): part of this
+                    // signature, not a method of the class.
+                    continue;
+                }
+                $inSignature = true;
+                $signatureParens = 0;
+                $signatureOpened = false;
                 $next = self::nextMeaningful($tokens, $i);
-                if ('&' === ($tokens[$next] ?? null)) {
+                // `function &name()`: since PHP 8.1 that `&` is an ARRAY token
+                // (T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG), so compare its text.
+                if (null !== $next && '&' === (\is_array($tokens[$next]) ? $tokens[$next][1] : $tokens[$next])) {
                     $next = self::nextMeaningful($tokens, $next);
                 }
-                if (\T_STRING === self::idAt($tokens, $next)) {
+                // Any identifier-shaped name, not only T_STRING: `list`, `match`, `for` and `print` are
+                // legal method names and tokenise as keywords (RED F-1, 2026-09-28 -- seven `Reader::list()`
+                // methods and `NoCallerTransaction::for()` were never recorded, their bodies filed `outside`).
+                if (null !== $next && \is_array($tokens[$next]) && 1 === preg_match('/^[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*$/', $tokens[$next][1])) {
                     $pendingMethod = $tokens[$next][1];
                     $pendingPublic = !\in_array(\T_PRIVATE, $modifiers, true) && !\in_array(\T_PROTECTED, $modifiers, true);
                 }
@@ -181,12 +237,16 @@ final class PhpSourceScan
 
             if ('{' === $text || \T_CURLY_OPEN === $id || \T_DOLLAR_OPEN_CURLY_BRACES === $id) {
                 $property = null;
+                $opensBody = !$inSignature || ($signatureOpened && 0 === $signatureParens);
+                if ($opensBody) {
+                    $inSignature = false;
+                }
                 ++$depth;
                 if (null !== $pendingClass && null === $classDepth) {
                     $class = $pendingClass;
                     $classDepth = $depth;
                     $pendingClass = null;
-                } elseif (null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
+                } elseif ($opensBody && null !== $pendingMethod && null === $current && null !== $classDepth && $depth === $classDepth + 1) {
                     $current = $class.'::'.$pendingMethod;
                     $methods[$current] = ['public' => $pendingPublic, 'class' => (string) $class, 'name' => $pendingMethod, 'literals' => [], 'calls' => [], 'named' => [], 'constants' => [], 'properties' => []];
                     $methodDepth = $depth;
@@ -204,6 +264,12 @@ final class PhpSourceScan
                     $classDepth = null;
                 }
                 --$depth;
+                if ($depth === $classDepth) {
+                    // Back at class-body level: whatever `}` closed (a method body, a property hook),
+                    // the modifiers before it were spent. A hook ends with `}`, not `;`, so without this
+                    // `private string $x { get => 'a'; }` lent `private` to the next method (RED F-3).
+                    $modifiers = [];
+                }
                 continue;
             }
 
@@ -212,6 +278,7 @@ final class PhpSourceScan
                 // the end of a constant declaration.
                 $pendingMethod = null;
                 $modifiers = [];
+                $inSignature = false;
                 $inConstDeclaration = false;
                 $constant = null;
                 $property = null;
