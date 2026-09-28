@@ -376,8 +376,14 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
             SQL, [Uuid::v4()->toRfc4122(), $tenantId, $supplierId, $itemId, 'SP-'.substr(md5($itemId), 0, 8), $leadTimeDays]);
     }
 
-    /** Grants the acting principal a role of this name, so DSoD-1's `owner` exemption has a subject. */
-    protected function grantRoleNamed(string $tenantId, string $userId, string $roleName): void
+    /**
+     * *(Replaced `grantRoleNamed()`, a role with a name and no codes, at C6a: DSoD-1's exemption stopped being a name.)*
+     * A role named `$roleName` conferring exactly `$codes`, granted to `$userId` (sales step 6, C6a). The caller's
+     * permission set is derived live on each request (`IdentityReader`), so the grant takes effect on the next one.
+     *
+     * @param list<string> $codes
+     */
+    protected function grantRoleWithCodes(string $tenantId, string $userId, string $roleName, array $codes): void
     {
         $roleId = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant($tenantId,
@@ -386,6 +392,11 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)',
             [Uuid::v4()->toRfc4122(), $tenantId, $userId, $roleId]);
+        foreach ($codes as $code) {
+            $this->insertAsOwnerForTenant($tenantId,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                [Uuid::v4()->toRfc4122(), $tenantId, $roleId, $code]);
+        }
     }
 
     /**

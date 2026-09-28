@@ -140,9 +140,8 @@ final readonly class PurchaseOrderCancellation
 
                 // ---- step 3: DSoD-1, on the `.cancel` code.
                 $this->dutySeparation->refuseWhenTheActorIsTheCreator(
-                    $em,
                     null === $row['created_by_user_id'] ? null : (string) $row['created_by_user_id'],
-                    $identity->userId,
+                    $identity,
                     'purchase_order.cancel',
                 );
 

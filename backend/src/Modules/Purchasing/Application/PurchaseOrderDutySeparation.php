@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
+use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Platform\Http\Problem\ApiProblem;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Platform\Security\Identity;
 
 /**
  * **DSoD-1, in the one place it is written — for both of SoD-1's controlled
@@ -23,9 +24,9 @@ use Doctrine\ORM\EntityManagerInterface;
  * > which exists only to make that true and today has exactly one argument.
  *
  * This is that second caller arriving. The predicate is **moved, not rewritten**:
- * the three clauses, their order, the `owner` lookup and the rule-code mapping
- * are the same code, and what changed is that the class it lives in is no longer
- * named after one of its two callers. E-19 is explicit that the failure it is
+ * the three clauses, their order and the rule-code mapping are the same code, and
+ * what changed is that the class it lives in is no longer named after one of its
+ * two callers. *(Its third clause's owner test changed on 2026-09-28 — see below.)* E-19 is explicit that the failure it is
  * guarding against is structural — *"the static half moved and the dynamic half
  * did not"* — so a cancellation path holding its own copy of this comparison
  * would be the same defect one layer down.
@@ -38,11 +39,23 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  *   - **refuse when `created_by_user_id` = the caller's `app_user.id`**, on
  *     `purchase_order.approve` **and** on `purchase_order.cancel`;
- *   - **`owner` is exempt by name.** By *name*, not by permission set: on a
- *     one-person demo tenant `owner` raises the order and is the only seat that
- *     can place it or withdraw it. A1.1 refuses the permission-set reading in
- *     terms — *"`purchasing_manager` is not exempt"* — and `purchasing_manager`
- *     holds both controlled codes, so a code test would exempt it too;
+ *   - **the owner is exempt — and "the owner" is the owner MARKER, not a role's
+ *     name** (V2-R-19 + V2-S-5, `SEC`'s Q8 ruling; sales step 6 C6a, 2026-09-28;
+ *     the owner acknowledged the notice). The caller is exempt when the permission
+ *     set E-1 enforced for this request contains `tenant_settings.edit`
+ *     (`OwnerMarker::CODE`), decided by the ONE function `OwnerPredicate::holdsMarker()`
+ *     over `Identity::$permissionCodes` — no SQL of its own, one snapshot for the
+ *     gate and the exemption. On a one-person demo tenant the owner raises the
+ *     order and is the only seat that can place it or withdraw it, and holds the
+ *     marker. **`purchasing_manager` is still refused**, as A1.1 says in terms:
+ *     A1.1 refused exempting by SoD-1's CONTROLLED codes (which it holds); the
+ *     marker is on no SoD row and it does not hold it.
+ *     ⚠ **Until C6a this read "`owner` is exempt by name"** and the code looked up
+ *     `role.name = 'owner'` in `user_role`: a role merely NAMED `owner` with zero
+ *     codes was exempt, and a co-owner the owner composed under another name was
+ *     not. **Changed behaviour, deliberately:** both are now the other way round
+ *     (`PurchaseOrderOwnerExemptionTest`). Neither was reachable in production —
+ *     no path creates or grants a role yet;
  *   - **a NULL creator does NOT refuse.** *"A reorder-agent order was raised by
  *     no person, so there is nobody for the canceller to be, and the rule returns
  *     true."* This is the rule returning **true**, not an exemption — F-4's
@@ -70,19 +83,6 @@ use Doctrine\ORM\EntityManagerInterface;
  */
 final readonly class PurchaseOrderDutySeparation
 {
-    /**
-     * The seat DSoD-1 exempts, as `role.name` holds it.
-     *
-     * A literal, and it is one on purpose: `SECURITY_MODEL.md` §4's role table is
-     * a document, `role` is a tenant-writable table, and there is no constant in
-     * this codebase that names the eight defaults. Writing it here — once, beside
-     * the argument for it — is better than deriving it from a permission set,
-     * which is the derivation A1.1 refuses. `PurchaseOrderApprovalTest` and
-     * `PurchaseOrderCancellationTest` each pin the same string independently, so
-     * the exemption cannot be renamed on one side.
-     */
-    public const OWNER_ROLE_NAME = 'owner';
-
     /**
      * The two codes of SoD-1's controlled half, mapped to the rule identifier
      * their refusal carries.
@@ -121,9 +121,9 @@ final readonly class PurchaseOrderDutySeparation
      *    to be.
      * 2. **creator ≠ caller ⇒ allow.** No query. This is the ordinary path and
      *    the two-person case DSoD-1 exists to permit.
-     * 3. **creator = caller ⇒ refuse, unless the caller holds `owner`.** The
-     *    role lookup runs only here, which is why it costs nothing on the path
-     *    every other approval and cancellation takes.
+     * 3. **creator = caller ⇒ refuse, unless the caller is the owner** —
+     *    `OwnerPredicate::holdsMarker()` over the request's own permission set.
+     *    Pure; since C6a no query runs on any path through this method.
      *
      * The creator arrives as an **id**, read by the caller's own statement rather
      * than through `PurchaseOrder::getCreatedBy()`. Two reasons, and the second
@@ -134,9 +134,8 @@ final readonly class PurchaseOrderDutySeparation
      * cross-module dependency attached.
      */
     public function refuseWhenTheActorIsTheCreator(
-        EntityManagerInterface $em,
         ?string $creator,
-        string $callerUserId,
+        Identity $caller,
         string $permissionCode,
     ): void {
         $suffix = self::RULE_SUFFIXES[$permissionCode] ?? throw new \LogicException(\sprintf(
@@ -154,12 +153,12 @@ final readonly class PurchaseOrderDutySeparation
         }
 
         // Clause 2.
-        if ($creator !== $callerUserId) {
+        if ($creator !== $caller->userId) {
             return;
         }
 
-        // Clause 3 -- and only here does a query run.
-        if ($this->holdsOwnerRole($em, $callerUserId)) {
+        // Clause 3. The owner MARKER, over the set E-1 enforced for this request -- never a role's name.
+        if (OwnerPredicate::holdsMarker($caller->permissionCodes)) {
             return;
         }
 
@@ -168,31 +167,6 @@ final readonly class PurchaseOrderDutySeparation
             // `inventory_item.is_archived` follows.
             'purchase_order.'.$suffix,
             self::MESSAGES[$permissionCode],
-        );
-    }
-
-    /**
-     * The `owner` exemption, resolved against `role.name` under RLS.
-     *
-     * `role.deleted_at IS NULL` is the same predicate `IdentityReader` applies
-     * when it resolves the caller's permission codes — a soft-deleted role grants
-     * nothing, and it must not exempt anything either, or revoking `owner` would
-     * leave the exemption behind.
-     */
-    private function holdsOwnerRole(EntityManagerInterface $em, string $userId): bool
-    {
-        return (bool) $em->getConnection()->fetchOne(
-            <<<'SQL'
-            SELECT EXISTS (
-                SELECT 1
-                  FROM user_role ur
-                  JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id
-                 WHERE ur.user_id = ?::uuid
-                   AND r.name = ?
-                   AND r.deleted_at IS NULL
-            )
-            SQL,
-            [$userId, self::OWNER_ROLE_NAME],
         );
     }
 }

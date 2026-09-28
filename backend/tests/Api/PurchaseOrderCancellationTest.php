@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Modules\Purchasing\Application\PurchaseOrderDutySeparation;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\UserManagement\Domain\DefaultRoles;
+use App\Modules\UserManagement\Domain\OwnerMarker;
 use App\Platform\Domain\IllegalTransition;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
@@ -35,17 +36,25 @@ use Symfony\Component\Uid\Uuid;
  *      `purchase_order` has no column for.
  *
  * ---------------------------------------------------------------------------
- * The `owner` exemption is pinned as a literal here, independently
+ * The owner MARKER is pinned as a literal here, independently
  * ---------------------------------------------------------------------------
- * Same reasoning as `PurchaseOrderApprovalTest`'s, and the copy is deliberate
- * rather than duplicated-by-accident: a test that granted
- * `PurchaseOrderDutySeparation::OWNER_ROLE_NAME` and then asserted the exemption
- * fired would compare the constant to itself.
+ * Same reasoning as `PurchaseOrderApprovalTest`'s, and the copy is deliberate.
+ * ⚠ **Until sales step 6 C6a (2026-09-28) this pinned the role NAME `owner`
+ * against `PurchaseOrderDutySeparation::OWNER_ROLE_NAME`**; C6a (V2-R-19 +
+ * V2-S-5, owner-acknowledged) keyed the exemption on `OwnerMarker::CODE` through
+ * `OwnerPredicate`, deleted that constant, and the name pin retired with it.
  */
 final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
 {
-    /** `SECURITY_MODEL.md` §4's first role, spelled independently of the code under test. */
-    private const PINNED_OWNER_ROLE = 'owner';
+    /**
+     * **The code DSoD-1's exemption is keyed on, spelled independently of the code under test** (`SECURITY_MODEL.md`
+     * E-15b's marker). ⚠ **Until 2026-09-28 this file pinned `PINNED_OWNER_ROLE = 'owner'`** — the role NAME the
+     * exemption was keyed on, compared once to `PurchaseOrderDutySeparation::OWNER_ROLE_NAME`. Sales step 6 C6a
+     * (V2-R-19 + V2-S-5, `SEC`'s Q8 ruling, owner-acknowledged) replaced the name test with the owner marker and deleted
+     * that constant, so the name pin retired with it; this pins the marker instead, so a change of the code the
+     * exemption reads is a red test rather than a silently moved exemption.
+     */
+    private const PINNED_OWNER_MARKER = 'tenant_settings.edit';
 
     /** `ADR-008` A1.1's own words — and deliberately NOT the approval sentence. */
     private const PINNED_REFUSAL_MESSAGE = 'You raised this order. It needs a different hand to cancel it.';
@@ -263,18 +272,19 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`owner` is exempt by name**: on a one-person demo tenant `owner` raises
-     * the order, places it, and is the only seat that can withdraw it.
+     * **The owner is exempt — the holder of the owner marker**: on a one-person demo
+     * tenant the owner raises the order, places it, and is the only seat that can
+     * withdraw it. The role is deliberately not named `owner`. *(Rewritten at C6a;
+     * it was `anOwnerIsExemptByName`.)*
      *
-     * *Mutation, run:* `holdsOwnerRole()` changed to `return false;`. Red here
-     * and in `PurchaseOrderApprovalTest::anOwnerIsExemptByName`, and green
-     * everywhere else.
+     * *Mutation, run at C6a:* `OwnerPredicate::holdsMarker()` returning `false` —
+     * red here and in `PurchaseOrderApprovalTest::anOwnerMarkerHolderIsExempt`.
      */
     #[Test]
-    public function anOwnerIsExemptByName(): void
+    public function anOwnerMarkerHolderIsExempt(): void
     {
         $order = $this->placedOrder((string) $this->actorId);
-        $this->grantRoleNamed(self::TENANT_A, (string) $this->actorId, self::PINNED_OWNER_ROLE);
+        $this->grantRoleWithCodes(self::TENANT_A, (string) $this->actorId, 'Workspace principal', [self::PINNED_OWNER_MARKER]);
 
         $this->cancel($order);
 
@@ -283,17 +293,17 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     }
 
     /**
-     * The other half, and the one that makes the exemption *by name*: A1.1 says
-     * in terms that **`purchasing_manager` is not exempt**, and it holds
-     * `.cancel`. The role granted here carries the same codes the rig's default
-     * principal already has, so the only difference from the test above is the
-     * **name**.
+     * The other half, intent kept: A1.1 says in terms that **`purchasing_manager` is
+     * not exempt**, and it holds `.cancel` — a seat without the owner marker gets no
+     * exemption however much it holds. *(It was `aSeatThatIsNotNamedOwnerIsNotExempt`
+     * until C6a.)*
      */
     #[Test]
-    public function aSeatThatIsNotNamedOwnerIsNotExempt(): void
+    public function aSeatWithoutTheOwnerMarkerIsNotExempt(): void
     {
         $order = $this->placedOrder((string) $this->actorId);
-        $this->grantRoleNamed(self::TENANT_A, (string) $this->actorId, 'purchasing_manager');
+        $this->grantRoleWithCodes(self::TENANT_A, (string) $this->actorId, DefaultRoles::PURCHASING_MANAGER,
+            DefaultRoles::codesFor(DefaultRoles::PURCHASING_MANAGER));
 
         $this->cancel($order);
 
@@ -579,10 +589,10 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
         self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
     }
 
-    /** The production constant and the pin above are compared once, in each file that relies on it. */
+    /** The production marker and the pin above are compared once, in each file that relies on it (C6a). */
     #[Test]
-    public function theExemptSeatIsTheOnePinnedHere(): void
+    public function theExemptionIsKeyedOnThePinnedMarker(): void
     {
-        self::assertSame(self::PINNED_OWNER_ROLE, PurchaseOrderDutySeparation::OWNER_ROLE_NAME);
+        self::assertSame(self::PINNED_OWNER_MARKER, OwnerMarker::CODE);
     }
 }

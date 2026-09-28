@@ -50,11 +50,14 @@ namespace App\Modules\UserManagement\Domain;
  * composed role, which is 56 codes and not `owner`'s 60. DSoD-1's `owner`
  * exemption, A2.3, E-15b, E-15e and E-15g are all owed the same single
  * predicate — *the caller holds `tenant_settings.edit` through a live role*
- * (`V2-S-6`, owned by `SEC`, gated before the first roles operation ships).
- * **That predicate is not built here**: this class publishes the code it is
- * written over and nothing more. Resolving a caller's live roles needs
- * `IdentityReader`, which is Infrastructure, and this is a Domain layer that may
- * reach nothing but `SharedKernel`.
+ * (**`V2-R-19 + V2-S-5`**, owned by `SEC`; ruled as Q8 of sales step 6).
+ * *(This cited `V2-S-6` until 2026-09-28, which is wrong: `v4-worklist.md` defines
+ * V2-S-6 as "API-20 amended to name `UpdateUser`/`DeleteUser`" — `SEC` §3.4.)*
+ * **That predicate is `App\Modules\UserManagement\Application\Contract\OwnerPredicate::holdsMarker()`**
+ * (built by sales step 6 C6a, 2026-09-28), over the permission set E-1 enforced
+ * for the request; this class still publishes only the code it is written over.
+ * It stays here because this is a Domain layer that may reach nothing but
+ * `SharedKernel`, and the predicate's input is a request's derived set.
  */
 final class OwnerMarker
 {

@@ -101,8 +101,8 @@ use Symfony\Component\Uid\Uuid;
  * The predicate is NOT here, and as of 2026-09-11 that is the point
  * ===========================================================================
  * It is `PurchaseOrderDutySeparation`'s, called below with
- * `purchase_order.approve`. Read that class for the three clauses, the `owner`
- * exemption, the NULL ruling and the `business-rule-violated` rendering — all
+ * `purchase_order.approve`. Read that class for the three clauses, the owner
+ * exemption (the owner MARKER, `OwnerPredicate`, since sales step 6 C6a), the NULL ruling and the `business-rule-violated` rendering — all
  * four are `ADR-008` §2 and its Amendment 1, and none of them is restated here.
  *
  * **The extraction was anticipated by the code it came out of.** This class held
@@ -216,9 +216,8 @@ final readonly class PurchaseOrderApproval
 
                 // ---- step 3: DSoD-1, on the `.approve` code.
                 $this->dutySeparation->refuseWhenTheActorIsTheCreator(
-                    $em,
                     null === $row['created_by_user_id'] ? null : (string) $row['created_by_user_id'],
-                    $identity->userId,
+                    $identity,
                     'purchase_order.approve',
                 );
 
