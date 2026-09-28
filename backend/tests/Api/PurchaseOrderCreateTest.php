@@ -488,7 +488,7 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO purchase_order
                 (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code)
-            VALUES (?::uuid, ?::uuid, 'PO-NOKEY', ?::uuid, ?::uuid, 'EUR')
+            VALUES (?::uuid, ?::uuid, 'PO-118000', ?::uuid, ?::uuid, 'EUR')
             SQL, [Uuid::v4()->toRfc4122(), self::TENANT_A, $supplier, $warehouse]);
     }
 

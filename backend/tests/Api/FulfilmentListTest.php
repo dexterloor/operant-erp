@@ -28,7 +28,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     public function aListRowIsTheFulfilmentGetFulfilmentReturns(): void
     {
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Shape');
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-SHAPE', null, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-197000', null, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z');
         $item = $this->seedItem(self::TENANT_A, 'SKU-SHAPE');
         $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: '5');
         $bin = $this->seedBinWithStock($warehouse, 'A-01', $item, '5');
@@ -62,7 +62,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function theRegisterIsInNumberOrderNewestFirstNotShipmentTime(): void
     {
-        $o = $this->order('SO-REG');
+        $o = $this->order('SO-194000');
         $this->seedFulfilment($o, 'FUL-000001', '2026-09-03T00:00:00Z');
         $this->seedFulfilment($o, 'FUL-000002', '2026-09-02T00:00:00Z');
         $this->seedFulfilment($o, 'FUL-000003', '2026-09-01T00:00:00Z');
@@ -81,8 +81,8 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function insideAnOrderTheShipmentsAreNewestShipmentFirst(): void
     {
-        $o = $this->order('SO-IN');
-        $other = $this->order('SO-OTHER');
+        $o = $this->order('SO-163000');
+        $other = $this->order('SO-182000');
         $early = $this->seedFulfilment($o, 'FUL-000003', '2026-09-01T00:00:00Z');
         $tieA = $this->seedFulfilment($o, 'FUL-000001', '2026-09-02T00:00:00Z');
         $tieB = $this->seedFulfilment($o, 'FUL-000002', '2026-09-02T00:00:00Z');
@@ -104,7 +104,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function theKeysetWalkReturnsEveryRowExactlyOnceInBothViewsAndBothDirections(): void
     {
-        $o = $this->order('SO-WALK');
+        $o = $this->order('SO-213000');
         foreach ([['FUL-000001', '2026-09-01'], ['FUL-000002', '2026-09-02'], ['FUL-000003', '2026-09-02'], ['FUL-000004', '2026-09-03']] as [$n, $day]) {
             $this->seedFulfilment($o, $n, $day.'T00:00:00Z');
         }
@@ -144,10 +144,10 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function aForeignOrMissingOrderFilterIsTheSameEmpty200(): void
     {
-        $this->seedFulfilment($this->order('SO-MINE'), 'FUL-000001', '2026-09-01T00:00:00Z');
+        $this->seedFulfilment($this->order('SO-172000'), 'FUL-000001', '2026-09-01T00:00:00Z');
 
         $shipperB = $this->seedPrincipal(self::TENANT_B, []);
-        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-THEIRS', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-202000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
         $this->seedFulfilmentFor(self::TENANT_B, $theirs, $this->warehouseOf(self::TENANT_B, $theirs), 'FUL-000009', '2026-09-01T00:00:00Z', $shipperB);
 
         $bodies = [];
@@ -167,8 +167,8 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function aCallerWithoutFulfilmentViewGetsTheSame403WhateverTheFilterNames(): void
     {
-        $mine = $this->order('SO-E1');
-        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-THEIRS-E1');
+        $mine = $this->order('SO-153000');
+        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-203000');
 
         $this->actAs(self::TENANT_A, ['sales_order.view']);
 
@@ -195,7 +195,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function aWarehouseOperatorReadsTheRegister(): void
     {
-        $this->seedFulfilment($this->order('SO-WO'), 'FUL-000001', '2026-09-01T00:00:00Z');
+        $this->seedFulfilment($this->order('SO-216000'), 'FUL-000001', '2026-09-01T00:00:00Z');
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::WAREHOUSE_OPERATOR));
 
         $this->send('GET', '/fulfilments');
@@ -210,7 +210,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function theSearchMatchesTheFulfilmentNumberByPrefixAndEscapesItsWildcards(): void
     {
-        $o = $this->order('SO-Q');
+        $o = $this->order('SO-188000');
         $this->seedFulfilment($o, 'FUL-000101', '2026-09-01T00:00:00Z');
         $this->seedFulfilment($o, 'FUL-000102', '2026-09-01T00:00:00Z');
         $this->seedFulfilment($o, 'FUL-000201', '2026-09-01T00:00:00Z');
@@ -221,7 +221,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
         $this->send('GET', '/fulfilments?q=000101');
         self::assertSame([], $this->json()['items'], 'The search matched mid-string, which the index cannot serve.');
 
-        $this->send('GET', '/fulfilments?q=SO-Q');
+        $this->send('GET', '/fulfilments?q=SO-188000');
         self::assertSame([], $this->json()['items'], 'The search reached the order number, which is a cross-table match TB-5 forbids.');
 
         $this->send('GET', '/fulfilments?q=%25');
@@ -236,7 +236,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     public function anEmptyPageReportsWhetherTheWorkspaceHasAnyAndATenantSeesOnlyItsOwn(): void
     {
         $shipperB = $this->seedPrincipal(self::TENANT_B, []);
-        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-B-ONLY', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-134000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
         $this->seedFulfilmentFor(self::TENANT_B, $theirs, $this->warehouseOf(self::TENANT_B, $theirs), 'FUL-000001', '2026-09-01T00:00:00Z', $shipperB);
 
         $this->send('GET', '/fulfilments');
@@ -244,7 +244,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
         self::assertSame([], $this->json()['items'], 'Another workspace\'s fulfilment was listed.');
         self::assertFalse($this->json()['tenant_has_rows'], 'Another workspace\'s fulfilment counted as this one\'s.');
 
-        $this->seedFulfilment($this->order('SO-A'), 'FUL-000001', '2026-09-01T00:00:00Z');
+        $this->seedFulfilment($this->order('SO-126000'), 'FUL-000001', '2026-09-01T00:00:00Z');
         $this->send('GET', '/fulfilments?q=FUL-9');
         self::assertSame([], $this->json()['items']);
         self::assertTrue($this->json()['tenant_has_rows']);
@@ -257,7 +257,7 @@ final class FulfilmentListTest extends PurchaseOrderTestCase
     #[Test]
     public function aCursorFromTheOtherViewIsRefusedNotA500(): void
     {
-        $o = $this->order('SO-CUR');
+        $o = $this->order('SO-145000');
         $this->seedFulfilment($o, 'FUL-000001', '2026-09-01T00:00:00Z');
         $this->seedFulfilment($o, 'FUL-000002', '2026-09-02T00:00:00Z');
 

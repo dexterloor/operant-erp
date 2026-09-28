@@ -247,7 +247,7 @@ trait ArchivedRowSubjects
                 return ['id' => $item, 'row' => $item];
             },
             'purchase_order' => function (string $tag): array {
-                $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
                 // A line, so approving the live twin is not refused for having none.
                 $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
@@ -261,7 +261,7 @@ trait ArchivedRowSubjects
             // **live twin** is refused by the line guard, and this trait asserts the live twin succeeds
             // precisely so that a refusal of the archived row is the archived state's doing.
             'sales_order' => function (string $tag): array {
-                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'));
                 $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ARC-SO-'.$tag.'-'.bin2hex(random_bytes(3))));
 
                 return ['id' => $order, 'row' => $order];
@@ -276,7 +276,7 @@ trait ArchivedRowSubjects
             // way -- `archivedRowPath()` asserts the key exists -- which is one point in its favour and
             // not a reason to have left it.
             'sales_order_line' => function (string $tag): array {
-                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'));
                 $line = $this->seedSalesOrderLine(self::TENANT_A, $order,
                     $this->seedItem(self::TENANT_A, 'SKU-ARC-SL-'.$tag.'-'.bin2hex(random_bytes(3))));
 
@@ -292,7 +292,7 @@ trait ArchivedRowSubjects
                 return ['id' => $role, 'row' => $role];
             },
             'purchase_order_line' => function (string $tag): array {
-                $draft = $this->seedDraft(self::TENANT_A, 'PO-ARC-LINE-'.$tag.'-'.bin2hex(random_bytes(3)));
+                $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
                 $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
                 return ['id' => $draft['order'], 'lineId' => $line, 'row' => $line];

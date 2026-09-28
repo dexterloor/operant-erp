@@ -90,7 +90,7 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
     public function onlyADraftCanBeDeleted(): void
     {
         foreach ([SalesOrder::STATUS_CONFIRMED, SalesOrder::STATUS_CANCELLED] as $n => $status) {
-            $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ND'.$n, status: $status, orderedAt: '2026-09-01T00:00:00+00:00');
+            $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'), status: $status, orderedAt: '2026-09-01T00:00:00+00:00');
 
             $this->send('DELETE', '/sales-orders/'.$order);
 
@@ -108,7 +108,7 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
     #[Test]
     public function aConfirmedOrdersRefusalPointsAtCancellation(): void
     {
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-CF', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-01T00:00:00+00:00');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-141000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-01T00:00:00+00:00');
 
         $this->send('DELETE', '/sales-orders/'.$order);
 
@@ -164,8 +164,8 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
                 .'DeletePurchaseOrder\'s rows, close G-9, and change this test in the same commit.', $event));
         }
 
-        $a = $this->draftWithLines(1, 'SO-A');
-        $b = $this->draftWithLines(1, 'SO-B');
+        $a = $this->draftWithLines(1, 'SO-126000');
+        $b = $this->draftWithLines(1, 'SO-132000');
 
         $this->send('DELETE', '/sales-orders/'.$a['order']);
         self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -187,7 +187,7 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
      *
      * @return array{order: string, lines: list<string>}
      */
-    private function draftWithLines(int $count, string $number = 'SO-DEL'): array
+    private function draftWithLines(int $count, string $number = 'SO-149000'): array
     {
         $order = $this->seedSalesOrder(self::TENANT_A, $number);
         $lines = [];

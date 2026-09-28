@@ -76,7 +76,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function anApprovalWaitsForTheArchiveOfTheLastLineAndThenRefuses(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $holder = $this->raceAgainstAHolder($draft['order'], before: [
@@ -106,7 +106,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function anApprovalWaitsForACancellationAndDoesNotBringTheOrderBack(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $holder = $this->raceAgainstAHolder($draft['order'], before: [
@@ -135,7 +135,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aSecondCancellationWaitsAndIsRefusedByTheStatusGuard(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
 
         $holder = $this->raceAgainstAHolder($draft['order'], before: [
             ["UPDATE purchase_order SET status = 'cancelled', updated_at = now() WHERE id = ?::uuid", [$draft['order']]],
@@ -172,7 +172,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function archivingALineWhileTheOrderIsArchivedWaitsInsteadOfDeadlocking(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $holder = $this->raceAgainstAHolder(
@@ -214,7 +214,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[DataProvider('draftOnlyWrites')]
     public function aDraftOnlyWriteWaitsForAnApprovalAndThenRefuses(string $method, string $path, ?array $body): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $otherItem = $this->seedItem(self::TENANT_A, 'SKU-OTHER');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $otherItem);
@@ -294,7 +294,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /** @return array{string, string, string, string} order, its one line (10 ordered), a bin of its warehouse, that warehouse */
-    private function orderedOrderToReceive(string $number = 'PO-1'): array
+    private function orderedOrderToReceive(string $number = 'PO-000001'): array
     {
         $draft = $this->seedDraft(self::TENANT_A, $number, $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
@@ -336,7 +336,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[DataProvider('everyWritePath')]
     public function theOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status, string $orderStatus = PurchaseOrder::STATUS_DRAFT): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $otherItem = $this->seedItem(self::TENANT_A, 'SKU-OTHER');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $otherItem);
@@ -478,7 +478,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[DataProvider('ormTransitions')]
     public function aTransitionReReadsAnOrderThatWasAlreadyLoaded(string $path, string $event): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $loaded = $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em): ?PurchaseOrder => $em->find(PurchaseOrder::class, Uuid::fromString($draft['order'])));
@@ -576,7 +576,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame(['OrmSalesOrderFulfilmentStatus::recordFulfilment'], array_keys(self::SALES_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN),
             'A sales no-path writer is listed that this test cannot drive. Add a driver below.');
 
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-NOPATH', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-178000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
         $subject = new OrmSalesOrderFulfilmentStatus();
 
         $this->recorder()->start();
@@ -618,7 +618,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             case 'OrmPurchaseOrderReceiptStatus::recordReceipt':
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-                $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+                $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
                 $subject = new OrmPurchaseOrderReceiptStatus();
 
                 return [
@@ -667,7 +667,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     public function theLoserOfARaceForOneKeyAcrossTwoOrdersIsToldItIsAConflict(): void
     {
         [$mine, $myLine, $myBin] = $this->orderedOrderToReceive();
-        [$theirs, , , $theirWarehouse] = $this->orderedOrderToReceive('PO-2');
+        [$theirs, , , $theirWarehouse] = $this->orderedOrderToReceive('PO-000002');
         $user = $this->seedPrincipal(self::TENANT_A, []);
         $key = Uuid::v4()->toRfc4122();
 
@@ -719,9 +719,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aConcurrentSameKeyOnAnotherOrderIsAConflictNotA500(): void
     {
-        $first = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $first = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $first['supplier'], $first['item']);
-        $second = $this->seedOrder(self::TENANT_A, 'PO-2', $first['supplier'], $first['warehouse']);
+        $second = $this->seedOrder(self::TENANT_A, 'PO-000002', $first['supplier'], $first['warehouse']);
         $key = Uuid::v4()->toRfc4122();
 
         $holder = $this->raceAgainstAHolder($first['order'], [[
@@ -802,7 +802,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function theLoserOfARaceToCreateOneOrderIsRefusedAndTheNextAttemptIsHandedIt(): void
     {
-        $decoy = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $decoy = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $key = Uuid::v4()->toRfc4122();
         $winner = Uuid::v4()->toRfc4122();
         $body = ['supplier_id' => $decoy['supplier'], 'warehouse_id' => $decoy['warehouse']];
@@ -840,7 +840,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
         // Claim 1 — never a second order. The decoy and the winner, nothing else.
         self::assertSame(
-            [['order_number' => 'PO-1'], ['order_number' => 'PO-999999']],
+            [['order_number' => 'PO-000001'], ['order_number' => 'PO-999999']],
             $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT order_number FROM purchase_order ORDER BY order_number'),
             'The loser of the race wrote an order. This is the defect §6.1 names, reached through the one window the '
             .'replay read cannot cover.',
@@ -966,7 +966,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aSecondConfirmationWaitsAndIsRefusedByTheStatusGuard(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
 
         $holder = $this->raceAgainstAHolder($order, before: [
             ["UPDATE sales_order SET status = 'confirmed', ordered_at = now(), updated_at = now() WHERE id = ?::uuid", [$order]],
@@ -1000,7 +1000,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Race Customer');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Race');
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-RACE', $customer, $warehouse);
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-190000', $customer, $warehouse);
         $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-RACE'));
         $moved = $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', '1 Race Street', 'York', 'YO1 1AA');
 
@@ -1044,7 +1044,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aConfirmationWaitsForTheArchiveOfTheLastLineAndThenRefuses(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
 
         $holder = $this->raceAgainstAHolder($order, before: [
             ['UPDATE sales_order_line SET deleted_at = now() WHERE sales_order_id = ?::uuid', [$order]],
@@ -1074,7 +1074,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aSecondSalesCancellationWaitsAndIsRefusedByTheStatusGuard(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
 
         $holder = $this->raceAgainstAHolder($order, before: [
             ["UPDATE sales_order SET status = 'cancelled', updated_at = now() WHERE id = ?::uuid", [$order]],
@@ -1108,7 +1108,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aSalesDeleteWaitsForAConcurrentConfirmationAndThenRefuses(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
 
         $holder = $this->raceAgainstAHolder($order, before: [
             ["UPDATE sales_order SET status = 'confirmed', ordered_at = now(), updated_at = now() WHERE id = ?::uuid", [$order]],
@@ -1132,7 +1132,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aSecondSalesDeleteWaitsAndIsRefusedAsArchived(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
 
         $holder = $this->raceAgainstAHolder($order, before: [
             ['UPDATE sales_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid', [$order]],
@@ -1156,7 +1156,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function archivingASalesLineWhileTheOrderIsArchivedWaitsInsteadOfDeadlocking(): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
         $line = $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT id::text AS id FROM sales_order_line WHERE sales_order_id = ?::uuid', [$order])[0]['id'];
 
@@ -1192,7 +1192,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function twoFulfilmentsOfOneOrderSerialiseAndTheSecondIsRefusedAsOverFulfilled(): void
     {
-        $f = $this->confirmedSalesOrderWithStock('SO-RACE1', '5', ['10']);
+        $f = $this->confirmedSalesOrderWithStock('SO-191000', '5', ['10']);
 
         $holder = $this->raceAgainstAHolder(
             $f['order'],
@@ -1225,8 +1225,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function twoOrdersRacingOnOneBinCommitOneAndRefuseTheOther(): void
     {
-        $f = $this->confirmedSalesOrderWithStock('SO-RACE2', '7', ['10']);
-        $other = $this->seedSalesOrder(self::TENANT_A, 'SO-RACE2-OTHER', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $f = $this->confirmedSalesOrderWithStock('SO-192000', '7', ['10']);
+        $other = $this->seedSalesOrder(self::TENANT_A, 'SO-193000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
 
         $holder = $this->raceAgainstAHolder(
             $other,
@@ -1270,10 +1270,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[Test]
     public function aFulfilmentAndAReceiptOverTwoSharedLevelsNeverDeadlock(): void
     {
-        $f = $this->confirmedSalesOrderWithStock('SO-W5', '4', ['10', '10']);
+        $f = $this->confirmedSalesOrderWithStock('SO-212000', '4', ['10', '10']);
         [$l1, $l2] = $f['bins']; // ascending: confirmedSalesOrderWithStock() sorts them
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme W5');
-        $po = $this->seedOrder(self::TENANT_A, 'PO-W5', $supplier, $f['warehouse'], status: PurchaseOrder::STATUS_ORDERED);
+        $po = $this->seedOrder(self::TENANT_A, 'PO-125000', $supplier, $f['warehouse'], status: PurchaseOrder::STATUS_ORDERED);
 
         $upsert = 'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand)
                    VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)
@@ -1315,7 +1315,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     #[DataProvider('everySalesWritePath')]
     public function theSalesOrderRowLockIsTheFirstStatementToTouchTheOrder(string $method, string $path, ?array $body, int $status): void
     {
-        $order = $this->seedConfirmableSalesOrder('SO-1');
+        $order = $this->seedConfirmableSalesOrder('SO-000001');
         // `UpdateSalesOrder` is the first sales write path whose body has to name a row. The
         // substitution is done here rather than in the provider because a `#[DataProvider]` is static
         // and cannot seed; `{warehouse}` is spelled in the body the same way `{order}` is in the path.

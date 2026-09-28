@@ -28,7 +28,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theResourceCarriesExactlyItsDerivedFieldList(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders/'.$draft['order']);
 
@@ -57,13 +57,13 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     public function everyReferenceIsExpandedAndCarriesNothingButItsDisplayField(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
 
         $this->send('GET', '/purchase-orders/'.$draft['order']);
         $body = $this->json();
 
         self::assertSame(['id', 'name'], array_keys($body['supplier']));
-        self::assertSame('Acme PO-1', $body['supplier']['name']);
+        self::assertSame('Acme PO-000001', $body['supplier']['name']);
         self::assertSame(['id', 'name'], array_keys($body['warehouse']));
 
         // §4.4.3 names this expansion's display field explicitly, and it is not
@@ -80,7 +80,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anOrderWithNoHumanAuthorRendersANullCreator(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders/'.$draft['order']);
 
@@ -99,7 +99,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $supplierB = $this->seedSupplier(self::TENANT_B, 'Other');
         $warehouseB = $this->seedWarehouse(self::TENANT_B, 'Other');
-        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-B', $supplierB, $warehouseB, $inB);
+        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-103000', $supplierB, $warehouseB, $inB);
 
         $bodies = [];
 
@@ -129,7 +129,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, archived: true);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, archived: true);
 
         $this->send('GET', '/purchase-orders/'.$order);
 
@@ -145,7 +145,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theLineCarriesExactlyItsDerivedFieldList(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('GET', '/purchase-orders/'.$draft['order'].'/lines');
@@ -172,7 +172,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineShowsItsNumberAndNamesItsItemBySkuAndName(): void
     {
-        $d = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $d = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $a = $this->seedItem(self::TENANT_A, 'SKU-A');
         $b = $this->seedItem(self::TENANT_A, 'SKU-B');
         $c = $this->seedItem(self::TENANT_A, 'SKU-C');
@@ -237,7 +237,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theOutstandingQuantityIsOrderedMinusReceivedAtScaleSixAndTheDatabaseKeepsItNonNegative(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 1, '10.000000', '2.5000', '4.000000');
         // Received in full: the boundary, and the scale the clamp's cast pins.
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 2, '5.000000', '2.5000', '5.000000');
@@ -266,7 +266,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theBoundedSubListReturnsTheWholeSetInOneEnvelope(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         foreach (range(1, 5) as $number) {
             $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], $number);
@@ -285,7 +285,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theBoundedSubListRefusesAPagingParameter(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         foreach (['limit=2', 'after=x', 'sort=line_number'] as $parameter) {
             $this->send('GET', '/purchase-orders/'.$draft['order'].'/lines?'.$parameter);
@@ -303,7 +303,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function archivedSelectsTheArchivedLinesAndTheDefaultReturnsTheLiveOnes(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $live = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 1);
         $gone = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 2);
 
@@ -322,7 +322,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anUnparseableArchivedValueIsRefusedRatherThanCoerced(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders/'.$draft['order'].'/lines?archived=maybe');
 
@@ -341,7 +341,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $supplierB = $this->seedSupplier(self::TENANT_B, 'Other');
         $warehouseB = $this->seedWarehouse(self::TENANT_B, 'Other');
-        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-B', $supplierB, $warehouseB, $inB);
+        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-103000', $supplierB, $warehouseB, $inB);
 
         $this->send('GET', '/purchase-orders/'.$orderInB.'/lines');
         $foreign = (string) $this->client()->getResponse()->getContent();
@@ -361,13 +361,13 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anEmptySubListReportsWhetherTheWorkspaceHasAnyLinesAtAll(): void
     {
-        $first = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $first = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders/'.$first['order'].'/lines');
         self::assertSame([], $this->json()['items']);
         self::assertFalse($this->json()['tenant_has_rows']);
 
-        $second = $this->seedDraft(self::TENANT_A, 'PO-2');
+        $second = $this->seedDraft(self::TENANT_A, 'PO-000002');
         $this->seedLine(self::TENANT_A, $second['order'], $second['item']);
 
         $this->send('GET', '/purchase-orders/'.$first['order'].'/lines');
@@ -380,7 +380,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function serializingTheResponseIssuesNoQueryAfterTheTransactionHasClosed(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $reader = self::getContainer()->get(\App\Modules\Purchasing\Application\PurchaseOrderReader::class);
@@ -425,14 +425,14 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
         $this->recorder()->stop();
 
         self::assertSame([], $this->recorder()->statements(), 'Serialization reached the database.');
-        self::assertSame('Acme PO-1', $normalized[0]['supplier']['name'], 'The expansion was not hydrated inside the transaction.');
+        self::assertSame('Acme PO-000001', $normalized[0]['supplier']['name'], 'The expansion was not hydrated inside the transaction.');
     }
 
     /** The reader leaves nothing holding the pooled backend (ADR-002 A1.7). */
     #[Test]
     public function theTenancyTransactionIsClosedBeforeTheReaderReturns(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $reader = self::getContainer()->get(\App\Modules\Purchasing\Application\PurchaseOrderReader::class);
         \assert($reader instanceof \App\Modules\Purchasing\Application\PurchaseOrderReader);
@@ -450,7 +450,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_PARTIALLY_RECEIVED);
 
         $this->send('GET', '/purchase-orders/'.$order);
 

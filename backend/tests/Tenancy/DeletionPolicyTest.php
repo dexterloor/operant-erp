@@ -171,7 +171,7 @@ final class DeletionPolicyTest extends TenancyTestCase
         $this->tenantContext()->run(self::TENANT_A, function () use ($orderId, $supplierId, $itemId): void {
             $this->app()->executeStatement(<<<'SQL'
                 INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key, request_digest)
-                VALUES (?::uuid, ?::uuid, 'PO-CASCADE', ?::uuid,
+                VALUES (?::uuid, ?::uuid, 'PO-107000', ?::uuid,
                         (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'ordered', now(),
                         encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                 SQL, [$orderId, self::TENANT_A, $supplierId]);
@@ -263,7 +263,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             INSERT INTO sales_order
                 (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
                  idempotency_key, request_digest)
-            VALUES (?::uuid, ?::uuid, 'SO-CASCADE',
+            VALUES (?::uuid, ?::uuid, 'SO-140000',
                     (SELECT id FROM customer  WHERE code = 'CUS-C'),
                     (SELECT id FROM warehouse WHERE code = 'WH-C'),
                     'EUR', 'draft', NULL, 'DE',
@@ -346,7 +346,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             return null;
         };
 
-        $draft = $order('SO-D1', 'draft');
+        $draft = $order('SO-148000', 'draft');
         self::assertNull($refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $draft),
             'Control: archiving a DRAFT sales order was refused, so the refusals below could be refusing everything.');
 
@@ -354,7 +354,7 @@ final class DeletionPolicyTest extends TenancyTestCase
         // seeded (a fulfilled order it produces has shipped every line; RED P9, 2026-09-22). The CHECK under test
         // reads only `status`, so the seed is sufficient for it.
         foreach (['confirmed', 'partially_fulfilled', 'fulfilled', 'cancelled'] as $n => $status) {
-            $id = $order('SO-N'.$n, $status);
+            $id = $order(\sprintf('SO-2001%02d', $n), $status);
             $refused = $refusal('UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', $id);
             self::assertNotNull($refused,
                 "A $status sales order was archived underneath the API. CD-4 (ruled 2026-09-21, option (i)): an archived "
@@ -495,7 +495,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             $item = $this->seedItem(self::TENANT_A, 'SKU-KEEP', $supplierId);
             $this->writeAsApp(<<<'SQL'
                 INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, idempotency_key, request_digest)
-                VALUES (?::uuid, ?::uuid, 'PO-KEEP', ?::uuid, (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft',
+                VALUES (?::uuid, ?::uuid, 'PO-116000', ?::uuid, (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft',
                         encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                 SQL, [$order, self::TENANT_A, $supplierId]);
             $o = ['parent' => $parent, 'child' => 'purchase_order_line', 'fk' => 'purchase_order_id'];
@@ -509,7 +509,7 @@ final class DeletionPolicyTest extends TenancyTestCase
                 INSERT INTO sales_order
                     (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ship_to_country_code,
                      idempotency_key, request_digest)
-                VALUES (?::uuid, ?::uuid, 'SO-KEEP', (SELECT id FROM customer WHERE code = 'CUS-K'),
+                VALUES (?::uuid, ?::uuid, 'SO-166000', (SELECT id FROM customer WHERE code = 'CUS-K'),
                         (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft', 'DE',
                         encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                 SQL, [$order, self::TENANT_A]);

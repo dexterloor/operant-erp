@@ -353,7 +353,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
     private function replayCreateFulfilment(string $why): void
     {
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main FUL');
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-IDEM-FUL', warehouseId: $warehouse, status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-162000', warehouseId: $warehouse, status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
         $item = $this->seedItem(self::TENANT_A, 'SKU-IDEM-FUL');
         $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: '5');
         $bin = Uuid::v4()->toRfc4122();
@@ -453,7 +453,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
     private function replayCreatePurchaseOrderLine(string $why): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
         $body = ['inventory_item_id' => $draft['item'], 'quantity' => '2', 'unit_cost' => '3'];
         $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
@@ -474,8 +474,8 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
     private function replayConfirmSalesOrder(string $why): void
     {
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-1');
-        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-SO-1'));
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-000001');
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-SO-000001'));
 
         $this->send('POST', '/sales-orders/'.$order.'/confirmation');
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -493,7 +493,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
     private function replayCancelSalesOrder(string $why): void
     {
         // A seeded draft needs no line: §8.3 makes `draft` a legal source for `cancel()`.
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-CANC');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-138000');
 
         $this->send('POST', '/sales-orders/'.$order.'/cancellation', ['reason' => 'First']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -514,7 +514,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
     private function replayApprovePurchaseOrder(string $why): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
@@ -530,7 +530,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
     private function replayCancelPurchaseOrder(string $why): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/cancellation', []);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -592,7 +592,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
     /** @return array{0: string, 1: string, 2: string} order, line, bin */
     private function orderedOrderToReceiveHere(): array
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $bin = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A,

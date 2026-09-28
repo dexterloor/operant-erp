@@ -46,7 +46,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theLineCarriesExactlyItsDerivedFieldList(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
         $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0]);
 
         $this->send('GET', '/sales-orders/'.$o['order'].'/lines');
@@ -123,7 +123,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineShowsItsNumberAndNamesItsItemBySkuAndName(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
         $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0], lineNumber: 5);
         $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][1], lineNumber: 2);
 
@@ -131,8 +131,8 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
 
         self::assertSame(200, $this->httpStatus());
         self::assertSame([
-            [2, ['id' => $o['items'][1], 'sku' => 'SKU-SO-1-B', 'name' => 'Beta nut']],
-            [5, ['id' => $o['items'][0], 'sku' => 'SKU-SO-1-A', 'name' => 'Alpha bolt']],
+            [2, ['id' => $o['items'][1], 'sku' => 'SKU-SO-000001-B', 'name' => 'Beta nut']],
+            [5, ['id' => $o['items'][0], 'sku' => 'SKU-SO-000001-A', 'name' => 'Alpha bolt']],
         ], array_map(static fn (array $l): array => [$l['line_number'], $l['inventory_item']], $this->json()['items']));
     }
 
@@ -164,14 +164,14 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aCancelledOrdersLinesOweNothingAndALiveOrdersOweTheirRemainder(): void
     {
-        $live = $this->orderWithTwoLines('SO-LIVE');
+        $live = $this->orderWithTwoLines('SO-170000');
         $this->seedSalesOrderLine(self::TENANT_A, $live['order'], $live['items'][0],
             quantity: '10.000000', quantityFulfilled: '4.000000');
         // Fulfilled in full: the boundary, and the other value whose scale a client compares on.
         $this->seedSalesOrderLine(self::TENANT_A, $live['order'], $live['items'][1], lineNumber: 2,
             quantity: '5.000000', quantityFulfilled: '5.000000');
 
-        $cancelled = $this->orderWithTwoLines('SO-CANC', status: SalesOrder::STATUS_CANCELLED);
+        $cancelled = $this->orderWithTwoLines('SO-138000', status: SalesOrder::STATUS_CANCELLED);
         $this->seedSalesOrderLine(self::TENANT_A, $cancelled['order'], $cancelled['items'][0],
             quantity: '10.000000', quantityFulfilled: '4.000000');
 
@@ -217,7 +217,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedOrdersLinesOweWhatTheDraftTheyBelongToOwes(): void
     {
-        $o = $this->orderWithTwoLines('SO-ARCH');
+        $o = $this->orderWithTwoLines('SO-129000');
         $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0], quantity: '10.000000');
         $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][1], lineNumber: 2, quantity: '3.500000');
 
@@ -245,7 +245,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theBoundedSubListReturnsTheWholeSetInOneEnvelope(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
 
         foreach (range(1, 5) as $number) {
             $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0], $number);
@@ -266,7 +266,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theBoundedSubListRefusesAPagingParameter(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
 
         foreach (['limit=2', 'after=x', 'before=x', 'sort=line_number'] as $parameter) {
             $this->send('GET', '/sales-orders/'.$o['order'].'/lines?'.$parameter);
@@ -285,7 +285,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function archivedSelectsTheArchivedLinesAndTheDefaultReturnsTheLiveOnes(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
         $live = $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0], 1);
         $gone = $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][1], 2);
 
@@ -305,7 +305,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anUnparseableArchivedValueIsRefusedRatherThanCoerced(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
 
         $this->send('GET', '/sales-orders/'.$o['order'].'/lines?archived=maybe');
 
@@ -321,7 +321,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineWhoseItemIsArchivedIsStillReturnedWithItsItemExpanded(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
         $line = $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0]);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$o['items'][0]]);
@@ -331,7 +331,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus());
         self::assertSame([$line], array_column($this->json()['items'], 'id'));
         self::assertSame(
-            ['id' => $o['items'][0], 'sku' => 'SKU-SO-1-A', 'name' => 'Alpha bolt'],
+            ['id' => $o['items'][0], 'sku' => 'SKU-SO-000001-A', 'name' => 'Alpha bolt'],
             $this->json()['items'][0]['inventory_item'],
         );
     }
@@ -352,7 +352,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function theSubListOfAnArchivedOrderAnswersAndItsLinesCascadeWithIt(): void
     {
-        $o = $this->orderWithTwoLines('SO-1');
+        $o = $this->orderWithTwoLines('SO-000001');
         $line = $this->seedSalesOrderLine(self::TENANT_A, $o['order'], $o['items'][0]);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$o['order']]);
@@ -377,7 +377,7 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     public function theSubListOfAnInvisibleOrderIsNotFound(): void
     {
         $inB = $this->seedPrincipal(self::TENANT_B, []);
-        $orderInB = $this->seedSalesOrder(self::TENANT_B, 'SO-B');
+        $orderInB = $this->seedSalesOrder(self::TENANT_B, 'SO-132000');
         self::assertNotSame('', $inB);
 
         $this->send('GET', '/sales-orders/'.$orderInB.'/lines');
@@ -402,13 +402,13 @@ final class SalesOrderLineReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anEmptySubListReportsWhetherTheWorkspaceHasAnyLinesAtAll(): void
     {
-        $first = $this->orderWithTwoLines('SO-1');
+        $first = $this->orderWithTwoLines('SO-000001');
 
         $this->send('GET', '/sales-orders/'.$first['order'].'/lines');
         self::assertSame([], $this->json()['items']);
         self::assertFalse($this->json()['tenant_has_rows']);
 
-        $second = $this->orderWithTwoLines('SO-2');
+        $second = $this->orderWithTwoLines('SO-000002');
         $this->seedSalesOrderLine(self::TENANT_A, $second['order'], $second['items'][0]);
 
         $this->send('GET', '/sales-orders/'.$first['order'].'/lines');

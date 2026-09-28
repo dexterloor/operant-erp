@@ -150,13 +150,13 @@ trait OperationSuccessRecipes
 
                 return [200, 'restore'];
             }],
-            'GetGoodsReceipt' => [fn (): array => $ordered('PO-GR-GET'), function (array $c) use ($receive): array {
+            'GetGoodsReceipt' => [fn (): array => $ordered('PO-114000'), function (array $c) use ($receive): array {
                 $receive($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
 
                 return [200, 'receive, then read'];
             }],
-            'CreateGoodsReceipt' => [fn (): array => $ordered('PO-GR-NEW'), function (array $c) use ($receive): array {
+            'CreateGoodsReceipt' => [fn (): array => $ordered('PO-115000'), function (array $c) use ($receive): array {
                 $receive($c);
 
                 return [201, 'receive'];
@@ -166,13 +166,13 @@ trait OperationSuccessRecipes
 
                 return [200, 'list'];
             }],
-            'ListPurchaseOrderLines' => [fn (): array => $draft('PO-LL'), function (array $c): array {
+            'ListPurchaseOrderLines' => [fn (): array => $draft('PO-117000'), function (array $c): array {
                 $this->send('GET', '/purchase-orders/'.$c['order'].'/lines');
 
                 return [200, 'list'];
             }],
             'CreatePurchaseOrderLine' => [function () use ($draft): array {
-                $d = $draft('PO-CL');
+                $d = $draft('PO-108000');
                 $this->seedSupplierProduct(self::TENANT_A, $d['supplier'], $d['item']);
 
                 return $d;
@@ -181,17 +181,17 @@ trait OperationSuccessRecipes
 
                 return [201, 'create'];
             }],
-            'UpdatePurchaseOrderLine' => [fn (): array => $draft('PO-UL'), function (array $c): array {
+            'UpdatePurchaseOrderLine' => [fn (): array => $draft('PO-123000'), function (array $c): array {
                 $this->send('PATCH', '/purchase-orders/'.$c['order'].'/lines/'.$c['line'], ['quantity' => '2']);
 
                 return [200, 'update'];
             }],
-            'DeletePurchaseOrderLine' => [fn (): array => $draft('PO-DL'), function (array $c): array {
+            'DeletePurchaseOrderLine' => [fn (): array => $draft('PO-111000'), function (array $c): array {
                 $this->send('DELETE', '/purchase-orders/'.$c['order'].'/lines/'.$c['line']);
 
                 return [204, 'delete'];
             }],
-            'GetPurchaseOrder' => [fn (): array => $draft('PO-GET'), function (array $c): array {
+            'GetPurchaseOrder' => [fn (): array => $draft('PO-113000'), function (array $c): array {
                 $this->send('GET', '/purchase-orders/'.$c['order']);
 
                 return [200, 'read'];
@@ -204,13 +204,13 @@ trait OperationSuccessRecipes
             // Driven through the writer for the same reason: the list row a client sees is then the one
             // the operation wrote, with a real `created_by` for the reference walkers and a real
             // `total_amount` for the scale walker. A seeded row leaves both unexamined.
-            'ListSalesOrders' => [fn (): array => $salesWorkspace('SO-LIST'), function (array $c) use ($raiseSalesOrder): array {
+            'ListSalesOrders' => [fn (): array => $salesWorkspace('SO-169000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', '/sales-orders');
 
                 return [200, 'create, then list'];
             }],
-            'ListSalesOrderLines' => [fn (): array => $salesWorkspace('SO-LINES'), function (array $c) use ($raiseSalesOrder): array {
+            'ListSalesOrderLines' => [fn (): array => $salesWorkspace('SO-168000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location').'/lines');
 
@@ -233,11 +233,11 @@ trait OperationSuccessRecipes
             // `inventory_item_tenant_sku_live` the second time. This trait's own rule says every fixture
             // is created before any request; the failure is what made the rule concrete.
             'CreateSalesOrderLine' => [function () use ($salesWorkspace): array {
-                $c = $salesWorkspace('SO-CL');
+                $c = $salesWorkspace('SO-142000');
                 // A SECOND item, because the order already carries a line for the workspace's own: a line
                 // create that happened to duplicate an existing line would still pass while proving
                 // nothing about the operation this recipe exists to drive.
-                $c['second_item'] = $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-CL-2');
+                $c['second_item'] = $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-143000');
 
                 return $c;
             }, function (array $c) use ($raiseSalesOrder): array {
@@ -252,7 +252,7 @@ trait OperationSuccessRecipes
             // Driven through the writer for the same reason, and the PATCH sends **both** fields: D-A
             // freezes `unit_price`, and a recipe that only ever sent `quantity` would leave every
             // registry-wide walker (shapes, scales, statuses) blind to the frozen column.
-            'UpdateSalesOrderLine' => [fn (): array => $salesWorkspace('SO-UL'), function (array $c) use ($raiseSalesOrder): array {
+            'UpdateSalesOrderLine' => [fn (): array => $salesWorkspace('SO-205000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $order = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $order.'/lines');
@@ -261,7 +261,7 @@ trait OperationSuccessRecipes
 
                 return [200, 'create the order, then edit its line'];
             }],
-            'DeleteSalesOrderLine' => [fn (): array => $salesWorkspace('SO-DL'), function (array $c) use ($raiseSalesOrder): array {
+            'DeleteSalesOrderLine' => [fn (): array => $salesWorkspace('SO-150000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $order = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $order.'/lines');
@@ -274,7 +274,7 @@ trait OperationSuccessRecipes
             // Seeded as the owner rather than raised through `CreateSalesOrder`: a delete reads nothing back,
             // so there is no body for `created_by` to be examined in, and the prepare half stays free of HTTP.
             'DeleteSalesOrder' => [function (): array {
-                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-DO');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-151000');
                 $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-DO'));
 
                 return ['order' => $order];
@@ -286,7 +286,7 @@ trait OperationSuccessRecipes
             // The line is created, deleted and then restored through the operations themselves, so the
             // row this drives at is archived by a writer rather than by a fixture -- which is what makes
             // the 200 mean the restore worked rather than that the guard happened to be satisfied.
-            'RestoreSalesOrderLine' => [fn (): array => $salesWorkspace('SO-RL'), function (array $c) use ($raiseSalesOrder): array {
+            'RestoreSalesOrderLine' => [fn (): array => $salesWorkspace('SO-195000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $order = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $order.'/lines');
@@ -305,18 +305,18 @@ trait OperationSuccessRecipes
             // `WireScaleTest` must observe or its guard never arms (the sales step 1 finding). The candidate bin and
             // its stock are seeded in the PREPARE half (no HTTP there). C3's version of the pick-list recipe set
             // `quantity_fulfilled` as the OWNER because `CreateFulfilment` did not exist yet; this replaced it.
-            'GetPickList' => [fn (): array => $stockedSalesWorkspace('SO-PICK'), function (array $c) use ($raiseConfirmAndFulfil): array {
+            'GetPickList' => [fn (): array => $stockedSalesWorkspace('SO-187000'), function (array $c) use ($raiseConfirmAndFulfil): array {
                 $order = $raiseConfirmAndFulfil($c);
                 $this->send('GET', $order.'/pick-list');
 
                 return [200, 'create, confirm, part-fulfil, then read the pick list'];
             }],
-            'CreateFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-FUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+            'CreateFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-157000'), function (array $c) use ($raiseConfirmAndFulfil): array {
                 $raiseConfirmAndFulfil($c);
 
                 return [201, 'create, confirm, then fulfil part of it'];
             }],
-            'GetFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-GFUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+            'GetFulfilment' => [fn (): array => $stockedSalesWorkspace('SO-160000'), function (array $c) use ($raiseConfirmAndFulfil): array {
                 $raiseConfirmAndFulfil($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
 
@@ -324,13 +324,13 @@ trait OperationSuccessRecipes
             }],
             // Sales step 6 C1: the register, read after a fulfilment the API wrote, so the row every reference and
             // scale walker sees is a real one -- lines included (`quantity` is a decimal WireScaleTest must observe).
-            'ListFulfilments' => [fn (): array => $stockedSalesWorkspace('SO-LFUL'), function (array $c) use ($raiseConfirmAndFulfil): array {
+            'ListFulfilments' => [fn (): array => $stockedSalesWorkspace('SO-167000'), function (array $c) use ($raiseConfirmAndFulfil): array {
                 $raiseConfirmAndFulfil($c);
                 $this->send('GET', '/fulfilments');
 
                 return [200, 'create, confirm, fulfil, then list the fulfilments'];
             }],
-            'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-GET'), function (array $c) use ($raiseSalesOrder): array {
+            'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
 
@@ -340,7 +340,7 @@ trait OperationSuccessRecipes
             // confirms must have a live line, and `seedSalesOrder` deliberately seeds none. The `Location`
             // the create returns is §4.2's row URI, so the confirmation path is built from it rather than
             // from a second copy of the template.
-            'ConfirmSalesOrder' => [fn (): array => $salesWorkspace('SO-CONF'), function (array $c) use ($raiseSalesOrder): array {
+            'ConfirmSalesOrder' => [fn (): array => $salesWorkspace('SO-144000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/confirmation');
 
@@ -352,7 +352,7 @@ trait OperationSuccessRecipes
             // two operations instead of one. `reason` is sent because §4.2 accepts it and the audit row
             // this operation writes is where it lands — a recipe omitting it would drive the
             // `metadata = '{}'` branch only, and `SalesOrderCancellationTest` owns both branches.
-            'CancelSalesOrder' => [fn (): array => $salesWorkspace('SO-CANC'), function (array $c) use ($raiseSalesOrder): array {
+            'CancelSalesOrder' => [fn (): array => $salesWorkspace('SO-138000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/cancellation', ['reason' => 'The customer withdrew the order.']);
 
@@ -366,14 +366,14 @@ trait OperationSuccessRecipes
             // `SalesOrderResource`, which is what `WireScaleTest`, `ResponseShapeTest` and
             // `ResponseStatusTest` walk.
             'UpdateSalesOrder' => [function (): array {
-                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SO-UPD');
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail SO-207000');
 
                 return [
                     'customer' => $customer,
                     'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
                     'moved' => $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', '1 Change Alley', 'Leeds', 'LS1 1AA'),
-                    'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO-UPD'),
-                    'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-UPD'),
+                    'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO-207000'),
+                    'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-SO-207000'),
                 ];
             }, function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
@@ -395,22 +395,22 @@ trait OperationSuccessRecipes
 
                 return [201, 'create'];
             }],
-            'UpdatePurchaseOrder' => [fn (): array => $draft('PO-UPD'), function (array $c): array {
+            'UpdatePurchaseOrder' => [fn (): array => $draft('PO-124000'), function (array $c): array {
                 $this->send('PATCH', '/purchase-orders/'.$c['order'], ['expected_at' => '2030-01-01T00:00:00Z']);
 
                 return [200, 'update'];
             }],
-            'DeletePurchaseOrder' => [fn (): array => $draft('PO-DEL'), function (array $c): array {
+            'DeletePurchaseOrder' => [fn (): array => $draft('PO-110000'), function (array $c): array {
                 $this->send('DELETE', '/purchase-orders/'.$c['order']);
 
                 return [204, 'delete'];
             }],
-            'ApprovePurchaseOrder' => [fn (): array => $draft('PO-APP'), function (array $c): array {
+            'ApprovePurchaseOrder' => [fn (): array => $draft('PO-102000'), function (array $c): array {
                 $this->send('POST', '/purchase-orders/'.$c['order'].'/approval', []);
 
                 return [200, 'approve'];
             }],
-            'CancelPurchaseOrder' => [fn (): array => $draft('PO-CAN'), function (array $c): array {
+            'CancelPurchaseOrder' => [fn (): array => $draft('PO-106000'), function (array $c): array {
                 $this->send('POST', '/purchase-orders/'.$c['order'].'/cancellation', ['reason' => 'Supplier withdrew']);
 
                 return [200, 'cancel'];

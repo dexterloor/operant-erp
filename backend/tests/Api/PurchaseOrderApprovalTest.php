@@ -69,7 +69,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function anOrderRaisedByAnotherPersonIsApproved(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
@@ -91,7 +91,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function theCreatorCannotApproveItsOwnOrder(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
 
         $this->approve($draft['order']);
 
@@ -119,7 +119,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function anOwnerIsExemptByName(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $this->grantRoleNamed(self::TENANT_A, (string) $this->actorId, self::PINNED_OWNER_ROLE);
 
@@ -139,7 +139,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function aSeatThatIsNotNamedOwnerIsNotExempt(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
         $this->grantRoleNamed(self::TENANT_A, (string) $this->actorId, 'purchasing_manager');
 
         $this->approve($draft['order']);
@@ -166,7 +166,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function aNullCreatorDoesNotRefuse(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
@@ -193,7 +193,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function theRefusalIsTheBusinessRuleProblemType(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
 
         $this->approve($draft['order']);
 
@@ -229,13 +229,13 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         // The order exists, in this tenant, and this principal created it -- the
         // exact row DSoD-1 would refuse if it ran first.
-        $draftInA = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draftInA = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
         $orderInA = $draftInA['order'];
 
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $supplierB = $this->seedSupplier(self::TENANT_B, 'Other');
         $warehouseB = $this->seedWarehouse(self::TENANT_B, 'Other');
-        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-B', $supplierB, $warehouseB, $inB);
+        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-103000', $supplierB, $warehouseB, $inB);
 
         // The same principal, now holding nothing.
         $this->actAs(self::TENANT_A, []);
@@ -270,7 +270,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function approvingATwiceApprovedOrderIsRefusedByTheStatusGuard(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
@@ -291,7 +291,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, archived: true);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, archived: true);
 
         $this->approve($order);
 
@@ -313,7 +313,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function anOrderWithNoLinesCannotBeApproved(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
 
         $this->approve($draft['order']);
 
@@ -335,7 +335,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function anOrderWhoseLinesAreAllArchivedCannotBeApproved(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
 
         foreach ([1, 2] as $number) {
             $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: $number);
@@ -359,7 +359,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function oneLiveLineBesideAnArchivedOneIsEnough(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
 
         $archived = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: 1);
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], lineNumber: 2);
@@ -387,9 +387,9 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function aLineOnAnotherOrderDoesNotCountTowardsThisOne(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $withALine = $this->seedDraft(self::TENANT_A, 'PO-A', $buyer);
+        $withALine = $this->seedDraft(self::TENANT_A, 'PO-101000', $buyer);
         $this->seedLine(self::TENANT_A, $withALine['order'], $withALine['item']);
-        $empty = $this->seedDraft(self::TENANT_A, 'PO-B', $buyer);
+        $empty = $this->seedDraft(self::TENANT_A, 'PO-103000', $buyer);
 
         $this->approve($empty['order']);
 
@@ -418,7 +418,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function anOrderWhoseWarehouseWasArchivedAfterItWasRaisedCannotBeApproved(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->insertAsOwnerForTenant(self::TENANT_A,
@@ -450,7 +450,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     public function approvingWritesOneAuditRowNamingTheApprover(): void
     {
         $buyer = $this->seedPrincipal(self::TENANT_A, []);
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $buyer);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order']);
@@ -488,7 +488,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function aRefusedApprovalWritesNoAuditRow(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', (string) $this->actorId);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', (string) $this->actorId);
 
         $this->approve($draft['order']);
         self::assertSame(409, $this->httpStatus());
@@ -510,7 +510,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
         $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-1'));
 
         $this->approve($order);
@@ -527,13 +527,13 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
         $item = $this->seedItem(self::TENANT_A, 'SKU-1');
 
-        $set = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $set = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
         $this->seedLine(self::TENANT_A, $set, $item);
         $this->approve($set, ['expected_at' => '2026-04-02T00:00:00+00:00']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('2026-04-02T00:00:00.000+00:00', $this->json()['expected_at']);
 
-        $cleared = $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $cleared = $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
         $this->seedLine(self::TENANT_A, $cleared, $item);
         $this->approve($cleared, ['expected_at' => null]);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -564,7 +564,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         // refused 409 before `place()` is ever reached -- which would make this
         // test green on the wrong refusal. `aNullCreatorDoesNotRefuse` is the
         // test that establishes a null creator is approvable.
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
@@ -586,7 +586,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         // the FIRST approval, and the second refusal this test is about would
         // never be reached. The two refusals are both `business-rule-violated`,
         // so they are distinguished here by their `rule` member.
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/approval', []);
@@ -603,7 +603,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[Test]
     public function anUndeclaredFieldIsRefused(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->approve($draft['order'], ['notes' => 'hurry']);
 
@@ -618,7 +618,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $supplierB = $this->seedSupplier(self::TENANT_B, 'Other');
         $warehouseB = $this->seedWarehouse(self::TENANT_B, 'Other');
-        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-B', $supplierB, $warehouseB, $inB);
+        $orderInB = $this->seedOrder(self::TENANT_B, 'PO-103000', $supplierB, $warehouseB, $inB);
 
         $this->approve($orderInB);
         $foreign = (string) $this->client()->getResponse()->getContent();
@@ -729,7 +729,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     #[DataProvider('impossibleInstants')]
     public function approvingWithAnImpossibleExpectedDateIsRefusedAndPlacesNothing(string $expectedAt): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1', $this->seedPrincipal(self::TENANT_A, []));
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->approve($draft['order'], ['expected_at' => $expectedAt]);

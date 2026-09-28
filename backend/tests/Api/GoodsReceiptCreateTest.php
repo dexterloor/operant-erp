@@ -73,7 +73,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertTrue(Uuid::isValid((string) $body['id']));
         self::assertSame('GR-000001', $body['receipt_number']);
-        self::assertSame(['id' => $po['order'], 'order_number' => 'PO-1'], $body['purchase_order']);
+        self::assertSame(['id' => $po['order'], 'order_number' => 'PO-000001'], $body['purchase_order']);
         self::assertCount(2, $body['lines']);
         // Every line member but the line's own id, by name, value and order:
         // API-23b clause (i)'s `purchase_order_line = {id, line_number}` (owner
@@ -84,13 +84,13 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
             [
                 [
                     'purchase_order_line' => ['id' => $po['lines'][0], 'line_number' => 1],
-                    'inventory_item' => ['id' => $po['items'][0], 'sku' => 'SKU-PO-1-0', 'name' => 'Item zero'],
+                    'inventory_item' => ['id' => $po['items'][0], 'sku' => 'SKU-PO-000001-0', 'name' => 'Item zero'],
                     'quantity' => '6.000000',
                     'storage_location' => ['id' => $po['bin'], 'code' => 'A-01'],
                 ],
                 [
                     'purchase_order_line' => ['id' => $po['lines'][1], 'line_number' => 2],
-                    'inventory_item' => ['id' => $po['items'][1], 'sku' => 'SKU-PO-1-1', 'name' => 'Item one'],
+                    'inventory_item' => ['id' => $po['items'][1], 'sku' => 'SKU-PO-000001-1', 'name' => 'Item one'],
                     'quantity' => '4.000000',
                     'storage_location' => ['id' => $secondBin, 'code' => 'B-07'],
                 ],
@@ -200,8 +200,8 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $expected = [
-            [['id' => $po['lines'][1], 'line_number' => 2], ['id' => $po['items'][1], 'sku' => 'SKU-PO-1-1', 'name' => 'Item one']],
-            [['id' => $po['lines'][2], 'line_number' => 3], ['id' => $po['items'][2], 'sku' => 'SKU-PO-1-2', 'name' => 'Item two']],
+            [['id' => $po['lines'][1], 'line_number' => 2], ['id' => $po['items'][1], 'sku' => 'SKU-PO-000001-1', 'name' => 'Item one']],
+            [['id' => $po['lines'][2], 'line_number' => 3], ['id' => $po['items'][2], 'sku' => 'SKU-PO-000001-2', 'name' => 'Item two']],
         ];
         $pairs = static fn (array $body): array => array_map(
             static fn (array $l): array => [$l['purchase_order_line'], $l['inventory_item']],
@@ -233,7 +233,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame(
-            [['id' => $po['items'][0], 'sku' => 'SKU-PO-1-0', 'name' => 'SKU-PO-1-0']],
+            [['id' => $po['items'][0], 'sku' => 'SKU-PO-000001-0', 'name' => 'SKU-PO-000001-0']],
             array_column($this->json()['lines'], 'inventory_item'),
         );
     }
@@ -410,7 +410,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
     public function aLineOfAnotherOrderIsNotFoundAndNothingIsWritten(): void
     {
         $po = $this->orderedOrderWithLines(['10']);
-        $other = $this->orderedOrderWithLines(['10'], number: 'PO-2');
+        $other = $this->orderedOrderWithLines(['10'], number: 'PO-000002');
 
         $this->receive($po['order'], [['purchase_order_line_id' => $other['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]]);
 
@@ -567,7 +567,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
             INSERT INTO purchase_order
                 (id, tenant_id, order_number, supplier_id, warehouse_id, status, currency_code,
                  ordered_at, idempotency_key, request_digest)
-            VALUES (?::uuid, ?::uuid, 'PO-PINNED', ?::uuid, ?::uuid, 'ordered', 'EUR',
+            VALUES (?::uuid, ?::uuid, 'PO-120000', ?::uuid, ?::uuid, 'ordered', 'EUR',
                     '2026-01-01T00:00:00+00:00'::timestamptz, ?, ?)
             SQL, [$order, self::TENANT_A, $supplier, $warehouse,
                 str_repeat('a', 64), str_repeat('b', 64)]);
@@ -948,7 +948,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         $po = $this->orderedOrderWithLines(['10', '10']);
         // Both fixtures are seeded before the first request: a refused receipt
         // closes the EntityManager, so nothing can be seeded after (a).
-        $fractional = $this->orderedOrderWithLines(['10.5'], number: 'PO-2');
+        $fractional = $this->orderedOrderWithLines(['10.5'], number: 'PO-000002');
 
         // (a) `business-rule-violated` carries no pointer, so the ORDER line is
         //     named in the DETAIL, by its number. Line 2 is over-received and is
@@ -1079,7 +1079,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
      *
      * @return array{order: string, lines: list<string>, bin: string, warehouse: string, items: list<string>}
      */
-    protected function orderedOrderWithLines(array $quantities, string $status = PurchaseOrder::STATUS_ORDERED, string $number = 'PO-1'): array
+    protected function orderedOrderWithLines(array $quantities, string $status = PurchaseOrder::STATUS_ORDERED, string $number = 'PO-000001'): array
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme '.$number);
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH '.$number);

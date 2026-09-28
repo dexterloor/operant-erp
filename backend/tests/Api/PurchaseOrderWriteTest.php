@@ -37,7 +37,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function updatingADraftReturnsTheUpdatedResource(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $other = $this->seedSupplier(self::TENANT_A, 'Other');
 
         $this->send('PATCH', '/purchase-orders/'.$draft['order'], [
@@ -62,7 +62,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, expectedAt: '2026-03-01T00:00:00+00:00');
 
         $this->send('PATCH', '/purchase-orders/'.$order, ['supplier_id' => $supplier]);
         self::assertSame('2026-03-01T00:00:00.000+00:00', $this->json()['expected_at'],
@@ -76,7 +76,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aNotNullParentMayNotBeCleared(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('PATCH', '/purchase-orders/'.$draft['order'], ['supplier_id' => null]);
 
@@ -94,7 +94,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aParentIdFromAnotherTenantIsAFieldDefectAndNotANotFound(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $inB = $this->seedSupplier(self::TENANT_B, 'Other');
 
         $this->send('PATCH', '/purchase-orders/'.$draft['order'], ['supplier_id' => $inB]);
@@ -121,7 +121,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[DataProvider('editableParents')]
     public function anEditMayNotPointADraftAtAnArchivedParent(string $field, string $table): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $archived = 'warehouse' === $table
             ? $this->seedWarehouse(self::TENANT_A, 'Closed')
             : $this->seedSupplier(self::TENANT_A, 'Retired');
@@ -157,7 +157,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
 
         $this->send('PATCH', '/purchase-orders/'.$order, ['expected_at' => '2026-04-02T00:00:00+00:00']);
 
@@ -172,7 +172,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, archived: true);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, archived: true);
 
         $this->send('PATCH', '/purchase-orders/'.$order, ['expected_at' => '2026-04-02T00:00:00+00:00']);
 
@@ -184,7 +184,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function anUndeclaredFieldIsRefused(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         foreach ([['status' => 'ordered'], ['id' => Uuid::v4()->toRfc4122()], ['currency_code' => 'USD']] as $body) {
             $this->send('PATCH', '/purchase-orders/'.$draft['order'], $body);
@@ -211,7 +211,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function deletingADraftArchivesItAndItsLines(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('DELETE', '/purchase-orders/'.$draft['order']);
@@ -240,7 +240,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $order = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
 
         $this->send('DELETE', '/purchase-orders/'.$order);
 
@@ -257,7 +257,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function deletingAnArchivedOrderIsRefused(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('DELETE', '/purchase-orders/'.$draft['order']);
         self::assertSame(204, $this->httpStatus());
@@ -284,7 +284,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function creatingALineAnswers201WithALocationNamingIt(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item'], 9);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
@@ -322,7 +322,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function theLineSnapshotsTheSuppliersLeadTime(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item'], 21);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
@@ -348,7 +348,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function anItemTheSupplierDoesNotListIsRefused(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
             'inventory_item_id' => $draft['item'],
@@ -364,7 +364,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function lineNumbersAreMintedInSequence(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
 
         $ids = [];
@@ -393,7 +393,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aNonPositiveOrMalformedQuantityIsRefusedWithTheFieldNamed(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
 
         foreach (['0', '0.000000', '-1', 'x', '1.1234567'] as $quantity) {
@@ -412,7 +412,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function anItemFromAnotherTenantIsAFieldDefect(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $itemInB = $this->seedItem(self::TENANT_B, 'SKU-B');
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
@@ -430,7 +430,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aPlacedOrderTakesNoNewLine(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "UPDATE purchase_order SET status = 'ordered', ordered_at = now() WHERE id = ?::uuid", [$draft['order']]);
@@ -456,7 +456,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineExpectedDateIsRefusedBecauseThereIsNowhereToPutIt(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
 
         $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
@@ -479,7 +479,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function updatingALineReturnsTheUpdatedResource(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('PATCH', '/purchase-orders/'.$draft['order'].'/lines/'.$line, ['quantity' => '7.000000']);
@@ -519,8 +519,8 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineOfAnotherOrderIsNotFoundAtThisOrdersAddress(): void
     {
-        $first = $this->seedDraft(self::TENANT_A, 'PO-1');
-        $second = $this->seedDraft(self::TENANT_A, 'PO-2');
+        $first = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $second = $this->seedDraft(self::TENANT_A, 'PO-000002');
         $lineOfSecond = $this->seedLine(self::TENANT_A, $second['order'], $second['item']);
 
         $this->send('PATCH', '/purchase-orders/'.$first['order'].'/lines/'.$lineOfSecond, ['quantity' => '7']);
@@ -545,7 +545,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function deletingALineArchivesIt(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
         $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
@@ -568,7 +568,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedLineNumberIsReused(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
 
@@ -591,7 +591,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aPlacedOrdersLinesAreReadOnly(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "UPDATE purchase_order SET status = 'ordered', ordered_at = now() WHERE id = ?::uuid", [$draft['order']]);
@@ -620,7 +620,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function theOrderTotalFollowsItsLiveLines(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
 
         $this->send('GET', '/purchase-orders/'.$draft['order']);

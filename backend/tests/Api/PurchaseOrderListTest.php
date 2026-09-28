@@ -19,7 +19,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function theEnvelopeCarriesExactlyItsFourMembers(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders');
 
@@ -31,7 +31,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function noListResponseCarriesATotalAPageOrAnOffset(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders');
 
@@ -46,8 +46,8 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $live = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse);
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, archived: true);
+        $live = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, archived: true);
 
         $this->send('GET', '/purchase-orders');
 
@@ -58,16 +58,16 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function theListIsBoundedToTheTenantInTheToken(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-A');
+        $this->seedDraft(self::TENANT_A, 'PO-101000');
 
         $supplierB = $this->seedSupplier(self::TENANT_B, 'Other');
         $warehouseB = $this->seedWarehouse(self::TENANT_B, 'Other');
-        $this->seedOrder(self::TENANT_B, 'PO-B1', $supplierB, $warehouseB);
-        $this->seedOrder(self::TENANT_B, 'PO-B2', $supplierB, $warehouseB);
+        $this->seedOrder(self::TENANT_B, 'PO-104000', $supplierB, $warehouseB);
+        $this->seedOrder(self::TENANT_B, 'PO-105000', $supplierB, $warehouseB);
 
         $this->send('GET', '/purchase-orders');
 
-        self::assertSame(['PO-A'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-101000'], array_column($this->json()['items'], 'order_number'));
     }
 
     // -----------------------------------------------------------------------
@@ -90,15 +90,15 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_DRAFT);
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-3', $supplier, $warehouse, status: PurchaseOrder::STATUS_PARTIALLY_RECEIVED, orderedAt: '2026-01-02T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-4', $supplier, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-03T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-5', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-04T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_DRAFT);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000003', $supplier, $warehouse, status: PurchaseOrder::STATUS_PARTIALLY_RECEIVED, orderedAt: '2026-01-02T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000004', $supplier, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-03T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000005', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-04T00:00:00+00:00');
 
         $this->send('GET', '/purchase-orders?status=open');
 
-        self::assertSame(['PO-2', 'PO-3'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000002', 'PO-000003'], array_column($this->json()['items'], 'order_number'));
     }
 
     /** The other three segments, driven from the table rather than restated as three tests. */
@@ -114,7 +114,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
                 continue;
             }
 
-            $numbers[$segment] = 'PO-'.strtoupper($segment);
+            $numbers[$segment] = self::freshNumber('PO');
             $this->seedOrder(self::TENANT_A, $numbers[$segment], $supplier, $warehouse, status: $statuses[0]);
         }
 
@@ -130,7 +130,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function anUnknownSegmentIsRefused(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?status=ordered');
 
@@ -162,18 +162,18 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
         // Numbered against the ordering date, so the two orders disagree.
-        $this->seedOrder(self::TENANT_A, 'PO-3', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-02T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-03T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000003', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-02T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-03T00:00:00+00:00');
 
         $this->send('GET', '/purchase-orders?status=open');
-        self::assertSame(['PO-3', 'PO-1', 'PO-2'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000003', 'PO-000001', 'PO-000002'], array_column($this->json()['items'], 'order_number'));
 
         $this->send('GET', '/purchase-orders?status=open&sort=ordered_at');
-        self::assertSame(['PO-3', 'PO-1', 'PO-2'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000003', 'PO-000001', 'PO-000002'], array_column($this->json()['items'], 'order_number'));
 
         $this->send('GET', '/purchase-orders?status=open&sort=order_number');
-        self::assertSame(['PO-1', 'PO-2', 'PO-3'], array_column($this->json()['items'], 'order_number'),
+        self::assertSame(['PO-000001', 'PO-000002', 'PO-000003'], array_column($this->json()['items'], 'order_number'),
             'The alternate order was accepted and ignored, which is API-19\'s named defect.');
     }
 
@@ -186,7 +186,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function theDraftSegmentRefusesTheOrderedAtSort(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?status=draft&sort=ordered_at');
 
@@ -213,13 +213,13 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $other = $this->seedSupplier(self::TENANT_A, 'Other');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-3', $acme, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-1', $acme, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-02T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-9', $other, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-03T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000003', $acme, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $acme, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-02T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000009', $other, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-03T00:00:00+00:00');
 
         $this->send('GET', '/purchase-orders?status=received&supplier_id='.$acme);
 
-        self::assertSame(['PO-3', 'PO-1'], array_column($this->json()['items'], 'order_number'),
+        self::assertSame(['PO-000003', 'PO-000001'], array_column($this->json()['items'], 'order_number'),
             'The supplier view is ordered by order_number, so the manifest row that gives it ordered_at is not served.');
     }
 
@@ -233,7 +233,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_RECEIVED, orderedAt: '2026-01-01T00:00:00+00:00');
 
         $this->send('GET', '/purchase-orders?status=received&sort=ordered_at');
         self::assertSame(422, $this->httpStatus());
@@ -266,11 +266,11 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-02T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED, orderedAt: '2026-01-02T00:00:00+00:00');
         // Cancelled while still a draft: never placed, so no ordered date. The
         // constraint admits it and `cancel()` is the shipped path that makes it.
-        $this->seedOrder(self::TENANT_A, 'PO-3', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+        $this->seedOrder(self::TENANT_A, 'PO-000003', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
 
         $seen = [];
         $pages = 0;
@@ -289,7 +289,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         } while (null !== $cursor);
 
         sort($seen);
-        self::assertSame(['PO-1', 'PO-2', 'PO-3'], $seen,
+        self::assertSame(['PO-000001', 'PO-000002', 'PO-000003'], $seen,
             'An order cancelled before it was placed has a NULL ordered_at, and the Cancelled supplier view '
             .'ordered by ordered_at drops it across the page boundary: (NULL, id) > (?, ?) is NULL, not true.');
     }
@@ -311,8 +311,8 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_CANCELLED);
 
         $this->send('GET', '/purchase-orders?status=cancelled&supplier_id='.$supplier.'&limit=1');
         self::assertSame(200, $this->httpStatus());
@@ -324,7 +324,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus(),
             'Following the next_cursor this API issued one request earlier raised. The empty sort key reached '
             .'the statement as \'\'::timestamptz.');
-        self::assertSame(['PO-2'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000002'], array_column($this->json()['items'], 'order_number'));
 
         // The reason, asserted separately so a future regression names itself
         // rather than arriving as an unexplained 500.
@@ -375,7 +375,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
             // A placed order, so the only thing the UPDATE changes is the pair
             // the constraint is about. One row per status: a successful attempt
             // leaves its row in the state it just proved legal.
-            $order = $this->seedOrder(self::TENANT_A, 'PO-'.$status, $supplier, $warehouse,
+            $order = $this->seedOrder(self::TENANT_A, self::freshNumber('PO'), $supplier, $warehouse,
                 status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
 
             try {
@@ -406,11 +406,11 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse);
 
         $this->send('GET', '/purchase-orders');
-        self::assertSame(['PO-1', 'PO-2'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000001', 'PO-000002'], array_column($this->json()['items'], 'order_number'));
 
         $this->send('GET', '/purchase-orders?sort=ordered_at');
         self::assertSame(422, $this->httpStatus(),
@@ -430,12 +430,12 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $other = $this->seedSupplier(self::TENANT_A, 'Other');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-1', $acme, $warehouse);
-        $this->seedOrder(self::TENANT_A, 'PO-2', $other, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $acme, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $other, $warehouse);
 
         $this->send('GET', '/purchase-orders?supplier_id='.$acme);
 
-        self::assertSame(['PO-1'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000001'], array_column($this->json()['items'], 'order_number'));
     }
 
     /**
@@ -449,11 +449,13 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $acme = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        $this->seedOrder(self::TENANT_A, 'PO-2026-1', $acme, $warehouse);
-        $this->seedOrder(self::TENANT_A, 'XX-2026-2', $acme, $warehouse);
+        // Two numbers of the product's own shape that differ after the prefix (CD-7, `RED` F8): since every number
+        // is `PO-dddddd`, `q=PO-` alone matches every row and would no longer prove the prefix FILTERS anything.
+        $this->seedOrder(self::TENANT_A, 'PO-000011', $acme, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000020', $acme, $warehouse);
 
-        $this->send('GET', '/purchase-orders?q=PO-');
-        self::assertSame(['PO-2026-1'], array_column($this->json()['items'], 'order_number'));
+        $this->send('GET', '/purchase-orders?q=PO-00001');
+        self::assertSame(['PO-000011'], array_column($this->json()['items'], 'order_number'));
 
         $this->send('GET', '/purchase-orders?q=Acme');
         self::assertSame([], $this->json()['items'],
@@ -464,7 +466,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function anUndeclaredParameterIsRefused(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?created_by=x');
 
@@ -483,7 +485,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        foreach (['A', 'B', 'C', 'D', 'E'] as $number) {
+        foreach (['PO-000001', 'PO-000002', 'PO-000003', 'PO-000004', 'PO-000005'] as $number) {
             $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse);
         }
 
@@ -505,7 +507,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
             self::assertLessThan(10, $pages, 'The client walked off the end: next_cursor never went null.');
         } while (null !== $cursor);
 
-        self::assertSame(['A', 'B', 'C', 'D', 'E'], $seen);
+        self::assertSame(['PO-000001', 'PO-000002', 'PO-000003', 'PO-000004', 'PO-000005'], $seen);
         self::assertSame(3, $pages);
     }
 
@@ -520,7 +522,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        foreach (['A', 'B', 'C', 'D'] as $number) {
+        foreach (['PO-000001', 'PO-000002', 'PO-000003', 'PO-000004'] as $number) {
             $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse,
                 status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
         }
@@ -536,7 +538,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         } while (null !== $cursor);
 
         sort($seen);
-        self::assertSame(['A', 'B', 'C', 'D'], $seen,
+        self::assertSame(['PO-000001', 'PO-000002', 'PO-000003', 'PO-000004'], $seen,
             'A tie group on ordered_at was skipped or repeated across the page boundary.');
     }
 
@@ -547,7 +549,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
 
-        foreach (['A', 'B', 'C', 'D'] as $number) {
+        foreach (['PO-000001', 'PO-000002', 'PO-000003', 'PO-000004'] as $number) {
             $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse);
         }
 
@@ -557,11 +559,11 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
 
         $this->send('GET', '/purchase-orders?limit=2&after='.urlencode($next));
         $body = $this->json();
-        self::assertSame(['C', 'D'], array_column($body['items'], 'order_number'));
+        self::assertSame(['PO-000003', 'PO-000004'], array_column($body['items'], 'order_number'));
         self::assertNotNull($body['previous_cursor']);
 
         $this->send('GET', '/purchase-orders?limit=2&before='.urlencode($body['previous_cursor']));
-        self::assertSame(['A', 'B'], array_column($this->json()['items'], 'order_number'));
+        self::assertSame(['PO-000001', 'PO-000002'], array_column($this->json()['items'], 'order_number'));
     }
 
     /** API-18 / P-6 — the cursor carries the sort key and the id, and no tenant identifier. */
@@ -570,8 +572,8 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $first = $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse);
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse);
+        $first = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse);
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse);
 
         $this->send('GET', '/purchase-orders?limit=1');
         $encoded = $this->json()['next_cursor'];
@@ -579,7 +581,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         $decoded = json_decode((string) base64_decode(strtr($encoded, '-_', '+/'), true), true);
         self::assertIsArray($decoded);
         self::assertSame(['k', 'i'], array_keys($decoded));
-        self::assertSame('PO-1', $decoded['k']);
+        self::assertSame('PO-000001', $decoded['k']);
         self::assertSame($first, $decoded['i']);
         self::assertSame([], ItemReadTest::tenantKeysIn($decoded));
         self::assertStringNotContainsString(self::TENANT_A, $encoded);
@@ -591,8 +593,8 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        $this->seedOrder(self::TENANT_A, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
-        $this->seedOrder(self::TENANT_A, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-02T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-01T00:00:00+00:00');
+        $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED, orderedAt: '2026-01-02T00:00:00+00:00');
 
         $this->send('GET', '/purchase-orders?status=open&limit=1');
 
@@ -608,7 +610,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main');
-        foreach (['A', 'B', 'C'] as $number) {
+        foreach (['PO-000001', 'PO-000002', 'PO-000003'] as $number) {
             $this->seedOrder(self::TENANT_A, $number, $supplier, $warehouse);
         }
 
@@ -637,7 +639,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function aLimitOutsideItsBoundsIsRefused(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         foreach (['0', '201', 'x'] as $limit) {
             $this->send('GET', '/purchase-orders?limit='.$limit);
@@ -650,7 +652,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function afterAndBeforeAreMutuallyExclusive(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?after=x&before=y');
 
@@ -672,7 +674,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
         self::assertSame([], $this->json()['items']);
         self::assertFalse($this->json()['tenant_has_rows'], 'A brand-new workspace read as filtered.');
 
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?status=open');
         self::assertSame([], $this->json()['items']);
@@ -685,7 +687,7 @@ final class PurchaseOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function theEmptyProbeRunsOnlyOnAnEmptyPage(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->recorder()->start();
         $this->send('GET', '/purchase-orders');

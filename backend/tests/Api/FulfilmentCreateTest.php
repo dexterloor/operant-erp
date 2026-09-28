@@ -62,7 +62,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aWarehouseOperatorShipsPartOfAConfirmedOrder(): void
     {
-        $f = $this->confirmedOrder('SO-SHIP', ['10']);
+        $f = $this->confirmedOrder('SO-198000', ['10']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '8');
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::WAREHOUSE_OPERATOR));
 
@@ -72,12 +72,12 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertSame('/api/v1/fulfilments/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
         self::assertMatchesRegularExpression('/^FUL-[0-9]{6}$/', $body['fulfilment_number']);
-        self::assertSame(['id' => $f['order'], 'order_number' => 'SO-SHIP'], $body['sales_order']);
+        self::assertSame(['id' => $f['order'], 'order_number' => 'SO-198000'], $body['sales_order']);
         self::assertSame($this->actorId, $body['shipped_by']['id']);
         self::assertSame([[
             'id' => $body['lines'][0]['id'],
             'sales_order_line' => ['id' => $f['lines'][0], 'line_number' => 1],
-            'inventory_item' => ['id' => $f['items'][0], 'sku' => 'SKU-SO-SHIP-1', 'name' => 'SKU-SO-SHIP-1'],
+            'inventory_item' => ['id' => $f['items'][0], 'sku' => 'SKU-SO-198000-1', 'name' => 'SKU-SO-198000-1'],
             'quantity' => '3.000000',
             'storage_location' => ['id' => $bin, 'code' => 'A-01'],
         ]], $body['lines']);
@@ -106,7 +106,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function shippingEverythingFulfilsTheOrderAndThePickListShowsIt(): void
     {
-        $f = $this->confirmedOrder('SO-ALL', ['5', '2']);
+        $f = $this->confirmedOrder('SO-128000', ['5', '2']);
         $a = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '3');
         $b = $this->stockedBin($f['warehouse'], 'A-02', $f['items'][0], '3');
         $c = $this->stockedBin($f['warehouse'], 'A-03', $f['items'][1], '2');
@@ -135,7 +135,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function theRetryOfTheFulfilmentThatCompletedTheOrderIsAReplay(): void
     {
-        $f = $this->confirmedOrder('SO-RPL', ['4']);
+        $f = $this->confirmedOrder('SO-196000', ['4']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '10');
         $key = Uuid::v4()->toRfc4122();
         $lines = [['sales_order_line_id' => $f['lines'][0], 'quantity' => '4', 'storage_location_id' => $bin]];
@@ -158,8 +158,8 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aKeyReusedForADifferentRequestIsAConflict(): void
     {
-        $f = $this->confirmedOrder('SO-K1', ['4']);
-        $g = $this->confirmedOrder('SO-K2', ['4'], $f['warehouse']);
+        $f = $this->confirmedOrder('SO-164000', ['4']);
+        $g = $this->confirmedOrder('SO-165000', ['4'], $f['warehouse']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '10');
         $this->stock($g['items'][0], $bin, '10');
         $key = Uuid::v4()->toRfc4122();
@@ -181,7 +181,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function shippingMoreThanWasOrderedIsRefusedAndNothingMoves(): void
     {
-        $f = $this->confirmedOrder('SO-OVER', ['4']);
+        $f = $this->confirmedOrder('SO-184000', ['4']);
         $a = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '10');
         $b = $this->stockedBin($f['warehouse'], 'A-02', $f['items'][0], '10');
 
@@ -204,14 +204,14 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aBinThatHoldsTooLittleIsRefusedInDomainTermsAndNothingMoves(): void
     {
-        $f = $this->confirmedOrder('SO-SHORT', ['10']);
+        $f = $this->confirmedOrder('SO-199000', ['10']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '2.5');
 
         $this->fulfil($f['order'], [['sales_order_line_id' => $f['lines'][0], 'quantity' => '4', 'storage_location_id' => $bin]]);
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('stock_level.on_hand_covers_the_depletion', $this->json()['rule']);
-        self::assertSame('Order line 1 asks for 4 of SKU-SO-SHORT-1 from location A-01, which held 2.5 when this was checked. Nothing was shipped.',
+        self::assertSame('Order line 1 asks for 4 of SKU-SO-199000-1 from location A-01, which held 2.5 when this was checked. Nothing was shipped.',
             $this->json()['detail']);
         $this->assertNothingMoved($f, [$bin => '2.500000']);
     }
@@ -223,7 +223,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function twoLinesOfOneItemFromOneBinAreRefusedTogetherNamingBoth(): void
     {
-        $f = $this->confirmedOrder('SO-TWO', ['3', '3'], sameItem: true);
+        $f = $this->confirmedOrder('SO-204000', ['3', '3'], sameItem: true);
         $bin = $this->seedBin($f['warehouse'], 'A-01');
 
         $this->fulfil($f['order'], [
@@ -232,7 +232,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
         ]);
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame('Order lines 1, 2 ask for 4 of SKU-SO-TWO-1 from location A-01, which held 0 when this was checked. Nothing was shipped.',
+        self::assertSame('Order lines 1, 2 ask for 4 of SKU-SO-204000-1 from location A-01, which held 0 when this was checked. Nothing was shipped.',
             $this->json()['detail']);
     }
 
@@ -249,7 +249,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[DataProvider('locationsThatCannotBePicked')]
     public function aLocationThatCannotBePickedIsRefusedAtTheLine(string $case, string $rule): void
     {
-        $f = $this->confirmedOrder('SO-LOC', ['5']);
+        $f = $this->confirmedOrder('SO-171000', ['5']);
         $warehouse = 'elsewhere' === $case ? $this->seedWarehouse(self::TENANT_A, 'Elsewhere') : $f['warehouse'];
         $bin = $this->seedBin($warehouse, 'X-01', 'quarantine' === $case ? 'quarantine' : 'bin');
         $this->stock($f['items'][0], $bin, '9');
@@ -268,7 +268,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function anUnknownBinIsAnUnknownReference(): void
     {
-        $f = $this->confirmedOrder('SO-UNK', ['5']);
+        $f = $this->confirmedOrder('SO-206000', ['5']);
 
         $this->fulfil($f['order'], [['sales_order_line_id' => $f['lines'][0], 'quantity' => '1', 'storage_location_id' => Uuid::v4()->toRfc4122()]]);
 
@@ -289,7 +289,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[DataProvider('ordersThatCannotBeFulfilled')]
     public function anOrderInTheWrongStatusIsRefusedByTheGuard(string $status): void
     {
-        $f = $this->confirmedOrder('SO-ST', ['5']);
+        $f = $this->confirmedOrder('SO-201000', ['5']);
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET status = ? WHERE id = ?::uuid', [$status, $f['order']]);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
 
@@ -304,8 +304,8 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineThatIsNotALiveLineOfThisOrderIsNotFound(): void
     {
-        $f = $this->confirmedOrder('SO-NL', ['5']);
-        $other = $this->confirmedOrder('SO-NL2', ['5'], $f['warehouse']);
+        $f = $this->confirmedOrder('SO-174000', ['5']);
+        $other = $this->confirmedOrder('SO-175000', ['5'], $f['warehouse']);
         $archived = $this->seedSalesOrderLine(self::TENANT_A, $f['order'], $f['items'][0], lineNumber: 2);
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
@@ -321,7 +321,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedWarehouseIsRefused(): void
     {
-        $f = $this->confirmedOrder('SO-WHX', ['5']);
+        $f = $this->confirmedOrder('SO-215000', ['5']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$f['warehouse']]);
 
@@ -343,7 +343,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[DataProvider('defaultRolesThatMayNotShip')]
     public function aRoleWithoutFulfilmentCreateIsRefused(string $role): void
     {
-        $f = $this->confirmedOrder('SO-SOD', ['5']);
+        $f = $this->confirmedOrder('SO-200000', ['5']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor($role));
 
@@ -360,7 +360,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aFulfilmentWritesNoInvoiceAndNoAuditRow(): void
     {
-        $f = $this->confirmedOrder('SO-NOINV', ['5']);
+        $f = $this->confirmedOrder('SO-177000', ['5']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
         $audit = $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log');
 
@@ -381,8 +381,8 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function cancellingAPartlyShippedOrderCancelsTheRemainderAndKeepsWhatShipped(): void
     {
-        $cancelled = $this->raisedAndConfirmed('SO-OI2-A');
-        $live = $this->raisedAndConfirmed('SO-OI2-B');
+        $cancelled = $this->raisedAndConfirmed('SO-180000');
+        $live = $this->raisedAndConfirmed('SO-181000');
         foreach ([$cancelled, $live] as $o) {
             $bin = $this->stockedBin($o['warehouse'], 'A-01', $o['item'], '10');
             $this->fulfil($o['order'], [['sales_order_line_id' => $o['line'], 'quantity' => '2', 'storage_location_id' => $bin]]);
@@ -408,7 +408,7 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     #[Test]
     public function aFulfilmentOfAnotherWorkspaceIsNotFound(): void
     {
-        $f = $this->confirmedOrder('SO-GF', ['5']);
+        $f = $this->confirmedOrder('SO-159000', ['5']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
         $this->fulfil($f['order'], [['sales_order_line_id' => $f['lines'][0], 'quantity' => '1', 'storage_location_id' => $bin]]);
         $id = $this->json()['id'];

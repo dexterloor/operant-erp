@@ -39,8 +39,8 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
     {
         $order = $this->orderedOrder();
 
-        self::assertSame('23502', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-1', null, hash('sha256', 'r'))));
-        self::assertSame('23502', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-1', hash('sha256', 'k'), null)));
+        self::assertSame('23502', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-000001', null, hash('sha256', 'r'))));
+        self::assertSame('23502', $this->sqlStateOf(fn () => $this->insertReceipt($order, 'GR-000001', hash('sha256', 'k'), null)));
     }
 
     /**
@@ -69,9 +69,21 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
         $order = $this->orderedOrder();
         $good = hash('sha256', 'good');
 
-        self::assertSame('23514', $this->sqlStateOf(fn () => 'idempotency_key' === $column
-            ? $this->insertReceipt($order, 'GR-1', $value, $good)
-            : $this->insertReceipt($order, 'GR-1', $good, $value)));
+        $refused = $this->refusalOf(fn () => 'idempotency_key' === $column
+            ? $this->insertReceipt($order, 'GR-000001', $value, $good)
+            : $this->insertReceipt($order, 'GR-000001', $good, $value));
+
+        // ⚠ **The constraint NAME, not the bare SQLSTATE** (CD-7, `RED` F1). Since `goods_receipt_number_shape`
+        // also answers `23514`, a bare-state assertion would stay green on a receipt number of the wrong shape
+        // whatever this column's CHECK said -- and both mutations the docblock names would stop reddening.
+        self::assertStringStartsWith('23514', $refused);
+        self::assertStringContainsString('goods_receipt_'.$column.'_sha256', $refused,
+            'The write was refused, but not by the '.$column.' shape CHECK this case is about.');
+
+        // The positive control, inside the same test: the same insert with a well-formed key and digest lands.
+        // Without it, a fixture that every CHECK refuses (a wrong number, a missing order) reads as a pass.
+        $this->insertReceipt($order, 'GR-000001', $good, hash('sha256', 'the digest'));
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
     }
 
     /** @return iterable<string, array{string, string}> */
@@ -100,11 +112,11 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
         $key = hash('sha256', 'the client key');
         $orderA = $this->orderedOrder();
 
-        $this->insertReceipt($orderA, 'GR-1', $key, hash('sha256', 'r'));
-        self::assertSame('23505', $this->sqlStateOf(fn () => $this->insertReceipt($orderA, 'GR-2', $key, hash('sha256', 'r'))));
+        $this->insertReceipt($orderA, 'GR-000001', $key, hash('sha256', 'r'));
+        self::assertSame('23505', $this->sqlStateOf(fn () => $this->insertReceipt($orderA, 'GR-000002', $key, hash('sha256', 'r'))));
 
         $orderB = $this->orderedOrder(self::TENANT_B);
-        $this->insertReceipt($orderB, 'GR-1', $key, hash('sha256', 'r'), self::TENANT_B);
+        $this->insertReceipt($orderB, 'GR-000001', $key, hash('sha256', 'r'), self::TENANT_B);
 
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM goods_receipt'));
     }
@@ -116,7 +128,7 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
         $warehouse = $this->seedWarehouse($tenantId);
 
         return [
-            'order' => $this->seedOrder($tenantId, 'PO-1', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED),
+            'order' => $this->seedOrder($tenantId, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED),
             'warehouse' => $warehouse,
         ];
     }
@@ -128,6 +140,18 @@ final class GoodsReceiptRetryKeyStorageTest extends PurchaseOrderTestCase
             INSERT INTO goods_receipt (id, tenant_id, purchase_order_id, warehouse_id, receipt_number, idempotency_key, request_digest)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?)
             SQL, [Uuid::v4()->toRfc4122(), $tenantId, $order['order'], $order['warehouse'], $number, $key, $digest]);
+    }
+
+    /** The refused write's SQLSTATE and message, so a caller can name the constraint that refused it. */
+    private function refusalOf(callable $write): string
+    {
+        try {
+            $write();
+        } catch (DriverException $e) {
+            return $e->getSQLState().' '.$e->getMessage();
+        }
+
+        self::fail('The write was accepted.');
     }
 
     private function sqlStateOf(callable $write): ?string

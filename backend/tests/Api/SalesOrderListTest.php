@@ -65,7 +65,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
             .'as PurchaseOrderViews does, instead of from confirm() being the only writer.');
 
         // The sales table accepts what the purchase table refuses.
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-NULLDATE', status: SalesOrder::STATUS_CONFIRMED);
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-179000', status: SalesOrder::STATUS_CONFIRMED);
         self::assertSame([['ordered_at' => null]], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT ordered_at FROM sales_order WHERE id = ?::uuid', [$order]),
             'A confirmed sales order was written with no ordered_at and the database accepted it -- '
@@ -76,7 +76,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
         // of a constraint that has quietly gone away everywhere.
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme NullDate');
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH NullDate');
-        $placed = $this->seedOrder(self::TENANT_A, 'PO-NULLDATE', $supplier, $warehouse,
+        $placed = $this->seedOrder(self::TENANT_A, 'PO-119000', $supplier, $warehouse,
             status: \App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder::STATUS_ORDERED);
 
         try {
@@ -109,7 +109,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
             SalesOrder::STATUS_FULFILLED => '2026-01-03T00:00:00+00:00',
             SalesOrder::STATUS_CANCELLED => null,
         ] as $status => $orderedAt) {
-            $numbers[$status] = 'SO-SEG-'.strtoupper($status);
+            $numbers[$status] = self::freshNumber('SO');
             $this->seedSalesOrder(self::TENANT_A, $numbers[$status], $customer, status: $status, orderedAt: $orderedAt);
         }
 
@@ -206,10 +206,10 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     public function aCancelledCustomerViewPagesEveryRowIncludingTheOnesWithNoOrderDate(): void
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Acme Cancelled');
-        $this->seedSalesOrder(self::TENANT_A, 'SO-C-1', $customer, status: SalesOrder::STATUS_CANCELLED);
-        $this->seedSalesOrder(self::TENANT_A, 'SO-C-2', $customer, status: SalesOrder::STATUS_CANCELLED,
+        $this->seedSalesOrder(self::TENANT_A, 'SO-135000', $customer, status: SalesOrder::STATUS_CANCELLED);
+        $this->seedSalesOrder(self::TENANT_A, 'SO-136000', $customer, status: SalesOrder::STATUS_CANCELLED,
             orderedAt: '2026-02-01T00:00:00+00:00');
-        $this->seedSalesOrder(self::TENANT_A, 'SO-C-3', $customer, status: SalesOrder::STATUS_CANCELLED);
+        $this->seedSalesOrder(self::TENANT_A, 'SO-137000', $customer, status: SalesOrder::STATUS_CANCELLED);
 
         $seen = [];
         $path = '/sales-orders?status=cancelled&customer_id='.$customer.'&limit=1';
@@ -225,7 +225,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
         }
 
         self::assertNull($cursor, 'The walk did not terminate.');
-        self::assertSame(['SO-C-1', 'SO-C-2', 'SO-C-3'], $seen,
+        self::assertSame(['SO-135000', 'SO-136000', 'SO-137000'], $seen,
             'A cancelled order was lost across a page boundary, or repeated. Rows with no ordered_at are the ones at risk.');
     }
 
@@ -239,7 +239,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Acme Walk');
         // Two rows share `2026-03-02`, which is the tie group the row comparison exists for.
-        foreach ([['SO-W-1', '2026-03-01'], ['SO-W-2', '2026-03-02'], ['SO-W-3', '2026-03-02'], ['SO-W-4', '2026-03-03']] as [$number, $day]) {
+        foreach ([['SO-208000', '2026-03-01'], ['SO-209000', '2026-03-02'], ['SO-210000', '2026-03-02'], ['SO-211000', '2026-03-03']] as [$number, $day]) {
             $this->seedSalesOrder(self::TENANT_A, $number, $customer,
                 status: SalesOrder::STATUS_CONFIRMED, orderedAt: $day.'T00:00:00+00:00');
         }
@@ -301,17 +301,17 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     public function theSearchMatchesTheOrderNumberByPrefixAndEscapesItsWildcards(): void
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Findable Customer Name');
-        $this->seedSalesOrder(self::TENANT_A, 'SO-FIND-1', $customer);
-        $this->seedSalesOrder(self::TENANT_A, 'SO-FIND-2', $customer);
-        $this->seedSalesOrder(self::TENANT_A, 'SO-OTHER-1', $customer);
+        $this->seedSalesOrder(self::TENANT_A, 'SO-777001', $customer);
+        $this->seedSalesOrder(self::TENANT_A, 'SO-777002', $customer);
+        $this->seedSalesOrder(self::TENANT_A, 'SO-183000', $customer);
 
-        $this->send('GET', '/sales-orders?q=SO-FIND');
+        $this->send('GET', '/sales-orders?q=SO-777');
         $found = array_column($this->json()['items'], 'order_number');
         sort($found);
-        self::assertSame(['SO-FIND-1', 'SO-FIND-2'], $found);
+        self::assertSame(['SO-777001', 'SO-777002'], $found);
 
         // Not a prefix, and not the customer's name: one column, prefix only.
-        $this->send('GET', '/sales-orders?q=FIND');
+        $this->send('GET', '/sales-orders?q=777');
         self::assertSame([], $this->json()['items'], 'The search matched mid-string, which the index cannot serve.');
 
         $this->send('GET', '/sales-orders?q=Findable');
@@ -321,7 +321,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus());
         self::assertSame([], $this->json()['items'], 'A literal % matched everything, so the wildcard is not escaped.');
 
-        $this->send('GET', '/sales-orders?q=SO_FIND');
+        $this->send('GET', '/sales-orders?q=SO_777');
         self::assertSame([], $this->json()['items'], 'A literal _ matched any character, so the wildcard is not escaped.');
     }
 
@@ -362,7 +362,7 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
         self::assertSame([], $this->json()['items']);
         self::assertFalse($this->json()['tenant_has_rows']);
 
-        $this->seedSalesOrder(self::TENANT_A, 'SO-EMPTY-1');
+        $this->seedSalesOrder(self::TENANT_A, 'SO-154000');
 
         $this->send('GET', '/sales-orders?status=fulfilled');
         self::assertSame([], $this->json()['items']);
@@ -383,13 +383,13 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     #[Test]
     public function aLiveListIsBoundedByItsTenantAndExcludesArchivedRows(): void
     {
-        $mine = $this->seedSalesOrder(self::TENANT_A, 'SO-MINE');
-        $archived = $this->seedSalesOrder(self::TENANT_A, 'SO-ARCHIVED');
+        $mine = $this->seedSalesOrder(self::TENANT_A, 'SO-172000');
+        $archived = $this->seedSalesOrder(self::TENANT_A, 'SO-130000');
         $this->insertAsOwnerForTenant(self::TENANT_A,
             'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
         $this->seedPrincipal(self::TENANT_B, []);
-        $this->seedSalesOrder(self::TENANT_B, 'SO-THEIRS');
+        $this->seedSalesOrder(self::TENANT_B, 'SO-202000');
 
         $this->send('GET', '/sales-orders');
 

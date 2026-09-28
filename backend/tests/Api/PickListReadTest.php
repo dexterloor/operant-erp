@@ -44,7 +44,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aConfirmedOrderShowsWhatToPickAndOnlyWhereItCanBePicked(): void
     {
-        $f = $this->confirmedOrder('SO-PICK');
+        $f = $this->confirmedOrder('SO-187000');
         $good = $this->seedBin($f['warehouse'], 'A-01');
         $second = $this->seedBin($f['warehouse'], 'A-02');
         $quarantine = $this->seedBin($f['warehouse'], 'Q-01', 'quarantine');
@@ -65,17 +65,17 @@ final class PickListReadTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame([
             'id' => $f['order'],
-            'order_number' => 'SO-PICK',
+            'order_number' => 'SO-187000',
             'status' => SalesOrder::STATUS_CONFIRMED,
-            'customer' => ['id' => $f['customer'], 'name' => 'Customer SO-PICK'],
-            'warehouse' => ['id' => $f['warehouse'], 'name' => 'WH SO-PICK'],
+            'customer' => ['id' => $f['customer'], 'name' => 'Customer SO-187000'],
+            'warehouse' => ['id' => $f['warehouse'], 'name' => 'WH SO-187000'],
             'ship_to_line' => '',
             'ship_to_city' => '',
             'ship_to_postal_code' => '',
             'ship_to_country_code' => 'GB',
             'lines' => [[
                 'sales_order_line' => ['id' => $f['line'], 'line_number' => 1],
-                'inventory_item' => ['id' => $f['item'], 'sku' => 'SKU-SO-PICK', 'name' => 'SKU-SO-PICK'],
+                'inventory_item' => ['id' => $f['item'], 'sku' => 'SKU-SO-187000', 'name' => 'SKU-SO-187000'],
                 'quantity' => '10.000000',
                 'quantity_fulfilled' => '0.000000',
                 'quantity_outstanding' => '10.000000',
@@ -95,7 +95,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aBinThePickReadOmitsIsABinTheDepletionRefuses(): void
     {
-        $f = $this->confirmedOrder('SO-AGREE');
+        $f = $this->confirmedOrder('SO-127000');
         $good = $this->seedBin($f['warehouse'], 'A-01');
         $quarantine = $this->seedBin($f['warehouse'], 'Q-01', 'quarantine');
         $this->stock($f['item'], $good, '5');
@@ -127,7 +127,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aWarehouseOperatorWithoutSalesOrderViewReadsIt(): void
     {
-        $f = $this->confirmedOrder('SO-WHO');
+        $f = $this->confirmedOrder('SO-214000');
 
         $this->actAs(self::TENANT_A, ['fulfilment.view', 'fulfilment.create', 'stock_level.view']);
         $this->send('GET', '/sales-orders/'.$f['order']);
@@ -144,8 +144,8 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aCallerWithoutFulfilmentViewGetsTheSame403ForEveryId(): void
     {
-        $mine = $this->confirmedOrder('SO-E1')['order'];
-        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-THEIRS', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+        $mine = $this->confirmedOrder('SO-153000')['order'];
+        $theirs = $this->seedSalesOrder(self::TENANT_B, 'SO-202000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
 
         $this->actAs(self::TENANT_A, ['sales_order.view']);
 
@@ -188,10 +188,10 @@ final class PickListReadTest extends PurchaseOrderTestCase
     public function anOrderNeverReleasedToTheWarehouseIsNotFound(string $case): void
     {
         $id = match ($case) {
-            'draft' => $this->seedSalesOrder(self::TENANT_A, 'SO-DRAFT'),
+            'draft' => $this->seedSalesOrder(self::TENANT_A, 'SO-152000'),
             'archived' => $this->archivedDraft(),
-            'cancelled-from-draft' => $this->seedSalesOrder(self::TENANT_A, 'SO-CXD', status: SalesOrder::STATUS_CANCELLED),
-            'other-tenant' => $this->seedSalesOrder(self::TENANT_B, 'SO-B', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z'),
+            'cancelled-from-draft' => $this->seedSalesOrder(self::TENANT_A, 'SO-147000', status: SalesOrder::STATUS_CANCELLED),
+            'other-tenant' => $this->seedSalesOrder(self::TENANT_B, 'SO-132000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z'),
             'nowhere' => Uuid::v4()->toRfc4122(),
             'not-a-uuid' => 'not-a-uuid',
         };
@@ -220,11 +220,11 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function aCancelledOrderIsReadableAndOwesNothingSoItListsNoBins(): void
     {
-        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH SO-CXC');
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-CXC', warehouseId: $warehouse, status: SalesOrder::STATUS_CANCELLED, orderedAt: '2026-09-20T10:00:00Z');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH SO-146000');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-146000', warehouseId: $warehouse, status: SalesOrder::STATUS_CANCELLED, orderedAt: '2026-09-20T10:00:00Z');
         $item = $this->seedItem(self::TENANT_A, 'SKU-CXC');
         $this->seedSalesOrderLine(self::TENANT_A, $order, $item, quantity: '10.000000', quantityFulfilled: '4.000000');
-        $live = $this->seedSalesOrder(self::TENANT_A, 'SO-LIVE', warehouseId: $warehouse, status: SalesOrder::STATUS_PARTIALLY_FULFILLED, orderedAt: '2026-09-20T10:00:00Z');
+        $live = $this->seedSalesOrder(self::TENANT_A, 'SO-170000', warehouseId: $warehouse, status: SalesOrder::STATUS_PARTIALLY_FULFILLED, orderedAt: '2026-09-20T10:00:00Z');
         $this->seedSalesOrderLine(self::TENANT_A, $live, $item, quantity: '10.000000', quantityFulfilled: '4.000000');
         $bin = $this->seedBin($warehouse, 'A-01');
         $this->stock($item, $bin, '9');
@@ -251,7 +251,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedWarehouseListsNoBins(): void
     {
-        $f = $this->confirmedOrder('SO-WHX');
+        $f = $this->confirmedOrder('SO-215000');
         $this->stock($f['item'], $this->seedBin($f['warehouse'], 'A-01'), '5');
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$f['warehouse']]);
 
@@ -265,7 +265,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedLineIsNotOnThePickList(): void
     {
-        $f = $this->confirmedOrder('SO-ARL');
+        $f = $this->confirmedOrder('SO-131000');
         $gone = $this->seedSalesOrderLine(self::TENANT_A, $f['order'], $this->seedItem(self::TENANT_A, 'SKU-GONE'), lineNumber: 2);
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$gone]);
 
@@ -296,7 +296,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
             SQL);
         self::assertContains('total_amount', $money, 'PC-12 clause 1\'s domain was not read from the catalogue.');
 
-        $f = $this->confirmedOrder('SO-MONEY');
+        $f = $this->confirmedOrder('SO-173000');
         $this->stock($f['item'], $this->seedBin($f['warehouse'], 'A-01'), '5');
 
         $this->send('GET', '/sales-orders/'.$f['order']);
@@ -331,7 +331,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
         $exception = substr($text, $start, $end - $start);
         self::assertStringContainsString('`fulfilment.view` alone', $exception);
 
-        $f = $this->confirmedOrder('SO-PC9');
+        $f = $this->confirmedOrder('SO-186000');
         $this->stock($f['item'], $this->seedBin($f['warehouse'], 'A-01'), '5');
         $this->send('GET', '/sales-orders/'.$f['order'].'/pick-list');
 
@@ -374,7 +374,7 @@ final class PickListReadTest extends PurchaseOrderTestCase
 
     private function archivedDraft(): string
     {
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ARCH');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-129000');
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$order]);
 
         return $order;

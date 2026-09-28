@@ -256,7 +256,7 @@ final class SalesOrderWriteTest extends PurchaseOrderTestCase
         $customer = $this->seedCustomer(self::TENANT_A, 'Customer '.$tag);
         $this->seedCustomerAddress(self::TENANT_A, $customer);
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH '.$tag);
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-'.$tag, $customer, $warehouse, SalesOrder::STATUS_DRAFT);
+        $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'), $customer, $warehouse, SalesOrder::STATUS_DRAFT);
         $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-'.$tag));
 
         return ['order' => $order, 'customer' => $customer, 'warehouse' => $warehouse];

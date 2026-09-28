@@ -74,7 +74,7 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
             $order = new PurchaseOrder(
                 Uuid::v4(),
                 Uuid::fromString(self::TENANT_A),
-                'PO-0001',
+                'PO-000001',
                 $this->em()->find(Supplier::class, Uuid::fromString($supplierId)),
                 $this->em()->find(Warehouse::class, Uuid::fromString($warehouseId)),
                 $this->currency(),
@@ -117,7 +117,7 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
             $order = new PurchaseOrder(
                 Uuid::v4(),
                 Uuid::fromString(self::TENANT_A),
-                'PO-0002',
+                'PO-000002',
                 $this->em()->find(Supplier::class, Uuid::fromString($supplierId)),
                 $this->em()->find(Warehouse::class, Uuid::fromString($warehouseId)),
                 $this->currency(),
@@ -162,20 +162,20 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         $this->tenantContext()->run(self::TENANT_A, function () use ($supplierA, $warehouseA): void {
             $this->app()->executeStatement(
                 "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key, request_digest)
-                 VALUES (gen_random_uuid(), ?::uuid, 'PO-SAME', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
+                 VALUES (gen_random_uuid(), ?::uuid, 'PO-122000', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
                 [self::TENANT_A, $supplierA, $warehouseA],
             );
         });
 
         self::assertSame(1, $this->countAsOwnerForTenant(
-            self::TENANT_A, "SELECT count(*) FROM purchase_order WHERE order_number = 'PO-SAME'"));
+            self::TENANT_A, "SELECT count(*) FROM purchase_order WHERE order_number = 'PO-122000'"));
 
         $thrown = null;
         try {
             $this->tenantContext()->run(self::TENANT_A, function () use ($supplierB, $warehouseA): void {
                 $this->app()->executeStatement(
                     "INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, idempotency_key, request_digest)
-                     VALUES (gen_random_uuid(), ?::uuid, 'PO-CROSS', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
+                     VALUES (gen_random_uuid(), ?::uuid, 'PO-109000', ?::uuid, ?::uuid, 'EUR', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))",
                     [self::TENANT_A, $supplierB, $warehouseA],
                 );
             });
@@ -188,7 +188,7 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
             'The insert failed for some reason other than the composite tenant foreign key: '.$thrown->getMessage());
 
         self::assertSame(0, $this->countAsOwnerForTenant(
-            self::TENANT_A, "SELECT count(*) FROM purchase_order WHERE order_number = 'PO-CROSS'"));
+            self::TENANT_A, "SELECT count(*) FROM purchase_order WHERE order_number = 'PO-109000'"));
     }
 
     /**

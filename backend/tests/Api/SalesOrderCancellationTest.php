@@ -273,7 +273,7 @@ final class SalesOrderCancellationTest extends PurchaseOrderTestCase
     }
 
     /** An order raised through the shipped create, with no lines — a legal empty draft. */
-    private function raiseADraft(string $sku = 'SO-CANC'): string
+    private function raiseADraft(string $sku = 'SO-138000'): string
     {
         $c = $this->salesWorkspace($sku);
         $this->send('POST', '/sales-orders', [
@@ -286,7 +286,7 @@ final class SalesOrderCancellationTest extends PurchaseOrderTestCase
     }
 
     /** The same, with one line, so the order can be confirmed first. */
-    private function raiseADraftWithALine(string $sku = 'SO-CANC-L'): string
+    private function raiseADraftWithALine(string $sku = 'SO-139000'): string
     {
         $c = $this->salesWorkspace($sku);
         $this->send('POST', '/sales-orders', [

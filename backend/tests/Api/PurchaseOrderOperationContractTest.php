@@ -311,7 +311,7 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
     #[Test]
     public function listingPurchaseOrdersRefusesAnArchivedParameter(): void
     {
-        $this->seedDraft(self::TENANT_A, 'PO-1');
+        $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->send('GET', '/purchase-orders?archived=true');
 

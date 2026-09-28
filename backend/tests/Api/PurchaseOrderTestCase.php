@@ -45,6 +45,32 @@ use Symfony\Component\Uid\Uuid;
  */
 abstract class PurchaseOrderTestCase extends ApiTestCase
 {
+    /** The last number {@see self::freshNumber()} handed out; the band 300001+ is reserved for it. */
+    private static int $lastFreshNumber = 300000;
+
+    /**
+     * A document number of the product's own shape (`PREFIX-dddddd`), unique for the whole process, for a
+     * fixture that seeds orders in a loop or from a shared helper and cannot name each one by hand.
+     *
+     * Added with CD-7 (2026-09-28): every `order_number` / `fulfilment_number` / `receipt_number` is pinned to
+     * six digits by a CHECK, so the free-text suffixes these seeds used (`SO-ARC-<tag>-<random hex>`,
+     * `SO-EW-<md5>`, …) are no longer writable. **A counter, never a random suffix:** a random six-digit
+     * number can collide with another seed on `*_tenant_number_live` and turn a green test into a flaky 23505
+     * (`RED` F7). **Spaced 100 apart**, because the writers mint `MAX + 1`: a test that seeds one of these and
+     * then creates through the API must not mint the number the next call would hand out. The band (300100 and
+     * up) is clear of the hand-named seeds (000001–000009, and 101000–216000 spaced 1000 apart for the same
+     * reason), of the list fixtures (900001+), and far enough below 999,999 to leave every test headroom.
+     */
+    protected static function freshNumber(string $prefix): string
+    {
+        self::$lastFreshNumber += 100;
+        if (self::$lastFreshNumber >= 900000) {
+            throw new \LogicException('freshNumber() ran into the list fixtures\' band (900001+).');
+        }
+
+        return \sprintf('%s-%06d', $prefix, self::$lastFreshNumber);
+    }
+
     /** @return string the new row's id */
     protected function seedWarehouse(string $tenantId, string $name = 'Main'): string
     {
@@ -367,7 +393,7 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      *
      * @return array{order: string, supplier: string, warehouse: string, item: string}
      */
-    protected function seedDraft(string $tenantId, string $orderNumber = 'PO-1', ?string $createdByUserId = null): array
+    protected function seedDraft(string $tenantId, string $orderNumber = 'PO-000001', ?string $createdByUserId = null): array
     {
         $supplier = $this->seedSupplier($tenantId, 'Acme '.$orderNumber);
         $warehouse = $this->seedWarehouse($tenantId, 'WH '.$orderNumber);

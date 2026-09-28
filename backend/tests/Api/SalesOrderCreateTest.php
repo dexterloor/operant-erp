@@ -189,7 +189,7 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
     public function anOrderAndItsLinesAreWrittenAtomicallyAndNumberedByPosition(): void
     {
         $c = $this->workspace();
-        $second = $this->seedItem(self::TENANT_A, 'SKU-SO-2');
+        $second = $this->seedItem(self::TENANT_A, 'SKU-SO-000002');
 
         $this->create($c, [
             ['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '10'],
@@ -318,7 +318,7 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
             'customer' => $customer,
             'address' => $address,
             'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
-            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-1'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-000001'),
         ];
 
         $this->create($c, null);
@@ -513,7 +513,7 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
             'customer' => $customer,
             'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
             'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
-            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-1'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-000001'),
         ];
     }
 

@@ -95,7 +95,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 // that matters reads a tenth of the table.
                 $c->executeStatement(<<<'SQL'
                     INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key, request_digest)
-                    SELECT gen_random_uuid(), ?::uuid, 'PO-' || g,
+                    SELECT gen_random_uuid(), ?::uuid, 'PO-' || lpad(g::text, 6, '0'), -- six digits: `purchase_order_number_shape` (CD-7)
                            (SELECT id FROM supplier  ORDER BY code LIMIT 1 OFFSET (g % 20)),
                            (SELECT id FROM warehouse ORDER BY code LIMIT 1 OFFSET (g % 2)),
                            'EUR',
@@ -115,7 +115,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
                                              idempotency_key, request_digest)
-                    SELECT gen_random_uuid(), ?::uuid, 'SO-' || g,
+                    SELECT gen_random_uuid(), ?::uuid, 'SO-' || lpad(g::text, 6, '0'), -- six digits: `sales_order_number_shape` (CD-7)
                            (SELECT id FROM customer  ORDER BY code LIMIT 1 OFFSET (g % 200)),
                            (SELECT id FROM warehouse ORDER BY code LIMIT 1 OFFSET (g % 2)),
                            'EUR',

@@ -120,7 +120,7 @@ final class SalesOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anOrderWithNoHumanAuthorRendersANullCreator(): void
     {
-        $order = $this->seedOrderRow(self::TENANT_A, 'SO-NOBODY');
+        $order = $this->seedOrderRow(self::TENANT_A, 'SO-176000');
 
         $this->send('GET', '/sales-orders/'.$order);
 
@@ -161,7 +161,7 @@ final class SalesOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function everyInvisibleIdGetsTheSameNotFound(): void
     {
-        $orderInB = $this->seedOrderRow(self::TENANT_B, 'SO-B');
+        $orderInB = $this->seedOrderRow(self::TENANT_B, 'SO-132000');
 
         $bodies = [];
         foreach ([$orderInB, Uuid::v4()->toRfc4122(), 'not-a-uuid'] as $id) {
@@ -183,7 +183,7 @@ final class SalesOrderReadTest extends PurchaseOrderTestCase
     #[Test]
     public function anArchivedOrderIsReadableByDirectHit(): void
     {
-        $order = $this->seedOrderRow(self::TENANT_A, 'SO-GONE', archived: true);
+        $order = $this->seedOrderRow(self::TENANT_A, 'SO-161000', archived: true);
 
         $this->send('GET', '/sales-orders/'.$order);
 
@@ -202,8 +202,8 @@ final class SalesOrderReadTest extends PurchaseOrderTestCase
         return [
             'customer' => $customer,
             'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
-            'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO-R'),
-            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-R'),
+            'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO-189000'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-189000'),
         ];
     }
 

@@ -92,7 +92,7 @@ trait ListOperationFixtures
             'ListPurchaseOrderLines' => function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Lines');
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Lines');
-                $order = $this->seedOrder(self::TENANT_A, 'PO-ENV-LINES', $supplier, $warehouse);
+                $order = $this->seedOrder(self::TENANT_A, 'PO-112000', $supplier, $warehouse);
 
                 return ['/purchase-orders/'.$order.'/lines', function (int $rows) use ($order): array {
                     for ($i = 1; $i <= $rows; ++$i) {
@@ -104,7 +104,7 @@ trait ListOperationFixtures
             },
             'ListFulfilments' => function (): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Fulfilments');
-                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-FUL', null, $warehouse,
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-155000', null, $warehouse,
                     SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
 
                 return ['/fulfilments', function (int $rows) use ($order, $warehouse): array {
@@ -147,7 +147,7 @@ trait ListOperationFixtures
                 }];
             },
             'ListSalesOrderLines' => function (): array {
-                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-LINES');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-156000');
 
                 return ['/sales-orders/'.$order.'/lines', function (int $rows) use ($order): array {
                     for ($i = 1; $i <= $rows; ++$i) {
@@ -170,11 +170,11 @@ trait ListOperationFixtures
                     // non-null** -- which is what `SalesOrderViews::legalSorts()` requires before it
                     // will offer `ordered_at` at all.
                     for ($i = 1; $i <= $rows; ++$i) {
-                        $this->seedSalesOrder(self::TENANT_A, 'SO-ENV-'.$i, $customer, $warehouse,
+                        $this->seedSalesOrder(self::TENANT_A, \sprintf('SO-9%05d', $i), $customer, $warehouse,
                             status: SalesOrder::STATUS_CONFIRMED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
                     }
 
-                    return ['filter' => ['customer_id' => $customer], 'search' => 'SO-ENV',
+                    return ['filter' => ['customer_id' => $customer], 'search' => 'SO-9',
                         'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
                 }];
             },
@@ -187,11 +187,11 @@ trait ListOperationFixtures
                     // default view, the Open segment and the supplier view all
                     // hold every row and every sort key is non-null.
                     for ($i = 1; $i <= $rows; ++$i) {
-                        $this->seedOrder(self::TENANT_A, 'PO-ENV-'.$i, $supplier, $warehouse,
+                        $this->seedOrder(self::TENANT_A, \sprintf('PO-9%05d', $i), $supplier, $warehouse,
                             status: PurchaseOrder::STATUS_ORDERED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
                     }
 
-                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'PO-ENV', 'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
+                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'PO-9', 'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
                 }];
             },
         ];

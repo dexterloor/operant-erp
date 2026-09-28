@@ -478,17 +478,17 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $archived = $this->remember($letter, 'archived_item', $this->seedItem($tenantId, 'SKU-ARCHIVED'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
-        $draft = $this->remember($letter, 'draft', $this->seedOrder($tenantId, 'PO-1', $supplier, $warehouse));
+        $draft = $this->remember($letter, 'draft', $this->seedOrder($tenantId, 'PO-000001', $supplier, $warehouse));
         $this->remember($letter, 'draft_line', $this->seedLine($tenantId, $draft, $item));
 
         $placed = $this->remember($letter, 'placed',
-            $this->seedOrder($tenantId, 'PO-2', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED));
+            $this->seedOrder($tenantId, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED));
         $this->remember($letter, 'placed_line', $this->seedLine($tenantId, $placed, $item));
 
         // The sales order reuses this tenant's own customer and warehouse rather than seeding fresh ones,
         // so the response's `customer` expansion is a symbol the digest can name — a cross-tenant answer
         // shows up as `B.customer` and not as an anonymous uuid.
-        $salesOrder = $this->remember($letter, 'sales_order', $this->seedSalesOrder($tenantId, 'SO-1', $customer, $warehouse));
+        $salesOrder = $this->remember($letter, 'sales_order', $this->seedSalesOrder($tenantId, 'SO-000001', $customer, $warehouse));
         // One line, so `ConfirmSalesOrder`'s baseline succeeds. Without it the line guard refuses every
         // drive with the same 409 and the probe compares a refusal with a refusal.
         $this->remember($letter, 'sales_order_line', $this->seedSalesOrderLine($tenantId, $salesOrder, $item));
@@ -501,7 +501,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
 
         // A CONFIRMED order with a line, so `GetPickList`'s baseline answers 200 (a draft is not-found there).
         $confirmed = $this->remember($letter, 'confirmed_sales_order', $this->seedSalesOrder(
-            $tenantId, 'SO-2', $customer, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z'));
+            $tenantId, 'SO-000002', $customer, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z'));
         $this->remember($letter, 'confirmed_sales_order_line', $this->seedSalesOrderLine($tenantId, $confirmed, $item));
         // Stock of that item in this tenant's `@bin` (same warehouse), so `CreateFulfilment`'s baseline succeeds.
         $this->insertAsOwnerForTenant($tenantId,

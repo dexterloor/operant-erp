@@ -24,7 +24,7 @@ final class InvoiceSchemaTest extends TenancyTestCase
     {
         yield 'five digits' => ['INV-12345', '23514'];
         yield 'seven digits' => ['INV-1234567', '23514'];
-        yield 'another document\'s shape' => ['INV-SO-1', '23514'];
+        yield 'another document\'s shape' => ['INV-SO-000001', '23514'];
         yield 'lower-case prefix' => ['inv-000001', '23514'];
         yield 'six digits (the control)' => ['INV-000001', 'accepted'];
     }
@@ -110,10 +110,15 @@ final class InvoiceSchemaTest extends TenancyTestCase
 
     // -----------------------------------------------------------------------
 
+    private static int $worlds = 400000;
+
     /** @return array{order: string, customer: string, fulfilment: string, user: string} */
     private function world(string $tenantId = self::TENANT_A): array
     {
         $tag = substr(Uuid::v4()->toRfc4122(), 0, 8);
+        // CD-7: `order_number` and `fulfilment_number` are pinned to six digits, so the random tag cannot be their
+        // suffix. A process-wide counter instead of a random number, so two worlds never collide (RED F7).
+        $number = \sprintf('%06d', ++self::$worlds);
         $user = Uuid::v4()->toRfc4122();
         $this->executeAsOwnerForTenant($tenantId,
             "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Invoice Fixture')",
@@ -132,14 +137,14 @@ final class InvoiceSchemaTest extends TenancyTestCase
                                      ship_to_country_code, status, ordered_at, idempotency_key, request_digest)
             VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, 'EUR', 'GB', 'confirmed', now(),
                     encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
-            SQL, [$order, $tenantId, 'SO-'.$tag, $customer, $warehouse]);
+            SQL, [$order, $tenantId, 'SO-'.$number, $customer, $warehouse]);
         $fulfilment = Uuid::v4()->toRfc4122();
         $this->executeAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number, shipped_by_user_id,
                                     idempotency_key, request_digest)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?::uuid,
                     encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
-            SQL, [$fulfilment, $tenantId, $order, $warehouse, 'FUL-'.$tag, $user]);
+            SQL, [$fulfilment, $tenantId, $order, $warehouse, 'FUL-'.$number, $user]);
 
         return ['order' => $order, 'customer' => $customer, 'fulfilment' => $fulfilment, 'user' => $user];
     }

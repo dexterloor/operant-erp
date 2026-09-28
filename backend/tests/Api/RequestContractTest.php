@@ -98,9 +98,8 @@ final class RequestContractTest extends PurchaseOrderTestCase
         // rather than drive the operation.
         $unseeded = $this->tenantFingerprint();
         $paths = [];
-        $n = 0;
         foreach ($writes as $name => $operation) {
-            $paths[$name] = $this->pathFor((string) $operation->getUriTemplate(), 'RC-'.++$n, str_starts_with($name, 'Restore'));
+            $paths[$name] = $this->pathFor((string) $operation->getUriTemplate(), str_starts_with($name, 'Restore'));
         }
 
         $seeded = $this->tenantFingerprint();
@@ -251,13 +250,13 @@ final class RequestContractTest extends PurchaseOrderTestCase
      * refusal that proved nothing. **A 404 wearing a refusal's clothes is not a
      * red; it is a green that means nothing.**
      */
-    private function pathFor(string $uriTemplate, string $orderNumber, bool $restore = false): string
+    private function pathFor(string $uriTemplate, bool $restore = false): string
     {
-        $draft = $this->seedDraft(self::TENANT_A, $orderNumber);
+        $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
         // Added 2026-09-19 with `ConfirmSalesOrder`. The order carries a line so that the request this
         // test sends is refused for the field it plants and not for the order being empty: a 409 from
         // the line guard would look like a refusal of the undeclared field and prove nothing.
-        $sales = $this->seedConfirmableSalesOrder($orderNumber, $draft['item']);
+        $sales = $this->seedConfirmableSalesOrder($draft['item']);
 
         $rows = [
             'items' => $draft['item'],
@@ -329,9 +328,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
      *
      * @return array{order: string, line: string}
      */
-    private function seedConfirmableSalesOrder(string $orderNumber, string $itemId): array
+    private function seedConfirmableSalesOrder(string $itemId): array
     {
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-'.$orderNumber);
+        $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'));
 
         return ['order' => $order, 'line' => $this->seedSalesOrderLine(self::TENANT_A, $order, $itemId)];
     }

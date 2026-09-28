@@ -27,7 +27,7 @@ use Symfony\Component\Uid\Uuid;
 final class PurchaseOrderLineIdempotencyTest extends PurchaseOrderTestCase
 {
     /** @return array{order: string, supplier: string, warehouse: string, item: string} */
-    private function draftWithAListedItem(string $number = 'PO-1'): array
+    private function draftWithAListedItem(string $number = 'PO-000001'): array
     {
         $draft = $this->seedDraft(self::TENANT_A, $number);
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
@@ -158,8 +158,8 @@ final class PurchaseOrderLineIdempotencyTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineCreateWithTheSameKeyOnAnotherOrderIsAConflict(): void
     {
-        $first = $this->draftWithAListedItem('PO-1');
-        $second = $this->seedOrder(self::TENANT_A, 'PO-2', $first['supplier'], $first['warehouse']);
+        $first = $this->draftWithAListedItem('PO-000001');
+        $second = $this->seedOrder(self::TENANT_A, 'PO-000002', $first['supplier'], $first['warehouse']);
         $key = Uuid::v4()->toRfc4122();
 
         $this->createLine($first['order'], self::body($first['item']), $key);

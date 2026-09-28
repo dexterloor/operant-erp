@@ -56,7 +56,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
         $this->send('POST', '/purchase-orders/'.$orderId.'/cancellation', $body);
     }
 
-    private function placedOrder(?string $createdBy = null, string $number = 'PO-1'): string
+    private function placedOrder(?string $createdBy = null, string $number = 'PO-000001'): string
     {
         return $this->seedOrder(
             self::TENANT_A,
@@ -108,7 +108,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     #[Test]
     public function cancellingADraftIsLegalAndKeepsItsEmptyOrderedDate(): void
     {
-        $draft = $this->seedDraft(self::TENANT_A, 'PO-1');
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
 
         $this->cancel($draft['order']);
 
@@ -144,7 +144,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     {
         $order = $this->seedOrder(
             self::TENANT_A,
-            'PO-1',
+            'PO-000001',
             $this->seedSupplier(self::TENANT_A, 'Acme'),
             $this->seedWarehouse(self::TENANT_A, 'Main'),
             null,
@@ -361,7 +361,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $theirs = $this->seedOrder(
             self::TENANT_B,
-            'PO-B',
+            'PO-103000',
             $this->seedSupplier(self::TENANT_B, 'Other'),
             $this->seedWarehouse(self::TENANT_B, 'Other'),
             $inB,
@@ -504,7 +504,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     {
         $order = $this->seedOrder(
             self::TENANT_A,
-            'PO-1',
+            'PO-000001',
             $this->seedSupplier(self::TENANT_A, 'Acme'),
             $this->seedWarehouse(self::TENANT_A, 'Main'),
             null,
@@ -531,7 +531,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     {
         $order = $this->seedOrder(
             self::TENANT_A,
-            'PO-1',
+            'PO-000001',
             $this->seedSupplier(self::TENANT_A, 'Acme'),
             $this->seedWarehouse(self::TENANT_A, 'Main'),
             null,
@@ -552,7 +552,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
         $inB = $this->seedPrincipal(self::TENANT_B, []);
         $theirs = $this->seedOrder(
             self::TENANT_B,
-            'PO-B',
+            'PO-103000',
             $this->seedSupplier(self::TENANT_B, 'Other'),
             $this->seedWarehouse(self::TENANT_B, 'Other'),
             $inB,

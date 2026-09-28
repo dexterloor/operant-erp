@@ -179,7 +179,7 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
     #[Test]
     public function anIdThisTenantCannotSeeIsNotFound(): void
     {
-        $other = $this->seedSalesOrder(self::TENANT_B, 'SO-B-1');
+        $other = $this->seedSalesOrder(self::TENANT_B, 'SO-133000');
 
         foreach ([$other, Uuid::v4()->toRfc4122(), 'not-a-uuid'] as $id) {
             $this->send('POST', '/sales-orders/'.$id.'/confirmation');
@@ -302,7 +302,7 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
             'customer' => $customer,
             'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
             'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH SO'),
-            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-1'),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-SO-000001'),
         ];
     }
 

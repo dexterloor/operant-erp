@@ -33,7 +33,7 @@ use Symfony\Component\Uid\Uuid;
 final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
 {
     /** @return array{order: string, item: string} */
-    private function draftWithASecondItem(string $number = 'SO-1'): array
+    private function draftWithASecondItem(string $number = 'SO-000001'): array
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail '.$number);
         $order = $this->seedSalesOrder(self::TENANT_A, $number, $customer, $this->seedWarehouse(self::TENANT_A, 'WH '.$number));
@@ -128,8 +128,8 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function theSameKeyOnAnotherOrderIsAConflictAndNeverAnotherOrdersLine(): void
     {
-        $first = $this->draftWithASecondItem('SO-1');
-        $second = $this->draftWithASecondItem('SO-2');
+        $first = $this->draftWithASecondItem('SO-000001');
+        $second = $this->draftWithASecondItem('SO-000002');
         $key = Uuid::v4()->toRfc4122();
 
         $this->createLine($first['order'], self::body($first['item']), $key);
@@ -210,7 +210,7 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
     public function aLineThatTipsTheOrdersTotalPastItsColumnIsRefusedRatherThanAnsweringA500(): void
     {
         $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail OVF');
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-OVF', $customer, $this->seedWarehouse(self::TENANT_A, 'WH OVF'));
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-185000', $customer, $this->seedWarehouse(self::TENANT_A, 'WH OVF'));
         // Individually legal: `numeric(19,4)` holds fifteen integer digits, and so does this.
         $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-OVF-A'),
             quantity: '1.000000', unitPrice: '999999999999999.9999');
@@ -257,8 +257,8 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
     #[Test]
     public function aLineIdBelongingToAnotherOrderIsNotFound(): void
     {
-        $a = $this->draftWithASecondItem('SO-1');
-        $b = $this->draftWithASecondItem('SO-2');
+        $a = $this->draftWithASecondItem('SO-000001');
+        $b = $this->draftWithASecondItem('SO-000002');
         $lineOfB = $this->seedSalesOrderLine(self::TENANT_A, $b['order'], $b['item']);
 
         $this->send('PATCH', '/sales-orders/'.$a['order'].'/lines/'.$lineOfB, ['quantity' => '9']);

@@ -380,7 +380,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
     #[Test]
     public function theReplayExemptionIsRealAndIsNotAnEscapeHatch(): void
     {
-        $context = $this->seedDraft(self::TENANT_A, 'PO-REPLAY');
+        $context = $this->seedDraft(self::TENANT_A, 'PO-121000');
         // `purchase_order_line.supplier_lists_the_item` fires before the edit window otherwise, and the
         // exemption would never be reached -- found by running this, not by reading `createLine()`.
         $this->seedSupplierProduct(self::TENANT_A, $context['supplier'], $context['item']);
@@ -615,7 +615,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         // shipped -- a state the API cannot produce (see the class docblock). `partially_fulfilled` is NOT
         // seeded since 2026-09-22: the order is seeded `confirmed` and a real `CreateFulfilment` moves it below.
         $apiProduced = SalesOrder::STATUS_PARTIALLY_FULFILLED === $status;
-        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-EW-'.substr(md5($status), 0, 6), $customer, $warehouse,
+        $order = $this->seedSalesOrder(self::TENANT_A, self::freshNumber('SO'), $customer, $warehouse,
             $apiProduced ? SalesOrder::STATUS_CONFIRMED : $status);
         $item = $this->seedItem(self::TENANT_A, 'SKU-EW-'.substr(md5($status), 0, 6));
         $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item);
@@ -672,7 +672,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
 
     private function drivePurchaseOrderEdit(string $operation, string $status): void
     {
-        $context = $this->seedDraft(self::TENANT_A, 'PO-EW-'.substr(md5($operation.$status), 0, 6));
+        $context = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
         $order = $context['order'];
         $line = $this->seedLine(self::TENANT_A, $order, $context['item']);
 
