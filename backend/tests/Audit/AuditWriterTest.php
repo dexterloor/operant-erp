@@ -304,6 +304,14 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             invoiceId: Uuid::v4()->toRfc4122(),
             paidAt: '2026-09-28T00:00:00.000+00:00',
         );
+        // Sales step 6, C6: `invoice.payment_reversed`, the writer's third business event.
+        $invoiceWriter->recordPaymentReversed(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
+            invoiceId: Uuid::v4()->toRfc4122(),
+            reason: 'Probe',
+        );
 
         $withIp = [];
         $written = [];

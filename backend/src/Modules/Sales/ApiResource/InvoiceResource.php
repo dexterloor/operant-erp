@@ -12,6 +12,7 @@ use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\InvoiceProvider;
 use App\Modules\Sales\ApiResource\State\IssueInvoiceProcessor;
 use App\Modules\Sales\ApiResource\State\PayInvoiceProcessor;
+use App\Modules\Sales\ApiResource\State\ReverseInvoicePaymentProcessor;
 use App\Modules\Sales\Application\FulfilmentRef;
 use App\Modules\Sales\Application\InvoiceView;
 use App\Modules\Sales\Application\SalesActorRef;
@@ -88,6 +89,24 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             read: false,
             processor: PayInvoiceProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'invoice.pay'],
+        ),
+        // Sales step 6, C6 (2026-09-28). `paid → issued` under `invoice.pay` itself (ADR-008 R-15), reason required,
+        // reverser ≠ recorder unless an owner (A2.3, the one owner predicate). 200 with the invoice in its new state
+        // (API-21 branch 5); `guard:invoice.status`, so no `Idempotency-Key` is demanded.
+        new Post(
+            uriTemplate: '/invoices/{id}/payment-reversal',
+            name: 'ReverseInvoicePayment',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'ReverseInvoicePayment'),
+            input: ReverseInvoicePaymentInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                'api_allow_update' => false,
+            ],
+            read: false,
+            processor: ReverseInvoicePaymentProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'invoice.pay'],
         ),
     ],

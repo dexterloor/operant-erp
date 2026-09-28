@@ -148,6 +148,17 @@ class Invoice
     #[ORM\JoinColumn(name: 'paid_by_user_id', referencedColumnName: 'id', nullable: true)]
     private ?AppUser $paidBy = null;
 
+    /**
+     * **B′: when a payment on this invoice was FIRST reversed** (sales step 6, C6; owner ruling (d), `SEC` §15). Set once,
+     * never cleared. **Read-only to the ORM** (`insertable: false, updatable: false`): `reversePayment()` does not write
+     * it. `InvoicePaymentReversal` sets it with `COALESCE(payment_reversed_at, now())` in SQL, after the flush, in the
+     * same locked transaction — the database clock, the same clock as `issued_at` and
+     * `invoice_payment_reversed_not_before_issue` (RED-3 F-1). C7's `VoidInvoice` reads it (only an owner may void a
+     * reversed invoice). Not on the wire (`SEC` §17.2 permits a `payment_reversed` boolean; not built — see the build log).
+     */
+    #[ORM\Column(name: 'payment_reversed_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true, insertable: false, updatable: false)]
+    private ?\DateTimeImmutable $paymentReversedAt = null;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
@@ -251,13 +262,38 @@ class Invoice
     public function markPaid(\DateTimeImmutable $paidAt, AppUser $paidBy): void
     {
         // `void()` voids the invoice, not the payment, so a `void` invoice that could be marked paid would leave a
-        // settled receivable with no way back. §8.3: `issued` or `overdue`. (The way back from `paid` is the
-        // reversal, `ReverseInvoicePayment` — never a void.)
+        // settled receivable with no way back. §8.3: `issued` or `overdue`. (The way back from `paid` is
+        // `reversePayment()` — never a void.)
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED, self::STATUS_OVERDUE]);
 
         $this->status = self::STATUS_PAID;
         $this->paidAt = $paidAt;
         $this->paidBy = $paidBy;
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
+    public function getPaymentReversedAt(): ?\DateTimeImmutable
+    {
+        return $this->paymentReversedAt;
+    }
+
+    /**
+     * **The payment reversal: `paid → issued` and nothing else** (§8.3; ADR-008 A2.3, A2.3a; sales step 6, C6). A
+     * payment recorded in error is undone; the invoice returns to unpaid and the reversal stands in its History.
+     *
+     * It clears `paid_at` AND `paid_by` together — the two-way `invoice_paid_at_matches_status` and
+     * `invoice_paid_by_matches_status` refuse a half-clear (A2.3a: "clearing on reversal loses no history" — the
+     * `invoice.paid` row keeps the recorder and the date). **It takes no actor**: the reverser is the audit row's actor,
+     * and the reverser ≠ recorder rule is `InvoicePaymentReversal`'s, decided before this is flushed. **It does not
+     * write `payment_reversed_at`** (read-only to the ORM; the writer's SQL sets it once, on the database clock).
+     */
+    public function reversePayment(): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PAID]);
+
+        $this->status = self::STATUS_ISSUED;
+        $this->paidAt = null;
+        $this->paidBy = null;
         $this->updatedAt = new \DateTimeImmutable();
     }
 

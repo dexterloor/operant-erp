@@ -164,6 +164,9 @@
     "RestoreSalesOrderLine $.unit_price": [
         4
     ],
+    "ReverseInvoicePayment $.total_amount": [
+        4
+    ],
     "UpdateItem $.reorder_point": [
         6
     ],

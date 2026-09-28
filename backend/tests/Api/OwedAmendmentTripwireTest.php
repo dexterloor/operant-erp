@@ -220,7 +220,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string> correction operationId => the residual row carrying its absence
      */
     private const INVOICE_CORRECTIONS_NOT_YET_BUILT = [
-        'ReverseInvoicePayment' => 'RESIDUAL_GAPS.md G-14 (payment half; closed by C6)',
+        // `ReverseInvoicePayment` LEFT this map on 2026-09-28 (sales step 6, C6), which shipped it and closed G-14's
+        // payment half in the same commit — this test was red until both were done, as its docblock says.
         'VoidInvoice' => 'RESIDUAL_GAPS.md G-14 (void half; closed by C7)',
     ];
 
@@ -718,9 +719,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         ));
 
         // Planted controls: the function is not vacuous in either direction.
+        // The pending map is planted as a literal (not `INVOICE_CORRECTIONS_NOT_YET_BUILT`) since C6 emptied that map of
+        // `ReverseInvoicePayment`: a control that reads the live map would stop controlling anything the day it empties.
         $plantBuilt = $built + ['IssueInvoice' => true, 'ReverseInvoicePayment' => true];
         self::assertSame(['ReverseInvoicePayment is built and still listed as not built: close its half of the residual.'],
-            self::invoiceCorrectionDefects(array_diff_key($plantBuilt, ['VoidInvoice' => true]), self::INVOICE_CORRECTIONS_NOT_YET_BUILT),
+            self::invoiceCorrectionDefects(array_diff_key($plantBuilt, ['VoidInvoice' => true]), ['ReverseInvoicePayment' => 'x', 'VoidInvoice' => 'y']),
             'A built correction still listed as pending did not fail the check.');
         self::assertSame(['VoidInvoice is neither built nor named against a residual row.'],
             self::invoiceCorrectionDefects(['IssueInvoice' => true], ['ReverseInvoicePayment' => 'x']),

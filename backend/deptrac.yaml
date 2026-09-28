@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-28 with `ReverseInvoicePayment` in the tree (sales step 6, C6): the three commands return
+  # **103 / 71 / 9** -- TWO edge lines added: `InvoicePaymentReversal -> InvoiceAuditWriter` (A-5) and
+  # `InvoicePaymentReversal -> Entity\Invoice` (A-7). At C6a (`OwnerPredicate`) no line was added: `PurchasingApplication`
+  # and `SalesApplication` may both use `UserManagementContract`.)
   # (Re-derived 2026-09-28 with `PayInvoice` in the tree (sales step 6, C5): the three commands return
   # **101 / 70 / 8** -- TWO edge lines added: `InvoicePayment -> InvoiceAuditWriter` (A-5, the synchronous
   # `invoice.paid` row) and `InvoicePayment -> Entity\Invoice` (A-7, `markPaid()` under the lock). `make deptrac`:
@@ -327,6 +331,12 @@ deptrac:
       # `PayInvoice` (sales step 6 C5, 2026-09-28): the synchronous `invoice.paid` row (`InvoiceIssuer`'s A-5 shape),
       # and the entity whose status guard `markPaid()` it invokes after `InvoiceRowLock` (`SalesOrderCancellation`'s
       # A-7 shape). The payer's `AppUser` reference is taken through the entity's own mapping, so no cross-module edge.
+      - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\InvoicePaymentReversal:
+      # `ReverseInvoicePayment` (sales step 6 C6, 2026-09-28): the synchronous `invoice.payment_reversed` row (A-5) and
+      # the entity whose `reversePayment()` guard it invokes under `InvoiceRowLock` (A-7) -- `InvoicePayment`'s shape.
+      # The owner exemption is `OwnerPredicate`, in `UserManagementContract`, which `SalesApplication` may already use.
       - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\InvoiceReader:

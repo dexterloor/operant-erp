@@ -152,16 +152,16 @@ final class TransitionGuardTest extends TestCase
             'to' => [Invoice::STATUS_PAID],
             'blocks' => [],
         ],
-        // ⚠ **Added 2026-09-14 (owner ruling on OI-2).** §8.3 now declares
-        // `paid → issued` legal — a payment recorded in error — and no method
-        // performs it, so the matrix was green over the gap until this row named
-        // it. `STATUS_ISSUED` is the initial status, so clause (b)'s pin does not
-        // move; clause (c) is what this row feeds.
+        // ⚠ **Added 2026-09-14 (owner ruling on OI-2)** as `'method' => null` with `'blocks' =>
+        // ['ReverseInvoicePayment']`: §8.3 declared `paid → issued` legal and no method performed it. **Sales step 6
+        // C6 (2026-09-28) wrote `reversePayment()` and ships the operation**, so the row names it and `blocks` empties.
+        // It was the LAST null-method row: §8.3 clause (c) now holds literally, and the two clause-(c) tests below
+        // retire their anti-vacuity to planted rows (`ARCH` §5.2), as clause (b)'s pin did on 2026-09-22.
         [
-            'entity' => Invoice::class, 'method' => null, // payment reversal, ⛔ no method
+            'entity' => Invoice::class, 'method' => 'reversePayment',
             'from' => [Invoice::STATUS_PAID],
             'to' => [Invoice::STATUS_ISSUED],
-            'blocks' => ['ReverseInvoicePayment'],
+            'blocks' => [],
         ],
         [
             'entity' => Invoice::class, 'method' => 'markOverdue',
@@ -880,22 +880,65 @@ final class TransitionGuardTest extends TestCase
     #[Test]
     public function everyUnimplementedRowNamesTheOperationsItBlocks(): void
     {
-        $rows = 0;
-        $unrouted = [];
+        self::assertSame([], self::unroutedRows(self::MATRIX), 'A matrix row declares a transition no method performs and names no blocked operation.');
 
-        foreach (self::MATRIX as $index => $row) {
-            if (null !== $row['method'] && method_exists($row['entity'], $row['method'])) {
-                continue;
+        // ⚠ **RETIRED ITS ANTI-VACUITY on 2026-09-28** (sales step 6 C6: `Invoice::reversePayment()`, the last
+        // unimplemented row). This read `assertGreaterThan(0, $rows)` — "no row is unimplemented, so this clause had no
+        // subject" — which is now the RIGHT answer: §8.3 clause (c) holds literally. So the literal hold is asserted,
+        // and the helper is proven live on a PLANTED row every run (`ARCH` §5.2, `PINNED_UNREACHABLE`'s precedent).
+        if ([] === self::unimplementedRows(self::MATRIX)) {
+            self::assertNotSame([], self::MATRIX, 'The matrix is empty, so clause (c) holds over nothing.');
+            foreach (self::MATRIX as $row) {
+                self::assertTrue(null !== $row['method'] && method_exists($row['entity'], $row['method']),
+                    'A row names no existing method, yet no row was counted as unimplemented.');
             }
+        }
+        $planted = [...self::MATRIX, ['entity' => Invoice::class, 'method' => null, 'from' => [Invoice::STATUS_PAID], 'to' => [Invoice::STATUS_ISSUED], 'blocks' => []]];
+        self::assertCount(1, self::unroutedRows($planted), 'A planted null-method row naming no blocked operation was not found, so this clause is blind.');
+    }
 
-            ++$rows;
+    /**
+     * @param list<array{entity: class-string, method: ?string, from: list<string>, to: list<string>, blocks: list<string>}> $matrix
+     *
+     * @return list<array{entity: class-string, method: ?string, from: list<string>, to: list<string>, blocks: list<string>}>
+     */
+    private static function unimplementedRows(array $matrix): array
+    {
+        return array_values(array_filter($matrix, static fn (array $row): bool => null === $row['method'] || !method_exists($row['entity'], $row['method'])));
+    }
+
+    /**
+     * @param list<array{entity: class-string, method: ?string, from: list<string>, to: list<string>, blocks: list<string>}> $matrix
+     *
+     * @return list<string>
+     */
+    private static function unroutedRows(array $matrix): array
+    {
+        $unrouted = [];
+        foreach (self::unimplementedRows($matrix) as $index => $row) {
             if ([] === $row['blocks']) {
                 $unrouted[] = $row['entity'].' row '.$index.' → '.implode(', ', $row['to']);
             }
         }
 
-        self::assertGreaterThan(0, $rows, 'No row is unimplemented, so this clause had no subject — retire it with the pin.');
-        self::assertSame([], $unrouted, 'A matrix row declares a transition no method performs and names no blocked operation.');
+        return $unrouted;
+    }
+
+    /**
+     * @param list<array{entity: class-string, method: ?string, from: list<string>, to: list<string>, blocks: list<string>}> $matrix
+     *
+     * @return list<string>
+     */
+    private static function blockedOperations(array $matrix): array
+    {
+        $blocked = [];
+        foreach (self::unimplementedRows($matrix) as $row) {
+            $blocked = [...$blocked, ...$row['blocks']];
+        }
+        $blocked = array_values(array_unique($blocked));
+        sort($blocked);
+
+        return $blocked;
     }
 
     /**
@@ -917,17 +960,7 @@ final class TransitionGuardTest extends TestCase
         $matrixSection = ContractDocument::sectionBetween('### 8.3 ', '## 9. ');
         $openItems = ContractDocument::sectionBetween('### 14.1 ', '### 14.2 ');
 
-        $blocked = [];
-        foreach (self::MATRIX as $row) {
-            if (null !== $row['method'] && method_exists($row['entity'], $row['method'])) {
-                continue;
-            }
-            $blocked = [...$blocked, ...$row['blocks']];
-        }
-        $blocked = array_values(array_unique($blocked));
-        sort($blocked);
-
-        self::assertNotSame([], $blocked, 'No blocked operation was collected, so this clause had no subject.');
+        $blocked = self::blockedOperations(self::MATRIX);
 
         $undeclared = array_values(array_filter($blocked, static fn (string $id): bool => !isset($declared[$id])));
         self::assertSame([], $undeclared, 'A matrix row is blocking an operation §4.2 does not declare.');
@@ -935,11 +968,22 @@ final class TransitionGuardTest extends TestCase
         $unmarked = array_values(array_filter($blocked, static fn (string $id): bool => !str_contains($matrixSection, '`'.$id.'`')));
         self::assertSame([], $unmarked, '§8.3 does not name this operation as blocked on a missing method.');
 
-        self::assertMatchesRegularExpression(
-            '/\|\s*Output 9\s*\|/',
-            $openItems,
-            '§14.1 carries no open item owned by Output 9, so the missing transitions are routed nowhere.',
-        );
+        if ([] !== $blocked) {
+            // Moved inside the non-empty branch on 2026-09-28 (`ARCH` §5.2): with nothing blocked it has no subject, and
+            // it would go red spuriously the day §14.1's Output 9 items all close.
+            self::assertMatchesRegularExpression(
+                '/\|\s*Output 9\s*\|/',
+                $openItems,
+                '§14.1 carries no open item owned by Output 9, so the missing transitions are routed nowhere.',
+            );
+        }
+
+        // ⚠ **RETIRED ITS ANTI-VACUITY on 2026-09-28** (sales step 6 C6 wrote the last missing method). This read
+        // `assertNotSame([], $blocked)`; nothing is blocked now, which is §8.3 clause (c) holding literally. The planted
+        // control runs every run instead: a synthetic row blocking an operation §4.2 does not declare must be named.
+        $planted = [...self::MATRIX, ['entity' => Invoice::class, 'method' => null, 'from' => [Invoice::STATUS_PAID], 'to' => [Invoice::STATUS_ISSUED], 'blocks' => ['NoSuchOperation']]];
+        self::assertSame(['NoSuchOperation'], array_values(array_filter(self::blockedOperations($planted), static fn (string $id): bool => !isset($declared[$id]))),
+            'A planted row blocking an undeclared operation was not reported, so this clause is blind.');
     }
 
     /**

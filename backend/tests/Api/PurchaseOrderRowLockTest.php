@@ -1349,6 +1349,35 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Reverse ∥ reverse (sales step 6, C6): two colleagues undo the same payment.** A takes the invoice's lock and,
+     * under it, reverses as `erp_app` would (the ORM's four columns, then B′'s `COALESCE`). The real
+     * `ReverseInvoicePayment` must wait, re-read the invoice as `issued`, and be refused by the status guard — one
+     * `invoice.payment_reversed` row (A's is raw SQL and writes none, so zero), B′'s column untouched by the loser.
+     * (Pay ∥ reverse cannot race on one source: a reversal needs `paid`, a payment needs `issued` or `overdue`.)
+     */
+    #[Test]
+    public function aSecondReversalWaitsForTheFirstAndIsRefusedByTheStatusGuard(): void
+    {
+        $i = $this->issuedInvoice('RACE-REV');
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame(200, $this->httpStatus(), 'Fixture: the payment was refused.');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            ["UPDATE invoice SET status = 'issued', paid_at = NULL, paid_by_user_id = NULL, updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
+            ['UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, now()) WHERE id = ?::uuid', [$i['invoice']]],
+        ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/payment-reversal', ['reason' => 'Concurrent']), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.'.self::STATUS_RULE, $this->json()['rule']);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::INVOICE_PAYMENT_REVERSED]),
+            'The refused reversal wrote a trail row.');
+    }
+
+    /**
      * **The invoice half of the position check: in every invoice write path the invoice's row lock is the first
      * statement that touches the invoice** (sales step 6, C5). Supplement, not evidence on its own — the race above
      * proves the behaviour. The lock is spelled here independently of `InvoiceRowLock::SQL`.
@@ -1360,6 +1389,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     public function theInvoiceRowLockIsTheFirstStatementToTouchTheInvoice(string $method, string $path, ?array $body, int $status, string $actAs): void
     {
         $i = $this->issuedInvoice('LOCK-INV');
+        if (str_contains($path, '{paid}')) {
+            $path = str_replace('{paid}', '', $path);
+            $this->actAsRole(DefaultRoles::FINANCE);
+            $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+            self::assertSame(200, $this->httpStatus(), 'Fixture: the payment was refused.');
+        }
         $this->actAsRole($actAs);
 
         $this->recorder()->start();
@@ -1383,6 +1418,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             '/^\s*UPDATE\s+invoice\b/i', $statements,
         )));
         self::assertCount(1, $writing, 'Expected exactly one transaction writing the invoice.');
+        // Every write of the invoice in that transaction comes after the lock, not only the first touch.
 
         $touching = array_values(preg_grep('/\binvoice\b/', $writing[0]));
         self::assertMatchesRegularExpression(
@@ -1397,6 +1433,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     {
         // The invoice is issued through the API by a `sales_rep`; `finance` records the payment.
         yield 'PayInvoice' => ['POST', '/invoices/{invoice}/payment', [], 200, DefaultRoles::FINANCE];
+        // `{paid}`: the invoice is first PAID through the API by another `finance` user, so the reversal really writes
+        // (a refused drive issues no write). Two `UPDATE invoice` statements, one transaction.
+        yield 'ReverseInvoicePayment' => ['POST', '/invoices/{invoice}/payment-reversal{paid}', ['reason' => 'Lock position'], 200, DefaultRoles::FINANCE];
     }
 
     /**
@@ -1780,6 +1819,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     /** `everyInvoiceWritePath()`'s case => the method it enters. The keys must be exactly that provider's cases. */
     private const INVOICE_LOCK_FIRST_CHECKED = [
         'PayInvoice' => 'InvoicePayment::pay',
+        // Sales step 6, C6: the ORM flush of `reversePayment()` and B′'s `UPDATE invoice SET payment_reversed_at`.
+        'ReverseInvoicePayment' => 'InvoicePaymentReversal::reverse',
     ];
 
     private const INVOICE_ALLOWED_WITHOUT_A_LOCK = [

@@ -37,6 +37,8 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         'GetInvoice' => ['method' => 'GET', 'path' => '/invoices/{id}', 'idem' => false],
         // Sales step 6, C5 (2026-09-28). `guard:invoice.status`: no header demanded.
         'PayInvoice' => ['method' => 'POST', 'path' => '/invoices/{id}/payment', 'idem' => false],
+        // Sales step 6, C6 (2026-09-28). `guard:invoice.status`.
+        'ReverseInvoicePayment' => ['method' => 'POST', 'path' => '/invoices/{id}/payment-reversal', 'idem' => false],
     ];
 
     #[Test]

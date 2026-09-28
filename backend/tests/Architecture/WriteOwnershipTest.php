@@ -158,7 +158,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **6 -> 7 on 2026-09-28** (sales step 6, C5): `InvoiceAuditWriter::recordPaid()`'s `INSERT INTO audit_log` for
         // `invoice.paid`, whose `metadata` is `jsonb_build_object('paid_at', ?)`. `Modules\\Sales` did NOT move:
         // `InvoicePayment` writes through an ORM flush, and `InvoiceRowLock` is a `FOR NO KEY UPDATE` this scan excludes.
-        'Modules\\AuditLog' => 7,
+        // **7 -> 8 on 2026-09-28** (sales step 6, C6): `InvoiceAuditWriter::recordPaymentReversed()`'s `INSERT INTO
+        // audit_log` for `invoice.payment_reversed`, metadata `jsonb_build_object('reason', ?)`.
+        'Modules\\AuditLog' => 8,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
@@ -203,7 +205,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // statements are Inventory's (`StockDepleter`), counted there.
         // **12 -> 13 on 2026-09-28** (sales step 6, C3): `InvoiceIssuer`'s one `INSERT INTO invoice (<the ten>)
         // SELECT …`, the first write of `invoice` from `src/`. `invoice` is `Modules\\Sales`' own table.
-        'Modules\\Sales' => 13,
+        // **13 -> 14 on 2026-09-28** (sales step 6, C6): `InvoicePaymentReversal::MARK_REVERSED`, `UPDATE invoice SET
+        // payment_reversed_at = COALESCE(payment_reversed_at, now())` -- B′'s set-once column, written in SQL on the
+        // database clock (RED-3 F-1). The reversal's status change is an ORM flush and is not counted.
+        'Modules\\Sales' => 14,
         'Modules\\UserManagement' => 5,
     ];
 

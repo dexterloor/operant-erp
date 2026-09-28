@@ -561,6 +561,19 @@ final class AuditEvent
     public const INVOICE_PAID = 'invoice.paid';
 
     /**
+     * **A recorded payment, undone** — minted 2026-09-28 with `ReverseInvoicePayment` (sales step 6, C6): `paid →
+     * issued`, under `invoice.pay`, by someone other than the recorder unless an owner (ADR-008 A2.3; the owner is the
+     * owner-marker holder, `OwnerPredicate`). OI-2 named it with the other corrections.
+     *
+     * **Filed by `SEC` before the code** (`output9-sales-7-sec.md` §5.1): **business**, subject the invoice, actor the
+     * reverser, `metadata` **`{"reason": <string>}`** — required, so always present (`{}` is not a legal shape); it does
+     * NOT copy the reversed recorder's id or `paid_at`, which the `invoice.paid` row it undoes already holds. **Step 6
+     * does not apply** (business: no IP). Written by `InvoiceAuditWriter::recordPaymentReversed()` in the reversing
+     * transaction; `InvoicePaymentReversalTest` reads it back cell by cell.
+     */
+    public const INVOICE_PAYMENT_REVERSED = 'invoice.payment_reversed';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -588,6 +601,7 @@ final class AuditEvent
         self::SALES_ORDER_CANCELLED,
         self::INVOICE_ISSUED,
         self::INVOICE_PAID,
+        self::INVOICE_PAYMENT_REVERSED,
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
@@ -645,6 +659,7 @@ final class AuditEvent
         self::SALES_ORDER_CANCELLED,
         self::INVOICE_ISSUED,
         self::INVOICE_PAID,
+        self::INVOICE_PAYMENT_REVERSED,
         self::STOCK_MOVEMENT_ADJUSTED,
     ];
 
@@ -695,6 +710,7 @@ final class AuditEvent
         self::SALES_ORDER_CANCELLED => 'sales_order',
         self::INVOICE_ISSUED => 'invoice',
         self::INVOICE_PAID => 'invoice',
+        self::INVOICE_PAYMENT_REVERSED => 'invoice',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',

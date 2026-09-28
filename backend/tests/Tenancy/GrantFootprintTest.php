@@ -822,11 +822,11 @@ final class GrantFootprintTest extends TenancyTestCase
 
     /**
      * The `invoice` columns the invoice's UPDATE writers set, and no others (sales step 6: C5 `PayInvoice`,
-     * `Version20260928000400`). **Typed by hand from the SET lists measured in the statement log (M-11), never read from
+     * `Version20260928000400`; C6 `ReverseInvoicePayment` adds `payment_reversed_at`, `Version20260928000600`). **Typed by hand from the SET lists measured in the statement log (M-11), never read from
      * `SchemaManifest`** — `APP_USER_COLUMNS_THE_CALLERS_WRITE`'s reason: a copy derived from the manifest cannot see the
      * manifest and the migration widen together.
      */
-    private const INVOICE_COLUMNS_THE_CALLERS_WRITE = ['paid_at', 'paid_by_user_id', 'status', 'updated_at'];
+    private const INVOICE_COLUMNS_THE_CALLERS_WRITE = ['paid_at', 'paid_by_user_id', 'payment_reversed_at', 'status', 'updated_at'];
 
     /**
      * **C5: `erp_app` can UPDATE exactly the `invoice` columns its writers set — proved by running the statement as

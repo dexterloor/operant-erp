@@ -158,6 +158,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second payment of a paid invoice: a second invoice.paid row, and the recorder or paid_at '
                 .'overwritten (sales step 6 C5). Its mechanism is the status guard, which refuses the replay.',
         ],
+        'ReverseInvoicePayment' => [
+            'method' => 'replayReverseInvoicePayment',
+            'why' => 'A second reversal of a reversed payment: a second invoice.payment_reversed row, or B′\'s '
+                .'payment_reversed_at moved (sales step 6 C6). Its mechanism is the status guard: the invoice is issued again.',
+        ],
         'CancelSalesOrder' => [
             'method' => 'replayCancelSalesOrder',
             'why' => 'A second cancellation of a cancelled order. Status guard, as the purchase mirror above -- and '
@@ -582,6 +587,31 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             [$i['invoice']]), $why);
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::INVOICE_PAID, $i['invoice']]), $why);
+    }
+
+    private function replayReverseInvoicePayment(string $why): void
+    {
+        $i = $this->issuedInvoice('IDEM-REV');
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment-reversal', ['reason' => 'First']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, paid_at::text AS paid_at, payment_reversed_at::text AS reversed, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid',
+            [$i['invoice']]);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment-reversal', ['reason' => 'Second']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, paid_at::text AS paid_at, payment_reversed_at::text AS reversed, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid',
+            [$i['invoice']]), $why);
+        self::assertSame([['reason' => 'First']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT metadata->>'reason' AS reason FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid",
+            [AuditEvent::INVOICE_PAYMENT_REVERSED, $i['invoice']]), $why);
     }
 
     private function replayApprovePurchaseOrder(string $why): void

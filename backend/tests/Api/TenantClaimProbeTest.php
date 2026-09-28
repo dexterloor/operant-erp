@@ -212,6 +212,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Sales step 6 C5: the payment of an invoice issued in each tenant; the body is empty (`paid_at` defaults), so a
         // supplied tenant id that moved the write would pay B's invoice, which the digest names.
         'PayInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice', 'body' => []],
+        // Sales step 6 C6: the reversal of a payment recorded in each tenant by ANOTHER user of that tenant (the
+        // reverser may not be the recorder, A2.3), so the baseline succeeds and a probe that moved the write would
+        // reverse B's payment, which the digest names.
+        'ReverseInvoicePayment' => ['vars' => ['id' => 'invoice'], 'setup' => 'paid_invoice', 'body' => ['reason' => 'Probe']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -375,6 +379,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('invoice' === ($recipe['setup'] ?? null)) {
             $this->seedInvoice('A');
             $this->seedInvoice('B');
+        }
+        if ('paid_invoice' === ($recipe['setup'] ?? null)) {
+            $this->seedPaidInvoice('A', self::TENANT_A);
+            $this->seedPaidInvoice('B', self::TENANT_B);
         }
 
         $before = $this->tenantBDigest();
@@ -571,6 +579,23 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
 
         $this->remember($letter, 'invoice', (string) $this->json()['id']);
+    }
+
+    /**
+     * An invoice issued through the operation, then marked paid AS THE OWNER by a second user of the same tenant, so
+     * the tenant's own token may reverse it (C6: the reverser may not be the recorder).
+     */
+    private function seedPaidInvoice(string $letter, string $tenantId): void
+    {
+        $this->seedInvoice($letter);
+        $recorder = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)
+            VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Recorder')
+            SQL, [$recorder, $tenantId, 'recorder-'.$recorder.'@example.test']);
+        $this->insertAsOwnerForTenant($tenantId,
+            "UPDATE invoice SET status = 'paid', paid_at = now(), paid_by_user_id = ?::uuid WHERE id = ?::uuid",
+            [$recorder, $this->id($letter, 'invoice')]);
     }
 
     private function remember(string $letter, string $name, string $id): string

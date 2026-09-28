@@ -125,6 +125,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // (`output9-sales-7-sec.md` §5.1: business, subject the invoice, actor the payer, metadata `{"paid_at"}`).
         // About the invoice's own payment state, not a principal's privileges; subject `invoice`, so (4c) does not reach it.
         'invoice.paid',
+        // Added 2026-09-28 with `ReverseInvoicePayment` (sales step 6, C6), by hand, ratifying `SEC`'s filing (§5.1:
+        // business, subject the invoice, actor the reverser, metadata `{"reason"}`). The invoice's own payment state.
+        'invoice.payment_reversed',
         'stock_movement.adjusted',
     ];
 

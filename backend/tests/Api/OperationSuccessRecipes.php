@@ -364,6 +364,20 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, invoice, then record the payment'];
             }],
+            // Sales step 6, C6: issued through the API, PAID by a second principal (its own token, sent explicitly), then
+            // reversed by the rig's principal -- the reverser may not be the recorder (A2.3) -- so the 200 body every
+            // walker sees is the POST-REVERSAL shape: `issued`, `paid_at` and `paid_by` null (RED-3 N-6: without this
+            // recipe that shape is never observed). The rig's actor is NOT switched: later recipes (`ChangePassword`,
+            // `IssueToken`) were prepared against it, and switching it reddened both (measured on the first run).
+            'ReverseInvoicePayment' => [fn (): array => $stockedSalesWorkspace('SO-166000') + ['payer' => $this->seedPrincipal(self::TENANT_A, self::everyDeclaredPermission())], function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $invoice.'/payment', [], ['Authorization' => 'Bearer '.$this->tokenFor(self::TENANT_A, $c['payer'])]);
+                $this->send('POST', $invoice.'/payment-reversal', ['reason' => 'Recorded against the wrong invoice.']);
+
+                return [200, 'create, confirm, fulfil, invoice, pay, then reverse the payment as someone else'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
