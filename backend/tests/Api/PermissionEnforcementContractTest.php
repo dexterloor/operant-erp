@@ -57,6 +57,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 6, C3: the invoice read and its issue (SoD-4: `invoice.issue` is never `warehouse_operator`'s).
         'GetInvoice' => 'invoice.view',
         'IssueInvoice' => 'invoice.issue',
+        'ListInvoices' => 'invoice.view',
         // Sales step 6 C1 (2026-09-23): the register, the row's own `Perm` cell. `warehouse_operator` holds it.
         'ListFulfilments' => 'fulfilment.view',
         // Sales step 5 C3 (2026-09-22): the pick read, `fulfilment.view` ALONE (V2-S-1b clause 3, owner ruling R7).

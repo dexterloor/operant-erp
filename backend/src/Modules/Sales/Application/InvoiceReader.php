@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Application;
 
 use App\Modules\Sales\Infrastructure\Entity\Invoice;
+use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
@@ -59,6 +60,104 @@ final readonly class InvoiceReader
         );
 
         return false === $row ? null : self::view($row);
+    }
+
+    /**
+     * **`ListInvoices`** (sales step 6, C4) — one keyset page (API-17/API-18) in the view's one order, each row the
+     * same document `GetInvoice` answers, `status` derived the same way.
+     *
+     * Membership is decided on the **stored** status (TB-4), never on the derived one: the derivation only relabels a
+     * row. A `customer_id` or `fulfilment_id` naming another workspace's row, or none, is a predicate no visible row
+     * satisfies — RLS bounds `invoice` to the caller's workspace — so the answer is the same empty 200 (`SEC` §9.6);
+     * nothing is probed, so there is nothing to 404 on.
+     */
+    public function list(InvoiceListCriteria $criteria): InvoicePage
+    {
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): InvoicePage {
+            $connection = $em->getConnection();
+            $where = [];
+            $parameters = self::statusParameters();
+
+            if ([] !== $criteria->statuses) {
+                $where[] = 'inv.status IN ('.implode(', ', array_fill(0, \count($criteria->statuses), '?::text')).')';
+                $parameters = [...$parameters, ...$criteria->statuses];
+            }
+            if (null !== $criteria->customerId) {
+                $where[] = 'inv.customer_id = ?::uuid';
+                $parameters[] = $criteria->customerId;
+            }
+            if (null !== $criteria->fulfilmentId) {
+                $where[] = 'inv.fulfilment_id = ?::uuid';
+                $parameters[] = $criteria->fulfilmentId;
+            }
+            if (null !== $criteria->search) {
+                // API-19d / TB-5: the document number, by prefix — the one form `invoice_number_unique` serves.
+                $where[] = 'inv.invoice_number LIKE ?';
+                $parameters[] = addcslashes($criteria->search, '%_\\').'%';
+            }
+
+            $column = 'inv.'.$criteria->sort;
+            $cast = InvoiceViews::isTimestampSort($criteria->sort) ? '::timestamptz' : '';
+            // The page runs in the view's direction; a backward page runs the other way and is reversed after.
+            $ascending = $criteria->isNewestFirst() === $criteria->isBackwards();
+
+            $cursor = $criteria->after ?? $criteria->before;
+            if (null !== $cursor) {
+                $where[] = \sprintf('(%s, inv.id) %s (?%s, ?::uuid)', $column, $ascending ? '>' : '<', $cast);
+                $parameters[] = $cursor->sortKey;
+                $parameters[] = $cursor->id;
+            }
+
+            $direction = $ascending ? 'ASC' : 'DESC';
+            $sql = self::select()
+                .([] === $where ? '' : ' WHERE '.implode(' AND ', $where))
+                .\sprintf(' ORDER BY %s %s, inv.id %s LIMIT ?', $column, $direction, $direction);
+            $parameters[] = $criteria->limit + 1;
+
+            // Every sort key is selected under its own name, so the cursor reads the raw column as Postgres renders it.
+            $rows = $connection->fetchAllAssociative($sql, $parameters);
+            $hasMore = \count($rows) > $criteria->limit;
+            if ($hasMore) {
+                array_splice($rows, $criteria->limit);
+            }
+            if ($criteria->isBackwards()) {
+                $rows = array_reverse($rows);
+            }
+
+            [$next, $previous] = self::cursors($criteria, $rows, $hasMore);
+
+            return new InvoicePage(
+                items: array_map(self::view(...), $rows),
+                nextCursor: $next,
+                previousCursor: $previous,
+                // API-22: an EXISTS probe with no filter, only when the page is empty.
+                tenantHasRows: [] === $rows ? (bool) $connection->fetchOne('SELECT EXISTS (SELECT 1 FROM invoice)') : true,
+            );
+        });
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows in the list's own order
+     *
+     * @return array{?string, ?string} next, previous
+     */
+    private static function cursors(InvoiceListCriteria $criteria, array $rows, bool $hasMore): array
+    {
+        if ([] === $rows) {
+            return [null, null];
+        }
+
+        // Every sort key is NOT NULL (`invoice_number`, `due_at`, `issued_at`), so `6fe8b7d`'s empty-key cursor
+        // cannot arise here.
+        $first = new Cursor((string) $rows[0][$criteria->sort], (string) $rows[0]['id']);
+        $lastRow = $rows[array_key_last($rows)];
+        $last = new Cursor((string) $lastRow[$criteria->sort], (string) $lastRow['id']);
+
+        if ($criteria->isBackwards()) {
+            return [$last->encode(), $hasMore ? $first->encode() : null];
+        }
+
+        return [$hasMore ? $last->encode() : null, null !== $criteria->after ? $first->encode() : null];
     }
 
     /**

@@ -129,6 +129,44 @@ trait ListOperationFixtures
                         'views' => ['', 'sales_order_id='.$order]];
                 }];
             },
+            'ListInvoices' => function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Invoices');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-154000', $customer, null,
+                    SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+
+                return ['/invoices', function (int $rows) use ($order, $customer): array {
+                    // One shipment per invoice (at most one live invoice per shipment), every invoice `issued` for ONE
+                    // customer, with distinct `issued_at` and `due_at`, so the register, Unpaid by `due_at` and the
+                    // customer view by `issued_at` all hold every row. As the owner; numbered from `INV-900001` so they
+                    // cannot collide with an invoice a success recipe issued through the API (`INV-000001` upwards).
+                    $first = null;
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $fulfilment = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                        $first ??= $fulfilment;
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number,
+                                                    shipped_by_user_id, idempotency_key, request_digest)
+                            SELECT ?::uuid, so.tenant_id, so.id, so.warehouse_id, ?, ?::uuid,
+                                   encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                              FROM sales_order so WHERE so.id = ?::uuid
+                            SQL, [$fulfilment, \sprintf('FUL-8%05d', $i), (string) $this->actorId, $order]);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number,
+                                                 currency_code, total_amount, issued_at, due_at, issued_by_user_id)
+                            SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 10,
+                                   ?::timestamptz, ?::timestamptz + interval '30 days', ?::uuid
+                              FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+                             WHERE f.id = ?::uuid
+                            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \sprintf('INV-9%05d', $i),
+                                \sprintf('2026-01-%02dT00:00:00+00:00', $i), \sprintf('2026-01-%02dT00:00:00+00:00', $i),
+                                (string) $this->actorId, $fulfilment]);
+                    }
+
+                    // Both id filters; TB-5 names `invoice_number`; the three views decode exactly the sort enum.
+                    return ['filter' => ['customer_id' => $customer, 'fulfilment_id' => (string) $first], 'search' => 'INV-9',
+                        'views' => ['sort=invoice_number', 'status=unpaid&sort=due_at', 'customer_id='.$customer.'&sort=issued_at']];
+                }];
+            },
             'ListPermissions' => function (): array {
                 // The vocabulary is global and seeded (IA §6.2), so there is nothing to seed and the "empty"
                 // path is already populated. Bounded (TB-1c): no filter, no searchable column TB-5 names, one view.

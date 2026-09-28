@@ -98,6 +98,9 @@
     "ListFulfilments $.items[].lines[].quantity": [
         6
     ],
+    "ListInvoices $.items[].total_amount": [
+        4
+    ],
     "ListItems $.items[].reorder_point": [
         6
     ],

@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Platform\Security\PermissionGate;
 use App\Tests\Support\GeneratedSpec;
+use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -750,6 +751,75 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return $defects;
+    }
+
+    /**
+     * **`RESIDUAL_GAPS.md` G-18 (design §19 C4, R-C) — nothing stores `overdue`, because overdue is worked out when
+     * shown** (owner ruling Q2, 2026-09-23). `Invoice::markOverdue()` and the stored value `overdue` are KEPT — the value
+     * stays in `invoice_status_values` and in `invoice_tenant_due_idx`'s predicate — but nothing may reach them until the
+     * owner rules G-18's closing option. A caller that stored `overdue` would split one fact in two: the wire derives
+     * `overdue` from `due_at` on the database clock, and a stored copy written by a schedule would disagree with it.
+     *
+     * **The scan:** every `src/` file through `PhpSourceScan` (comments and docblocks are never literals, so prose
+     * naming `markOverdue()` — this file's own, `InvoiceViews`' — is invisible): no method may CALL `markOverdue`, and no
+     * string literal may write `overdue` into `invoice` (an `UPDATE`/`INSERT` naming `invoice` with `'overdue'`).
+     * **Disclosed limit:** a write that binds `Invoice::STATUS_OVERDUE` as a parameter carries no literal and is not seen;
+     * the call half catches the ORM route.
+     * **Planted control, same test:** a scratch source with one call and one SQL literal must produce two violations.
+     */
+    #[Test]
+    public function nothingStoresOverdueBecauseOverdueIsWorkedOutWhenShown(): void
+    {
+        $sources = [];
+        foreach (PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src') as $file) {
+            $sources[$file] = (string) file_get_contents($file);
+        }
+        self::assertGreaterThan(100, \count($sources), 'The scan found almost no source under src/, so it is blind.');
+
+        self::assertSame([], self::overdueWriters($sources), \sprintf(
+            "Something in src/ now stores `overdue` on an invoice:\n  %s\n\n"
+            ."Owner ruling Q2 (2026-09-23): overdue is WORKED OUT WHEN SHOWN -- `status` reads `overdue` when an `issued`\n"
+            ."invoice's `due_at` has passed on the database clock (InvoiceReader), and nothing stores it. There is no job\n"
+            ."runner in this project. RESIDUAL_GAPS.md G-18 carries `markOverdue()` and the stored value; its triggers are\n"
+            ."a job runner of any kind (cron + bin/console included) and the first reader of STORED `invoice.status` outside\n"
+            ."the wire derivation. Closing options: (a) delete `markOverdue()` and drop `overdue` from the CHECK and the index\n"
+            ."predicate, or (b) keep it and make the stored value agree with the derivation under a ruled schedule.\n"
+            ."Rule G-18 first; then move this test deliberately.",
+            implode("\n  ", self::overdueWriters($sources)),
+        ));
+
+        $plant = "<?php\nnamespace App\\Modules\\Nowhere;\nfinal class Nightly {\n"
+            ."    public function run(object \$invoice, object \$c): void {\n"
+            ."        \$invoice->markOverdue();\n"
+            ."        \$c->executeStatement(\"UPDATE invoice SET status = 'overdue' WHERE due_at < now()\");\n"
+            ."    }\n}\n";
+        self::assertCount(2, self::overdueWriters(['plant.php' => $plant]),
+            'A planted markOverdue() call and a planted SQL write of overdue did not both fail the scan, so it is not a check.');
+    }
+
+    /**
+     * @param array<string, string> $sources path => contents
+     *
+     * @return list<string>
+     */
+    private static function overdueWriters(array $sources): array
+    {
+        $found = [];
+        foreach ($sources as $path => $source) {
+            foreach (PhpSourceScan::scan($source)['methods'] as $key => $method) {
+                if (\in_array('markOverdue', $method['calls'], true)) {
+                    $found[] = basename((string) $path).' '.$key.' calls markOverdue()';
+                }
+                foreach ($method['literals'] as $literal) {
+                    $value = (string) $literal['value'];
+                    if (1 === preg_match('/\b(UPDATE|INSERT\s+INTO)\s+invoice\b/i', $value) && str_contains($value, "'overdue'")) {
+                        $found[] = basename((string) $path).' '.$key.' writes \'overdue\' in SQL';
+                    }
+                }
+            }
+        }
+
+        return $found;
     }
 
     /**

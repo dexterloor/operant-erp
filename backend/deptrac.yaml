@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-28 with `ListInvoices` in the tree (sales step 6, C4): the three commands return
+  # **99 / 69 / 7** -- ONE edge line added, A-7: `InvoiceViews -> Entity\Invoice` (segments bound from `STATUS_*`,
+  # `SalesOrderViews`' shape). The reader returns an Application page, so no `Application -> ApiResource` pair.
+  # `make deptrac` reports **0 violations / 278 skipped / 1544 allowed**.)
   # (Re-derived 2026-09-28 with `IssueInvoice` + `GetInvoice` in the tree (sales step 6, C3): the three commands
   # return **98 / 68 / 7** -- THREE edge lines added: `InvoiceIssuer -> InvoiceAuditWriter` (A-5, the synchronous
   # `invoice.issued` row), `InvoiceIssuer -> Entity\Invoice` and `InvoiceReader -> Entity\Invoice` (A-7, status
@@ -317,6 +321,9 @@ deptrac:
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\InvoiceReader:
       # `GetInvoice`'s derived status binds `Invoice::STATUS_*` (`SalesOrderLineRow`'s shape).
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\InvoiceViews:
+      # `ListInvoices`' segments expand `Invoice::STATUS_*` (C4) -- `SalesOrderViews`' shape exactly.
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\PickListReader:
       # `GetPickList` (sales step 5 C3, 2026-09-22) binds the four statuses of its visibility predicate from

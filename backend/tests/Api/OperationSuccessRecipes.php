@@ -346,6 +346,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, invoice, then read the invoice'];
             }],
+            // Sales step 6, C4: the register, read after an invoice the API issued.
+            'ListInvoices' => [fn (): array => $stockedSalesWorkspace('SO-164000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $this->send('GET', '/invoices');
+
+                return [200, 'create, confirm, fulfil, invoice, then list the invoices'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));

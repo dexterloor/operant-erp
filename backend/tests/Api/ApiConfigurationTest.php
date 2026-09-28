@@ -158,7 +158,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // a COLUMN-level INSERT on exactly the ten invoice columns the writer names (table-level INSERT stays false,
         // measured). `GetInvoice` is `InvoiceResource`'s item `Get`, declared first, so the 201's `Location` names it
         // and no `$notExposed` fallback route is minted.
-        self::assertCount(43, $checked, 'The route set changed. This slice declares forty-three operations: '.implode(', ', array_keys($checked)));
+        // **And one more (sales step 6, C4):** `ListInvoices`, a read over tables `erp_app` already SELECTs -- no
+        // migration. `InvoiceCollection` has a `Get` as its only operation, so no `$notExposed` fallback route is minted.
+        self::assertCount(44, $checked, 'The route set changed. This slice declares forty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

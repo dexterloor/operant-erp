@@ -30,6 +30,8 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_INVOICE_OPERATIONS = [
+        // Sales step 6, C4 (2026-09-28). Listed first: the registry declares it first, and the pin compares order.
+        'ListInvoices' => ['method' => 'GET', 'path' => '/invoices', 'idem' => false],
         'GetInvoice' => ['method' => 'GET', 'path' => '/invoices/{id}', 'idem' => false],
     ];
 

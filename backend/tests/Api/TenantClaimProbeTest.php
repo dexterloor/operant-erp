@@ -207,6 +207,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'IssueInvoice' => ['vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment'],
         // An invoice issued through the operation in each tenant, so a probe that moved the read would answer B's.
         'GetInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice'],
+        // Sales step 6 C4: the register over an invoice issued in each tenant, so the baseline page is non-empty.
+        'ListInvoices' => ['setup' => 'invoice'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
