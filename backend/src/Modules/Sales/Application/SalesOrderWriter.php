@@ -1432,9 +1432,10 @@ final readonly class SalesOrderWriter
      * tenant's orders under RLS, and it is said here so nobody "restores" the predicate for speed.
      * `SalesOrderCreateTest::aDiscardedOrdersNumberIsNeverIssuedAgain` holds it.
      *
-     * Bounded to numbers this method could have minted — the regexp is what stops a hand-seeded `SO-CASCADE`
-     * turning the cast into an error, and `DeletionPolicyTest` seeds exactly that. RLS supplies the tenant
-     * bound, so no `tenant_id` predicate is written here.
+     * Bounded to numbers this method could have minted. The regexp was written to stop a hand-seeded
+     * `SO-CASCADE` turning the cast into an error; since CD-7 (`sales_order_number_shape`, 2026-09-28) no such
+     * row can exist and no test seeds one, so the regexp is now a belt over the CHECK and is kept because it
+     * costs nothing. RLS supplies the tenant bound, so no `tenant_id` predicate is written here.
      *
      * **`PurchaseOrderWriter::nextOrderNumber()` does the same since the owner extended Q4 to purchasing
      * (2026-09-21).** Until then it counted live rows only, and its twin was held for the owner.
@@ -1446,6 +1447,19 @@ final readonly class SalesOrderWriter
               FROM sales_order
              WHERE order_number ~ '^SO-[0-9]+$'
             SQL);
+
+        // CD-7 (owner ruling CD7-1, 2026-09-28): `sales_order_number_shape` pins the number to exactly six digits, so the
+        // millionth is refused here in domain terms rather than minted seven digits wide (which text-sorts beside
+        // `…100000`) or left to the CHECK as a 23514 -> 500. Counted over every row, archived ones included (Q4:
+        // numbers are never reissued). ⚠ This runs from the INSERT, i.e. AFTER the replay read, deliberately: a
+        // retry of the 999,999th create must still get its own document back (D-B) -- do not hoist it into an
+        // early pre-flight.
+        if ($next > 999999) {
+            throw ApiProblem::businessRuleViolated(
+                'sales_order.number_series_is_exhausted',
+                'This workspace has used every sales order number from SO-000001 to SO-999999, so no further order can be raised. Numbers are never reissued.',
+            );
+        }
 
         return 'SO-'.str_pad((string) $next, 6, '0', STR_PAD_LEFT);
     }

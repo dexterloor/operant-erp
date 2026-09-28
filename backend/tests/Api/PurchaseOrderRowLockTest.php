@@ -855,6 +855,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             .'rests on: the client is told to try again because trying again works.');
         self::assertCount(2, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM purchase_order'),
             'The retry after the race minted a third order.');
+
+        // Claim 4 (CD-7, `RED` F5) — the winner's `PO-999999` is now the committed maximum, so a create under a
+        // FRESH key is refused by the exhausted series, while claim 3's replay above was still handed its order.
+        // The only race-plus-cap evidence this file needs: the loser never reached the cap (it numbered from the
+        // committed maximum, the decoy), and the replay read runs before the mint.
+        $this->send('POST', '/purchase-orders', $body, [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.number_series_is_exhausted', $this->json()['rule']);
     }
 
     /**

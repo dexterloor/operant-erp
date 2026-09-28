@@ -1156,9 +1156,11 @@ final readonly class PurchaseOrderWriter
      * `SalesOrderWriter::nextOrderNumber()`; both are held by
      * `…CreateTest::a…NumberIsNeverIssuedAgain`.
      *
-     * Bounded to numbers this method could have minted — the regexp is what
-     * stops a hand-seeded `PO-DRAFT-1` turning the cast into an error. RLS
-     * supplies the tenant bound, so no `tenant_id` predicate is written here.
+     * Bounded to numbers this method could have minted. The regexp was written
+     * to stop a hand-seeded `PO-DRAFT-1` turning the cast into an error; since
+     * CD-7 (`purchase_order_number_shape`, 2026-09-28) no such row can exist, so
+     * it is a belt over the CHECK, kept because it costs nothing. RLS supplies
+     * the tenant bound, so no `tenant_id` predicate is written here.
      */
     private function nextOrderNumber(EntityManagerInterface $em): string
     {
@@ -1167,6 +1169,19 @@ final readonly class PurchaseOrderWriter
               FROM purchase_order
              WHERE order_number ~ '^PO-[0-9]+$'
             SQL);
+
+        // CD-7 (owner ruling CD7-1, 2026-09-28): `purchase_order_number_shape` pins the number to exactly six digits, so the
+        // millionth is refused here in domain terms rather than minted seven digits wide (which text-sorts beside
+        // `…100000`) or left to the CHECK as a 23514 -> 500. Counted over every row, archived ones included (Q4:
+        // numbers are never reissued). ⚠ This runs from the INSERT, i.e. AFTER the replay read, deliberately: a
+        // retry of the 999,999th create must still get its own document back (D-B) -- do not hoist it into an
+        // early pre-flight.
+        if ($next > 999999) {
+            throw ApiProblem::businessRuleViolated(
+                'purchase_order.number_series_is_exhausted',
+                'This workspace has used every purchase order number from PO-000001 to PO-999999, so no further order can be raised. Numbers are never reissued.',
+            );
+        }
 
         return 'PO-'.str_pad((string) $next, 6, '0', STR_PAD_LEFT);
     }

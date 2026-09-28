@@ -135,8 +135,9 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      *
      * ⚠ **`$status` and `$orderedAt` are independent parameters, and on this table that is not sloppiness
      * — it is the schema.** `sales_order` carries **no `ordered_at` CHECK at all** (measured against
-     * `pg_constraint`: the four are `id_is_uuid_v4`, `idempotency_key_sha256`, `request_digest_sha256`
-     * and `status_values`), unlike `purchase_order`, whose `purchase_order_ordered_at_set` is what lets
+     * `pg_constraint` on 2026-09-28: the six are `id_is_uuid_v4`, `idempotency_key_sha256`,
+     * `request_digest_sha256`, `status_values`, `archived_only_while_draft` and CD-7's `number_shape`, none of
+     * which reads `ordered_at`), unlike `purchase_order`, whose `purchase_order_ordered_at_set` is what lets
      * `seedOrder` derive the date from the status. So every `(status, ordered_at)` combination this
      * fixture can write is one the database accepts — including `cancelled` with no date, which is
      * exactly what `CreateSalesOrder` → `CancelSalesOrder` produces today, and which is why

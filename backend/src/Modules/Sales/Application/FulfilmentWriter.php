@@ -413,6 +413,19 @@ final readonly class FulfilmentWriter
              WHERE fulfilment_number ~ '^FUL-[0-9]+$'
             SQL);
 
+        // CD-7 (owner ruling CD7-1, 2026-09-28): `fulfilment_number_shape` pins the number to exactly six digits, so the
+        // millionth is refused here in domain terms rather than minted seven digits wide (which text-sorts beside
+        // `…100000`) or left to the CHECK as a 23514 -> 500. Counted over every row, archived ones included (Q4:
+        // numbers are never reissued). ⚠ This runs from the INSERT, i.e. AFTER the replay read, deliberately: a
+        // retry of the 999,999th create must still get its own document back (D-B) -- do not hoist it into an
+        // early pre-flight.
+        if ($next > 999999) {
+            throw ApiProblem::businessRuleViolated(
+                'fulfilment.number_series_is_exhausted',
+                'This workspace has used every shipment number from FUL-000001 to FUL-999999, so no further shipment can be recorded. Numbers are never reissued.',
+            );
+        }
+
         return 'FUL-'.str_pad((string) $next, 6, '0', \STR_PAD_LEFT);
     }
 
