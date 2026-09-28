@@ -821,6 +821,102 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The `invoice` columns the invoice's UPDATE writers set, and no others (sales step 6: C5 `PayInvoice`,
+     * `Version20260928000400`). **Typed by hand from the SET lists measured in the statement log (M-11), never read from
+     * `SchemaManifest`** — `APP_USER_COLUMNS_THE_CALLERS_WRITE`'s reason: a copy derived from the manifest cannot see the
+     * manifest and the migration widen together.
+     */
+    private const INVOICE_COLUMNS_THE_CALLERS_WRITE = ['paid_at', 'paid_by_user_id', 'status', 'updated_at'];
+
+    /**
+     * **C5: `erp_app` can UPDATE exactly the `invoice` columns its writers set — proved by running the statement as
+     * `erp_app`** (design §19 C5; `ARCH` §4; M-10). `theIssuerCanInsertOnlyTheInvoiceColumnsItWrites`' shape, for
+     * UPDATE: one connection and one transaction per column, each running the zero-row probe `UPDATE invoice SET <c> =
+     * <c> WHERE false` in tenant A's context and rolling back. Zero rows, so no CHECK, FK or RLS can refuse it — only
+     * the privilege, which PostgreSQL checks at executor start regardless of row count.
+     *
+     * **Positive control:** `paid_at` is accepted. **Anti-vacuity:** the columns no writer may change once issued —
+     * `total_amount`, `fulfilment_id`, `sales_order_id`, `customer_id`, `currency_code`, `due_at`, `invoice_number`,
+     * `issued_by_user_id` — are in the domain and refused. **Planted control, committed then undone in `finally`:**
+     * `GRANT UPDATE (total_amount)` must produce exactly one violation naming `invoice.total_amount` — so the JOINT
+     * widening (the migration's grant and the manifest together) is what this list catches.
+     */
+    #[Test]
+    public function theCallersCanUpdateOnlyTheInvoiceColumnsTheyWrite(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'invoice'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                $connection = $this->secondClient();
+                $connection->beginTransaction();
+                try {
+                    $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                    $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                    $connection->executeStatement(sprintf('UPDATE invoice SET %1$s = %1$s WHERE false', $quoted));
+                    $outcomes[$column] = 'accepted';
+                } catch (DriverException $e) {
+                    $outcomes[$column] = '42501' === $e->getSQLState()
+                        && str_contains($e->getMessage(), 'permission denied for table invoice')
+                        ? 'refused'
+                        : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                } finally {
+                    $connection->rollBack();
+                    $connection->close();
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $column => $outcome) {
+                $written = \in_array($column, self::INVOICE_COLUMNS_THE_CALLERS_WRITE, true);
+                if ($written && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('invoice.%s: a writer sets it, but erp_app got "%s"', $column, $outcome);
+                } elseif (!$written && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('invoice.%s: no writer sets it, but erp_app got "%s"', $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        self::assertSame('accepted', $outcomes['paid_at'] ?? null,
+            'The positive control failed: erp_app could not update invoice.paid_at, so the refusals below prove nothing.');
+        foreach (['total_amount', 'fulfilment_id', 'sales_order_id', 'customer_id', 'currency_code', 'due_at', 'invoice_number', 'issued_by_user_id'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null, "erp_app must not update invoice.{$closed}, and the probe did not see it refused.");
+        }
+        foreach (self::INVOICE_COLUMNS_THE_CALLERS_WRITE as $written) {
+            self::assertArrayHasKey($written, $outcomes, "A column a writer sets, {$written}, is not in invoice.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's UPDATE on invoice is not exactly the columns its writers set. A 42501 from a new writer is fixed by "
+            ."granting that column with its caller, never by a table-level UPDATE:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (total_amount) ON invoice TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['invoice.total_amount: no writer sets it, but erp_app got "accepted"'],
+                $violations($probe()),
+                'A committed UPDATE (total_amount) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (total_amount) ON invoice FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted total_amount grant survived its REVOKE.');
+    }
+
+    /**
      * **ADR-002 Amendment 4, constraint 2 — the invoker cascade trigger pairs its parent's UPDATE with its child's**
      * (V4 batch B7, 2026-09-16; RED `red-adr002-a4-attack.md` R7).
      *

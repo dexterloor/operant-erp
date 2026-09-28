@@ -160,7 +160,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // and no `$notExposed` fallback route is minted.
         // **And one more (sales step 6, C4):** `ListInvoices`, a read over tables `erp_app` already SELECTs -- no
         // migration. `InvoiceCollection` has a `Get` as its only operation, so no `$notExposed` fallback route is minted.
-        self::assertCount(44, $checked, 'The route set changed. This slice declares forty-four operations: '.implode(', ', array_keys($checked)));
+        // **And one more on 2026-09-28 (sales step 6, C5):** `PayInvoice`. The migration grants `erp_app` a COLUMN-level
+        // UPDATE on exactly the four columns its flush sets (table-level UPDATE stays false, measured). A `Post` on
+        // `InvoiceResource`, whose item `Get` already exists, so no `$notExposed` fallback route is minted.
+        self::assertCount(45, $checked, 'The route set changed. This slice declares forty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

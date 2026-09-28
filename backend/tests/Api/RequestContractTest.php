@@ -267,7 +267,10 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'sales-orders/lines' => $sales['line'],
             // Sales step 6, C3: `IssueInvoice` hangs off a shipment. Seeded as the owner against the same order,
             // so the path names a real fulfilment and the refusal is the planted field's, not a 404's.
-            'fulfilments' => $this->seedFulfilmentOf($sales['order']),
+            'fulfilments' => $fulfilment = $this->seedFulfilmentOf($sales['order']),
+            // Sales step 6, C5: `PayInvoice` acts on an invoice. Seeded as the owner on that shipment, `issued`, so the
+            // path names a real, payable invoice and the refusal is the planted field's, not a 404's or a 409's.
+            'invoices' => $this->seedInvoiceOf($fulfilment),
         ];
 
         $segments = explode('/', $uriTemplate);
@@ -342,6 +345,20 @@ final class RequestContractTest extends PurchaseOrderTestCase
                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
               FROM sales_order so WHERE so.id = ?::uuid
             SQL, [$id, self::freshNumber('FUL'), (string) $this->actorId, $orderId]);
+
+        return $id;
+    }
+
+    private function seedInvoiceOf(string $fulfilmentId): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number, currency_code,
+                                 total_amount, due_at, issued_by_user_id)
+            SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 1, now() + interval '30 days', ?::uuid
+              FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+             WHERE f.id = ?::uuid
+            SQL, [$id, self::freshNumber('INV'), (string) $this->actorId, $fulfilmentId]);
 
         return $id;
     }

@@ -546,6 +546,21 @@ final class AuditEvent
     public const INVOICE_ISSUED = 'invoice.issued';
 
     /**
+     * **The payment, recorded** — minted 2026-09-28 with `PayInvoice` (sales step 6, C5). OI-2 (owner ruling #2,
+     * 2026-09-14) named it: *"no correction ships without its audit event"*, and this is the act
+     * `invoice.payment_reversed` (C6) undoes.
+     *
+     * **Filed by `SEC` before the code** (`output9-sales-7-sec.md` §5.1): **business**, subject the invoice, actor the
+     * payer (= `invoice.paid_by_user_id`), and `metadata` **`{"paid_at": <the value written>}`** — the invoice's own
+     * column, because a reversal nulls `paid_at` and a back-dated payment later reversed would otherwise leave no record
+     * of the date it claimed; the row's `occurred_at` is when the payment was *recorded*, and the pair is what makes
+     * back-dating visible. Nothing else is copied (PC-15 condition 6). **Step 6 does not apply** (a business event: no
+     * IP). Written by `InvoiceAuditWriter::recordPaid()` in the paying transaction; `InvoicePaymentTest` reads the row
+     * back cell by cell.
+     */
+    public const INVOICE_PAID = 'invoice.paid';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -572,6 +587,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_CANCELLED,
         self::SALES_ORDER_CANCELLED,
         self::INVOICE_ISSUED,
+        self::INVOICE_PAID,
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
@@ -628,6 +644,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_CANCELLED,
         self::SALES_ORDER_CANCELLED,
         self::INVOICE_ISSUED,
+        self::INVOICE_PAID,
         self::STOCK_MOVEMENT_ADJUSTED,
     ];
 
@@ -677,6 +694,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_CANCELLED => 'purchase_order',
         self::SALES_ORDER_CANCELLED => 'sales_order',
         self::INVOICE_ISSUED => 'invoice',
+        self::INVOICE_PAID => 'invoice',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',

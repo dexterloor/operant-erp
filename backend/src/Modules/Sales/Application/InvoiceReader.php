@@ -171,11 +171,13 @@ final readonly class InvoiceReader
                    CASE WHEN inv.status = ?::text OR (inv.status = ?::text AND inv.due_at < now())
                         THEN ?::text ELSE inv.status END AS status,
                    inv.total_amount, inv.currency_code, inv.issued_at, inv.due_at, inv.paid_at,
+                   pu.id AS paid_by_id, pu.display_name AS paid_by_display_name,
                    f.id AS fulfilment_id, f.fulfilment_number,
                    c.id AS customer_id, c.name AS customer_name
               FROM invoice inv
               JOIN fulfilment f ON f.tenant_id = inv.tenant_id AND f.id = inv.fulfilment_id
               JOIN customer c ON c.tenant_id = inv.tenant_id AND c.id = inv.customer_id
+              LEFT JOIN app_user pu ON pu.tenant_id = inv.tenant_id AND pu.id = inv.paid_by_user_id
             SQL;
     }
 
@@ -197,6 +199,10 @@ final readonly class InvoiceReader
             issuedAt: (string) SalesOrderRow::timestamp($row['issued_at']),
             dueAt: (string) SalesOrderRow::timestamp($row['due_at']),
             paidAt: SalesOrderRow::timestamp($row['paid_at']),
+            // `SEC` §2 (Q7): `{id, display_name}` and nothing more, null unless paid. LEFT join, with NO `deleted_at`
+            // predicate, so a recorder deactivated or deleted since is still named — the document keeps naming what it
+            // named (M-16). `invoice_paid_by_matches_status` makes a non-null payer on an unpaid invoice impossible.
+            paidBy: null === $row['paid_by_id'] ? null : new SalesActorRef((string) $row['paid_by_id'], (string) $row['paid_by_display_name']),
             fulfilment: new FulfilmentRef((string) $row['fulfilment_id'], (string) $row['fulfilment_number']),
             customer: new SalesNamedRef((string) $row['customer_id'], (string) $row['customer_name']),
         );

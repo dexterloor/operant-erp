@@ -155,7 +155,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // `FOR NO KEY UPDATE` this scan excludes.
         // **5 -> 6 on 2026-09-28** (sales step 6, C3): `InvoiceAuditWriter::recordIssued()`'s single `INSERT INTO
         // audit_log` for `invoice.issued`, the same statement with one event name changed and `metadata` '{}'.
-        'Modules\\AuditLog' => 6,
+        // **6 -> 7 on 2026-09-28** (sales step 6, C5): `InvoiceAuditWriter::recordPaid()`'s `INSERT INTO audit_log` for
+        // `invoice.paid`, whose `metadata` is `jsonb_build_object('paid_at', ?)`. `Modules\\Sales` did NOT move:
+        // `InvoicePayment` writes through an ORM flush, and `InvoiceRowLock` is a `FOR NO KEY UPDATE` this scan excludes.
+        'Modules\\AuditLog' => 7,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

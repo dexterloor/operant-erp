@@ -22,6 +22,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class InvoiceIssueTest extends PurchaseOrderTestCase
 {
+    use InvoiceFixtures;
+
     /**
      * The operations shipped under `/invoices` — `FulfilmentCreateTest::PINNED_FULFILMENT_OPERATIONS`' twin, joined
      * into `AuthOperationContractTest`'s whole-registry union. `IssueInvoice` hangs off the shipment (N-8) and is
@@ -33,6 +35,8 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         // Sales step 6, C4 (2026-09-28). Listed first: the registry declares it first, and the pin compares order.
         'ListInvoices' => ['method' => 'GET', 'path' => '/invoices', 'idem' => false],
         'GetInvoice' => ['method' => 'GET', 'path' => '/invoices/{id}', 'idem' => false],
+        // Sales step 6, C5 (2026-09-28). `guard:invoice.status`: no header demanded.
+        'PayInvoice' => ['method' => 'POST', 'path' => '/invoices/{id}/payment', 'idem' => false],
     ];
 
     #[Test]
@@ -69,12 +73,13 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertSame('/api/v1/invoices/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
         self::assertSame(['id', 'invoice_number', 'status', 'total_amount', 'currency_code', 'issued_at', 'due_at',
-            'paid_at', 'fulfilment', 'customer'], array_keys($body));
+            'paid_at', 'paid_by', 'fulfilment', 'customer'], array_keys($body));
         self::assertSame('INV-000001', $body['invoice_number']);
         self::assertSame('issued', $body['status']);
         self::assertSame('25.0002', $body['total_amount'], 'The total is not rounded per line (D-A).');
         self::assertSame('EUR', $body['currency_code']);
         self::assertNull($body['paid_at']);
+        self::assertNull($body['paid_by'], 'An unpaid invoice names no payer (sales step 6 C5, `SEC` §2).');
         self::assertSame(['id' => $s['fulfilment'], 'fulfilment_number' => $s['fulfilment_number']], $body['fulfilment']);
         self::assertSame(['id' => $s['customer'], 'name' => 'Customer INV-A'], $body['customer']);
         self::assertArrayNotHasKey('issued_by', $body);
@@ -415,64 +420,6 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
     }
 
     // -----------------------------------------------------------------------
-
-    private function issue(string $fulfilmentId): void
-    {
-        $this->send('POST', '/fulfilments/'.$fulfilmentId.'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
-    }
-
-    /** @return string the new actor's id */
-    private function actAsRole(string $role): string
-    {
-        $this->actAs(self::TENANT_A, DefaultRoles::codesFor($role));
-
-        return (string) $this->actorId;
-    }
-
-    /**
-     * A confirmed order of `$tenant`, seeded as the owner — one line per `[ordered, unit price, shipped]` — and one
-     * fulfilment of it shipped THROUGH THE API by a principal holding everything. The actor is left as that principal.
-     *
-     * @param list<array{0: string, 1: string, 2: string}> $lines
-     *
-     * @return array{order: string, customer: string, lines: list<string>, fulfilment: string, fulfilment_number: string}
-     */
-    private function shipped(string $tag, array $lines, int $terms = 30, string $currency = 'EUR', string $tenant = self::TENANT_A): array
-    {
-        $this->actAs($tenant);
-        $customer = $this->seedCustomer($tenant, 'Customer '.$tag);
-        $this->executeAsOwnerForTenant($tenant, 'UPDATE customer SET payment_terms_days = ? WHERE id = ?::uuid', [$terms, $customer]);
-        $warehouse = $this->seedWarehouse($tenant, 'WH '.$tag);
-        $order = $this->seedSalesOrder($tenant, self::freshNumber('SO'), $customer, $warehouse, SalesOrder::STATUS_CONFIRMED, '2026-09-20T10:00:00Z');
-        $this->executeAsOwnerForTenant($tenant, 'UPDATE sales_order SET currency_code = ? WHERE id = ?::uuid', [$currency, $order]);
-
-        $bin = Uuid::v4()->toRfc4122();
-        $this->insertAsOwnerForTenant($tenant,
-            "INSERT INTO storage_location (id, tenant_id, warehouse_id, code, kind) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-01', 'bin')",
-            [$bin, $tenant, $warehouse]);
-
-        $lineIds = [];
-        $shipping = [];
-        foreach ($lines as $i => [$ordered, $price, $ship]) {
-            $item = $this->seedItem($tenant, 'SKU-'.$tag.'-'.$i);
-            $lineIds[] = $line = $this->seedSalesOrderLine($tenant, $order, $item, lineNumber: $i + 1, quantity: $ordered, unitPrice: $price);
-            $this->insertAsOwnerForTenant($tenant,
-                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)',
-                [Uuid::v4()->toRfc4122(), $tenant, $item, $bin, $ordered]);
-            $shipping[] = ['sales_order_line_id' => $line, 'quantity' => $ship, 'storage_location_id' => $bin];
-        }
-
-        $this->send('POST', '/sales-orders/'.$order.'/fulfilments', ['lines' => $shipping], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
-        self::assertSame(201, $this->httpStatus(), 'Fixture: the shipment was refused. '.(string) $this->client()->getResponse()->getContent());
-
-        return [
-            'order' => $order,
-            'customer' => $customer,
-            'lines' => $lineIds,
-            'fulfilment' => $this->json()['id'],
-            'fulfilment_number' => $this->json()['fulfilment_number'],
-        ];
-    }
 
     /** The smallest whole number of days from now that lands after Berlin's next change of UTC offset, plus one. */
     private static function daysToCrossTheNextBerlinClockChange(): int

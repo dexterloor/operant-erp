@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -86,6 +87,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class IdempotencyTest extends PurchaseOrderTestCase
 {
+    use InvoiceFixtures;
+
     /**
      * The replay case for each shipped operation with a live mechanism. The keys
      * are checked against the derived set; the values name a method here.
@@ -149,6 +152,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second confirmation of an order already confirmed. Its mechanism is the status guard, which '
                 .'refuses the repeat with no key at all — §4.2 gives it guard:sales_order.status and no header — so the '
                 .'check is that the row is byte-identical afterwards, ordered_at included.',
+        ],
+        'PayInvoice' => [
+            'method' => 'replayPayInvoice',
+            'why' => 'A second payment of a paid invoice: a second invoice.paid row, and the recorder or paid_at '
+                .'overwritten (sales step 6 C5). Its mechanism is the status guard, which refuses the replay.',
         ],
         'CancelSalesOrder' => [
             'method' => 'replayCancelSalesOrder',
@@ -553,6 +561,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame([['reason' => 'First']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT metadata->>'reason' AS reason FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid",
             [AuditEvent::SALES_ORDER_CANCELLED, $order]), $why);
+    }
+
+    private function replayPayInvoice(string $why): void
+    {
+        $i = $this->issuedInvoice('IDEM-PAY');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, paid_at::text AS paid_at, paid_by_user_id::text AS paid_by, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid',
+            [$i['invoice']]);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, paid_at::text AS paid_at, paid_by_user_id::text AS paid_by, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid',
+            [$i['invoice']]), $why);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::INVOICE_PAID, $i['invoice']]), $why);
     }
 
     private function replayApprovePurchaseOrder(string $why): void

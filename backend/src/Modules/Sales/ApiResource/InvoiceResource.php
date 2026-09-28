@@ -11,8 +11,10 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\InvoiceProvider;
 use App\Modules\Sales\ApiResource\State\IssueInvoiceProcessor;
+use App\Modules\Sales\ApiResource\State\PayInvoiceProcessor;
 use App\Modules\Sales\Application\FulfilmentRef;
 use App\Modules\Sales\Application\InvoiceView;
+use App\Modules\Sales\Application\SalesActorRef;
 use App\Modules\Sales\Application\SalesNamedRef;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
@@ -23,7 +25,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *
  * The shape is §4.4.3's Invoice row (`invoice` has no `Create*` row, N-8, so the row is the whole shape beyond `id`):
  * `invoice_number`, `status` (**derived** — `overdue` once `due_at` has passed on an issued invoice, owner ruling Q2),
- * `total_amount` (numeric(19,4), a string), `currency_code`, `issued_at`, `due_at`, `paid_at`, and the references
+ * `total_amount` (numeric(19,4), a string), `currency_code`, `issued_at`, `due_at`, `paid_at`, **`paid_by = {id, display_name}`** (null unless paid; sales step 6 C5, `SEC` §2 —
+ * Q7, PC-11 (4a): who recorded the payment, A2.3's input), and the references
  * `fulfilment = {id, fulfilment_number}` (the billed shipment, D-A) and `customer = {id, name}` (V2-C-10). **Never
  * `issued_by`** (`SEC` §2) and **no amount credited or due** (V2-C-10's second half, owed to `IssueCreditNote`).
  *
@@ -67,6 +70,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 PermissionGate::OPERATION_PERMISSION => 'invoice.issue',
             ],
         ),
+        // Sales step 6, C5 (2026-09-28). API-21 branch 5: a transition creates no row, so 200 with the invoice in its
+        // NEW state. `guard:invoice.status` — a repeat meets the status guard, so no `Idempotency-Key` is demanded
+        // (API-14 as amended). `read: false`: the invoice is locked and re-read inside the paying transaction
+        // (`InvoicePayment` step 2), never by a provider before it opens.
+        new Post(
+            uriTemplate: '/invoices/{id}/payment',
+            name: 'PayInvoice',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'PayInvoice'),
+            input: PayInvoiceInput::class,
+            denormalizationContext: [
+                // API-9: unknown fields are refused, never ignored — there is no field for the payer.
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                'api_allow_update' => false,
+            ],
+            read: false,
+            processor: PayInvoiceProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'invoice.pay'],
+        ),
     ],
 )]
 final class InvoiceResource
@@ -86,6 +109,8 @@ final class InvoiceResource
         public string $dueAt,
         #[SerializedName('paid_at')]
         public ?string $paidAt,
+        #[SerializedName('paid_by')]
+        public ?SalesActorRef $paidBy,
         public FulfilmentRef $fulfilment,
         public SalesNamedRef $customer,
     ) {
@@ -94,6 +119,6 @@ final class InvoiceResource
     public static function fromView(InvoiceView $view): self
     {
         return new self($view->id, $view->invoiceNumber, $view->status, $view->totalAmount, $view->currencyCode,
-            $view->issuedAt, $view->dueAt, $view->paidAt, $view->fulfilment, $view->customer);
+            $view->issuedAt, $view->dueAt, $view->paidAt, $view->paidBy, $view->fulfilment, $view->customer);
     }
 }

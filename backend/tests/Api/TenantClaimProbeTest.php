@@ -209,6 +209,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice'],
         // Sales step 6 C4: the register over an invoice issued in each tenant, so the baseline page is non-empty.
         'ListInvoices' => ['setup' => 'invoice'],
+        // Sales step 6 C5: the payment of an invoice issued in each tenant; the body is empty (`paid_at` defaults), so a
+        // supplied tenant id that moved the write would pay B's invoice, which the digest names.
+        'PayInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice', 'body' => []],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

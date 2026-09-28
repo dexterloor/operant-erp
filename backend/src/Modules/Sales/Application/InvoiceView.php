@@ -23,6 +23,7 @@ final readonly class InvoiceView
         public string $issuedAt,
         public string $dueAt,
         public ?string $paidAt,
+        public ?SalesActorRef $paidBy,
         public FulfilmentRef $fulfilment,
         public SalesNamedRef $customer,
     ) {

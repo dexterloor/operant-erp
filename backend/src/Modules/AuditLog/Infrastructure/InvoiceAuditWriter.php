@@ -13,8 +13,8 @@ use Symfony\Component\Uid\Uuid;
  * **The `invoice.*` audit rows** — one class per subject table, `SalesOrderAuditWriter`'s shape and reasoning
  * (one method per event, no parameter naming an event, so no caller can choose one it was not written for).
  *
- * Sales step 6, C3 (2026-09-28): `invoice.issued`, owner ruling Q5. `invoice.paid`, `invoice.payment_reversed` and
- * `invoice.voided` join this class with `PayInvoice` (C5), `ReverseInvoicePayment` (C6) and `VoidInvoice` (C7), each
+ * Sales step 6, C3 (2026-09-28): `invoice.issued`, owner ruling Q5. `invoice.paid` joined with `PayInvoice` (C5, 2026-09-28);
+ * `invoice.payment_reversed` and `invoice.voided` join with `ReverseInvoicePayment` (C6) and `VoidInvoice` (C7), each
  * with the metadata `SEC` ruled for it (`output9-sales-7-sec.md` §5.1).
  *
  * **Synchronous and inside the caller's transaction** (`API.md` §9.2, `ARCHITECTURE.md` §6.1):
@@ -56,6 +56,37 @@ final readonly class InvoiceAuditWriter
                     // Read off the catalogue: `audit_log_subject_pair` requires the pair to arrive together.
                     AuditEvent::SUBJECT_TYPES[AuditEvent::INVOICE_ISSUED],
                     $invoiceId,
+                ]);
+        });
+    }
+
+    /**
+     * `invoice.paid` (sales step 6, C5). `$actorUserId` is the payer, which is also `invoice.paid_by_user_id`.
+     *
+     * **`metadata` is exactly `{"paid_at": <the value written>}`** (`SEC` §5.1), bound as a parameter into
+     * `jsonb_build_object` and never interpolated. It is the invoice's own column, carried because a reversal (C6)
+     * nulls `paid_at`: without it a back-dated payment that was later reversed would leave no record of the date it
+     * claimed. `$paidAt` is the wire's rendering of the stored value (`InvoiceView::$paidAt`), so the History and the
+     * invoice say the same instant in the same form. Nothing else is copied.
+     */
+    public function recordPaid(string $tenantId, string $actorUserId, string $actorLabel, string $invoiceId, string $paidAt): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $invoiceId, $paidAt): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, jsonb_build_object('paid_at', ?::text))
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::INVOICE_PAID,
+                    $actorUserId,
+                    $actorLabel,
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::INVOICE_PAID],
+                    $invoiceId,
+                    $paidAt,
                 ]);
         });
     }

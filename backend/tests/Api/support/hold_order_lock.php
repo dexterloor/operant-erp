@@ -56,7 +56,9 @@ try {
     // and an env var reaching a statement unchecked is the one shape this file must not have.
     $table = (string) getenv('HOLD_TABLE') ?: 'purchase_order';
 
-    if (!in_array($table, ['purchase_order', 'sales_order'], true)) {
+    // `invoice` joined with `PayInvoice` (sales step 6, C5): `InvoiceRowLock` is the same `FOR NO KEY UPDATE`, legal for
+    // `erp_app` once `Version20260928000400` granted a column UPDATE on the table.
+    if (!in_array($table, ['purchase_order', 'sales_order', 'invoice'], true)) {
         throw new RuntimeException('HOLD_TABLE names no aggregate this holder locks: '.$table);
     }
 

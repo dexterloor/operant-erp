@@ -121,6 +121,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // (`output9-sales-7-sec.md` §5.1: business, subject the invoice, metadata `{}`), which preceded the code.
         // About the invoice's own business state; its subject is `invoice`, so (4c) does not reach it.
         'invoice.issued',
+        // Added 2026-09-28 with `PayInvoice` (sales step 6, C5), by hand and as a literal, ratifying `SEC`'s filing
+        // (`output9-sales-7-sec.md` §5.1: business, subject the invoice, actor the payer, metadata `{"paid_at"}`).
+        // About the invoice's own payment state, not a principal's privileges; subject `invoice`, so (4c) does not reach it.
+        'invoice.paid',
         'stock_movement.adjusted',
     ];
 

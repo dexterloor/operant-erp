@@ -161,14 +161,18 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 // `invoice_due_window` in any session zone; the total is not negative.
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO invoice (id, tenant_id, sales_order_id, customer_id, fulfilment_id, issued_by_user_id,
-                                         invoice_number, status, currency_code, total_amount, issued_at, due_at, paid_at)
+                                         invoice_number, status, currency_code, total_amount, issued_at, due_at, paid_at,
+                                         paid_by_user_id)
                     SELECT gen_random_uuid(), s.tenant_id, s.id, s.customer_id, f.id, f.shipped_by_user_id,
                            'INV-' || lpad(substring(s.order_number FROM 4), 6, '0'),
                            CASE WHEN right(s.order_number, 1) = '0' THEN 'issued' ELSE 'paid' END,
                            'EUR', 100.00, s.ordered_at, s.ordered_at + interval '30 days',
-                           -- invoice_paid_at_set: a paid invoice must say when.
+                           -- invoice_paid_at_matches_status (was invoice_paid_at_set): a paid invoice must say when.
                            -- The constraint caught this seed the first time it ran.
-                           CASE WHEN right(s.order_number, 1) = '0' THEN NULL ELSE s.ordered_at + interval '10 days' END
+                           CASE WHEN right(s.order_number, 1) = '0' THEN NULL ELSE s.ordered_at + interval '10 days' END,
+                           -- invoice_paid_by_matches_status (sales step 6 C5): a paid invoice names who recorded it,
+                           -- and an unpaid one names nobody.
+                           CASE WHEN right(s.order_number, 1) = '0' THEN NULL ELSE f.shipped_by_user_id END
                     FROM sales_order s
                     JOIN fulfilment f ON f.tenant_id = s.tenant_id AND f.sales_order_id = s.id
                     SQL);

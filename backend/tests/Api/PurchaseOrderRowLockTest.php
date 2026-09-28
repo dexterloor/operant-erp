@@ -8,7 +8,9 @@ use App\Modules\Purchasing\Application\PurchaseOrderRowLock;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine;
 use App\Modules\Purchasing\Infrastructure\OrmPurchaseOrderReceiptStatus;
+use App\Modules\Sales\Application\InvoiceRowLock;
 use App\Modules\Sales\Application\SalesOrderRowLock;
+use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrderLine;
 use App\Modules\Sales\Infrastructure\OrmSalesOrderFulfilmentStatus;
@@ -59,6 +61,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 {
+    use InvoiceFixtures;
+
     /** Only a failing run reaches it; see the holder script. */
     private const HOLDER_DEADLINE_SECONDS = 10.0;
 
@@ -464,6 +468,18 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         }
 
         self::assertSame([], $this->recorder()->matching('/FOR NO KEY UPDATE/'), 'The refused lock was still sent.');
+
+        // The invoice's lock (sales step 6, C5) refuses the same way, for the same reason.
+        $this->recorder()->start();
+        try {
+            InvoiceRowLock::holdInside($em, Uuid::v4()->toRfc4122());
+            self::fail('The invoice lock ran outside a transaction.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('transaction', $e->getMessage());
+        } finally {
+            $this->recorder()->stop();
+        }
+        self::assertSame([], $this->recorder()->matching('/FOR NO KEY UPDATE/'), 'The refused invoice lock was still sent.');
     }
 
     /**
@@ -1304,6 +1320,86 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Pay ∥ pay (sales step 6, C5): two clerks record the same payment.** Connection A takes the invoice's lock and,
+     * under it, records a payment as `erp_app` would (the four granted columns). The real `PayInvoice` must wait on
+     * `InvoiceRowLock`, re-read the invoice under it, find it `paid` and be refused by the status guard — never a
+     * second `invoice.paid`, never a recorder overwritten. Without the lock the request would read `issued`, pass the
+     * guard and overwrite A's `paid_by` with its own caller. (Pay ∥ void is C7's, when `VoidInvoice` exists.)
+     */
+    #[Test]
+    public function aSecondPaymentWaitsForTheFirstAndIsRefusedByTheStatusGuard(): void
+    {
+        $i = $this->issuedInvoice('RACE-PAY');
+        $first = $this->actAsRole(DefaultRoles::FINANCE);
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            ["UPDATE invoice SET status = 'paid', paid_at = now(), paid_by_user_id = ?::uuid, updated_at = now() WHERE id = ?::uuid", [$first, $i['invoice']]],
+        ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.'.self::STATUS_RULE, $this->json()['rule']);
+        self::assertSame([['p' => $first]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT paid_by_user_id::text AS p FROM invoice WHERE id = ?::uuid', [$i['invoice']]),
+            'The second payment overwrote the first recorder.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::INVOICE_PAID]),
+            'The refused payment wrote a trail row (A\'s raw UPDATE writes none).');
+    }
+
+    /**
+     * **The invoice half of the position check: in every invoice write path the invoice's row lock is the first
+     * statement that touches the invoice** (sales step 6, C5). Supplement, not evidence on its own — the race above
+     * proves the behaviour. The lock is spelled here independently of `InvoiceRowLock::SQL`.
+     *
+     * @param array<string, string>|null $body
+     */
+    #[Test]
+    #[DataProvider('everyInvoiceWritePath')]
+    public function theInvoiceRowLockIsTheFirstStatementToTouchTheInvoice(string $method, string $path, ?array $body, int $status, string $actAs): void
+    {
+        $i = $this->issuedInvoice('LOCK-INV');
+        $this->actAsRole($actAs);
+
+        $this->recorder()->start();
+        $this->send($method, strtr($path, ['{invoice}' => $i['invoice']]), $body);
+        $this->recorder()->stop();
+
+        self::assertSame($status, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $transactions = [];
+        foreach ($this->recorder()->statements() as $sql) {
+            if (1 === preg_match('/^SELECT set_config\(/', $sql)) {
+                $transactions[] = [];
+                continue;
+            }
+            if ([] !== $transactions) {
+                $transactions[\count($transactions) - 1][] = $sql;
+            }
+        }
+
+        $writing = array_values(array_filter($transactions, static fn (array $statements): bool => [] !== preg_grep(
+            '/^\s*UPDATE\s+invoice\b/i', $statements,
+        )));
+        self::assertCount(1, $writing, 'Expected exactly one transaction writing the invoice.');
+
+        $touching = array_values(preg_grep('/\binvoice\b/', $writing[0]));
+        self::assertMatchesRegularExpression(
+            '/^SELECT 1 FROM invoice WHERE id = \S+ FOR NO KEY UPDATE$/',
+            $touching[0],
+            "The first statement to touch the invoice is not its row lock. Statements, in order:\n".implode("\n", $touching),
+        );
+    }
+
+    /** @return iterable<string, array{string, string, array<string, string>|null, int, string}> */
+    public static function everyInvoiceWritePath(): iterable
+    {
+        // The invoice is issued through the API by a `sales_rep`; `finance` records the payment.
+        yield 'PayInvoice' => ['POST', '/invoices/{invoice}/payment', [], 200, DefaultRoles::FINANCE];
+    }
+
+    /**
      * A confirmed order with one line of 5, shipped 1 through the API; the actor is left holding everything.
      *
      * @return array{order: string, fulfilment: string}
@@ -1667,6 +1763,118 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*SalesOrder(?:Line)?\b/',
         'entities' => [SalesOrder::class, SalesOrderLine::class],
     ];
+
+    /**
+     * **The invoice aggregate** (sales step 6, C5): `invoice` alone — it has no line table. `IssueInvoice` creates the
+     * row and every later writer changes an existing one, so every writer but the issuer takes `InvoiceRowLock` first.
+     *
+     * @var array{label: string, sql: non-empty-string, dql: non-empty-string, entities: array{class-string}}
+     */
+    private const INVOICE_SCAN = [
+        'label' => 'invoice',
+        'sql' => '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+invoice\b/i',
+        'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*Invoice\b/',
+        'entities' => [Invoice::class],
+    ];
+
+    /** `everyInvoiceWritePath()`'s case => the method it enters. The keys must be exactly that provider's cases. */
+    private const INVOICE_LOCK_FIRST_CHECKED = [
+        'PayInvoice' => 'InvoicePayment::pay',
+    ];
+
+    private const INVOICE_ALLOWED_WITHOUT_A_LOCK = [
+        'InvoiceIssuer::issue' => [
+            'writes' => ['via issueInside()'],
+            'why' => 'It inserts the invoice, so there is no existing invoice row to lock, and no other transaction can '
+                .'address what it inserts until it commits. Its two races are answered by unique indexes: '
+                .'invoice_tenant_fulfilment_not_void (two issues of one shipment) and invoice_number_unique (two issues '
+                .'taking one number), each translated after the failed transaction (D-3). It changes no existing '
+                .'invoice, which is the property that exempts it; a writer that does is not a create and takes the lock.',
+        ],
+    ];
+
+    /**
+     * Planted invoice writers for `everyMethodThatWritesAnInvoiceIsCoveredByALockFirstCheck()`'s control (design §19
+     * C5): a raw `UPDATE invoice` with no lock, and `void()` called with no lock. Both must be found.
+     */
+    private const PLANTED_INVOICE_WRITERS = <<<'PHP'
+        <?php
+        final class PlantedInvoiceWriter
+        {
+            public function rawUpdate(object $c): void
+            {
+                $c->executeStatement("UPDATE invoice SET status = 'void' WHERE id = ?::uuid", ['x']);
+            }
+
+            public function voidWithoutALock(object $em): void
+            {
+                $invoice = $em->find(Invoice::class, 'x');
+                $invoice->void();
+            }
+
+            public function readsOnly(object $c): void
+            {
+                $c->fetchOne('SELECT status FROM invoice WHERE id = ?::uuid', ['x']);
+            }
+        }
+        PHP;
+
+    /**
+     * **Every method in `src/` that writes an invoice is covered by a lock-first check or allowed by name** — the
+     * sales-order accounting's shape, for the invoice (sales step 6, C5; design §19 C5). A payment, reversal or void
+     * that changes an existing invoice without `InvoiceRowLock` first could overwrite a concurrent transition's
+     * recorder or status, because Doctrine's `UPDATE` carries no status predicate.
+     *
+     * Controls, in this test: the pattern matches its own table and entity; the planted writers (a raw `UPDATE invoice`
+     * and an unlocked `void()`) are both found and the read-only method is not; the derived set is not empty.
+     */
+    #[Test]
+    public function everyMethodThatWritesAnInvoiceIsCoveredByALockFirstCheck(): void
+    {
+        foreach (['UPDATE invoice SET x = 1', 'INSERT INTO invoice (id) VALUES (1)', 'DELETE FROM invoice WHERE id = 1'] as $statement) {
+            self::assertMatchesRegularExpression(self::INVOICE_SCAN['sql'], $statement, 'The invoice scan\'s SQL pattern does not recognise a write to invoice.');
+        }
+        foreach (['UPDATE '.Invoice::class.' e SET e.x = 1', 'DELETE FROM '.Invoice::class.' e WHERE e.id = 1'] as $statement) {
+            self::assertMatchesRegularExpression(self::INVOICE_SCAN['dql'], $statement, 'The invoice scan\'s DQL pattern does not recognise a write to Invoice.');
+        }
+        self::assertNotSame([], self::entityMutators(self::INVOICE_SCAN['entities']), 'Invoice has no mutator, so the ORM arm has no subject.');
+
+        self::assertSame(['PlantedInvoiceWriter::rawUpdate', 'PlantedInvoiceWriter::voidWithoutALock'],
+            array_keys(self::writersAmong([self::PLANTED_INVOICE_WRITERS], self::INVOICE_SCAN)),
+            'The invoice scan does not find exactly the planted writers (a raw UPDATE invoice, an unlocked void()), so an '
+            .'empty or partial result below may be a blind scan.');
+
+        $derived = self::writersOf(self::INVOICE_SCAN);
+        self::assertNotSame([], $derived, 'The invoice scan found no writer, yet InvoiceIssuer inserts invoices.');
+
+        self::assertSame(
+            array_keys(iterator_to_array(self::everyInvoiceWritePath())),
+            array_keys(self::INVOICE_LOCK_FIRST_CHECKED),
+            'INVOICE_LOCK_FIRST_CHECKED must name exactly the cases everyInvoiceWritePath() runs.');
+
+        $accounted = [...array_values(self::INVOICE_LOCK_FIRST_CHECKED), ...array_keys(self::INVOICE_ALLOWED_WITHOUT_A_LOCK)];
+        sort($accounted);
+        $found = array_keys($derived);
+        sort($found);
+
+        $describe = implode("\n", array_map(
+            static fn (string $method, array $writes): string => '  '.$method.' — '.implode(' | ', array_unique($writes)),
+            array_keys($derived),
+            $derived,
+        ));
+
+        self::assertSame($accounted, $found,
+            "The methods that write an invoice are not the ones covered by a lock-first check. A writer of an EXISTING "
+            ."invoice must call InvoiceRowLock::holdInside() first and get a case in everyInvoiceWritePath() and "
+            ."INVOICE_LOCK_FIRST_CHECKED; only a writer that creates the row may be added to INVOICE_ALLOWED_WITHOUT_A_LOCK, "
+            ."with its reason.\nWriters found in src/:\n".$describe);
+
+        foreach (self::INVOICE_ALLOWED_WITHOUT_A_LOCK as $method => $pin) {
+            self::assertSame($pin['writes'], $derived[$method] ?? [],
+                $method.' writes something its entry does not account for. Its stated reason for taking no lock was '
+                ."written about a different set of writes:\n  ".$pin['why']);
+        }
+    }
 
     /**
      * **The domain is derived from `src/`, not restated.** A new method that

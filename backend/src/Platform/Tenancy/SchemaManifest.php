@@ -555,13 +555,17 @@ final class SchemaManifest
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. It bills exactly one fulfilment (`fulfilment_id`, D-A) and names its issuer (`issued_by_user_id`, owner ruling Q5), and at most one LIVE invoice exists per fulfilment (`invoice_tenant_fulfilment_not_void`, partial on `status <> \'void\'`, so a void releases the shipment for a corrected re-issue) — sales step 6 C2. IssueInvoice (sales step 6 C3, `Version20260928000200`) holds a COLUMN-level INSERT on exactly the ten columns its raw-SQL writer names — never `status`, `paid_at`, `issued_at`, `created_at` or `updated_at`, which default — and table-level INSERT stays false; a 42501 from that writer is fixed by removing the column from its statement, never by widening the grant. Status and payment state change by UPDATE, so the payment and void operations grant column-level UPDATE in their own migrations when built (ADR-002 Amendment 4).',
+            'why' => 'An invoice is voided, never deleted — in most jurisdictions deleting one is unlawful. It bills exactly one fulfilment (`fulfilment_id`, D-A) and names its issuer (`issued_by_user_id`, owner ruling Q5), and at most one LIVE invoice exists per fulfilment (`invoice_tenant_fulfilment_not_void`, partial on `status <> \'void\'`, so a void releases the shipment for a corrected re-issue) — sales step 6 C2. IssueInvoice (sales step 6 C3, `Version20260928000200`) holds a COLUMN-level INSERT on exactly the ten columns its raw-SQL writer names — never `status`, `paid_at`, `issued_at`, `created_at` or `updated_at`, which default — and table-level INSERT stays false; a 42501 from that writer is fixed by removing the column from its statement, never by widening the grant. Status and payment state change by UPDATE: PayInvoice (sales step 6 C5, `Version20260928000400`) holds a COLUMN-level UPDATE on exactly `status`, `paid_at`, `paid_by_user_id` and `updated_at` — its ORM flush\'s SET list — and table-level UPDATE stays false; the reversal and void grant only what they add, in their own migrations (ADR-002 Amendment 4). `paid_by_user_id` (C5) names who recorded the payment, NULL unless paid (`invoice_paid_by_matches_status`).',
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
-            // InvoiceIssuer's one INSERT, column for column. GrantFootprintTest holds a hand-typed copy
-            // (INVOICE_COLUMNS_THE_ISSUER_INSERTS) and runs the statement as erp_app, so a joint widening of this
-            // list and the migration still fails.
+            // InvoiceIssuer's one INSERT, column for column; and (C5, Version20260928000400) the SET list of
+            // PayInvoice's flush. GrantFootprintTest holds hand-typed copies of both (INVOICE_COLUMNS_THE_ISSUER_INSERTS,
+            // INVOICE_COLUMNS_THE_CALLERS_WRITE) and runs each statement as erp_app, so a joint widening of this list
+            // and a migration still fails.
             'column_grants' => [
-                DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'fulfilment_id', 'sales_order_id', 'customer_id', 'invoice_number', 'currency_code', 'total_amount', 'due_at', 'issued_by_user_id']],
+                DatabaseRoles::APP => [
+                    'INSERT' => ['id', 'tenant_id', 'fulfilment_id', 'sales_order_id', 'customer_id', 'invoice_number', 'currency_code', 'total_amount', 'due_at', 'issued_by_user_id'],
+                    'UPDATE' => ['status', 'paid_at', 'paid_by_user_id', 'updated_at'],
+                ],
             ],
         ],
     ];

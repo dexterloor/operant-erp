@@ -261,19 +261,23 @@ final class InvoiceListTest extends PurchaseOrderTestCase
         return $id;
     }
 
-    /** An invoice written as the owner — the only writer of a paid or void one until C5/C7. */
+    /**
+     * An invoice written as the owner — the only writer of a void one until C7. A paid one names the actor as its
+     * recorder, because `invoice_paid_by_matches_status` (C5) makes a paid invoice without one impossible.
+     */
     private function seedInvoiceRow(string $fulfilmentId, string $number, string $status, string $issuedOn, string $dueOn): string
     {
         $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number, currency_code,
-                                 total_amount, issued_at, due_at, status, paid_at, issued_by_user_id)
+                                 total_amount, issued_at, due_at, status, paid_at, issued_by_user_id, paid_by_user_id)
             SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 10,
                    (?::date)::timestamptz, (?::date)::timestamptz, ?,
-                   CASE WHEN ? = 'paid' THEN (?::date)::timestamptz + interval '1 day' END, ?::uuid
+                   CASE WHEN ? = 'paid' THEN (?::date)::timestamptz + interval '1 day' END, ?::uuid,
+                   CASE WHEN ? = 'paid' THEN ?::uuid END
               FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
              WHERE f.id = ?::uuid
-            SQL, [$id, $number, $issuedOn, $dueOn, $status, $status, $issuedOn, (string) $this->actorId, $fulfilmentId]);
+            SQL, [$id, $number, $issuedOn, $dueOn, $status, $status, $issuedOn, (string) $this->actorId, $status, (string) $this->actorId, $fulfilmentId]);
 
         return $id;
     }

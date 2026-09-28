@@ -86,13 +86,61 @@ final class InvoiceSchemaTest extends TenancyTestCase
             self::assertSame('23505', $this->attemptInvoice($w, ['invoice_number' => 'INV-00002'.$i]),
                 'A second live invoice was accepted beside a '.$status.' one.');
             $this->executeAsOwnerForTenant(self::TENANT_A,
-                "UPDATE invoice SET status = 'void', paid_at = NULL WHERE id = ?::uuid", [$first]);
+                "UPDATE invoice SET status = 'void', paid_at = NULL, paid_by_user_id = NULL WHERE id = ?::uuid", [$first]);
         }
 
         // Three voided invoices of one shipment, and the reissue is accepted and kept.
         $this->insertInvoice($w, 'INV-000100', 'issued');
         self::assertSame(4, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM invoice WHERE fulfilment_id = ?::uuid', [$w['fulfilment']]));
+    }
+
+    /**
+     * **OI-2's invariant, two-way (sales step 6, C5): `paid_at IS NOT NULL ⇔ status = 'paid'`, and the same for the
+     * recorder.** All four quadrants of each CHECK, as the owner (constraints bind every role). The one-way
+     * `invoice_paid_at_set` this replaced accepted the third quadrant of the first — a `paid_at` left behind on an
+     * unpaid invoice — which is exactly what a reversal (C6) must never leave.
+     *
+     * @return iterable<string, array{string, array<string, string|null>, string}>
+     */
+    public static function paymentQuadrants(): iterable
+    {
+        $user = '{user}';
+        yield 'paid, with a date and a recorder' => ['paid', [], 'accepted'];
+        yield 'paid, with no date' => ['paid', ['paid_at' => null], '23514'];
+        yield 'paid, with no recorder' => ['paid', ['paid_by_user_id' => null], '23514'];
+        yield 'issued, with a date left behind' => ['issued', ['paid_at' => '2026-09-02T00:00:00Z'], '23514'];
+        yield 'issued, with a recorder left behind' => ['issued', ['paid_by_user_id' => $user], '23514'];
+        yield 'void, with a date left behind' => ['void', ['paid_at' => '2026-09-02T00:00:00Z'], '23514'];
+        yield 'void, with a recorder left behind' => ['void', ['paid_by_user_id' => $user], '23514'];
+        yield 'issued, with neither' => ['issued', [], 'accepted'];
+        yield 'paid on the issue instant' => ['paid', ['paid_at' => '2026-09-01T00:00:00Z'], 'accepted'];
+        yield 'paid before it was issued' => ['paid', ['paid_at' => '2026-08-31T23:59:59Z'], '23514'];
+    }
+
+    /** @param array<string, string|null> $override */
+    #[\PHPUnit\Framework\Attributes\Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('paymentQuadrants')]
+    public function aPaymentDateAndItsRecorderExistExactlyWhenTheInvoiceIsPaid(string $status, array $override, string $expected): void
+    {
+        $w = $this->world();
+        $override = array_map(static fn (?string $v): ?string => '{user}' === $v ? $w['user'] : $v, $override);
+        [$sql, $params] = $this->invoiceStatement($w, $override, $status);
+
+        self::assertSame($expected, $this->attemptAsOwnerForTenant(self::TENANT_A, $sql, $params));
+    }
+
+    /** The recorder is a composite reference too: another workspace's user is refused (23503). */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function thePayerMustBeThisWorkspaces(): void
+    {
+        $w = $this->world();
+        $foreign = $this->world(self::TENANT_B);
+
+        [$sql, $params] = $this->invoiceStatement($w, ['paid_by_user_id' => $foreign['user']], 'paid');
+        self::assertSame('23503', $this->attemptAsOwnerForTenant(self::TENANT_A, $sql, $params));
+        [$sql, $params] = $this->invoiceStatement($w, [], 'paid');
+        self::assertSame('accepted', $this->attemptAsOwnerForTenant(self::TENANT_A, $sql, $params), 'The control: this workspace\'s user.');
     }
 
     /** The two new references are composite: another workspace's fulfilment or user is refused (23503). */
@@ -171,12 +219,15 @@ final class InvoiceSchemaTest extends TenancyTestCase
             'issued_at' => '2026-09-01T00:00:00Z',
             'due_at' => '2026-10-01T00:00:00Z',
             'paid_at' => 'paid' === $status ? '2026-09-02T00:00:00Z' : null,
+            // Sales step 6 C5: `invoice_paid_by_matches_status` — a paid invoice names its recorder, nothing else does.
+            'paid_by_user_id' => 'paid' === $status ? $w['user'] : null,
         ], $override);
 
         // Every placeholder is typed, so the same expressions serve a VALUES row and the SELECT form below.
         $casts = ['id' => '::uuid', 'tenant_id' => '::uuid', 'sales_order_id' => '::uuid', 'customer_id' => '::uuid',
             'fulfilment_id' => '::uuid', 'issued_by_user_id' => '::uuid', 'total_amount' => '::numeric',
-            'issued_at' => '::timestamptz', 'due_at' => '::timestamptz', 'paid_at' => '::timestamptz'];
+            'issued_at' => '::timestamptz', 'due_at' => '::timestamptz', 'paid_at' => '::timestamptz',
+            'paid_by_user_id' => '::uuid'];
 
         return [
             \sprintf('INSERT INTO invoice (%s) VALUES (%s)', implode(', ', array_keys($columns)),

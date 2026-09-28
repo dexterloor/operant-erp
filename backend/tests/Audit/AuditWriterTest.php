@@ -296,6 +296,14 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             actorLabel: 'Probe Actor',
             invoiceId: Uuid::v4()->toRfc4122(),
         );
+        // Sales step 6, C5: `invoice.paid`, the same writer's second business event.
+        $invoiceWriter->recordPaid(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
+            invoiceId: Uuid::v4()->toRfc4122(),
+            paidAt: '2026-09-28T00:00:00.000+00:00',
+        );
 
         $withIp = [];
         $written = [];

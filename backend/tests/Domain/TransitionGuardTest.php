@@ -310,6 +310,28 @@ final class TransitionGuardTest extends TestCase
         ],
     ];
 
+    /**
+     * **The entity-typed arguments clause (a) synthesises, by name — `ARCH`'s option (a), chosen in sales step 6 C5.**
+     *
+     * `Invoice::markPaid()` takes its payer as an `AppUser` (`$paidBy`), because `invoice_paid_by_matches_status` makes
+     * the payment date and its recorder a pair that must be set together, in one method (`ARCH` §7 item 3). No status
+     * machine took an object parameter before, and a class constant cannot hold an object, so `argumentsFor()` builds
+     * one with `newInstanceWithoutConstructor()` — an empty instance of the declared class, which is all a status
+     * guard can be handed: **no transition may read its actor to decide legality**, and an actor with no initialised
+     * property is what makes a guard that tried to fail loudly rather than pass.
+     *
+     * Keys are `Entity::method($parameter)` and the value is why the actor is a parameter of the transition.
+     * `theSynthesisedEntityArgumentsAreExactlyTheRequiredEntityParametersInTheDomain` derives the set by reflection,
+     * so a transition method that grows an object parameter cannot be filled with a blank instance nobody chose.
+     *
+     * @var array<string, string>
+     */
+    private const ENTITY_ARGUMENTS = [
+        Invoice::class.'::markPaid($paidBy)' => 'Sales step 6 C5: who recorded the payment is set inside the transition '
+            .'that records it (`invoice_paid_by_matches_status`, two-way), never by a sibling setter a caller could skip. '
+            .'The guard reads status only; the payer is the authenticated caller (`SEC` §2), decided by `InvoicePayment`.',
+    ];
+
     // -----------------------------------------------------------------------
     // The domain
     // -----------------------------------------------------------------------
@@ -566,6 +588,45 @@ final class TransitionGuardTest extends TestCase
             'PRECONDITION_SCALARS does not name exactly the required scalar parameters of the transition methods in '
             .'§8.3\'s matrix. A parameter this test synthesises a value for without a decision behind it is how '
             .'clause (a) ends up exercising a branch nobody chose.');
+    }
+
+    /**
+     * {@see self::ENTITY_ARGUMENTS} names **exactly** the required object parameters (other than
+     * `\DateTimeImmutable`) of the matrix's transition methods — derived by reflection, not restated. The twin of
+     * `theSynthesisedScalarsAreExactlyTheRequiredScalarParametersInTheDomain`, added with `markPaid($paidBy)` (sales
+     * step 6 C5).
+     *
+     * **Mutation:** delete the register entry; red here, naming `Invoice::markPaid($paidBy)`, and `argumentsFor()`
+     * then fails every clause that invokes `markPaid()`.
+     */
+    #[Test]
+    public function theSynthesisedEntityArgumentsAreExactlyTheRequiredEntityParametersInTheDomain(): void
+    {
+        $required = [];
+
+        foreach (self::matrixEntities() as $entity) {
+            foreach (self::transitionMethods($entity) as $method) {
+                foreach ((new \ReflectionMethod($entity, $method))->getParameters() as $parameter) {
+                    if ($parameter->isOptional()) {
+                        break;
+                    }
+
+                    $type = $parameter->getType();
+
+                    if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && \DateTimeImmutable::class !== $type->getName()) {
+                        $required[] = self::scalarKey($entity, $method, $parameter->getName());
+                    }
+                }
+            }
+        }
+
+        sort($required);
+        $registered = array_keys(self::ENTITY_ARGUMENTS);
+        sort($registered);
+
+        self::assertSame($registered, $required,
+            'ENTITY_ARGUMENTS does not name exactly the required object parameters of the transition methods in §8.3\'s '
+            .'matrix. A blank instance handed to a transition nobody decided about is a guess, not a synthesis.');
     }
 
     /**
@@ -1161,6 +1222,14 @@ final class TransitionGuardTest extends TestCase
 
             $key = self::scalarKey($entity, $method, $parameter->getName());
 
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && isset(self::ENTITY_ARGUMENTS[$key])) {
+                /** @var class-string $class */
+                $class = $type->getName();
+                $arguments[] = (new \ReflectionClass($class))->newInstanceWithoutConstructor();
+
+                continue;
+            }
+
             if (isset(self::PRECONDITION_SCALARS[$key])) {
                 $entry = self::PRECONDITION_SCALARS[$key];
 
@@ -1173,7 +1242,8 @@ final class TransitionGuardTest extends TestCase
 
             self::fail(\sprintf(
                 '%s::%s() takes $%s, which this test cannot synthesise. Give it an entry in PRECONDITION_SCALARS '
-                .'with the value that satisfies it and the value that refuses it, rather than excluding the method.',
+                .'with the value that satisfies it and the value that refuses it (or, for an object, in ENTITY_ARGUMENTS '
+                .'with the reason it is a parameter of the transition), rather than excluding the method.',
                 $entity,
                 $method,
                 $parameter->getName(),

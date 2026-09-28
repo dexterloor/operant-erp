@@ -7,6 +7,7 @@ namespace App\Modules\Sales\Infrastructure\Entity;
 use App\Modules\Customers\Infrastructure\Entity\Customer;
 use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Platform\Domain\GuardsStatusTransitions;
+use App\Platform\Persistence\Type\TimestampTzMicrosecondsImmutableType;
 use App\SharedKernel\Reference\Currency;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -19,17 +20,19 @@ use Symfony\Component\Uid\Uuid;
  * ---------------------------------------------------------------------------
  * Never deleted. **Voided**, which is an UPDATE
  * ---------------------------------------------------------------------------
- * There is no `deleted_at` here and never a DELETE grant. **Today erp_app holds
- * SELECT and nothing more** (ADR-002 Amendment 4, `Version20260916000300`): no
- * `src/` path writes an invoice yet, so the INSERT and UPDATE that
- * Version20260906000100 granted were revoked, and `IssueInvoice` and the payment
- * and void operations grant them in their own migrations when built. An issued
+ * There is no `deleted_at` here and never a DELETE grant. The table-level INSERT and UPDATE that
+ * Version20260906000100 granted were revoked (ADR-002 Amendment 4, `Version20260916000300`), and each writer
+ * grants exactly the COLUMNS it writes in its own migration: `IssueInvoice` INSERT on ten (C3,
+ * `Version20260928000200`), `PayInvoice` UPDATE on four (C5, below). *(This sentence read "Today erp_app holds
+ * SELECT and nothing more … no `src/` path writes an invoice yet" until C5 — stale since C3.)* An issued
  * invoice is a statement made to a third party and a row in someone's tax
  * record; it cannot be unsent. Cancelling one is the `void` status, and moving
  * to it is an UPDATE — which is why those builds grant UPDATE on a table that is
- * otherwise append-only, and still never DELETE. `paid` is likewise a status transition, guarded by
- * `invoice_paid_at_set` so that a paid invoice cannot exist without a payment
- * date.
+ * otherwise append-only, and still never DELETE. `paid` is likewise a status transition, guarded since sales
+ * step 6 C5 by the two-way `invoice_paid_at_matches_status` and `invoice_paid_by_matches_status` (replacing the
+ * one-way `invoice_paid_at_set`), so a paid invoice has a payment date and a recorder and nothing else has either.
+ * **`erp_app` holds a COLUMN-level UPDATE on exactly `status`, `paid_at`, `paid_by_user_id` and `updated_at`**
+ * (`Version20260928000400`), which is `markPaid()`'s flush and nothing more.
  *
  * `invoice_number_unique` is therefore total. Nothing here is soft-deleted, so
  * there is no invisible row for a re-used number to collide with and ADR-007
@@ -39,13 +42,14 @@ use Symfony\Component\Uid\Uuid;
  * document that is sent to a customer would make "we failed to price it" look
  * like "it was free"; a failed INSERT is the safer failure.
  *
- * Four tenant-scoped parents, all single-column associations whose composite
+ * Tenant-scoped parents, all single-column associations whose composite
  * keys are hand-written in the migrations and not mapped (A1.6):
  *
  *   FOREIGN KEY (tenant_id, sales_order_id)    REFERENCES sales_order (tenant_id, id)
  *   FOREIGN KEY (tenant_id, customer_id)       REFERENCES customer    (tenant_id, id)
  *   FOREIGN KEY (tenant_id, fulfilment_id)     REFERENCES fulfilment  (tenant_id, id)   -- sales step 6 C2
  *   FOREIGN KEY (tenant_id, issued_by_user_id) REFERENCES app_user    (tenant_id, id)   -- sales step 6 C2
+ *   FOREIGN KEY (tenant_id, paid_by_user_id)   REFERENCES app_user    (tenant_id, id)   -- sales step 6 C5, nullable
  *
  * **The billed shipment and the issuer (sales step 6, C2, `Version20260923000100`).** An invoice bills exactly one
  * fulfilment (D-A as amended), and at most one LIVE invoice exists per fulfilment —
@@ -126,8 +130,23 @@ class Invoice
     #[ORM\Column(name: 'due_at', type: Types::DATETIMETZ_IMMUTABLE)]
     private \DateTimeImmutable $dueAt;
 
-    #[ORM\Column(name: 'paid_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
+    /**
+     * Written at MICROSECOND precision (sales step 6, C5): `invoice_paid_not_before_issue` compares it with `issued_at`,
+     * which the database writes with microseconds, and the default type drops the fraction — a payment in the issue's
+     * own second would land before it. See `TimestampTzMicrosecondsImmutableType`.
+     */
+    #[ORM\Column(name: 'paid_at', type: TimestampTzMicrosecondsImmutableType::NAME, nullable: true)]
     private ?\DateTimeImmutable $paidAt = null;
+
+    /**
+     * Who recorded the payment (sales step 6, C5; OI-2 R1a). NULL unless `paid` — `invoice_paid_by_matches_status`
+     * makes that a database fact — and written only by `markPaid()`, from the authenticated caller. Exposed as
+     * `paid_by = {id, display_name}` under `invoice.view` (`SEC` §2, Q7; PC-11 (4a)); it is A2.3's input, since the
+     * recorder may not reverse their own payment.
+     */
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'paid_by_user_id', referencedColumnName: 'id', nullable: true)]
+    private ?AppUser $paidBy = null;
 
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
@@ -217,19 +236,28 @@ class Invoice
         return $this->paidAt;
     }
 
-    /**
-     * `invoice_paid_at_set` refuses a paid invoice with no payment date, so the
-     * two are set together and never separately.
-     */
-    public function markPaid(\DateTimeImmutable $paidAt): void
+    public function getPaidBy(): ?AppUser
     {
-        // L-9: there is no un-pay. `void()` voids the invoice, not the payment,
-        // so a `void` invoice that could be marked paid would leave a settled
-        // receivable with no way back. §8.3: `issued` or `overdue`.
+        return $this->paidBy;
+    }
+
+    /**
+     * `invoice_paid_at_matches_status` and `invoice_paid_by_matches_status` (sales step 6, C5) are two-way: a paid
+     * invoice has a payment date and a recorder, and nothing else has either. So the three are set together, in this
+     * one method, and never separately — **the actor is a parameter of the transition** (`ARCH` §7 item 3, option
+     * (a)), not a sibling setter a caller could forget. `$paidBy` is the authenticated caller; no request field can
+     * name it (`SEC` §2).
+     */
+    public function markPaid(\DateTimeImmutable $paidAt, AppUser $paidBy): void
+    {
+        // `void()` voids the invoice, not the payment, so a `void` invoice that could be marked paid would leave a
+        // settled receivable with no way back. §8.3: `issued` or `overdue`. (The way back from `paid` is the
+        // reversal, `ReverseInvoicePayment` — never a void.)
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED, self::STATUS_OVERDUE]);
 
         $this->status = self::STATUS_PAID;
         $this->paidAt = $paidAt;
+        $this->paidBy = $paidBy;
         $this->updatedAt = new \DateTimeImmutable();
     }
 

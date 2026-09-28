@@ -354,6 +354,16 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, invoice, then list the invoices'];
             }],
+            // Sales step 6, C5: an invoice issued through the API, then paid through the API, so the 200 body every
+            // walker sees is the PAID shape -- `paid_at` and `paid_by = {id, display_name}` non-null (`SEC` §2: the
+            // recipes must reach the paid branch, or the shape is never observed -- the `3e55a99` lesson).
+            'PayInvoice' => [fn (): array => $stockedSalesWorkspace('SO-165000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/payment', []);
+
+                return [200, 'create, confirm, fulfil, invoice, then record the payment'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));

@@ -17,6 +17,9 @@ doctrine:
             # Postgres writes microseconds; DBAL's built-in parser does not read
             # them. Overridden globally rather than per column.
             datetimetz_immutable: App\Platform\Persistence\Type\TimestampTzImmutableType
+            # Writes the fraction of the second too, for a column a CHECK compares with a database-written instant
+            # (invoice.paid_at vs issued_at, sales step 6 C5). Opt-in per column; see the class.
+            datetimetz_microseconds_immutable: App\Platform\Persistence\Type\TimestampTzMicrosecondsImmutableType
             # audit_log.ip_address. Registered rather than declared as a string,
             # so that the ORM emits INET and the schema comparison stays silent.
             inet: App\Platform\Persistence\Type\InetType

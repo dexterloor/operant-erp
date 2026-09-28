@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-28 with `PayInvoice` in the tree (sales step 6, C5): the three commands return
+  # **101 / 70 / 8** -- TWO edge lines added: `InvoicePayment -> InvoiceAuditWriter` (A-5, the synchronous
+  # `invoice.paid` row) and `InvoicePayment -> Entity\Invoice` (A-7, `markPaid()` under the lock). `make deptrac`:
+  # see the progress note for the counts at this commit.)
   # (Re-derived 2026-09-28 with `ListInvoices` in the tree (sales step 6, C4): the three commands return
   # **99 / 69 / 7** -- ONE edge line added, A-7: `InvoiceViews -> Entity\Invoice` (segments bound from `STATUS_*`,
   # `SalesOrderViews`' shape). The reader returns an Application page, so no `Application -> ApiResource` pair.
@@ -317,6 +321,12 @@ deptrac:
       # `IssueInvoice` (sales step 6 C3, 2026-09-28): the synchronous `invoice.issued` row
       # (`SalesOrderCancellation`'s A-5 shape exactly -- messenger is not installed), and
       # `Invoice::STATUS_VOID` bound into the live-invoice read rather than spelled as a literal (API-15).
+      - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\InvoicePayment:
+      # `PayInvoice` (sales step 6 C5, 2026-09-28): the synchronous `invoice.paid` row (`InvoiceIssuer`'s A-5 shape),
+      # and the entity whose status guard `markPaid()` it invokes after `InvoiceRowLock` (`SalesOrderCancellation`'s
+      # A-7 shape). The payer's `AppUser` reference is taken through the entity's own mapping, so no cross-module edge.
       - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\InvoiceReader:
