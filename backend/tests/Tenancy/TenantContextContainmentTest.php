@@ -59,6 +59,10 @@ final class TenantContextContainmentTest extends TestCase
      * of them exist specifically to demonstrate the forbidden forms.
      */
     private const KNOWN_WRITERS_OUTSIDE_SRC = [
+        'tests/Api/PurchaseOrderRowLockTest.php' =>
+            'The role-administration lock\'s refusal twins (roles slice 2, C2): set_config to ANOTHER tenant inside a '
+            .'bare transaction on the app connection, rolled back, to prove RoleAdministrationLock refuses a mismatched '
+            .'setting and takes no advisory lock. If this file stops writing context, that twin has lost its subject.',
         'tests/Api/support/hold_order_lock.php' =>
             'Out-of-process holder of a purchase-order row lock for PurchaseOrderRowLockTest (step 6c); '
             .'connection A of a two-connection race, on the unpooled endpoint, with no container.',

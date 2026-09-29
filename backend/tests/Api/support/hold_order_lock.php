@@ -9,7 +9,8 @@
 //
 // Sequence, every step decided by the database rather than by a clock:
 //   1. BEGIN; set the tenant; take the row lock on HOLD_TABLE (whitelisted:
-//      `purchase_order` or `sales_order`, defaulting to the first); run HOLD_BEFORE.
+//      `purchase_order`, `sales_order` or `invoice`, defaulting to the first -- or `role_administration`,
+//      the per-tenant advisory lock, by `RoleAdministrationLock::SQL` itself); run HOLD_BEFORE.
 //   2. Write this backend's pid to HOLD_READY_FILE. The parent sends B now.
 //   3. Wait until Postgres reports some backend blocked BY THIS ONE
 //      (`pg_blocking_pids`). That is the moment B is provably inside its
@@ -58,11 +59,24 @@ try {
 
     // `invoice` joined with `PayInvoice` (sales step 6, C5): `InvoiceRowLock` is the same `FOR NO KEY UPDATE`, legal for
     // `erp_app` once `Version20260928000400` granted a column UPDATE on the table.
-    if (!in_array($table, ['purchase_order', 'sales_order', 'invoice'], true)) {
+    //
+    // `role_administration` joined with `RevokeRole` (roles slice 2, C2; spar P4): not a row lock but the per-tenant
+    // advisory lock, taken by issuing `RoleAdministrationLock::SQL` ITSELF -- the application's constant, never a
+    // transcription -- keyed on HOLD_TENANT, and refused unless it reports the lock taken. HOLD_ORDER is unused there.
+    if ('role_administration' === $table) {
+        $locked = $conn->fetchAssociative(
+            App\Modules\UserManagement\Application\RoleAdministrationLock::SQL,
+            [getenv('HOLD_TENANT'), App\Modules\UserManagement\Application\RoleAdministrationLock::CLASS_ID, getenv('HOLD_TENANT')],
+            [Doctrine\DBAL\ParameterType::STRING, Doctrine\DBAL\ParameterType::INTEGER, Doctrine\DBAL\ParameterType::STRING],
+        );
+        if (true !== ($locked['locked'] ?? null)) {
+            throw new RuntimeException('The holder did not take the role-administration lock.');
+        }
+    } elseif (!in_array($table, ['purchase_order', 'sales_order', 'invoice'], true)) {
         throw new RuntimeException('HOLD_TABLE names no aggregate this holder locks: '.$table);
+    } else {
+        $conn->executeStatement(sprintf('SELECT 1 FROM %s WHERE id = ?::uuid FOR NO KEY UPDATE', $table), [getenv('HOLD_ORDER')]);
     }
-
-    $conn->executeStatement(sprintf('SELECT 1 FROM %s WHERE id = ?::uuid FOR NO KEY UPDATE', $table), [getenv('HOLD_ORDER')]);
 
     foreach ($before as [$sql, $bind]) {
         $conn->executeStatement($sql, $bind);

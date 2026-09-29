@@ -14,10 +14,16 @@ use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrderLine;
 use App\Modules\Sales\Infrastructure\OrmSalesOrderFulfilmentStatus;
+use App\Modules\UserManagement\Application\RoleAdministrationLock;
 use App\Modules\UserManagement\Domain\DefaultRoles;
+use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
+use App\Modules\UserManagement\Infrastructure\Entity\Role;
+use App\Modules\UserManagement\Infrastructure\Entity\RolePermission;
+use App\Modules\UserManagement\Infrastructure\Entity\UserRole;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
+use App\Platform\Tenancy\TenantContext;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Support\PhpSourceScan;
 use Doctrine\ORM\EntityManagerInterface;
@@ -2416,6 +2422,577 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'PlantedSalesWriter::viaConstantFunctionAfterAComment',
     ];
 
+    // =======================================================================
+    // The role-administration lock (roles slice 2, C2) — `SECURITY_MODEL.md` §5.2.5, `ARCHITECTURE.md` W-5's amendment.
+    // Not a row lock: one per-tenant advisory lock (`RoleAdministrationLock`), because API-20's count races across
+    // DIFFERENT rows. The evidence copies this class's shape: a positional test, the refusal twins, two-connection races
+    // (the holder's `role_administration` mode issues `RoleAdministrationLock::SQL` itself), and a derived writer scan.
+    // =======================================================================
+
+    /**
+     * **The lock is the FIRST statement of the transaction that writes `user_role`**, pinned by the constant's exact text
+     * — the strict form, because this lock is transaction-level (the order locks' rule is "first to touch the order").
+     * Both role operations are `read: false`, so no provider reads a `HARD` row in an earlier transaction.
+     */
+    #[Test]
+    #[DataProvider('everyRoleWritePath')]
+    public function theRoleAdministrationLockIsTheFirstStatementOfTheWritingTransaction(string $case, int $status): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $role = $this->onlyRoleOf($subject);
+        $this->actAsRole(DefaultRoles::ADMIN);
+
+        $this->recorder()->start();
+        $this->send('DELETE', '/users/'.$subject.'/roles/'.$role);
+        $this->recorder()->stop();
+        self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
+
+        $writing = array_values(array_filter($this->transactionsRecorded(), static fn (array $statements): bool => [] !== preg_grep(
+            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+user_role\b/i', $statements,
+        )));
+        self::assertCount(1, $writing, 'Expected exactly one transaction writing user_role.');
+        self::assertSame(RoleAdministrationLock::SQL, $writing[0][0] ?? null,
+            "The first statement of the transaction writing user_role is not the role-administration lock. Statements, in order:\n"
+            .implode("\n", $writing[0]));
+    }
+
+    /** @return iterable<string, array{string, int}> */
+    public static function everyRoleWritePath(): iterable
+    {
+        yield 'RevokeRole' => ['RevokeRole', 204];
+    }
+
+    /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
+    #[Test]
+    public function theRoleLockRefusesToRunOutsideATransaction(): void
+    {
+        $connection = $this->appConnection();
+        self::assertSame(0, $connection->getTransactionNestingLevel(), 'Fixture: a transaction is already open.');
+        $recorder = $this->appRecorder();
+        $recorder->start();
+        try {
+            RoleAdministrationLock::holdInside($this->appEntityManager(), self::TENANT_A);
+            self::fail('The role lock ran outside a transaction.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('open transaction', $e->getMessage());
+        } finally {
+            $recorder->stop();
+        }
+        self::assertSame([], $recorder->statements(), 'The refused lock still sent a statement.');
+    }
+
+    /**
+     * Refusals 2 and 3: an EMPTY tenant setting and a MISMATCHED one. The guarded statement is sent, refuses, and takes no
+     * advisory lock (`pg_locks`), and nothing naming a role table or `app_user` follows.
+     */
+    #[Test]
+    public function theRoleLockRefusesOnAnEmptyOrMismatchedTenantSettingAndTakesNothing(): void
+    {
+        $connection = $this->appConnection();
+        foreach (['empty' => null, 'mismatched' => self::TENANT_B] as $case => $setting) {
+            $connection->beginTransaction();
+            try {
+                if (null !== $setting) {
+                    $connection->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [$setting]);
+                }
+                try {
+                    RoleAdministrationLock::holdInside($this->appEntityManager(), self::TENANT_A);
+                    self::fail('The role lock ran on an '.$case.' tenant setting.');
+                } catch (\LogicException $e) {
+                    self::assertStringContainsString('was not taken', $e->getMessage(), $case);
+                }
+                self::assertSame(0, (int) $connection->fetchOne(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()"),
+                    'The refused lock still took an advisory lock on an '.$case.' setting (spar P2).');
+            } finally {
+                $connection->rollBack();
+            }
+        }
+    }
+
+    /**
+     * R2-8: one tenant spelled two ways takes ONE lock. `holdInside()` with the upper-case spelling must hold the advisory
+     * lock keyed on `hashtext()` of the canonical lower-case text — which differs from the upper-case spelling's hash.
+     */
+    #[Test]
+    public function theRoleLockKeysOnTheCanonicalTenantId(): void
+    {
+        $tenants = self::getContainer()->get(TenantContext::class);
+        \assert($tenants instanceof TenantContext);
+
+        // A tenant id WITH hex letters: the fixture tenants are all digits, so their two spellings are one string. No
+        // tenant row is needed — the lock compares the setting `run()` writes with the id it is given, and reads no table.
+        $tenant = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
+        $held = $tenants->run($tenant, static function (EntityManagerInterface $em) use ($tenant): array {
+            RoleAdministrationLock::holdInside($em, strtoupper($tenant));
+
+            return $em->getConnection()->fetchAllAssociative(<<<'SQL'
+                SELECT l.classid::int AS class_id, l.objid::int AS obj_id, hashtext(?::text) AS lower, hashtext(?::text) AS upper
+                  FROM pg_locks l WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid()
+                SQL, [$tenant, strtoupper($tenant)]);
+        });
+
+        self::assertCount(1, $held);
+        self::assertNotSame($held[0]['lower'], $held[0]['upper'], 'Control: the two spellings hash alike, so this proves nothing.');
+        self::assertSame(RoleAdministrationLock::CLASS_ID, $held[0]['class_id']);
+        self::assertSame($held[0]['lower'], $held[0]['obj_id'], 'The lock is keyed on a non-canonical spelling of the tenant.');
+    }
+
+    /**
+     * **V2-R-3's race: two owners revoke each other; exactly one revoke happens.** The holder takes the role lock and, as
+     * A, revokes B's owner grant and writes its `role.revoked`. The request — B revoking A, authenticated while A's revoke
+     * is uncommitted, so B's token still reads as owner — waits, re-derives B's codes under the lock, finds `role.assign`
+     * gone, and is refused with the gate's own 403 and one denial row (S-2). One owner left.
+     * Mutations (roles-s2-design.md §5.1, spar P5): R3 → `marker_needs_owner`; A5 → `last_owner`; A5+R5 → 204, zero owners.
+     */
+    #[Test]
+    public function twoOwnersRevokingEachOtherLeaveExactlyOne(): void
+    {
+        $a = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $b = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        [$aRole, $bRole] = [$this->onlyRoleOf($a), $this->onlyRoleOf($b)];
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $b);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$b, $bRole]],
+            [self::HOLDER_ROLE_REVOKED, [self::TENANT_A, $a, $b, $bRole]],
+        ], request: fn () => $this->send('DELETE', '/users/'.$a.'/roles/'.$aRole), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_REVOKED]), 'Not exactly one revoke happened.');
+        self::assertSame([['actor' => $b, 'permission_code' => 'role.assign', 'subject_type' => 'app_user', 'subject_id' => $a]],
+            $this->denialRows(), 'The lock-time refusal did not write exactly one denial row naming the user.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$a, $aRole]),
+            'The refused revoke removed A\'s grant anyway: the workspace has no owner.');
+    }
+
+    /**
+     * **S-6 + `SEC`'s S-2 (Acknowledgement A.3): an actor demoted while waiting is refused, and the refusal — which
+     * COMMITS — writes nothing but its denial row.** The holder removes the actor's only `role.assign`-conferring role (a
+     * non-marker role, so E-15b is not involved). The waiting request: 403, byte-identical to the gate's; exactly one
+     * `audit_log` row in total, the denial; zero `role.*` rows; `user_role` row for row as the holder left it; the actor's
+     * and subject's `app_user` rows untouched. And the denial names the SAME pair a gate denial of the same path names —
+     * one resolver (`PermissionGate::denialSubjectOf()`), mutation hard-coding `'role'` → red.
+     */
+    #[Test]
+    public function anActorDemotedWhileWaitingIsRefusedAndTheRefusalCommitsNothingElse(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $path = '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject);
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $users = $this->appUserRows([$subject, $actor]);
+        $this->actAsUser(self::TENANT_A, $actor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('DELETE', $path), table: 'role_administration');
+        $afterHolder = $this->userRoleRows();
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
+            'The committed refusal wrote something besides its one denial row.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type LIKE 'role.%'"));
+        self::assertSame($afterHolder, $this->userRoleRows(), 'The committed refusal changed user_role.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]),
+            'The subject lost the grant although the revoke was refused.');
+        self::assertSame($users, $this->appUserRows([$subject, $actor]), 'The committed refusal flushed a change to a user row.');
+
+        [$lockTime] = $this->denialRows();
+        // The gate's row for the SAME path, from a caller holding nothing.
+        $this->actAs(self::TENANT_A, []);
+        $this->send('DELETE', $path);
+        self::assertSame(403, $this->httpStatus());
+        $gate = array_values(array_filter($this->denialRows(), fn (array $row): bool => $row['actor'] === $this->actorId));
+        self::assertCount(1, $gate);
+        self::assertSame([$gate[0]['subject_type'], $gate[0]['subject_id']], [$lockTime['subject_type'], $lockTime['subject_id']],
+            'A denial under the lock names a different (subject_type, subject_id) pair from the gate\'s denial of the same path.');
+        self::assertSame(['app_user', $subject], [$lockTime['subject_type'], $lockTime['subject_id']]);
+    }
+
+    /**
+     * E-1 under the lock (`SEC` §2.2's hard constraint): the re-check comes before any read of the subject, so a demoted
+     * actor is refused identically against a real grant and against ids that exist nowhere — same status, same bytes, one
+     * denial row each. Mutation: move the re-check after the subject read → the random-id run answers 404, red.
+     */
+    #[Test]
+    public function aDemotedActorIsRefusedTheSameWayWhetherOrNotTheSubjectExists(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $answers = [];
+        foreach ([
+            'a real grant' => '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject),
+            'ids that exist nowhere' => '/users/'.Uuid::v4()->toRfc4122().'/roles/'.Uuid::v4()->toRfc4122(),
+        ] as $case => $path) {
+            $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+            $this->actAsUser(self::TENANT_A, $actor);
+            $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+                ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+            ], request: fn () => $this->send('DELETE', $path), table: 'role_administration');
+            $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+
+            $answers[$case] = [$this->httpStatus(), (string) $this->client()->getResponse()->getContent()];
+            self::assertCount(1, array_filter($this->denialRows(), static fn (array $row): bool => $row['actor'] === $actor), $case);
+        }
+        self::assertSame([403, RoleRevokeTest::ROLE_ASSIGN_DENIED], $answers['a real grant']);
+        self::assertSame($answers['a real grant'], $answers['ids that exist nowhere'],
+            'A demoted actor can tell a real grant from an absent one: the re-check does not come before the subject read.');
+    }
+
+    /**
+     * `SEC` §2.4's order: an actor who is inactive AND loses `role.assign` while waiting gets the 403 and its row, not the
+     * inactive 409 — the permission re-check is first.
+     */
+    #[Test]
+    public function anInactiveActorDemotedWhileWaitingGetsThe403First(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]);
+        $this->actAsUser(self::TENANT_A, $actor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('DELETE', '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject)), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertCount(1, $this->denialRows());
+    }
+
+    /**
+     * **Every method in `src/` that writes a role-administration table, or ends a user's liveness, takes the role lock
+     * first** (spar §2 item 5, P6; design §4.4). The domain is derived from `src/`: SQL/DQL writes of `user_role`, `role`,
+     * `role_permission`, `role_grant_proposal`; SQL/DQL that sets `app_user.is_active` / `deleted_at` (keyed on the SET
+     * list) or hard-deletes a user; the ORM arm (flush/persist/remove or a mutator) for `UserRole`, `RolePermission`,
+     * `Role`; and for `AppUser` the **mutators only** — those assigning `isActive`/`deletedAt`, derived from its source —
+     * because the flush clause would name `ChangePassword` and `LoginRecorder` (credential writers) as role writers.
+     *
+     * Named blind spots (inherited from the session-9 list): schema-qualified (`public.user_role`), `ONLY`, quoted
+     * identifiers, `MERGE INTO`, `TRUNCATE`, SQL built by concatenation or keyword-less fragments, and an ORM write reached
+     * through an association that never names the entity. A `WITH … DELETE FROM user_role` CTE IS seen.
+     */
+    #[Test]
+    public function everyMethodThatWritesARoleAdministrationTableIsCoveredByALockFirstCheck(): void
+    {
+        foreach (['user_role', 'role', 'role_permission', 'role_grant_proposal'] as $table) {
+            foreach (["UPDATE $table SET x = 1", "INSERT INTO $table (id) VALUES (1)", "DELETE FROM $table WHERE id = 1"] as $statement) {
+                self::assertMatchesRegularExpression(self::ROLE_ADMIN_SCAN['sql'], $statement, 'The role scan does not see: '.$statement);
+            }
+        }
+        foreach (['UPDATE roles SET x = 1', 'UPDATE role_grant_proposal_x SET x = 1', 'SELECT 1 FROM user_role'] as $statement) {
+            self::assertDoesNotMatchRegularExpression(self::ROLE_ADMIN_SCAN['sql'], $statement, 'The role scan over-matches: '.$statement);
+        }
+        self::assertSame(['deactivate', 'delete'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the two the scan was written for.');
+
+        self::assertSame(self::PLANTED_ROLE_WRITERS_EXPECTED, array_keys(self::writersAmong([self::PLANTED_ROLE_WRITERS], self::ROLE_ADMIN_SCAN)),
+            'The role scan does not find exactly the planted role-administration writers (and none of the credential-shaped '
+            .'negatives), so the result below may be a blind scan.');
+
+        $derived = self::writersOf(self::ROLE_ADMIN_SCAN);
+        self::assertNotSame([], $derived, 'The role scan found no writer, yet RoleRevocation deletes from user_role.');
+
+        self::assertSame(array_keys(iterator_to_array(self::everyRoleWritePath())), array_keys(self::ROLE_LOCK_FIRST_CHECKED),
+            'ROLE_LOCK_FIRST_CHECKED must name exactly the cases everyRoleWritePath() runs.');
+
+        $accounted = [...array_values(self::ROLE_LOCK_FIRST_CHECKED), ...array_keys(self::ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN), ...array_keys(self::ROLE_ALLOWED_WITHOUT_A_LOCK)];
+        sort($accounted);
+        $found = array_keys($derived);
+        sort($found);
+
+        self::assertSame($accounted, $found,
+            "The methods that write a role-administration table (or end a user's liveness) are not the ones covered by a "
+            ."lock-first check. SECURITY_MODEL.md §5.2.5: every such writer calls RoleAdministrationLock::holdInside() as the "
+            ."FIRST statement of its transaction and gets a case in everyRoleWritePath() and ROLE_LOCK_FIRST_CHECKED.\nWriters found in src/:\n"
+            .implode("\n", array_map(static fn (string $m, array $w): string => '  '.$m.' — '.implode(' | ', array_unique($w)), array_keys($derived), $derived)));
+    }
+
+    /**
+     * The role-administration aggregate. `also`: the `app_user` liveness arms (SQL keyed on the SET list, plus a hard
+     * delete — run by the spar, P6; and their DQL twin). `mutator_only`: `AppUser`, whose ORM arm counts only the mutators
+     * assigning the named properties.
+     *
+     * @var array{label: string, sql: non-empty-string, dql: non-empty-string, also: list<non-empty-string>, entities: list<class-string>, mutator_only: array<class-string, list<string>>}
+     */
+    private const ROLE_ADMIN_SCAN = [
+        'label' => 'role-administration',
+        'sql' => '/\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(?:user_role|role(?:_permission|_grant_proposal)?)\b/i',
+        'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*(?:UserRole|RolePermission|Role|RoleGrantProposal)\b/',
+        'also' => [
+            '/\b(?:UPDATE\s+app_user\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b(?:is_active|deleted_at)\s*=|DELETE\s+FROM\s+app_user\b)/i',
+            '/\b(?:UPDATE\s+[\w\\\\]*AppUser\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b\w+\.(?:isActive|deletedAt)\s*=|DELETE\s+FROM\s+[\w\\\\]*AppUser\b)/',
+        ],
+        'entities' => [UserRole::class, RolePermission::class, Role::class],
+        'mutator_only' => [AppUser::class => ['isActive', 'deletedAt']],
+    ];
+
+    /** `everyRoleWritePath()`'s case => the method it enters. */
+    private const ROLE_LOCK_FIRST_CHECKED = [
+        'RevokeRole' => 'RoleRevocation::revoke',
+    ];
+
+    /** Empty, and kept: a future entry is a reviewed line, with its reason. */
+    private const ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [];
+
+    /** Empty, and kept: no role-administration writer is exempt from the lock (§5.2.5 names none). */
+    private const ROLE_ALLOWED_WITHOUT_A_LOCK = [];
+
+    /**
+     * Planted role writers. Must be found: the sales plant set's shapes on `user_role`, plus role-specific ones. Must NOT:
+     * a `ChangePassword`-shaped and a `LoginRecorder`-shaped credential writer (they name `AppUser` and flush), a
+     * `last_login_at … WHERE deleted_at IS NULL` literal, a `SET password_hash`, and a `SELECT … FROM user_role`.
+     */
+    private const PLANTED_ROLE_WRITERS = <<<'PHP'
+        <?php
+
+        namespace App\Modules\UserManagement\Application;
+
+        final class PlantedRoleWriter
+        {
+            private const SQL = 'DELETE FROM user_role WHERE id = ?::uuid';
+
+            private const ALIAS = self::SQL;
+
+            public function viaLiteral(object $c): void
+            {
+                $c->executeStatement('DELETE FROM user_role WHERE id = ?::uuid', []);
+            }
+
+            public function viaSelf(object $c): void
+            {
+                $c->executeStatement(self::SQL, []);
+            }
+
+            public function viaStatic(object $c): void
+            {
+                $c->executeStatement(static::SQL, []);
+            }
+
+            public function viaAlias(object $c): void
+            {
+                $c->executeStatement(self::ALIAS, []);
+            }
+
+            public function viaEscapedNewline(object $c): void
+            {
+                $c->executeStatement("SELECT 1;\nDELETE FROM user_role WHERE id = ?::uuid");
+            }
+
+            public function viaCte(object $c): void
+            {
+                $c->executeStatement('WITH gone AS (DELETE FROM user_role WHERE id = ?::uuid RETURNING id) SELECT count(*) FROM gone');
+            }
+
+            public function renamesARole(object $c): void
+            {
+                $c->executeStatement('UPDATE role SET name = ? WHERE id = ?::uuid');
+            }
+
+            public function proposes(object $c): void
+            {
+                $c->executeStatement('INSERT INTO role_grant_proposal (id) VALUES (?::uuid)');
+            }
+
+            public function deactivatesBySql(object $c): void
+            {
+                $c->executeStatement('UPDATE app_user SET is_active = false WHERE id = ?::uuid');
+            }
+
+            public function deletesBySqlOverTwoLines(object $c): void
+            {
+                $c->executeStatement("UPDATE app_user\n   SET updated_at = now(),\n       deleted_at = clock_timestamp()\n WHERE id = ?::uuid");
+            }
+
+            public function hardDeletesAUser(object $c): void
+            {
+                $c->executeStatement('DELETE FROM app_user WHERE id = ?::uuid');
+            }
+
+            public function deactivatesByDql(object $em): void
+            {
+                $em->createQuery('UPDATE App\Modules\UserManagement\Infrastructure\Entity\AppUser u SET u.isActive = false WHERE u.id = :id');
+            }
+
+            public function deactivatesByOrm(object $em): void
+            {
+                $user = $em->find(AppUser::class, 'x');
+                $user->deactivate();
+            }
+
+            public function persistsAGrant(object $em): void
+            {
+                $em->persist(new UserRole('x', 'x', 'x', 'x'));
+                $em->flush();
+            }
+
+            public function changesAPasswordLikeChangePassword(object $em): void
+            {
+                $user = $em->find(AppUser::class, 'x');
+                $user->replacePasswordHash('x');
+                $em->flush();
+            }
+
+            public function recordsALoginLikeLoginRecorder(object $em): void
+            {
+                $user = $em->find(AppUser::class, 'x');
+                $user->recordLogin(new \DateTimeImmutable());
+                $em->flush();
+            }
+
+            public function stampsALogin(object $c): void
+            {
+                $c->executeStatement('UPDATE app_user SET last_login_at = now() WHERE id = ?::uuid AND deleted_at IS NULL');
+            }
+
+            public function changesAHash(object $c): void
+            {
+                $c->executeStatement('UPDATE app_user SET password_hash = ? WHERE id = ?::uuid');
+            }
+
+            public function readsGrants(object $c): void
+            {
+                $c->fetchAllAssociative('SELECT role_id FROM user_role WHERE user_id = ?::uuid');
+            }
+        }
+        PHP;
+
+    private const PLANTED_ROLE_WRITERS_EXPECTED = [
+        'PlantedRoleWriter::viaLiteral',
+        'PlantedRoleWriter::viaSelf',
+        'PlantedRoleWriter::viaStatic',
+        'PlantedRoleWriter::viaAlias',
+        'PlantedRoleWriter::viaEscapedNewline',
+        'PlantedRoleWriter::viaCte',
+        'PlantedRoleWriter::renamesARole',
+        'PlantedRoleWriter::proposes',
+        'PlantedRoleWriter::deactivatesBySql',
+        'PlantedRoleWriter::deletesBySqlOverTwoLines',
+        'PlantedRoleWriter::hardDeletesAUser',
+        'PlantedRoleWriter::deactivatesByDql',
+        'PlantedRoleWriter::deactivatesByOrm',
+        'PlantedRoleWriter::persistsAGrant',
+    ];
+
+    /** What the race holder writes for its own revoke: a `role.revoked` row as `RoleAuditWriter` would, with an IP. */
+    private const HOLDER_ROLE_REVOKED = <<<'SQL'
+        INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+        VALUES (gen_random_uuid(), ?::uuid, clock_timestamp(), 'role.revoked', ?::uuid, 'Holder', 'app_user', ?::uuid, '203.0.113.9'::inet, jsonb_build_object('role_id', ?::text))
+        SQL;
+
+    /**
+     * `AppUser`'s mutators that end or restore liveness — public instance methods whose own source assigns
+     * `$this->isActive` or `$this->deletedAt`. Derived, never listed.
+     *
+     * @param array<class-string, list<string>> $mutatorOnly
+     *
+     * @return list<string>
+     */
+    private static function livenessMutators(array $mutatorOnly): array
+    {
+        $names = [];
+        foreach ($mutatorOnly as $class => $properties) {
+            $reflection = new \ReflectionClass($class);
+            $lines = file((string) $reflection->getFileName());
+            \assert(\is_array($lines));
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if ($method->isStatic() || $method->isConstructor()) {
+                    continue;
+                }
+                $body = implode('', \array_slice($lines, $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1));
+                if (1 === preg_match('/\$this->(?:'.implode('|', $properties).')\s*=(?!=)/', $body)) {
+                    $names[] = $method->getName();
+                }
+            }
+        }
+        sort($names);
+
+        return $names;
+    }
+
+    private function onlyRoleOf(string $userId): string
+    {
+        $rows = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$userId]);
+        self::assertCount(1, $rows);
+
+        return (string) $rows[0]['r'];
+    }
+
+    /** @return list<list<string>> the recorded statements split into transactions at each `set_config` */
+    private function transactionsRecorded(): array
+    {
+        $transactions = [];
+        foreach ($this->recorder()->statements() as $sql) {
+            if (1 === preg_match('/^SELECT set_config\(/', $sql)) {
+                $transactions[] = [];
+                continue;
+            }
+            if ([] !== $transactions) {
+                $transactions[\count($transactions) - 1][] = $sql;
+            }
+        }
+
+        return $transactions;
+    }
+
+    /** @return list<array{actor: string, permission_code: string, subject_type: ?string, subject_id: ?string}> */
+    private function denialRows(): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT actor_user_id::text AS actor, permission_code, subject_type, subject_id::text AS subject_id FROM audit_log WHERE event_type = ? ORDER BY occurred_at, id',
+            [AuditEvent::AUTHZ_PERMISSION_DENIED]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function userRoleRows(): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT to_jsonb(ur)::text AS r FROM user_role ur ORDER BY id');
+    }
+
+    /**
+     * @param list<string> $ids
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function appUserRows(array $ids): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT to_jsonb(u)::text AS r FROM app_user u WHERE id = ANY (?::uuid[]) ORDER BY id', ['{'.implode(',', $ids).'}']);
+    }
+
+    private function appEntityManager(): EntityManagerInterface
+    {
+        $em = self::getContainer()->get('doctrine.orm.entity_manager');
+        \assert($em instanceof EntityManagerInterface);
+
+        return $em;
+    }
+
+    private function appConnection(): \Doctrine\DBAL\Connection
+    {
+        return $this->appEntityManager()->getConnection();
+    }
+
+    private function appRecorder(): \App\Tests\Support\SqlRecorder
+    {
+        $recorder = self::getContainer()->get('test.sql_recorder.app');
+        \assert($recorder instanceof \App\Tests\Support\SqlRecorder);
+
+        return $recorder;
+    }
+
+    /** §5.2.5: the lock is correct only under READ COMMITTED, which the race tests assert rather than assume. */
+    private function assertTheRequestConnectionIsReadCommitted(): void
+    {
+        self::assertSame('read committed', $this->appConnection()->fetchOne('SHOW transaction_isolation'),
+            'The request connection is not READ COMMITTED; the role lock\'s re-reads are only correct under it.');
+    }
+
     /**
      * Every method in `src/` that writes the scan's two tables (for the
      * purchase-order run, `purchase_order` / `purchase_order_line`), reduced to
@@ -2466,6 +3043,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
             if ($method['entity'] && [] !== ($mutators = array_intersect($method['calls'], $entityMutators))) {
                 $writes[] = 'ORM: names a '.$scan['label'].' entity class and calls '.implode('(), ', $mutators).'() on it';
+            }
+            // `mutator_only` (roles slice 2, C2; spar P6): an entity whose ORM arm is its NAMED-property mutators alone —
+            // `AppUser`, where flushing is also what the credential writers do, and only ending liveness is role
+            // administration.
+            if (($method['mutatorOnlyEntity'] ?? false) && [] !== ($mutators = array_intersect($method['calls'], self::livenessMutators($scan['mutator_only'] ?? [])))) {
+                $writes[] = 'ORM: names a mutator-only entity class and calls '.implode('(), ', $mutators).'() on it';
             }
             if ([] !== $writes) {
                 $reach[$key] = $writes;
@@ -2601,6 +3184,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             static fn (string $class): string => substr((string) strrchr('\\'.$class, '\\'), 1),
             $scan['entities'],
         );
+        $mutatorOnlyShortNames = array_map(
+            static fn (string $class): string => substr((string) strrchr('\\'.$class, '\\'), 1),
+            array_keys($scan['mutator_only'] ?? []),
+        );
         $methods = [];
 
         $scanned = PhpSourceScan::scan($source);
@@ -2609,8 +3196,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // The method's own literals and those of the constants it reaches
             // (`self::SQL`), each as its runtime value, escapes decoded.
             foreach (PhpSourceScan::literalsReachedBy($scanned, $key) as $literal) {
-                if (1 === preg_match($scan['sql'], $literal['value'], $m) || 1 === preg_match($scan['dql'], $literal['value'], $m)) {
-                    $writes[] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
+                // `also` (roles slice 2, C2): further write patterns — the role scan's `app_user` liveness arms.
+                foreach ([$scan['sql'], $scan['dql'], ...($scan['also'] ?? [])] as $pattern) {
+                    if (1 === preg_match($pattern, $literal['value'], $m)) {
+                        $writes[] = 'SQL: '.preg_replace('/\s+/', ' ', $m[0]);
+                        break;
+                    }
                 }
             }
 
@@ -2621,6 +3212,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 'writes' => $writes,
                 'calls' => $method['calls'],
                 'entity' => [] !== array_intersect($method['named'], $entityShortNames),
+                'mutatorOnlyEntity' => [] !== array_intersect($method['named'], $mutatorOnlyShortNames),
             ];
         }
 

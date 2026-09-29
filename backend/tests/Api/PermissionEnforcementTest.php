@@ -542,6 +542,11 @@ final class PermissionEnforcementTest extends ApiTestCase
             CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
             \App\Modules\UserManagement\Application\RoleReader::joinedTablesRequiringNoDeletionPredicate(),
             'RoleReader no longer makes the same assumption about the same joins as CurrentUserReader and IdentityReader.');
+        // Roles slice 2, C2: `LiveGrantReader` re-derives the same set under the role-administration lock.
+        self::assertSame(
+            CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
+            \App\Modules\UserManagement\Application\LiveGrantReader::joinedTablesRequiringNoDeletionPredicate(),
+            'LiveGrantReader no longer makes the same assumption about the same joins as the request-time readers.');
     }
 
     /**

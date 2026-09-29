@@ -211,6 +211,11 @@ final class PreAuthPrincipalTest extends AuthTestCase
      * it is red until the predicate is added — which is the order the two changes
      * have to happen in.
      */
+    /** `/users` operations that write no `app_user` row, each by name at its exact path (see the method below). */
+    private const USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER = [
+        'RevokeRole' => '/users/{id}/roles/{roleId}',
+    ];
+
     #[Test]
     public function noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt(): void
     {
@@ -238,6 +243,17 @@ final class PreAuthPrincipalTest extends AuthTestCase
         self::assertNotSame([], $paths, 'The operation registry is empty, so this guard has no domain.');
 
         $userOperations = array_filter($paths, static fn (string $path): bool => 1 === preg_match('#/users(/|$)#', $path));
+
+        // Roles slice 2, C2 (2026-09-29): `RevokeRole` lives under `/users/{id}/roles/{roleId}` and cannot create the state
+        // this guard is about — it deletes one `user_role` row and never writes `app_user` (its writer is
+        // `RoleRevocation`, whose only write statement is `DELETE FROM user_role`; `PurchaseOrderRowLockTest`'s role scan
+        // derives every writer of `app_user.is_active`/`deleted_at` from `src/` and would name it). Exempted BY NAME and
+        // AT ITS PATH, so any other `/users` operation — `DeleteUser`, `UpdateUser`, `RestoreUser` — is still red here.
+        // Implementer's reading, flagged to `SEC` (the guard's owner) for acknowledgement.
+        foreach (self::USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER as $name => $path) {
+            self::assertSame($path, $userOperations[$name] ?? null, $name.' is exempted here but is not shipped at '.$path.'; the exemption is stale.');
+            unset($userOperations[$name]);
+        }
 
         self::assertSame([], $userOperations,
             'An operation addressing /users is now shipped, so app_user rows can be soft-deleted — and the '

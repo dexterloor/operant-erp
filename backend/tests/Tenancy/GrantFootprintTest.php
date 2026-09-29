@@ -8,6 +8,7 @@ use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\SchemaManifest;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Every (role, table, privilege) triple in the schema, asserted against the
@@ -1246,5 +1247,158 @@ final class GrantFootprintTest extends TenancyTestCase
                 }
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // H5 — the "left the laptop" tripwire (roles slice 2, C2; q7-spar §2.2; `API.md` §15.1 `RevokeRole` cell;
+    // `RESIDUAL_GAPS.md` G-10 and G-12).
+    // -----------------------------------------------------------------------
+
+    /** The compose services the local stack is pinned to; any other service is a deploy artefact by this rule. */
+    private const LOCAL_COMPOSE_SERVICES = ['pgbouncer', 'postgres'];
+
+    /**
+     * Platform-config and container file names, disclosed — **name-shaped by design**: a guess about the future, and a
+     * dashboard-configured deploy leaves no file at all.
+     */
+    private const DEPLOY_ARTEFACT_NAMES = [
+        '/^Dockerfile/', '/^fly\.toml$/', '/^render\.yaml$/', '/^railway\.json$/', '/^vercel\.json$/', '/^app\.yaml$/',
+        '/^Procfile$/', '/^netlify\.toml$/', '/^heroku\.yml$/', '/^\.platform\.app\.yaml$/', '#^\.github/workflows/.*deploy#',
+    ];
+
+    /**
+     * **H5: no role or credential write may leave the laptop before its closing work.** Red while BOTH hold:
+     *
+     *  (i) `erp_app` holds any write on `user_role`, `role_permission` or `role` (table **or** column level), **or** can
+     *      update `app_user.password_hash` with no `app_user.password_mac` column (G-12 — `has_column_privilege`, because
+     *      after H0 a table-level check never fires);
+     *  (ii) the tree carries a deploy artefact (a `Dockerfile*`, a compose service outside the local pair, a file named in
+     *      {@see self::DEPLOY_ARTEFACT_NAMES}), **or** `SchemaManifest` gives `erp_ai` any write.
+     *
+     * (i) became true through `password_hash` at H0 and through `DELETE ON user_role` at C2 — asserted below, so the
+     * tripwire is armed rather than green over nothing. (ii) is false today (measured: no Dockerfile or platform config,
+     * compose holds `postgres` and `pgbouncer`), so it ships green.
+     *
+     * **Name-shaped, and these have no code signal at all (spar T-3):** a first non-demo tenant, hosted (Neon) credentials
+     * and a dashboard-configured deploy. Those triggers stay prose in G-10. Planted controls, same test: a file list with a
+     * `Dockerfile` → red; a manifest giving `erp_ai` `INSERT` → red; the real tree → green.
+     */
+    #[Test]
+    public function noRoleOrCredentialWriteLeavesTheLaptopBeforeItsClosingWork(): void
+    {
+        $roleWrite = $this->roleOrCredentialWrites();
+        self::assertNotSame([], $roleWrite, 'Operand (i) is false, so this tripwire can never fire. Since C2 erp_app holds '
+            .'DELETE on user_role and (G-12) UPDATE on app_user.password_hash; if both closed, re-read G-10/G-12 and retire H5 on purpose.');
+
+        $files = self::filesUnderTheRepository();
+        $services = array_keys(self::composeServices());
+
+        // Planted controls through the same decision.
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, ['backend/Dockerfile'], self::LOCAL_COMPOSE_SERVICES, false), 'A Dockerfile did not arm H5.');
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], [...self::LOCAL_COMPOSE_SERVICES, 'app'], false), 'A compose app service did not arm H5.');
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], self::LOCAL_COMPOSE_SERVICES, true), 'erp_ai gaining a write did not arm H5.');
+        self::assertSame([], self::leavesTheLaptop([], ['backend/Dockerfile'], self::LOCAL_COMPOSE_SERVICES, true), 'H5 fired with operand (i) false.');
+        self::assertContains('infra/docker-compose.yml', $files, 'The tree walk does not see the compose file, so it sees nothing.');
+
+        $fired = self::leavesTheLaptop($roleWrite, $files, $services, self::manifestGivesTheAgentAWrite());
+        self::assertSame([], $fired,
+            "H5 (G-10, G-12): a role or credential write is about to leave the laptop.\n  ".implode("\n  ", $fired)
+            ."\nBefore this ships: run `bin/console app:roles:reconcile --tenant=<id>` for every tenant and paste the output into "
+            ."the record (G-10 condition (2)); the owner chooses (b) erp_roleadmin or (e)-roles, or re-accepts G-10 in so many "
+            ."words (condition (3)); and G-12's (e)-cred (a password_mac the application cannot forge) is owed.");
+    }
+
+    /** @return list<string> operand (i)'s evidence, empty when false */
+    private function roleOrCredentialWrites(): array
+    {
+        $found = [];
+        foreach (['user_role', 'role_permission', 'role'] as $table) {
+            foreach (['INSERT', 'UPDATE', 'DELETE'] as $privilege) {
+                if ((bool) $this->owner()->fetchOne('SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::APP, $table, $privilege])
+                    || ('DELETE' !== $privilege && (bool) $this->owner()->fetchOne('SELECT has_any_column_privilege(?, ?, ?)', [DatabaseRoles::APP, $table, $privilege]))) {
+                    $found[] = DatabaseRoles::APP." holds $privilege on $table";
+                }
+            }
+        }
+        $mac = (bool) $this->owner()->fetchOne(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'app_user'::regclass AND attname = 'password_mac' AND NOT attisdropped)");
+        if (!$mac && (bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'password_hash', 'UPDATE')", [DatabaseRoles::APP])) {
+            $found[] = DatabaseRoles::APP.' can update app_user.password_hash and no password_mac exists (G-12)';
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param list<string> $roleWrite
+     * @param list<string> $files     paths relative to the repository root
+     * @param list<string> $services  compose service names
+     *
+     * @return list<string> why H5 fires, empty when it does not
+     */
+    private static function leavesTheLaptop(array $roleWrite, array $files, array $services, bool $agentWrites): array
+    {
+        if ([] === $roleWrite) {
+            return [];
+        }
+        $artefacts = [];
+        foreach ($files as $file) {
+            foreach (self::DEPLOY_ARTEFACT_NAMES as $pattern) {
+                if (1 === preg_match($pattern, basename($file)) || 1 === preg_match($pattern, $file)) {
+                    $artefacts[] = 'deploy artefact: '.$file;
+                }
+            }
+        }
+        foreach (array_diff($services, self::LOCAL_COMPOSE_SERVICES) as $service) {
+            $artefacts[] = 'compose service outside the local pair: '.$service;
+        }
+        if ($agentWrites) {
+            $artefacts[] = 'SchemaManifest gives erp_ai a write';
+        }
+
+        return [] === $artefacts ? [] : [...$roleWrite, ...array_values(array_unique($artefacts))];
+    }
+
+    private static function manifestGivesTheAgentAWrite(): bool
+    {
+        foreach (SchemaManifest::allTables() as $table) {
+            if ([] !== array_diff(SchemaManifest::grantsFor($table, DatabaseRoles::AI), ['SELECT'])) {
+                return true;
+            }
+            foreach (['INSERT', 'UPDATE'] as $privilege) {
+                if ([] !== SchemaManifest::columnGrantsFor($table, DatabaseRoles::AI, $privilege)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> every file under the repository root, relative, skipping vendored and generated trees */
+    private static function filesUnderTheRepository(): array
+    {
+        $root = \dirname(__DIR__, 3);
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveCallbackFilterIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+            static fn (\SplFileInfo $f): bool => !($f->isDir() && \in_array($f->getFilename(), ['.git', 'vendor', 'var', 'node_modules', 'docs'], true)),
+        ));
+        foreach ($iterator as $file) {
+            \assert($file instanceof \SplFileInfo);
+            $files[] = ltrim(substr($file->getPathname(), \strlen($root)), '/');
+        }
+
+        return $files;
+    }
+
+    /** @return array<string, mixed> */
+    private static function composeServices(): array
+    {
+        $parsed = Yaml::parseFile(\dirname(__DIR__, 3).'/infra/docker-compose.yml');
+        self::assertIsArray($parsed);
+        self::assertIsArray($parsed['services'] ?? null);
+
+        return $parsed['services'];
     }
 }

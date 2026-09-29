@@ -37,6 +37,10 @@ final class OwnerPredicateSingleSourceTest extends TestCase
         'OwnerPredicate' => 'THE predicate: the caller is the owner when the request\'s permission set contains the marker.',
         'AdministrativeCharter' => 'Not an owner check: it folds E-15b\'s marker into X(admin)\'s excluded codes (PC-14), a static '
             .'role-catalogue computation over no caller.',
+        // Roles slice 2, C2 (design §4.2): one query for API-20's floor and reconciliation arm F. Every CALLER decision
+        // still goes through OwnerPredicate::holdsMarker(), fed the set re-derived under the role-administration lock.
+        'LiveGrantReader' => 'Counts live, active holders of the marker for API-20 and reconciliation arm F; decides nothing '
+            .'about the caller.',
     ];
 
     #[Test]

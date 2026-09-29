@@ -104,6 +104,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Every tenant holds its principal's fixture role, so the baseline page is non-empty and a supplied tenant
         // id that moved the read would return B's roles where A's were asked for.
         'ListRoles' => [],
+        // Roles slice 2, C2: a second user's non-marker grant (seeded in `seedMirror()`), revoked by the actor.
+        'RevokeRole' => ['vars' => ['id' => 'revoke_subject', 'roleId' => 'revoke_role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -479,6 +481,22 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM role') as $row) {
             $this->remember($letter, 'role', (string) $row['id']);
         }
+
+        // Roles slice 2, C2: a second user holding one non-marker role, so `RevokeRole`'s baseline revokes a real grant
+        // that is not the actor's own (E-15a). Seeded AFTER the rename above: `role_tenant_name_live` would refuse two
+        // roles both renamed 'Fixture Role'.
+        $subject = $this->remember($letter, 'revoke_subject', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Revoke Subject')",
+            [$subject, $tenantId, 'subject-'.$subject.'@example.test']);
+        $revokeRole = $this->remember($letter, 'revoke_role', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, 'Revokable Role')", [$revokeRole, $tenantId]);
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+            [$tenantId, $revokeRole]);
+        $this->insertAsOwnerForTenant($tenantId,
+            'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+            [$tenantId, $subject, $revokeRole]);
 
         $supplier = $this->remember($letter, 'supplier', $this->seedSupplier($tenantId, 'Acme'));
         $customer = $this->remember($letter, 'customer', $this->seedCustomer($tenantId, 'Acme Retail'));

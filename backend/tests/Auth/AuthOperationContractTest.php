@@ -126,6 +126,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\PermissionListTest::PINNED_PERMISSION_OPERATIONS),
             // Roles slice 1: `/roles` is its own path family.
             array_keys(\App\Tests\Api\RoleReadTest::PINNED_ROLE_OPERATIONS),
+            // Roles slice 2, C2: `/users/{id}/roles/{roleId}` is its own path family (`RevokeRole`; `AssignRole` in C3).
+            array_keys(\App\Tests\Api\RoleRevokeTest::PINNED_USER_ROLE_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

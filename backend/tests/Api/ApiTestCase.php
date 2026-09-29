@@ -109,6 +109,20 @@ abstract class ApiTestCase extends TenancyTestCase
     }
 
     /**
+     * Act as a principal a test already seeded (roles slice 2: an owner revoking another owner must be a NAMED user, not a
+     * fresh one). A real token from the application's issuer, exactly as `actAs()` mints; `$permissionCodes` is only the
+     * non-HTTP half (`RequestIdentity` for directly-driven services) — a request re-reads the codes from the database.
+     *
+     * @param list<string> $permissionCodes
+     */
+    protected function actAsUser(string $tenantId, string $userId, array $permissionCodes = []): void
+    {
+        $this->actorId = $userId;
+        $this->bearer = $this->tokenFor($tenantId, $userId);
+        $this->identities()->set(new Identity($tenantId, $userId, 'Fixture Actor', $permissionCodes));
+    }
+
+    /**
      * Send nothing in `Authorization` unless a test writes the header itself.
      *
      * `AuthTestCase` calls this: §7's directory is about the pre-authentication

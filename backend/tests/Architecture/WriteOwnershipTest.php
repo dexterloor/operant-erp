@@ -167,7 +167,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // method (`GoodsReceiptAuditWriter::recordCreated`, `FulfilmentAuditWriter::recordCreated`,
         // `SalesOrderAuditWriter::recordConfirmed`/`recordDeleted`, `PurchaseOrderAuditWriter::recordDeleted`), each
         // `metadata` '{}'. Predicted by the design and confirmed off this test's run.
-        'Modules\\AuditLog' => 14,
+        // **14 -> 15 on 2026-09-29** (roles slice 2, C2): `RoleAuditWriter::recordRevoked()`'s `INSERT INTO audit_log` for
+        // `role.revoked`, `occurred_at = clock_timestamp()`, metadata `jsonb_build_object(?, ?)` keyed by `RoleEventMetadata`.
+        'Modules\\AuditLog' => 15,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
@@ -216,7 +218,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // payment_reversed_at = COALESCE(payment_reversed_at, now())` -- B′'s set-once column, written in SQL on the
         // database clock (RED-3 F-1). The reversal's status change is an ORM flush and is not counted.
         'Modules\\Sales' => 14,
-        'Modules\\UserManagement' => 5,
+        // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
+        // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
+        'Modules\\UserManagement' => 6,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

@@ -491,6 +491,18 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s roles'];
             }],
+            // Roles slice 2, C2: a second user holding one non-marker role (seeded as the owner), revoked by the actor, who
+            // holds every declared code (so `role.assign`) and never the marker — so E-15b and API-20 have nothing to say.
+            'RevokeRole' => [function (): array {
+                $subject = $this->seedPrincipal(self::TENANT_A, ['role.view']);
+
+                return ['subject' => $subject, 'role' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+                    'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$subject])[0]['r']];
+            }, function (array $c): array {
+                $this->send('DELETE', '/users/'.$c['subject'].'/roles/'.$c['role']);
+
+                return [204, 'revoke another user\'s role'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

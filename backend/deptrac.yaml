@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-29 with `RevokeRole` in the tree (roles slice 2, C2): the three commands return
+  # **112 / 72 / 17** -- TWO edge lines added, both A-5, both `RoleRevocation`'s synchronous audit writes:
+  # `-> RoleAuditWriter` (`role.revoked`) and `-> DenialAuditWriter` (the lock-time `authz.permission.denied`, `SEC` S-2).
+  # The lock and `LiveGrantReader` take the entity manager, not a `Connection`, so no A-10 line (A-10 is ADR-006's
+  # binding register). `make deptrac`: see `docs/session13/roles-s2-progress.md` C2 for the counts at this commit.)
   # (Re-derived 2026-09-29 with B-4a in the tree (roles slice 2, C1): the three commands return **110 / 72 / 15** --
   # FIVE edge lines added, all A-5, each a writer calling its audit writer synchronously: `GoodsReceiptWriter ->
   # GoodsReceiptAuditWriter`, `FulfilmentWriter -> FulfilmentAuditWriter`, `SalesOrderConfirmation ->
@@ -450,6 +455,9 @@ deptrac:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
     App\Modules\UserManagement\Application\PasswordChangeThrottle:
       - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Application\RoleRevocation:
+      - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-5
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\UserManagement\Application\SignIn:
       - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7
       - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7

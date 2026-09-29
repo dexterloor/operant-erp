@@ -1,0 +1,187 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\UserManagement\Application;
+
+use App\Modules\UserManagement\Domain\OwnerMarker;
+use App\Platform\Tenancy\SchemaManifest;
+use Doctrine\ORM\EntityManagerInterface;
+
+/**
+ * **The grants as they stand under the role-administration lock — the one reader every role-administration decision
+ * reads** (roles slice 2, C2; `docs/session13/roles-s2-design.md` §4.2, response R-5; `SECURITY_MODEL.md` §5.2.4–§5.2.5).
+ *
+ * The request's `Identity` was read by `AuthenticationGate` BEFORE the lock, in an earlier transaction. Under the lock it is
+ * a hint; this is the fact (S-6): a demotion, deactivation or grant another administrator committed while this request
+ * waited is seen here and not there. Every method takes the entity manager whose connection holds the lock, so the reads
+ * run in the locked transaction (READ COMMITTED: each sees what the previous holder committed).
+ *
+ * **Why it is not `IdentityReader`:** PC-13 (C3) needs the codes **per role** (a split is refused only if no single member
+ * spans it), E-15c (C3) needs `is_system`, the actor re-check needs `is_active`, and E-15b on revoke needs a role's STORED
+ * codes whether or not it is archived. `IdentityReader` returns the union of live codes only. **It is a second derivation of
+ * the same set, so it is cross-pinned:** `LiveGrantReaderTest` asserts the union of {@see self::rolesHeldBy()} equals
+ * `IdentityReader::read()->permissionCodes` and `/me`'s `permission_codes`, and `PermissionEnforcementTest` holds
+ * {@see self::joinedTablesRequiringNoDeletionPredicate()} equal to the other readers'.
+ *
+ * **The marker count is API-20's floor AND reconciliation arm F's predicate — one query for both**
+ * ({@see self::ACTIVE_MARKER_HOLDERS}): users not deleted, `is_active`, holding {@see OwnerMarker::CODE} through a live
+ * role. It reads `OwnerMarker::CODE` to COUNT holders; it decides nothing about the caller — every caller decision goes
+ * through `OwnerPredicate::holdsMarker()` over the set this class re-derived (`OwnerPredicateSingleSourceTest`'s
+ * `MARKER_READERS` entry says so).
+ *
+ * Tenant scoping is RLS's (forced on all four tables): every statement runs inside `TenantContext::run()` on `erp_app`.
+ * Joins carry `tenant_id` equality as well, which is how the composite keys are written.
+ */
+final class LiveGrantReader
+{
+    /**
+     * Users that are not deleted, `is_active`, and hold the marker through a live role. `%s` is an optional extra predicate
+     * on the grant row (the "excluding this grant" form); it is one of two literal strings in this class, never input.
+     */
+    private const ACTIVE_MARKER_HOLDERS = <<<'SQL'
+        SELECT count(DISTINCT u.id)
+          FROM app_user u
+          JOIN user_role ur ON ur.tenant_id = u.tenant_id AND ur.user_id = u.id
+          JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id AND r.deleted_at IS NULL
+          JOIN role_permission rp ON rp.tenant_id = r.tenant_id AND rp.role_id = r.id
+         WHERE u.deleted_at IS NULL AND u.is_active AND rp.permission_code = ?
+        SQL;
+
+    /**
+     * The user as the lock sees it, or null when no row exists in this workspace (another workspace's id is not-found
+     * exactly as a random one: RLS).
+     *
+     * @return array{deleted: bool, is_active: bool}|null
+     */
+    public static function user(EntityManagerInterface $em, string $userId): ?array
+    {
+        $connection = $em->getConnection();
+
+        $row = $connection->fetchAssociative(
+            'SELECT deleted_at IS NOT NULL AS deleted, is_active FROM app_user WHERE id = ?::uuid',
+            [$userId],
+        );
+
+        return false === $row ? null : ['deleted' => (bool) $row['deleted'], 'is_active' => (bool) $row['is_active']];
+    }
+
+    /**
+     * The user's LIVE roles (`role.deleted_at IS NULL`), each with its codes sorted ascending. A deleted user holds
+     * nothing: a soft-deleted principal holding a live token is not a principal (`IdentityReader`'s rule).
+     *
+     * @return list<array{role_id: string, is_system: bool, codes: list<string>}>
+     */
+    public static function rolesHeldBy(EntityManagerInterface $em, string $userId): array
+    {
+        $connection = $em->getConnection();
+
+        $rows = $connection->fetchAllAssociative(<<<'SQL'
+            SELECT r.id::text AS role_id, r.is_system,
+                   COALESCE((SELECT array_to_json(array_agg(rp.permission_code ORDER BY rp.permission_code))
+                               FROM role_permission rp
+                              WHERE rp.tenant_id = r.tenant_id AND rp.role_id = r.id), '[]') AS codes
+              FROM user_role ur
+              JOIN app_user u ON u.tenant_id = ur.tenant_id AND u.id = ur.user_id AND u.deleted_at IS NULL
+              JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id AND r.deleted_at IS NULL
+             WHERE ur.user_id = ?::uuid
+             ORDER BY r.id
+            SQL, [$userId]);
+
+        return array_map(static fn (array $row): array => [
+            'role_id' => (string) $row['role_id'],
+            'is_system' => (bool) $row['is_system'],
+            'codes' => self::codes((string) $row['codes']),
+        ], $rows);
+    }
+
+    /**
+     * The union of {@see self::rolesHeldBy()}'s codes, sorted — the set the lock-time permission re-check reads.
+     *
+     * @return list<string>
+     */
+    public static function codesHeldBy(EntityManagerInterface $em, string $userId): array
+    {
+        $codes = array_merge([], ...array_map(static fn (array $role): array => $role['codes'], self::rolesHeldBy($em, $userId)));
+        $codes = array_values(array_unique($codes));
+        sort($codes);
+
+        return $codes;
+    }
+
+    /**
+     * The one grant `(user, role)` in this workspace, with the role's **stored** codes and whether the role is live —
+     * whether or not it is archived (D-15: E-15b on a revoke reads the stored codes, because `RestoreRole` would make an
+     * archived marker grant live again). Null when there is no such grant.
+     *
+     * @return array{id: string, role_live: bool, role_codes: list<string>}|null
+     */
+    public static function grant(EntityManagerInterface $em, string $userId, string $roleId): ?array
+    {
+        $connection = $em->getConnection();
+
+        $row = $connection->fetchAssociative(<<<'SQL'
+            SELECT ur.id::text AS id, r.deleted_at IS NULL AS role_live,
+                   COALESCE((SELECT array_to_json(array_agg(rp.permission_code ORDER BY rp.permission_code))
+                               FROM role_permission rp
+                              WHERE rp.tenant_id = r.tenant_id AND rp.role_id = r.id), '[]') AS role_codes
+              FROM user_role ur
+              JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id
+             WHERE ur.user_id = ?::uuid AND ur.role_id = ?::uuid
+            SQL, [$userId, $roleId]);
+
+        return false === $row ? null : [
+            'id' => (string) $row['id'],
+            'role_live' => (bool) $row['role_live'],
+            'role_codes' => self::codes((string) $row['role_codes']),
+        ];
+    }
+
+    /** API-20's `before` and arm F's predicate: the workspace's active marker holders. */
+    public static function activeMarkerHolderCount(EntityManagerInterface $em): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne(self::ACTIVE_MARKER_HOLDERS, [OwnerMarker::CODE]);
+    }
+
+    /**
+     * API-20's `after` for one revoke: the same count with one grant row taken away. It counts USERS, so a subject who also
+     * holds the marker through a second live role still counts.
+     */
+    public static function activeMarkerHolderCountExcluding(EntityManagerInterface $em, string $userRoleId): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne(self::ACTIVE_MARKER_HOLDERS.' AND ur.id <> ?::uuid', [OwnerMarker::CODE, $userRoleId]);
+    }
+
+    /**
+     * The joins above that carry no deletion predicate of their own (`role_permission`) and the one read with none
+     * (`user_role`), correct only while both stay deletion class `hard`. Held equal to `IdentityReader`'s,
+     * `CurrentUserReader`'s and `RoleReader`'s by `PermissionEnforcementTest`.
+     *
+     * @return array<string, string>
+     */
+    public static function joinedTablesRequiringNoDeletionPredicate(): array
+    {
+        return [
+            'user_role' => SchemaManifest::TABLES['user_role']['deletion'],
+            'role_permission' => SchemaManifest::TABLES['role_permission']['deletion'],
+        ];
+    }
+
+    /** @return list<string> */
+    private static function codes(string $json): array
+    {
+        $codes = json_decode($json, true, 4, \JSON_THROW_ON_ERROR);
+        \assert(\is_array($codes));
+
+        return array_map(strval(...), array_values($codes));
+    }
+
+    /** Not instantiable: every method reads through the locked transaction's own connection. */
+    private function __construct()
+    {
+    }
+}

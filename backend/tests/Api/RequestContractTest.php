@@ -271,6 +271,11 @@ final class RequestContractTest extends PurchaseOrderTestCase
             // Sales step 6, C5: `PayInvoice` acts on an invoice. Seeded as the owner on that shipment, `issued`, so the
             // path names a real, payable invoice and the refusal is the planted field's, not a 404's or a 409's.
             'invoices' => $this->seedInvoiceOf($fulfilment),
+            // Roles slice 2, C2: `RevokeRole` binds a real user and a role THAT USER HOLDS, so the refusal is the planted
+            // field's and not a 404's (design §12 item 8).
+            'users' => $user = $this->seedPrincipal(self::TENANT_A, ['role.view']),
+            'users/roles' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+                'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$user])[0]['r'],
         ];
 
         $segments = explode('/', $uriTemplate);

@@ -70,6 +70,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // they serve may carry privilege history (PC-16 condition 1, IA §6.8).
         'ListPermissions' => 'role.view',
         'GetRole' => 'role.view',
+        // Roles slice 2, C2: §4.2's `Perm` cell. Re-derived UNDER the role-administration lock as well (S-6, `SEC` S-2).
+        'RevokeRole' => 'role.assign',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

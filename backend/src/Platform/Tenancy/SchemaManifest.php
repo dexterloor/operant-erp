@@ -356,6 +356,11 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::HARD,
             'why' => 'A join row. Removing a role from a user is a removal; that it happened lives in audit_log.',
+            // Roles slice 2, C2 (2026-09-29, Version20260929000300): erp_app gains DELETE -- the project's FIRST
+            // DELETE grant -- for its one caller, RoleRevocation (`DELETE FROM user_role WHERE id = ?`, under the
+            // role-administration lock). Declared explicitly so erp_ai keeps exactly its inherited SELECT
+            // (TENANT_READ_DEFAULT) and nothing moves with it. INSERT arrives column-level with AssignRole (C3).
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'DELETE'], DatabaseRoles::AI => ['SELECT']],
         ],
 
         // ------------------------------------------------------------------

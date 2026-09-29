@@ -165,7 +165,7 @@ final readonly class PermissionGate
             return;
         }
 
-        [$subjectType, $subjectId] = $this->denialSubject($operation, $event->getRequest());
+        [$subjectType, $subjectId] = self::denialSubjectOf($operation, $event->getRequest());
 
         $this->denials->record(
             tenantId: $identity->tenantId,
@@ -186,14 +186,19 @@ final readonly class PermissionGate
      * permission code (the default, unchanged). The id is never resolved here (E-1). A malformed declaration is a wiring
      * error and fails loudly, as a missing permission declaration does.
      *
+     * **Public, and the ONE resolver** (roles slice 2, C2; `roles-s2-sec.md` Acknowledgement B.3 item 4): a permission
+     * found missing UNDER A LOCK (`RevokeRole`'s re-check, S-2) is a denial too, and its row must name exactly the pair
+     * this gate's row would name for the same path — so the lock-time writer asks this method rather than hand-writing
+     * `'app_user'`. `RoleRevokeTest` holds the two rows equal for one path; hard-coding a type there goes red.
+     *
      * @return array{0: ?string, 1: ?string}
      */
-    private function denialSubject(HttpOperation $operation, Request $request): array
+    public static function denialSubjectOf(HttpOperation $operation, Request $request): array
     {
         $extra = $operation->getExtraProperties();
 
         if (!\array_key_exists(self::OPERATION_DENIAL_SUBJECT, $extra)) {
-            return [null, $this->subjectIdIn($request)];
+            return [null, self::subjectIdIn($request)];
         }
 
         $declared = $extra[self::OPERATION_DENIAL_SUBJECT];
@@ -222,7 +227,7 @@ final readonly class PermissionGate
      * deliberately unresolved: E-1 has not loaded anything, and E-3a's cap is
      * keyed so that this value cannot widen it.
      */
-    private function subjectIdIn(Request $request): ?string
+    private static function subjectIdIn(Request $request): ?string
     {
         $parameters = $request->attributes->get('_route_params');
 

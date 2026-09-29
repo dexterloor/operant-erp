@@ -70,6 +70,21 @@ use App\Tests\Support\ContractDocument;
 trait ArchivedRowSubjects
 {
     /**
+     * **Operations whose §4.2 `Verb / Resource` names a soft resource whose row they never write** — excluded from every
+     * clause by name, with the reason, and each held to a registry operation so an entry cannot go stale unseen.
+     *
+     * `RevokeRole` (roles slice 2, C2) is `Revoke / Role` but writes one `user_role` row (class `hard`) and reads the role
+     * only to decide E-15b; the role row is never written. **Revoking the grant of an ARCHIVED role is allowed by design**
+     * (`roles-s2-design.md` §5.1 step 3; its stored codes still decide E-15b, D-15 / spar P10): an archived role confers
+     * nothing live, and removing its grant is how a workspace clears it up. ST-9's refusal is about writing an archived
+     * ROW, which this operation cannot do. Tested in `RoleRevokeTest::anArchivedRolesGrantCanBeRevoked` and
+     * `::anArchivedMarkerRolesGrantIsRevokedOnlyByAnOwner`.
+     */
+    private const NOT_A_WRITE_OF_ITS_RESOURCE_ROW = [
+        'RevokeRole' => 'writes user_role (hard), never the role row; an archived role\'s grant is revocable by design (roles-s2-design.md §5.1 step 3)',
+    ];
+
+    /**
      * **Clause 15's requests (ST-9), driven once for every consumer.** For each
      * write of the derived domain: the request on the live twin, which must
      * succeed (so a refusal of the archived row is the archived state's and not
@@ -160,8 +175,15 @@ trait ArchivedRowSubjects
         $builtOnResource = [];
         $selected = [];
 
-        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+        $registry = TransactionBoundaryTest::contractOperations();
+        self::assertSame([], array_values(array_diff(array_keys(self::NOT_A_WRITE_OF_ITS_RESOURCE_ROW), array_keys($registry))),
+            'NOT_A_WRITE_OF_ITS_RESOURCE_ROW names an operation the registry no longer declares.');
+
+        foreach ($registry as $name => $operation) {
             self::assertArrayHasKey($name, $rows, $name.' has no §4.2 row, so its resource cannot be named.');
+            if (\array_key_exists($name, self::NOT_A_WRITE_OF_ITS_RESOURCE_ROW)) {
+                continue;
+            }
             [$verb, $noun] = explode(' / ', $rows[$name]['verbResource']);
             $resource = 'List' === $verb ? ResponseShapeTest::resourceOf($rows[$name]['verbResource'], $known) : $noun;
 

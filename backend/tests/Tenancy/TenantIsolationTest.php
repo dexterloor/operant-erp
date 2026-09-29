@@ -178,6 +178,38 @@ final class TenantIsolationTest extends TenancyTestCase
     // the policy expression rather than the principal. Duty (ADR-002 A4.4 item 2): the build that first
     // grants DELETE on any table adds an erp_app RLS-DELETE isolation test on that table in the same commit,
     // using the privilege-vs-RLS rule in this class's docblock.
+    // ⟶ **Discharged 2026-09-29 by roles slice 2, C2** (`RevokeRole`, `Version20260929000300`, the first DELETE grant):
+    // `erpAppCannotDeleteAnotherTenantsUserRole` below.
+
+    /**
+     * **ADR-002 A4.4 duty 2 — the first `DELETE` grant (`user_role`, roles slice 2 C2) brings its RLS-DELETE isolation
+     * test.** In tenant A's context, `DELETE FROM user_role WHERE id = <B's row>` deletes nothing and B's row survives.
+     * `DELETE` raises no `WITH CHECK` error — RLS filters the rows a `DELETE` can see — so the evidence is the zero, and the
+     * zero is RLS only because `erp_app` holds `DELETE` (R3's precondition, asserted first). Positive control, same test:
+     * the same statement against A's own row deletes exactly one.
+     */
+    #[Test]
+    public function erpAppCannotDeleteAnotherTenantsUserRole(): void
+    {
+        $this->assertApplicationRoleHolds('DELETE', 'user_role');
+        $grants = [];
+        foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
+            [$user, $role, $grant] = [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \Symfony\Component\Uid\Uuid::v4()->toRfc4122()];
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'U')", [$user, $tenant, 'u-'.$user.'@example.test']);
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, 'R')", [$role, $tenant]);
+            $this->insertAsOwnerForTenant($tenant, 'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)', [$grant, $tenant, $user, $role]);
+            $grants[$tenant] = $grant;
+        }
+
+        $deleted = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM user_role WHERE id = ?::uuid', [$grants[self::TENANT_B]]));
+        self::assertSame(0, $deleted, 'erp_app, in tenant A\'s context, deleted tenant B\'s grant.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM user_role WHERE id = ?::uuid', [$grants[self::TENANT_B]]));
+
+        $own = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM user_role WHERE id = ?::uuid', [$grants[self::TENANT_A]]));
+        self::assertSame(1, $own, 'Control: erp_app could not delete its own tenant\'s grant, so the zero above proves nothing.');
+    }
 
     /**
      * R-15. ADR-002 §5: integrity checks always bypass row security, so a bare

@@ -11,6 +11,7 @@ use App\Modules\AuditLog\Infrastructure\GoodsReceiptAuditWriter;
 use App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
+use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
@@ -167,6 +168,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // `BUSINESS`, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/GoodsReceiptAuditWriter.php',
         'Modules/AuditLog/Infrastructure/FulfilmentAuditWriter.php',
+        // Added 2026-09-29 with `RevokeRole` (roles slice 2, C2): `role.revoked`, a SECURITY event, so it carries the
+        // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/RoleAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -341,6 +345,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());
         $salesWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());
         $this->purchaseOrderWriter()->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', purchaseOrderId: Uuid::v4()->toRfc4122());
+        // Roles slice 2, C2: the first role-event writer, on the IP-bearing side of the split.
+        $roleWriter = self::getContainer()->get(RoleAuditWriter::class);
+        \assert($roleWriter instanceof RoleAuditWriter);
+        $roleWriter->recordRevoked(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), ipAddress: self::PROBE_IP);
 
         $withIp = [];
         $written = [];

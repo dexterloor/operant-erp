@@ -37,18 +37,20 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      * The four shipped operations the spar derived from the live router as mislabelled (`roles-s2-spar.md` P15) — a
      * pin on the domain, so a derivation that silently loses one is red rather than green over less.
      */
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['CreateFulfilment', 'CreateGoodsReceipt', 'GetPickList', 'IssueInvoice'];
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['CreateFulfilment', 'CreateGoodsReceipt', 'GetPickList', 'IssueInvoice', 'RevokeRole'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
 
     /**
-     * Path prefixes that address a known table although no item-`GET` is built at them. Empty today. `RevokeRole` /
-     * `AssignRole` (roles slice 2, C2/C3) add `'/users/{}' => 'app_user'` here: `GetUser` is unbuilt (spar P16).
+     * Path prefixes that address a known table although no item-`GET` is built at them. `'/users/{}' => 'app_user'` since
+     * roles slice 2, C2 (`RevokeRole`): `GetUser` is unbuilt (spar P16; `SEC` Acknowledgement B.3 item 2). **When `GetUser`
+     * ships, its commit removes this entry** — `tablesAddressedByPrefix()` accepts an agreeing duplicate silently, so
+     * nothing forces the removal (B.3 item 5: a hand-carried note, not a mechanism).
      *
      * @var array<string, string>
      */
-    private const ADDRESSED_WITHOUT_A_GET_OPERATION = [];
+    private const ADDRESSED_WITHOUT_A_GET_OPERATION = ['/users/{}' => 'app_user'];
 
     #[Test]
     public function everyDenialNamesTheTypeOfTheResourceItsRecordedPathVariableAddresses(): void
@@ -140,18 +142,23 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         $so = $this->seedSalesOrder(self::TENANT_A, 'SO-171000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
         $item = $this->seedItem(self::TENANT_A, 'SKU-F1');
         $fulfilment = $this->aRealFulfilment();
+        // Roles slice 2, C2 (`SEC` Acknowledgement B.3 item 3): a REAL subject user holding a real grant. `{roleId}` is not
+        // the recorded variable — the row whose privileges change is the user.
+        $user = $this->seedPrincipal(self::TENANT_A, ['role.view']);
+        $grantedRole = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$user])[0]['r'];
 
         $cases = [
             'CreateGoodsReceipt' => ['POST', '/purchase-orders/'.$po.'/goods-receipts', 'goods_receipt.create', $po],
             'GetPickList' => ['GET', '/sales-orders/'.$so.'/pick-list', 'fulfilment.view', $so],
             'CreateFulfilment' => ['POST', '/sales-orders/'.$so.'/fulfilments', 'fulfilment.create', $so],
             'IssueInvoice' => ['POST', '/fulfilments/'.$fulfilment.'/invoices', 'invoice.issue', $fulfilment],
+            'RevokeRole' => ['DELETE', '/users/'.$user.'/roles/'.$grantedRole, 'role.assign', $user],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 
         foreach ($cases as $name => [$method, $path, $permission, $realId]) {
             $this->actAs(self::TENANT_A, []);
-            $this->send($method, $path, 'GET' === $method ? null : []);
+            $this->send($method, $path, \in_array($method, ['GET', 'DELETE'], true) ? null : []);
 
             self::assertSame(403, $this->httpStatus(), $name);
             // The wire, byte for byte, as captured BEFORE the fix (progress note, F-1): the fix changes which pair
@@ -197,7 +204,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         sort($declared);
 
         self::assertSame(self::NESTED_OPERATIONS_OF_ANOTHER_RESOURCE, $declared,
-            'The operations declaring a denial subject are not exactly the four nested operations F-1 found.');
+            'The operations declaring a denial subject are not exactly the four nested operations F-1 found plus RevokeRole.');
     }
 
     /**
