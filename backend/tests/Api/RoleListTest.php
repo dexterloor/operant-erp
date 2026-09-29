@@ -67,7 +67,7 @@ final class RoleListTest extends ApiTestCase
         self::assertSame($sorted, $names, 'The live view is not in name order.');
     }
 
-    /** `q` is a case-sensitive prefix of `role.name`, and of nothing else — not the description, not the middle of a name. */
+    /** `q` is a prefix of `role.name`, and of nothing else — not the description, not the middle of a name. */
     #[Test]
     public function qIsANamePrefixAndMatchesNothingElse(): void
     {
@@ -95,6 +95,49 @@ final class RoleListTest extends ApiTestCase
         $this->send('GET', '/roles?q=_');
         self::assertSame(200, $this->httpStatus());
         self::assertSame([], $this->json()['items'], '`q=_` matched a name that does not start with _.');
+    }
+
+    /**
+     * U-1 (`output9-sales-7-ux.md` §8, IA TB-5a): `q` on `role.name` is a **case-insensitive** prefix — the name
+     * is human text, so `q=buyer` finds `Buyer`. Folded on both sides: a lower-case name is found by an upper-case
+     * `q` as well. Still a prefix: the fold does not turn it into a substring.
+     */
+    #[Test]
+    public function qMatchesANamePrefixWhateverItsCase(): void
+    {
+        $title = $this->seedRole('Buyer Desk');
+        $lower = $this->seedRole('buyer lead');
+        $this->seedRole('Chief Buyer');
+
+        $this->send('GET', '/roles?q=buyer');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([$title, $lower], array_column($this->json()['items'], 'id'), '`q=buyer` did not find `Buyer Desk` and `buyer lead`.');
+
+        $this->send('GET', '/roles?q=BUY');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([$title, $lower], array_column($this->json()['items'], 'id'), '`q=BUY` did not find the lower-case `buyer lead`.');
+
+        $this->send('GET', '/roles?q=uyer');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([], $this->json()['items'], '`q=uyer` matched the middle of a name: the case fold made `q` a substring.');
+    }
+
+    /** The `%`/`_` escaping survives the case fold: under `lower()` they still match themselves, never any character. */
+    #[Test]
+    public function qWildcardsStayLiteralUnderTheCaseFold(): void
+    {
+        $percent = $this->seedRole('%DISCOUNT desk');
+        $this->seedRole('Xdiscount desk');
+        $underscore = $this->seedRole('A_B Team');
+        $this->seedRole('AXB team');
+
+        $this->send('GET', '/roles?q=%25discount');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([$percent], array_column($this->json()['items'], 'id'), '`q=%discount` did not match `%DISCOUNT desk` alone.');
+
+        $this->send('GET', '/roles?q=a_b');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([$underscore], array_column($this->json()['items'], 'id'), '`q=a_b` did not match `A_B Team` alone: `_` matched any character.');
     }
 
     #[Test]

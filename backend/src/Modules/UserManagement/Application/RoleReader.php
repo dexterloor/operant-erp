@@ -76,9 +76,14 @@ final readonly class RoleReader
 
     /**
      * `ListRoles` — the live view (`deleted_at IS NULL`) or the archived one (`IS NOT NULL`), optionally
-     * narrowed by `q`, a **case-sensitive prefix of `role.name`** and of nothing else (TB-5 names `role.name`;
-     * `%` and `_` escaped, so they match themselves). One statement for the page, ordered by `name`, then `id`
-     * (the manifest's *"client-side by name"*; *(bounded)*, so no cursor).
+     * narrowed by `q`, a **case-insensitive prefix of `role.name`** and of nothing else (TB-5 names `role.name`;
+     * `%`, `_` and `\` escaped **before** `lower()`, so they match themselves — the fold leaves all three
+     * unchanged). Case-insensitive by U-1's ruling (`output9-sales-7-ux.md` §8, IA TB-5a): the name is human
+     * text, and the list is *(bounded)*, so `role_tenant_name_live` going unused under `lower()` costs nothing.
+     * **Residual, stated:** `lower()` folds by the cluster's `LC_CTYPE`, pinned on neither cluster, so a
+     * non-ASCII name may fold differently locally and on Neon; ASCII names are unaffected. Still a prefix, never
+     * a substring. One statement for the page, ordered by `name`, then `id` (the manifest's *"client-side by
+     * name"*; *(bounded)*, so no cursor).
      *
      * API-22: `tenant_has_rows` is probed **only on an empty page**, as `EXISTS` against `role` under RLS with
      * no filter predicate — archived and `q` are filters, so neither is in the probe.
@@ -92,7 +97,7 @@ final readonly class RoleReader
             $where = ['r.deleted_at IS '.($archived ? 'NOT NULL' : 'NULL')];
             $parameters = [];
             if (null !== $search) {
-                $where[] = 'r.name LIKE ?';
+                $where[] = 'lower(r.name) LIKE lower(?)';
                 $parameters[] = addcslashes($search, '%_\\').'%';
             }
 

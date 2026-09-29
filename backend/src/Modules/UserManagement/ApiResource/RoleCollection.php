@@ -40,7 +40,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-sensitive prefix).',
+                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-insensitive prefix, IA TB-5a).',
                     schema: ['type' => 'string'],
                 ),
             ],
