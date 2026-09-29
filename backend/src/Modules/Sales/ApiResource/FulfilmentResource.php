@@ -64,6 +64,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             extraProperties: [
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'fulfilment.create',
+                // F-1: a denial here names the sales order its path's {id} addresses, not a fulfilment (`PermissionGate::OPERATION_DENIAL_SUBJECT`).
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['sales_order', 'id'],
             ],
         ),
     ],

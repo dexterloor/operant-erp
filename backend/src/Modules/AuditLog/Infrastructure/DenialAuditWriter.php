@@ -114,6 +114,12 @@ final readonly class DenialAuditWriter
      * `$subjectId` is **caller-supplied and unresolved** — E-1 puts the
      * permission check before the row is loaded, which is exactly why E-3a
      * refuses to key its cap on it. It is written to the row and never to the key.
+     *
+     * **`$subjectType` (F-1, 2026-09-29):** the type of the resource `$subjectId` addresses, when the caller knows it
+     * is not the permission's own resource — `PermissionGate` passes an operation's declared denial subject. It is
+     * **checked against `SchemaManifest::TABLES`** and an unknown name is refused loudly: `subject_type` is a table
+     * name and `audit_log_tenant_subject_idx` is keyed on it, so a declaration naming no table is a wiring error, not
+     * a value to write. `null` keeps the derivation from the permission code, unchanged.
      */
     public function record(
         string $tenantId,
@@ -122,8 +128,16 @@ final readonly class DenialAuditWriter
         string $permissionCode,
         ?string $subjectId,
         ?string $ipAddress,
+        ?string $subjectType = null,
     ): void {
-        $subjectType = $this->subjectTypeFor($permissionCode);
+        if (null !== $subjectType && !\array_key_exists($subjectType, SchemaManifest::TABLES)) {
+            throw new \LogicException(\sprintf(
+                'A denial subject type must name a table in SchemaManifest::TABLES; "%s" does not.',
+                $subjectType,
+            ));
+        }
+
+        $subjectType ??= $this->subjectTypeFor($permissionCode);
         // `audit_log_subject_pair`: both or neither. A collection operation has
         // no id in its path, so a denial on `ListItems` names no row — which is
         // honest rather than lossy, and is what makes the second row's

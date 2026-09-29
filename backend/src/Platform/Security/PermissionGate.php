@@ -94,6 +94,21 @@ final readonly class PermissionGate
      */
     public const OPERATION_PERMISSION = 'required_permission';
 
+    /**
+     * **F-1 (2026-09-29): the extra property an operation carries when its denial's subject is NOT the permission's
+     * resource** — `[<table>, <route variable>]`. Optional; absent means the default derivation below, which is right
+     * for every path whose first id addresses the permission's own resource (`/items/{id}` under
+     * `inventory_item.view`, and the line paths, whose first id is the order the permission names).
+     *
+     * The rule it serves (`docs/session13/roles-s2-spar.md` P16): *`subject_type` is the type of the resource the
+     * recorded path variable addresses; the id stays unresolved (E-1); where no path variable addresses a resource of a
+     * known table, neither half is written.* A nested create or read whose parent is a different resource — a receipt
+     * under an order — must declare it, or its denial row names a type and an id from two different rows (the shipped
+     * defect: `(goods_receipt, <purchase order id>)`). `DenialSubjectTest` derives the expectation from the registry,
+     * never from this declaration, so the two are independent.
+     */
+    public const OPERATION_DENIAL_SUBJECT = 'denial_subject';
+
     public function __construct(
         private CurrentOperation $operations,
         private RequestIdentity $identities,
@@ -150,16 +165,51 @@ final readonly class PermissionGate
             return;
         }
 
+        [$subjectType, $subjectId] = $this->denialSubject($operation, $event->getRequest());
+
         $this->denials->record(
             tenantId: $identity->tenantId,
             actorUserId: $identity->userId,
             actorLabel: $identity->actorLabel,
             permissionCode: $required,
-            subjectId: $this->subjectIdIn($event->getRequest()),
+            subjectId: $subjectId,
             ipAddress: $event->getRequest()->getClientIp(),
+            subjectType: $subjectType,
         );
 
         throw ApiProblem::permissionDenied($required);
+    }
+
+    /**
+     * **F-1:** the operation's declared denial subject, `[table, the value of its route variable]`, or — when none is
+     * declared — `[null, the first uuid route parameter]`, leaving the type to `DenialAuditWriter`'s derivation from the
+     * permission code (the default, unchanged). The id is never resolved here (E-1). A malformed declaration is a wiring
+     * error and fails loudly, as a missing permission declaration does.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function denialSubject(HttpOperation $operation, Request $request): array
+    {
+        $extra = $operation->getExtraProperties();
+
+        if (!\array_key_exists(self::OPERATION_DENIAL_SUBJECT, $extra)) {
+            return [null, $this->subjectIdIn($request)];
+        }
+
+        $declared = $extra[self::OPERATION_DENIAL_SUBJECT];
+
+        if (!\is_array($declared) || [0, 1] !== array_keys($declared) || !\is_string($declared[0]) || !\is_string($declared[1])) {
+            throw new \LogicException(\sprintf(
+                'Operation "%s" declares "%s" as something other than [<table>, <route variable>].',
+                (string) $operation->getName(),
+                self::OPERATION_DENIAL_SUBJECT,
+            ));
+        }
+
+        $parameters = $request->attributes->get('_route_params');
+        $value = \is_array($parameters) ? ($parameters[$declared[1]] ?? null) : null;
+
+        return [$declared[0], \is_string($value) ? $value : null];
     }
 
     /**

@@ -71,6 +71,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             extraProperties: [
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'goods_receipt.create',
+                // F-1: a denial here names the purchase order its path's {id} addresses, not a goods receipt (`PermissionGate::OPERATION_DENIAL_SUBJECT`).
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['purchase_order', 'id'],
             ],
         ),
     ],

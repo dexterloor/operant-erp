@@ -41,7 +41,12 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: PickListProvider::class,
             // §4.2's `Perm` cell: `fulfilment.view` ALONE (V2-S-1b clause 3, ruling R7). Enforced by
             // `PermissionGate` on `kernel.controller`, before the provider loads anything — E-1.
-            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'fulfilment.view'],
+            // F-1: a denial here names the sales order its path's {id} addresses, not a fulfilment
+            // (`PermissionGate::OPERATION_DENIAL_SUBJECT`).
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'fulfilment.view',
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['sales_order', 'id'],
+            ],
         ),
     ],
 )]

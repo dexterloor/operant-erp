@@ -70,6 +70,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             extraProperties: [
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'invoice.issue',
+                // F-1: a denial here names the fulfilment its path's {id} addresses, not an invoice (`PermissionGate::OPERATION_DENIAL_SUBJECT`).
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['fulfilment', 'id'],
             ],
         ),
         // Sales step 6, C5 (2026-09-28). API-21 branch 5: a transition creates no row, so 200 with the invoice in its
