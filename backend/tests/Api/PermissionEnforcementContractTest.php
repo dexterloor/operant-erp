@@ -60,6 +60,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'ListInvoices' => 'invoice.view',
         'PayInvoice' => 'invoice.pay',
         'ReverseInvoicePayment' => 'invoice.pay',
+        // Sales step 6 C7 (2026-09-29): `owner` alone among the default roles holds it since A2.1a (ADR-008 A2.7).
+        'VoidInvoice' => 'invoice.void',
         // Sales step 6 C1 (2026-09-23): the register, the row's own `Perm` cell. `warehouse_operator` holds it.
         'ListFulfilments' => 'fulfilment.view',
         // Sales step 5 C3 (2026-09-22): the pick read, `fulfilment.view` ALONE (V2-S-1b clause 3, owner ruling R7).

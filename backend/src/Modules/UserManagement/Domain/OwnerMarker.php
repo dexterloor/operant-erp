@@ -31,13 +31,17 @@ namespace App\Modules\UserManagement\Domain;
  * ---------------------------------------------------------------------------
  * The defect this class exists to make impossible
  * ---------------------------------------------------------------------------
- * `docs/adr/sod_check.py` types `ADMIN_EXCL` as **six** literals and asserts
- * `len(ROLES['admin']) == 54`. Its own docstring records that this makes the
- * assertion not evidence — *"editing the constant and the assert together
- * validates a number the same edit chose"*. Six literals is also what hides the
- * provenance: five of them are §2's and one is E-15b's, and a flat list cannot
- * say so. Derive the whole six from §2 and `admin` is **55**, not 54; type all
- * six and nothing derives at all. **The shape that is correct is a derivation
+ * `docs/adr/sod_check.py` typed `ADMIN_EXCL` as **six** literals and asserted
+ * `len(ROLES['admin']) == 54` until 2026-09-29. Its own docstring recorded that
+ * this made the assertion not evidence — *"editing the constant and the assert
+ * together validates a number the same edit chose"*. Six literals was also what
+ * hid the provenance: five of them were §2's and one E-15b's, and a flat list
+ * cannot say so. Derive the whole set from §2 and `admin` is one larger than it
+ * should be; type it and nothing derives at all. *(Since sales step 6 C7,
+ * 2026-09-29 — ADR-008 A2.1a — the script DERIVES `ADMIN_EXCL` as every row's
+ * controlled half plus this marker, the shape below, and checks it against
+ * `SECURITY_MODEL.md` §4's prose; on today's table it is seven codes and `admin`
+ * is 53.)* **The shape that is correct is a derivation
  * plus one separately-provenanced code**, which is what
  * `AdministrativeCharter::excludedCodes()` computes from `SeparationOfDuty` and
  * this class.

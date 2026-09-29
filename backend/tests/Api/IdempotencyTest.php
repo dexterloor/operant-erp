@@ -163,6 +163,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second reversal of a reversed payment: a second invoice.payment_reversed row, or B′\'s '
                 .'payment_reversed_at moved (sales step 6 C6). Its mechanism is the status guard: the invoice is issued again.',
         ],
+        'VoidInvoice' => [
+            'method' => 'replayVoidInvoice',
+            'why' => 'A second void of a void invoice: a second invoice.voided row, or updated_at moved (sales step 6 C7). '
+                .'Its mechanism is the status guard: the invoice is already void.',
+        ],
         'CancelSalesOrder' => [
             'method' => 'replayCancelSalesOrder',
             'why' => 'A second cancellation of a cancelled order. Status guard, as the purchase mirror above -- and '
@@ -612,6 +617,26 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame([['reason' => 'First']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT metadata->>'reason' AS reason FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid",
             [AuditEvent::INVOICE_PAYMENT_REVERSED, $i['invoice']]), $why);
+    }
+
+    private function replayVoidInvoice(string $why): void
+    {
+        $i = $this->issuedInvoice('IDEM-VOID');
+        $this->actAsRole(DefaultRoles::OWNER);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'First']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid', [$i['invoice']]);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Second']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, updated_at::text AS updated_at FROM invoice WHERE id = ?::uuid', [$i['invoice']]), $why);
+        self::assertSame([['reason' => 'First']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT metadata->>'reason' AS reason FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid",
+            [AuditEvent::INVOICE_VOIDED, $i['invoice']]), $why);
     }
 
     private function replayApprovePurchaseOrder(string $why): void

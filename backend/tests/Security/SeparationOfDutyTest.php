@@ -49,8 +49,9 @@ use PHPUnit\Framework\TestCase;
  * ---------------------------------------------------------------------------
  * Every figure below is a LITERAL, and that is deliberate
  * ---------------------------------------------------------------------------
- * `60`, `54`, `6`, `4`, `56` are typed here and compared against what the
- * artifact computes. `docs/adr/sod_check.py`'s own docstring records why:
+ * `60`, `53`, `7`, `4`, `56` are typed here and compared against what the
+ * artifact computes *(`54` and `6` until A2.1a, 2026-09-29 — each re-derived by
+ * running this file against the widened table, never by arithmetic)*. `docs/adr/sod_check.py`'s own docstring records why:
  * its `ADMIN_EXCL` constant and its `== 54` assert are edited together, so the
  * assertion *"validates a number the same edit chose"*. A pin in the test and a
  * derivation in the code are two independent statements; a constant and an
@@ -86,7 +87,11 @@ use PHPUnit\Framework\TestCase;
  * becomes seven, the conflict graph gains an edge. `admin` stays PC-4-clean,
  * because the derivation takes `invoice.void` off it in the same breath. That is
  * PC-14's *"clean by construction, present and future"*, observed rather than
- * claimed.
+ * claimed. **⚖ 2026-09-29: this mutation became the real state — A2.1a (ADR-008
+ * A2.7, sales step 6 C7).** Applied for real it reddened the same four clauses
+ * (`xAdmin…`, `e15bsMarker…`, the ceiling's edge count, and the old simulation
+ * (i)), the pins moved by derivation, and (i) was rewritten to simulate the
+ * ordering hazard against the real table.
  *
  * **(2)** E-15b's marker dropped from `AdministrativeCharter::excludedCodes()`,
  * i.e. `X(admin)` derived wholly from §2: **2 red**, and the second names the
@@ -105,7 +110,7 @@ use PHPUnit\Framework\TestCase;
  *
  * **(5) The honest limit of this file, measured rather than assumed.** Replacing
  * the derivation in `AdministrativeCharter::excludedCodes()` with the six literals
- * it computes today is **green** — no test can tell a derivation from a list that
+ * it computed then (seven since A2.1a) is **green** — no test can tell a derivation from a list that
  * agrees with it. What tells them apart is the *next* table change, and that was
  * run too: with the literals in place, mutation (1) turns **`admin` into a third
  * PC-4 exception** (`pc4` becomes `admin, owner, purchasing_manager`), where with
@@ -118,15 +123,19 @@ final class SeparationOfDutyTest extends TestCase
     /** `SECURITY_MODEL.md` §3's own heading. Pinned, never derived from the code under test. */
     private const CATALOGUE_SIZE = 60;
 
-    /** §4's `admin` row: `60 − 6 = 54`. */
-    private const ADMIN_SIZE = 54;
+    /**
+     * §4's `admin` row: `60 − 7 = 53`. *(54 until 2026-09-29: A2.1a (ADR-008 A2.7, sales step 6 C7) put
+     * `invoice.void` on SoD-3's controlled half and PC-14's derivation took it off `admin`. Re-derived by running this
+     * file against the widened table, never by arithmetic: `admin` = |catalogue| − |X(admin)|.)*
+     */
+    private const ADMIN_SIZE = 53;
 
-    /** ADR-008 §2 — four rows, five codes on their controlled halves. */
+    /** ADR-008 §2 — four rows, six codes on their controlled halves (five until A2.1a added `invoice.void`). */
     private const SOD_ROWS = 4;
-    private const CONTROLLED_CODES = 5;
+    private const CONTROLLED_CODES = 6;
 
-    /** PC-14's `X(admin)`: the five above **plus** E-15b's marker. */
-    private const X_ADMIN_SIZE = 6;
+    /** PC-14's `X(admin)`: the six above **plus** E-15b's marker (six until A2.1a). */
+    private const X_ADMIN_SIZE = 7;
 
     /** §4's eight default roles. */
     private const DEFAULT_ROLES = 8;
@@ -144,9 +153,13 @@ final class SeparationOfDutyTest extends TestCase
         'sales_rep + warehouse_operator' => ['SoD-4'],
     ];
 
-    /** The conflict graph, and E-15b/E-15c's ceiling over it. */
-    private const CONFLICT_VERTICES = 8;
-    private const CONFLICT_EDGES = 7;
+    /**
+     * The conflict graph, and E-15b/E-15c's ceiling over it. A2.1a added one vertex (`invoice.void`) and one edge
+     * (`invoice.issue`–`invoice.void`) — 8 / 7 until 2026-09-29; the cover and the ceiling did not move, because the new
+     * edge is already covered by `invoice.issue` (ADR-008 A2.5, variant A).
+     */
+    private const CONFLICT_VERTICES = 9;
+    private const CONFLICT_EDGES = 8;
     private const MINIMUM_VERTEX_COVER = 4;
     private const NEAR_OWNER_CEILING = 56;
 
@@ -218,7 +231,7 @@ final class SeparationOfDutyTest extends TestCase
         $controlled = SeparationOfDuty::controlledCodes();
 
         self::assertNotSame([], $controlled, 'No controlled half at all: X(admin) would be the marker alone.');
-        self::assertCount(self::CONTROLLED_CODES, $controlled, 'ADR-008 §2 puts five codes on its controlled halves.');
+        self::assertCount(self::CONTROLLED_CODES, $controlled, 'ADR-008 §2 puts six codes on its controlled halves (A2.1a).');
 
         $expected = [...$controlled, OwnerMarker::CODE];
         sort($expected);
@@ -227,7 +240,7 @@ final class SeparationOfDutyTest extends TestCase
         sort($actual);
 
         self::assertSame($expected, $actual, 'X(admin) is not the union of §2s controlled halves and E-15bs marker.');
-        self::assertCount(self::X_ADMIN_SIZE, AdministrativeCharter::excludedCodes(), 'X(admin) is six codes on todays table.');
+        self::assertCount(self::X_ADMIN_SIZE, AdministrativeCharter::excludedCodes(), 'X(admin) is seven codes on todays table.');
 
         // The forward and inverse clauses of PC-14's violation test, over the
         // artifact. Both are structural here — `admin` IS the complement — and
@@ -235,7 +248,7 @@ final class SeparationOfDutyTest extends TestCase
         // every one of this project's fake greens was before it was measured.
         $admin = DefaultRoles::codesFor(DefaultRoles::ADMIN);
 
-        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 60 − 6 = 54 codes.');
+        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 60 − 7 = 53 codes.');
         self::assertSame(
             [],
             array_values(array_intersect($admin, AdministrativeCharter::excludedCodes())),
@@ -291,11 +304,12 @@ final class SeparationOfDutyTest extends TestCase
         self::assertSame([DefaultRoles::OWNER], $holders, 'E-15bs marker must be held by `owner` alone.');
 
         // And the arithmetic the trap turns on, stated so it cannot drift:
-        // a fully §2-derived X(admin) would be five codes and `admin` would be 55.
+        // a fully §2-derived X(admin) would be six codes and `admin` would be 54
+        // (five and 55 until A2.1a, 2026-09-29).
         self::assertCount(
             self::CATALOGUE_SIZE - self::CONTROLLED_CODES,
             array_values(array_diff(PermissionCatalogue::codes(), AdministrativeCharter::separationOfDutyExclusions())),
-            'Without E-15bs marker `admin` is 55, which is the number a §2-only derivation produces.',
+            'Without E-15bs marker `admin` is 54, which is the number a §2-only derivation produces.',
         );
     }
 
@@ -520,19 +534,26 @@ final class SeparationOfDutyTest extends TestCase
     {
         $baseline = $this->summarise($this->table());
 
-        // (i) Amendment 2's A2.1 landed on §2 **early** — `invoice.void` onto
-        // SoD-3's controlled half while §4's `admin` row still describes the
-        // seeded set. §2 names this ordering hazard in writing: *"editing the
-        // table first would make PC-14's forward clause fire on §4's `admin`
-        // row"*. Here it does, mechanically: `admin` holds `invoice.issue` and
-        // `invoice.void`, so PC-4 gains a third role.
-        $a21Early = $this->table();
-        $a21Early['SoD-3']['controlled'][] = 'invoice.void';
+        // (i) A2.1a's ordering hazard, against the REAL table. *(Rewritten 2026-09-29, sales step 6 C7, when A2.1a
+        // landed. Until then this simulated A2.1 landing on §2 EARLY — `invoice.void` appended to a copy of SoD-3 while
+        // §4's `admin` still held it — and asserted `admin` became a third PC-4 exception. A2.1a is now the real state,
+        // so the same hazard is simulated from the other side.)* §4's `admin` as seeded BEFORE A2.1a — the derived set
+        // plus `invoice.void` — spans SoD-3 against today's table, so it would be a PC-4 exception; the derived `admin`
+        // spans nothing. That difference is what A2.6's "in the same commit" buys, observed rather than claimed.
+        $real = $this->table();
+        self::assertContains('invoice.void', $real['SoD-3']['controlled'] ?? [], 'A2.1a is not in the table: SoD-3s controlled half lacks `invoice.void`.');
 
-        $moved = $this->summarise($a21Early);
+        $admin = DefaultRoles::codesFor(DefaultRoles::ADMIN);
+        self::assertSame([], $this->rowsSpannedBy($real, $admin), 'The derived `admin` spans a split.');
+        self::assertSame(['SoD-3'], $this->rowsSpannedBy($real, [...$admin, 'invoice.void']),
+            '`admin` still holding `invoice.void` after A2.1a must span SoD-3 — the PC-4 exception A2.1a removes.');
 
-        self::assertNotSame($baseline, $moved, 'Widening SoD-3s controlled half with `invoice.void` moved nothing.');
-        self::assertContains('admin', $moved['pc4'], 'A2.1 landing before §4s `admin` row is cut must make `admin` a PC-4 exception.');
+        // And A2.1a undone on a copy moves none of the three checks: ADR-008 A2.5's recorded result ("moves PC-4, PC-13
+        // and the ceiling not at all"), because `admin` is derived from the real table either way. A record, not
+        // evidence — the evidence is the clause above.
+        $undone = $real;
+        $undone['SoD-3']['controlled'] = array_values(array_diff($real['SoD-3']['controlled'], ['invoice.void']));
+        self::assertSame($baseline, $this->summarise($undone), 'A2.1a undone moved a check. A2.5 records that it does not.');
 
         // (ii) SoD-3 written the wrong way round. PC-4, PC-13 and the ceiling are
         // all blind to it — the conflict graph is undirected and the pair sets

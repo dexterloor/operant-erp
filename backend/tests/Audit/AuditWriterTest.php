@@ -312,6 +312,14 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             invoiceId: Uuid::v4()->toRfc4122(),
             reason: 'Probe',
         );
+        // Sales step 6, C7: `invoice.voided`, the writer's fourth business event.
+        $invoiceWriter->recordVoided(
+            tenantId: self::TENANT_A,
+            actorUserId: $actor,
+            actorLabel: 'Probe Actor',
+            invoiceId: Uuid::v4()->toRfc4122(),
+            reason: 'Probe',
+        );
 
         $withIp = [];
         $written = [];

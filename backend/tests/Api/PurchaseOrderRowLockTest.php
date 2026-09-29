@@ -1324,7 +1324,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * under it, records a payment as `erp_app` would (the four granted columns). The real `PayInvoice` must wait on
      * `InvoiceRowLock`, re-read the invoice under it, find it `paid` and be refused by the status guard — never a
      * second `invoice.paid`, never a recorder overwritten. Without the lock the request would read `issued`, pass the
-     * guard and overwrite A's `paid_by` with its own caller. (Pay ∥ void is C7's, when `VoidInvoice` exists.)
+     * guard and overwrite A's `paid_by` with its own caller. (Pay ∥ void is `aPaymentAndAVoidRaceAndTheSecondIsRefusedByTheStatusGuard`, C7.)
      */
     #[Test]
     public function aSecondPaymentWaitsForTheFirstAndIsRefusedByTheStatusGuard(): void
@@ -1375,6 +1375,121 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::INVOICE_PAYMENT_REVERSED]),
             'The refused reversal wrote a trail row.');
+    }
+
+    /**
+     * **Pay ∥ void (sales step 6, C7), both commit orders.** A takes the invoice's lock and, under it, either records a
+     * payment or voids the invoice as `erp_app` would; the real request for the OTHER act must wait, re-read the invoice
+     * under the lock and be refused by the status guard — a paid invoice is not voidable, a void one is not payable
+     * (§8.3). The loser writes no trail row (A's are raw SQL and write none, so zero).
+     *
+     * @return iterable<string, array{string, string, string, string}>
+     */
+    public static function payAndVoidRaces(): iterable
+    {
+        yield 'A pays, the void waits' => ['pay', '/void', DefaultRoles::OWNER, AuditEvent::INVOICE_VOIDED];
+        yield 'A voids, the payment waits' => ['void', '/payment', DefaultRoles::FINANCE, AuditEvent::INVOICE_PAID];
+    }
+
+    #[Test]
+    #[DataProvider('payAndVoidRaces')]
+    public function aPaymentAndAVoidRaceAndTheSecondIsRefusedByTheStatusGuard(string $holderAct, string $action, string $role, string $loserEvent): void
+    {
+        $i = $this->issuedInvoice('RACE-PV-'.$holderAct);
+        $this->actAsRole($role);
+
+        $before = 'pay' === $holderAct
+            ? [["UPDATE invoice SET status = 'paid', paid_at = now(), paid_by_user_id = ?::uuid, updated_at = now() WHERE id = ?::uuid", [$i['issuer'], $i['invoice']]]]
+            : [["UPDATE invoice SET status = 'void', updated_at = now() WHERE id = ?::uuid", [$i['invoice']]]];
+        $body = '/void' === $action ? ['reason' => 'Concurrent'] : [];
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: $before,
+            request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].$action, $body), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.'.self::STATUS_RULE, $this->json()['rule']);
+        self::assertSame([['status' => 'pay' === $holderAct ? 'paid' : 'void']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status FROM invoice WHERE id = ?::uuid', [$i['invoice']]));
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [$loserEvent]), 'The refused request wrote a trail row.');
+    }
+
+    /**
+     * **Reverse ∥ void on a PAID invoice (sales step 6, C7; B′).** A takes the lock and reverses the payment as
+     * `erp_app` would (the ORM's four columns, then B′'s `COALESCE`). The real `VoidInvoice` waits, re-reads the invoice
+     * as `issued` WITH `payment_reversed_at` set, and so: a marker-less delegate is refused by B′; the owner succeeds.
+     * Without the lock-then-refresh the void would have read `paid` and been refused by the status guard for the wrong
+     * reason — or, from a stale read, voided a reversed invoice as a delegate.
+     *
+     * @return iterable<string, array{list<string>, int}>
+     */
+    public static function reverseAndVoidRaces(): iterable
+    {
+        yield 'a marker-less delegate' => [['invoice.view', 'invoice.void'], 409];
+        yield 'the owner' => [DefaultRoles::codesFor(DefaultRoles::OWNER), 200];
+    }
+
+    /** @param list<string> $voiderCodes */
+    #[Test]
+    #[DataProvider('reverseAndVoidRaces')]
+    public function aVoidWaitingOnAReversalMeetsBPrimeUnderTheLock(array $voiderCodes, int $expected): void
+    {
+        $i = $this->issuedInvoice('RACE-RV-'.$expected);
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame(200, $this->httpStatus(), 'Fixture: the payment was refused.');
+        $this->actAs(self::TENANT_A, $voiderCodes);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            ["UPDATE invoice SET status = 'issued', paid_at = NULL, paid_by_user_id = NULL, updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
+            ['UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, now()) WHERE id = ?::uuid', [$i['invoice']]],
+        ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Concurrent']), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame($expected, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        if (409 === $expected) {
+            self::assertSame('invoice.is_not_payment_reversed', $this->json()['rule']);
+        }
+        self::assertSame([['status' => 409 === $expected ? 'issued' : 'void', 'r' => true]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status, payment_reversed_at IS NOT NULL AS r FROM invoice WHERE id = ?::uuid', [$i['invoice']]));
+        self::assertSame(409 === $expected ? 0 : 1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::INVOICE_VOIDED]));
+    }
+
+    /**
+     * **A void in flight ∥ a re-issue of the same shipment (sales step 6, C7).** A takes the invoice's lock and voids it
+     * WITHOUT committing. `IssueInvoice` takes no invoice lock (`INVOICE_ALLOWED_WITHOUT_A_LOCK`): its pre-check reads
+     * the COMMITTED state, finds a live invoice and refuses 409 at once — it never waits on A, so A sees no waiter and
+     * rolls back, which is the proof that nothing waited. After a void that DOES commit (through the API), a sequential
+     * re-issue succeeds under a new number. (Had the pre-check been absent, the INSERT would have waited on A's index
+     * entry for `invoice_tenant_fulfilment_not_void` and succeeded after A's commit — a re-issue racing a void that might
+     * yet roll back.)
+     */
+    #[Test]
+    public function aReissueDoesNotWaitOnAVoidInFlightAndSucceedsAfterItCommits(): void
+    {
+        $i = $this->issuedInvoice('RACE-VR');
+        $this->actAsRole(DefaultRoles::SALES_REP);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            ["UPDATE invoice SET status = 'void', updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
+        ], request: fn () => $this->send('POST', '/fulfilments/'.$i['shipment']['fulfilment'].'/invoices', null,
+            ['Idempotency-Key' => Uuid::v4()->toRfc4122()]), table: 'invoice');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('invoice.fulfilment_is_not_already_invoiced', $this->json()['rule']);
+        self::assertFalse($holder['waiter_seen'], 'The re-issue waited on the void in flight: '.json_encode($holder));
+        self::assertFalse($holder['committed'], 'The holder committed with no waiter: '.json_encode($holder));
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM invoice'));
+
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Committed now.']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsRole(DefaultRoles::SALES_REP);
+        $this->send('POST', '/fulfilments/'.$i['shipment']['fulfilment'].'/invoices', null, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertNotSame($i['number'], $this->json()['invoice_number']);
     }
 
     /**
@@ -1436,6 +1551,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `{paid}`: the invoice is first PAID through the API by another `finance` user, so the reversal really writes
         // (a refused drive issues no write). Two `UPDATE invoice` statements, one transaction.
         yield 'ReverseInvoicePayment' => ['POST', '/invoices/{invoice}/payment-reversal{paid}', ['reason' => 'Lock position'], 200, DefaultRoles::FINANCE];
+        // The owner voids (`invoice.void` is `owner`'s alone among the default roles since A2.1a). One `UPDATE invoice`.
+        yield 'VoidInvoice' => ['POST', '/invoices/{invoice}/void', ['reason' => 'Lock position'], 200, DefaultRoles::OWNER];
     }
 
     /**
@@ -1821,6 +1938,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'PayInvoice' => 'InvoicePayment::pay',
         // Sales step 6, C6: the ORM flush of `reversePayment()` and B′'s `UPDATE invoice SET payment_reversed_at`.
         'ReverseInvoicePayment' => 'InvoicePaymentReversal::reverse',
+        // Sales step 6, C7: the ORM flush of `void()` (status, updated_at).
+        'VoidInvoice' => 'InvoiceVoiding::void',
     ];
 
     private const INVOICE_ALLOWED_WITHOUT_A_LOCK = [

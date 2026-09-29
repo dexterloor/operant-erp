@@ -165,7 +165,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // `InvoiceResource`, whose item `Get` already exists, so no `$notExposed` fallback route is minted.
         // **And one more (sales step 6, C6):** `ReverseInvoicePayment`. Its migration grants `erp_app` a column UPDATE on
         // `payment_reversed_at` alone (B′). Another `Post` on `InvoiceResource`; no `$notExposed` fallback route.
-        self::assertCount(46, $checked, 'The route set changed. This slice declares forty-six operations: '.implode(', ', array_keys($checked)));
+        // **And one more (sales step 6, C7, 2026-09-29):** `VoidInvoice`. No grant: its flush sets `status` and `updated_at`,
+        // column-granted since C5. Another `Post` on `InvoiceResource`; no `$notExposed` fallback route.
+        self::assertCount(47, $checked, 'The route set changed. This slice declares forty-seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

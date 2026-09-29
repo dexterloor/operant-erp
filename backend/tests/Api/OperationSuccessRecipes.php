@@ -378,6 +378,16 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, invoice, pay, then reverse the payment as someone else'];
             }],
+            // Sales step 6, C7: issued through the API and voided by the rig's principal, which holds `invoice.void` (every
+            // declared permission) and NOT the owner marker -- so this is the delegated void of a NEVER-PAID invoice, which
+            // B′ does not touch. The 200 body every walker sees is the VOID shape: `status` `void`, `paid_at`/`paid_by` null.
+            'VoidInvoice' => [fn (): array => $stockedSalesWorkspace('SO-172000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/void', ['reason' => 'Issued against the wrong shipment.']);
+
+                return [200, 'create, confirm, fulfil, invoice, then void it'];
+            }],
             'GetSalesOrder' => [fn (): array => $salesWorkspace('SO-158000'), function (array $c) use ($raiseSalesOrder): array {
                 $raiseSalesOrder($c);
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));

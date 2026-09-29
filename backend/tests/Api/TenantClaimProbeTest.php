@@ -216,6 +216,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // reverser may not be the recorder, A2.3), so the baseline succeeds and a probe that moved the write would
         // reverse B's payment, which the digest names.
         'ReverseInvoicePayment' => ['vars' => ['id' => 'invoice'], 'setup' => 'paid_invoice', 'body' => ['reason' => 'Probe']],
+        // Sales step 6 C7: the void of an invoice issued in each tenant (never paid, so B′ does not apply to the rig's
+        // marker-less principal); a supplied tenant id that moved the write would void B's invoice, which the digest names.
+        'VoidInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice', 'body' => ['reason' => 'Probe']],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

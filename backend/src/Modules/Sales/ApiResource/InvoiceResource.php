@@ -13,6 +13,7 @@ use App\Modules\Sales\ApiResource\State\InvoiceProvider;
 use App\Modules\Sales\ApiResource\State\IssueInvoiceProcessor;
 use App\Modules\Sales\ApiResource\State\PayInvoiceProcessor;
 use App\Modules\Sales\ApiResource\State\ReverseInvoicePaymentProcessor;
+use App\Modules\Sales\ApiResource\State\VoidInvoiceProcessor;
 use App\Modules\Sales\Application\FulfilmentRef;
 use App\Modules\Sales\Application\InvoiceView;
 use App\Modules\Sales\Application\SalesActorRef;
@@ -108,6 +109,25 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             read: false,
             processor: ReverseInvoicePaymentProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'invoice.pay'],
+        ),
+        // Sales step 6, C7 (2026-09-29). `issued`/`overdue` → `void` under `invoice.void` — held by `owner` alone among
+        // the default roles since A2.1a (ADR-008 A2.7), and that holding is the whole control: no owner check in the
+        // code (`SEC` §9.1), except B′ (only an owner voids an invoice whose payment was ever reversed). Reason required.
+        // 200 with the invoice in its new state (API-21 branch 5); `guard:invoice.status`, so no `Idempotency-Key`.
+        new Post(
+            uriTemplate: '/invoices/{id}/void',
+            name: 'VoidInvoice',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'VoidInvoice'),
+            input: VoidInvoiceInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                'api_allow_update' => false,
+            ],
+            read: false,
+            processor: VoidInvoiceProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'invoice.void'],
         ),
     ],
 )]

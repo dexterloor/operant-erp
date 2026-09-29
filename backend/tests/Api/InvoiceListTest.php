@@ -13,8 +13,9 @@ use Symfony\Component\Uid\Uuid;
 /**
  * **`ListInvoices` — sales step 6, C4** (design §19 C4; IA §5.6's `/invoices` rows; owner ruling Q2).
  *
- * Invoices are seeded as the owner so the views can hold paid and void rows, which no built operation can write yet
- * (`PayInvoice` is C5, `VoidInvoice` C7 — `RESIDUAL_GAPS.md` G-14). The seed is the whole of what the list reads.
+ * Invoices are seeded as the owner so the views can hold paid and void rows in one statement each. *(When this was
+ * written no built operation could write them; `PayInvoice` shipped at C5 and `VoidInvoice` at C7, 2026-09-29 — the
+ * seed stays because it is the whole of what the list reads, and it is independent of those writers' guards.)*
  */
 final class InvoiceListTest extends PurchaseOrderTestCase
 {

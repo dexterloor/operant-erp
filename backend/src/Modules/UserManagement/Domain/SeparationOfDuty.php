@@ -39,26 +39,26 @@ namespace App\Modules\UserManagement\Domain;
  * `backend/src/` is the violation, not this one.
  *
  * ---------------------------------------------------------------------------
- * Amendment 2 is ruled and deliberately NOT here
+ * Amendment 2 is ruled and applied in halves (ADR-008 A2.7)
  * ---------------------------------------------------------------------------
- * ADR-008 Amendment 2 widens SoD-3's controlled half to `invoice.pay` **or**
- * `invoice.void` **or** `credit_note.issue`, and rules a fifth split **SoD-5**
- * (`sales_return.create` / `credit_note.issue`). §2's own note says *"the four
- * rows above are deliberately not edited yet"* — they enter the table in the
- * build pass that adds the two new codes to `SECURITY_MODEL.md` §3 and removes
- * `invoice.void` from `admin` in §4, because editing the table first makes
- * PC-14's forward clause fire on §4's `admin` row, which still describes the
- * seeded set. **This class tracks §2 as it stands, not as it will stand.**
- * `credit_note.issue` and `sales_return.create` are not in the catalogue, so a
- * row naming them today would not survive `PermissionCatalogue::has()`.
+ * **Amendment 2 is ruled and applied in halves (ADR-008 A2.7). A2.1a is HERE since
+ * 'Let an invoice issued in error be voided, and take voiding off admin' (2026-09-29):
+ * `invoice.void` is on SoD-3's controlled half. A2.1b (`credit_note.issue`) and
+ * SoD-5 are NOT:** those codes are not in `PermissionCatalogue`, so a row naming
+ * them would not survive `PermissionCatalogue::has()`. They enter with
+ * `IssueCreditNote` and `CreateSalesReturn`. The obligation is carried by
+ * `DELIVERY_LEDGER.md` R-39 and `OwedAmendmentTripwireTest`, not by this docblock.
  *
- * The obligation itself is carried mechanically by `DELIVERY_LEDGER.md` R-39 and
- * `OwedAmendmentTripwireTest`, not by this docblock.
+ * *(Until 2026-09-29 this heading read "Amendment 2 is ruled and deliberately NOT
+ * here", and SoD-3's controlled half was `invoice.pay` alone. A2.1a moved
+ * `invoice.void` onto it in the commit that built `VoidInvoice`, together with
+ * ADR-008 §2's SoD-3 row and `SECURITY_MODEL.md` §4's `admin` (54 → 53, by PC-14's
+ * derivation — `DefaultRoles` and `AdministrativeCharter` changed no line).)*
  */
 final class SeparationOfDuty
 {
     /**
-     * ADR-008 §2's four rows.
+     * ADR-008 §2's four rows — SoD-3 with A2.1a applied (A2.7).
      *
      * @var array<string, array{preparing: list<string>, controlled: list<string>}>
      */
@@ -73,7 +73,8 @@ final class SeparationOfDuty
         ],
         'SoD-3' => [
             'preparing' => ['invoice.issue'],
-            'controlled' => ['invoice.pay'],
+            // `invoice.void` since A2.1a (ADR-008 A2.7, 2026-09-29). `credit_note.issue` enters at A2.1b.
+            'controlled' => ['invoice.pay', 'invoice.void'],
         ],
         'SoD-4' => [
             'preparing' => ['sales_order.confirm', 'invoice.issue'],
@@ -130,7 +131,7 @@ final class SeparationOfDuty
      * **The union of every row's controlled half.** This is the whole of what
      * PC-14 derives `X(admin)` from — the SoD-derived part of it.
      *
-     * It is five codes on today's table and that number is not written here.
+     * Its size is not written here: it moves whenever a row does (A2.1a added one).
      *
      * @return list<string>
      */

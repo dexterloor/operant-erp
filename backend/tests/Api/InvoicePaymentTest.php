@@ -135,12 +135,14 @@ final class InvoicePaymentTest extends PurchaseOrderTestCase
             'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::INVOICE_PAID]), 'The refused repeat wrote a trail row.');
     }
 
-    /** A void invoice is not payable (§8.3: `issued` or `overdue`). Seeded void as the owner — `VoidInvoice` is C7's. */
+    /** A void invoice is not payable (§8.3: `issued` or `overdue`). Voided through the API by the owner (C7). */
     #[Test]
     public function aVoidInvoiceCannotBePaid(): void
     {
         $i = $this->issuedInvoice('PAY-D');
-        $this->executeAsOwnerForTenant(self::TENANT_A, "UPDATE invoice SET status = 'void' WHERE id = ?::uuid", [$i['invoice']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Issued in error.']);
+        self::assertSame(200, $this->httpStatus(), 'Fixture: the void was refused. '.(string) $this->client()->getResponse()->getContent());
         $this->actAsRole(DefaultRoles::FINANCE);
 
         $this->pay($i['invoice']);

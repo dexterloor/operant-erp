@@ -76,7 +76,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_AN_UNAPPLIED_AMENDMENT = [
-        'VoidInvoice' => 'POST /invoices/{id}/void',
+        // `VoidInvoice` LEFT this map on 2026-09-29 (sales step 6, C7, 'Let an invoice issued in error be voided, and
+        // take voiding off admin'), which built it AND applied A2.1a in the same commit — ADR-008 A2.7 (owner ruling
+        // 2026-09-23, Q3: "Amend: land in halves"): `invoice.void` joined SoD-3's controlled half in ADR-008 §2 and
+        // `SeparationOfDuty::ROWS`, `admin` lost it by PC-14's derivation (54 -> 53), SEC-O-18 closed, and the live-holder
+        // listing was run and reported. This test was RED naming `VoidInvoice` until then (pasted in
+        // `docs/session13/output9-sales-7-progress.md`, C7). The two entries left owe A2.1b and SoD-5 — see `pointer()`.
         'IssueCreditNote' => 'POST /invoices/{id}/credit-notes',
         'CreateSalesReturn' => 'POST /fulfilments/{id}/returns',
     ];
@@ -222,7 +227,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const INVOICE_CORRECTIONS_NOT_YET_BUILT = [
         // `ReverseInvoicePayment` LEFT this map on 2026-09-28 (sales step 6, C6), which shipped it and closed G-14's
         // payment half in the same commit — this test was red until both were done, as its docblock says.
-        'VoidInvoice' => 'RESIDUAL_GAPS.md G-14 (void half; closed by C7)',
+        // `VoidInvoice` LEFT it on 2026-09-29 (sales step 6, C7), which shipped it and closed G-14's void half — and so
+        // G-14 — in the same commit. The map is now EMPTY: the implication holds literally, and the planted controls
+        // below (literal maps, never this one) keep the check from being vacuous.
     ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
@@ -231,11 +238,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     /**
      * ADR-008 Amendment 2.1 widens SoD-3's controlled half to
      * `invoice.issue` / `invoice.pay` **or** `invoice.void` **or**
-     * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and **unapplied**:
-     * ADR-008 §2's SoD-3 row still reads `invoice.issue` / `invoice.pay` alone,
-     * and `SECURITY_MODEL.md` §4.1 says so in terms — *"Nothing in this
-     * subsection is in §3's catalogue or §4's role table yet, and that is
-     * deliberate."*
+     * `credit_note.issue`. It is owner-ruled (OI-2, 2026-09-14) and, since the
+     * owner's 2026-09-23 ruling (ADR-008 A2.7), lands in two halves. **A2.1a
+     * (`invoice.void`) was applied on 2026-09-29 with `VoidInvoice`** (sales step
+     * 6, C7), which left the map; **A2.1b (`credit_note.issue`) is unapplied**,
+     * and this method stays red-on-arrival for `IssueCreditNote` and
+     * `CreateSalesReturn`. *(Until 2026-09-29 this paragraph said the whole of
+     * A2.1 was unapplied and ADR-008 §2's SoD-3 row read the pair alone.)*
      *
      * **Mutation proof (run 2026-09-18, Move 217) — and it caught a real defect
      * on the first attempt, which is why it is recorded rather than summarised.**
@@ -857,28 +866,30 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      */
     private function pointer(array $arrived): string
     {
+        // Replaced WHOLE on 2026-09-29 by sales step 6 C7 with `SEC`'s text (`output9-sales-7-sec.md` §6.3(e), owner-
+        // approved with A2.7 on 2026-09-23), written for the world after A2.1a: it is shared by every entry left in the
+        // map (`IssueCreditNote`, `CreateSalesReturn`). A commit cannot contain its own hash, so C7 is cited by its dated
+        // subject. The text it replaced asked for A2.1 whole and said "do not split it unasked" — the owner split it.
         return \sprintf(
-            "%s has been built, and ADR-008 Amendment 2.1 has NOT been applied.\n\n"
-            ."A2.1 is OWNER-RULED (OI-2, 2026-09-14) and widens SoD-3's controlled half to\n"
-            ."`invoice.issue` / `invoice.pay` OR `invoice.void` OR `credit_note.issue`. Applying it\n"
-            ."takes `invoice.void` off `admin`. Until it is applied, whoever issues an invoice can\n"
-            ."also cancel it, which is the separation this ruling exists to create.\n\n"
-            ."DO THIS IN THIS COMMIT, or move this pin deliberately and say why:\n"
-            ."  1. ADR-008 §2's SoD-3 row — widen the controlled half. A2.6 requires §3's new codes,\n"
-            ."     §4's `admin` change, PC-13's pair table and A2.5's run IN THE SAME PASS.\n"
-            ."  2. `SECURITY_MODEL.md` §4.1's *Becomes false when built* list — TEN sentences, not\n"
-            ."     nine: `IA.md:425`'s L-9 reversal-register row was added 2026-09-18 and is owned by\n"
-            ."     no other register.\n"
-            ."  3. SEC-O-18 decides WHO may void once `admin` cannot. It is DEFERRED, its deadline is\n"
-            ."     this build, and `admin` = 53 is invariant across both of its live outcomes — so its\n"
-            ."     answer does not block §4's `admin` edit.\n"
-            ."  4. Re-run `python3 docs/adr/sod_check.py` — but DO NOT paste its `admin` count as\n"
-            ."     evidence: `ADMIN_EXCL` is typed, not derived, so that assertion validates a number\n"
-            ."     the same edit chose. Its check-back is a SUBSET test and CANNOT see A2.1 entering\n"
-            ."     §2. Prefer ADR-008 D2's committed SoD port (V2-R-2) over editing that constant.\n\n"
-            ."Full entry: `docs/DELIVERY_LEDGER.md` risk register, row R-39 (scheduled Output 9 / M2, on this build).\n"
-            ."Whether A2.1 may be applied in halves (A2.1a `invoice.void` / A2.1b `credit_note.issue`)\n"
-            ."is the OWNER's call and was still open at Move 217 — do not split it unasked.",
+            "%s has been built. ADR-008 A2.1 was applied in HALF by the commit 'Let an invoice issued in error be voided,\n"
+            ."and take voiding off admin' of 2026-09-29 (A2.1a: invoice.void joined SoD-3's controlled half, `admin` 54 -> 53,\n"
+            ."SEC-O-18 closed). The rest is owed by the operation(s) named above, IN THIS COMMIT (ADR-008 A2.7, owner ruling\n"
+            ."2026-09-23):\n\n"
+            ."  1. IssueCreditNote -> A2.1b: `credit_note.issue` enters SECURITY_MODEL.md §3, PermissionCatalogue, a migration\n"
+            ."     inserting its `permission` row, ADR-008 §2's SoD-3 row AND SeparationOfDuty::ROWS -- all in this commit, never\n"
+            ."     the catalogue without the SoD row (DefaultRoles would hand it to `admin`). Its §4 holdings must be ruled BEFORE\n"
+            ."     this build.\n"
+            ."  2. CreateSalesReturn -> `sales_return.create` enters §3 / PermissionCatalogue / `permission` (preparing side;\n"
+            ."     `admin` holds it by PC-14's inverse clause). SoD-5 (A2.2) enters §2 and SeparationOfDuty::ROWS in whichever of\n"
+            ."     CreateSalesReturn / IssueCreditNote lands SECOND.\n"
+            ."  3. Re-derive, never type: SeparationOfDutyTest's pins; `python3 docs/adr/sod_check.py` (it DERIVES `admin` and\n"
+            ."     checks the SoD rows by EQUALITY since 'Let an invoice issued in error be voided, and take voiding off admin';\n"
+            ."     paste its output). Expected after A2.1b and SoD-5: cover 5.\n"
+            ."  4. Holders: only if `credit_note.issue`'s `permission` row pre-existed its SoD-3 entry, list every LIVE role,\n"
+            ."     system or not, conferring it (excluding roles conferring tenant_settings.edit), per tenant, with a planted\n"
+            ."     control; system roles -> data migration, composed roles -> the owner rules revoke or stand.\n"
+            ."  5. V2-R-17 and V2-C-10 are owed by IssueCreditNote too -- see OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS.\n\n"
+            ."Full entry: DELIVERY_LEDGER.md R-39. Do not hand-edit this pin to green.",
             implode(', ', array_keys($arrived)),
         );
     }

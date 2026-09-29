@@ -205,5 +205,8 @@
     ],
     "UpdateSalesOrderLine $.unit_price": [
         4
+    ],
+    "VoidInvoice $.total_amount": [
+        4
     ]
 }

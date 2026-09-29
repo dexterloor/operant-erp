@@ -39,6 +39,8 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         'PayInvoice' => ['method' => 'POST', 'path' => '/invoices/{id}/payment', 'idem' => false],
         // Sales step 6, C6 (2026-09-28). `guard:invoice.status`.
         'ReverseInvoicePayment' => ['method' => 'POST', 'path' => '/invoices/{id}/payment-reversal', 'idem' => false],
+        // Sales step 6, C7 (2026-09-29). `guard:invoice.status`.
+        'VoidInvoice' => ['method' => 'POST', 'path' => '/invoices/{id}/void', 'idem' => false],
     ];
 
     #[Test]
@@ -245,8 +247,11 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         $this->actAsRole(DefaultRoles::SALES_REP);
         $this->issue($s['fulfilment']);
         $first = $this->json()['id'];
-        // No `VoidInvoice` yet (C7): the owner stands in for it.
-        $this->executeAsOwnerForTenant(self::TENANT_A, "UPDATE invoice SET status = 'void' WHERE id = ?::uuid", [$first]);
+        // Voided through the API since C7 (2026-09-29); until then the owner's SQL stood in for `VoidInvoice`.
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$first.'/void', ['reason' => 'Corrected re-issue follows.']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsRole(DefaultRoles::SALES_REP);
 
         $this->issue($s['fulfilment']);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());

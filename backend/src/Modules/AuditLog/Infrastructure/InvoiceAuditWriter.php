@@ -14,7 +14,7 @@ use Symfony\Component\Uid\Uuid;
  * (one method per event, no parameter naming an event, so no caller can choose one it was not written for).
  *
  * Sales step 6, C3 (2026-09-28): `invoice.issued`, owner ruling Q5. `invoice.paid` joined with `PayInvoice` (C5, 2026-09-28) and
- * `invoice.payment_reversed` with `ReverseInvoicePayment` (C6, the same day); `invoice.voided` joins with `VoidInvoice` (C7), each
+ * `invoice.payment_reversed` with `ReverseInvoicePayment` (C6, the same day), and `invoice.voided` with `VoidInvoice` (C7, 2026-09-29), each
  * with the metadata `SEC` ruled for it (`output9-sales-7-sec.md` §5.1).
  *
  * **Synchronous and inside the caller's transaction** (`API.md` §9.2, `ARCHITECTURE.md` §6.1):
@@ -114,6 +114,34 @@ final readonly class InvoiceAuditWriter
                     $actorUserId,
                     $actorLabel,
                     AuditEvent::SUBJECT_TYPES[AuditEvent::INVOICE_PAYMENT_REVERSED],
+                    $invoiceId,
+                    $reason,
+                ]);
+        });
+    }
+
+    /**
+     * `invoice.voided` (sales step 6, C7). `$actorUserId` is the voider. **`metadata` is exactly `{"reason": <string>}`**
+     * (`SEC` §5.1): the reason is required by the operation, so the key is always present, bound as a parameter and never
+     * interpolated — `sales_order.cancelled`'s and `invoice.payment_reversed`'s shape. Nothing else is copied: the
+     * invoice's number, total and customer are PC-15 display data (condition 6).
+     */
+    public function recordVoided(string $tenantId, string $actorUserId, string $actorLabel, string $invoiceId, string $reason): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $invoiceId, $reason): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, jsonb_build_object('reason', ?::text))
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::INVOICE_VOIDED,
+                    $actorUserId,
+                    $actorLabel,
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::INVOICE_VOIDED],
                     $invoiceId,
                     $reason,
                 ]);

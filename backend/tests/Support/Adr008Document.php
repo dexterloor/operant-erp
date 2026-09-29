@@ -17,8 +17,9 @@ namespace App\Tests\Support;
  * ---------------------------------------------------------------------------
  * It reads the halves SEPARATELY, and that is the point
  * ---------------------------------------------------------------------------
- * `docs/adr/sod_check.py`'s own docstring records the defect this avoids: its
- * check-back asserts `(a|b) <= expanded`, **a subset test**, so *"extra tokens in
+ * `docs/adr/sod_check.py`'s own docstring recorded the defect this avoids *(until
+ * 2026-09-29, when sales step 6 C7 made the script's check-back an equality and
+ * derived `admin` — ADR-008 A2.1a)*: its check-back asserted `(a|b) <= expanded`, **a subset test**, so *"extra tokens in
  * the DOCUMENT are invisible to it"* — if A2.1 lands in §2 and the script's dict
  * is not updated, it still prints `SoD encoding checked back … OK`. Its docstring
  * names the remedy: *"a superset or equality test over the classified tokens is

@@ -34,9 +34,12 @@ use PHPUnit\Framework\TestCase;
  * neighbouring copy of the same fact goes on asserting the opposite.
  *
  * ---------------------------------------------------------------------------
- * It closes `sod_check.py`'s recorded limit 2
+ * It closed `sod_check.py`'s recorded limit 2 — and the script now closes it too
  * ---------------------------------------------------------------------------
- * That script's docstring: its check-back is `(a|b) <= expanded`, **a subset
+ * *(Since 2026-09-29, sales step 6 C7 — ADR-008 A2.1a — `sod_check.py` checks each
+ * row back by EQUALITY and derives `admin`; the quotation below is the docstring
+ * as it stood, kept because it is the reason this method exists.)* That script's
+ * docstring read: its check-back is `(a|b) <= expanded`, **a subset
  * test**, so *"extra tokens in the DOCUMENT are invisible to it … if A2.1 lands
  * in §2 and SOD here is not updated, this script still prints 'SoD encoding
  * checked back … OK'. CONSEQUENCE: this script cannot enforce A2.6's same-pass
