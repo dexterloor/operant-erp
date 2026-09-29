@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Application;
 
+use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\Sales\ApiResource\SalesOrderResource;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
@@ -49,14 +51,13 @@ use Symfony\Component\Uid\Uuid;
  * seam"*. Copying the purchase sequence wholesale would have shipped a control three artefacts deny.
  *
  * ===========================================================================
- * No audit event, and it is deferred by a rule rather than forgotten
+ * The audit event — B-4a, minted 2026-09-29 (roles slice 2, C1)
  * ===========================================================================
- * The purchase mirror writes `purchase_order.placed`. **There is no `sales_order.confirmed` anywhere**
- * — `AuditEvent::ALL` carries the purchase analogue only — so this transition leaves no trail.
- * `API.md` §11's `B-4a` already owns that deferral for the whole `goods_receipt.*` / sales family,
- * with a *fails if* and a `[test]`, and V2-R-22's O-C routed this operation into it rather than
- * minting a new `SEC` question. The consequence is stated rather than hidden: until B-4a ships, *"who
- * confirmed this order and when"* is answerable from `ordered_at` and from nothing else.
+ *   7. `sales_order.confirmed`, one row naming the confirmer, in this transaction
+ *      (`SalesOrderAuditWriter::recordConfirmed()`; `SEC` filed it business, `{}`, no IP). ⚠ Until then this
+ *      section said *"No audit event, deferred by a rule"* — `API.md` §11's B-4a owned the deferral, and *"who
+ *      confirmed this order"* was answerable from `ordered_at` alone. It is now answerable from the trail;
+ *      `sales_order.created_by_user_id` still records the creator, not the confirmer (SEC-O-9).
  *
  * ===========================================================================
  * No reservation is written, and that is model A, ruled
@@ -81,6 +82,8 @@ final readonly class SalesOrderConfirmation
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
+        private RequestIdentity $identities,
+        private SalesOrderAuditWriter $audit,
     ) {
     }
 
@@ -92,9 +95,11 @@ final readonly class SalesOrderConfirmation
             throw ApiProblem::notFound();
         }
 
+        $identity = $this->identities->authenticated();
+
         return $this->tenants->run(
             $this->tenant->tenantId(),
-            static function (EntityManagerInterface $em) use ($id): SalesOrderResource {
+            function (EntityManagerInterface $em) use ($id, $identity): SalesOrderResource {
                 // Step 2: the order's row lock, before anything below is read. A concurrent write to
                 // this order either committed before this, and every read below sees it, or waits for
                 // this transaction.
@@ -154,6 +159,17 @@ final readonly class SalesOrderConfirmation
                 $order->confirm(new \DateTimeImmutable(), $liveLineCount);
 
                 $em->flush();
+
+                // Step 7 (B-4a, roles slice 2 C1): the row naming the confirmer. Joins this transaction
+                // (`TenantContext::run()` is re-entrant for the same tenant), so the confirmation and the row that
+                // says who made it commit together or not at all. A repeat is refused by the status guard above, so
+                // its rollback writes nothing.
+                $this->audit->recordConfirmed(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    salesOrderId: $id,
+                );
 
                 // API-21 branch 5: the resource in its **new** state, read back from the database so
                 // the response carries what was actually written — `status` and `ordered_at` in

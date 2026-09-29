@@ -173,7 +173,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * `operationId` => what it owes: **V2-R-12b's order-level restore collisions**, which no restore of an ORDER
-     * may ship without.
+     * may ship without — **and, since B-4a (roles slice 2 C1, 2026-09-29), the `<table>.restored` audit event**, filed
+     * business by `SEC` and minted with its writer in the restore's commit. That obligation is carried in THIS map's
+     * failure message rather than a second map on the same two keys (spar P9: a second copy of one set rots).
      *
      * Keyed by `operationId` for `1076ba3`'s reason (a path pin that guesses wrong never fires). Both order restores
      * are named, not only the sales one: the purchase twin has the same four uniques and the same reissue history.
@@ -617,7 +619,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."     number with a live one; the restore must refuse that case in domain terms, not 500.\n"
             ."  4. `<order>_line_unique` -- unreachable under the new cascade; prove it, do not translate it.\n\n"
             ."ALSO DUE WITH THE RESTORE: E9-3 (`theArchivedIdProblemIsWhyNo*RestoreShips`) must have gone green on\n"
-            ."`archived` arriving; `RESIDUAL_GAPS.md` G-8 closes and G-9's `*.restored` event is owed to B-4a;\n"
+            ."`archived` arriving; `RESIDUAL_GAPS.md` G-8 closes;\n"
+            ."THE AUDIT EVENT: mint `<table>.restored` with its writer IN THIS COMMIT -- BUSINESS, subject the order,\n"
+            ."`{}`, no IP (`SEC` 2026-09-29, `docs/session13/roles-s2-sec.md` §3; already filed in `SECURITY_MODEL.md`\n"
+            ."§4.1, so no new ruling is owed). `<table>.deleted` shipped with B-4a (roles slice 2 C1); a restore without\n"
+            ."its event re-opens G-9's asymmetry. Both restores mint together if both ship together;\n"
             ."`RequestContractTest::archiveTheRowARestoreBinds()` must know the order's collection; and §8.3a --\n"
             ."under `sales_order_archived_only_while_draft` a restore needs no draft guard (the CHECK is the guard).\n\n"
             ."Then clear this entry deliberately. Record: `docs/session12/output9-sales-5-design.md` §5.",

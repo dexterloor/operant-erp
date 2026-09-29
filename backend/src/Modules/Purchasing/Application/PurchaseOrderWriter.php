@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
+use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput;
 use App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput;
 use App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource;
@@ -174,6 +175,7 @@ final readonly class PurchaseOrderWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private WorkspaceSettings $settings,
+        private PurchaseOrderAuditWriter $audit,
     ) {
     }
 
@@ -504,10 +506,15 @@ final readonly class PurchaseOrderWriter
      * `DeletePurchaseOrder` — API-12: `purchase_order` is `SchemaManifest::SOFT`,
      * so this sets `deleted_at`, and `purchase_order_cascade_deletion` carries it
      * to the lines in the database. API-21 branch 3: **204, and no body**.
+     *
+     * **One `purchase_order.deleted` row, naming the deleter** — B-4a (roles slice 2, C1, 2026-09-29), minted with
+     * its sales twin as `RESIDUAL_GAPS.md` G-9's fallback required; G-9 is closed for both modules.
      */
     public function archive(string $id): void
     {
-        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
             PurchaseOrderRowLock::holdInside($em, $id);
             $current = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
@@ -519,6 +526,14 @@ final readonly class PurchaseOrderWriter
             $em->getConnection()->executeStatement(
                 'UPDATE purchase_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid',
                 [$id],
+            );
+
+            // In this transaction, `SalesOrderWriter::archive()`'s shape: the archive and its row commit together.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                purchaseOrderId: $id,
             );
         });
     }

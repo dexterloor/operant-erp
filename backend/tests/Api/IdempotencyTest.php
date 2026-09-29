@@ -367,6 +367,9 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_received FROM purchase_order_line WHERE id = ?::uuid', [$line]),
             'The replay applied the delivery a second time to the order line, which is the effect the row count alone '
             .'cannot see.');
+        // B-4a (roles slice 2, C1): the audit write sits on the INSERT branch, so the replay writes no second row.
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::GOODS_RECEIPT_CREATED),
+            'The replay wrote a second goods_receipt.created row: the audit write is on the replay branch too.');
     }
 
     /**
@@ -404,6 +407,9 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT quantity_fulfilled::text AS q FROM sales_order_line WHERE id = ?::uuid', [$line]), $why);
         self::assertSame([['q' => '8.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
+        // B-4a (roles slice 2, C1): the audit write sits on the INSERT branch, so the replay writes no second row.
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::FULFILMENT_CREATED),
+            'The replay wrote a second fulfilment.created row: the audit write is on the replay branch too.');
     }
 
     /**

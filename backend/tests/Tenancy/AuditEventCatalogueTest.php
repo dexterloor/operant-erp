@@ -132,6 +132,16 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // subject the invoice, actor the voider, metadata `{"reason"}`). The invoice's own state, not a principal's.
         'invoice.voided',
         'stock_movement.adjusted',
+        // Added 2026-09-29 with B-4a (roles slice 2, C1), by hand and as literals, ratifying `SEC`'s filing of all five
+        // (`docs/session13/roles-s2-sec.md` §3: business, subject the document, metadata `{}`, no IP), which preceded
+        // the code. Each is about its document's own business state -- a receipt recorded, an order confirmed, a
+        // shipment recorded, a draft discarded -- and about no principal's credentials, sessions or privileges; no
+        // subject is `app_user`, so (4c) does not reach them. The deletes are filed together (G-9's fallback).
+        'goods_receipt.created',
+        'sales_order.confirmed',
+        'fulfilment.created',
+        'sales_order.deleted',
+        'purchase_order.deleted',
     ];
 
     /**

@@ -140,46 +140,40 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **`RESIDUAL_GAPS.md` G-9 — nothing records who discarded a draft order — carried by a mechanism.**
+     * **`RESIDUAL_GAPS.md` G-9 CLOSED by B-4a (roles slice 2, C1, 2026-09-29): each delete writes exactly one row
+     * naming the deleter, and both modules got theirs together** (G-9's fallback — minting one alone would have been a
+     * new asymmetry). ⚠ This was `aDeletionWritesNoAuditRowBecauseB4aOwnsThatDeferral`, an absence pin whose message
+     * asked for exactly this change *"in the same commit"*. G-9's case — rep B deletes rep A's draft, then raises and
+     * confirms the same deal — is now answerable from the trail. `SEC` filed both business, subject the order, `{}`
+     * (`docs/session13/roles-s2-sec.md` §3).
      *
-     * The owner accepted it on 2026-09-21 (Q1 of sales step 4) as a **named B-4a carry**: `sales_order.deleted` and
-     * `purchase_order.deleted` (and the matching `*.restored` when those restores ship), minted together through
-     * `SEC`. The case it matters for is written into G-9: rep B deletes rep A's draft, then raises and confirms the same
-     * deal, and nothing records that B removed A's draft. Unreachable today — every tenant holds one user.
-     *
-     * **Two sibling drafts, and the order is load-bearing.** One fixture cannot carry both drives: once deleted, an
-     * order is refused by `CancelSalesOrder` (`is_archived`), and a cancelled order cannot be deleted (L-8, and
-     * `sales_order_archived_only_while_draft`). The count is tenant-wide, so the delete runs FIRST — otherwise the
-     * zero is never observed. `SalesOrder::cancel()` admits `draft`, so B is a valid subject for the control.
+     * **Positive and negative in one test, in both modules:** each row is read back cell by cell, and a repeat delete
+     * — refused as archived — leaves each count at one.
      */
     #[Test]
-    public function aDeletionWritesNoAuditRowBecauseB4aOwnsThatDeferral(): void
+    public function aDeletionWritesExactlyOneDeletedRowInBothModules(): void
     {
-        self::assertContains(AuditEvent::SALES_ORDER_CANCELLED, AuditEvent::ALL,
-            'Control: the sales cancellation event has left the catalogue, so the absences below prove nothing.');
-        foreach (['sales_order.deleted', 'purchase_order.deleted'] as $event) {
-            self::assertNotContains($event, AuditEvent::ALL, \sprintf(
-                "%s exists now. RESIDUAL_GAPS.md G-9 routed it as a named B-4a carry, to be minted TOGETHER with its\n"
-                ."twin through SEC (minting one alone creates a new unrecorded asymmetry). Write DeleteSalesOrder's and\n"
-                .'DeletePurchaseOrder\'s rows, close G-9, and change this test in the same commit.', $event));
-        }
+        $sales = $this->draftWithLines(1, 'SO-126000');
+        $purchase = $this->seedDraft(self::TENANT_A, 'PO-126000');
 
-        $a = $this->draftWithLines(1, 'SO-126000');
-        $b = $this->draftWithLines(1, 'SO-132000');
-
-        $this->send('DELETE', '/sales-orders/'.$a['order']);
+        $this->send('DELETE', '/sales-orders/'.$sales['order']);
         self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
-            'DeleteSalesOrder wrote a trail row for an event the catalogue does not declare. If the event was minted, '
-            .'see RESIDUAL_GAPS.md G-9 and B-4a: both deletes get their event together.');
+        $this->send('DELETE', '/purchase-orders/'.$purchase['order']);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
-        $this->send('POST', '/sales-orders/'.$b['order'].'/cancellation', ['reason' => 'Control']);
-        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame(
-            [['event_type' => AuditEvent::SALES_ORDER_CANCELLED, 'subject_id' => $b['order']]],
-            $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT event_type, subject_id::text AS subject_id FROM audit_log'),
-            'Control: a cancellation of the sibling draft did not write exactly one sales_order.cancelled row, so the '
-            .'zero above could be a trail that writes nothing at all.');
+        self::assertSame([$this->businessRow(AuditEvent::SALES_ORDER_DELETED, 'sales_order', $sales['order'])],
+            $this->auditRowsOf(AuditEvent::SALES_ORDER_DELETED),
+            'DeleteSalesOrder did not write exactly one sales_order.deleted row naming the deleter (G-9 / B-4a).');
+        self::assertSame([$this->businessRow(AuditEvent::PURCHASE_ORDER_DELETED, 'purchase_order', $purchase['order'])],
+            $this->auditRowsOf(AuditEvent::PURCHASE_ORDER_DELETED),
+            'DeletePurchaseOrder did not write exactly one purchase_order.deleted row naming the deleter (G-9 / B-4a).');
+
+        $this->send('DELETE', '/sales-orders/'.$sales['order']);
+        self::assertSame(409, $this->httpStatus(), 'Control: a repeat sales delete was not refused.');
+        $this->send('DELETE', '/purchase-orders/'.$purchase['order']);
+        self::assertSame(409, $this->httpStatus(), 'Control: a repeat purchase delete was not refused.');
+        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
+            'A refused repeat delete wrote a row.');
     }
 
     /**

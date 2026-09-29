@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Modules\UserManagement\Domain\DefaultRoles;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -356,11 +357,14 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
     }
 
     /**
-     * SoD-4 and B-4a: a fulfilment issues no invoice and writes no `audit_log` row — there is no `fulfilment.*`
-     * member in the catalogue, and `shipped_by` is its attribution.
+     * SoD-4 and B-4a: a fulfilment issues **no invoice** (that half is unchanged — `IssueInvoice` is a separate act
+     * under `invoice.issue`) and, since roles slice 2 C1 (2026-09-29), writes **exactly one `fulfilment.created` row**
+     * naming the shipper. ⚠ This was `aFulfilmentWritesNoInvoiceAndNoAuditRow`; only its audit half moved, and it
+     * moved deliberately (`SEC`: business, subject the fulfilment, `{}`, `docs/session13/roles-s2-sec.md` §3).
+     * `confirmedOrder()` confirms through the API, so the count is taken as a delta over this request.
      */
     #[Test]
-    public function aFulfilmentWritesNoInvoiceAndNoAuditRow(): void
+    public function aFulfilmentWritesNoInvoiceAndExactlyOneFulfilmentCreatedRow(): void
     {
         $f = $this->confirmedOrder('SO-177000', ['5']);
         $bin = $this->stockedBin($f['warehouse'], 'A-01', $f['items'][0], '9');
@@ -370,8 +374,38 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(201, $this->httpStatus());
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM invoice'));
-        self::assertSame($audit, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
-            'CreateFulfilment wrote an audit_log row, and the catalogue holds no fulfilment.* event (B-4a owns it).');
+        self::assertSame([$this->businessRow(AuditEvent::FULFILMENT_CREATED, 'fulfilment', $this->json()['id'])],
+            $this->auditRowsOf(AuditEvent::FULFILMENT_CREATED),
+            'CreateFulfilment did not write exactly one fulfilment.created row naming the shipper (B-4a).');
+        self::assertSame($audit + 1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
+            'CreateFulfilment wrote a row other than its one fulfilment.created.');
+    }
+
+    /**
+     * **SoD-4's evidence becomes two-sided** (B-4a, roles slice 2 C1). `SECURITY_MODEL.md` PC-11's fulfilment paragraph
+     * said *"the comparison becomes possible when B-4a's `sales_order.confirmed` ships"*: a sales rep confirms, a
+     * warehouse operator ships, and the trail now names both, as two rows on two subjects. **Evidence, not
+     * enforcement** — no shipper ≠ confirmer rule exists (ADR-008 declines it), and this test asserts none: it asserts
+     * only that a reader of the trail can make the comparison.
+     */
+    #[Test]
+    public function theTrailNamesTheConfirmerAndTheShipperSoSodFourCanBeCompared(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+        $confirmer = (string) $this->actorId;
+        $o = $this->raisedAndConfirmed('SOD4');
+        $bin = $this->stockedBin($o['warehouse'], 'A-01', $o['item'], '9');
+
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::WAREHOUSE_OPERATOR));
+        $shipper = (string) $this->actorId;
+        self::assertNotSame($confirmer, $shipper, 'Control: the two acts were not made by two principals.');
+        $this->fulfil($o['order'], [['sales_order_line_id' => $o['line'], 'quantity' => '5', 'storage_location_id' => $bin]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([$this->businessRow(AuditEvent::SALES_ORDER_CONFIRMED, 'sales_order', $o['order'], $confirmer)],
+            $this->auditRowsOf(AuditEvent::SALES_ORDER_CONFIRMED));
+        self::assertSame([$this->businessRow(AuditEvent::FULFILMENT_CREATED, 'fulfilment', $this->json()['id'], $shipper)],
+            $this->auditRowsOf(AuditEvent::FULFILMENT_CREATED));
     }
 
     /**

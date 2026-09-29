@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Application;
 
+use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\Sales\ApiResource\CreateSalesOrderInput;
 use App\Modules\Sales\ApiResource\CreateSalesOrderLineInput;
 use App\Modules\Sales\ApiResource\SalesOrderLineResource;
@@ -167,6 +168,7 @@ final readonly class SalesOrderWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private WorkspaceSettings $settings,
+        private SalesOrderAuditWriter $audit,
     ) {
     }
 
@@ -504,7 +506,8 @@ final readonly class SalesOrderWriter
      * anything outside it, so an event here is not possible without a migration; `UpdatePurchaseOrder`
      * and `UpdateItem` write none either. **The cost is real and is recorded rather than hidden:**
      * nobody can answer *"who last moved this draft's shipping address"* — `updated_at` records when,
-     * not who. It is carried in §15.1's cell for B-4a.
+     * not who. It is owner-accepted residual `RESIDUAL_GAPS.md` **G-19** (roles slice 2, Q-B, 2026-09-29), not a
+     * B-4a carry: the reconciled B-4a row never named it.
      *
      * §4.2's `Idem` cell reads `no` and stays `no`: a `PATCH` sets absolute values on a row that already
      * exists, so a replay converges on the same state and API-14 has no mechanism to name.
@@ -794,12 +797,15 @@ final readonly class SalesOrderWriter
      * collide only if both transactions STARTED in the same microsecond — negligible, and this removes even that.
      * Do not "normalise" it. `total_amount` is left as it was: the order's lines leave with it.
      *
-     * **No audit row** — `RESIDUAL_GAPS.md` G-9, a named B-4a carry, held by
-     * `SalesOrderDeleteTest::aDeletionWritesNoAuditRowBecauseB4aOwnsThatDeferral`.
+     * **One `sales_order.deleted` row, naming the deleter** — B-4a (roles slice 2, C1, 2026-09-29), which closed
+     * `RESIDUAL_GAPS.md` G-9 for both modules together. ⚠ Until then this said *"No audit row"*, held by an absence
+     * pin that is now `SalesOrderDeleteTest::aDeletionWritesExactlyOneSalesOrderDeletedRow`.
      */
     public function archive(string $id): void
     {
-        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
             SalesOrderRowLock::holdInside($em, $id);
             $order = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
@@ -811,6 +817,15 @@ final readonly class SalesOrderWriter
             $em->getConnection()->executeStatement(
                 'UPDATE sales_order SET deleted_at = clock_timestamp(), updated_at = now() WHERE id = ?::uuid',
                 [$id],
+            );
+
+            // In this transaction: the archive and the row naming who did it commit together or not at all. A repeat
+            // is refused by `refuseIfArchived()` above, so its rollback writes nothing.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                salesOrderId: $id,
             );
         });
     }

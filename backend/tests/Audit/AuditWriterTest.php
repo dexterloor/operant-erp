@@ -6,9 +6,12 @@ namespace App\Tests\Audit;
 
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
+use App\Modules\AuditLog\Infrastructure\FulfilmentAuditWriter;
+use App\Modules\AuditLog\Infrastructure\GoodsReceiptAuditWriter;
 use App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
+use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -160,6 +163,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Added 2026-09-28 with `IssueInvoice` (sales step 6, C3): `invoice.issued`, a `BUSINESS` event, so its
         // ip_address is null by construction (the method has no parameter for one). Listed AND driven below.
         'Modules/AuditLog/Infrastructure/InvoiceAuditWriter.php',
+        // Added 2026-09-29 with B-4a (roles slice 2, C1): `goods_receipt.created` and `fulfilment.created`, both
+        // `BUSINESS`, so no parameter could send an address. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/GoodsReceiptAuditWriter.php',
+        'Modules/AuditLog/Infrastructure/FulfilmentAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -320,6 +327,20 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             invoiceId: Uuid::v4()->toRfc4122(),
             reason: 'Probe',
         );
+
+        // B-4a (roles slice 2, C1, 2026-09-29): the five new business events, every method driven so none is a
+        // listed-only writer this test never checks.
+        $receiptWriter = self::getContainer()->get(GoodsReceiptAuditWriter::class);
+        \assert($receiptWriter instanceof GoodsReceiptAuditWriter);
+        $receiptWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', goodsReceiptId: Uuid::v4()->toRfc4122());
+        $fulfilmentWriter = self::getContainer()->get(FulfilmentAuditWriter::class);
+        \assert($fulfilmentWriter instanceof FulfilmentAuditWriter);
+        $fulfilmentWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', fulfilmentId: Uuid::v4()->toRfc4122());
+        $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
+        \assert($salesWriter instanceof SalesOrderAuditWriter);
+        $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());
+        $salesWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());
+        $this->purchaseOrderWriter()->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', purchaseOrderId: Uuid::v4()->toRfc4122());
 
         $withIp = [];
         $written = [];

@@ -102,43 +102,19 @@ namespace App\SharedKernel\ValueObject;
  * route-logging middleware cannot write a row, because no route event is on the
  * list and the database refuses the insert.
  *
- * **Named deferral: there is no `goods_receipt.*` event, and in a closed list
- * that is a decision rather than an omission.** `FLOWS.md` **F-3 — Receive a
- * delivery** is the flow; its step 5 writes `goods_receipt` + lines, a
- * `stock_movement` with `reason = 'receipt'` and a `stock_level` update, and
- * specifies **no `audit_log` row**. Step 6 says the durable record is "the order's status plus the History section (L-7)", and L-7 reads
- * `audit_log`. So posting a receipt currently leaves nothing on the trail —
- * `grep audit_log` over F-3 returns nothing. That is defensible: `IA.md` §4.2's
- * L-9 reversal register routes the compensating action for a bad receipt
- * through a stock adjustment (F-6a), which is
- * `STOCK_MOVEMENT_ADJUSTED` and is on the list — but it means Output 9 **cannot
- * write a receipt event without a migration**, because `event_type` is
- * `NOT NULL` under a `CHECK`. If Output 9 decides the receipt itself belongs on
- * the trail, that is the process below and not a code-only change.
- * Recorded here so the decision is refused loudly rather than discovered late.
+ * **The B-4a deferral is OVER — ⚠ this paragraph said *"there is no `goods_receipt.*` event"* and, one
+ * paragraph further, that `sales_order.confirmed` was deferred.** Both were true until 2026-09-29, when roles
+ * slice 2's C1 minted the five reconciled B-4a carries, each with its writer: `goods_receipt.created`,
+ * `sales_order.confirmed`, `fulfilment.created`, `sales_order.deleted` and `purchase_order.deleted` (all
+ * **business**, `metadata` `{}`, `SEC`'s filing in `docs/session13/roles-s2-sec.md` §3). Posting a receipt, confirming
+ * an order, shipping and discarding a draft now each leave one row naming the actor. **Re-derive `ALL` before quoting
+ * any sentence about what this catalogue does or does not carry** — that is how the deferral paragraph went stale once
+ * already, when `sales_order.cancelled` was minted the day after it was written.
  *
- * **The same deferral covers PART of the SELL side — and the part shrank the day after it was
- * written. ⚠ This paragraph said *"there is no `sales_order.*` event of any kind"* and that is NO
- * LONGER TRUE:** `SALES_ORDER_CANCELLED` was minted on 2026-09-19 with `CancelSalesOrder`, later the
- * same day, and is the first `sales_order.*` member this catalogue has held. **Re-derive `ALL` before
- * quoting any sentence about what the sell side does or does not carry** — that is how this very
- * sentence went stale.
- *
- * **What is still deferred, stated narrowly so it cannot be read as wider:** `sales_order.confirmed`.
- * `ConfirmSalesOrder` shipped on 2026-09-19 and writes no row — `FLOWS.md` F-5 step 3 is the flow, and
- * the confirmation is the moment a customer commitment is made, which makes it the strongest remaining
- * audit candidate on this side. V2-R-22's O-C routed it into `DELIVERY_LEDGER.md` **B-4a** rather than
- * opening a new `SEC` question, and B-4a names `sales_order.confirmed` alongside
- * `goods_receipt.created`, on the same triggers. ⚠ **The paragraph above and `API.md` §11 both spoke
- * only of `goods_receipt.*` and `fulfilment.*`, so for one commit the sell side's deferral was real and
- * named nowhere.** Until that event is minted, *"who confirmed this order and when"* is answerable from
- * `sales_order.ordered_at` and nothing else: `created_by_user_id` records the creator, not the confirmer
- * (SEC-O-9). `CreateFulfilment` and `IssueInvoice` inherit the same state when they are built.
- *
- * **`CancelSalesOrder` did NOT inherit it, and the reason is a rule rather than a preference** —
- * ADR-008 §2 makes `audit_log` the *named compensating control* for the duty split it declines on sales
- * cancellation, the owner's OI-2 named the event, and `SEC` had already filed it. See
- * `SALES_ORDER_CANCELLED`'s own docblock, where the asymmetry with `confirmed` is argued in full.
+ * **Still NOT on the trail, stated narrowly so it cannot be read as wider:** edits to a draft (`Update*` and the
+ * draft-line operations, sales and purchasing, and `UpdateItem`) record no actor — `updated_at` records when, not who.
+ * That is owner-accepted residual **`RESIDUAL_GAPS.md` G-19** (roles slice 2, Q-B, 2026-09-29), whose closing work is
+ * one event design covering both modules. And `*.restored` is filed but unminted until a restore ships (G-8).
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -184,7 +160,9 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Three extensions so far. *(This line read "Two" until
+ * rather than only read.** Four entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
+ * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
  *
  *   - **`AUTH_PASSWORD_CHANGED`**, 2026-09-09, under entry condition **E4-1** —
@@ -239,6 +217,13 @@ namespace App\SharedKernel\ValueObject;
  *     `everyCatalogueValueIsAcceptedByTheDatabase`, which is the migration's
  *     independence from `ALL` showing itself in the only direction that can prove
  *     it.
+ *
+ *   - **The five B-4a carries** (`GOODS_RECEIPT_CREATED`, `SALES_ORDER_CONFIRMED`, `FULFILMENT_CREATED`,
+ *     `SALES_ORDER_DELETED`, `PURCHASE_ORDER_DELETED`), 2026-09-29, roles slice 2 C1 — `SEC` filed all five
+ *     **`BUSINESS`**, `{}`, before the code (`roles-s2-sec.md` §3); `BE-LEAD` did steps 3–5, **each with its writer
+ *     in the same commit**. Step 5 is `Version20260929000200`, whose literal list is the live constraint's sixteen
+ *     members (read off `pg_constraint`, not generated) plus these five. **Step 6 does not apply.**
+ *     `PINNED_ALLOWLIST` was edited deliberately with five literals.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -585,6 +570,57 @@ final class AuditEvent
      */
     public const INVOICE_VOIDED = 'invoice.voided';
 
+    // ---------------------------------------------------------------------
+    // B-4a (roles slice 2, C1, 2026-09-29): the five carries `DELIVERY_LEDGER.md` B-4a reconciled on 2026-09-22,
+    // each minted WITH its writer in shipped code. Filed by `SEC` before the code (`docs/session13/roles-s2-sec.md`
+    // §3): all five **business**, `metadata` `{}`, no IP, `occurred_at = now()` (the business-writer precedent;
+    // the `clock_timestamp()` rule is for role events). **Step 6 does not apply to any of them.**
+    // ---------------------------------------------------------------------
+
+    /**
+     * **A delivery recorded** — `CreateGoodsReceipt` (F-3 step 5). Filed business by `SEC` long before the code
+     * (`SECURITY_MODEL.md` §4.1: *"business, under B-4a. Subject the receipt."*), confirmed in `roles-s2-sec.md` §3.
+     * Actor the receiver (= `goods_receipt.received_by_user_id`, API-O-33). Written by
+     * `GoodsReceiptAuditWriter::recordCreated()` on the **insert** branch only: a key replay hands back the existing
+     * receipt and writes no second row.
+     */
+    public const GOODS_RECEIPT_CREATED = 'goods_receipt.created';
+
+    /**
+     * **A sales order confirmed** — `ConfirmSalesOrder` (F-5 step 3), the customer commitment. Deferred to B-4a by
+     * V2-R-22's O-C on 2026-09-19 and minted here. The twin of `sales_order.cancelled` and `purchase_order.placed`: the
+     * order's own state transition, so business under PC-11 (4a). Actor the confirmer — which
+     * `sales_order.created_by_user_id` never was (SEC-O-9). Written by `SalesOrderAuditWriter::recordConfirmed()` in
+     * the confirming transaction.
+     */
+    public const SALES_ORDER_CONFIRMED = 'sales_order.confirmed';
+
+    /**
+     * **A shipment recorded** — `CreateFulfilment` (F-5 step 5). Business: the shipment document's creation, and
+     * `shipped_by` is already exposed under `fulfilment.view` (PC-11 (4a), owner ruling R6). With
+     * `sales_order.confirmed` it makes SoD-4's comparison (*shipper ≠ confirmer*) answerable from the trail —
+     * **evidence, not enforcement**. Written by `FulfilmentAuditWriter::recordCreated()` on the **insert** branch only.
+     */
+    public const FULFILMENT_CREATED = 'fulfilment.created';
+
+    /**
+     * **A draft sales order discarded** — `DeleteSalesOrder` (an archive: `deleted_at` set). `RESIDUAL_GAPS.md` G-9's
+     * event, minted **together with its purchase twin** as G-9's fallback requires. Business: archiving a draft is a
+     * lifecycle state of the order, exactly where cancellation sits (`roles-s2-sec.md` §3.2). No reason field, so
+     * `{}`. Written by `SalesOrderAuditWriter::recordDeleted()` in the archiving transaction.
+     */
+    public const SALES_ORDER_DELETED = 'sales_order.deleted';
+
+    /**
+     * **A draft purchase order discarded** — `DeletePurchaseOrder`. `SALES_ORDER_DELETED`'s twin, on its ground.
+     * Written by `PurchaseOrderAuditWriter::recordDeleted()` in the archiving transaction.
+     *
+     * The matching `*.restored` events are **filed** (`SEC`: business, subject the order, `{}`) but not minted: no
+     * restore is built (G-8, E9-3). `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt`
+     * carries the obligation and goes red when either restore enters the spec.
+     */
+    public const PURCHASE_ORDER_DELETED = 'purchase_order.deleted';
+
     /**
      * Every legal value of `audit_log.event_type`.
      *
@@ -618,6 +654,11 @@ final class AuditEvent
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
+        self::GOODS_RECEIPT_CREATED,
+        self::SALES_ORDER_CONFIRMED,
+        self::FULFILMENT_CREATED,
+        self::SALES_ORDER_DELETED,
+        self::PURCHASE_ORDER_DELETED,
     ];
 
     /**
@@ -675,6 +716,11 @@ final class AuditEvent
         self::INVOICE_PAYMENT_REVERSED,
         self::INVOICE_VOIDED,
         self::STOCK_MOVEMENT_ADJUSTED,
+        self::GOODS_RECEIPT_CREATED,
+        self::SALES_ORDER_CONFIRMED,
+        self::FULFILMENT_CREATED,
+        self::SALES_ORDER_DELETED,
+        self::PURCHASE_ORDER_DELETED,
     ];
 
     // ---------------------------------------------------------------------
@@ -727,6 +773,11 @@ final class AuditEvent
         self::INVOICE_PAYMENT_REVERSED => 'invoice',
         self::INVOICE_VOIDED => 'invoice',
         self::STOCK_MOVEMENT_ADJUSTED => 'stock_movement',
+        self::GOODS_RECEIPT_CREATED => 'goods_receipt',
+        self::SALES_ORDER_CONFIRMED => 'sales_order',
+        self::FULFILMENT_CREATED => 'fulfilment',
+        self::SALES_ORDER_DELETED => 'sales_order',
+        self::PURCHASE_ORDER_DELETED => 'purchase_order',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
     ];

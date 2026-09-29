@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-29 with B-4a in the tree (roles slice 2, C1): the three commands return **110 / 72 / 15** --
+  # FIVE edge lines added, all A-5, each a writer calling its audit writer synchronously: `GoodsReceiptWriter ->
+  # GoodsReceiptAuditWriter`, `FulfilmentWriter -> FulfilmentAuditWriter`, `SalesOrderConfirmation ->
+  # SalesOrderAuditWriter`, `SalesOrderWriter -> SalesOrderAuditWriter`, `PurchaseOrderWriter -> PurchaseOrderAuditWriter`.
+  # `make deptrac` reports **0 violations / 299 skipped / 1634 allowed** (+5 skipped: one occurrence per pair).)
   # (Re-derived 2026-09-29 with `VoidInvoice` in the tree (sales step 6, C7): the three commands return
   # **105 / 72 / 10** -- TWO edge lines added: `InvoiceVoiding -> InvoiceAuditWriter` (A-5) and
   # `InvoiceVoiding -> Entity\Invoice` (A-7), `InvoicePaymentReversal`'s shape.)
@@ -282,6 +287,9 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
     App\Modules\Inventory\Infrastructure\Entity\StockMovement:
       - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
+    App\Modules\Purchasing\Application\GoodsReceiptWriter:
+      # B-4a (roles slice 2 C1, 2026-09-29): the synchronous `goods_receipt.created` row -- `SalesOrderCancellation`'s A-5 shape.
+      - App\Modules\AuditLog\Infrastructure\GoodsReceiptAuditWriter   # A-5
     App\Modules\Purchasing\Application\PurchaseOrderApproval:
       - App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter   # A-5
       - App\Modules\Purchasing\ApiResource\ApprovePurchaseOrderInput   # A-7
@@ -306,6 +314,8 @@ deptrac:
     App\Modules\Purchasing\Application\PurchaseOrderViews:
       - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
     App\Modules\Purchasing\Application\PurchaseOrderWriter:
+      # B-4a (roles slice 2 C1, 2026-09-29): the synchronous `purchase_order.deleted` row -- `SalesOrderCancellation`'s A-5 shape.
+      - App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter   # A-5
       - App\Modules\Purchasing\ApiResource\CreatePurchaseOrderInput   # A-7
       - App\Modules\Purchasing\ApiResource\CreatePurchaseOrderLineInput   # A-7
       - App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource   # A-7
@@ -324,6 +334,9 @@ deptrac:
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
     App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrderLine:
       - App\Modules\Inventory\Infrastructure\Entity\InventoryItem   # A-12
+    App\Modules\Sales\Application\FulfilmentWriter:
+      # B-4a (roles slice 2 C1, 2026-09-29): the synchronous `fulfilment.created` row -- `SalesOrderCancellation`'s A-5 shape.
+      - App\Modules\AuditLog\Infrastructure\FulfilmentAuditWriter   # A-5
     App\Modules\Sales\Application\InvoiceIssuer:
       # `IssueInvoice` (sales step 6 C3, 2026-09-28): the synchronous `invoice.issued` row
       # (`SalesOrderCancellation`'s A-5 shape exactly -- messenger is not installed), and
@@ -366,6 +379,8 @@ deptrac:
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderConfirmation:
+      # B-4a (roles slice 2 C1, 2026-09-29): the synchronous `sales_order.confirmed` row -- `SalesOrderCancellation`'s A-5 shape.
+      - App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter   # A-5
       - App\Modules\Sales\ApiResource\SalesOrderResource   # A-7
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderLineRow:
@@ -384,6 +399,8 @@ deptrac:
     App\Modules\Sales\Application\SalesOrderViews:
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\SalesOrderWriter:
+      # B-4a (roles slice 2 C1, 2026-09-29): the synchronous `sales_order.deleted` row -- `SalesOrderCancellation`'s A-5 shape.
+      - App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter   # A-5
       - App\Modules\Sales\ApiResource\CreateSalesOrderInput   # A-7
       # `CreateSalesOrderLine` added two on 2026-09-21, and neither is a new SHAPE: an `ApiResource`
       # input DTO accepted by an `Application` writer, and an `ApiResource` read model returned from

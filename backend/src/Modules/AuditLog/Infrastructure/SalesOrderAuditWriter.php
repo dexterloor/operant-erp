@@ -13,11 +13,15 @@ use Symfony\Component\Uid\Uuid;
  * **The first writer of a `sales_order.*` audit row this project has ever had**
  * — `CancelSalesOrder`, 2026-09-19.
  *
+ * **Since 2026-09-29 (roles slice 2, C1 — B-4a) it also writes `sales_order.confirmed`
+ * and `sales_order.deleted`**, so the asymmetry the next section records is history:
+ * it explains why the cancellation shipped first, not a present difference.
+ *
  * ===========================================================================
- * Why this row is written when `ConfirmSalesOrder`'s is not
+ * Why this row was written when `ConfirmSalesOrder`'s was not (until B-4a)
  * ===========================================================================
- * `ConfirmSalesOrder` shipped earlier the same day and writes nothing, deferred
- * to `DELIVERY_LEDGER.md` **B-4a**. The asymmetry is a rule, not a preference,
+ * `ConfirmSalesOrder` shipped earlier the same day and wrote nothing, deferred
+ * to `DELIVERY_LEDGER.md` **B-4a**. The asymmetry was a rule, not a preference,
  * and it is `ADR-008` §2's: declining the sales duty split — `sales_rep` holds
  * both `sales_order.confirm` and `sales_order.cancel`, where the buying side
  * splits the equivalent pair — it names the compensation in the same sentence.
@@ -163,6 +167,60 @@ final readonly class SalesOrderAuditWriter
                     $salesOrderId,
                     $reason,
                     $reason,
+                ]);
+        });
+    }
+
+    /**
+     * `sales_order.confirmed` — B-4a (roles slice 2, C1, 2026-09-29), written by `SalesOrderConfirmation` in the
+     * confirming transaction. `$actorUserId` is the confirmer, whom no column records (SEC-O-9).
+     * Business, `metadata` `{}`, no IP (`SEC`, `docs/session13/roles-s2-sec.md` §3) — no parameter could send either.
+     */
+    public function recordConfirmed(string $tenantId, string $actorUserId, string $actorLabel, string $salesOrderId): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $salesOrderId): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, '{}'::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::SALES_ORDER_CONFIRMED,
+                    $actorUserId,
+                    $actorLabel,
+                    // Read off the catalogue: `audit_log_subject_pair` requires the pair to arrive together.
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::SALES_ORDER_CONFIRMED],
+                    $salesOrderId,
+                ]);
+        });
+    }
+
+    /**
+     * `sales_order.deleted` — B-4a / `RESIDUAL_GAPS.md` G-9 (roles slice 2, C1, 2026-09-29), written by
+     * `SalesOrderWriter::archive()` (`DeleteSalesOrder`) in the archiving transaction, with its purchase twin.
+     * Business, `metadata` `{}`, no IP (`SEC`, `docs/session13/roles-s2-sec.md` §3) — no parameter could send either.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $salesOrderId): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $salesOrderId): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, '{}'::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::SALES_ORDER_DELETED,
+                    $actorUserId,
+                    $actorLabel,
+                    // Read off the catalogue: `audit_log_subject_pair` requires the pair to arrive together.
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::SALES_ORDER_DELETED],
+                    $salesOrderId,
                 ]);
         });
     }

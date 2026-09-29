@@ -71,7 +71,7 @@ use Symfony\Component\Uid\Uuid;
  * ADR-008 finishes that paragraph by naming the compensation: the weaker control
  * is accepted *"and the compensating control is `audit_log`, not a second pair of
  * hands."* So this operation writes `sales_order.cancelled` **in this commit**,
- * where `ConfirmSalesOrder` deferred its event to B-4a. The owner's OI-2 named the
+ * where `ConfirmSalesOrder` deferred its event to B-4a (minted 2026-09-29). The owner's OI-2 named the
  * event, `SEC` had already filed it `BUSINESS` under PC-11 (4a), and §4.2 accepts a
  * `reason` that has no other destination — `sales_order` has no free-text column.
  * `SalesOrderAuditWriter`'s docblock carries the full asymmetry.

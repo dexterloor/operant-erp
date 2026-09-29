@@ -163,7 +163,11 @@ final class WriteOwnershipTest extends KernelTestCase
         // **8 -> 9 on 2026-09-29** (sales step 6, C7): `InvoiceAuditWriter::recordVoided()`'s `INSERT INTO audit_log` for
         // `invoice.voided`, metadata `jsonb_build_object('reason', ?)`. `Modules\\Sales` did NOT move: `VoidInvoice`
         // writes through an ORM flush, and `InvoiceRowLock` is a `FOR NO KEY UPDATE` this scan excludes.
-        'Modules\\AuditLog' => 9,
+        // **9 -> 14 on 2026-09-29** (roles slice 2, C1 -- B-4a): five `INSERT INTO audit_log` literals, one per new
+        // method (`GoodsReceiptAuditWriter::recordCreated`, `FulfilmentAuditWriter::recordCreated`,
+        // `SalesOrderAuditWriter::recordConfirmed`/`recordDeleted`, `PurchaseOrderAuditWriter::recordDeleted`), each
+        // `metadata` '{}'. Predicted by the design and confirmed off this test's run.
+        'Modules\\AuditLog' => 14,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

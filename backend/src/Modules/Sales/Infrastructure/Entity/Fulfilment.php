@@ -67,8 +67,8 @@ class Fulfilment
     /**
      * Who declared the goods shipped — the authenticated caller at write time. **NOT NULL**, unlike
      * `GoodsReceipt::$receivedBy`: owner ruling R6 of 2026-09-22 (V2-R-23). A fulfilment is the event
-     * SoD-4 exists to attribute and no `fulfilment.*` audit event exists (B-4a), so this is the only
-     * attribution. Evidence for SoD-4, not enforcement.
+     * SoD-4 exists to attribute. Since B-4a (2026-09-29) `fulfilment.created` names the shipper on the trail as
+     * well; this column is still the one a read shows. Evidence for SoD-4, not enforcement.
      */
     #[ORM\ManyToOne(targetEntity: AppUser::class)]
     #[ORM\JoinColumn(name: 'shipped_by_user_id', referencedColumnName: 'id', nullable: false)]

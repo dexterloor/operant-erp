@@ -242,55 +242,34 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **There is no `sales_order.confirmed` audit event, and this is where that absence is visible.**
-     * The mirror purchase operation writes `purchase_order.placed`. `API.md` §11's **B-4a** owns the
-     * deferral with its own *fails if* and `[test]` — V2-R-22's O-C routed this operation into B-4a
-     * rather than minting a new `SEC` question. **Asserted rather than left implicit** so that whoever
-     * ships B-4a finds a test that says what today's answer is, and has to change it deliberately.
+     * **B-4a (roles slice 2, C1, 2026-09-29): a confirmation writes exactly one `sales_order.confirmed` row, naming
+     * the confirmer.** ⚠ This was `aConfirmationWritesNoAuditRowBecauseB4aOwnsThatDeferral` — an absence pin whose own
+     * message said *"give this operation its event, write its row, and change this test in the same commit"*. This is
+     * that change, made deliberately: `SEC` filed the event business, subject the order, `{}`, no IP
+     * (`docs/session13/roles-s2-sec.md` §3).
      *
-     * =======================================================================
-     * ⚠ THIS TEST'S CONTROL FIRED ONE COMMIT LATER, EXACTLY AS DESIGNED
-     * =======================================================================
-     * It was written asserting that **no `sales_order.*` member existed at all**, with the message *"give
-     * this operation its event and change this test in the same commit"*. `CancelSalesOrder`, later the
-     * same day, minted `SALES_ORDER_CANCELLED` and turned this red. **That is the control working**, and
-     * the answer it forced was examined rather than suppressed:
-     *
-     *   - **`sales_order.confirmed` is still deferred to B-4a.** The owner's OI-2 named four events and
-     *     `confirmed` is not among them; `SEC` has classified `sales_order.cancelled` under PC-11 (4a) and
-     *     has classified no confirm event. Minting one here would be a `BE-LEAD` decision on a `SEC` step.
-     *   - **`sales_order.cancelled` was NOT deferred**, because `ADR-008` §2 names `audit_log` as the
-     *     compensating control for the sales duty split it declines on cancellation, and says nothing of
-     *     the kind about confirming — which *"moves nothing out"* on its own reasoning.
-     *
-     * So the pin is **narrowed to the one event this operation owes**, not deleted. The class-wide version
-     * had served its purpose and could not survive any sales event; a narrowed pin still goes red the day
-     * `sales_order.confirmed` is minted, which is the day this test has to change.
-     *
-     * **Two positive controls, and the second is new because the first is now weaker.** The purchase
-     * analogue must still be in the catalogue (a list gone empty proves nothing), **and
-     * `SALES_ORDER_CANCELLED` must be in it too** — which proves that a `sales_order.*` event *can* be
-     * catalogued and that the absence below is about `confirmed` specifically rather than about the whole
-     * prefix being unreachable.
+     * **Positive and negative in one test:** the row is read back cell by cell, then a repeat confirmation — refused by
+     * the status guard — must leave the count at one, so a writer placed before the guard (or outside the transaction)
+     * is red here. Its original control is kept: `purchase_order.placed` must still be catalogued.
      */
     #[Test]
-    public function aConfirmationWritesNoAuditRowBecauseB4aOwnsThatDeferral(): void
+    public function aConfirmationWritesExactlyOneSalesOrderConfirmedRow(): void
     {
         self::assertContains(AuditEvent::PURCHASE_ORDER_PLACED, AuditEvent::ALL,
-            'The purchase analogue has left the catalogue, so the absence asserted below proves nothing.');
-        self::assertContains(AuditEvent::SALES_ORDER_CANCELLED, AuditEvent::ALL,
-            'The sales cancellation event has left the catalogue, so this test can no longer distinguish '
-            .'"confirmed is deferred" from "no sales_order.* event is reachable at all".');
-        self::assertNotContains('sales_order.confirmed', AuditEvent::ALL,
-            'sales_order.confirmed exists now. B-4a owned that deferral — give this operation its event, write '
-            .'its row, and change this test in the same commit.');
+            'Control: the purchase analogue has left the catalogue.');
 
         $order = $this->raiseWithALine();
         $this->send('POST', '/sales-orders/'.$order.'/confirmation');
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
-        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
-            'The confirmation wrote a trail row for an event the catalogue does not declare.');
+        self::assertSame([$this->businessRow(AuditEvent::SALES_ORDER_CONFIRMED, 'sales_order', $order)],
+            $this->auditRowsOf(AuditEvent::SALES_ORDER_CONFIRMED),
+            'The confirmation did not write exactly one sales_order.confirmed row naming the confirmer (B-4a).');
+
+        $this->send('POST', '/sales-orders/'.$order.'/confirmation');
+        self::assertSame(409, $this->httpStatus(), 'Control: a repeat confirmation was not refused.');
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::SALES_ORDER_CONFIRMED),
+            'A refused repeat confirmation wrote a second sales_order.confirmed row.');
     }
 
     /** @return array{customer: string, address: string, warehouse: string, item: string} */

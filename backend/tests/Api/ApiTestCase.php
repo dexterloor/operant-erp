@@ -122,6 +122,43 @@ abstract class ApiTestCase extends TenancyTestCase
         $this->identities()->clear();
     }
 
+    /**
+     * **Every `audit_log` row of one event type in a tenant, cell by cell** — the read-back `SEC` requires of a
+     * business writer (`docs/session13/roles-s2-sec.md` §3, `output9-sales-7-sec.md` §5.1): the exact `metadata` object,
+     * no IP, no permission code. Added with B-4a (roles slice 2, C1) because five operations now owe the same read.
+     *
+     * @return list<array{event_type: string, actor_user_id: ?string, actor_label: string, subject_type: ?string, subject_id: ?string, ip_address: ?string, permission_code: ?string, metadata: string}>
+     */
+    protected function auditRowsOf(string $eventType, string $tenantId = self::TENANT_A): array
+    {
+        /** @var list<array{event_type: string, actor_user_id: ?string, actor_label: string, subject_type: ?string, subject_id: ?string, ip_address: ?string, permission_code: ?string, metadata: string}> */
+        return $this->fetchAsOwnerForTenant($tenantId, <<<'SQL'
+            SELECT event_type, actor_user_id::text AS actor_user_id, actor_label, subject_type,
+                   subject_id::text AS subject_id, ip_address::text AS ip_address, permission_code, metadata::text AS metadata
+              FROM audit_log WHERE event_type = ? ORDER BY occurred_at, id
+            SQL, [$eventType]);
+    }
+
+    /**
+     * The one row a B-4a business event must be: this actor, the fixture label, the subject pair, no IP, no
+     * permission code, `metadata` exactly `{}`.
+     *
+     * @return array{event_type: string, actor_user_id: ?string, actor_label: string, subject_type: string, subject_id: string, ip_address: null, permission_code: null, metadata: string}
+     */
+    protected function businessRow(string $eventType, string $subjectType, string $subjectId, ?string $actorUserId = null): array
+    {
+        return [
+            'event_type' => $eventType,
+            'actor_user_id' => $actorUserId ?? $this->actorId,
+            'actor_label' => 'Fixture Actor',
+            'subject_type' => $subjectType,
+            'subject_id' => $subjectId,
+            'ip_address' => null,
+            'permission_code' => null,
+            'metadata' => '{}',
+        ];
+    }
+
     protected function recorder(): SqlRecorder
     {
         $recorder = self::getContainer()->get(SqlRecorder::class);

@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -150,6 +151,30 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'], $keys);
         self::assertSame(['id' => $this->actorId, 'display_name' => 'Rita Receiver'], $read['received_by']);
         self::assertSame([], ItemReadTest::tenantKeysIn($read));
+    }
+
+    /**
+     * **B-4a (roles slice 2, C1, 2026-09-29): a receipt writes exactly one `goods_receipt.created` row, naming the
+     * receiver** — `SEC`'s filing of long standing (`SECURITY_MODEL.md` §4.1, confirmed in
+     * `docs/session13/roles-s2-sec.md` §3): business, subject the receipt, `{}`, no IP. Before this commit posting a
+     * receipt left nothing on the trail. **Negative in the same test:** an over-receipt, refused before any write, adds
+     * no row. The replay half (no second row on a key retry) is `IdempotencyTest::replayCreateGoodsReceipt`.
+     */
+    #[Test]
+    public function aReceiptWritesExactlyOneGoodsReceiptCreatedRowAndARefusedOneWritesNone(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '11', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(409, $this->httpStatus(), 'Control: the over-receipt was not refused.');
+        self::assertSame([], $this->auditRowsOf(AuditEvent::GOODS_RECEIPT_CREATED), 'A refused receipt wrote a trail row.');
+
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '3', 'storage_location_id' => $po['bin']]]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([$this->businessRow(AuditEvent::GOODS_RECEIPT_CREATED, 'goods_receipt', $this->json()['id'])],
+            $this->auditRowsOf(AuditEvent::GOODS_RECEIPT_CREATED),
+            'CreateGoodsReceipt did not write exactly one goods_receipt.created row naming the receiver (B-4a).');
     }
 
     /**

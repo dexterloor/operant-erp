@@ -186,4 +186,31 @@ final readonly class PurchaseOrderAuditWriter
                 ]);
         });
     }
+
+    /**
+     * `purchase_order.deleted` — B-4a / `RESIDUAL_GAPS.md` G-9 (roles slice 2, C1, 2026-09-29), written by
+     * `PurchaseOrderWriter::archive()` (`DeletePurchaseOrder`) in the archiving transaction, with its sales twin.
+     * Business, `metadata` `{}`, no IP (`SEC`, `docs/session13/roles-s2-sec.md` §3) — no parameter could send either.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $purchaseOrderId): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $purchaseOrderId): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, '{}'::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::PURCHASE_ORDER_DELETED,
+                    $actorUserId,
+                    $actorLabel,
+                    // Read off the catalogue: `audit_log_subject_pair` requires the pair to arrive together.
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::PURCHASE_ORDER_DELETED],
+                    $purchaseOrderId,
+                ]);
+        });
+    }
 }

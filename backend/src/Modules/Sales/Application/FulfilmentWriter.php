@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Application;
 
+use App\Modules\AuditLog\Infrastructure\FulfilmentAuditWriter;
 use App\Modules\Inventory\Application\Contract\DepleteStock;
 use App\Modules\Inventory\Application\Contract\StockDepletion;
 use App\Modules\Inventory\Application\Contract\StockDepletionLine;
@@ -57,6 +58,8 @@ use Symfony\Component\Uid\Uuid;
  *     ascending, each a conditional decrement. Its refusals are translated here.
  *  9. `flush()` — the order's status. Safe after the stock write: it rewrites the
  *     row this transaction locked in step 1.
+ * 10. `fulfilment.created` (B-4a, 2026-09-29) — one row naming the shipper, in this
+ *     transaction, on the insert branch only (a replay returned at step 3).
  *
  * Anything that fails rolls back all of it (W-2).
  *
@@ -65,9 +68,10 @@ use Symfony\Component\Uid\Uuid;
  * ---------------------------------------------------------------------------
  *  - **No invoice** (SoD-4, D-A): `IssueInvoice` is a separate operation under
  *    `invoice.issue`, and issuing one here would collapse the separation.
- *  - **No `audit_log` row** — there is no `fulfilment.*` member in the catalogue
- *    (B-4a owns it). `shipped_by` is the attribution (owner ruling R6), and it is
- *    evidence for SoD-4, not enforcement; no shipper ≠ confirmer rule exists.
+ *  - **No shipper ≠ confirmer rule.** Since B-4a (2026-09-29) the trail holds both
+ *    `sales_order.confirmed` and `fulfilment.created`, so SoD-4's comparison is
+ *    answerable — evidence, not enforcement. ⚠ This bullet read *"No `audit_log`
+ *    row"* until then; `shipped_by` (owner ruling R6) is still the column.
  *  - **No reservation and no priority** (owner ruling R1, model A renewed):
  *    overselling is reachable, and it is refused HERE, at the pick, in domain
  *    terms — never as negative stock and never as a 500. Whoever picks first wins.
@@ -116,6 +120,7 @@ final readonly class FulfilmentWriter
         private DepleteStock $stock,
         private FulfilmentReader $reader,
         private SalesOrderFulfilmentStatus $orders,
+        private FulfilmentAuditWriter $audit,
     ) {
     }
 
@@ -139,14 +144,15 @@ final readonly class FulfilmentWriter
             'lines' => self::digestedLines($lines),
         ]);
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
-        $shippedBy = $this->identities->authenticated()->userId;
+        $identity = $this->identities->authenticated();
+        $shippedBy = $identity->userId;
         $id = Uuid::v4()->toRfc4122();
 
         try {
             return $this->tenants->run(
                 $this->tenant->tenantId(),
                 fn (EntityManagerInterface $em): FulfilmentView => $this->createInside(
-                    $em, $id, $orderId, $lines, $shippedAt, $shippedBy, $keyHash, $digest,
+                    $em, $id, $orderId, $lines, $shippedAt, $shippedBy, $identity->actorLabel, $keyHash, $digest,
                 ),
             );
         } catch (UniqueConstraintViolationException $e) {
@@ -180,6 +186,7 @@ final readonly class FulfilmentWriter
         array $lines,
         \DateTimeImmutable $shippedAt,
         string $shippedBy,
+        string $shippedByLabel,
         string $keyHash,
         string $digest,
     ): FulfilmentView {
@@ -312,6 +319,15 @@ final readonly class FulfilmentWriter
 
         // 9.
         $em->flush();
+
+        // 10. B-4a (roles slice 2, C1): the row naming the shipper, on the INSERT branch only — step 3's replay
+        // returned above, so a retry of this request writes no second row.
+        $this->audit->recordCreated(
+            tenantId: $this->tenant->tenantId(),
+            actorUserId: $shippedBy,
+            actorLabel: $shippedByLabel,
+            fulfilmentId: $id,
+        );
 
         return $this->reader->readInside($em, $id)
             ?? throw new \LogicException('The fulfilment just inserted is not visible to its own transaction.');

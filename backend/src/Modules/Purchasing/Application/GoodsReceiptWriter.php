@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Application;
 
+use App\Modules\AuditLog\Infrastructure\GoodsReceiptAuditWriter;
 use App\Modules\Inventory\Application\Contract\ReceiveStock;
 use App\Modules\Inventory\Application\Contract\StockReceipt;
 use App\Modules\Inventory\Application\Contract\StockReceiptLine;
@@ -52,6 +53,8 @@ use Symfony\Component\Uid\Uuid;
  *  7. `ReceiveStock::receive()` — `stock_movement`, then `stock_level` last.
  *  8. `flush()` — the order's new status. Safe after the stock write: it
  *     rewrites the order row this transaction locked in step 1.
+ *  9. `goods_receipt.created` (B-4a, 2026-09-29) — one row naming the receiver,
+ *     in this transaction, on the insert branch only (a replay returned at 3).
  *
  * Anything that fails rolls back all of it (W-2): `receive()` joins this
  * transaction and opens none.
@@ -135,6 +138,7 @@ final readonly class GoodsReceiptWriter
         private ReceiveStock $stock,
         private GoodsReceiptReader $reader,
         private PurchaseOrderReceiptStatus $orders,
+        private GoodsReceiptAuditWriter $audit,
     ) {
     }
 
@@ -157,14 +161,15 @@ final readonly class GoodsReceiptWriter
             'lines' => self::digestedLines($lines),
         ]);
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
-        $receivedBy = $this->identities->authenticated()->userId;
+        $identity = $this->identities->authenticated();
+        $receivedBy = $identity->userId;
         $id = Uuid::v4()->toRfc4122();
 
         try {
             return $this->tenants->run(
                 $this->tenant->tenantId(),
                 fn (EntityManagerInterface $em): GoodsReceiptView => $this->createInside(
-                    $em, $id, $orderId, $lines, $receivedAt, $receivedBy, $keyHash, $digest,
+                    $em, $id, $orderId, $lines, $receivedAt, $receivedBy, $identity->actorLabel, $keyHash, $digest,
                 ),
             );
         } catch (UniqueConstraintViolationException $e) {
@@ -215,6 +220,7 @@ final readonly class GoodsReceiptWriter
         array $lines,
         \DateTimeImmutable $receivedAt,
         string $receivedBy,
+        string $receivedByLabel,
         string $keyHash,
         string $digest,
     ): GoodsReceiptView {
@@ -364,6 +370,15 @@ final readonly class GoodsReceiptWriter
 
         // 8.
         $em->flush();
+
+        // 9. B-4a (roles slice 2, C1): the row naming the receiver, on the INSERT branch only — step 3's replay
+        // returned above, so a retry of this request writes no second row.
+        $this->audit->recordCreated(
+            tenantId: $this->tenant->tenantId(),
+            actorUserId: $receivedBy,
+            actorLabel: $receivedByLabel,
+            goodsReceiptId: $id,
+        );
 
         return $this->reader->readInside($em, $id)
             ?? throw new \LogicException('The receipt just inserted is not visible to its own transaction.');
