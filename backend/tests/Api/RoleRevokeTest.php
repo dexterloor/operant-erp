@@ -41,6 +41,18 @@ final class RoleRevokeTest extends ApiTestCase
         'AssignRole' => ['method' => 'POST', 'path' => '/users/{id}/roles', 'idem' => true],
     ];
 
+    /**
+     * `UX`'s refusal copy (`roles-s2-ux-copy.md` §2 / §3.11), verbatim, so a wording change is a visible edit.
+     * `actor_is_inactive` is ONE string shared with `AssignRole` (`RoleAdministrationActor`). `last_owner`'s sentence
+     * (*"This would leave the workspace with no owner. Make someone else an owner first."*) is a backstop no HTTP path
+     * reaches (E-15a and E-15b fire first), so it has no row here.
+     */
+    private const COPY = [
+        'user_role.actor_is_inactive' => 'Your account is not active, so you can\'t change anyone\'s roles.',
+        'user_role.actor_is_subject' => 'Nobody can take a role away from themselves. Ask someone else who manages roles to do it.',
+        'user_role.marker_needs_owner' => 'Only an owner can take this role away, because it makes the person an owner.',
+    ];
+
     /** The gate's 403 for `role.assign`, byte for byte — the lock-time refusal must be indistinguishable from it. */
     public const ROLE_ASSIGN_DENIED = '{"required_permission":"role.assign","type":"urn:erp:problem:permission-denied","title":"Permission denied","status":403}';
 
@@ -371,5 +383,6 @@ final class RoleRevokeTest extends ApiTestCase
     {
         self::assertSame(409, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
         self::assertSame($rule, $this->json()['rule'] ?? null, $case);
+        self::assertSame(self::COPY[$rule], $this->json()['detail'] ?? null, $case.': the refusal sentence is not UX\'s.');
     }
 }

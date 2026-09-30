@@ -61,7 +61,7 @@ final readonly class RoleAdministrationActor
 
         $actor = LiveGrantReader::user($em, $identity->userId);
         if (null === $actor || !$actor['is_active']) {
-            throw ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so it cannot change anyone\'s roles.');
+            throw ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so you can\'t change anyone\'s roles.');
         }
 
         return $actorCodes;

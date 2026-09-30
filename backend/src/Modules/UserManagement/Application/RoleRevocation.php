@@ -108,12 +108,12 @@ final readonly class RoleRevocation
 
         // 5.
         if ($userId === Uuid::fromString($identity->userId)->toRfc4122()) {
-            throw ApiProblem::businessRuleViolated('user_role.actor_is_subject', 'Nobody can take a role away from themselves.');
+            throw ApiProblem::businessRuleViolated('user_role.actor_is_subject', 'Nobody can take a role away from themselves. Ask someone else who manages roles to do it.');
         }
 
         // 6.
         if (OwnerPredicate::holdsMarker($grant['role_codes']) && !OwnerPredicate::holdsMarker($actorCodes)) {
-            throw ApiProblem::businessRuleViolated('user_role.marker_needs_owner', 'Only an owner can take this role away.');
+            throw ApiProblem::businessRuleViolated('user_role.marker_needs_owner', 'Only an owner can take this role away, because it makes the person an owner.');
         }
 
         // 7.
@@ -121,7 +121,7 @@ final readonly class RoleRevocation
             LiveGrantReader::activeMarkerHolderCount($em),
             LiveGrantReader::activeMarkerHolderCountExcluding($em, $grant['id']),
         )) {
-            throw ApiProblem::businessRuleViolated('user_role.last_owner', 'This would leave the workspace with no owner.');
+            throw ApiProblem::businessRuleViolated('user_role.last_owner', 'This would leave the workspace with no owner. Make someone else an owner first.');
         }
 
         // 8.
