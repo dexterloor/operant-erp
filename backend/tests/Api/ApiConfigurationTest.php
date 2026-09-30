@@ -170,7 +170,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (roles slice 2, C2, 2026-09-29):** `RevokeRole`, a `Delete` on `RoleResource` at
         // `/users/{id}/roles/{roleId}`, `read: false`. Its migration grants `erp_app` `DELETE` on `user_role` -- the first
         // `DELETE` grant anywhere. `RoleResource`'s item `Get` already exists, so no `$notExposed` fallback route is minted.
-        self::assertCount(48, $checked, 'The route set changed. This slice declares forty-eight operations: '.implode(', ', array_keys($checked)));
+        // **And one more (roles slice 2, C3, 2026-09-30):** `AssignRole`, a `Post` on `RoleResource` at `/users/{id}/roles`,
+        // `read: false`. Its migration grants `erp_app` a COLUMN-level `INSERT` on the four columns its one `INSERT` names
+        // (table-level `INSERT` stays false, measured). `RoleResource`'s item `Get` exists, so no `$notExposed` fallback.
+        self::assertCount(49, $checked, 'The route set changed. This slice declares forty-nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

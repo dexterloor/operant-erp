@@ -2440,10 +2440,16 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     {
         $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
         $role = $this->onlyRoleOf($subject);
+        $grantable = $this->grantableRole();
         $this->actAsRole(DefaultRoles::ADMIN);
 
         $this->recorder()->start();
-        $this->send('DELETE', '/users/'.$subject.'/roles/'.$role);
+        match ($case) {
+            'RevokeRole' => $this->send('DELETE', '/users/'.$subject.'/roles/'.$role),
+            // Roles slice 2, C3: a one-code composed role (`role.view`, inside `admin`'s set, no X(admin) code, no SoD row).
+            'AssignRole' => $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $grantable],
+                [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+        };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
 
@@ -2460,6 +2466,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     public static function everyRoleWritePath(): iterable
     {
         yield 'RevokeRole' => ['RevokeRole', 204];
+        yield 'AssignRole' => ['AssignRole', 201];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -2667,6 +2674,105 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **The grant twin of the demotion race** (roles slice 2, C3; design §5.2 `anActorDemotedWhileWaitingCannotGrant`;
+     * `SEC` §C2 deviations §3: *"Its demotion twin asserts the same literal and the same pair equality"*). The holder removes
+     * the actor's only `role.assign`-conferring role; the waiting grant is refused with the gate's 403, byte for byte; the
+     * refusal commits exactly one `audit_log` row (the denial), zero `role.*` rows, `user_role` row for row as the holder
+     * left it (the subject gained nothing), both `app_user` rows untouched; and the lock-time row names the SAME pair a
+     * gate denial of the same path names. Mutation A5 (the actor's codes from the request `Identity`) → 201, red.
+     */
+    #[Test]
+    public function anActorDemotedWhileWaitingCannotGrant(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $path = '/users/'.$subject.'/roles';
+        $body = ['role_id' => $this->grantableRole()];
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $users = $this->appUserRows([$subject, $actor]);
+        $this->actAsUser(self::TENANT_A, $actor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('POST', $path, $body,
+            [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+        $afterHolder = $this->userRoleRows();
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
+            'The committed refusal wrote something besides its one denial row.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type LIKE 'role.%'"));
+        self::assertSame($afterHolder, $this->userRoleRows(), 'The committed refusal changed user_role.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]),
+            'The subject gained the role although the grant was refused.');
+        self::assertSame($users, $this->appUserRows([$subject, $actor]), 'The committed refusal flushed a change to a user row.');
+
+        [$lockTime] = $this->denialRows();
+        $this->actAs(self::TENANT_A, []);
+        $this->send('POST', $path, $body);
+        self::assertSame(403, $this->httpStatus());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        $gate = array_values(array_filter($this->denialRows(), fn (array $row): bool => $row['actor'] === $this->actorId));
+        self::assertCount(1, $gate);
+        self::assertSame([$gate[0]['subject_type'], $gate[0]['subject_id']], [$lockTime['subject_type'], $lockTime['subject_id']],
+            'A grant denial under the lock names a different (subject_type, subject_id) pair from the gate\'s denial of the same path.');
+        self::assertSame(['app_user', $subject], [$lockTime['subject_type'], $lockTime['subject_id']]);
+    }
+
+    /**
+     * **PC-13's race: two grants that together would split a duty; exactly one lands** (design §5.2
+     * `twoConflictingGrantsToOneUserLeaveExactlyOne`; V2-R-3 for grants). The holder, as an owner, takes the role lock and
+     * grants `finance` (SoD-3's controlled half, `invoice.pay`) to S, with its `role.assigned` row. The request — `admin`
+     * granting `sales_rep` (SoD-3's preparing half, `invoice.issue`) to the same S, authenticated while the holder's grant is
+     * uncommitted — waits, re-reads S's live roles under the lock, and is refused `separation_of_duty` naming SoD-3. S holds
+     * `finance` alone. Both roles are SYSTEM roles with their default codes, so E-15c is not what decides.
+     * **Mutation A5 leaves this GREEN, by design** (spar P5): it turns on the SUBJECT's set, re-read under the lock whatever
+     * A5 does. Dropping the lock (R1) is what reddens it.
+     */
+    #[Test]
+    public function twoConflictingGrantsToOneUserLeaveExactlyOne(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $owner = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)', [self::TENANT_A, $subject, $finance]],
+            [str_replace("'role.revoked'", "'role.assigned'", self::HOLDER_ROLE_REVOKED), [self::TENANT_A, $owner, $subject, $finance]],
+        ], request: fn () => $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $salesRep],
+            [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('user_role.separation_of_duty', $this->json()['rule'] ?? null);
+        self::assertStringContainsString('(SoD-3)', (string) ($this->json()['detail'] ?? ''));
+        self::assertSame([['r' => $finance]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$subject]), 'Both conflicting grants landed.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_ASSIGNED]), 'Not exactly one grant happened.');
+    }
+
+    /** A system role (`is_system = true`) holding `$name`'s default codes, as the seeded catalogue would. */
+    private function systemRole(string $name): string
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name, is_system) VALUES (?::uuid, ?::uuid, ?, true)',
+            [$role, self::TENANT_A, $name.' '.substr($role, 0, 8)]);
+        foreach (DefaultRoles::codesFor($name) as $code) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                [self::TENANT_A, $role, $code]);
+        }
+
+        return $role;
+    }
+
+    /**
      * **Every method in `src/` that writes a role-administration table, or ends a user's liveness, takes the role lock
      * first** (spar §2 item 5, P6; design §4.4). The domain is derived from `src/`: SQL/DQL writes of `user_role`, `role`,
      * `role_permission`, `role_grant_proposal`; SQL/DQL that sets `app_user.is_active` / `deleted_at` (keyed on the SET
@@ -2735,6 +2841,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     /** `everyRoleWritePath()`'s case => the method it enters. */
     private const ROLE_LOCK_FIRST_CHECKED = [
         'RevokeRole' => 'RoleRevocation::revoke',
+        'AssignRole' => 'RoleAssignment::assign',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */
@@ -2913,6 +3020,19 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         sort($names);
 
         return $names;
+    }
+
+    /** A composed role holding only `role.view` — grantable by `admin` and by any `role.assign` holder with that code. */
+    private function grantableRole(): string
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+            [$role, self::TENANT_A, 'Grantable '.substr($role, 0, 8)]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+            [self::TENANT_A, $role]);
+
+        return $role;
     }
 
     private function onlyRoleOf(string $userId): string

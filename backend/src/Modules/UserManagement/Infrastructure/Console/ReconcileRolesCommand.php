@@ -13,7 +13,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * `app:roles:reconcile --tenant=<uuid>` — the thin console face of {@see RoleReconciliation} (G-10 condition (1); roles
- * slice 2, C2: arms B and F). One line per finding, `finding,user_id,role_id,at`; exit **1** on any finding, **0** on none,
+ * slice 2: arms B and F in C2, A and C in C3). One line per finding, `finding,user_id,role_id,at` — arm A adds
+ * `,inserted_by,owner_process_row=yes|no`; exit **1** on any finding, **0** on none,
  * **2** when a control refuses (no findings printed); the cadence sentence on every run.
  *
  * **Not on `ServingCredentialGuard::CONSOLE_OWNER_COMMANDS`, on purpose** (design D-9): it never needs the owner, and adding
@@ -56,6 +57,10 @@ final class ReconcileRolesCommand extends Command
 
         foreach ($result['findings'] as $finding) {
             $line = implode(',', [$finding['finding'], $finding['user_id'] ?? '', $finding['role_id'] ?? '', $finding['at'] ?? '']);
+            if (\array_key_exists('inserted_by', $finding)) {
+                // Arm A (H1): which login inserted the row, and whether that is an owner process rather than the application.
+                $line .= ','.$finding['inserted_by'].',owner_process_row='.(($finding['owner_process_row'] ?? false) ? 'yes' : 'no');
+            }
             if (RoleReconciliation::FINDING_NO_ACTIVE_OWNER === $finding['finding']) {
                 $line .= ' (attribution and recovery triage, not detection)';
             }

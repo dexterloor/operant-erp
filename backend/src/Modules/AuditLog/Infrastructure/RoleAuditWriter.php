@@ -14,7 +14,7 @@ use Symfony\Component\Uid\Uuid;
  * **E-15 — a change to a user's roles writes exactly one `role.*` row, in the transaction that made it** (roles slice 2;
  * `docs/session13/roles-s2-design.md` §4.5; `API.md` §9.2's `ROLE_ASSIGNED` / `ROLE_REVOKED` row).
  *
- * `role.revoked` (C2) — `role.assigned` joins in C3. Both are **security** events (`AuditEvent::SECURITY`): read only
+ * `role.revoked` (C2) and `role.assigned` (C3). Both are **security** events (`AuditEvent::SECURITY`): read only
  * through `audit_log.view`, and they carry the request's IP (E-3's field; `audit_log_ip_address_scope` admits one for
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
@@ -35,9 +35,22 @@ final readonly class RoleAuditWriter
     {
     }
 
+    /** `role.assigned` — `AssignRole` (C3), after its `INSERT`, in the same locked transaction. */
+    public function recordAssigned(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_ASSIGNED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress);
+    }
+
+    /** `role.revoked` — `RevokeRole` (C2), after its `DELETE`, in the same locked transaction. */
     public function recordRevoked(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress): void
     {
-        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress): void {
+        $this->record(AuditEvent::ROLE_REVOKED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress);
+    }
+
+    /** One statement for both events, so the two rows cannot drift apart in shape (reconciliation arms A and B read them together). */
+    private function record(string $event, string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($event, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress): void {
             $em->getConnection()->executeStatement(<<<'SQL'
                 INSERT INTO audit_log
                     (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
@@ -47,10 +60,10 @@ final readonly class RoleAuditWriter
                 SQL, [
                     Uuid::v4()->toRfc4122(),
                     $tenantId,
-                    AuditEvent::ROLE_REVOKED,
+                    $event,
                     $actorUserId,
                     $actorLabel,
-                    AuditEvent::SUBJECT_TYPES[AuditEvent::ROLE_REVOKED],
+                    AuditEvent::SUBJECT_TYPES[$event],
                     $subjectUserId,
                     $ipAddress,
                     RoleEventMetadata::ROLE_ID,

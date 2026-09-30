@@ -37,6 +37,8 @@ final class RoleRevokeTest extends ApiTestCase
      */
     public const PINNED_USER_ROLE_OPERATIONS = [
         'RevokeRole' => ['method' => 'DELETE', 'path' => '/users/{id}/roles/{roleId}', 'idem' => false],
+        // Roles slice 2, C3. `idem`: §4.2's `unique:user_role_unique` — the header is demanded (428 without it).
+        'AssignRole' => ['method' => 'POST', 'path' => '/users/{id}/roles', 'idem' => true],
     ];
 
     /** The gate's 403 for `role.assign`, byte for byte — the lock-time refusal must be indistinguishable from it. */

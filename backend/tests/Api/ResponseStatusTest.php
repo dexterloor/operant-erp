@@ -139,6 +139,11 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // §4.2 declares `Update`, `Delete` and `Restore` there and no `Get`, which is the whole reason
         // the registry cannot address it and `CreatedRowLocation` must.
         'CreateSalesOrderLine' => '/sales-orders/{id}/lines/{lineId}',
+        // Added 2026-09-30 (roles slice 2, C3). It really does create the row that URI addresses: the grant `(user,
+        // role)`, which §4.2 declares `RevokeRole` at and no `Get` — so the registry cannot address it (`RoleResource`'s
+        // IRI is `/roles/{id}`), and `CreatedRowLocation` fills `{roleId}` from the body's `id`, the granted role's
+        // (`SEC` S-1 (b)). §4.4.1 is the precedent for a `Location` that answers `DELETE` and not `GET`.
+        'AssignRole' => '/users/{id}/roles/{roleId}',
     ];
 
     /**

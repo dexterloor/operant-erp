@@ -72,6 +72,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'GetRole' => 'role.view',
         // Roles slice 2, C2: §4.2's `Perm` cell. Re-derived UNDER the role-administration lock as well (S-6, `SEC` S-2).
         'RevokeRole' => 'role.assign',
+        // Roles slice 2, C3: the same code, re-derived under the same lock by the same `RoleAdministrationActor`.
+        'AssignRole' => 'role.assign',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

@@ -169,7 +169,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'Modules/AuditLog/Infrastructure/GoodsReceiptAuditWriter.php',
         'Modules/AuditLog/Infrastructure/FulfilmentAuditWriter.php',
         // Added 2026-09-29 with `RevokeRole` (roles slice 2, C2): `role.revoked`, a SECURITY event, so it carries the
-        // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below.
+        // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below — and
+        // `role.assigned` (C3, `AssignRole`) through the same writer, also driven.
         'Modules/AuditLog/Infrastructure/RoleAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
@@ -349,6 +350,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $roleWriter = self::getContainer()->get(RoleAuditWriter::class);
         \assert($roleWriter instanceof RoleAuditWriter);
         $roleWriter->recordRevoked(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), ipAddress: self::PROBE_IP);
+        // Roles slice 2, C3: `role.assigned`, the same SECURITY shape through the same private statement.
+        $roleWriter->recordAssigned(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), ipAddress: self::PROBE_IP);
 
         $withIp = [];
         $written = [];

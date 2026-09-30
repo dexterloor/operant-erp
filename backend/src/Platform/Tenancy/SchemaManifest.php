@@ -361,6 +361,11 @@ final class SchemaManifest
             // role-administration lock). Declared explicitly so erp_ai keeps exactly its inherited SELECT
             // (TENANT_READ_DEFAULT) and nothing moves with it. INSERT arrives column-level with AssignRole (C3).
             'grants' => [DatabaseRoles::APP => ['SELECT', 'DELETE'], DatabaseRoles::AI => ['SELECT']],
+            // Roles slice 2, C3 (2026-09-30, Version20260930000100): INSERT arrives COLUMN-level, exactly the four
+            // columns RoleAssignment's one INSERT names. Table-level INSERT stays false, so inserted_by (H1: DEFAULT
+            // session_user, the database's record of which login wrote the grant) cannot be written by erp_app at all.
+            // H1's limit (G-10): it tells an owner-process row from an erp_app row, never an API grant from a forged one.
+            'column_grants' => [DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'user_id', 'role_id']]],
         ],
 
         // ------------------------------------------------------------------

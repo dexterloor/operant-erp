@@ -37,7 +37,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      * The four shipped operations the spar derived from the live router as mislabelled (`roles-s2-spar.md` P15) — a
      * pin on the domain, so a derivation that silently loses one is red rather than green over less.
      */
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['CreateFulfilment', 'CreateGoodsReceipt', 'GetPickList', 'IssueInvoice', 'RevokeRole'];
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'GetPickList', 'IssueInvoice', 'RevokeRole'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -153,6 +153,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'CreateFulfilment' => ['POST', '/sales-orders/'.$so.'/fulfilments', 'fulfilment.create', $so],
             'IssueInvoice' => ['POST', '/fulfilments/'.$fulfilment.'/invoices', 'invoice.issue', $fulfilment],
             'RevokeRole' => ['DELETE', '/users/'.$user.'/roles/'.$grantedRole, 'role.assign', $user],
+            // Roles slice 2, C3 (B.3 items 1 and 3): the gate refuses before the body or the Idempotency-Key is read
+            // (PermissionGate::PRIORITY: 401 → 403 → 428), and the row names the user.
+            'AssignRole' => ['POST', '/users/'.$user.'/roles', 'role.assign', $user],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 
@@ -204,7 +207,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         sort($declared);
 
         self::assertSame(self::NESTED_OPERATIONS_OF_ANOTHER_RESOURCE, $declared,
-            'The operations declaring a denial subject are not exactly the four nested operations F-1 found plus RevokeRole.');
+            'The operations declaring a denial subject are not exactly the four nested operations F-1 found plus RevokeRole and AssignRole.');
     }
 
     /**

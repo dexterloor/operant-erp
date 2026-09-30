@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
-use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Modules\UserManagement\Domain\LastOwnerFloor;
@@ -40,20 +39,22 @@ use Symfony\Component\Uid\Uuid;
  *  8. `DELETE FROM user_role` — the project's first `DELETE` grant (`Version20260929000300`), exactly this statement.
  *  9. `role.revoked`, subject the user, `{role_id}`, the request's IP, `clock_timestamp()`.
  *
+ * Steps 2–3 are {@see RoleAdministrationActor} since C3 — one copy of the S-2 mechanism, shared with `AssignRole`.
+ *
  * Every decision reads `LiveGrantReader` on the locked connection; every caller decision about the marker goes through
  * `OwnerPredicate::holdsMarker()` over that lock-time set. No PHP clock stamps or decides anything.
  */
 final readonly class RoleRevocation
 {
     /** The permission this operation requires — the gate's, re-derived under the lock. */
-    public const REQUIRED_PERMISSION = 'role.assign';
+    public const REQUIRED_PERMISSION = RoleAdministrationActor::REQUIRED_PERMISSION;
 
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private RoleAuditWriter $audit,
-        private DenialAuditWriter $denials,
+        private RoleAdministrationActor $actor,
     ) {
     }
 
@@ -83,26 +84,10 @@ final readonly class RoleRevocation
         // 1.
         RoleAdministrationLock::holdInside($em, $this->tenant->tenantId());
 
-        // 2. Before any read of the subject (E-1).
-        $actorCodes = LiveGrantReader::codesHeldBy($em, $identity->userId);
-        if (!\in_array(self::REQUIRED_PERMISSION, $actorCodes, true)) {
-            $this->denials->record(
-                tenantId: $identity->tenantId,
-                actorUserId: $identity->userId,
-                actorLabel: $identity->actorLabel,
-                permissionCode: self::REQUIRED_PERMISSION,
-                subjectId: $denialSubject[1],
-                ipAddress: $ipAddress,
-                subjectType: $denialSubject[0],
-            );
-
-            return new LockTimeDenial(self::REQUIRED_PERMISSION);
-        }
-
-        // 3.
-        $actor = LiveGrantReader::user($em, $identity->userId);
-        if (null === $actor || !$actor['is_active']) {
-            throw ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so it cannot change anyone\'s roles.');
+        // 2–3. Before any read of the subject (E-1): the one shared re-check (`RoleAdministrationActor`, extracted in C3).
+        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject);
+        if ($actorCodes instanceof LockTimeDenial) {
+            return $actorCodes;
         }
 
         // 4.

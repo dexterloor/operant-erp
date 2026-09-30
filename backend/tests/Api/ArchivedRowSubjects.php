@@ -81,7 +81,22 @@ trait ArchivedRowSubjects
      * `::anArchivedMarkerRolesGrantIsRevokedOnlyByAnOwner`.
      */
     private const NOT_A_WRITE_OF_ITS_RESOURCE_ROW = [
-        'RevokeRole' => 'writes user_role (hard), never the role row; an archived role\'s grant is revocable by design (roles-s2-design.md §5.1 step 3)',
+        'RevokeRole' => 'writes user_role (hard), never the role row; an archived role\'s grant is revocable by design (roles-s2-design.md §5.1 step 3); '
+            .'and {id} (app_user, soft) answers 404 when soft-deleted, by design §5.1 step 3 — tested in RoleRevokeTest\'s not-found shapes',
+    ];
+
+    /**
+     * **Writes whose archived subject arrives in the BODY, not the path** (roles slice 2, C3 — `roles-s2-sec.md` §C2
+     * deviations 2.5 (a)): operation => the body field that carries the soft row's id. `AssignRole` is `Assign / Role` at
+     * `/users/{id}/roles` with `{role_id}` in the body, so substituting the archived row into `{id}` would address a USER.
+     * For these the driver seeds the path from {@see self::archivedRowBodySubjectPaths()} and puts the live / archived row's
+     * id in the named field; an operation carrying `IdempotencyKeyGuard::OPERATION_FLAG` gets a fresh `Idempotency-Key`.
+     * Clause 15 and `ErrorContractTest` half 2 then judge the archived answer exactly as they judge a path subject's.
+     * **Not** `NOT_A_WRITE_OF_ITS_RESOURCE_ROW`: assigning an archived role IS refused (409 `user_role.role_is_archived`),
+     * which is clause 15's answer, so it belongs in the clause.
+     */
+    private const ARCHIVED_SUBJECT_IN_THE_BODY = [
+        'AssignRole' => 'role_id',
     ];
 
     /**
@@ -116,18 +131,41 @@ trait ArchivedRowSubjects
         // Every fixture before the first request: a refused write closes the
         // entity manager the seeding helpers run through.
         $pairs = $this->archivedRowPairs($subjects);
+        $bodySubjectPaths = [];
+        foreach (self::ARCHIVED_SUBJECT_IN_THE_BODY as $name => $field) {
+            if (\in_array($name, $driven, true)) {
+                $bodySubjectPaths[$name] = $this->archivedRowBodySubjectPaths()[$name]();
+            }
+        }
+        self::assertSame([], array_values(array_diff(array_keys(self::ARCHIVED_SUBJECT_IN_THE_BODY), $driven)),
+            'ARCHIVED_SUBJECT_IN_THE_BODY names an operation the write clause no longer selects; the entry is stale.');
 
         $answers = [];
         foreach ($subjects as $table => $operations) {
             foreach ($operations as $name => $operation) {
                 [$live, $archived] = $pairs[$name];
                 $method = (string) $operation->getMethod();
+                $headers = true === ($operation->getExtraProperties()[\App\Platform\Http\Idempotency\IdempotencyKeyGuard::OPERATION_FLAG] ?? null)
+                    ? [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => \Symfony\Component\Uid\Uuid::v4()->toRfc4122()]
+                    : [];
+                $liveBody = $bodies[$name];
+                $archivedBody = $bodies[$name];
+                if (\array_key_exists($name, self::ARCHIVED_SUBJECT_IN_THE_BODY)) {
+                    $field = self::ARCHIVED_SUBJECT_IN_THE_BODY[$name];
+                    $liveBody = [...($bodies[$name] ?? []), $field => $live['row']];
+                    $archivedBody = [...($bodies[$name] ?? []), $field => $archived['row']];
+                    $live = [...$bodySubjectPaths[$name], 'row' => $live['row']];
+                    $archived = [...$bodySubjectPaths[$name], 'row' => $archived['row']];
+                }
 
-                $this->send($method, self::archivedRowPath($operation, $live), $bodies[$name]);
+                $this->send($method, self::archivedRowPath($operation, $live), $liveBody, $headers);
                 self::assertLessThan(300, $this->httpStatus(), \sprintf('%s on the live twin was refused (%d), so a refusal of the archived row proves nothing: %s',
                     $name, $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 300)));
 
-                $this->send($method, self::archivedRowPath($operation, $archived), $bodies[$name]);
+                if ([] !== $headers) {
+                    $headers = [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => \Symfony\Component\Uid\Uuid::v4()->toRfc4122()];
+                }
+                $this->send($method, self::archivedRowPath($operation, $archived), $archivedBody, $headers);
                 $response = $this->client()->getResponse();
                 $answers[$name] = [
                     'table' => $table,
@@ -323,6 +361,20 @@ trait ArchivedRowSubjects
     }
 
     /**
+     * The path variables for {@see self::ARCHIVED_SUBJECT_IN_THE_BODY}'s operations, seeded before any request. One subject
+     * serves both twins: the live grant succeeds, and the archived one is refused for the role's state alone.
+     *
+     * @return array<string, callable(): array<string, string>>
+     */
+    private function archivedRowBodySubjectPaths(): array
+    {
+        return [
+            // An active user holding nothing, in the acting tenant — never the actor (E-15a).
+            'AssignRole' => fn (): array => ['id' => $this->seedPrincipal(self::TENANT_A, [])],
+        ];
+    }
+
+    /**
      * A request body that succeeds on a live row, per write operation. Held equal
      * to the derived write domain inside `archivedRowWriteAnswers()`.
      *
@@ -370,6 +422,9 @@ trait ArchivedRowSubjects
             // The `sales_order` fixture is a draft (`seedSalesOrder` defaults to it), so the LIVE twin succeeds
             // -- the trait's own control -- and the archived twin's 409 is `sales_order.is_archived`'s alone.
             'DeleteSalesOrder' => null,
+            // Roles slice 2, C3: the base body; the driver adds `role_id` (the live / archived role) itself —
+            // `ARCHIVED_SUBJECT_IN_THE_BODY`. The fixture role carries no code, so the live grant meets no E-15 rule.
+            'AssignRole' => [],
         ];
     }
 

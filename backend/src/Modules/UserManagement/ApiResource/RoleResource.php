@@ -8,16 +8,22 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
+use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RevokeRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleProvider;
 use App\Modules\UserManagement\Application\RoleView;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
  * `GetRole` — `GET /api/v1/roles/{id}`, `role.view`. Roles slice 1, C3. Also carries `RevokeRole` (roles slice 2, C2),
- * `DELETE /api/v1/users/{id}/roles/{roleId}` under `role.assign` — 204, no body, so it adds nothing to this shape.
+ * `DELETE /api/v1/users/{id}/roles/{roleId}` under `role.assign` — 204, no body, so it adds nothing to this shape — and
+ * `AssignRole` (C3), `POST /api/v1/users/{id}/roles`, whose 201 body IS this shape: the granted role (`SEC` S-1 (b)), so
+ * `Assign / Role` and `Get / Role` resolve to one DTO class and `ResponseShapeTest`'s one-DTO-per-resource holds.
  *
  * The shape is API-23's derivation for `Role`:
  *   1. `CreateRole`'s accepted fields — `name`, `description`, `permission_codes`;
@@ -67,6 +73,34 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 // F-1 / `SEC` Acknowledgement B.3 item 1: `{id}` addresses the USER whose privileges change, not a role.
                 // Without this the default derivation writes ('role', <user id>). The lock-time denial reads it too.
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['app_user', 'id'],
+            ],
+        ),
+        // Roles slice 2, C3 (2026-09-30). API-21 branch 4: 201, `Location` = the grant's URI, which answers `DELETE`
+        // (`RevokeRole`) and not `GET` — §4.4.1's own precedent. The IRI of this resource is `/roles/{id}`, which is not the
+        // created row, so `CreatedRowLocation` fills `/users/{id}/roles/{roleId}` from the route's `{id}` and the body's `id`
+        // (the granted role's). §4.2's `Idem` cell is `unique:user_role_unique`: the header is demanded (428 without it) and
+        // the natural pair is what collides. `read: false`, as `RevokeRole`: nothing is read before the lock.
+        new Post(
+            uriTemplate: '/users/{id}/roles',
+            uriVariables: [
+                'id' => new Link(fromClass: RoleResource::class, identifiers: [], parameterName: 'id'),
+            ],
+            name: 'AssignRole',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'AssignRole'),
+            input: AssignRoleInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            read: false,
+            processor: AssignRoleProcessor::class,
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'role.assign',
+                // F-1 / `SEC` Acknowledgement B.3 item 1: `{id}` addresses the USER whose privileges change, not a role.
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['app_user', 'id'],
+                CreatedRowLocation::OPERATION_URI_TEMPLATE => '/users/{id}/roles/{roleId}',
             ],
         ),
     ],

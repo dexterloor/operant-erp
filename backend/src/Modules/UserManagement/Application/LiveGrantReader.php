@@ -17,6 +17,9 @@ use Doctrine\ORM\EntityManagerInterface;
  * waited is seen here and not there. Every method takes the entity manager whose connection holds the lock, so the reads
  * run in the locked transaction (READ COMMITTED: each sees what the previous holder committed).
  *
+ * `grant()` answers "does this user hold this role row at all" (live or archived — `AssignRole`'s C12 `already_held` reads
+ * it too), `role()` answers "what is this role" for a grant (C3).
+ *
  * **Why it is not `IdentityReader`:** PC-13 (C3) needs the codes **per role** (a split is refused only if no single member
  * spans it), E-15c (C3) needs `is_system`, the actor re-check needs `is_active`, and E-15b on revoke needs a role's STORED
  * codes whether or not it is archived. `IdentityReader` returns the union of live codes only. **It is a second derivation of
@@ -134,6 +137,37 @@ final class LiveGrantReader
             'id' => (string) $row['id'],
             'role_live' => (bool) $row['role_live'],
             'role_codes' => self::codes((string) $row['role_codes']),
+        ];
+    }
+
+    /**
+     * The role as the lock sees it (roles slice 2, C3), **archived or not** (no `deleted_at` predicate: an archived role must
+     * reach V2-R-6's 409 `role_is_archived`, never fall into `unknown_reference`'s 422 — `UX` copy §3.1 item 2): its name,
+     * whether it is live, whether it is a system role (E-15c), and its
+     * **stored** codes. Null when no role row with this id exists in this workspace (another workspace's is null, by RLS).
+     * `AssignRole` refuses an archived role (V2-R-6) before it reads the codes for any decision, so every decision it takes
+     * on these codes is on a LIVE role's codes.
+     *
+     * @return array{name: string, live: bool, is_system: bool, codes: list<string>}|null
+     */
+    public static function role(EntityManagerInterface $em, string $roleId): ?array
+    {
+        $connection = $em->getConnection();
+
+        $row = $connection->fetchAssociative(<<<'SQL'
+            SELECT r.name, r.deleted_at IS NULL AS live, r.is_system,
+                   COALESCE((SELECT array_to_json(array_agg(rp.permission_code ORDER BY rp.permission_code))
+                               FROM role_permission rp
+                              WHERE rp.tenant_id = r.tenant_id AND rp.role_id = r.id), '[]') AS codes
+              FROM role r
+             WHERE r.id = ?::uuid
+            SQL, [$roleId]);
+
+        return false === $row ? null : [
+            'name' => (string) $row['name'],
+            'live' => (bool) $row['live'],
+            'is_system' => (bool) $row['is_system'],
+            'codes' => self::codes((string) $row['codes']),
         ];
     }
 

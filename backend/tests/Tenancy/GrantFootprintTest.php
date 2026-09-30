@@ -822,6 +822,97 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The `user_role` columns `AssignRole` inserts, and no others (roles slice 2, C3, `Version20260930000100`; H1). **Typed
+     * by hand from `RoleAssignment`'s one `INSERT INTO user_role (…)` statement, never read from `SchemaManifest`** — the
+     * reason above: a copy derived from the manifest cannot see the manifest and the migration widen together.
+     */
+    private const USER_ROLE_COLUMNS_THE_GRANT_INSERTS = ['id', 'role_id', 'tenant_id', 'user_id'];
+
+    /**
+     * **H1: `erp_app` can INSERT exactly the four `user_role` columns `AssignRole` names — proved by running the statement as
+     * `erp_app`** (design §5.2's `theApplicationCanInsertOnlyTheGrantColumnsItWrites`; the invoice issuer's shape). Domain
+     * server-derived (`pg_attribute`); one connection and one rolled-back transaction per column; zero-row probe.
+     * **Positive control:** `role_id` accepted. **Anti-vacuity:** `inserted_by` and `created_at` are in the domain and
+     * refused — `inserted_by` is the database's record of the login (`DEFAULT session_user`), so the application must not be
+     * able to write it at all. **Planted control, committed then undone:** `GRANT INSERT (inserted_by)` must produce exactly
+     * one violation. Mutation A3 (table-level `INSERT` in the migration) → red here and in the footprint test.
+     */
+    #[Test]
+    public function theApplicationCanInsertOnlyTheGrantColumnsItWrites(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'user_role'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                $connection = $this->secondClient();
+                $connection->beginTransaction();
+                try {
+                    $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                    $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                    $connection->executeStatement(sprintf('INSERT INTO user_role (%1$s) SELECT %1$s FROM user_role WHERE false', $quoted));
+                    $outcomes[$column] = 'accepted';
+                } catch (DriverException $e) {
+                    $outcomes[$column] = '42501' === $e->getSQLState()
+                        && str_contains($e->getMessage(), 'permission denied for table user_role')
+                        ? 'refused'
+                        : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                } finally {
+                    $connection->rollBack();
+                    $connection->close();
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $column => $outcome) {
+                $inserted = \in_array($column, self::USER_ROLE_COLUMNS_THE_GRANT_INSERTS, true);
+                if ($inserted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('user_role.%s: AssignRole inserts it, but erp_app got "%s"', $column, $outcome);
+                } elseif (!$inserted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('user_role.%s: AssignRole does not insert it, but erp_app got "%s"', $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        self::assertSame('accepted', $outcomes['role_id'] ?? null,
+            'The positive control failed: erp_app could not insert user_role.role_id, so the refusals below prove nothing.');
+        foreach (['inserted_by', 'created_at'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null, "erp_app must not insert user_role.{$closed}, and the probe did not see it refused.");
+        }
+        foreach (self::USER_ROLE_COLUMNS_THE_GRANT_INSERTS as $inserted) {
+            self::assertArrayHasKey($inserted, $outcomes, "A column AssignRole inserts, {$inserted}, is not in user_role.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's INSERT on user_role is not exactly the columns AssignRole names (H1). A 42501 from the writer is fixed by "
+            ."removing the column from its statement, never by widening the grant:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT INSERT (inserted_by) ON user_role TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['user_role.inserted_by: AssignRole does not insert it, but erp_app got "accepted"'],
+                $violations($probe()),
+                'A committed INSERT (inserted_by) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE INSERT (inserted_by) ON user_role FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted inserted_by grant survived its REVOKE.');
+    }
+
+    /**
      * The `invoice` columns the invoice's UPDATE writers set, and no others (sales step 6: C5 `PayInvoice`,
      * `Version20260928000400`; C6 `ReverseInvoicePayment` adds `payment_reversed_at`, `Version20260928000600`). **Typed by hand from the SET lists measured in the statement log (M-11), never read from
      * `SchemaManifest`** — `APP_USER_COLUMNS_THE_CALLERS_WRITE`'s reason: a copy derived from the manifest cannot see the

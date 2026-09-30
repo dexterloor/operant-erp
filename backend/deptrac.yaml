@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-09-30 with `AssignRole` in the tree (roles slice 2, C3): the three commands return
+  # **113 / 72 / 18** -- ONE edge line net: `RoleAssignment -> RoleAuditWriter` (A-5, `role.assigned`) added, and the
+  # lock-time denial's `-> DenialAuditWriter` MOVED from `RoleRevocation` to `RoleAdministrationActor`, the one copy of the
+  # S-2 re-check both operations now share (`SEC`'s C2 acknowledgement §3: reuse, not copy). Still A-5.)
   # (Re-derived 2026-09-29 with `RevokeRole` in the tree (roles slice 2, C2): the three commands return
   # **112 / 72 / 17** -- TWO edge lines added, both A-5, both `RoleRevocation`'s synchronous audit writes:
   # `-> RoleAuditWriter` (`role.revoked`) and `-> DenialAuditWriter` (the lock-time `authz.permission.denied`, `SEC` S-2).
@@ -455,8 +459,11 @@ deptrac:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
     App\Modules\UserManagement\Application\PasswordChangeThrottle:
       - Doctrine\DBAL\Connection   # A-10
-    App\Modules\UserManagement\Application\RoleRevocation:
+    App\Modules\UserManagement\Application\RoleAdministrationActor:
       - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-5
+    App\Modules\UserManagement\Application\RoleAssignment:
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\RoleRevocation:
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\UserManagement\Application\SignIn:
       - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7

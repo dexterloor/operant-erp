@@ -220,7 +220,10 @@ final class WriteOwnershipTest extends KernelTestCase
         'Modules\\Sales' => 14,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
-        'Modules\\UserManagement' => 6,
+        // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).
+        // `Modules\\AuditLog` does NOT move: `role.assigned` is written by the same private statement as `role.revoked`
+        // (`RoleAuditWriter::record()`), where the design had predicted +1.
+        'Modules\\UserManagement' => 7,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

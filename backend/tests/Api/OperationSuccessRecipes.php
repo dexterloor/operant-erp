@@ -503,6 +503,23 @@ trait OperationSuccessRecipes
 
                 return [204, 'revoke another user\'s role'];
             }],
+            // Roles slice 2, C3: a user holding nothing, given a composed role whose one code (`role.view`) the actor holds
+            // — the actor holds every declared code and never the marker, so E-15b, E-15e routing, E-15c and PC-13 have
+            // nothing to say. 201 with the role as the body and `Location` naming the grant.
+            'AssignRole' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Role '.substr($role, 0, 8)]);
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+                    [self::TENANT_A, $role]);
+
+                return ['subject' => $this->seedPrincipal(self::TENANT_A, []), 'role' => $role];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/users/'.$c['subject'].'/roles', ['role_id' => $c['role']], $key());
+
+                return [201, 'give another user a role'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

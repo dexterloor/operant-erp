@@ -189,6 +189,23 @@ final class PreAuthPrincipalTest extends AuthTestCase
     }
 
     /**
+     * `/users` operations that write no `app_user` row, each by name at its exact path (see the guard method below).
+     *
+     * Moved ABOVE the guard's docblock in C3 (`roles-s2-sec.md` §C2 deviations 1.5): C2 inserted it between that docblock
+     * and `#[Test]`, and PHP attaches only the last doc comment before an element, so the guard had lost its own record.
+     *
+     * **Two entries, and `SEC` bounds it there (§C2 deviations 1.4): do not add a third by name.** Before a third `/users`
+     * operation (`GetUser`, `ListUsers`, …), replace this path proxy with the fact it stands for — the derived callers of
+     * `AppUser::delete()` and every SQL `UPDATE app_user … deleted_at` — with a planted control. Owner: `SEC`.
+     */
+    private const USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER = [
+        'RevokeRole' => '/users/{id}/roles/{roleId}',
+        // Roles slice 2, C3: inserts one `user_role` row and never writes `app_user` (`RoleAssignment`'s only write
+        // statement is `INSERT INTO user_role`); `SEC` §C2 deviations 1.4 grants it the same entry on the same grounds.
+        'AssignRole' => '/users/{id}/roles',
+    ];
+
+    /**
      * A finding, pinned so it cannot be shipped past.
      *
      * `erp_auth`'s column grant on `app_user` is `(id, tenant_id, email,
@@ -211,11 +228,6 @@ final class PreAuthPrincipalTest extends AuthTestCase
      * it is red until the predicate is added — which is the order the two changes
      * have to happen in.
      */
-    /** `/users` operations that write no `app_user` row, each by name at its exact path (see the method below). */
-    private const USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER = [
-        'RevokeRole' => '/users/{id}/roles/{roleId}',
-    ];
-
     #[Test]
     public function noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt(): void
     {
@@ -249,7 +261,7 @@ final class PreAuthPrincipalTest extends AuthTestCase
         // `RoleRevocation`, whose only write statement is `DELETE FROM user_role`; `PurchaseOrderRowLockTest`'s role scan
         // derives every writer of `app_user.is_active`/`deleted_at` from `src/` and would name it). Exempted BY NAME and
         // AT ITS PATH, so any other `/users` operation — `DeleteUser`, `UpdateUser`, `RestoreUser` — is still red here.
-        // Implementer's reading, flagged to `SEC` (the guard's owner) for acknowledgement.
+        // Acknowledged by `SEC` (`roles-s2-sec.md` §C2 deviations 1.2); `AssignRole` joined in C3 on the same grounds (1.4).
         foreach (self::USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER as $name => $path) {
             self::assertSame($path, $userOperations[$name] ?? null, $name.' is exempted here but is not shipped at '.$path.'; the exemption is stale.');
             unset($userOperations[$name]);

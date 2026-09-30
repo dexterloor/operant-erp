@@ -122,6 +122,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second fulfilment, a second helping of quantity_fulfilled on the order line, and the stock taken '
                 .'out twice (sales step 5). Its mechanism is the header-sourced retry key on a TOTAL unique.',
         ],
+        'AssignRole' => [
+            'method' => 'repeatAssignRole',
+            'why' => 'A second user_role row for one (user, role) and a second role.assigned row (roles slice 2 C3). Its '
+                .'mechanism is `unique:user_role_unique` on the natural pair, and a repeat is REFUSED 409 '
+                .'user_role.already_held, never replayed: the key header is required and its value is not stored.',
+        ],
         'IssueInvoice' => [
             'method' => 'repeatIssueInvoice',
             'why' => 'A second live invoice for one shipment, and a second invoice.issued row (sales step 6 C3). Its '
@@ -417,6 +423,26 @@ final class IdempotencyTest extends PurchaseOrderTestCase
      * likely a human re-issue as a network retry (§4.2 item 1) — so the same key and the same path answer 409, and the
      * one invoice and its one trail row are all that exist afterwards.
      */
+    private function repeatAssignRole(string $why): void
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+            [$role, self::TENANT_A, 'Repeat Role']);
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $role], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $role], $key);
+
+        self::assertSame(409, $this->httpStatus(), 'The repeat was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('user_role.already_held', $this->json()['rule']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM user_role WHERE user_id = ?::uuid', [$subject]), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT id FROM audit_log WHERE event_type = 'role.assigned'"), $why);
+    }
+
     private function repeatIssueInvoice(string $why): void
     {
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main INV');

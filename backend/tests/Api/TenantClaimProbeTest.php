@@ -106,6 +106,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'ListRoles' => [],
         // Roles slice 2, C2: a second user's non-marker grant (seeded in `seedMirror()`), revoked by the actor.
         'RevokeRole' => ['vars' => ['id' => 'revoke_subject', 'roleId' => 'revoke_role']],
+        // Roles slice 2, C3: a third user holding nothing, given the same one-code (`role.view`) composed role — inside the
+        // actor's set, no `X(admin)` code, no SoD row. A supplied tenant id that moved the write would grant in B, which
+        // the digest names. The `Idempotency-Key` is supplied by the driver (`OPERATION_FLAG`).
+        'AssignRole' => ['vars' => ['id' => 'assign_subject'], 'body' => ['role_id' => '@revoke_role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -497,6 +501,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
             [$tenantId, $subject, $revokeRole]);
+        // Roles slice 2, C3: `AssignRole`'s subject — active, holding nothing.
+        $assignSubject = $this->remember($letter, 'assign_subject', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Assign Subject')",
+            [$assignSubject, $tenantId, 'assign-'.$assignSubject.'@example.test']);
 
         $supplier = $this->remember($letter, 'supplier', $this->seedSupplier($tenantId, 'Acme'));
         $customer = $this->remember($letter, 'customer', $this->seedCustomer($tenantId, 'Acme Retail'));

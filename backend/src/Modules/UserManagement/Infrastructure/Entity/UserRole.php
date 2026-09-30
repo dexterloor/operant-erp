@@ -63,6 +63,16 @@ class UserRole
     #[ORM\JoinColumn(name: 'role_id', referencedColumnName: 'id', nullable: false)]
     private Role $role;
 
+    /**
+     * **H1 (roles slice 2, C3, `Version20260930000100`): the login that inserted the grant — `DEFAULT session_user`.**
+     * Read-only to the ORM (`insertable: false, updatable: false`, the `Invoice::$paymentReversedAt` precedent): nothing in
+     * PHP writes it, and `erp_app` holds no `INSERT` privilege on the column, so the database is its only author.
+     * Reconciliation arm A prints it (`RoleReconciliation`). It tells an owner-process row from an `erp_app` row; it cannot
+     * tell an API grant from a forged `erp_app` grant (G-10).
+     */
+    #[ORM\Column(name: 'inserted_by', type: Types::TEXT, insertable: false, updatable: false, options: ['default' => 'SESSION_USER'])]
+    private ?string $insertedBy = null;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 

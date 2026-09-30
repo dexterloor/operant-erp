@@ -16,8 +16,15 @@ use Symfony\Component\Uid\Uuid;
  * condition (1); `docs/session12/roles-e15e-q7-options.md` §4; roles slice 2 design §4.6). Arms **B** and **F** ship with
  * `RevokeRole` (C2, where the `DELETE` lands); arms **A** and **C** with `AssignRole` (C3).
  *
+ *  - **A — `unaccounted_grant`:** a `user_role` row whose pair's latest grant-or-revoke event is not `role.assigned`
+ *    (none at all, or `role.revoked`) — an `INSERT` nobody audited. Printed with `inserted_by` (H1) and
+ *    `owner_process_row` = `inserted_by` is not an application role: an owner-process row (seeding, provisioning, a hand
+ *    in `psql`) is told apart from an `erp_app` row, but an `erp_app` row can NOT be told apart from a forged one (G-10).
  *  - **B — `unaccounted_removal`:** the trail's latest grant-or-revoke event for a (user, role) pair is `role.assigned`
  *    and no `user_role` row exists — a `DELETE` nobody audited.
+ *  - **C — `event_without_role_key`:** a `role.assigned` / `role.revoked` row whose `metadata` lacks
+ *    `RoleEventMetadata::ROLE_ID` — a row arms A and B cannot pair with any grant, so it would hide a forged or careless
+ *    write from both (a writer's key drift, mutation A6, is what this arm sees).
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
@@ -42,9 +49,14 @@ final readonly class RoleReconciliation
 
     public const FINDING_NO_ACTIVE_OWNER = 'no_active_owner';
 
+    public const FINDING_UNACCOUNTED_GRANT = 'unaccounted_grant';
+
+    public const FINDING_EVENT_WITHOUT_ROLE_KEY = 'event_without_role_key';
+
     public const CADENCE = 'An empty result means no careless writer, never no forgery; this runs only when invoked.';
 
-    private const ARM_B = <<<'SQL'
+    /** Arms A and B share this prefix: the trail's latest grant-or-revoke event per (user, role) pair. Binds: key, 2 events. */
+    private const LATEST_EVENT_PER_PAIR = <<<'SQL'
         WITH t AS (
             SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid AS id
         ),
@@ -59,6 +71,10 @@ final readonly class RoleReconciliation
              WHERE role_id_text IS NOT NULL
              ORDER BY user_id, role_id_text, occurred_at DESC, id DESC
         )
+
+        SQL;
+
+    private const ARM_B = self::LATEST_EVENT_PER_PAIR.<<<'SQL'
         SELECT l.user_id::text AS user_id, l.role_id_text AS role_id, l.occurred_at::text AS at
           FROM latest l
          WHERE l.event_type = ?
@@ -67,12 +83,30 @@ final readonly class RoleReconciliation
          ORDER BY l.occurred_at, l.user_id, l.role_id_text
         SQL;
 
+    /** Arm A. Extra bind after the prefix's: `role.assigned`. */
+    private const ARM_A = self::LATEST_EVENT_PER_PAIR.<<<'SQL'
+        SELECT ur.user_id::text AS user_id, ur.role_id::text AS role_id, ur.created_at::text AS at, ur.inserted_by
+          FROM user_role ur JOIN t ON ur.tenant_id = t.id
+          LEFT JOIN latest l ON l.user_id = ur.user_id AND l.role_id_text = ur.role_id::text
+         WHERE l.event_type IS DISTINCT FROM ?
+         ORDER BY ur.created_at, ur.user_id, ur.role_id
+        SQL;
+
+    /** Arm C. Binds: key, 2 events. `->>` and `IS NULL`, never the `?` operator, which DBAL would read as a placeholder. */
+    private const ARM_C = <<<'SQL'
+        SELECT a.subject_id::text AS user_id, a.occurred_at::text AS at
+          FROM audit_log a
+         WHERE a.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+           AND a.event_type IN (?, ?) AND (a.metadata->>?) IS NULL
+         ORDER BY a.occurred_at, a.id
+        SQL;
+
     public function __construct(private TenantContext $tenants)
     {
     }
 
     /**
-     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string}>}
+     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool}>}
      */
     public function run(string $tenantId): array
     {
@@ -98,13 +132,33 @@ final readonly class RoleReconciliation
             }
 
             $findings = array_map(static fn (array $row): array => [
+                'finding' => self::FINDING_UNACCOUNTED_GRANT,
+                'user_id' => (string) $row['user_id'],
+                'role_id' => (string) $row['role_id'],
+                'at' => (string) $row['at'],
+                'inserted_by' => (string) $row['inserted_by'],
+                'owner_process_row' => !\in_array((string) $row['inserted_by'], DatabaseRoles::APPLICATION_ROLES, true),
+            ], $connection->fetchAllAssociative(self::ARM_A, [
+                RoleEventMetadata::ROLE_ID, AuditEvent::ROLE_ASSIGNED, AuditEvent::ROLE_REVOKED, AuditEvent::ROLE_ASSIGNED,
+            ]));
+
+            $findings = [...$findings, ...array_map(static fn (array $row): array => [
                 'finding' => self::FINDING_UNACCOUNTED_REMOVAL,
                 'user_id' => (string) $row['user_id'],
                 'role_id' => (string) $row['role_id'],
                 'at' => (string) $row['at'],
             ], $connection->fetchAllAssociative(self::ARM_B, [
                 RoleEventMetadata::ROLE_ID, AuditEvent::ROLE_ASSIGNED, AuditEvent::ROLE_REVOKED, AuditEvent::ROLE_ASSIGNED,
-            ]));
+            ]))];
+
+            $findings = [...$findings, ...array_map(static fn (array $row): array => [
+                'finding' => self::FINDING_EVENT_WITHOUT_ROLE_KEY,
+                'user_id' => (string) $row['user_id'],
+                'role_id' => null,
+                'at' => (string) $row['at'],
+            ], $connection->fetchAllAssociative(self::ARM_C, [
+                AuditEvent::ROLE_ASSIGNED, AuditEvent::ROLE_REVOKED, RoleEventMetadata::ROLE_ID,
+            ]))];
 
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {
                 $findings[] = ['finding' => self::FINDING_NO_ACTIVE_OWNER, 'user_id' => null, 'role_id' => null, 'at' => null];
