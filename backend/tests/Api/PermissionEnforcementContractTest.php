@@ -60,6 +60,7 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 7 R2 (owner rulings Q-F, Q-B).
         'CreateSalesReturn' => 'sales_return.create',
         'GetSalesReturn' => 'sales_return.view',
+        'ListSalesReturns' => 'sales_return.view',
         'ListInvoices' => 'invoice.view',
         'PayInvoice' => 'invoice.pay',
         'ReverseInvoicePayment' => 'invoice.pay',

@@ -233,6 +233,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         ],
         // A return recorded through the operation in each tenant, so a probe that moved the read would answer B's.
         'GetSalesReturn' => ['vars' => ['id' => 'sales_return'], 'setup' => 'sales_return'],
+        // Sales step 7 R3: the register over a return recorded in each tenant, so the baseline page is non-empty.
+        'ListSalesReturns' => ['setup' => 'sales_return'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

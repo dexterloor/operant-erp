@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Application;
 
 use App\Modules\Sales\Infrastructure\Entity\Invoice;
+use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
@@ -75,6 +76,98 @@ final readonly class SalesReturnReader
     }
 
     /**
+     * **`ListSalesReturns` (sales step 7 R3)** — one keyset page, `sales_return_number` newest first. Each row is
+     * byte-for-byte `GetSalesReturn`'s document: the same header statement (wrapped, so the filters read the SAME
+     * predicate outcomes the read serves — `creditable` IS `credit_target`'s condition, design :236-238's one-predicate
+     * requirement) and the same lines statement, batched with `= ANY`.
+     *
+     * Filters: `fulfilment_id`, `invoice_id` (the stamp: the invoice the return was recorded against), `creditable`
+     * (the credit issuer's work queue, V2-C-16), `deducts` (`finance`'s review list — a list to reconcile against goods
+     * actually received, not a detector, G-24), `credit_blocked_by_payment` (G-23's queue; the provider admits it only
+     * for an `invoice.view` holder) and `q` (the document number, by prefix). An id of another workspace is a predicate
+     * no visible row satisfies: an empty page, never a 404.
+     */
+    public function list(SalesReturnListCriteria $criteria): SalesReturnPage
+    {
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): SalesReturnPage {
+            $connection = $em->getConnection();
+            // One statement, `GetSalesReturn`'s header, with the filters in its own WHERE: the derived ones are the very
+            // expressions the SELECT list serves (`creditable()`, `blockedByPayment()`), never a second copy.
+            $where = [];
+            $parameters = [];
+
+            if (null !== $criteria->fulfilmentId) {
+                $where[] = 'r.fulfilment_id = ?::uuid';
+                $parameters[] = $criteria->fulfilmentId;
+            }
+            if (null !== $criteria->invoiceId) {
+                $where[] = 'r.invoice_id = ?::uuid';
+                $parameters[] = $criteria->invoiceId;
+            }
+            foreach ([[self::creditable(), $criteria->creditable], ['r.deducts', $criteria->deducts],
+                [self::blockedByPayment(), $criteria->creditBlockedByPayment]] as [$expression, $value]) {
+                if (null !== $value) {
+                    $where[] = '('.$expression.') IS '.($value ? 'TRUE' : 'FALSE');
+                }
+            }
+            if (null !== $criteria->search) {
+                $where[] = 'r.sales_return_number LIKE ?';
+                $parameters[] = addcslashes($criteria->search, '%_\\').'%';
+            }
+            $cursor = $criteria->after ?? $criteria->before;
+            if (null !== $cursor) {
+                // API-18: (sort key, id) as ONE row comparison; newest first, so forward continues BELOW the cursor.
+                $where[] = \sprintf('(r.sales_return_number, r.id) %s (?, ?::uuid)', $criteria->isBackwards() ? '>' : '<');
+                $parameters[] = $cursor->sortKey;
+                $parameters[] = $cursor->id;
+            }
+
+            $direction = $criteria->isBackwards() ? 'ASC' : 'DESC';
+            $sql = self::headerSql()
+                .([] === $where ? '' : ' WHERE '.implode(' AND ', $where))
+                .\sprintf(' ORDER BY r.sales_return_number %s, r.id %s LIMIT ?', $direction, $direction);
+            $parameters[] = $criteria->limit + 1;
+
+            $rows = $connection->fetchAllAssociative($sql, $parameters);
+            $hasMore = \count($rows) > $criteria->limit;
+            if ($hasMore) {
+                array_splice($rows, $criteria->limit);
+            }
+            if ($criteria->isBackwards()) {
+                $rows = array_reverse($rows);
+            }
+
+            $linesByReturn = [];
+            if ([] !== $rows) {
+                foreach ($connection->fetchAllAssociative(
+                    self::linesSql().' WHERE srl.sales_return_id = ANY (?::uuid[])'.self::LINES_ORDER,
+                    ['{'.implode(',', array_map(static fn (array $row): string => (string) $row['id'], $rows)).'}'],
+                ) as $line) {
+                    $linesByReturn[(string) $line['sales_return_id']][] = $line;
+                }
+            }
+
+            $next = $previous = null;
+            if ([] !== $rows) {
+                $first = new Cursor((string) $rows[0]['sales_return_number'], (string) $rows[0]['id']);
+                $lastRow = $rows[array_key_last($rows)];
+                $last = new Cursor((string) $lastRow['sales_return_number'], (string) $lastRow['id']);
+                [$next, $previous] = $criteria->isBackwards()
+                    ? [$last->encode(), $hasMore ? $first->encode() : null]
+                    : [$hasMore ? $last->encode() : null, null !== $criteria->after ? $first->encode() : null];
+            }
+
+            return new SalesReturnPage(
+                items: array_map(fn (array $row): SalesReturnView => $this->view($row, $linesByReturn[(string) $row['id']] ?? []), $rows),
+                nextCursor: $next,
+                previousCursor: $previous,
+                // API-22: an EXISTS probe with no filter, only when the page is empty.
+                tenantHasRows: [] === $rows ? (bool) $connection->fetchOne('SELECT EXISTS (SELECT 1 FROM sales_return)') : true,
+            );
+        });
+    }
+
+    /**
      * The header, with the predicate's two outcomes. The statuses are the entity's constants, interpolated (no
      * placeholder), so the statement binds only the id.
      */
@@ -86,14 +179,26 @@ final readonly class SalesReturnReader
                    stamp.id AS invoice_id, stamp.invoice_number,
                    u.id AS recorded_by_id, u.display_name AS recorded_by_display_name,
                    live.id AS live_invoice_id, live.invoice_number AS live_invoice_number,
-                   (live.id IS NOT NULL AND %1$s AND live.status <> '%2$s') AS creditable,
-                   (live.id IS NOT NULL AND %1$s AND live.status = '%2$s') AS credit_blocked_by_payment
+                   %1$s AS creditable,
+                   %2$s AS credit_blocked_by_payment
               FROM sales_return r
               JOIN fulfilment f ON f.tenant_id = r.tenant_id AND f.id = r.fulfilment_id
               JOIN app_user u ON u.tenant_id = r.tenant_id AND u.id = r.recorded_by_user_id
               LEFT JOIN invoice stamp ON stamp.tenant_id = r.tenant_id AND stamp.id = r.invoice_id
               LEFT JOIN invoice live ON live.tenant_id = r.tenant_id AND live.fulfilment_id = r.fulfilment_id AND live.status <> '%3$s'
-            SQL, self::owesACredit(), Invoice::STATUS_PAID, Invoice::STATUS_VOID);
+            SQL, self::creditable(), self::blockedByPayment(), Invoice::STATUS_VOID);
+    }
+
+    /** Creditable: owes a credit, and the live invoice is not paid (`RED-3` N-3). Needs `r` and `live`. */
+    public static function creditable(): string
+    {
+        return \sprintf("(live.id IS NOT NULL AND %s AND live.status <> '%s')", self::owesACredit(), Invoice::STATUS_PAID);
+    }
+
+    /** Blocked by payment: owes a credit, and the live invoice IS paid (Q-E; G-23's queue). Needs `r` and `live`. */
+    public static function blockedByPayment(): string
+    {
+        return \sprintf("(live.id IS NOT NULL AND %s AND live.status = '%s')", self::owesACredit(), Invoice::STATUS_PAID);
     }
 
     /**
@@ -141,7 +246,7 @@ final readonly class SalesReturnReader
     private static function linesSql(): string
     {
         return \sprintf(<<<'SQL'
-        SELECT srl.id, srl.quantity, %s AS quantity_credited,
+        SELECT srl.id, srl.sales_return_id, srl.quantity, %s AS quantity_credited,
                fl.id AS fulfilment_line_id, sol.id AS sales_order_line_id, sol.line_number,
                i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
                fsl.id AS shipped_from_id, fsl.code AS shipped_from_code,

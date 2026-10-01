@@ -25,8 +25,17 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
 
     /** The operations under `/sales-returns`. `CreateSalesReturn` hangs off the fulfilment and is pinned with it. */
     public const PINNED_SALES_RETURN_OPERATIONS = [
+        // Sales step 7 R3 (declared first on its own resource class, so listed first).
+        'ListSalesReturns' => ['method' => 'GET', 'path' => '/sales-returns', 'idem' => false],
         'GetSalesReturn' => ['method' => 'GET', 'path' => '/sales-returns/{id}', 'idem' => false],
     ];
+
+    /**
+     * **Measured at R3** (`SEC` L5-1 FINAL item 10; design :246-248): the status a caller without `invoice.view` gets for
+     * `?credit_blocked_by_payment=`. A parameter error (422 `validation-failed`, code `not_permitted`), not a 403 — see
+     * `SalesReturnCollectionProvider`'s docblock for why a provider-thrown 403 would bypass E-1's audit and denial subject.
+     */
+    private const CREDIT_BLOCKED_FILTER_REFUSAL = 422;
 
     /**
      * `SEC` L5-1 §1.3 — the literal key lists, from design :218-229 and §14 item 25; NEVER derived from a response.
@@ -232,6 +241,86 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $this->send('GET', '/sales-returns/'.$unpaidReturnId);
         $unpaidBody = $this->json();
         self::assertSame($unpaidInvoiceId, $unpaidBody['credit_target']['id']);         // positive control
+    }
+
+    /**
+     * **L5-1, decided (b) — R3 half, verbatim from `output9-sales-8-l5-1-sec.md` §1.3.** Same fixture as the R2 test:
+     * the paid invoice's return is in the unfiltered list (seeded, not vacuous), absent from `creditable=true`, and the
+     * unpaid one's present; the `credit_blocked_by_payment` filter is refused for the operator and served to finance.
+     */
+    #[Test]
+    public function theCreditableQueueExcludesAPaidInvoicesReturnAndNothingMoreIsProjected(): void
+    {
+        $paid = $this->issuedOn($this->shipment('RQ-PAID', [['5', '10.0000', '4']]));
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->send('POST', '/invoices/'.$paid['invoice'].'/payment', []);
+        self::assertSame(200, $this->httpStatus(), 'Fixture: the payment. '.(string) $this->client()->getResponse()->getContent());
+        $paidReturnId = $this->returnedOne($paid['shipment']);
+        $unpaidReturnId = $this->returnedOne($this->issuedOn($this->shipment('RQ-OPEN', [['5', '10.0000', '4']]))['shipment']);
+
+        $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
+        $all = $this->idsOf('/sales-returns');
+        self::assertContains($paidReturnId, $all);                                      // seeded, not vacuous
+        $creditable = $this->idsOf('/sales-returns?creditable=true');
+        self::assertNotContains($paidReturnId, $creditable);
+        self::assertContains($unpaidReturnId, $creditable);
+
+        $this->send('GET', '/sales-returns?credit_blocked_by_payment=true');
+        self::assertSame(self::CREDIT_BLOCKED_FILTER_REFUSAL, $this->httpStatus());       // measured and recorded at R3 (design :246-248)
+        self::assertSame([['pointer' => '?credit_blocked_by_payment', 'code' => 'not_permitted']], array_map(
+            static fn (array $e): array => ['pointer' => $e['pointer'], 'code' => $e['code']], $this->json()['errors']));
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $blocked = $this->idsOf('/sales-returns?credit_blocked_by_payment=true');
+        self::assertContains($paidReturnId, $blocked);
+        self::assertNotContains($unpaidReturnId, $blocked, 'Control: an unpaid invoice\'s return is not blocked by payment.');
+    }
+
+    /**
+     * **The register's other filters (design §4.2; R3):** `deducts` — `finance`'s reconciliation list, REQUIRED in R3
+     * (`RED-4` L4-4) — `fulfilment_id`, `invoice_id` (the stamp) and `q`; each list row is `GetSalesReturn`'s document; an
+     * unknown id is an empty page; and the page walks newest first by number with a working cursor.
+     */
+    #[Test]
+    public function theRegisterFiltersAndPagesNewestFirst(): void
+    {
+        $s = $this->shipment('RQ-FILT', [['5', '10.0000', '4']]);
+        $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
+        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+            ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
+        ]);
+        $deducting = $this->json()['id'];
+        $i = $this->issuedOn($s);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+            ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
+        ]);
+        $stamped = $this->json()['id'];
+        $this->send('GET', '/sales-returns/'.$stamped);
+        $stampedDocument = $this->json();
+        $other = $this->returnedOne($this->shipment('RQ-OTHER', [['5', '10.0000', '4']]));
+
+        $this->actAsRole(DefaultRoles::FINANCE);
+        // `$other` was recorded by an owner before any invoice, so it deducts too (Q-L (a′)).
+        self::assertSame([$other, $deducting], $this->idsOf('/sales-returns?deducts=true'));
+        self::assertSame([$stamped], $this->idsOf('/sales-returns?deducts=false'));
+        self::assertSame([$stamped, $deducting], $this->idsOf('/sales-returns?fulfilment_id='.$s['fulfilment']));
+        self::assertSame([$stamped], $this->idsOf('/sales-returns?invoice_id='.$i['invoice']));
+        self::assertSame([], $this->idsOf('/sales-returns?fulfilment_id='.Uuid::v4()->toRfc4122()));
+        self::assertSame([$other, $stamped, $deducting], $this->idsOf('/sales-returns'), 'Not newest first by number.');
+
+        $this->send('GET', '/sales-returns?invoice_id='.$i['invoice']);
+        self::assertSame([$stampedDocument], $this->json()['items'], 'A list row is not GetSalesReturn\'s document.');
+        $this->send('GET', '/sales-returns?q='.substr($stampedDocument['sales_return_number'], 0, 10));
+        self::assertContains($stamped, array_column($this->json()['items'], 'id'));
+
+        $this->send('GET', '/sales-returns?limit=2');
+        self::assertSame([$other, $stamped], array_column($this->json()['items'], 'id'));
+        $this->send('GET', '/sales-returns?limit=2&after='.urlencode((string) $this->json()['next_cursor']));
+        self::assertSame([$deducting], array_column($this->json()['items'], 'id'));
+        self::assertNull($this->json()['next_cursor']);
+
+        $this->send('GET', '/sales-returns?creditable=maybe');
+        self::assertSame(422, $this->httpStatus());
     }
 
     /**
@@ -563,6 +652,15 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         self::assertSame(201, $this->httpStatus(), 'Fixture: the return. '.(string) $this->client()->getResponse()->getContent());
 
         return $this->json()['id'];
+    }
+
+    /** @return list<string> the ids of a list page, in order */
+    private function idsOf(string $path): array
+    {
+        $this->send('GET', $path);
+        self::assertSame(200, $this->httpStatus(), $path.': '.(string) $this->client()->getResponse()->getContent());
+
+        return array_column($this->json()['items'], 'id');
     }
 
     /** @param list<array<string, string>> $lines */

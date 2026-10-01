@@ -129,6 +129,38 @@ trait ListOperationFixtures
                         'views' => ['', 'sales_order_id='.$order]];
                 }];
             },
+            'ListSalesReturns' => function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Returns');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-153000', null, $warehouse,
+                    SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+
+                return ['/sales-returns', function (int $rows) use ($order, $warehouse): array {
+                    // Sales step 7 R3. Line-less returns of ONE shipment, as the owner, each with a distinct number, so the
+                    // register and the shipment's view hold every row. Numbered from `RET-900001` so they cannot collide
+                    // with a return a success recipe recorded through the API (`RET-000001` upwards).
+                    $fulfilment = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number,
+                                                shipped_by_user_id, idempotency_key, request_digest)
+                        VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'FUL-700001', ?::uuid,
+                                encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                        SQL, [$fulfilment, self::TENANT_A, $order, $warehouse, (string) $this->actorId]);
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO sales_return (id, tenant_id, fulfilment_id, sales_return_number, reason, returned_at,
+                                                      recorded_by_user_id, deducts, idempotency_key, request_digest)
+                            VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'customer_returned', now(), ?::uuid, false,
+                                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $fulfilment,
+                                \sprintf('RET-9%05d', $i), (string) $this->actorId]);
+                    }
+
+                    // `fulfilment_id` is the id filter that holds every row (`invoice_id` names a stamp none of them has);
+                    // TB-5 names `sales_return_number`; one order, so one view.
+                    return ['filter' => ['fulfilment_id' => $fulfilment, 'invoice_id' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
+                        'creditable' => 'false', 'deducts' => 'false'], 'search' => 'RET-9', 'views' => ['']];
+                }];
+            },
             'ListInvoices' => function (): array {
                 $customer = $this->seedCustomer(self::TENANT_A, 'Acme Invoices');
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-154000', $customer, null,

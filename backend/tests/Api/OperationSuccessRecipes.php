@@ -370,6 +370,18 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, return part, then read the return'];
             }],
+            // Sales step 7 R3: the register, read after a return the API recorded, by a holder of everything.
+            'ListSalesReturns' => [fn (): array => $stockedSalesWorkspace('SO-240000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                    ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+                $this->send('GET', '/sales-returns');
+
+                return [200, 'create, confirm, fulfil, return part, then list the returns'];
+            }],
             // Sales step 6, C4: the register, read after an invoice the API issued.
             'ListInvoices' => [fn (): array => $stockedSalesWorkspace('SO-164000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);

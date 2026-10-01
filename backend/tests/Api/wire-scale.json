@@ -152,6 +152,12 @@
     "ListSalesOrders $.items[].total_amount": [
         4
     ],
+    "ListSalesReturns $.items[].lines[].quantity": [
+        6
+    ],
+    "ListSalesReturns $.items[].lines[].quantity_credited": [
+        6
+    ],
     "PayInvoice $.total_amount": [
         4
     ],

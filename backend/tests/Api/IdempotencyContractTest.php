@@ -318,11 +318,12 @@ final class IdempotencyContractTest extends TenancyTestCase
      * date has been an owner ruling, and this one is.
      *
      * **2026-10-01 (sales step 7 R2):** `GetSalesReturn` joins as the 117th row (`no`), and `CreateSalesReturn`
-     * moves from `⛔ none` to `unique:` (marked to marked): 117 rows, 74 unmarked, 43 marked.
+     * moves from `⛔ none` to `unique:` (marked to marked): 117 rows, 74 unmarked, 43 marked. **R3:** `ListSalesReturns`
+     * (`no`): 118 rows, 75 unmarked.
      */
-    private const PINNED_ROW_COUNT = 117;
+    private const PINNED_ROW_COUNT = 118;
 
-    private const PINNED_UNMARKED_COUNT = 74;
+    private const PINNED_UNMARKED_COUNT = 75;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —
