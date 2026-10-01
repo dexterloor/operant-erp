@@ -30,7 +30,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `total_amount` (numeric(19,4), a string), `currency_code`, `issued_at`, `due_at`, `paid_at`, **`paid_by = {id, display_name}`** (null unless paid; sales step 6 C5, `SEC` §2 —
  * Q7, PC-11 (4a): who recorded the payment, A2.3's input), and the references
  * `fulfilment = {id, fulfilment_number}` (the billed shipment, D-A) and `customer = {id, name}` (V2-C-10). **Never
- * `issued_by`** (`SEC` §2) and **no amount credited or due** (V2-C-10's second half, owed to `IssueCreditNote`).
+ * `issued_by`** (`SEC` §2). Since sales step 7 C0: `amount_credited` and `amount_due` (scale 4, derived from
+ * `credit_note`; `amount_due` is 0 once paid — V2-C-10's second half) and `credited_in_full` (boolean, never null:
+ * true exactly when the invoice is in the Credited segment, `IA.md` §5.4 ³). Every write here returns this same
+ * shape under its own code (`SECURITY_MODEL.md` PC-17).
  *
  * `GetInvoice` is declared FIRST on purpose: API Platform's own `Location` names a resource's first item operation,
  * and that is the URI `IssueInvoice`'s 201 must carry (API-21 branch 4; M-19). `CreatedRowLocation`'s template is
@@ -154,12 +157,19 @@ final class InvoiceResource
         public ?SalesActorRef $paidBy,
         public FulfilmentRef $fulfilment,
         public SalesNamedRef $customer,
+        #[SerializedName('amount_credited')]
+        public string $amountCredited,
+        #[SerializedName('amount_due')]
+        public string $amountDue,
+        #[SerializedName('credited_in_full')]
+        public bool $creditedInFull,
     ) {
     }
 
     public static function fromView(InvoiceView $view): self
     {
         return new self($view->id, $view->invoiceNumber, $view->status, $view->totalAmount, $view->currencyCode,
-            $view->issuedAt, $view->dueAt, $view->paidAt, $view->paidBy, $view->fulfilment, $view->customer);
+            $view->issuedAt, $view->dueAt, $view->paidAt, $view->paidBy, $view->fulfilment, $view->customer,
+            $view->amountCredited, $view->amountDue, $view->creditedInFull);
     }
 }

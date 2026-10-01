@@ -22,16 +22,27 @@ use Symfony\Component\Uid\Uuid;
  * A return **owes a credit** when the fulfilment has a LIVE invoice, and
  *   - its stamp is that invoice, or a VOID invoice of the same fulfilment (the reissue after an uncredited void), or
  *     NULL with `deducts = false` (Q-L (a′): a pre-invoice return nobody may deduct);
- *   - and some line has a positive amount: `round(r × p, 4) > 0` with `r = min(returned − credited, billed − credited)`,
- *     `p = unit_price > 0`, `billed = shipped − returned_before_issue` (the deducting returns of that shipped line).
+ *   - and some line would credit a positive amount, priced by `IssueCreditNote`'s own telescope (design §4.4 step 8b):
+ *     `round((C + r) × p, 4) − round(C × p, 4) > 0`, with `r = min(returned − credited on this return line,
+ *     billed − C)`, `C` = credited on the SHIPPED line, `p = unit_price > 0`, `billed = shipped −
+ *     returned_before_issue` (the deducting returns of that shipped line). "Creditable" and "a credit would be
+ *     positive" therefore can never disagree, and no return is creditable against an invoice credited in full.
  * It is **creditable** when it owes a credit AND the live invoice is not `paid` (`RED-3` N-3; Q-E: a paid invoice
  * cannot be credited yet); it is **blocked by payment** when it owes a credit AND the live invoice IS `paid`.
  * `credit_target` (the invoice a credit must be issued against) is the live invoice exactly when creditable, computed
  * from THIS predicate and never inline (`SEC` L5-1 FINAL item 6) — so dropping "not paid" from it moves both.
  *
- * **The credited quantity is ONE named term, `CREDITED`** (`SEC` L5-1 §1.4, `RED-2` L-1): `0::numeric(19,6)` until
- * the credit tables exist; C0 replaces only that term with `COALESCE(SUM(credit_note_line.quantity), 0::numeric(19,6))`.
- * A bare `0` would serialize `quantity_credited` at scale 0 and bake that into `wire-scale.json`.
+ * **The credited quantity is TWO named terms since sales step 7 C0** (`SEC` L5-1 §1.4's full C0 form and its
+ * CORRECTED FINAL C0 note; `output9-sales-8-c0-amendments.md` A-8). Chunk A's single `0::numeric(19,6)` stood for two
+ * different quantities:
+ *   - {@see self::CREDITED_ON_RETURN_LINE} — credited against THIS return line (`credit_note_line.sales_return_line_id`):
+ *     the first `LEAST` position, and the line's served `quantity_credited`;
+ *   - {@see self::CREDITED_ON_FULFILMENT_LINE} — credited against the SHIPPED line on the live invoice, whoever's
+ *     return it was and including adjustment credits (C1b, no return line): `credited(l)` in `billed(l) − credited(l)`,
+ *     the second position, and the telescope's `C`.
+ * Each is a correlated scalar subquery (an aggregate cannot sit in this `WHERE`), `COALESCE(…, 0::numeric(19,6))`: a
+ * bare `0` would serialize `quantity_credited` at scale 0 (`SEC` §1.4's scale trap). Pinned by
+ * `SalesReturnCreditedTermsTest` (the 0.0001 rounding row and the other-return row; mutations M-8 / M-9).
  *
  * **L5-1, decided (b) by `SEC` 2026-10-01:** `credit_target` stays null unless creditable, and PC-9's third deliberate
  * exception states the four bounded facts a `sales_return.view` holder without `invoice.view` can infer from it and
@@ -40,8 +51,19 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class SalesReturnReader
 {
-    /** The credited quantity, one named term (see the class docblock). */
-    private const CREDITED = '0::numeric(19,6)';
+    /** Credited against one return line `%1$s` (see the class docblock). */
+    private const CREDITED_ON_RETURN_LINE = <<<'SQL'
+        COALESCE((SELECT SUM(cnl.quantity) FROM credit_note_line cnl
+                   WHERE cnl.tenant_id = %1$s.tenant_id AND cnl.sales_return_line_id = %1$s.id), 0::numeric(19,6))
+        SQL;
+
+    /** Credited against shipped line `%1$s` on invoice `%2$s`, adjustments and other returns included. */
+    private const CREDITED_ON_FULFILMENT_LINE = <<<'SQL'
+        COALESCE((SELECT SUM(cfl.quantity) FROM credit_note_line cfl
+                    JOIN credit_note cfn ON cfn.tenant_id = cfl.tenant_id AND cfn.id = cfl.credit_note_id
+                   WHERE cfl.tenant_id = %1$s.tenant_id AND cfl.fulfilment_line_id = %1$s.id
+                     AND cfn.invoice_id = %2$s.id), 0::numeric(19,6))
+        SQL;
 
     public function __construct(
         private TenantContext $tenants,
@@ -222,11 +244,17 @@ final readonly class SalesReturnReader
                       JOIN sales_order_line rsol ON rsol.tenant_id = rfl.tenant_id AND rsol.id = rfl.sales_order_line_id
                      WHERE rl.tenant_id = r.tenant_id AND rl.sales_return_id = r.id
                        AND rsol.unit_price > 0
-                       AND round(LEAST(rl.quantity - %1$s,
-                                       rfl.quantity - %2$s - %1$s) * rsol.unit_price, 4) > 0
+                       AND LEAST(rl.quantity - %1$s, rfl.quantity - %2$s - %4$s) > 0
+                       AND round((%4$s + LEAST(rl.quantity - %1$s, rfl.quantity - %2$s - %4$s)) * rsol.unit_price, 4)
+                           - round(%4$s * rsol.unit_price, 4) > 0
                 )
             )
-            SQL, self::CREDITED, self::returnedBeforeIssue('rfl'), Invoice::STATUS_VOID);
+            SQL,
+            \sprintf(self::CREDITED_ON_RETURN_LINE, 'rl'),
+            self::returnedBeforeIssue('rfl'),
+            Invoice::STATUS_VOID,
+            \sprintf(self::CREDITED_ON_FULFILMENT_LINE, 'rfl', 'live'),
+        );
     }
 
     /**
@@ -257,7 +285,7 @@ final readonly class SalesReturnReader
           JOIN inventory_item i ON i.tenant_id = sol.tenant_id AND i.id = sol.inventory_item_id
           JOIN storage_location fsl ON fsl.tenant_id = fl.tenant_id AND fsl.id = fl.storage_location_id
           JOIN storage_location sl ON sl.tenant_id = srl.tenant_id AND sl.id = srl.storage_location_id
-        SQL, self::CREDITED);
+        SQL, \sprintf(self::CREDITED_ON_RETURN_LINE, 'srl'));
     }
 
     private const LINES_ORDER = ' ORDER BY sol.line_number, fl.storage_location_id, srl.id';

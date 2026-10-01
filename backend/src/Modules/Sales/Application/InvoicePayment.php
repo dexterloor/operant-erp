@@ -24,9 +24,15 @@ use Symfony\Component\Uid\Uuid;
  *  1. The E-1 gate (`invoice.pay`) has already run — `PermissionGate`, on `kernel.controller`.
  *  2. **`InvoiceRowLock`**, the transaction's first statement, then the invoice re-read under it (RLS: another
  *     workspace's invoice and a random uuid are the same 404, E-2 / ST-5).
- *  3. The status guard, inside `Invoice::markPaid()` (§8.3's matrix row: `issued` or `overdue`). A repeat finds the
- *     invoice `paid` and is refused `invoice.status_transition_is_legal` — `guard:invoice.status`, so no
- *     `Idempotency-Key` is demanded (API-14 as amended).
+ *  3. The status guard (§8.3's matrix row: `issued` or `overdue`) — **evaluated explicitly after step 4's date checks**
+ *     since sales step 7 C0 (`Invoice::assertPayable()`; `markPaid()` keeps it as its first statement too). A
+ *     repeat finds the invoice `paid` and is refused `invoice.status_transition_is_legal` — `guard:invoice.status`, so
+ *     no `Idempotency-Key` is demanded (API-14 as amended).
+ *  3a. **`invoice.has_an_amount_due` (409, sales step 7 C0 — a change to shipped `PayInvoice`, vacuous until C1
+ *     writes a credit):** an invoice **credited in full** ({@see InvoiceCredit::creditedInFull()}, the one predicate)
+ *     owes nothing and cannot be marked paid. AFTER the status guard, so no shipped answer moves
+ *     (`output9-sales-8-c0-amendments.md` A-1 row 7: locks → re-read → dates → status → the new refusals → flip).
+ *     A zero-total invoice with no credit note is not credited in full and is paid as before.
  *  4. **`paid_at`, on the DATABASE clock** (RED-3 F-1): one `SELECT now()` inside the locked transaction is the
  *     default, the "future" bound and the clamp target — never PHP's clock. More than 60 s ahead of it → 422
  *     `in_the_future` (`FulfilmentWriter::shippedAt()`'s rule); inside the window → clamped to it. **Earlier than the
@@ -96,7 +102,21 @@ final readonly class InvoicePayment
         // 4.
         $paidAt = $this->paidAt($em, $requested, $invoice);
 
-        // 3 and 5. The status guard is the first statement of `markPaid()`.
+        // 3. The status guard, explicitly, before any new refusal (N-4).
+        $invoice->assertPayable();
+
+        // 3a. The one predicate, on the locked row's stored columns.
+        if (true === (bool) $em->getConnection()->fetchOne(
+            'SELECT '.InvoiceCredit::creditedInFull().' FROM invoice inv WHERE inv.id = ?::uuid',
+            [$id],
+        )) {
+            throw ApiProblem::businessRuleViolated(
+                'invoice.has_an_amount_due',
+                'This invoice has been credited in full, so nothing is owed on it and it cannot be marked paid.',
+            );
+        }
+
+        // 5.
         $payer = $em->getReference($em->getClassMetadata(Invoice::class)->getAssociationTargetClass('paidBy'), Uuid::fromString($identity->userId));
         $invoice->markPaid($paidAt, $payer);
         $em->flush();

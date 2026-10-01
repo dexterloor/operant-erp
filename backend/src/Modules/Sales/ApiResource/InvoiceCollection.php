@@ -29,7 +29,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: InvoiceCollectionProvider::class,
             parameters: [
                 'status' => new QueryParameter(
-                    description: 'The list segment, over the STORED status (TB-4): `unpaid` (issued; an unpaid invoice past its due date is labelled overdue in each row, never filtered), `paid`, `void`.',
+                    description: 'The list segment, over the STORED status and the stored credits (TB-4 ³): `unpaid` (issued, not credited in full; an unpaid invoice past its due date is labelled overdue in each row, never filtered), `paid`, `credited` (issued, credited in full: owes nothing), `void`.',
                     schema: ['type' => 'string', 'enum' => InvoiceViews::SEGMENT_NAMES],
                 ),
                 'customer_id' => new QueryParameter(

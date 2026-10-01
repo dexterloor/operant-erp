@@ -418,6 +418,27 @@ final class ContractDocument
     }
 
     /**
+     * Resource → table for a resource with **no table of its own**, read off §4.4.3's sentence
+     * *"**<Resource> is derived from `<table>`**"* (sales step 7 C0: `InvoiceLine` — no `invoice_line` table exists,
+     * each item is one `fulfilment_line` row, design F-2). The second place §4.2/§4.4.3 tie a resource name to a
+     * `SchemaManifest` table, beside {@see self::restoreGuardTables()}; a caller resolving a resource's table consults
+     * both, and still asserts the table is in the manifest, so a sentence naming a table that does not exist is red.
+     *
+     * @return array<string, string>
+     */
+    public static function derivedResourceTables(): array
+    {
+        preg_match_all('/\*\*([A-Z][A-Za-z]+) is derived from `([a-z_]+)`\*\*/', self::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '), $m, \PREG_SET_ORDER);
+
+        $tables = [];
+        foreach ($m as [, $resource, $table]) {
+            $tables[$resource] = $table;
+        }
+
+        return $tables;
+    }
+
+    /**
      * §15.1's per-row build status, operationId → `built` | `unbuilt`.
      *
      * §15.1 is a **four**-column table (six fields with `-F'|'`), which is why

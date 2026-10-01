@@ -383,6 +383,14 @@ trait OperationSuccessRecipes
                 return [200, 'create, confirm, fulfil, return part, then list the returns'];
             }],
             // Sales step 6, C4: the register, read after an invoice the API issued.
+            // Sales step 7 C0: the derived lines of an invoice the API issued on a shipment the API wrote.
+            'ListInvoiceLines' => [fn (): array => $stockedSalesWorkspace('SO-242000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location').'/lines');
+
+                return [200, 'create, confirm, fulfil, invoice, then list the invoice\'s lines'];
+            }],
             'ListInvoices' => [fn (): array => $stockedSalesWorkspace('SO-164000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);
                 $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());

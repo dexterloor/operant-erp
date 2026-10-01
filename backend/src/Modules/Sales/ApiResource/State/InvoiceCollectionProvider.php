@@ -65,12 +65,17 @@ final readonly class InvoiceCollectionProvider implements ProviderInterface
         }
 
         $statuses = [];
+        $credit = null;
+        $segment = null;
         if (isset($query['status'])) {
             $raw = $query['status'];
             if (!\is_string($raw) || !\array_key_exists($raw, InvoiceViews::SEGMENTS)) {
                 $errors[] = self::error('status', 'unknown_segment', \sprintf('status must be one of %s.', implode(', ', InvoiceViews::SEGMENT_NAMES)));
             } else {
-                $statuses = InvoiceViews::SEGMENTS[$raw];
+                // A segment is its stored statuses AND its credit condition (TB-4 ³): Unpaid and Credited share statuses.
+                $segment = $raw;
+                $statuses = InvoiceViews::SEGMENTS[$raw]['statuses'];
+                $credit = InvoiceViews::SEGMENTS[$raw]['credit'];
             }
         }
 
@@ -87,7 +92,7 @@ final readonly class InvoiceCollectionProvider implements ProviderInterface
             }
         }
 
-        $legal = InvoiceViews::legalSorts($statuses, null !== $customerId, null !== $fulfilmentId);
+        $legal = InvoiceViews::legalSorts($segment, null !== $customerId, null !== $fulfilmentId);
         $sort = $legal[0];
         if (isset($query['sort'])) {
             $raw = $query['sort'];
@@ -113,6 +118,7 @@ final readonly class InvoiceCollectionProvider implements ProviderInterface
             limit: $limit,
             sort: $sort,
             statuses: $statuses,
+            credit: $credit,
             customerId: $customerId,
             fulfilmentId: $fulfilmentId,
             search: $search,

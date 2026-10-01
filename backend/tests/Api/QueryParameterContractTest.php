@@ -215,7 +215,7 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
             }
 
             $resource = ResponseShapeTest::resourceOf($rows[$name]['verbResource'], $resources);
-            $table = $softResources[$resource] ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+            $table = $softResources[$resource] ?? ContractDocument::derivedResourceTables()[$resource] ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
             self::assertArrayHasKey($table, SchemaManifest::TABLES, $name.'\'s resource '.$resource.' ties to no SchemaManifest table ('.$table.').');
             $isSoft = SchemaManifest::SOFT === SchemaManifest::TABLES[$table]['deletion'];
 

@@ -34,6 +34,8 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
     public const PINNED_INVOICE_OPERATIONS = [
         // Sales step 6, C4 (2026-09-28). Listed first: the registry declares it first, and the pin compares order.
         'ListInvoices' => ['method' => 'GET', 'path' => '/invoices', 'idem' => false],
+        // Sales step 7 C0 (2026-10-01). Declared on its own resource class, which the registry reads second. Bounded.
+        'ListInvoiceLines' => ['method' => 'GET', 'path' => '/invoices/{id}/lines', 'idem' => false],
         'GetInvoice' => ['method' => 'GET', 'path' => '/invoices/{id}', 'idem' => false],
         // Sales step 6, C5 (2026-09-28). `guard:invoice.status`: no header demanded.
         'PayInvoice' => ['method' => 'POST', 'path' => '/invoices/{id}/payment', 'idem' => false],
@@ -77,7 +79,16 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertSame('/api/v1/invoices/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
         self::assertSame(['id', 'invoice_number', 'status', 'total_amount', 'currency_code', 'issued_at', 'due_at',
-            'paid_at', 'paid_by', 'fulfilment', 'customer'], array_keys($body));
+            'paid_at', 'paid_by', 'fulfilment', 'customer', 'amount_credited', 'amount_due', 'credited_in_full'], array_keys($body));
+        // Sales step 7 C0: V2-C-10's second half, literal scale 4 (a bare COALESCE(SUM(…), 0) would read "0").
+        self::assertSame('0.0000', $body['amount_credited']);
+        self::assertSame('25.0002', $body['amount_due']);
+        self::assertFalse($body['credited_in_full']);
+        // PC-17: the 201 is GetInvoice's shape, under `invoice.issue`.
+        $issued = $body;
+        $this->send('GET', '/invoices/'.$body['id']);
+        self::assertSame(array_keys($this->json()), array_keys($issued), 'PC-17: the issue\'s 201 is not GetInvoice\'s shape.');
+        $this->actAsRole(DefaultRoles::SALES_REP);
         self::assertSame('INV-000001', $body['invoice_number']);
         self::assertSame('issued', $body['status']);
         self::assertSame('25.0002', $body['total_amount'], 'The total is not rounded per line (D-A).');

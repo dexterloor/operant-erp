@@ -216,6 +216,45 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'ROLE-ENV', 'views' => ['']];
                 }];
             },
+            'ListInvoiceLines' => function (): array {
+                // Sales step 7 C0. An invoice (as the owner) on a LINE-LESS shipment, so the empty page is readable
+                // first; the seed step gives the shipment its lines, one order line each. Numbers from `-91xxxx` so
+                // they cannot collide with a recipe's invoice or fulfilment.
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Invoice Lines');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-157000', null, $warehouse,
+                    SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+                $fulfilment = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number, shipped_by_user_id,
+                                            idempotency_key, request_digest)
+                    VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'FUL-910001', ?::uuid,
+                            encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                    SQL, [$fulfilment, self::TENANT_A, $order, $warehouse, (string) $this->actorId]);
+                $invoice = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number, currency_code,
+                                         total_amount, due_at, issued_by_user_id)
+                    SELECT ?::uuid, so.tenant_id, ?::uuid, so.id, so.customer_id, 'INV-910001', so.currency_code, 0,
+                           now() + interval '30 days', ?::uuid
+                      FROM sales_order so WHERE so.id = ?::uuid
+                    SQL, [$invoice, $fulfilment, (string) $this->actorId, $order]);
+                $bin = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO storage_location (id, tenant_id, warehouse_id, code, kind) VALUES (?::uuid, ?::uuid, ?::uuid, 'IL-01', 'bin')",
+                    [$bin, self::TENANT_A, $warehouse]);
+
+                return ['/invoices/'.$invoice.'/lines', function (int $rows) use ($order, $fulfilment, $bin): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-ENV-IL'.$i), $i);
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            'INSERT INTO fulfilment_line (id, tenant_id, fulfilment_id, sales_order_line_id, storage_location_id, quantity) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 1)',
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $fulfilment, $line, $bin]);
+                    }
+
+                    // Bounded (TB-1c), `ListSalesOrderLines`' three nulls for the same rule.
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListSalesOrderLines' => function (): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-156000');
 

@@ -10,12 +10,14 @@ use App\Platform\Http\Pagination\Cursor;
 final readonly class InvoiceListCriteria
 {
     /**
-     * @param list<string> $statuses
+     * @param list<string> $statuses the segment's stored statuses, [] for none
+     * @param ?string      $credit   the segment's credit condition (`InvoiceViews::CREDIT_*`), null for none (TB-4 ³)
      */
     public function __construct(
         public int $limit,
         public string $sort,
         public array $statuses = [],
+        public ?string $credit = null,
         public ?string $customerId = null,
         public ?string $fulfilmentId = null,
         public ?string $search = null,

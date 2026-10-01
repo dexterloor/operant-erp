@@ -105,7 +105,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * @var array<string, list<list<string>>>
      */
     private const RULED_DISPLAY_SHAPES = [
-        'fulfilment_line' => [['id', 'inventory_item', 'sales_order_line', 'storage_location']],
+        // The return side (R2, with the bin the goods left from) and the money side (C0's invoice lines, C1's credit-note
+        // lines: binless, with the shipped quantity) — both owner ruling Q-H.
+        'fulfilment_line' => [['id', 'inventory_item', 'sales_order_line', 'storage_location'], ['id', 'inventory_item', 'quantity', 'sales_order_line']],
     ];
 
     /**
@@ -476,10 +478,13 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         // Control — the document numbers are IA.md R-1's five plus the sales return's `RET-` (sales step 7 R1,
         // 2026-10-01: `sales_return_number_unique`, six digits like the rest). Moved deliberately from 5 in the commit
-        // that created the sixth number; a reference to a return displays `{id, sales_return_number}`.
+        // that created the sixth number; a reference to a return displays `{id, sales_return_number}`. And the credit
+        // note's `CN-` (sales step 7 C0, 2026-10-01: `credit_note_number_unique`): moved deliberately from 6 to 7 in the
+        // commit that created the seventh number; a reference to a credit note displays `{id, credit_note_number}`.
+        // ⚠ Owed to `UX`: IA.md R-1 / D-f prose still says "five document numbers".
         $documentNumbers = $this->documentNumberColumns();
-        self::assertSame(6, \count($documentNumbers),
-            'The live-unique *_number indexes are not IA.md R-1\'s five document numbers plus the sales return\'s: '.json_encode($documentNumbers));
+        self::assertSame(7, \count($documentNumbers),
+            'The live-unique *_number indexes are not IA.md R-1\'s five document numbers plus the sales return\'s and the credit note\'s: '.json_encode($documentNumbers));
 
         // Planted controls — each branch of the pure rule, with clause (ii)'s
         // table passed explicitly.

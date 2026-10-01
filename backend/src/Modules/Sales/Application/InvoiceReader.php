@@ -17,11 +17,14 @@ use Symfony\Component\Uid\Uuid;
  *
  * **The shape** is §4.4.3's Invoice row: `invoice_number`, `status`, `total_amount`, `issued_at`, `due_at`, `paid_at`,
  * plus `currency_code`, the billed shipment's `fulfilment = {id, fulfilment_number}` and `customer = {id, name}`
- * (V2-C-10's first half). Never `issued_by` (`SEC` §2) and never an amount credited or due (V2-C-10's second half,
- * owed to `IssueCreditNote`).
+ * (V2-C-10's first half), and — since sales step 7 C0 — `amount_credited`, `amount_due` and `credited_in_full`
+ * (V2-C-10's second half), all from {@see InvoiceCredit}, the one place "credited in full" is decided. Never
+ * `issued_by` (`SEC` §2).
  *
- * **`status` is derived, total over the stored domain** (`ARCH` §5.1; owner ruling Q2): an `issued` invoice whose
- * `due_at` has passed reads `overdue`, and a stored `overdue` reads `overdue`; every other stored value reads as
+ * **`status` is derived, total over the stored domain** (`ARCH` §5.1; owner ruling Q2): an invoice **credited in full**
+ * reads `issued` — even a stored `overdue` one, so the predicate is the CASE's FIRST branch (`c0-amendments` site 3;
+ * a conjunct on the date branch alone would let a stored `overdue` through its `ELSE`); otherwise an `issued` invoice
+ * whose `due_at` has passed reads `overdue`, and a stored `overdue` reads `overdue`; every other stored value reads as
  * itself. `now()` is the **database's** clock — the one `invoice_due_window` and `due_at` itself were computed on —
  * so no PHP clock decides whether an invoice is overdue. `Invoice::markOverdue()` is kept but has no caller
  * (`RESIDUAL_GAPS.md` R-C, C4). The statuses are bound from `Invoice::STATUS_*`, never spelled as SQL literals
@@ -66,8 +69,8 @@ final readonly class InvoiceReader
      * **`ListInvoices`** (sales step 6, C4) — one keyset page (API-17/API-18) in the view's one order, each row the
      * same document `GetInvoice` answers, `status` derived the same way.
      *
-     * Membership is decided on the **stored** status (TB-4), never on the derived one: the derivation only relabels a
-     * row. A `customer_id` or `fulfilment_id` naming another workspace's row, or none, is a predicate no visible row
+     * Membership is decided on the stored status and the stored credits (TB-4 ³), never on the derived label. The label
+     * only relabels a row: `overdue` by date, and `issued` for an invoice credited in full, even a stored `overdue` one. A `customer_id` or `fulfilment_id` naming another workspace's row, or none, is a predicate no visible row
      * satisfies — RLS bounds `invoice` to the caller's workspace — so the answer is the same empty 200 (`SEC` §9.6);
      * nothing is probed, so there is nothing to 404 on.
      */
@@ -81,6 +84,13 @@ final readonly class InvoiceReader
             if ([] !== $criteria->statuses) {
                 $where[] = 'inv.status IN ('.implode(', ', array_fill(0, \count($criteria->statuses), '?::text')).')';
                 $parameters = [...$parameters, ...$criteria->statuses];
+            }
+            // Invoices' one credit-derived split (TB-4 ³): Unpaid holds `{issued, overdue}` NOT credited in full,
+            // Credited holds the same statuses credited in full. One fragment, never restated.
+            if (InvoiceViews::CREDIT_NOT_IN_FULL === $criteria->credit) {
+                $where[] = 'NOT '.InvoiceCredit::creditedInFull();
+            } elseif (InvoiceViews::CREDIT_IN_FULL === $criteria->credit) {
+                $where[] = InvoiceCredit::creditedInFull();
             }
             if (null !== $criteria->customerId) {
                 $where[] = 'inv.customer_id = ?::uuid';
@@ -137,6 +147,78 @@ final readonly class InvoiceReader
     }
 
     /**
+     * **`ListInvoiceLines`** (sales step 7 C0) — every shipped line of the invoice's fulfilment, with what was billed
+     * and what this invoice's credit notes have credited on it; null when the invoice is not visible (404).
+     *
+     * `quantity_billed` is `IssueInvoice`'s own formula, shipped − {@see SalesReturnReader::returnedBeforeIssue()} (one
+     * copy), and `amount_billed` its per-line rounding. **Disclosed limit:** for a VOID invoice whose shipment later
+     * took a deducting return (recorded while no live invoice existed), the derivation reads today's deductions, not
+     * the ones that invoice priced — design §4.4 step 7a's equality assertion (C1) is the check on the live invoice.
+     * Credited sums are line sums (`credit_note_line.quantity` / `.amount`), never the invoice-level total
+     * (`InvoiceCredit`).
+     *
+     * @return ?list<InvoiceLineView>
+     */
+    public function lines(string $id): ?array
+    {
+        if (!Uuid::isValid($id)) {
+            return null;
+        }
+
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($id): ?array {
+            $connection = $em->getConnection();
+            $id = Uuid::fromString($id)->toRfc4122();
+
+            if (false === $connection->fetchOne('SELECT 1 FROM invoice WHERE id = ?::uuid', [$id])) {
+                return null;
+            }
+
+            $rows = $connection->fetchAllAssociative(\sprintf(<<<'SQL'
+                SELECT fl.id, fl.quantity AS shipped_quantity,
+                       sol.id AS sales_order_line_id, sol.line_number,
+                       i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
+                       (fl.quantity - %1$s)::numeric(19,6) AS quantity_billed,
+                       sol.unit_price,
+                       round((fl.quantity - %1$s) * sol.unit_price, 4)::numeric(19,4) AS amount_billed,
+                       COALESCE((SELECT SUM(cl.quantity) FROM credit_note_line cl
+                                   JOIN credit_note c ON c.tenant_id = cl.tenant_id AND c.id = cl.credit_note_id
+                                  WHERE cl.tenant_id = fl.tenant_id AND cl.fulfilment_line_id = fl.id
+                                    AND c.invoice_id = inv.id), 0::numeric(19,6)) AS quantity_credited,
+                       COALESCE((SELECT SUM(cl.amount) FROM credit_note_line cl
+                                   JOIN credit_note c ON c.tenant_id = cl.tenant_id AND c.id = cl.credit_note_id
+                                  WHERE cl.tenant_id = fl.tenant_id AND cl.fulfilment_line_id = fl.id
+                                    AND c.invoice_id = inv.id), 0::numeric(19,4)) AS amount_credited
+                  FROM invoice inv
+                  JOIN fulfilment_line fl ON fl.tenant_id = inv.tenant_id AND fl.fulfilment_id = inv.fulfilment_id
+                  JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
+                  JOIN inventory_item i ON i.tenant_id = sol.tenant_id AND i.id = sol.inventory_item_id
+                 WHERE inv.id = ?::uuid
+                 ORDER BY sol.line_number, fl.storage_location_id, fl.id
+                SQL, SalesReturnReader::returnedBeforeIssue('fl')), [$id]);
+
+            return array_map(static function (array $row): InvoiceLineView {
+                $item = new SalesItemRef((string) $row['inventory_item_id'], (string) $row['inventory_item_sku'], (string) $row['inventory_item_name']);
+
+                return new InvoiceLineView(
+                    id: (string) $row['id'],
+                    fulfilmentLine: new BilledLineRef(
+                        (string) $row['id'],
+                        new SalesLineRef((string) $row['sales_order_line_id'], (int) $row['line_number']),
+                        $item,
+                        (string) $row['shipped_quantity'],
+                    ),
+                    inventoryItem: $item,
+                    quantityBilled: (string) $row['quantity_billed'],
+                    unitPrice: (string) $row['unit_price'],
+                    amountBilled: (string) $row['amount_billed'],
+                    quantityCredited: (string) $row['quantity_credited'],
+                    amountCredited: (string) $row['amount_credited'],
+                );
+            }, $rows);
+        });
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows in the list's own order
      *
      * @return array{?string, ?string} next, previous
@@ -166,11 +248,13 @@ final readonly class InvoiceReader
      */
     public static function select(): string
     {
-        return <<<'SQL'
+        return \sprintf(<<<'SQL'
             SELECT inv.id, inv.invoice_number,
-                   CASE WHEN inv.status = ?::text OR (inv.status = ?::text AND inv.due_at < now())
+                   CASE WHEN %1$s THEN ?::text
+                        WHEN inv.status = ?::text OR (inv.status = ?::text AND inv.due_at < now())
                         THEN ?::text ELSE inv.status END AS status,
                    inv.total_amount, inv.currency_code, inv.issued_at, inv.due_at, inv.paid_at,
+                   %2$s AS amount_credited, %3$s AS amount_due, %1$s AS credited_in_full,
                    pu.id AS paid_by_id, pu.display_name AS paid_by_display_name,
                    f.id AS fulfilment_id, f.fulfilment_number,
                    c.id AS customer_id, c.name AS customer_name
@@ -178,13 +262,13 @@ final readonly class InvoiceReader
               JOIN fulfilment f ON f.tenant_id = inv.tenant_id AND f.id = inv.fulfilment_id
               JOIN customer c ON c.tenant_id = inv.tenant_id AND c.id = inv.customer_id
               LEFT JOIN app_user pu ON pu.tenant_id = inv.tenant_id AND pu.id = inv.paid_by_user_id
-            SQL;
+            SQL, InvoiceCredit::creditedInFull(), InvoiceCredit::credited(), InvoiceCredit::amountDue());
     }
 
-    /** @return list<string> the three statuses {@see self::select()}'s derivation binds, in its order */
+    /** @return list<string> the four statuses {@see self::select()}'s derivation binds, in its order */
     public static function statusParameters(): array
     {
-        return [Invoice::STATUS_OVERDUE, Invoice::STATUS_ISSUED, Invoice::STATUS_OVERDUE];
+        return [Invoice::STATUS_ISSUED, Invoice::STATUS_OVERDUE, Invoice::STATUS_ISSUED, Invoice::STATUS_OVERDUE];
     }
 
     /** @param array<string, mixed> $row */
@@ -205,6 +289,9 @@ final readonly class InvoiceReader
             paidBy: null === $row['paid_by_id'] ? null : new SalesActorRef((string) $row['paid_by_id'], (string) $row['paid_by_display_name']),
             fulfilment: new FulfilmentRef((string) $row['fulfilment_id'], (string) $row['fulfilment_number']),
             customer: new SalesNamedRef((string) $row['customer_id'], (string) $row['customer_name']),
+            amountCredited: (string) $row['amount_credited'],
+            amountDue: (string) $row['amount_due'],
+            creditedInFull: (bool) $row['credited_in_full'],
         );
     }
 }

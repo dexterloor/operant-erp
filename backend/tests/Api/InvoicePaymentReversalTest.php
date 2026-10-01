@@ -73,6 +73,7 @@ final class InvoicePaymentReversalTest extends PurchaseOrderTestCase
             [$i['invoice']]), 'The History does not hold both the payment and its reversal.');
 
         $this->send('GET', '/invoices/'.$i['invoice']);
+        self::assertSame(array_keys($this->json()), array_keys($body), 'PC-17: the reversal\'s 200 is not GetInvoice\'s shape.');
         self::assertSame($body, $this->json());
     }
 

@@ -249,6 +249,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // below (literal maps, never this one) keep the check from being vacuous.
     ];
 
+    /**
+     * The built operations that touch invoices or credits, each a ruling that it cannot lower a credit or raise a total
+     * ({@see self::noCreditOrInvoiceOperationShipsOffTheAllowList()}). Sales step 7 C0, 2026-10-01.
+     */
+    private const CREDIT_AND_INVOICE_OPERATIONS = [
+        'IssueInvoice', 'GetInvoice', 'ListInvoices', 'PayInvoice', 'ReverseInvoicePayment', 'VoidInvoice', 'ListInvoiceLines',
+    ];
+
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
     private const THE_INVOICE_CORRECTIONS = ['ReverseInvoicePayment', 'VoidInvoice'];
 
@@ -797,6 +805,57 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return $defects;
+    }
+
+    /**
+     * **The `operationId` allow-list behind TB-4's Credited exception** (sales step 7 C0; `output9-sales-8-c0-amendments.md`
+     * A6-b, the BACKSTOP to `CreditedSegmentLapseTest`'s live-grant pin). Every built operation whose `operationId`
+     * contains `Invoice`, `Credit` or `DebitNote` must be named here. The substrings cover every verb — `Revoke`,
+     * `Reject`, `Change` included — the line resources, `AdjustmentCreditNote`, a reversal shaped as a new document
+     * (`IssueCreditNoteReversal`, `IssueDebitNote`) and a total-raising `UpdateInvoice` / `UpdateInvoiceLine`, without
+     * guessing names (the earlier seven-name list missed most of them, amendments RED H-1). Keyed by `operationId`, never
+     * a path (`1076ba3`).
+     *
+     * **Adding a name is a ruling** that the operation cannot lower a credit or raise a total — the pin cannot judge
+     * that; only the person moving it can. Additions, each in its own commit, as a deliberate move: C1
+     * `IssueCreditNote`, `GetCreditNote`; C1b `IssueAdjustmentCreditNote`; C2 `ListCreditNotes`.
+     *
+     * Written as a pure function with **planted controls in the same test** (`anIssuedInvoiceCannotShipWithout…`'s
+     * precedent): {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT} proves only that the spec is read, not that the filter
+     * matches anything (amendments RED-2 M-2).
+     */
+    #[Test]
+    public function noCreditOrInvoiceOperationShipsOffTheAllowList(): void
+    {
+        $built = $this->builtOperationIds();
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+
+        // Planted controls: a literal built set with the real allow-list reports exactly the three unlisted matches.
+        self::assertSame(['RevokeCreditNote', 'UpdateInvoice', 'IssueDebitNote'],
+            self::unlistedCreditOrInvoiceOperations(['RevokeCreditNote', 'UpdateInvoice', 'IssueDebitNote', 'CreateGoodsReceipt', 'GetInvoice'], self::CREDIT_AND_INVOICE_OPERATIONS),
+            'The allow-list filter does not report an unlisted credit or invoice operation, or reports one it should not.');
+        // No allow-list entry is dead: each matches the substring filter itself.
+        self::assertSame([], array_values(array_filter(self::CREDIT_AND_INVOICE_OPERATIONS,
+            static fn (string $name): bool => [] === self::unlistedCreditOrInvoiceOperations([$name], []))),
+            'An allow-list entry does not match the substring filter, so it can never be needed and hides nothing.');
+
+        self::assertSame([], self::unlistedCreditOrInvoiceOperations(array_keys($built), self::CREDIT_AND_INVOICE_OPERATIONS),
+            \App\Tests\Support\CreditedSegment::LAPSE."\nA built operation touching invoices or credits is not on the allow-list. If it can lower a "
+            .'credit or raise an invoice total, Credited is no longer monotonic: re-rule TB-4 (UX) first. If it cannot, add it to '
+            .'CREDIT_AND_INVOICE_OPERATIONS in its own commit, as a ruling, never to get green.');
+    }
+
+    /**
+     * @param list<string> $built
+     * @param list<string> $allowed
+     *
+     * @return list<string> the built operations matching `Invoice`, `Credit` or `DebitNote` that are not allowed
+     */
+    private static function unlistedCreditOrInvoiceOperations(array $built, array $allowed): array
+    {
+        return array_values(array_filter($built, static fn (string $operation): bool => 1 === preg_match('/Invoice|Credit|DebitNote/', $operation)
+            && !\in_array($operation, $allowed, true)));
     }
 
     /**

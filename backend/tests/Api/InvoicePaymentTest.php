@@ -294,6 +294,34 @@ final class InvoicePaymentTest extends PurchaseOrderTestCase
         self::assertStringNotContainsString('paid_by', (string) $this->client()->getResponse()->getContent());
     }
 
+    /**
+     * PC-17: the payment's 200 is the invoice under invoice.pay alone — derived C0 fields included; the GET stays 403.
+     * Verbatim from `SEC` (`output9-sales-8-l5-1-sec.md` §M-4, "The test that pins it"), sales step 7 C0. Mutations:
+     * withhold `amount_due` from the write path only → the key-set assertion goes red; add a field to the pay body
+     * only → red.
+     */
+    #[Test]
+    public function aPayerWithoutTheViewCodeReceivesThePaidInvoiceAndCannotReadIt(): void
+    {
+        $i = $this->issuedInvoice('PAY-PC17');
+        $this->actAs(self::TENANT_A, ['invoice.pay']);
+        $this->pay($i['invoice']);
+        self::assertSame(200, $this->httpStatus());
+        $body = $this->json();
+        self::assertSame('0.0000', $body['amount_credited']);                 // derived field present, literal scale-4
+        self::assertSame('0.0000', $body['amount_due']);                      // set to C0's ruled value for a paid invoice
+        self::assertArrayHasKey('total_amount', $body);
+
+        $this->actAsRole(DefaultRoles::FINANCE);                              // positive control: the same document
+        $this->send('GET', '/invoices/'.$i['invoice']);
+        $get = $this->json(); ksort($get); ksort($body);
+        self::assertSame(array_keys($get), array_keys($body));                // write body = GetInvoice's shape, no more
+
+        $this->actAs(self::TENANT_A, ['invoice.pay']);
+        $this->send('GET', '/invoices/'.$i['invoice']);
+        self::assertSame(403, $this->httpStatus());                           // the read stays gated
+    }
+
     /** E-2 / ST-5: another workspace's invoice and a random id are the same 404 for a caller holding the code. */
     #[Test]
     public function anotherWorkspacesInvoiceIsNotFound(): void

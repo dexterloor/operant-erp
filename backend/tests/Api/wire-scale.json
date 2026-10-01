@@ -68,6 +68,12 @@
     "GetGoodsReceipt $.lines[].quantity": [
         6
     ],
+    "GetInvoice $.amount_credited": [
+        4
+    ],
+    "GetInvoice $.amount_due": [
+        4
+    ],
     "GetInvoice $.total_amount": [
         4
     ],
@@ -104,11 +110,41 @@
     "GetSalesReturn $.lines[].quantity_credited": [
         6
     ],
+    "IssueInvoice $.amount_credited": [
+        4
+    ],
+    "IssueInvoice $.amount_due": [
+        4
+    ],
     "IssueInvoice $.total_amount": [
         4
     ],
     "ListFulfilments $.items[].lines[].quantity": [
         6
+    ],
+    "ListInvoiceLines $.items[].amount_billed": [
+        4
+    ],
+    "ListInvoiceLines $.items[].amount_credited": [
+        4
+    ],
+    "ListInvoiceLines $.items[].fulfilment_line.quantity": [
+        6
+    ],
+    "ListInvoiceLines $.items[].quantity_billed": [
+        6
+    ],
+    "ListInvoiceLines $.items[].quantity_credited": [
+        6
+    ],
+    "ListInvoiceLines $.items[].unit_price": [
+        4
+    ],
+    "ListInvoices $.items[].amount_credited": [
+        4
+    ],
+    "ListInvoices $.items[].amount_due": [
+        4
     ],
     "ListInvoices $.items[].total_amount": [
         4
@@ -158,6 +194,12 @@
     "ListSalesReturns $.items[].lines[].quantity_credited": [
         6
     ],
+    "PayInvoice $.amount_credited": [
+        4
+    ],
+    "PayInvoice $.amount_due": [
+        4
+    ],
     "PayInvoice $.total_amount": [
         4
     ],
@@ -180,6 +222,12 @@
         6
     ],
     "RestoreSalesOrderLine $.unit_price": [
+        4
+    ],
+    "ReverseInvoicePayment $.amount_credited": [
+        4
+    ],
+    "ReverseInvoicePayment $.amount_due": [
         4
     ],
     "ReverseInvoicePayment $.total_amount": [
@@ -222,6 +270,12 @@
         6
     ],
     "UpdateSalesOrderLine $.unit_price": [
+        4
+    ],
+    "VoidInvoice $.amount_credited": [
+        4
+    ],
+    "VoidInvoice $.amount_due": [
         4
     ],
     "VoidInvoice $.total_amount": [

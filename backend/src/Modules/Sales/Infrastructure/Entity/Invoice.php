@@ -259,6 +259,23 @@ class Invoice
      * (a)), not a sibling setter a caller could forget. `$paidBy` is the authenticated caller; no request field can
      * name it (`SEC` §2).
      */
+    /**
+     * **`markPaid()`'s status guard, evaluated on its own** (sales step 7 C0; `output9-sales-8-c0-amendments.md` A-1
+     * row 7): `PayInvoice` asks it explicitly after the date checks and BEFORE its new refusals
+     * (`invoice.has_an_amount_due` from C0, the return refusals from C1), so a retry of a completed payment is still
+     * answered by the status refusal (N-4). The same legal set as `markPaid()`'s first statement, which stays: that is
+     * the guard `TransitionGuardTest` drives. Changes no state.
+     *
+     * **Named `assert…`, not `refuseUnless…`, on purpose:** it is an entity-level TRANSITION guard (§8.3 owns it), and
+     * `EditWindowGuardTest`'s clause (b) keys edit-window guards (§8.3a) on the `refuseUnless*` name when called from
+     * `Application/` — which swept this into §8.3a on the first run. The boundary that test's own docblock draws
+     * ("entity-level transition guards are deliberately NOT in this domain") is the one this name keeps.
+     */
+    public function assertPayable(): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_ISSUED, self::STATUS_OVERDUE]);
+    }
+
     public function markPaid(\DateTimeImmutable $paidAt, AppUser $paidBy): void
     {
         // `void()` voids the invoice, not the payment, so a `void` invoice that could be marked paid would leave a
