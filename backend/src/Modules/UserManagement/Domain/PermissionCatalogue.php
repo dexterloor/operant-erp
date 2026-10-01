@@ -108,6 +108,10 @@ final class PermissionCatalogue
             'invoice.issue',
             'invoice.pay',
             'invoice.void',
+            // Sales step 7 R2 (2026-10-01): owner rulings Q-F and Q-B. SoD-5 (`sales_return.create` / `credit_note.issue`)
+            // enters with `credit_note.issue` at C1 (ADR-008 A2.7), never before its second code exists.
+            'sales_return.view',
+            'sales_return.create',
         ],
         'Modules\\UserManagement' => [
             'app_user.view',

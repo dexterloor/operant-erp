@@ -6,11 +6,14 @@ namespace App\Tests\Architecture;
 
 use App\Modules\Inventory\Application\Contract\DepleteStock;
 use App\Modules\Inventory\Application\Contract\ReceiveStock;
+use App\Modules\Inventory\Application\Contract\ReturnStock;
 use App\Modules\Inventory\Application\StockDepleter;
 use App\Modules\Inventory\Application\StockReceiver;
+use App\Modules\Inventory\Application\StockReturner;
 use App\Modules\Inventory\Infrastructure\Entity\StockMovement;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Sales\Application\FulfilmentWriter;
+use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\PhpSourceScan;
@@ -169,12 +172,17 @@ final class WriteOwnershipTest extends KernelTestCase
         // `metadata` '{}'. Predicted by the design and confirmed off this test's run.
         // **14 -> 15 on 2026-09-29** (roles slice 2, C2): `RoleAuditWriter::recordRevoked()`'s `INSERT INTO audit_log` for
         // `role.revoked`, `occurred_at = clock_timestamp()`, metadata `jsonb_build_object(?, ?)` keyed by `RoleEventMetadata`.
-        'Modules\\AuditLog' => 15,
+        // **15 -> 16 on 2026-10-01** (sales step 7 R2): `SalesReturnAuditWriter::recordCreated()`'s `INSERT INTO audit_log`
+        // for `sales_return.created`, metadata `jsonb_build_object('reason', ?, 'deducts', ?)`.
+        'Modules\\AuditLog' => 16,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
         // everyStockMovementReasonIsRegisteredToItsWriterAndPermission, and the message below.
-        'Modules\\Inventory' => 8,
+        // **8 -> 10 on 2026-10-01** (sales step 7 R2), read off this test's own failure: `StockReturner`'s one `INSERT INTO
+        // stock_movement` (reason 'return') and one `stock_level` upsert -- `StockReceiver`'s two statements, with its own
+        // literals (E-26: a reason is bound to one writer class).
+        'Modules\\Inventory' => 10,
         'Modules\\Purchasing' => 10,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
@@ -217,7 +225,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // **13 -> 14 on 2026-09-28** (sales step 6, C6): `InvoicePaymentReversal::MARK_REVERSED`, `UPDATE invoice SET
         // payment_reversed_at = COALESCE(payment_reversed_at, now())` -- B′'s set-once column, written in SQL on the
         // database clock (RED-3 F-1). The reversal's status change is an ORM flush and is not counted.
-        'Modules\\Sales' => 14,
+        // **14 -> 16 on 2026-10-01** (sales step 7 R2), read off this test's own failure: `SalesReturnWriter`'s `INSERT INTO
+        // sales_return` and `INSERT INTO sales_return_line`. `IssueInvoice`'s new lock is a `FOR NO KEY UPDATE` this scan
+        // excludes, and its amount read is a SELECT.
+        'Modules\\Sales' => 16,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).
@@ -727,6 +738,12 @@ final class WriteOwnershipTest extends KernelTestCase
             'implementation' => StockDepleter::class,
             'callers' => [FulfilmentWriter::class],
         ],
+        // `CreateSalesReturn`'s writer, registered in the commit that builds it (sales step 7 R2, 2026-10-01) -- PC-10's
+        // THIRD named cross-module write (`ARCH`'s W-3 amendment and `SEC` S-7, 2026-09-30; owner ruling Q-J).
+        ReturnStock::class => [
+            'implementation' => StockReturner::class,
+            'callers' => [SalesReturnWriter::class],
+        ],
     ];
 
     /**
@@ -770,12 +787,15 @@ final class WriteOwnershipTest extends KernelTestCase
             'rule' => "SECURITY_MODEL.md E-25 (b): 'transfer_in' has NO registered writer -- see transfer_out. A lone "
                 ."transfer_in is stock from nowhere: an adjustment wearing a transfer's name.",
         ],
+        // E-27's refusal LIFTED 2026-10-01 (sales step 7 R2), in the one commit E-27 named: the one that built
+        // CreateSalesReturn, shipped sales_return.create in §3, landed V2-R-15 (W-3's third edge) and lifted
+        // StockMovement's constructor refusal. Until then this entry had no writer and a null permission.
         'return' => [
-            'writers' => [],
-            'permission' => null,
-            'rule' => "SECURITY_MODEL.md E-27: reason = 'return' is REFUSED on every write path until CreateSalesReturn "
-                ."ships sales_return.create in §3, in the commit that lifts StockMovement's constructor refusal, lands "
-                ."V2-R-15 and rewrites E-27. No permission authorises it, so no writer may be registered to it here.",
+            'writers' => [StockReturner::class],
+            'permission' => 'sales_return.create',
+            'rule' => "SECURITY_MODEL.md E-27 (rewritten 2026-10-01): 'return' is posted by StockReturner alone, reached through "
+                ."ReturnStock by CreateSalesReturn (sales_return.create) -- E-26's binding. A second writer of it is a "
+                ."concealment shape, not a refactor; posting a customer return as an 'adjustment' is the concealment E-25 fences.",
         ],
     ];
 

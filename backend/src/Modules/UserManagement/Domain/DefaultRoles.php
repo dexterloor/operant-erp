@@ -123,6 +123,10 @@ final class DefaultRoles
             'warehouse.edit',
             'storage_location.view',
             'storage_location.edit',
+            // Sales step 7 R2 (2026-10-01), owner ruling Q-F: the warehouse receives returned goods physically and
+            // holds `storage_location.view`, which the bin field needs (PC-4a). Q-B: and reads them.
+            'sales_return.view',
+            'sales_return.create',
             'forecast.view',
             'ai_assistant.use',
             'audit_log.view_record',
@@ -137,6 +141,8 @@ final class DefaultRoles
             'fulfilment.view',
             'invoice.view',
             'invoice.issue',
+            // Owner ruling Q-B (2026-09-30): every default role but the two purchasing roles reads returns.
+            'sales_return.view',
             'customer.view',
             'customer.create',
             'customer.edit',
@@ -151,6 +157,8 @@ final class DefaultRoles
         self::FINANCE => [
             'invoice.view',
             'invoice.pay',
+            // Owner ruling Q-B: SoD-5's second person must find the return it credits (V2-C-16's dead end otherwise).
+            'sales_return.view',
             'forecast.view',
             'ai_assistant.use',
             'audit_log.view_record',

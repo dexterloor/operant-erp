@@ -13,6 +13,7 @@ use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
+use App\Modules\AuditLog\Infrastructure\SalesReturnAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -168,6 +169,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // `BUSINESS`, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/GoodsReceiptAuditWriter.php',
         'Modules/AuditLog/Infrastructure/FulfilmentAuditWriter.php',
+        // Added 2026-10-01 with `CreateSalesReturn` (sales step 7 R2): `sales_return.created`, BUSINESS, so no parameter
+        // could send an address. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/SalesReturnAuditWriter.php',
         // Added 2026-09-29 with `RevokeRole` (roles slice 2, C2): `role.revoked`, a SECURITY event, so it carries the
         // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below — and
         // `role.assigned` (C3, `AssignRole`) through the same writer, also driven.
@@ -341,6 +345,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $fulfilmentWriter = self::getContainer()->get(FulfilmentAuditWriter::class);
         \assert($fulfilmentWriter instanceof FulfilmentAuditWriter);
         $fulfilmentWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', fulfilmentId: Uuid::v4()->toRfc4122());
+        // Sales step 7 R2: `sales_return.created`, BUSINESS.
+        $returnWriter = self::getContainer()->get(SalesReturnAuditWriter::class);
+        \assert($returnWriter instanceof SalesReturnAuditWriter);
+        $returnWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesReturnId: Uuid::v4()->toRfc4122(), reason: 'customer_returned', deducts: true);
         $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
         \assert($salesWriter instanceof SalesOrderAuditWriter);
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());

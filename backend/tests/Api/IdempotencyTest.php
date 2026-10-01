@@ -134,6 +134,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'mechanism is `unique:invoice_tenant_fulfilment_not_void`, partial on the LIFECYCLE, and a repeat is '
                 .'REFUSED, never replayed (API.md 4.2 item 1): the key header is required and unused.',
         ],
+        'CreateSalesReturn' => [
+            'method' => 'replayCreateSalesReturn',
+            'why' => 'A second sales_return, and the returned stock put back twice (sales step 7 R2). Its mechanism is the '
+                .'header-sourced retry key on a TOTAL unique, CreateFulfilment\'s shape.',
+        ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
@@ -383,6 +388,38 @@ final class IdempotencyTest extends PurchaseOrderTestCase
      * fulfilment (the returned id), not merely not duplicated, and none of its three effects may apply twice —
      * the fulfilment row, the line's `quantity_fulfilled`, and the stock.
      */
+    /**
+     * `replayCreateFulfilment()`'s twin (sales step 7 R2): the retry is ANSWERED with the first return, and none of its
+     * effects applies twice — the return row, the stock put back, the trail row.
+     */
+    private function replayCreateSalesReturn(string $why): void
+    {
+        $shipment = $this->shipped('IDEM-RET', [['5', '10.0000', '3']]);
+        $this->send('GET', '/fulfilments/'.$shipment['fulfilment']);
+        $line = $this->json()['lines'][0];
+        $before = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$line['storage_location']['id']])[0]['q'];
+        $body = ['reason' => 'customer_returned', 'lines' => [
+            ['fulfilment_line_id' => $line['id'], 'quantity' => '1', 'storage_location_id' => $line['storage_location']['id']],
+        ]];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/fulfilments/'.$shipment['fulfilment'].'/sales-returns', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+
+        $this->send('POST', '/fulfilments/'.$shipment['fulfilment'].'/sales-returns', $body, $key);
+
+        self::assertSame($first, $this->json()['id'] ?? null,
+            'The replay did not return the return the first call recorded. A retry that is refused rather than '
+            .'answered is not idempotent; it is merely not duplicated.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM sales_return'), $why);
+        self::assertSame([['q' => bcadd($before, '1', 6)]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$line['storage_location']['id']]), $why);
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::SALES_RETURN_CREATED),
+            'The replay wrote a second sales_return.created row: the audit write is on the replay branch too.');
+    }
+
     private function replayCreateFulfilment(string $why): void
     {
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'Main FUL');

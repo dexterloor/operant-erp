@@ -74,7 +74,9 @@ final class PermissionCatalogueSeedTest extends TenancyTestCase
      * carry it. Pinned here so an emptied catalogue cannot pass by agreeing with an
      * emptied table.
      */
-    private const PINNED_CODE_COUNT = 60;
+    // 62 since 2026-10-01 (sales step 7 R2): `sales_return.view` and `sales_return.create`, by forward migration
+    // `Version20261001000300`, never by editing the seed in place.
+    private const PINNED_CODE_COUNT = 62;
 
     /** §3's Module column, distinct. Two of them own no table (`Analytics`, `Ai`). */
     private const PINNED_MODULE_COUNT = 11;

@@ -157,6 +157,23 @@ final class SalesReturnSchemaTest extends TenancyTestCase
             'The control: another return of the same shipment may name the same line.');
     }
 
+    /**
+     * **Residual pin, `RESIDUAL_GAPS.md` G-15 as widened at sales step 7 R2** (design §5, §13 item 9). That a return
+     * line names a line of ITS OWN return's shipment is an application rule (`SalesReturnWriter`), not a constraint: a
+     * three-column key is refused here. So the schema ACCEPTS a line of another shipment — and since R2 `erp_app` holds
+     * INSERT, SQL running as it can write one. This goes red the day a `BEFORE INSERT` check lands, which is G-15's
+     * closing work: close the row then, and move this pin.
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function residualG15_theSchemaAcceptsAReturnLineOfAnotherShipment(): void
+    {
+        $w = $this->world();
+        $other = $this->world();
+
+        self::assertSame('accepted', $this->attemptLine($w, $this->insertReturn($w, []), ['fulfilment_line_id' => $other['fulfilment_line']]),
+            'A return line naming ANOTHER shipment\'s line was refused: G-15\'s closing trigger may have landed -- close the row.');
+    }
+
     // -----------------------------------------------------------------------
 
     private static int $worlds = 420000;

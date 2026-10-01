@@ -225,6 +225,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Sales step 6 C7: the void of an invoice issued in each tenant (never paid, so B′ does not apply to the rig's
         // marker-less principal); a supplied tenant id that moved the write would void B's invoice, which the digest names.
         'VoidInvoice' => ['vars' => ['id' => 'invoice'], 'setup' => 'invoice', 'body' => ['reason' => 'Probe']],
+        // Sales step 7 R2: a return of a shipment booked in each tenant, naming this tenant's shipped line and bin; a
+        // supplied tenant id that moved the write would return B's goods, which the digest names.
+        'CreateSalesReturn' => [
+            'vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment',
+            'body' => ['reason' => 'customer_returned', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
+        ],
+        // A return recorded through the operation in each tenant, so a probe that moved the read would answer B's.
+        'GetSalesReturn' => ['vars' => ['id' => 'sales_return'], 'setup' => 'sales_return'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -384,6 +392,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('fulfilment' === ($recipe['setup'] ?? null)) {
             $this->seedFulfilment('A');
             $this->seedFulfilment('B');
+        }
+        if ('sales_return' === ($recipe['setup'] ?? null)) {
+            $this->seedSalesReturn('A');
+            $this->seedSalesReturn('B');
         }
         if ('invoice' === ($recipe['setup'] ?? null)) {
             $this->seedInvoice('A');
@@ -595,6 +607,26 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
 
         $this->remember($letter, 'fulfilment', (string) $this->json()['id']);
+        // Sales step 7 R2: the shipped line a return names.
+        $this->remember($letter, 'fulfilment_line', (string) $this->json()['lines'][0]['id']);
+    }
+
+    /** Sales step 7 R2: a return recorded through the operation, on a shipment booked through the operation. */
+    private function seedSalesReturn(string $letter): void
+    {
+        $this->seedFulfilment($letter);
+        $this->send('POST', '/fulfilments/'.$this->id($letter, 'fulfilment').'/sales-returns', [
+            'reason' => 'customer_returned',
+            'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1', 'storage_location_id' => $this->id($letter, 'bin')]],
+        ], [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+
+        self::assertSame(201, $this->httpStatus(), 'The return fixture for tenant '.$letter.' was not recorded: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+
+        $this->remember($letter, 'sales_return', (string) $this->json()['id']);
     }
 
     private function seedInvoice(string $letter): void

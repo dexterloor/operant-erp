@@ -83,7 +83,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // listing was run and reported. This test was RED naming `VoidInvoice` until then (pasted in
         // `docs/session13/output9-sales-7-progress.md`, C7). The two entries left owe A2.1b and SoD-5 — see `pointer()`.
         'IssueCreditNote' => 'POST /invoices/{id}/credit-notes',
-        'CreateSalesReturn' => 'POST /fulfilments/{id}/returns',
+        // `CreateSalesReturn` LEFT this map on 2026-10-01 (sales step 7 R2, 'Let a customer's returned goods be taken
+        // back, and come off the bill only when a second person records them'), which built it AND applied pointer item
+        // 2 in the same commit: `sales_return.create` (and `sales_return.view`, owner ruling Q-B) entered
+        // SECURITY_MODEL.md §3, PermissionCatalogue and a `permission`-row migration; `admin` holds it by PC-14's inverse
+        // clause. SoD-5 did NOT enter: its second code, `credit_note.issue`, is absent, and A2.7 puts SoD-5 in whichever
+        // lands SECOND -- IssueCreditNote, whose entry stays. This test was RED naming `CreateSalesReturn` until then.
     ];
 
     /**
@@ -195,15 +200,25 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const A_RESTORE_KNOWN_TO_BE_BUILT = 'RestoreSalesOrderLine';
 
     /**
-     * **`operationId` => what it owes: Q1's returned-before-issue deduction** (sales step 6, C3, 2026-09-28; owner
-     * ruling Q1 *"What shipped"*). `IssueInvoice` bills what the fulfilment shipped because no return can exist yet;
-     * the day `CreateSalesReturn` ships, a return recorded before the invoice must come off it. Keyed by
-     * `operationId` for `1076ba3`'s reason; positive control {@see self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT}.
+     * **`operationId` => the tests that carry Q1's returned-before-issue deduction, as refined by Q-L (a′)** (sales step
+     * 6, C3, 2026-09-28; owner ruling Q1 *"What shipped"*; refined 2026-09-30, `output9-sales-8-ruling.md` Q-L).
      *
-     * @var array<string, string>
+     * ⚖ **CONVERTED 2026-10-01 (sales step 7 R2) from a pin into an IMPLICATION — not emptied.** It read
+     * `'CreateSalesReturn' => 'IssueInvoice bills shipped - returned-before-issue'` while the return was unbuilt, and
+     * went red the moment it was built. The commit that built it applied all four owed items and turned the entry into
+     * *"CreateSalesReturn is never in the spec without these named tests"*, as `REPLACEMENT_ASSERTION` did for
+     * V2-C-14(b): an emptied pin would hold over nothing (`:646`'s own guard), and a deleted test would take the
+     * obligation with it silently. Keyed by `operationId` for `1076ba3`'s reason.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
      */
     private const OPERATIONS_OWING_THE_RETURNED_DEDUCTION = [
-        'CreateSalesReturn' => 'IssueInvoice bills shipped - returned-before-issue',
+        'CreateSalesReturn' => [
+            [SalesReturnCreateTest::class, 'anInvoiceBillsWhatShippedLessOnlyTheReturnsThatDeduct'],
+            [SalesReturnCreateTest::class, 'aShipmentWhollyReturnedBeforeBillingIsNotInvoicedAndAFreeOneStillIs'],
+            [SalesReturnCreateTest::class, 'aShipmentAlreadyInvoicedCannotBeRecordedInError'],
+            [PurchaseOrderRowLockTest::class, 'aReturnAndAnIssueOfOneShipmentSerialiseOnTheOrderLock'],
+        ],
     ];
 
     /**
@@ -632,9 +647,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **Q1's deduction, carried by a mechanism** (design §19 C3). Goes red the moment `CreateSalesReturn` is in the
-     * spec, printing what that commit owes. It detects the trigger, not the deduction — clearing the pin without
-     * building it defeats it, the residual every sibling here carries.
+     * **Q1's deduction, carried by a mechanism** (design §19 C3) — **an implication since 2026-10-01** (sales step 7 R2):
+     * while `CreateSalesReturn` is in the spec, every test named in {@see self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION}
+     * must exist. Until that commit it was a pin that went red the moment the return was built, printing the four owed
+     * items; that commit applied them. It detects a removed or renamed carrier, not a weakened one.
      */
     #[Test]
     public function noOperationOwingTheReturnedDeductionHasBeenBuilt(): void
@@ -643,22 +659,34 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
         self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION, 'The returned-deduction pin is empty, so it asserts nothing.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION, 'The returned-deduction implication has no antecedent, so it asserts nothing.');
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION, $built);
+        $missing = [];
+        foreach (self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION as $operation => $carriers) {
+            if (!isset($built[$operation])) {
+                continue;
+            }
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
 
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built. IssueInvoice's amount rule owes Q1's deduction, IN THIS COMMIT:\n\n"
-            ."  1. Q1 (owner ruling 2026-09-23, \"What shipped\"): IssueInvoice bills what the fulfilment shipped MINUS\n"
-            ."     what was returned against it BEFORE the invoice was issued. A return recorded AFTER issue reduces the\n"
-            ."     invoice only through a credit note (IssueCreditNote) -- never by editing the invoice (OI-2).\n"
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nIssueInvoice's amount rule owes Q1's deduction as refined, and these tests carry it:\n\n"
+            ."  1. Q1 (owner ruling 2026-09-23, \"What shipped\") AS REFINED BY Q-L (a') (2026-09-30, docs/session13/\n"
+            ."     output9-sales-8-ruling.md; appended to output9-sales-7-ruling.md): IssueInvoice bills what shipped, less\n"
+            ."     returns recorded before issue that were classified as deducting (`sales_return.deducts`: recorded by a\n"
+            ."     `fulfilment.create` holder who did not record the shipment, or by an owner); every other return reduces\n"
+            ."     the invoice through a credit note (IssueCreditNote) -- never by editing the invoice (OI-2).\n"
             ."  2. A return `recorded_in_error` against a shipment that already has a LIVE invoice is refused.\n"
-            ."  3. THE LOCK REMEDY (ARCH 6): CreateSalesReturn and IssueInvoice both take SalesOrderRowLock FIRST;\n"
-            ."     IssueInvoice changes in the same commit (today it takes no lock -- nothing concurrent writes what it\n"
-            ."     reads). No grant on `fulfilment` is added for this.\n"
-            ."  4. API.md 8.3's \"less any returned quantity\" sentence becomes true of the code.\n\n"
-            ."Then clear this entry deliberately. Record: docs/session13/output9-sales-7-design.md 19 C3.",
-            implode(', ', array_keys($arrived)),
+            ."  3. THE LOCK REMEDY (ARCH 6): CreateSalesReturn and IssueInvoice both take SalesOrderRowLock FIRST. No grant\n"
+            ."     on `fulfilment` is added for this.\n"
+            ."  4. API.md 8.3's sentence on what an invoice bills is true of the code.\n\n"
+            ."Restore the test, or move its obligation to another named test here, before removing it.\n"
+            ."Record: docs/session13/output9-sales-8-design.md 4.3; docs/session13/output9-sales-8-build-progress.md R2.",
+            implode("\n", $missing),
         ));
     }
 
@@ -885,9 +913,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."     inserting its `permission` row, ADR-008 §2's SoD-3 row AND SeparationOfDuty::ROWS -- all in this commit, never\n"
             ."     the catalogue without the SoD row (DefaultRoles would hand it to `admin`). Its §4 holdings must be ruled BEFORE\n"
             ."     this build.\n"
-            ."  2. CreateSalesReturn -> `sales_return.create` enters §3 / PermissionCatalogue / `permission` (preparing side;\n"
-            ."     `admin` holds it by PC-14's inverse clause). SoD-5 (A2.2) enters §2 and SeparationOfDuty::ROWS in whichever of\n"
-            ."     CreateSalesReturn / IssueCreditNote lands SECOND.\n"
+            ."  2. APPLIED 2026-10-01 by CreateSalesReturn's commit: `sales_return.create` entered §3 / PermissionCatalogue /\n"
+            ."     `permission` (preparing side; `admin` holds it by PC-14's inverse clause). SoD-5 (A2.2) is now owed by\n"
+            ."     IssueCreditNote, which lands SECOND: it enters §2 and SeparationOfDuty::ROWS in THAT commit.\n"
             ."  3. Re-derive, never type: SeparationOfDutyTest's pins; `python3 docs/adr/sod_check.py` (it DERIVES `admin` and\n"
             ."     checks the SoD rows by EQUALITY since 'Let an invoice issued in error be voided, and take voiding off admin';\n"
             ."     paste its output). Expected after A2.1b and SoD-5: cover 5.\n"

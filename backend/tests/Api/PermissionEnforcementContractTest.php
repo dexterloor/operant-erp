@@ -57,6 +57,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 6, C3: the invoice read and its issue (SoD-4: `invoice.issue` is never `warehouse_operator`'s).
         'GetInvoice' => 'invoice.view',
         'IssueInvoice' => 'invoice.issue',
+        // Sales step 7 R2 (owner rulings Q-F, Q-B).
+        'CreateSalesReturn' => 'sales_return.create',
+        'GetSalesReturn' => 'sales_return.view',
         'ListInvoices' => 'invoice.view',
         'PayInvoice' => 'invoice.pay',
         'ReverseInvoicePayment' => 'invoice.pay',

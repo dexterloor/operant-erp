@@ -121,14 +121,16 @@ use PHPUnit\Framework\TestCase;
 final class SeparationOfDutyTest extends TestCase
 {
     /** `SECURITY_MODEL.md` §3's own heading. Pinned, never derived from the code under test. */
-    private const CATALOGUE_SIZE = 60;
+    /** 62 since 2026-10-01: sales step 7 R2 added `sales_return.view` and `sales_return.create`, neither on a SoD row yet. */
+    private const CATALOGUE_SIZE = 62;
 
     /**
      * §4's `admin` row: `60 − 7 = 53`. *(54 until 2026-09-29: A2.1a (ADR-008 A2.7, sales step 6 C7) put
      * `invoice.void` on SoD-3's controlled half and PC-14's derivation took it off `admin`. Re-derived by running this
      * file against the widened table, never by arithmetic: `admin` = |catalogue| − |X(admin)|.)*
      */
-    private const ADMIN_SIZE = 53;
+    // 55 since 2026-10-01 (sales step 7 R2): `62 − 7`; the two new codes are on no SoD row until SoD-5 enters at C1.
+    private const ADMIN_SIZE = 55;
 
     /** ADR-008 §2 — four rows, six codes on their controlled halves (five until A2.1a added `invoice.void`). */
     private const SOD_ROWS = 4;
@@ -161,7 +163,9 @@ final class SeparationOfDutyTest extends TestCase
     private const CONFLICT_VERTICES = 9;
     private const CONFLICT_EDGES = 8;
     private const MINIMUM_VERTEX_COVER = 4;
-    private const NEAR_OWNER_CEILING = 56;
+    // 58 since 2026-10-01 (sales step 7 R2): the graph did not move (the two new codes are on no row), so the cover is
+    // still 4 and the ceiling is the catalogue minus it, `62 − 4`. Re-derived by running, never typed from arithmetic.
+    private const NEAR_OWNER_CEILING = 58;
 
     // -----------------------------------------------------------------------
     // The empty-set trap. Everything below depends on these being non-empty.
@@ -180,7 +184,7 @@ final class SeparationOfDutyTest extends TestCase
         $catalogue = PermissionCatalogue::codes();
 
         self::assertNotSame([], $catalogue, 'The catalogue is empty: every clause below would pass vacuously.');
-        self::assertCount(self::CATALOGUE_SIZE, $catalogue, '§3 publishes 60 permission codes.');
+        self::assertCount(self::CATALOGUE_SIZE, $catalogue, '§3 publishes 62 permission codes.');
         self::assertSame($catalogue, array_values(array_unique($catalogue)), 'A code appears twice in the catalogue.');
         self::assertNotSame([], PermissionCatalogue::modules(), 'No module: PC-1a has no subject.');
 
@@ -248,7 +252,7 @@ final class SeparationOfDutyTest extends TestCase
         // every one of this project's fake greens was before it was measured.
         $admin = DefaultRoles::codesFor(DefaultRoles::ADMIN);
 
-        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 60 − 7 = 53 codes.');
+        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 62 − 7 = 55 codes.');
         self::assertSame(
             [],
             array_values(array_intersect($admin, AdministrativeCharter::excludedCodes())),
@@ -309,7 +313,7 @@ final class SeparationOfDutyTest extends TestCase
         self::assertCount(
             self::CATALOGUE_SIZE - self::CONTROLLED_CODES,
             array_values(array_diff(PermissionCatalogue::codes(), AdministrativeCharter::separationOfDutyExclusions())),
-            'Without E-15bs marker `admin` is 54, which is the number a §2-only derivation produces.',
+            'Without E-15bs marker `admin` is 56, which is the number a §2-only derivation produces.',
         );
     }
 
@@ -483,7 +487,7 @@ final class SeparationOfDutyTest extends TestCase
         $baseline = $this->summarise($this->table());
 
         self::assertSame(
-            ['pc4' => self::PC4_ROLES, 'pairs' => 6, 'cover' => 4, 'ceiling' => 56],
+            ['pc4' => self::PC4_ROLES, 'pairs' => 6, 'cover' => 4, 'ceiling' => 58],
             $baseline,
             'BASELINE — the SoD table as ADR-008 §2 stands today.',
         );
@@ -579,7 +583,7 @@ final class SeparationOfDutyTest extends TestCase
 
         self::assertNotSame($baseline, $shrunk, 'Deleting SoD-4 moved nothing.');
         self::assertSame(3, $shrunk['cover'], 'Without SoD-4 the minimum vertex cover is three.');
-        self::assertSame(57, $shrunk['ceiling'], 'Without SoD-4 the ceiling is 57, which is the figure E-15b carried while there were three splits.');
+        self::assertSame(59, $shrunk['ceiling'], 'Without SoD-4 the ceiling is 59 at a 62-code catalogue (57 at 60 codes, the figure E-15b carried while there were three splits).');
 
         // (iv) the empty table. Every check must collapse visibly.
         $empty = $this->summarise([]);

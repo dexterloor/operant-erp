@@ -138,13 +138,9 @@ class StockMovement
             throw new \InvalidArgumentException(\sprintf('"%s" is not a stock movement reason.', $reason));
         }
 
-        // E-27: `return` stays in the database CHECK (the value domain) and is authorised
-        // by no permission until `CreateSalesReturn` ships `sales_return.create`, in the
-        // commit that lifts this refusal and rewrites E-27.
-        if (self::REASON_RETURN === $reason) {
-            throw new \InvalidArgumentException('A stock movement with reason "return" is refused until CreateSalesReturn '
-                .'ships the permission that authorises it (SECURITY_MODEL.md E-27).');
-        }
+        // E-27's refusal of `return` LIFTED here on 2026-10-01 (sales step 7 R2), in the commit that built
+        // `CreateSalesReturn`, shipped `sales_return.create` and registered `return` -> `StockReturner` (E-26). It refused
+        // the reason until then; E-27 is rewritten in the same commit.
 
         $this->id = $id;
         $this->tenantId = $tenantId;

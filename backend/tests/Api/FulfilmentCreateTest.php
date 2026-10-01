@@ -38,6 +38,8 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
         'GetFulfilment' => ['method' => 'GET', 'path' => '/fulfilments/{id}', 'idem' => false],
         // Sales step 6, C3 (2026-09-28): the invoice hangs off the shipment it bills (N-8), so its create is here.
         'IssueInvoice' => ['method' => 'POST', 'path' => '/fulfilments/{id}/invoices', 'idem' => true],
+        // Sales step 7 R2 (2026-10-01): a return hangs off the shipment it returns (N-8; design §4's path).
+        'CreateSalesReturn' => ['method' => 'POST', 'path' => '/fulfilments/{id}/sales-returns', 'idem' => true],
     ];
 
     /** The registry's `/fulfilments` operations are exactly the pin, method and path included. */

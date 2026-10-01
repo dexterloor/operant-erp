@@ -1255,8 +1255,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      *   - `not_void`:      A holds F's invoice under a number the test asserts is NOT the next → only
      *     `invoice_tenant_fulfilment_not_void` can refuse → the already-invoiced 409.
      *
-     * Each runs with and without `invoice.view`. A takes the ORDER's lock only because the harness takes one;
-     * `IssueInvoice` locks nothing, so B's wait is on the index, which `pg_blocking_pids` reports all the same.
+     * Each runs with and without `invoice.view`. **A holds ANOTHER order's lock (G's), never F's** — reworked
+     * 2026-10-01 (sales step 7 R2), when `IssueInvoice` began taking F's ORDER lock first (design §4.3, `RED` H-3).
+     * The harness takes an order lock only because it must take one; with A on G's order, B passes F's lock and its
+     * pre-check (nothing committed yet) and its wait falls on the index again, which `pg_blocking_pids` reports all the
+     * same — so all three 23505 branches stay reached. *(Until then A took F's lock, under the premise "`IssueInvoice`
+     * locks nothing, so B's wait is on the index"; with the lock, `number, none` would have waited on F's order and
+     * returned 201, and the other two would have been answered by the pre-check, leaving the 23505 translation
+     * unreached — silently.)* A fourth branch, `order lock`, keeps A on F's order: B waits on the ORDER, and is then
+     * answered by the pre-check — the lock's own case.
      * **M-7:** the branch split itself is the measurement that a unique INDEX reports its name in the violation — the
      * writer routes on it, and branches 1 and 2 answer differently.
      *
@@ -1264,7 +1271,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      */
     public static function invoiceIssueCollisions(): iterable
     {
-        foreach (['number, live', 'number, none', 'not_void'] as $branch) {
+        foreach (['number, live', 'number, none', 'not_void', 'order lock'] as $branch) {
             yield $branch.', with invoice.view' => [$branch, true];
             yield $branch.', without invoice.view' => [$branch, false];
         }
@@ -1283,14 +1290,16 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         [$heldFulfilment, $heldNumber] = match ($branch) {
             'number, live' => [$f['fulfilment'], $next],
             'number, none' => [$other['fulfilment'], $next],
-            'not_void' => [$f['fulfilment'], 'INV-000500'],
+            'not_void', 'order lock' => [$f['fulfilment'], 'INV-000500'],
         };
+        // Sales step 7 R2: A holds G's order (or, for `order lock`, F's) -- see the docblock.
+        $heldOrder = 'order lock' === $branch ? $f['order'] : $other['order'];
         if ('not_void' === $branch) {
             self::assertNotSame($next, $heldNumber, 'The not_void branch must not also collide on the number.');
         }
 
         $this->actAs(self::TENANT_A, $holdsView ? DefaultRoles::codesFor(DefaultRoles::SALES_REP) : ['invoice.issue', 'fulfilment.view']);
-        $holder = $this->raceAgainstAHolder($f['order'], [[<<<'SQL'
+        $holder = $this->raceAgainstAHolder($heldOrder, [[<<<'SQL'
             INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number,
                                  currency_code, total_amount, due_at, issued_by_user_id)
             SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, ?, so.currency_code, 1,
@@ -1559,6 +1568,142 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'ReverseInvoicePayment' => ['POST', '/invoices/{invoice}/payment-reversal{paid}', ['reason' => 'Lock position'], 200, DefaultRoles::FINANCE];
         // The owner voids (`invoice.void` is `owner`'s alone among the default roles since A2.1a). One `UPDATE invoice`.
         yield 'VoidInvoice' => ['POST', '/invoices/{invoice}/void', ['reason' => 'Lock position'], 200, DefaultRoles::OWNER];
+    }
+
+    /**
+     * **Return ∥ issue on one shipment serialise on the ORDER lock — deducted xor creditable, never both, never
+     * neither** (sales step 7 R2; design §4.3 and §13 item 8; `ARCH` §6(c); `OwedAmendmentTripwireTest`'s
+     * returned-deduction carrier). Both commit orders:
+     *
+     *   - `return first`: A holds F's order lock and, under it, records a DEDUCTING return of 0.5 (NULL stamp) as
+     *     `CreateSalesReturn` would. The real `IssueInvoice` must WAIT on the order lock, then read the committed
+     *     return and bill `round((1 − 0.5) × 2.5, 4) = 1.2500`. Without the lock it would read nothing, bill 2.5000,
+     *     and leave a deducting return its invoice never deducted — neither deducted nor creditable.
+     *   - `issue first`: A holds F's order lock and issues F's invoice under it. The real `CreateSalesReturn`, by a
+     *     second warehouse person (who would deduct before invoicing), must WAIT, then find the live invoice: the
+     *     return is stamped with it and does NOT deduct. Without the lock it would stamp NULL and deduct an invoice that
+     *     already billed the goods.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function returnAndIssueOrders(): iterable
+    {
+        yield 'return first' => ['return first'];
+        yield 'issue first' => ['issue first'];
+    }
+
+    #[Test]
+    #[DataProvider('returnAndIssueOrders')]
+    public function aReturnAndAnIssueOfOneShipmentSerialiseOnTheOrderLock(string $order): void
+    {
+        $f = $this->shippedForInvoicing('RI');
+        $shippedLine = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM fulfilment_line WHERE fulfilment_id = ?::uuid', [$f['fulfilment']])[0]['id'];
+        $bin = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT storage_location_id::text AS b FROM fulfilment_line WHERE id = ?::uuid', [$shippedLine])[0]['b'];
+        $returnId = Uuid::v4()->toRfc4122();
+        $invoiceId = Uuid::v4()->toRfc4122();
+
+        if ('return first' === $order) {
+            $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+            $holder = $this->raceAgainstAHolder($f['order'], [
+                [<<<'SQL'
+                    INSERT INTO sales_return (id, tenant_id, fulfilment_id, invoice_id, sales_return_number, reason, returned_at,
+                                              recorded_by_user_id, deducts, idempotency_key, request_digest)
+                    VALUES (?::uuid, ?::uuid, ?::uuid, NULL, 'RET-000001', 'customer_returned', now(), ?::uuid, true,
+                            encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                    SQL, [$returnId, self::TENANT_A, $f['fulfilment'], (string) $this->actorId]],
+                ['INSERT INTO sales_return_line (id, tenant_id, sales_return_id, fulfilment_line_id, storage_location_id, quantity) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 0.5)',
+                    [Uuid::v4()->toRfc4122(), self::TENANT_A, $returnId, $shippedLine, $bin]],
+            ], fn () => $this->send('POST', '/fulfilments/'.$f['fulfilment'].'/invoices', null,
+                [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'sales_order');
+
+            $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+            self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+            self::assertSame('1.2500', $this->json()['total_amount'], 'The invoice did not deduct the return committed before it.');
+
+            return;
+        }
+
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::WAREHOUSE_OPERATOR));
+        $holder = $this->raceAgainstAHolder($f['order'], [[<<<'SQL'
+            INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number,
+                                 currency_code, total_amount, due_at, issued_by_user_id)
+            SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, 'INV-000001', so.currency_code, 2.5,
+                   now() + interval '30 days', ?::uuid
+              FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+             WHERE f.id = ?::uuid
+            SQL, [$invoiceId, (string) $this->actorId, $f['fulfilment']]]],
+            fn () => $this->send('POST', '/fulfilments/'.$f['fulfilment'].'/sales-returns', [
+                'reason' => 'customer_returned',
+                'lines' => [['fulfilment_line_id' => $shippedLine, 'quantity' => '0.5', 'storage_location_id' => $bin]],
+            ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            table: 'sales_order',
+        );
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($invoiceId, $this->json()['invoice']['id'], 'The return was not stamped with the invoice committed before it.');
+        self::assertFalse($this->json()['deducts'], 'A return recorded after the invoice deducted it as well.');
+    }
+
+    /**
+     * **W-5's cross-flow test for the THIRD edge — a return and a fulfilment over TWO shared stock levels never
+     * deadlock** (sales step 7 R2; design §7; `ARCH`'s O-10 note: "Owed at R2: a return ∥ fulfilment run over two
+     * shared levels, red under a descending returner"). `aFulfilmentAndAReceiptOverTwoSharedLevelsNeverDeadlock`'s
+     * shape, with the roles of the two flows swapped: connection A (out of process) takes ANOTHER order's lock and
+     * decrements L1 with the depletion's conditional statement (a hand-written copy of `StockDepleter`'s), waits until
+     * the real `CreateSalesReturn` is blocked on L1, then decrements L2 and commits. The real return ascends, so it
+     * blocks on L1 behind A; A takes L2 unopposed. 201, A committed, no `40P01`. **Under a descending `StockReturner`**
+     * the return takes L2 first, then waits on L1 (A), and A's L2 waits on it: a cycle → `40P01`. ⚠ A is a copy of
+     * `StockDepleter`'s lock order, not `StockDepleter`: O-10 stays "asserted, plus runs".
+     */
+    #[Test]
+    public function aReturnAndAFulfilmentOverTwoSharedLevelsNeverDeadlock(): void
+    {
+        $f = $this->confirmedSalesOrderWithStock('SO-232000', '4', ['10', '10']);
+        [$l1, $l2] = $f['bins'];
+        $this->actAs(self::TENANT_A);
+        $this->send('POST', '/sales-orders/'.$f['order'].'/fulfilments', ['lines' => [
+            ['sales_order_line_id' => $f['line'], 'quantity' => '2', 'storage_location_id' => $l1],
+            ['sales_order_line_id' => $f['line'], 'quantity' => '2', 'storage_location_id' => $l2],
+        ]], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), 'Fixture: the shipment. '.(string) $this->client()->getResponse()->getContent());
+        $shipped = [];
+        foreach ($this->json()['lines'] as $line) {
+            $shipped[$line['storage_location']['id']] = $line['id'];
+        }
+        $other = $this->seedSalesOrder(self::TENANT_A, 'SO-233000', status: SalesOrder::STATUS_CONFIRMED, orderedAt: '2026-09-20T10:00:00Z');
+
+        $deplete = 'UPDATE stock_level SET qty_on_hand = qty_on_hand - ?::numeric, version = version + 1, updated_at = now()
+                     WHERE inventory_item_id = ?::uuid AND storage_location_id = ?::uuid AND qty_on_hand >= ?::numeric';
+
+        $holder = $this->raceAgainstAHolder(
+            $other,
+            [[$deplete, ['1', $f['item'], $l1, '1']]],
+            fn () => $this->send('POST', '/fulfilments/'.$this->fulfilmentOf($f['order']).'/sales-returns', [
+                'reason' => 'customer_returned',
+                'lines' => [
+                    ['fulfilment_line_id' => $shipped[$l2], 'quantity' => '1', 'storage_location_id' => $l2],
+                    ['fulfilment_line_id' => $shipped[$l1], 'quantity' => '1', 'storage_location_id' => $l1],
+                ],
+            ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            after: [[$deplete, ['1', $f['item'], $l2, '1']]],
+            table: 'sales_order',
+        );
+
+        self::assertNull($holder['sqlstate'], 'The holder failed -- a 40P01 here is the deadlock W-5 exists to prevent: '.json_encode($holder));
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([['q' => '8.000000'], ['q' => '8.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id IN (?::uuid, ?::uuid) ORDER BY storage_location_id', [$l1, $l2]),
+            'Each level should be 10 - 2 shipped - 1 depleted by A + 1 returned.');
+    }
+
+    private function fulfilmentOf(string $orderId): string
+    {
+        return (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM fulfilment WHERE sales_order_id = ?::uuid', [$orderId])[0]['id'];
     }
 
     /**
@@ -1951,10 +2096,15 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     private const INVOICE_ALLOWED_WITHOUT_A_LOCK = [
         'InvoiceIssuer::issue' => [
             'writes' => ['via issueInside()'],
+            // Rewritten 2026-10-01 (sales step 7 R2), measured rather than moved: IssueInvoice now takes the ORDER's
+            // lock first (SalesOrderRowLock, design §4.3) but still no INVOICE lock -- this map is about the invoice row,
+            // which it creates -- so the entry stays here and its reason changes. It read "Its two races are answered by
+            // unique indexes", which the order lock made half false.
             'why' => 'It inserts the invoice, so there is no existing invoice row to lock, and no other transaction can '
-                .'address what it inserts until it commits. Its two races are answered by unique indexes: '
-                .'invoice_tenant_fulfilment_not_void (two issues of one shipment) and invoice_number_unique (two issues '
-                .'taking one number), each translated after the failed transaction (D-3). It changes no existing '
+                .'address what it inserts until it commits. It takes the shipment\'s ORDER lock first (sales step 7), '
+                .'which serialises it against CreateSalesReturn and against a second issue of the same shipment; the races '
+                .'that lock cannot see are still answered by unique indexes: invoice_tenant_fulfilment_not_void and '
+                .'invoice_number_unique, each translated after the failed transaction (D-3). It changes no existing '
                 .'invoice, which is the property that exempts it; a writer that does is not a create and takes the lock.',
         ],
     ];

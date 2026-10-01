@@ -13,8 +13,8 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`SECURITY_MODEL.md` E-26's entity half, and E-27's refusal, at the
- * constructor** — CD-2 closing work item 2 (*"bind `reason` … at the write path,
+ * **`SECURITY_MODEL.md` E-26's entity half at the constructor** (E-27's refusal of
+ * `return` lived here too until it lifted with `CreateSalesReturn`, 2026-10-01) — CD-2 closing work item 2 (*"bind `reason` … at the write path,
  * not only on the entity"*) read from the other side: the write-path half is
  * `WriteOwnershipTest::everyStockMovementReasonIsRegisteredToItsWriterAndPermission`,
  * and this is the entity half, because the two cover disjoint paths — the
@@ -38,21 +38,16 @@ final class StockMovementReasonTest extends TestCase
         }
     }
 
+    /**
+     * **Every declared reason is accepted** — `return` included since 2026-10-01 (sales step 7 R2), when E-27's
+     * refusal lifted in the one commit it named: the one that built `CreateSalesReturn`. Rewritten from
+     * `everyDeclaredReasonButReturnIsAcceptedAndReturnIsRefused` in that commit (design §9, `RED` M-8). Who may POST a
+     * reason is the write-path half's question (`WriteOwnershipTest`: `return` → `StockReturner` → `sales_return.create`).
+     */
     #[Test]
     #[DataProvider('reasonsTheEntityDeclares')]
-    public function everyDeclaredReasonButReturnIsAcceptedAndReturnIsRefused(string $reason): void
+    public function everyDeclaredReasonIsAccepted(string $reason): void
     {
-        if (StockMovement::REASON_RETURN === $reason) {
-            try {
-                $this->movement($reason);
-                self::fail('A stock movement with reason "return" was constructed: E-27 refuses it until CreateSalesReturn ships.');
-            } catch (\InvalidArgumentException $e) {
-                self::assertStringContainsString('E-27', $e->getMessage());
-            }
-
-            return;
-        }
-
         self::assertSame($reason, $this->movement($reason)->getReason());
     }
 
@@ -75,7 +70,7 @@ final class StockMovementReasonTest extends TestCase
         self::assertArrayHasKey(StockMovement::REASON_RECEIPT, iterator_to_array(self::reasonsTheEntityDeclares()),
             'Reflection over StockMovement found no REASON_RECEIPT, so the reason domain above is not being read.');
         self::assertArrayHasKey(StockMovement::REASON_RETURN, iterator_to_array(self::reasonsTheEntityDeclares()),
-            'The refused reason is not in the domain, so the E-27 branch above never runs.');
+            'The reason E-27 refused until 2026-10-01 is not in the domain, so its acceptance above is never exercised.');
     }
 
     private function movement(string $reason): StockMovement

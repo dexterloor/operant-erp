@@ -346,6 +346,30 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, invoice, then read the invoice'];
             }],
+            // Sales step 7 R2: a return recorded THROUGH THE API on a shipment the API wrote, by a principal holding
+            // everything -- so `invoice.view` too, and the walkers see `credit_blocked_by_payment` (the conditional field)
+            // as well as every decimal (`quantity`, `quantity_credited`, which WireScaleTest must observe at scale 6).
+            'CreateSalesReturn' => [fn (): array => $stockedSalesWorkspace('SO-238000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                    ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+
+                return [201, 'create, confirm, fulfil, then record a return of part of it'];
+            }],
+            'GetSalesReturn' => [fn (): array => $stockedSalesWorkspace('SO-239000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                    ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, return part, then read the return'];
+            }],
             // Sales step 6, C4: the register, read after an invoice the API issued.
             'ListInvoices' => [fn (): array => $stockedSalesWorkspace('SO-164000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);

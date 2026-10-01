@@ -622,6 +622,18 @@ final class AuditEvent
     public const PURCHASE_ORDER_DELETED = 'purchase_order.deleted';
 
     /**
+     * **Goods a customer sent back, recorded** — minted 2026-10-01 with `CreateSalesReturn` (sales step 7, R2): a
+     * `sales_return` and its lines, stock raised through `ReturnStock` (W-3's third edge), under `sales_return.create`.
+     *
+     * **Filed by `SEC` before the code** (`output9-sales-8-sec.md` S-5, and final position item 5): **business**, subject
+     * the return, actor the recorder (= `sales_return.recorded_by_user_id`, PC-11 (4a)), no IP, `metadata`
+     * **`{"reason": <enum value>, "deducts": <boolean>}`** — `deducts` marks in the trail a return that lowered an
+     * invoice with no credit note (owner ruling Q-L (a′)); it does not single out a fake one (G-24). **Step 6 does not
+     * apply.** Written by `SalesReturnAuditWriter::recordCreated()` on the **insert** branch only.
+     */
+    public const SALES_RETURN_CREATED = 'sales_return.created';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -659,6 +671,7 @@ final class AuditEvent
         self::FULFILMENT_CREATED,
         self::SALES_ORDER_DELETED,
         self::PURCHASE_ORDER_DELETED,
+        self::SALES_RETURN_CREATED,
     ];
 
     /**
@@ -721,6 +734,7 @@ final class AuditEvent
         self::FULFILMENT_CREATED,
         self::SALES_ORDER_DELETED,
         self::PURCHASE_ORDER_DELETED,
+        self::SALES_RETURN_CREATED,
     ];
 
     // ---------------------------------------------------------------------
@@ -778,6 +792,7 @@ final class AuditEvent
         self::FULFILMENT_CREATED => 'fulfilment',
         self::SALES_ORDER_DELETED => 'sales_order',
         self::PURCHASE_ORDER_DELETED => 'purchase_order',
+        self::SALES_RETURN_CREATED => 'sales_return',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
     ];

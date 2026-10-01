@@ -94,6 +94,21 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const NO_ID_RESOURCES = ['Permission'];
 
     /**
+     * **Owner ruling Q-H (2026-09-30, sales step 7; `API.md` §4.4.3's Q1(d) deferral, discharged as a ruling):** a
+     * `fulfilment_line` has no display field — no `name`, `code`, `sku`, document number or `line_number` — so the
+     * derivation has nothing to offer and a reference to one fails above unless it is named here. The ruled shape, by
+     * table and by name, never derived: `{id, sales_order_line = {id, line_number}, inventory_item = {id, sku, name}}`
+     * plus, **on a return line**, the bin it left from `storage_location = {id, code}` (one order line may ship from two
+     * bins). The credit-note line's form (`+ quantity`, binless) joins at C1 with its first consumer. Each nested member is
+     * itself walked as a reference, so its own expansion is checked by the rule above.
+     *
+     * @var array<string, list<list<string>>>
+     */
+    private const RULED_DISPLAY_SHAPES = [
+        'fulfilment_line' => [['id', 'inventory_item', 'sales_order_line', 'storage_location']],
+    ];
+
+    /**
      * **The probe.** No built read resource's derived expectation is empty
      * beyond `id` and `archived_at`.
      *
@@ -525,6 +540,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 $want = $this->expectedMembers((string) $value['id'], $skuTable, $documentNumbers, $subListedLineTables);
                 $members = array_keys($value);
                 sort($members);
+                if (null === $want && $this->isARuledShape((string) $value['id'], $members)) {
+                    continue;
+                }
                 if (null === $want || $want !== $members) {
                     $defects[] = \sprintf('%s: the expansion at %s carries [%s], not [%s]', $name, $where, implode(', ', $members),
                         null === $want ? 'id and a display field — no table holding that id has one' : implode(', ', $want));
@@ -700,6 +718,30 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      *
      * @return list<string>|null
      */
+    /**
+     * Whether `$id` is a row of a table in {@see self::RULED_DISPLAY_SHAPES} and `$members` is one of its ruled shapes.
+     * The ruling is checked against its own text in `API.md` §4.4.3, so the exception cannot outlive the ruling.
+     *
+     * @param list<string> $members
+     */
+    private function isARuledShape(string $id, array $members): bool
+    {
+        $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '));
+        self::assertStringContainsString('Ruled 2026-09-30 (sales step 7, Q-H', $section,
+            'RULED_DISPLAY_SHAPES cites owner ruling Q-H, which §4.4.3 no longer records.');
+
+        foreach (self::RULED_DISPLAY_SHAPES as $table => $shapes) {
+            if (!\in_array($members, $shapes, true)) {
+                continue;
+            }
+            if ([] !== $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT 1 FROM '.$table.' WHERE id::text = ?', [$id])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function expectedMembers(string $id, string $skuTable, array $documentNumbers, array $subListedLineTables): ?array
     {
         foreach (SchemaManifest::tenantScopedTables() as $table) {

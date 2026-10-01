@@ -122,6 +122,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\FulfilmentCreateTest::PINNED_FULFILMENT_OPERATIONS),
             // Sales step 6, C3: `/invoices` is its own path family (`IssueInvoice` is under `/fulfilments`).
             array_keys(\App\Tests\Api\InvoiceIssueTest::PINNED_INVOICE_OPERATIONS),
+            // Sales step 7 R2: `/sales-returns` is its own path family (`CreateSalesReturn` is under `/fulfilments`).
+            array_keys(\App\Tests\Api\SalesReturnCreateTest::PINNED_SALES_RETURN_OPERATIONS),
             // Roles slice 1: `/permissions` is its own path family.
             array_keys(\App\Tests\Api\PermissionListTest::PINNED_PERMISSION_OPERATIONS),
             // Roles slice 1: `/roles` is its own path family.

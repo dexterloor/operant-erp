@@ -173,7 +173,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (roles slice 2, C3, 2026-09-30):** `AssignRole`, a `Post` on `RoleResource` at `/users/{id}/roles`,
         // `read: false`. Its migration grants `erp_app` a COLUMN-level `INSERT` on the four columns its one `INSERT` names
         // (table-level `INSERT` stays false, measured). `RoleResource`'s item `Get` exists, so no `$notExposed` fallback.
-        self::assertCount(49, $checked, 'The route set changed. This slice declares forty-nine operations: '.implode(', ', array_keys($checked)));
+        // **And two more (sales step 7 R2, 2026-10-01):** `GetSalesReturn` and `CreateSalesReturn` on `SalesReturnResource`
+        // (item `Get` declared first, so no `$notExposed` fallback route). Its migration grants `erp_app` table-level INSERT on
+        // `sales_return` and `sales_return_line`.
+        self::assertCount(51, $checked, 'The route set changed. This slice declares fifty-one operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

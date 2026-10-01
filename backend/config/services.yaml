@@ -262,6 +262,11 @@ services:
     # commit 4); the test env still reaches it directly through a public alias of THIS id.
     App\Modules\Inventory\Application\Contract\DepleteStock: '@App\Modules\Inventory\Application\StockDepleter'
 
+    # ARCHITECTURE §5.5 W-1/W-3 — `Sales → Inventory::ReturnStock`, the THIRD cross-module write edge (`ARCH`'s W-3
+    # amendment of 2026-09-30, owner ruling Q-J; sales step 7 R2). Explicit for the same reason. Its one consumer is
+    # `SalesReturnWriter` (`CreateSalesReturn`); the test env reaches it through a public alias of THIS id.
+    App\Modules\Inventory\Application\Contract\ReturnStock: '@App\Modules\Inventory\Application\StockReturner'
+
     # The pick read's candidate bins (sales step 5, commit 3): a read contract, so the rule for what is
     # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.
     App\Modules\Inventory\Application\Contract\PickableStock: '@App\Modules\Inventory\Application\PickableStockReader'
@@ -303,6 +308,11 @@ when@test:
         # The same, for `DepleteStock` -- `DepleteStockTest` drives the contract directly.
         test.inventory.deplete_stock:
             alias: App\Modules\Inventory\Application\Contract\DepleteStock
+            public: true
+
+        # The same, for `ReturnStock` (sales step 7 R2).
+        test.inventory.return_stock:
+            alias: App\Modules\Inventory\Application\Contract\ReturnStock
             public: true
 
         App\Tests\Support\SqlRecorder:

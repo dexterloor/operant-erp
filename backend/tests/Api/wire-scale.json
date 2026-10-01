@@ -56,6 +56,12 @@
     "CreateSalesOrderLine $.unit_price": [
         4
     ],
+    "CreateSalesReturn $.lines[].quantity": [
+        6
+    ],
+    "CreateSalesReturn $.lines[].quantity_credited": [
+        6
+    ],
     "GetFulfilment $.lines[].quantity": [
         6
     ],
@@ -91,6 +97,12 @@
     ],
     "GetSalesOrder $.total_amount": [
         4
+    ],
+    "GetSalesReturn $.lines[].quantity": [
+        6
+    ],
+    "GetSalesReturn $.lines[].quantity_credited": [
+        6
     ],
     "IssueInvoice $.total_amount": [
         4

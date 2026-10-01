@@ -29,7 +29,11 @@ use Symfony\Component\Uid\Uuid;
  * The statement order (design §19 C3):
  *  1. The E-1 gate (`invoice.issue`) has already run — `PermissionGate`, on `kernel.controller`.
  *  2. The fulfilment, for **not-found only**. RLS bounds it to the caller's workspace, so another workspace's
- *     fulfilment and a random uuid are the same 404 (E-2 / ST-5).
+ *     fulfilment and a random uuid are the same 404 (E-2 / ST-5). It reads the fulfilment ALONE, so nothing touches
+ *     the order before step 2a.
+ *  2a. **`SalesOrderRowLock` on the shipment's order — first** (sales step 7 R2, 2026-10-01; `ARCH` §6(c), W-5's
+ *     sales document order). `CreateSalesReturn` takes the same lock, so a return and an issue of one shipment
+ *     serialise: a return is deducted by this invoice or stamped with it, never both and never neither.
  *  3. `assertFulfilmentIsNotAlreadyInvoiced()` — a live (non-void) invoice for this shipment refuses the request:
  *     **a repeat is refused, never replayed** (§4.2 item 1; `Idempotency-Key` is required by API-14 and unused). The
  *     live number is disclosed only to a holder of `invoice.view` (R-14), never the id, total or customer. Named
@@ -37,10 +41,15 @@ use Symfony\Component\Uid\Uuid;
  *     window.
  *  4. The customer's payment terms must be 0–3650 days (`invoice.payment_terms_are_usable`): `invoice_due_window`
  *     would otherwise refuse as a 23514 → 500.
- *  5. The amount: `SUM(round(fulfilment_line.quantity × sales_order_line.unit_price, 4))` — **what shipped** (Q1),
- *     rounded per line (D-A), joined on `(tenant_id, id)` pairs with **no** `deleted_at` filter (an order line
- *     archived after it shipped still priced what shipped). A negative total (`unit_price` has no sign CHECK, M-12)
- *     and a total wider than `numeric(19,4)` are refused in domain terms before the INSERT can 23514/22003.
+ *  5. The amount: `SUM(round((fulfilment_line.quantity − returned_before_issue) × sales_order_line.unit_price, 4))`
+ *     — **what shipped, less the returns classified as deducting** (owner ruling Q1 as refined by Q-L (a′),
+ *     2026-09-30: a return recorded before any invoice, by a `fulfilment.create` holder other than the shipper or by
+ *     an owner; `sales_return.deducts`). Every other return reduces the invoice only through a credit note. Rounded
+ *     per line (D-A, G-16 unchanged), joined on `(tenant_id, id)` pairs with **no** `deleted_at` filter (an order line
+ *     archived after it shipped still priced what shipped). **Q-G (1):** a shipment whose every line was returned
+ *     before billing is refused (`invoice.fulfilment_has_something_to_bill`) — keyed on QUANTITIES, so a zero-priced
+ *     shipment still issues a zero invoice, as before. A negative total (`unit_price` has no sign CHECK, M-12) and a
+ *     total wider than `numeric(19,4)` are refused in domain terms before the INSERT can 23514/22003.
  *  6. The number: `MAX + 1` over every invoice of the workspace (a voided one included: numbers are never
  *     reissued). **The 1,000,000th is refused** (`invoice.number_series_is_exhausted`, Q12 + CD-7) **before any
  *     formatting**, and only then padded by PHP (SQL `lpad` truncates). It runs AFTER step 3, so a repeat on the
@@ -57,9 +66,10 @@ use Symfony\Component\Uid\Uuid;
  *     in a fresh transaction, whether this shipment now has a live invoice — step 3's refusal if so; "try again",
  *     naming nothing, if not.
  *
- * **What it deliberately does not do:** lock the order (no concurrent writer of what it reads exists until
- * `CreateSalesReturn`, whose tripwire owes `SalesOrderRowLock` here — `OwedAmendmentTripwireTest`); deduct returned
- * quantities (Q1: none can exist yet; the same tripwire owes it); expose or accept any request field (§4.2: `—`).
+ * **What it deliberately does not do:** take the INVOICE row lock (it creates the row; `PurchaseOrderRowLockTest`'s
+ * `INVOICE_ALLOWED_WITHOUT_A_LOCK`); expose or accept any request field (§4.2: `—`). *(Until 2026-10-01 this read "lock
+ * the order … deduct returned quantities (Q1: none can exist yet)": both were owed to `CreateSalesReturn`'s commit by
+ * `OwedAmendmentTripwireTest`'s returned-deduction pin, and both landed in it.)*
  */
 final readonly class InvoiceIssuer
 {
@@ -127,6 +137,14 @@ final readonly class InvoiceIssuer
         $connection = $em->getConnection();
 
         // 2.
+        $orderId = $connection->fetchOne('SELECT sales_order_id FROM fulfilment WHERE id = ?::uuid', [$fulfilmentId]);
+        if (false === $orderId) {
+            throw ApiProblem::notFound();
+        }
+
+        // 2a.
+        SalesOrderRowLock::holdInside($em, (string) $orderId);
+
         $fulfilment = $connection->fetchAssociative(<<<'SQL'
             SELECT f.id, c.payment_terms_days
               FROM fulfilment f
@@ -135,7 +153,7 @@ final readonly class InvoiceIssuer
              WHERE f.id = ?::uuid
             SQL, [$fulfilmentId]);
         if (false === $fulfilment) {
-            throw ApiProblem::notFound();
+            throw new \LogicException('A fulfilment found before its order\'s lock is not readable after it.');
         }
 
         // 3.
@@ -152,16 +170,23 @@ final readonly class InvoiceIssuer
         }
 
         // 5.
-        $amount = $connection->fetchAssociative(<<<'SQL'
+        $amount = $connection->fetchAssociative(\sprintf(<<<'SQL'
             SELECT count(*) AS joined,
-                   COALESCE(SUM(round(fl.quantity * sol.unit_price, 4)), 0)::text AS total,
+                   count(*) FILTER (WHERE fl.quantity - %1$s > 0) AS billable,
+                   COALESCE(SUM(round((fl.quantity - %1$s) * sol.unit_price, 4)), 0)::text AS total,
                    (SELECT count(*) FROM fulfilment_line x WHERE x.tenant_id = ?::uuid AND x.fulfilment_id = ?::uuid) AS lines
               FROM fulfilment_line fl
               JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
              WHERE fl.tenant_id = ?::uuid AND fl.fulfilment_id = ?::uuid
-            SQL, [$identity->tenantId, $fulfilmentId, $identity->tenantId, $fulfilmentId]);
+            SQL, SalesReturnReader::returnedBeforeIssue('fl')), [$identity->tenantId, $fulfilmentId, $identity->tenantId, $fulfilmentId]);
         if (false === $amount || (int) $amount['joined'] !== (int) $amount['lines']) {
             throw new \LogicException('A fulfilment line did not join its order line, so the invoice total would omit it.');
+        }
+        if (0 === (int) $amount['billable']) {
+            throw ApiProblem::businessRuleViolated(
+                'invoice.fulfilment_has_something_to_bill',
+                'Everything on this shipment came back before it was invoiced, so there is nothing to bill.',
+            );
         }
         $total = (string) $amount['total'];
         if (bccomp($total, '0', 4) < 0) {

@@ -142,6 +142,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         'fulfilment.created',
         'sales_order.deleted',
         'purchase_order.deleted',
+        // Edited deliberately 2026-10-01 (sales step 7 R2) on `SEC`'s filing (`output9-sales-8-sec.md` S-5 and final
+        // position item 5: BUSINESS, subject the return, `{"reason", "deducts"}`, no IP), which preceded the code. A return
+        // recorded is the return document's own business state; its subject is `sales_return`, so (4c) does not reach it.
+        'sales_return.created',
     ];
 
     /**
