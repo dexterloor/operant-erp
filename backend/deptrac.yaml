@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-01 with the return schema in the tree (sales step 7, R1): the three commands return
+  # **115 / 72 / 18** -- TWO edge lines added, both A-12, both forced by `DoctrineMappingTest`'s rule that every
+  # composite tenant FK on a mapped table has its single-column association: `SalesReturn -> AppUser` (the recorder)
+  # and `SalesReturnLine -> StorageLocation` (the bin). No A-7 or A-5 line: R1 ships no operation.)
   # (Re-derived 2026-09-30 with `AssignRole` in the tree (roles slice 2, C3): the three commands return
   # **113 / 72 / 18** -- ONE edge line net: `RoleAssignment -> RoleAuditWriter` (A-5, `role.assigned`) added, and the
   # lock-time denial's `-> DenialAuditWriter` MOVED from `RoleRevocation` to `RoleAdministrationActor`, the one copy of the
@@ -440,6 +444,15 @@ deptrac:
       # mapping decision, not chosen. `Fulfilment -> AppUser`'s shape exactly (the actor on a document).
       # `Invoice -> Fulfilment` is in-module and needs no entry.
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+    App\Modules\Sales\Infrastructure\Entity\SalesReturn:
+      # Sales step 7 R1, 2026-10-01: `recorded_by_user_id` (SoD-5's evidence) carries the composite
+      # `sales_return_recorder_fk`, and `DoctrineMappingTest` requires the single-column association -- forced by
+      # the mapping decision, not chosen; `Fulfilment -> AppUser`'s shape exactly (the actor on a document).
+      # `-> Fulfilment` and `-> Invoice` are in-module and need no entry.
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
+    App\Modules\Sales\Infrastructure\Entity\SalesReturnLine:
+      # Sales step 7 R1: the bin the goods came back into, `FulfilmentLine -> StorageLocation`'s shape exactly.
+      - App\Modules\Warehouses\Infrastructure\Entity\StorageLocation   # A-12
     App\Modules\Sales\Infrastructure\Entity\SalesOrder:
       - App\Modules\Customers\Infrastructure\Entity\Customer   # A-12
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12

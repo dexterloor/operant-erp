@@ -426,7 +426,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * guardless mapping throws on a planted missing table and a planted
      * `line_number` column; clause (i)'s rule text is present; clause (ii)'s table is read from the document
      * exactly once and has a `sku` column; the document-number indexes are
-     * exactly five; and planted calls of the pure rule pin each branch.
+     * exactly six; and planted calls of the pure rule pin each branch.
      *
      * **What this does not check:** the display **values** and the key names (the
      * expansion's key is the `_id` field's name less `_id`). Both are pinned per
@@ -459,10 +459,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertArrayHasKey($skuTable, SchemaManifest::TABLES, \sprintf('Clause (ii) names `%s`, which is not a table.', $skuTable));
         self::assertContains('sku', $this->columnsOf($skuTable), \sprintf('Clause (ii) names `%s`, which has no `sku` column.', $skuTable));
 
-        // Control — the document numbers are IA.md R-1's five.
+        // Control — the document numbers are IA.md R-1's five plus the sales return's `RET-` (sales step 7 R1,
+        // 2026-10-01: `sales_return_number_unique`, six digits like the rest). Moved deliberately from 5 in the commit
+        // that created the sixth number; a reference to a return displays `{id, sales_return_number}`.
         $documentNumbers = $this->documentNumberColumns();
-        self::assertSame(5, \count($documentNumbers),
-            'The live-unique *_number indexes are not IA.md R-1\'s five document numbers: '.json_encode($documentNumbers));
+        self::assertSame(6, \count($documentNumbers),
+            'The live-unique *_number indexes are not IA.md R-1\'s five document numbers plus the sales return\'s: '.json_encode($documentNumbers));
 
         // Planted controls — each branch of the pure rule, with clause (ii)'s
         // table passed explicitly.

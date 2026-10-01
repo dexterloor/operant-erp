@@ -578,6 +578,24 @@ final class SchemaManifest
                 ],
             ],
         ],
+        'sales_return' => [
+            'module' => 'Modules\\Sales',
+            'tenant' => true,
+            'deletion' => self::NONE,
+            'why' => 'A customer return is a document, never edited and never deleted (OI-2 R3: deletion class none); a return recorded in error is not undone (owner ruling Q-K, G-21). Sales step 7 R1 (`Version20261001000100`). **Carries CreateSalesReturn\'s retry key on fulfilment\'s reasoning:** each request writes ONE header row, so idempotency_key and request_digest are NOT NULL, CHECKed to 64 lower-case hex, and sales_return_idem_unique (tenant_id, idempotency_key) is TOTAL because the table has no deleted_at. `invoice_id` stamps the fulfilment\'s LIVE invoice when the return was recorded (design F-2: no clock decides "before issue"); `deducts` is owner ruling Q-L (a′), decided once at record time, and `sales_return_deducts_only_before_invoice` holds that a deducting return names no invoice; `recorded_by_user_id` is SoD-5\'s evidence (the `shipped_by_user_id` precedent).',
+            // ADR-002 A4: SELECT for the readers R2 ships (GetSalesReturn, the 201 read-back, IssueInvoice's deduction).
+            // erp_ai SELECT: SEC S-1, 2026-09-30 (output9-sales-8-sec.md §1) -- table-level, declared explicitly here and
+            // never left to TENANT_READ_DEFAULT. INSERT ships with CreateSalesReturn (R2). Never UPDATE, never DELETE.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+        ],
+        'sales_return_line' => [
+            'module' => 'Modules\\Sales',
+            'tenant' => true,
+            'deletion' => self::NONE,
+            'why' => 'Shares its parent\'s class: a return line is the record of stock that came back (ReturnStock, W-3\'s third edge, R2), and deleting it would unbalance the movement it produced. One line per fulfilment line per return (sales_return_line_once_per_line). That the line\'s fulfilment line belongs to the return\'s fulfilment is an application rule, not a constraint: a three-column FK is refused (DoctrineMappingTest), so G-15 widens to name its forgery by SQL.',
+            // ADR-002 A4: as sales_return. erp_ai SELECT: SEC S-1, 2026-09-30. INSERT ships with CreateSalesReturn (R2).
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+        ],
     ];
 
     /**
