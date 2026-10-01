@@ -149,7 +149,7 @@ trait ListOperationFixtures
                         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
                             INSERT INTO sales_return (id, tenant_id, fulfilment_id, sales_return_number, reason, returned_at,
                                                       recorded_by_user_id, deducts, idempotency_key, request_digest)
-                            VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'customer_returned', now(), ?::uuid, false,
+                            VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'other', now(), ?::uuid, false,
                                     encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                             SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $fulfilment,
                                 \sprintf('RET-9%05d', $i), (string) $this->actorId]);

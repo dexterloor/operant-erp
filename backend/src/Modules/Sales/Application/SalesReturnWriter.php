@@ -66,8 +66,11 @@ final readonly class SalesReturnWriter
 {
     public const OPERATION = 'CreateSalesReturn';
 
-    /** The document's reason domain (`sales_return_reason_values`). ⚠ Design Q-I's proposal; `PO` + `UX` to rule. */
-    public const REASONS = ['customer_returned', 'damaged_in_transit', 'wrong_item_shipped', 'recorded_in_error'];
+    /**
+     * The document's reason domain (`sales_return_reason_values`), as the owner ruled it (Q-I, 2026-10-01,
+     * `Version20261001000400`): one value per party at fault, a catch-all, and OI-2 R3's `recorded_in_error`.
+     */
+    public const REASONS = ['damaged_in_transit', 'wrong_item_shipped', 'defective', 'no_longer_wanted', 'other', 'recorded_in_error'];
 
     public const RECORDED_IN_ERROR = 'recorded_in_error';
 

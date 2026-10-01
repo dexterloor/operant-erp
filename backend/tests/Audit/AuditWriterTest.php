@@ -348,7 +348,7 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Sales step 7 R2: `sales_return.created`, BUSINESS.
         $returnWriter = self::getContainer()->get(SalesReturnAuditWriter::class);
         \assert($returnWriter instanceof SalesReturnAuditWriter);
-        $returnWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesReturnId: Uuid::v4()->toRfc4122(), reason: 'customer_returned', deducts: true);
+        $returnWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesReturnId: Uuid::v4()->toRfc4122(), reason: 'other', deducts: true);
         $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
         \assert($salesWriter instanceof SalesOrderAuditWriter);
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());

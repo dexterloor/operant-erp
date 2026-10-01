@@ -353,7 +353,7 @@ trait OperationSuccessRecipes
                 $raiseConfirmAndFulfil($c);
                 $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $fulfilment);
-                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
                     ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
                 ]], $key());
 
@@ -363,7 +363,7 @@ trait OperationSuccessRecipes
                 $raiseConfirmAndFulfil($c);
                 $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $fulfilment);
-                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
                     ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
                 ]], $key());
                 $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
@@ -375,7 +375,7 @@ trait OperationSuccessRecipes
                 $raiseConfirmAndFulfil($c);
                 $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
                 $this->send('GET', $fulfilment);
-                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'customer_returned', 'lines' => [
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
                     ['fulfilment_line_id' => $this->json()['lines'][0]['id'], 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
                 ]], $key());
                 $this->send('GET', '/sales-returns');

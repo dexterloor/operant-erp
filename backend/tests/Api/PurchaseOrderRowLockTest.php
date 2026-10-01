@@ -1610,7 +1610,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 [<<<'SQL'
                     INSERT INTO sales_return (id, tenant_id, fulfilment_id, invoice_id, sales_return_number, reason, returned_at,
                                               recorded_by_user_id, deducts, idempotency_key, request_digest)
-                    VALUES (?::uuid, ?::uuid, ?::uuid, NULL, 'RET-000001', 'customer_returned', now(), ?::uuid, true,
+                    VALUES (?::uuid, ?::uuid, ?::uuid, NULL, 'RET-000001', 'other', now(), ?::uuid, true,
                             encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                     SQL, [$returnId, self::TENANT_A, $f['fulfilment'], (string) $this->actorId]],
                 ['INSERT INTO sales_return_line (id, tenant_id, sales_return_id, fulfilment_line_id, storage_location_id, quantity) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 0.5)',
@@ -1635,7 +1635,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
              WHERE f.id = ?::uuid
             SQL, [$invoiceId, (string) $this->actorId, $f['fulfilment']]]],
             fn () => $this->send('POST', '/fulfilments/'.$f['fulfilment'].'/sales-returns', [
-                'reason' => 'customer_returned',
+                'reason' => 'other',
                 'lines' => [['fulfilment_line_id' => $shippedLine, 'quantity' => '0.5', 'storage_location_id' => $bin]],
             ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
             table: 'sales_order',
@@ -1682,7 +1682,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $other,
             [[$deplete, ['1', $f['item'], $l1, '1']]],
             fn () => $this->send('POST', '/fulfilments/'.$this->fulfilmentOf($f['order']).'/sales-returns', [
-                'reason' => 'customer_returned',
+                'reason' => 'other',
                 'lines' => [
                     ['fulfilment_line_id' => $shipped[$l2], 'quantity' => '1', 'storage_location_id' => $l2],
                     ['fulfilment_line_id' => $shipped[$l1], 'quantity' => '1', 'storage_location_id' => $l1],

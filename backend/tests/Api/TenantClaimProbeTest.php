@@ -229,7 +229,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // supplied tenant id that moved the write would return B's goods, which the digest names.
         'CreateSalesReturn' => [
             'vars' => ['id' => 'fulfilment'], 'setup' => 'fulfilment',
-            'body' => ['reason' => 'customer_returned', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
+            'body' => ['reason' => 'other', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
         ],
         // A return recorded through the operation in each tenant, so a probe that moved the read would answer B's.
         'GetSalesReturn' => ['vars' => ['id' => 'sales_return'], 'setup' => 'sales_return'],
@@ -618,7 +618,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
     {
         $this->seedFulfilment($letter);
         $this->send('POST', '/fulfilments/'.$this->id($letter, 'fulfilment').'/sales-returns', [
-            'reason' => 'customer_returned',
+            'reason' => 'other',
             'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1', 'storage_location_id' => $this->id($letter, 'bin')]],
         ], [
             'Idempotency-Key' => Uuid::v4()->toRfc4122(),

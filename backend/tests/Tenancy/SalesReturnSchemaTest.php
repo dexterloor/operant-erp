@@ -16,7 +16,7 @@ use Symfony\Component\Uid\Uuid;
  * - `sales_return_deducts_only_before_invoice`: owner ruling Q-L (a′) — a deducting return names no invoice. All four
  *   quadrants, so a CHECK written the wrong way round (or dropped) is red.
  * - The header retry key: NOT NULL, 64 lower-case hex, and a TOTAL unique (class `none`, no `deleted_at`).
- * - The reason domain (design Q-I's proposal; `recorded_in_error` is OI-2 R3's).
+ * - The reason domain (owner ruling Q-I, 2026-10-01, `Version20261001000400`; `recorded_in_error` is OI-2 R3's).
  * - Every reference is composite `(tenant_id, …)`: another workspace's fulfilment, invoice, recorder, shipped line or
  *   bin is refused (23503).
  * - Lines: quantity strictly positive; one line per shipped line per return.
@@ -71,12 +71,16 @@ final class SalesReturnSchemaTest extends TenancyTestCase
     /** @return iterable<string, array{string, string}> */
     public static function reasons(): iterable
     {
-        yield 'customer_returned' => ['customer_returned', 'accepted'];
+        // Owner ruling Q-I, 2026-10-01 (`Version20261001000400`): the six ruled values.
         yield 'damaged_in_transit' => ['damaged_in_transit', 'accepted'];
         yield 'wrong_item_shipped' => ['wrong_item_shipped', 'accepted'];
+        yield 'defective' => ['defective', 'accepted'];
+        yield 'no_longer_wanted' => ['no_longer_wanted', 'accepted'];
+        yield 'other' => ['other', 'accepted'];
         yield 'recorded_in_error (OI-2 R3)' => ['recorded_in_error', 'accepted'];
+        yield 'the withdrawn proposal is refused' => ['customer_returned', '23514'];
         yield 'a stock-movement reason is not a return reason' => ['return', '23514'];
-        yield 'upper case' => ['CUSTOMER_RETURNED', '23514'];
+        yield 'upper case' => ['OTHER', '23514'];
         yield 'empty' => ['', '23514'];
     }
 
@@ -250,7 +254,7 @@ final class SalesReturnSchemaTest extends TenancyTestCase
             'fulfilment_id' => $w['fulfilment'],
             'invoice_id' => null,
             'sales_return_number' => \sprintf('RET-%06d', ++self::$returns),
-            'reason' => 'customer_returned',
+            'reason' => 'other',
             'returned_at' => '2026-10-01T09:00:00Z',
             'recorded_by_user_id' => $w['user'],
             'deducts' => 'true',

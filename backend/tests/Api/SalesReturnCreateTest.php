@@ -159,7 +159,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
             'colleague' => $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR),
             'admin' => $this->actAsRole(DefaultRoles::ADMIN),
         };
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
 
@@ -180,7 +180,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $i = $this->issuedOn($this->shipment('RET-C', [['5', '10.0000', '4']]));
         $this->actAsRole(DefaultRoles::OWNER);
 
-        $this->recordReturn($i['shipment']['fulfilment'], 'customer_returned', [
+        $this->recordReturn($i['shipment']['fulfilment'], 'other', [
             ['fulfilment_line_id' => $i['shipment']['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $i['shipment']['bin']],
         ]);
 
@@ -285,13 +285,13 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
     {
         $s = $this->shipment('RQ-FILT', [['5', '10.0000', '4']]);
         $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
         $deducting = $this->json()['id'];
         $i = $this->issuedOn($s);
         $this->actAsRole(DefaultRoles::OWNER);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
         $stamped = $this->json()['id'];
@@ -394,13 +394,13 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $this->actAsRole(DefaultRoles::OWNER);
         $line = ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'storage_location_id' => $s['bin']];
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [$line + ['quantity' => '3']]);
+        $this->recordReturn($s['fulfilment'], 'other', [$line + ['quantity' => '3']]);
         self::assertSame(201, $this->httpStatus());
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [$line + ['quantity' => '1.000001']]);
+        $this->recordReturn($s['fulfilment'], 'other', [$line + ['quantity' => '1.000001']]);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('sales_return.quantity_within_shipped', $this->json()['rule']);
         self::assertSame('Order line 1 shipped 4 on this shipment and 3 has already come back, so 1.000001 more cannot be returned against it.', $this->json()['detail']);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [$line + ['quantity' => '1']]);
+        $this->recordReturn($s['fulfilment'], 'other', [$line + ['quantity' => '1']]);
         self::assertSame(201, $this->httpStatus(), 'The bound is inclusive: the last unit may come back.');
     }
 
@@ -412,14 +412,14 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $t = $this->shipment('RET-V2', [['5', '10.0000', '4']]);
         $this->actAsRole(DefaultRoles::OWNER);
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $t['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
         self::assertSame(422, $this->httpStatus());
         self::assertSame([['pointer' => '/lines/0/fulfilment_line_id', 'code' => 'unknown_reference']], array_map(
             static fn (array $e): array => ['pointer' => $e['pointer'], 'code' => $e['code']], $this->json()['errors']));
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $t['bin']],
         ]);
         self::assertSame(422, $this->httpStatus());
@@ -435,7 +435,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $s = $this->shipment('RET-DATE', [['5', '10.0000', '4']]);
         $this->actAsRole(DefaultRoles::OWNER);
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ], returnedAt: '2000-01-01T00:00:00Z');
 
@@ -455,10 +455,10 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $key = Uuid::v4()->toRfc4122();
         $lines = [['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']]];
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', $lines, $key);
+        $this->recordReturn($s['fulfilment'], 'other', $lines, $key);
         self::assertSame(201, $this->httpStatus());
         $first = $this->json();
-        $this->recordReturn($s['fulfilment'], 'customer_returned', $lines, $key);
+        $this->recordReturn($s['fulfilment'], 'other', $lines, $key);
         self::assertSame(201, $this->httpStatus());
         self::assertSame($first, $this->json());
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM sales_return'));
@@ -481,14 +481,14 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
     {
         $s = $this->shipment('RET-DED', [['5', '10.0000', '4'], ['3', '5.0000', '2']]);
         $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
         self::assertSame(201, $this->httpStatus());
         $deducting = $this->json()['id'];
         self::assertTrue($this->json()['deducts']);
         $this->actAsUser(self::TENANT_A, $s['shipper']);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][1], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
         self::assertSame(201, $this->httpStatus());
@@ -518,7 +518,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         // Seeded first: a refused request closes the shared entity manager, and the fixtures seed through it.
         $free = $this->shipment('RET-FREE', [['5', '0.0000', '2']]);
         $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '2', 'storage_location_id' => $s['bin']],
         ]);
         self::assertSame(201, $this->httpStatus());
@@ -553,7 +553,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $s = $this->shipment('RET-R'.strtoupper(substr(md5($role), 0, 4)), [['5', '10.0000', '4']]);
         $this->actAsRole($role);
 
-        $this->recordReturn($s['fulfilment'], 'customer_returned', [
+        $this->recordReturn($s['fulfilment'], 'other', [
             ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
         ]);
 
@@ -642,11 +642,11 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         return ['invoice' => $this->json()['id'], 'number' => $this->json()['invoice_number'], 'shipment' => $shipment];
     }
 
-    /** One `customer_returned` unit of the shipment's first line, by an owner; returns its id. */
+    /** One `other` unit of the shipment's first line, by an owner; returns its id. */
     private function returnedOne(array $shipment): string
     {
         $this->actAsRole(DefaultRoles::OWNER);
-        $this->recordReturn($shipment['fulfilment'], 'customer_returned', [
+        $this->recordReturn($shipment['fulfilment'], 'other', [
             ['fulfilment_line_id' => $shipment['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $shipment['bin']],
         ]);
         self::assertSame(201, $this->httpStatus(), 'Fixture: the return. '.(string) $this->client()->getResponse()->getContent());

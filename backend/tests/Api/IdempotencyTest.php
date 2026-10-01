@@ -399,7 +399,7 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         $line = $this->json()['lines'][0];
         $before = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$line['storage_location']['id']])[0]['q'];
-        $body = ['reason' => 'customer_returned', 'lines' => [
+        $body = ['reason' => 'other', 'lines' => [
             ['fulfilment_line_id' => $line['id'], 'quantity' => '1', 'storage_location_id' => $line['storage_location']['id']],
         ]];
         $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
