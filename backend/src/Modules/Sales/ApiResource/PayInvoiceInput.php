@@ -18,4 +18,14 @@ final class PayInvoiceInput
 {
     #[SerializedName('paid_at')]
     public ?string $paidAt = null;
+
+    /**
+     * Sales step 7 C1 (owner ruling Q-P, restricted (α)): the returns of this invoice's shipment the payer has seen and
+     * is recording payment PAST, uncredited — every such return must be named, by id, or the payment is refused
+     * `invoice.has_no_uncredited_return`. Never a blanket flag; a `recorded_in_error` return can never be named.
+     *
+     * @var mixed list of uuids; checked by `InvoicePayment`
+     */
+    #[SerializedName('acknowledged_return_ids')]
+    public mixed $acknowledgedReturnIds = null;
 }

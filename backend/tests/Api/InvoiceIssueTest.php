@@ -32,6 +32,9 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_INVOICE_OPERATIONS = [
+        // Sales step 7 C1 (2026-10-01): declared on `CreditNoteResource`, which the registry reads first.
+        // `unique:credit_note_idem_unique`: the header.
+        'IssueCreditNote' => ['method' => 'POST', 'path' => '/invoices/{id}/credit-notes', 'idem' => true],
         // Sales step 6, C4 (2026-09-28). Listed first: the registry declares it first, and the pin compares order.
         'ListInvoices' => ['method' => 'GET', 'path' => '/invoices', 'idem' => false],
         // Sales step 7 C0 (2026-10-01). Declared on its own resource class, which the registry reads second. Bounded.

@@ -27,6 +27,6 @@ final readonly class PayInvoiceProcessor implements ProcessorInterface
     {
         \assert($data instanceof PayInvoiceInput);
 
-        return InvoiceResource::fromView($this->payment->pay((string) ($uriVariables['id'] ?? ''), $data->paidAt));
+        return InvoiceResource::fromView($this->payment->pay((string) ($uriVariables['id'] ?? ''), $data->paidAt, $data->acknowledgedReturnIds));
     }
 }

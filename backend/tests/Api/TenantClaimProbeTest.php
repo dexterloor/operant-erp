@@ -237,6 +237,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetSalesReturn' => ['vars' => ['id' => 'sales_return'], 'setup' => 'sales_return'],
         // Sales step 7 R3: the register over a return recorded in each tenant, so the baseline page is non-empty.
         'ListSalesReturns' => ['setup' => 'sales_return'],
+        // Sales step 7 C1: a credit of a return recorded after its invoice, in each tenant, naming this tenant's return and
+        // shipped line; a supplied tenant id that moved the write would credit B's invoice, which the digest names.
+        'IssueCreditNote' => [
+            'vars' => ['id' => 'invoice'], 'setup' => 'returned_invoice',
+            'body' => ['reason' => 'goods_returned', 'sales_return_id' => '@sales_return', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1']]],
+        ],
+        // A credit note issued through the operation in each tenant, so a probe that moved the read would answer B's.
+        'GetCreditNote' => ['vars' => ['id' => 'credit_note'], 'setup' => 'credit_note'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */
@@ -404,6 +412,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('invoice' === ($recipe['setup'] ?? null)) {
             $this->seedInvoice('A');
             $this->seedInvoice('B');
+        }
+        if ('returned_invoice' === ($recipe['setup'] ?? null)) {
+            $this->seedReturnedInvoice('A');
+            $this->seedReturnedInvoice('B');
+        }
+        if ('credit_note' === ($recipe['setup'] ?? null)) {
+            $this->seedCreditNote('A');
+            $this->seedCreditNote('B');
         }
         if ('paid_invoice' === ($recipe['setup'] ?? null)) {
             $this->seedPaidInvoice('A', self::TENANT_A);
@@ -645,6 +661,38 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
 
         $this->remember($letter, 'invoice', (string) $this->json()['id']);
+    }
+
+    /** Sales step 7 C1: an invoice issued through the operation, then a return recorded after it (so creditable). */
+    private function seedReturnedInvoice(string $letter): void
+    {
+        $this->seedInvoice($letter);
+        $this->send('POST', '/fulfilments/'.$this->id($letter, 'fulfilment').'/sales-returns', [
+            'reason' => 'other',
+            'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1', 'storage_location_id' => $this->id($letter, 'bin')]],
+        ], [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+        self::assertSame(201, $this->httpStatus(), 'The return fixture for tenant '.$letter.' was not recorded: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+        $this->remember($letter, 'sales_return', (string) $this->json()['id']);
+    }
+
+    /** Sales step 7 C1: a credit note issued through the operation on that return. */
+    private function seedCreditNote(string $letter): void
+    {
+        $this->seedReturnedInvoice($letter);
+        $this->send('POST', '/invoices/'.$this->id($letter, 'invoice').'/credit-notes', [
+            'reason' => 'goods_returned', 'sales_return_id' => $this->id($letter, 'sales_return'),
+            'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1']],
+        ], [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+        self::assertSame(201, $this->httpStatus(), 'The credit-note fixture for tenant '.$letter.' was not issued: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+        $this->remember($letter, 'credit_note', (string) $this->json()['id']);
     }
 
     /**

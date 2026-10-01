@@ -67,8 +67,11 @@ final readonly class RoleAssignment
     public const SOD_CLAUSES = [
         'SoD-1' => 'raise purchase orders and also approve or cancel them',
         'SoD-2' => 'raise or approve purchase orders and also record the goods as received',
-        'SoD-3' => 'issue invoices and also record their payment or void them',
+        // A2.1b (sales step 7 C1, 2026-10-01): `UX`'s ruled rewording (`roles-s2-ux-copy.md` §3.10).
+        'SoD-3' => 'issue invoices and also record their payment, void them or credit them',
         'SoD-4' => 'confirm sales orders or issue invoices and also ship the goods',
+        // SoD-5 (sales step 7 C1). ⚠ `BE-LEAD`'s wording in `UX`'s pattern — `UX` wrote no SoD-5 clause; owed to `UX`.
+        'SoD-5' => 'record goods as returned and also credit the invoice for them',
     ];
 
     /** The unique index a concurrent out-of-band grant collides on (`Version20260906000100`). */

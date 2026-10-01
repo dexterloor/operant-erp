@@ -76,7 +76,8 @@ final class PermissionCatalogueSeedTest extends TenancyTestCase
      */
     // 62 since 2026-10-01 (sales step 7 R2): `sales_return.view` and `sales_return.create`, by forward migration
     // `Version20261001000300`, never by editing the seed in place.
-    private const PINNED_CODE_COUNT = 62;
+    // 63 since 2026-10-01 (sales step 7 C1): `credit_note.issue` (`Version20261001000700`), with A2.1b and SoD-5.
+    private const PINNED_CODE_COUNT = 63;
 
     /** §3's Module column, distinct. Two of them own no table (`Analytics`, `Ai`). */
     private const PINNED_MODULE_COUNT = 11;

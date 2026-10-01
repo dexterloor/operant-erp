@@ -79,6 +79,9 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-01 with `IssueCreditNote` in the tree (sales step 7, C1): the three commands return
+  # **122 / 76 / 20** -- TWO edge lines added: `CreditNoteWriter -> CreditNoteAuditWriter` (A-5) and
+  # `CreditNoteWriter -> Entity\Invoice` (A-7, the status refusals).)
   # (Re-derived 2026-10-01 with the credit schema and reads in the tree (sales step 7, C0): the three commands return
   # **120 / 75 / 19** -- TWO edge lines added: `InvoiceCredit -> Entity\Invoice` (A-7, the one predicate's status
   # constants) and `CreditNote -> AppUser` (A-12, the issuer, forced by `DoctrineMappingTest`).)
@@ -380,6 +383,11 @@ deptrac:
       # `void()` guard it invokes under `InvoiceRowLock` (A-7) -- `InvoicePaymentReversal`'s shape. B′'s owner exemption
       # is `OwnerPredicate`, in `UserManagementContract`, which `SalesApplication` may already use.
       - App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter   # A-5
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\CreditNoteWriter:
+      # `IssueCreditNote` (sales step 7 C1, 2026-10-01): the synchronous `credit_note.issued` row (`SalesReturnWriter`'s A-5
+      # shape) and `Invoice::STATUS_VOID` / `STATUS_PAID` in the status refusals (A-7).
+      - App\Modules\AuditLog\Infrastructure\CreditNoteAuditWriter   # A-5
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
     App\Modules\Sales\Application\SalesReturnWriter:
       # `CreateSalesReturn` (sales step 7 R2, 2026-10-01): the synchronous `sales_return.created` row (`FulfilmentWriter`'s

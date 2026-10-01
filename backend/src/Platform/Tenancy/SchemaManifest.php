@@ -604,18 +604,27 @@ final class SchemaManifest
             'deletion' => self::NONE,
             'why' => 'A credit note is the only reduction of an issued invoice (OI-2), never edited and never deleted; one issued in error is not undone (owner ruling Q-K, G-21). Sales step 7 C0 (`Version20261001000500`). **Carries IssueCreditNote\'s retry key on fulfilment\'s reasoning:** one header row per request, so idempotency_key and request_digest are NOT NULL, CHECKed to 64 lower-case hex, and credit_note_idem_unique (tenant_id, idempotency_key) is TOTAL because the table has no deleted_at. `credit_note_total_positive` (total_amount > 0) is load-bearing beyond hygiene: with no UPDATE/DELETE/TRUNCATE for any application role, no write can LOWER an invoice\'s credited sum, which is what keeps TB-4\'s Credited segment monotonic (`IA.md` §5.4 ³; `CreditedSegmentLapseTest`). `sales_return_id` is NULL only for an adjustment (owner ruling Q-A = B′), tied to the reason by `credit_note_return_iff_goods_returned`.',
             // ADR-002 A4: SELECT for C0's readers (GetInvoice/ListInvoices' amount_credited/amount_due/credited_in_full,
-            // PayInvoice's invoice.has_an_amount_due, ListInvoiceLines, SalesReturnReader's credited terms). INSERT ships
-            // with IssueCreditNote (C1). erp_ai SELECT: SEC S-1, 2026-09-30 (PC-8 maps it to invoice.view) -- declared
-            // explicitly here, never left to TENANT_READ_DEFAULT. Never UPDATE, never DELETE.
+            // PayInvoice's invoice.has_an_amount_due, ListInvoiceLines, SalesReturnReader's credited terms). erp_ai SELECT:
+            // SEC S-1, 2026-09-30 (PC-8 maps it to invoice.view) -- declared explicitly here, never left to
+            // TENANT_READ_DEFAULT. Never UPDATE, never DELETE (CreditedSegmentLapseTest).
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            // C1 (`Version20261001000700`): CreditNoteWriter's one INSERT … SELECT, column for column -- never `issued_at`,
+            // `created_at` or `updated_at`, which default, so SQL as erp_app cannot backdate an issue. Table-level INSERT
+            // stays false (IssueInvoice's precedent).
+            'column_grants' => [
+                DatabaseRoles::APP => [
+                    'INSERT' => ['id', 'tenant_id', 'invoice_id', 'sales_return_id', 'credit_note_number', 'reason', 'currency_code', 'total_amount', 'issued_by_user_id', 'idempotency_key', 'request_digest'],
+                ],
+            ],
         ],
         'credit_note_line' => [
             'module' => 'Modules\\Sales',
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'Shares its parent\'s class: a credit-note line is what was credited against one shipped line, and the invoice\'s amount credited is their sum. One line per shipped line per note (credit_note_line_once_per_line); `amount >= 0` because a telescoped line amount may be 0 (design §4.4 step 8b). That the shipped line belongs to the invoice\'s fulfilment, the quantity bounds and total = Σ amount are application rules, not constraints (a three-column FK is refused), so G-15 widens to name their forgery by SQL.',
-            // ADR-002 A4: as credit_note -- SELECT now, INSERT with IssueCreditNote (C1). erp_ai SELECT: SEC S-1.
-            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            // ADR-002 A4: SELECT since C0; since C1 (`Version20261001000700`) a TABLE-level INSERT from CreditNoteWriter --
+            // it names every column but the two timestamps (sales_return_line's precedent). erp_ai SELECT: SEC S-1.
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']],
         ],
     ];
 

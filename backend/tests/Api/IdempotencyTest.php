@@ -88,6 +88,7 @@ use Symfony\Component\Uid\Uuid;
 final class IdempotencyTest extends PurchaseOrderTestCase
 {
     use InvoiceFixtures;
+    use CreditNoteFixtures;
 
     /**
      * The replay case for each shipped operation with a live mechanism. The keys
@@ -138,6 +139,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'method' => 'replayCreateSalesReturn',
             'why' => 'A second sales_return, and the returned stock put back twice (sales step 7 R2). Its mechanism is the '
                 .'header-sourced retry key on a TOTAL unique, CreateFulfilment\'s shape.',
+        ],
+        'IssueCreditNote' => [
+            'method' => 'replayIssueCreditNote',
+            'why' => 'A second credit_note, the invoice reduced twice (sales step 7 C1). Its mechanism is the header-sourced '
+                .'retry key on a TOTAL unique, the return\'s shape.',
         ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
@@ -418,6 +424,26 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id = ?::uuid', [$line['storage_location']['id']]), $why);
         self::assertCount(1, $this->auditRowsOf(AuditEvent::SALES_RETURN_CREATED),
             'The replay wrote a second sales_return.created row: the audit write is on the replay branch too.');
+    }
+
+    /** `replayCreateSalesReturn()`'s twin (sales step 7 C1): the retry is the first note; nothing applies twice. */
+    private function replayIssueCreditNote(string $why): void
+    {
+        $i = $this->invoicedShipment('IDEM-CN', [['4', '10.0000', '2']]);
+        $this->actAsRole(\App\Modules\UserManagement\Domain\DefaultRoles::OWNER);
+        $return = $this->returnOf($i, [[0, '1']]);
+        $this->actAsRole(\App\Modules\UserManagement\Domain\DefaultRoles::FINANCE);
+        $key = Uuid::v4()->toRfc4122();
+
+        $this->credit($i, $return, [[0, '1']], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+        $this->credit($i, $return, [[0, '1']], $key);
+
+        self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the credit note the first call issued.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM credit_note'), $why);
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::CREDIT_NOTE_ISSUED),
+            'The replay wrote a second credit_note.issued row: the audit write is on the replay branch too.');
     }
 
     private function replayCreateFulfilment(string $why): void

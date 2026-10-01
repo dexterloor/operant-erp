@@ -67,17 +67,29 @@ final readonly class InvoiceAuditWriter
      * `jsonb_build_object` and never interpolated. It is the invoice's own column, carried because a reversal (C6)
      * nulls `paid_at`: without it a back-dated payment that was later reversed would leave no record of the date it
      * claimed. `$paidAt` is the wire's rendering of the stored value (`InvoiceView::$paidAt`), so the History and the
-     * invoice say the same instant in the same form. Nothing else is copied.
+     * invoice say the same instant in the same form. Nothing else is copied — but see the method body for the one key
+     * sales step 7 C1 added.
+     *
+     * @param list<string> $acknowledgedReturnIds
      */
-    public function recordPaid(string $tenantId, string $actorUserId, string $actorLabel, string $invoiceId, string $paidAt): void
+    public function recordPaid(string $tenantId, string $actorUserId, string $actorLabel, string $invoiceId, string $paidAt, array $acknowledgedReturnIds = []): void
     {
-        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $invoiceId, $paidAt): void {
+        // Sales step 7 C1 (`SEC` final position item 2; `RED-5` L5-2): `acknowledged_return_ids` — the returns this
+        // payment was recorded PAST (Q-P restricted (α)), sorted uuids and nothing else, and ONLY those actually paid
+        // past, never every id sent. **Omitted when empty**, so every earlier row keeps exactly `{"paid_at"}` and the
+        // key's presence is what an auditor filters on. A change to a shipped event's shape, approved with step 7.
+        sort($acknowledgedReturnIds);
+        $acknowledged = [] === $acknowledgedReturnIds ? null : json_encode(array_values($acknowledgedReturnIds), \JSON_THROW_ON_ERROR);
+
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $invoiceId, $paidAt, $acknowledged): void {
             $em->getConnection()->executeStatement(<<<'SQL'
                 INSERT INTO audit_log
                     (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
                      subject_type, subject_id, ip_address, metadata)
                 VALUES
-                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, jsonb_build_object('paid_at', ?::text))
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL,
+                     jsonb_build_object('paid_at', ?::text)
+                     || CASE WHEN ?::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('acknowledged_return_ids', ?::jsonb) END)
                 SQL, [
                     Uuid::v4()->toRfc4122(),
                     $tenantId,
@@ -87,6 +99,8 @@ final readonly class InvoiceAuditWriter
                     AuditEvent::SUBJECT_TYPES[AuditEvent::INVOICE_PAID],
                     $invoiceId,
                     $paidAt,
+                    $acknowledged,
+                    $acknowledged,
                 ]);
         });
     }

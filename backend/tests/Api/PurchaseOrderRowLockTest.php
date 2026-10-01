@@ -68,6 +68,7 @@ use Symfony\Component\Uid\Uuid;
 final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 {
     use InvoiceFixtures;
+    use CreditNoteFixtures;
 
     /** Only a failing run reaches it; see the holder script. */
     private const HOLDER_DEADLINE_SECONDS = 10.0;
@@ -1698,6 +1699,203 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame([['q' => '8.000000'], ['q' => '8.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT qty_on_hand::text AS q FROM stock_level WHERE storage_location_id IN (?::uuid, ?::uuid) ORDER BY storage_location_id', [$l1, $l2]),
             'Each level should be 10 - 2 shipped - 1 depleted by A + 1 returned.');
+    }
+
+    /**
+     * **V2-R-17 under the lock — void ∥ credit on one invoice, both commit orders: exactly one succeeds** (sales step 7
+     * C1; design §4.4 step 3 / §13 item 8; the former `OwedAmendmentTripwireTest` credit-fields item 1).
+     *   - `credit first`: A holds the invoice lock and inserts a credit note under it (as `IssueCreditNote` would). The
+     *     real `VoidInvoice` waits on the lock, re-reads, finds the credit: 409 `invoice.is_not_credited`.
+     *   - `void first`: A holds the invoice lock and voids it. The real `IssueCreditNote` waits, re-reads: 409
+     *     `invoice.is_not_void`.
+     * Mutations (run): drop either check → its order goes red.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function voidAndCreditOrders(): iterable
+    {
+        yield 'credit first' => ['credit first'];
+        yield 'void first' => ['void first'];
+    }
+
+    #[Test]
+    #[DataProvider('voidAndCreditOrders')]
+    public function aVoidAndACreditOfOneInvoiceRaceAndExactlyOneSucceeds(string $order): void
+    {
+        $i = $this->invoicedShipment('RACE-VC-'.$order, [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $return = $this->returnOf($i, [[0, '1']]);
+        $note = Uuid::v4()->toRfc4122();
+
+        if ('credit first' === $order) {
+            $holder = $this->raceAgainstAHolder($i['invoice'], before: [[<<<'SQL'
+                INSERT INTO credit_note (id, tenant_id, invoice_id, sales_return_id, credit_note_number, reason, currency_code,
+                                         total_amount, issued_by_user_id, idempotency_key, request_digest)
+                SELECT ?::uuid, inv.tenant_id, inv.id, ?::uuid, 'CN-000001', 'goods_returned', inv.currency_code, 10, ?::uuid,
+                       encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                  FROM invoice inv WHERE inv.id = ?::uuid
+                SQL, [$note, $return, (string) $this->actorId, $i['invoice']]]],
+                request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Concurrent']), table: 'invoice');
+
+            $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+            self::assertSame([409, 'invoice.is_not_credited'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame([['status' => 'issued']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM invoice WHERE id = ?::uuid', [$i['invoice']]));
+
+            return;
+        }
+
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            ["UPDATE invoice SET status = 'void', updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
+        ], request: fn () => $this->credit($i, $return, [[0, '1']]), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame([409, 'invoice.is_not_void'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
+    }
+
+    /**
+     * **Credit ∥ credit on one shipped line: the bound is never exceeded** (§13 item 8). A holds the invoice lock and
+     * credits the whole returned quantity under it; the real `IssueCreditNote` for the same return waits, re-reads what
+     * is now credited, and is refused (`credit_note.quantity_within_billed`, step 7's first bound). Without the lock both would read nothing
+     * credited and both commit.
+     */
+    #[Test]
+    public function twoCreditsOfOneLineSerialiseAndTheSecondIsBounded(): void
+    {
+        $i = $this->invoicedShipment('RACE-CC', [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $return = $this->returnOf($i, [[0, '2']]);
+        $returnLine = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id::text AS l FROM sales_return_line WHERE sales_return_id = ?::uuid', [$return])[0]['l'];
+        $note = Uuid::v4()->toRfc4122();
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [
+            [<<<'SQL'
+                INSERT INTO credit_note (id, tenant_id, invoice_id, sales_return_id, credit_note_number, reason, currency_code,
+                                         total_amount, issued_by_user_id, idempotency_key, request_digest)
+                SELECT ?::uuid, inv.tenant_id, inv.id, ?::uuid, 'CN-900001', 'goods_returned', inv.currency_code, 20, ?::uuid,
+                       encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                  FROM invoice inv WHERE inv.id = ?::uuid
+                SQL, [$note, $return, (string) $this->actorId, $i['invoice']]],
+            ['INSERT INTO credit_note_line (id, tenant_id, credit_note_id, fulfilment_line_id, sales_return_line_id, quantity, amount) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 2, 20)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $note, $i['lines'][0], $returnLine]],
+        ], request: fn () => $this->credit($i, $return, [[0, '1']]), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        // Both bounds now fail (the return line and the shipped line are both used up); the billed bound is step 7's first.
+        self::assertSame([409, 'credit_note.quantity_within_billed'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
+    }
+
+    /**
+     * **Return ∥ pay on one invoice serialise on the ORDER lock** (sales step 7 C1; design §4.6 (0); RED-3 N-2). Both
+     * commit orders:
+     *   - `return first`: A holds the shipment's order lock and records a creditable return under it (stamped with the
+     *     live invoice, non-deducting). The real `PayInvoice` WAITS on the order lock — which it now takes before the
+     *     invoice lock — then sees the return: 409 `invoice.has_no_uncredited_return`. Without the order lock it would
+     *     read no return and commit `paid` beside an uncredited one.
+     *   - `pay first`: A holds the order lock and records the payment under it. The real `CreateSalesReturn` waits, then
+     *     is stamped with a PAID invoice: not creditable, `credit_blocked_by_payment` true to finance (G-23's queue).
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function returnAndPayOrders(): iterable
+    {
+        yield 'return first' => ['return first'];
+        yield 'pay first' => ['pay first'];
+    }
+
+    #[Test]
+    #[DataProvider('returnAndPayOrders')]
+    public function aReturnAndAPaymentOfOneInvoiceSerialiseOnTheOrderLock(string $order): void
+    {
+        $i = $this->invoicedShipment('RACE-RP-'.$order, [['4', '10.0000', '2']]);
+
+        if ('return first' === $order) {
+            $returnId = Uuid::v4()->toRfc4122();
+            $this->actAsRole(DefaultRoles::FINANCE);
+            $holder = $this->raceAgainstAHolder($i['order'], before: [
+                [<<<'SQL'
+                    INSERT INTO sales_return (id, tenant_id, fulfilment_id, invoice_id, sales_return_number, reason, returned_at,
+                                              recorded_by_user_id, deducts, idempotency_key, request_digest)
+                    VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'RET-900001', 'other', now(), ?::uuid, false,
+                            encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                    SQL, [$returnId, self::TENANT_A, $i['fulfilment'], $i['invoice'], (string) $this->actorId]],
+                ['INSERT INTO sales_return_line (id, tenant_id, sales_return_id, fulfilment_line_id, storage_location_id, quantity) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 1)',
+                    [Uuid::v4()->toRfc4122(), self::TENANT_A, $returnId, $i['lines'][0], $i['bin']]],
+            ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []), table: 'sales_order');
+
+            $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+            self::assertSame([409, 'invoice.has_no_uncredited_return'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame([['status' => 'issued']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM invoice WHERE id = ?::uuid', [$i['invoice']]));
+
+            return;
+        }
+
+        $payer = $this->actAsRole(DefaultRoles::FINANCE);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $holder = $this->raceAgainstAHolder($i['order'], before: [
+            ["UPDATE invoice SET status = 'paid', paid_at = now(), paid_by_user_id = ?::uuid, updated_at = now() WHERE id = ?::uuid", [$payer, $i['invoice']]],
+        ], request: fn () => $this->send('POST', '/fulfilments/'.$i['fulfilment'].'/sales-returns', ['reason' => 'other', 'lines' => [
+            ['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1', 'storage_location_id' => $i['bin']],
+        ]], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($i['invoice'], $this->json()['invoice']['id']);
+        self::assertNull($this->json()['credit_target']);
+        self::assertTrue($this->json()['credit_blocked_by_payment']);
+    }
+
+    /**
+     * **The 23505 translations, each reached by a race across TWO invoices** (design §4.4 step 10a; RED M-4): credits on
+     * different invoices hold different locks, so only the unique indexes answer.
+     *   - the key: A holds invoice 1 and inserts a credit note keyed `K`, uncommitted; the real credit on invoice 2 with
+     *     `K` finds no replay, blocks on `credit_note_idem_unique`, and when A commits is told `idempotency-key-conflict`;
+     *   - the number: A inserts `CN-000001` on invoice 1, uncommitted; the real credit on invoice 2 mints the same number
+     *     from the committed maximum, blocks on `credit_note_number_unique`, and is told
+     *     `credit_note.credit_note_number_is_unique_per_workspace`.
+     * Mutation (run): drop either by-name mapping → a 500.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function creditUniqueRaces(): iterable
+    {
+        yield 'the key' => ['key'];
+        yield 'the number' => ['number'];
+    }
+
+    #[Test]
+    #[DataProvider('creditUniqueRaces')]
+    public function theLoserOfARaceAcrossTwoInvoicesIsToldWhichUniqueRefusedIt(string $index): void
+    {
+        $first = $this->invoicedShipment('RACE-CU1-'.$index, [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $firstReturn = $this->returnOf($first, [[0, '1']]);
+        $second = $this->invoicedShipment('RACE-CU2-'.$index, [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $secondReturn = $this->returnOf($second, [[0, '1']]);
+        $key = Uuid::v4()->toRfc4122();
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $holder = $this->raceAgainstAHolder($first['invoice'], before: [[<<<'SQL'
+            INSERT INTO credit_note (id, tenant_id, invoice_id, sales_return_id, credit_note_number, reason, currency_code,
+                                     total_amount, issued_by_user_id, idempotency_key, request_digest)
+            SELECT ?::uuid, inv.tenant_id, inv.id, ?::uuid, ?, 'goods_returned', inv.currency_code, 10, ?::uuid, ?, ?
+              FROM invoice inv WHERE inv.id = ?::uuid
+            SQL, [Uuid::v4()->toRfc4122(), $firstReturn, 'key' === $index ? 'CN-999999' : 'CN-000001', (string) $this->actorId,
+                'key' === $index ? hash('sha256', $key) : hash('sha256', Uuid::v4()->toRfc4122()), str_repeat('c', 64), $first['invoice']]]],
+            request: fn () => $this->credit($second, $secondReturn, [[0, '1']], $key), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        if ('key' === $index) {
+            self::assertStringContainsString('idempotency-key-conflict', (string) $this->json()['type']);
+        } else {
+            self::assertSame('credit_note.credit_note_number_is_unique_per_workspace', $this->json()['rule']);
+        }
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
     }
 
     private function fulfilmentOf(string $orderId): string

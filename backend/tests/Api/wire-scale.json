@@ -62,6 +62,18 @@
     "CreateSalesReturn $.lines[].quantity_credited": [
         6
     ],
+    "GetCreditNote $.lines[].amount": [
+        4
+    ],
+    "GetCreditNote $.lines[].fulfilment_line.quantity": [
+        6
+    ],
+    "GetCreditNote $.lines[].quantity": [
+        6
+    ],
+    "GetCreditNote $.total_amount": [
+        4
+    ],
     "GetFulfilment $.lines[].quantity": [
         6
     ],
@@ -109,6 +121,18 @@
     ],
     "GetSalesReturn $.lines[].quantity_credited": [
         6
+    ],
+    "IssueCreditNote $.lines[].amount": [
+        4
+    ],
+    "IssueCreditNote $.lines[].fulfilment_line.quantity": [
+        6
+    ],
+    "IssueCreditNote $.lines[].quantity": [
+        6
+    ],
+    "IssueCreditNote $.total_amount": [
+        4
     ],
     "IssueInvoice $.amount_credited": [
         4

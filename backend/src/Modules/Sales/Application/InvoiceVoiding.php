@@ -30,11 +30,11 @@ use Symfony\Component\Uid\Uuid;
  *     is un-paid first (`ReverseInvoicePayment`), a void one is already void. Nothing is flushed until step 7, so a
  *     refusal below leaves the row as it was (the transaction rolls back).
  *  4. **`reason` is required** (§8.3, OI-2 R2): absent or blank → 422 `/reason` `required`.
- *  5. *(V2-R-17's slot — `invoice.is_not_credited`, "a credited invoice cannot be voided". Ruled (text) 2026-09-23; its
- *     enforcement is owed by `IssueCreditNote`, which is carried by `OwedAmendmentTripwireTest`'s
- *     `OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS`. No credit note can exist until then, so nothing is checked here
- *     today. When it lands it goes HERE: after the status guard, BEFORE B′ — nobody, the owner included, is exempt
- *     from it, so it speaks first.)*
+ *  5. **V2-R-17 — a credited invoice cannot be voided** (ruled text 2026-09-23, `SEC` + `PO`, owner-approved; built
+ *     2026-10-01 with `IssueCreditNote`, sales step 7 C1): an invoice against which ANY credit note was ever issued
+ *     is refused `invoice.is_not_credited` with `API.md` §8.3's approved message, verbatim. Read under the invoice lock
+ *     after the re-read — `IssueCreditNote` takes the same lock first, so a credit in flight is waited on. After the
+ *     status guard, BEFORE B′: nobody, the owner included, is exempt from it, so it speaks first.
  *  6. **B′** (owner ruling (d), 2026-09-23): an invoice whose payment was EVER reversed (`payment_reversed_at`, set once
  *     by `ReverseInvoicePayment` and never cleared) may be voided only by an owner — `OwnerPredicate::holdsMarker()`
  *     over the request's own permission set, the ONE owner predicate (C6a), never a role name. Refused
@@ -93,7 +93,8 @@ final readonly class InvoiceVoiding
         // 4.
         $reason = self::assertReasonGiven($reason);
 
-        // 5. V2-R-17's slot — see the class docblock. Nothing to check until `IssueCreditNote` exists.
+        // 5. V2-R-17.
+        self::assertNotCredited($em, $id);
 
         // 6.
         self::assertNotPaymentReversedUnlessAnOwner($invoice, $identity);
@@ -125,6 +126,19 @@ final readonly class InvoiceVoiding
         }
 
         return $reason;
+    }
+
+    /** Step 5 — V2-R-17: "any" means every credit note ever issued against the invoice (`API.md` §8.3). */
+    private static function assertNotCredited(EntityManagerInterface $em, string $id): void
+    {
+        if (true !== (bool) $em->getConnection()->fetchOne('SELECT EXISTS (SELECT 1 FROM credit_note WHERE invoice_id = ?::uuid)', [$id])) {
+            return;
+        }
+
+        throw ApiProblem::businessRuleViolated(
+            'invoice.is_not_credited',
+            'Credit notes have been issued against this invoice, so it can no longer be voided. Issue a further credit note instead.',
+        );
     }
 
     /**

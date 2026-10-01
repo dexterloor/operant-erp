@@ -27,8 +27,13 @@ use Symfony\Component\Uid\Uuid;
  *
  * **The expectation is derived, never typed** (the empty-set trap and the second-copy trap both apply): the resource a
  * path variable addresses is the table of the built item-`GET` operation whose URI template is the path up to and
- * including that variable, read off the registry — `/purchase-orders/{}` is `GetPurchaseOrder`, which requires
- * `purchase_order.view`, so the variable addresses `purchase_order`. The per-operation declaration the fix adds
+ * including that variable, read off the registry — **path first** (sales step 7 C1, 2026-10-01; `roles-s3-red-3.md`
+ * H-1): the GET's last literal segment, kebab → snake, singular (`/credit-notes/{}` → `credit_note`), when that names a
+ * `SchemaManifest` table; otherwise the resource half of the GET's permission code (`/items/{}` → `inventory_item.view`
+ * → `inventory_item`). *(Until then it was the permission prefix alone, which would have certified `GetCreditNote` —
+ * `/credit-notes/{id}` under `invoice.view` — as `('invoice', <credit-note id>)`: the same mislabel F-1 fixed, re-made by
+ * the test meant to catch it.)* Wherever the path's table and the permission's differ, the prefix must be named in
+ * {@see self::PATH_TABLE_IS_NOT_THE_PERMISSIONS}, with its reason — so a differing GET cannot arrive unreviewed. The per-operation declaration the fix adds
  * (`PermissionGate::OPERATION_DENIAL_SUBJECT`) is NOT read here, so the declaration and this test are two sources.
  */
 final class DenialSubjectTest extends PurchaseOrderTestCase
@@ -37,7 +42,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      * The four shipped operations the spar derived from the live router as mislabelled (`roles-s2-spar.md` P15) — a
      * pin on the domain, so a derivation that silently loses one is red rather than green over less.
      */
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'GetPickList', 'IssueInvoice', 'RevokeRole'];
+    // Sales step 7 C1: `IssueCreditNote` (nested under the invoice) and `GetCreditNote` (a credit note read under
+    // `invoice.view` — the case the path-first derivation exists for).
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'IssueCreditNote', 'IssueInvoice', 'RevokeRole'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -51,6 +58,25 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      * @var array<string, string>
      */
     private const ADDRESSED_WITHOUT_A_GET_OPERATION = ['/users/{}' => 'app_user'];
+
+    /**
+     * Item-GET prefixes whose path names a table OTHER than their permission code's resource half — reviewed, each with
+     * its reason. The derivation follows the path; this register only forces the review (a GET added here without one
+     * is red in {@see self::tablesAddressedByPrefix()}).
+     *
+     * @var array<string, string> normalised prefix => why the read is gated on another resource's code
+     */
+    private const PATH_TABLE_IS_NOT_THE_PERMISSIONS = [
+        '/credit-notes/{}' => 'A credit note is money: read under invoice.view (owner ruling Q-B, sales step 7 C1), never a code of its own.',
+    ];
+
+    /**
+     * Prefixes whose last segment names a table that is NOT the one the variable addresses — a path that genuinely breaks
+     * the rule. None today.
+     *
+     * @var array<string, string>
+     */
+    private const PATH_SEGMENT_OVERRIDES = [];
 
     #[Test]
     public function everyDenialNamesTheTypeOfTheResourceItsRecordedPathVariableAddresses(): void
@@ -283,6 +309,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     {
         $addressed = self::ADDRESSED_WITHOUT_A_GET_OPERATION;
 
+        $unreviewed = [];
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $template = self::templateOf($operation);
             $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
@@ -291,18 +318,61 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
                 continue;
             }
 
-            $table = strstr($required, '.', true);
-            if (!\is_string($table) || !\array_key_exists($table, SchemaManifest::TABLES)) {
+            $prefix = self::normalised($template);
+            $table = self::PATH_SEGMENT_OVERRIDES[$prefix] ?? self::addressedTable($template, $required, array_keys(SchemaManifest::TABLES));
+            if (null === $table) {
                 continue;
             }
+            $permissionTable = (string) strstr($required, '.', true);
+            if ($table !== $permissionTable && !isset(self::PATH_TABLE_IS_NOT_THE_PERMISSIONS[$prefix])) {
+                $unreviewed[] = \sprintf('%s (%s): the path addresses %s, its code is %s', $name, $prefix, $table, $required);
+            }
 
-            $prefix = self::normalised($template);
             self::assertTrue(!isset($addressed[$prefix]) || $addressed[$prefix] === $table,
                 \sprintf('Two item GETs at %s disagree on the table (%s vs %s, at %s).', $prefix, $addressed[$prefix] ?? '', $table, $name));
             $addressed[$prefix] = $table;
         }
 
+        self::assertSame([], $unreviewed, "An item GET's path names a table other than its permission code's, and nobody reviewed it. "
+            ."Name it in PATH_TABLE_IS_NOT_THE_PERMISSIONS with the reason, or fix the declaration:\n  ".implode("\n  ", $unreviewed));
+        foreach (array_keys(self::PATH_TABLE_IS_NOT_THE_PERMISSIONS) as $prefix) {
+            self::assertArrayHasKey($prefix, $addressed, 'PATH_TABLE_IS_NOT_THE_PERMISSIONS names '.$prefix.', which no built GET serves: a dead entry.');
+        }
+
         return $addressed;
+    }
+
+    /**
+     * Path first: the last literal segment before the template's final variable, kebab → snake, singular, when it names a
+     * table; else the permission code's resource half when THAT names a table; else null.
+     *
+     * @param list<string> $tables
+     */
+    private static function addressedTable(string $template, string $required, array $tables): ?string
+    {
+        $segments = array_values(array_filter(explode('/', $template), static fn (string $s): bool => '' !== $s && !str_starts_with($s, '{')));
+        $last = str_replace('-', '_', (string) end($segments));
+        foreach ([(string) preg_replace('/ies$/', 'y', $last), (string) preg_replace('/s$/', '', $last), (string) preg_replace('/es$/', '', $last), $last] as $candidate) {
+            if (\in_array($candidate, $tables, true)) {
+                return $candidate;
+            }
+        }
+        $fallback = strstr($required, '.', true);
+
+        return \is_string($fallback) && \in_array($fallback, $tables, true) ? $fallback : null;
+    }
+
+    /** Planted controls on the path-first rule (`roles-s3-red-3.md` H-1's fix (1)). */
+    #[Test]
+    public function thePathNamesTheTableBeforeThePermissionDoes(): void
+    {
+        $tables = array_keys(SchemaManifest::TABLES);
+        self::assertSame('credit_note', self::addressedTable('/credit-notes/{id}', 'invoice.view', $tables), 'A GET whose path names another table than its code did not map to the path\'s table.');
+        self::assertSame('inventory_item', self::addressedTable('/items/{id}', 'inventory_item.view', $tables), 'The permission fallback no longer applies where the segment names no table.');
+        self::assertSame('goods_receipt', self::addressedTable('/goods-receipts/{id}', 'goods_receipt.view', $tables));
+        self::assertSame('sales_return', self::addressedTable('/sales-returns/{id}', 'sales_return.view', $tables));
+        self::assertSame('app_user', self::addressedTable('/users/{id}', 'app_user.view', $tables));
+        self::assertNull(self::addressedTable('/nothing-here/{id}', 'nothing.view', $tables));
     }
 
     private static function templateOf(HttpOperation $operation): string

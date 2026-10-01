@@ -359,6 +359,39 @@ trait OperationSuccessRecipes
 
                 return [201, 'create, confirm, fulfil, then record a return of part of it'];
             }],
+            // Sales step 7 C1: an invoice issued through the API, a return recorded after it, and a credit for it -- by a
+            // principal holding everything, so every member of the CreditNote shape is observed.
+            'IssueCreditNote' => [fn (): array => $stockedSalesWorkspace('SO-243000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $key());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+                $this->send('POST', $invoice.'/credit-notes', ['reason' => 'goods_returned', 'sales_return_id' => $this->json()['id'],
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $key());
+
+                return [201, 'create, confirm, fulfil, invoice, return part, then credit it'];
+            }],
+            'GetCreditNote' => [fn (): array => $stockedSalesWorkspace('SO-244000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $key());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+                $this->send('POST', $invoice.'/credit-notes', ['reason' => 'goods_returned', 'sales_return_id' => $this->json()['id'],
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $key());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, invoice, return part, credit it, then read the credit note'];
+            }],
             'GetSalesReturn' => [fn (): array => $stockedSalesWorkspace('SO-239000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);
                 $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');

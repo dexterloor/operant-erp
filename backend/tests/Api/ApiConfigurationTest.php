@@ -179,7 +179,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (sales step 7 R3):** `ListSalesReturns`, a `Get` on `SalesReturnCollection`. No grant.
         // **And one more (sales step 7 C0, 2026-10-01):** `ListInvoiceLines`, a `Get` on `InvoiceLineCollection` at
         // `/invoices/{id}/lines`, bounded. Its migration grants `erp_app` and `erp_ai` SELECT on the two credit tables.
-        self::assertCount(53, $checked, 'The route set changed. This slice declares fifty-three operations: '.implode(', ', array_keys($checked)));
+        // **And two more (sales step 7 C1, 2026-10-01):** `GetCreditNote` and `IssueCreditNote` on `CreditNoteResource` (item
+        // `Get` declared first, so no `$notExposed` fallback). Its migration grants `erp_app` a column INSERT on `credit_note`
+        // and INSERT on `credit_note_line`.
+        self::assertCount(55, $checked, 'The route set changed. This slice declares fifty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

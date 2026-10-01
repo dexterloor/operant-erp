@@ -355,7 +355,7 @@ final class RoleAssignTest extends ApiTestCase
         $this->grant($rep, $finance);
         $this->assertRefused('user_role.separation_of_duty', 'sales_rep + finance',
             'finance '.substr($finance, 0, 8).' can\'t be given to this person: with the roles they already have, one person could '
-            .'issue invoices and also record their payment or void them (SoD-3). Choose another role or another person.');
+            .'issue invoices and also record their payment, void them or credit them (SoD-3). Choose another role or another person.');
         self::assertSame(1, $this->grantsOf($rep));
 
         $this->grant($this->holderOf([$this->systemRole(DefaultRoles::VIEWER)]), $finance);
@@ -375,7 +375,7 @@ final class RoleAssignTest extends ApiTestCase
     public function aGrantSplittingTwoDutiesNamesBothRows(): void
     {
         self::assertSame('X can\'t be given to this person: with the roles they already have, one person could issue invoices and '
-            .'also record their payment or void them and confirm sales orders or issue invoices and also ship the goods (SoD-3, SoD-4). '
+            .'also record their payment, void them or credit them and confirm sales orders or issue invoices and also ship the goods (SoD-3, SoD-4). '
             .'Choose another role or another person.', RoleAssignment::separationOfDutyMessage('X', ['SoD-3', 'SoD-4']));
     }
 

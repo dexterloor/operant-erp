@@ -82,7 +82,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // `SeparationOfDuty::ROWS`, `admin` lost it by PC-14's derivation (54 -> 53), SEC-O-18 closed, and the live-holder
         // listing was run and reported. This test was RED naming `VoidInvoice` until then (pasted in
         // `docs/session13/output9-sales-7-progress.md`, C7). The two entries left owe A2.1b and SoD-5 — see `pointer()`.
-        'IssueCreditNote' => 'POST /invoices/{id}/credit-notes',
+        // `IssueCreditNote` LEFT this map on 2026-10-01 (sales step 7 C1, 'Let finance credit a returned shipment, and
+        // keep a credited invoice from being voided or paid'), which built it AND applied pointer items 1–3 in the same
+        // commit: `credit_note.issue` entered SECURITY_MODEL.md §3, PermissionCatalogue and a `permission`-row migration
+        // TOGETHER with its SoD-3 entry (A2.1b) and SoD-5's row in ADR-008 §2 and SeparationOfDuty::ROWS; `admin` does not
+        // hold it (PC-14); `sod_check.py` edited and re-run (cover 5). Holder listing not owed (item 4: the row entered with
+        // its SoD entry). This test was RED naming `IssueCreditNote` until then. **The map is now EMPTY**: the method keeps
+        // its positive control and a planted-map control, so it is not vacuous (`INVOICE_CORRECTIONS_NOT_YET_BUILT`'s shape).
         // `CreateSalesReturn` LEFT this map on 2026-10-01 (sales step 7 R2, 'Let a customer's returned goods be taken
         // back, and come off the bill only when a second person records them'), which built it AND applied pointer item
         // 2 in the same commit: `sales_return.create` (and `sales_return.view`, owner ruling Q-B) entered
@@ -226,10 +232,22 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * The failure message is `SEC`'s text (`output9-sales-7-sec.md` §7.3), verbatim, plus item 6 as `SEC` signed it
      * on 2026-09-23 (§16).
      *
-     * @var array<string, string>
+     * @var array<string, list<array{0: class-string, 1: string}>>
      */
     private const OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS = [
-        'IssueCreditNote' => 'V2-R-17 + V2-C-10 + V2-R-16 + A2.1b + V2-S-9',
+        // ⚖ CONVERTED 2026-10-01 (sales step 7 C1) from a pin into an IMPLICATION — not emptied (the method's own guard,
+        // design §9 RED M-1): it read `'IssueCreditNote' => 'V2-R-17 + V2-C-10 + V2-R-16 + A2.1b + V2-S-9'` and went red
+        // the moment the credit note was built. The commit that built it applied all six owed items; the entry now names
+        // the tests that carry them, so a removed carrier is red. Items 2 and 3 (V2-C-10, V2-R-16) were met early, at C0.
+        'IssueCreditNote' => [
+            [PurchaseOrderRowLockTest::class, 'aVoidAndACreditOfOneInvoiceRaceAndExactlyOneSucceeds'],      // 1. V2-R-17, both orders
+            [CreditNoteIssueTest::class, 'creditingAnInvoiceToZeroMovesItToCreditedAndShutsPaymentAndVoid'], // 1, 3. V2-R-17 / V2-R-16
+            [InvoiceCreditedSegmentTest::class, 'aPartlyCreditedInvoiceThatWasPaidReadsPaid'],             // 2. V2-C-10 (C0)
+            [InvoiceCreditedSegmentTest::class, 'everyInvoiceIsInExactlyOneSegment'],                      // 3. V2-R-16 (C0)
+            [CreditNoteIssueTest::class, 'eachLineIsAShippedLineTheReturnTookBack'],                       // 5. V2-S-9
+            [CreditNoteIssueTest::class, 'moreCannotBeCreditedThanReturnedOrBilled'],                      // 5. V2-S-9
+            [CreditNoteIssueTest::class, 'aCreditedInvoiceIsRefusedVoidingBeforeBPrimeIsAsked'],           // 6. B′ precedence
+        ],
     ];
 
     /**
@@ -255,6 +273,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      */
     private const CREDIT_AND_INVOICE_OPERATIONS = [
         'IssueInvoice', 'GetInvoice', 'ListInvoices', 'PayInvoice', 'ReverseInvoicePayment', 'VoidInvoice', 'ListInvoiceLines',
+        // Sales step 7 C1 (2026-10-01): a credit note only RAISES an invoice's credited sum (`credit_note_total_positive`),
+        // and its read lowers nothing.
+        'IssueCreditNote', 'GetCreditNote',
     ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
@@ -296,6 +317,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $arrived = array_intersect_key(self::OPERATIONS_OWING_AN_UNAPPLIED_AMENDMENT, $built);
 
         self::assertSame([], $arrived, $this->pointer($arrived));
+
+        // Planted-map control (sales step 7 C1 emptied the map): the same intersection over a literal map naming a BUILT
+        // operation must report it, or the check above holds over nothing.
+        self::assertSame(['IssueCreditNote' => 'x'], array_intersect_key(['IssueCreditNote' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
     }
 
     /**
@@ -709,34 +735,36 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
         self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS, 'The credit-fields pin is empty, so it asserts nothing.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS, 'The credit-fields implication has no antecedent, so it asserts nothing.');
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS, $built);
+        $missing = [];
+        foreach (self::OPERATIONS_OWING_THE_INVOICE_CREDIT_FIELDS as $operation => $carriers) {
+            if (!isset($built[$operation])) {
+                continue;
+            }
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
 
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built. It owes, IN THIS COMMIT:\n"
-            ."  1. V2-R-17 (ruled text 2026-09-23, SEC + PO, owner-approved; API.md 8.3's OI-2 block):\n"
-            ."     \"An invoice against which any credit note has been issued cannot be voided.\"\n"
-            ."     - VoidInvoice refuses it: 409 business-rule-violated, rule `invoice.is_not_credited`,\n"
-            ."       checked under InvoiceRowLock after the re-read.\n"
-            ."     - IssueCreditNote takes InvoiceRowLock before reading the invoice's status or credit state,\n"
-            ."       after SalesOrderRowLock if it takes one (order -> invoice, W-5), and REFUSES an invoice\n"
-            ."       whose status, re-read under the lock, is `void`.\n"
-            ."     - Tests: void after one credit note -> 409; credit note after a void -> refused;\n"
-            ."       a two-connection race of void || credit note on one invoice -> exactly one succeeds,\n"
-            ."       in BOTH commit orders; mutations: drop either check -> RED.\n"
-            ."  2. V2-C-10: GetInvoice's amount_credited / amount_due.\n"
-            ."  3. V2-R-16: how a fully credited invoice leaves collections -- V2-R-17 removed voiding as a route.\n"
-            ."  4. ADR-008 A2.1b (A2.7): see the R-39 map's message.\n"
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nIssueCreditNote owes, and these tests carry (SEC 7.3 and 16, applied 2026-10-01, sales step 7 C1):\n"
+            ."  1. V2-R-17 (ruled text 2026-09-23, SEC + PO, owner-approved 2026-09-23, PO co-signed 2026-09-29): \"An invoice\n"
+            ."     against which any credit note has been issued cannot be voided\" -- VoidInvoice refuses it\n"
+            ."     (`invoice.is_not_credited`) under InvoiceRowLock; IssueCreditNote takes InvoiceRowLock first and refuses a\n"
+            ."     void invoice; the void || credit race in BOTH orders.\n"
+            ."  2. V2-C-10: amount_credited / amount_due on invoice reads.\n"
+            ."  3. V2-R-16: a fully credited invoice leaves collections (the Credited segment, TB-4 3).\n"
+            ."  4. ADR-008 A2.1b: applied in the same commit (see the R-39 map).\n"
             ."  5. V2-S-9: credit-note lines belong to the invoice's fulfilment; credited <= returned - already credited.\n"
-            ."  6. B' (ruled 2026-09-23) already guards VoidInvoice: an invoice whose payment was ever reversed is voidable only by\n"
-            ."     an owner-marker holder (`invoice.is_not_payment_reversed`). The precedence is FIXED: status guard, then\n"
-            ."     V2-R-17, then B'. Test: an invoice that is BOTH credited AND payment-reversed, voided (a) by a marker-less\n"
-            ."     delegate holding `invoice.void` and (b) by the owner -> 409 `invoice.is_not_credited` in both cases, the invoice\n"
-            ."     unchanged and no `invoice.voided` row written (V2-R-17 precedes B', and no one is exempt from V2-R-17).\n"
-            ."     Mutation: swap the two checks -> case (a) answers `invoice.is_not_payment_reversed` -> RED.\n\n"
-            ."Then clear this entry deliberately. Record: docs/session13/output9-sales-7-sec.md 7.3 and 16.",
-            implode(', ', array_keys($arrived)),
+            ."  6. B' precedence: status guard, then V2-R-17, then B' -- no one is exempt from V2-R-17.\n"
+            ."  N-1's carry (PO, v2r17-po-cosign.md 4): V2-R-17's refusal tells the user to issue a further credit note;\n"
+            ."  confirm that route exists for every credited invoice, or return the message to the owner. Discharged by\n"
+            ."  owner ruling Q-A = B' (IssueAdjustmentCreditNote, C1b: a non-return credit, owner-held).\n\n"
+            ."Restore the test, or move its obligation to another named test here, before removing it.",
+            implode("\n", $missing),
         ));
     }
 
@@ -968,13 +996,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."and take voiding off admin' of 2026-09-29 (A2.1a: invoice.void joined SoD-3's controlled half, `admin` 54 -> 53,\n"
             ."SEC-O-18 closed). The rest is owed by the operation(s) named above, IN THIS COMMIT (ADR-008 A2.7, owner ruling\n"
             ."2026-09-23):\n\n"
-            ."  1. IssueCreditNote -> A2.1b: `credit_note.issue` enters SECURITY_MODEL.md §3, PermissionCatalogue, a migration\n"
-            ."     inserting its `permission` row, ADR-008 §2's SoD-3 row AND SeparationOfDuty::ROWS -- all in this commit, never\n"
-            ."     the catalogue without the SoD row (DefaultRoles would hand it to `admin`). Its §4 holdings must be ruled BEFORE\n"
-            ."     this build.\n"
-            ."  2. APPLIED 2026-10-01 by CreateSalesReturn's commit: `sales_return.create` entered §3 / PermissionCatalogue /\n"
-            ."     `permission` (preparing side; `admin` holds it by PC-14's inverse clause). SoD-5 (A2.2) is now owed by\n"
-            ."     IssueCreditNote, which lands SECOND: it enters §2 and SeparationOfDuty::ROWS in THAT commit.\n"
+            ."  1. APPLIED 2026-10-01 by IssueCreditNote's commit (A2.1b): `credit_note.issue` entered SECURITY_MODEL.md §3,\n"
+            ."     PermissionCatalogue, a `permission`-row migration, ADR-008 §2's SoD-3 row and SeparationOfDuty::ROWS together.\n"
+            ."  2. APPLIED 2026-10-01 by CreateSalesReturn's commit (`sales_return.create`) and IssueCreditNote's (SoD-5 entered\n"
+            ."     §2 and SeparationOfDuty::ROWS with its second code).\n"
             ."  3. Re-derive, never type: SeparationOfDutyTest's pins; `python3 docs/adr/sod_check.py` (it DERIVES `admin` and\n"
             ."     checks the SoD rows by EQUALITY since 'Let an invoice issued in error be voided, and take voiding off admin';\n"
             ."     paste its output). Expected after A2.1b and SoD-5: cover 5.\n"

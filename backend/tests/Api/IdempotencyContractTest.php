@@ -231,6 +231,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         // TOTAL unique (class `none`); the path's fulfilment is digested.
         // `Version20261001000100` laid it; R2 shipped the writer.
         'CreateSalesReturn' => 'unique:sales_return_idem_unique',
+        // ⚠ **Sales step 7, C0 + C1, 2026-10-01.** Was `⛔ none` since OI-2. The
+        // return's shape exactly: a header-sourced key, `NOT NULL`, on a TOTAL
+        // unique; the path's invoice is digested. `Version20261001000500` laid it.
+        'IssueCreditNote' => 'unique:credit_note_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -293,13 +297,13 @@ final class IdempotencyContractTest extends TenancyTestCase
         // `invoice_tenant_fulfilment_not_void` exists -- **it left on 2026-09-23**
         // (sales step 6 C2), when that index was laid. **`CreateFulfilment` left on
         // 2026-09-22** (sales step 5 C2), so the block is one shorter again --
-        // and **`CreateSalesReturn` left on 2026-10-01** (sales step 7 R2) --
+        // and **`CreateSalesReturn` left on 2026-10-01** (sales step 7 R2), and
+        // **`IssueCreditNote` left the same day** (sales step 7 C1) --
         // count the entries below; do not read a number here.
         'CreateCustomerContact' => '⛔ none',
         'CreateCustomerAddress' => '⛔ none',
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
-        'IssueCreditNote' => '⛔ none',
     ];
 
     /**
@@ -322,10 +326,13 @@ final class IdempotencyContractTest extends TenancyTestCase
      * (`no`): 118 rows, 75 unmarked.
      *
      * **2026-10-01 (sales step 7 C0):** `ListInvoiceLines` (`no`): 119 rows, 76 unmarked, 43 marked.
+     *
+     * **2026-10-01 (sales step 7 C1):** `GetCreditNote` (`no`): 120 rows, 77 unmarked; `IssueCreditNote` moves from
+     * `⛔ none` to `unique:` (marked to marked): 43 marked.
      */
-    private const PINNED_ROW_COUNT = 119;
+    private const PINNED_ROW_COUNT = 120;
 
-    private const PINNED_UNMARKED_COUNT = 76;
+    private const PINNED_UNMARKED_COUNT = 77;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —
@@ -370,6 +377,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateSalesOrderLine' => [IdempotencyKeyGuard::COLUMN],
         'CreateFulfilment' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesReturn' => [IdempotencyKeyGuard::COLUMN],
+        'IssueCreditNote' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -443,6 +451,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateFulfilment',
         // Sales step 7 R2, 2026-10-01. The fulfilment's ground exactly.
         'CreateSalesReturn',
+        // Sales step 7 C1, 2026-10-01. The return's ground: the other unique is on the server-minted `credit_note_number`.
+        'IssueCreditNote',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];

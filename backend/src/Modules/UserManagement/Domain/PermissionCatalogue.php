@@ -112,6 +112,9 @@ final class PermissionCatalogue
             // enters with `credit_note.issue` at C1 (ADR-008 A2.7), never before its second code exists.
             'sales_return.view',
             'sales_return.create',
+            // Sales step 7 C1 (2026-10-01): owner rulings Q-F (finance + owner) and ADR-008 A2.1b — it enters with its
+            // SoD-3 entry and SoD-5's row in `SeparationOfDuty::ROWS`, in the same commit, never before (A2.7).
+            'credit_note.issue',
         ],
         'Modules\\UserManagement' => [
             'app_user.view',

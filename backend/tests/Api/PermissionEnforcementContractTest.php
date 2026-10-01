@@ -64,6 +64,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'ListInvoices' => 'invoice.view',
         // Sales step 7 C0: an invoice's derived lines — money, so `invoice.view`, never `fulfilment.view` (Q-B, V2-S-8).
         'ListInvoiceLines' => 'invoice.view',
+        // Sales step 7 C1: the credit note (owner rulings Q-F / Q-B; A2.1b) and its read — money, so `invoice.view`.
+        'IssueCreditNote' => 'credit_note.issue',
+        'GetCreditNote' => 'invoice.view',
         'PayInvoice' => 'invoice.pay',
         'ReverseInvoicePayment' => 'invoice.pay',
         // Sales step 6 C7 (2026-09-29): `owner` alone among the default roles holds it since A2.1a (ADR-008 A2.7).

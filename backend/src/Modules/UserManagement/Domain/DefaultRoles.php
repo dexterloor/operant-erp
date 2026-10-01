@@ -157,6 +157,9 @@ final class DefaultRoles
         self::FINANCE => [
             'invoice.view',
             'invoice.pay',
+            // Sales step 7 C1 (2026-10-01), owner ruling Q-F: finance issues credit notes (SoD-5's second person: the
+            // return was recorded by someone else). Never `admin` (PC-14: A2.1b's controlled half) or `sales_rep` (SoD-3).
+            'credit_note.issue',
             // Owner ruling Q-B: SoD-5's second person must find the return it credits (V2-C-16's dead end otherwise).
             'sales_return.view',
             'forecast.view',

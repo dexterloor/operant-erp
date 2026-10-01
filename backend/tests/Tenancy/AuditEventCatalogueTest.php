@@ -146,6 +146,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // position item 5: BUSINESS, subject the return, `{"reason", "deducts"}`, no IP), which preceded the code. A return
         // recorded is the return document's own business state; its subject is `sales_return`, so (4c) does not reach it.
         'sales_return.created',
+        // Edited deliberately 2026-10-01 (sales step 7 C1) on `SEC`'s filing (S-5: BUSINESS, subject the credit note,
+        // `{"reason"}`, no IP), which preceded the code; its subject is `credit_note`, so (4c) does not reach it.
+        'credit_note.issued',
     ];
 
     /**

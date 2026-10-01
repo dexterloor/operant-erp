@@ -634,6 +634,19 @@ final class AuditEvent
     public const SALES_RETURN_CREATED = 'sales_return.created';
 
     /**
+     * **A credit note issued against an invoice** — minted 2026-10-01 with `IssueCreditNote` (sales step 7, C1): a
+     * `credit_note` and its lines, the only reduction of an issued invoice (OI-2), under `credit_note.issue`.
+     *
+     * **Filed by `SEC` before the code** (`output9-sales-8-sec.md` S-5): **business**, subject the credit note, actor the
+     * issuer (= `credit_note.issued_by_user_id`, PC-11 (4a)), no IP, no permission code, `metadata`
+     * **`{"reason": <enum value>}`** — the trail says why without opening the document (R-7 and B′'s delegated
+     * adjustments are controlled only by the trail). One document type, one event: `IssueAdjustmentCreditNote` (C1b)
+     * writes it too. **Step 6 does not apply.** Written by `CreditNoteAuditWriter::recordIssued()` on the **insert**
+     * branch only.
+     */
+    public const CREDIT_NOTE_ISSUED = 'credit_note.issued';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -672,6 +685,7 @@ final class AuditEvent
         self::SALES_ORDER_DELETED,
         self::PURCHASE_ORDER_DELETED,
         self::SALES_RETURN_CREATED,
+        self::CREDIT_NOTE_ISSUED,
     ];
 
     /**
@@ -735,6 +749,7 @@ final class AuditEvent
         self::SALES_ORDER_DELETED,
         self::PURCHASE_ORDER_DELETED,
         self::SALES_RETURN_CREATED,
+        self::CREDIT_NOTE_ISSUED,
     ];
 
     // ---------------------------------------------------------------------
@@ -793,6 +808,7 @@ final class AuditEvent
         self::SALES_ORDER_DELETED => 'sales_order',
         self::PURCHASE_ORDER_DELETED => 'purchase_order',
         self::SALES_RETURN_CREATED => 'sales_return',
+        self::CREDIT_NOTE_ISSUED => 'credit_note',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
     ];

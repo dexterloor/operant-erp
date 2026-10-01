@@ -232,11 +232,7 @@ final readonly class SalesReturnReader
     {
         return \sprintf(<<<'SQL'
             (
-                (r.invoice_id = live.id
-                 OR (r.invoice_id IS NULL AND NOT r.deducts)
-                 OR EXISTS (SELECT 1 FROM invoice v
-                             WHERE v.tenant_id = r.tenant_id AND v.id = r.invoice_id
-                               AND v.fulfilment_id = r.fulfilment_id AND v.status = '%3$s'))
+                %3$s
                 AND EXISTS (
                     SELECT 1
                       FROM sales_return_line rl
@@ -250,11 +246,41 @@ final readonly class SalesReturnReader
                 )
             )
             SQL,
-            \sprintf(self::CREDITED_ON_RETURN_LINE, 'rl'),
+            self::creditedOnReturnLine('rl'),
             self::returnedBeforeIssue('rfl'),
-            Invoice::STATUS_VOID,
-            \sprintf(self::CREDITED_ON_FULFILMENT_LINE, 'rfl', 'live'),
+            self::stampedForCredit(),
+            self::creditedOnFulfilmentLine('rfl', 'live'),
         );
+    }
+
+    /**
+     * **The stamp half of the shared predicate**: the return is a credit's to settle against the fulfilment's live
+     * invoice — its stamp IS that invoice, or a void invoice of the same fulfilment (the reissue after an uncredited
+     * void, F-2), or it is NULL and does not deduct (Q-L (a′)). Needs `r` and `live`. `IssueCreditNote` (C1) refuses a
+     * return outside it (`credit_note.return_is_against_this_invoice`) with THIS text; the line half is its bounds and
+     * its positive-amount refusal, priced by the same telescope.
+     */
+    public static function stampedForCredit(): string
+    {
+        return \sprintf(<<<'SQL'
+            (r.invoice_id = live.id
+             OR (r.invoice_id IS NULL AND NOT r.deducts)
+             OR EXISTS (SELECT 1 FROM invoice v
+                         WHERE v.tenant_id = r.tenant_id AND v.id = r.invoice_id
+                           AND v.fulfilment_id = r.fulfilment_id AND v.status = '%s'))
+            SQL, Invoice::STATUS_VOID);
+    }
+
+    /** Credited against return line `$alias` (the first `LEAST` position; the served `quantity_credited`). */
+    public static function creditedOnReturnLine(string $alias): string
+    {
+        return \sprintf(self::CREDITED_ON_RETURN_LINE, $alias);
+    }
+
+    /** Credited against shipped line `$lineAlias` on invoice `$invoiceAlias` — every credit, adjustments included. */
+    public static function creditedOnFulfilmentLine(string $lineAlias, string $invoiceAlias): string
+    {
+        return \sprintf(self::CREDITED_ON_FULFILMENT_LINE, $lineAlias, $invoiceAlias);
     }
 
     /**
@@ -285,7 +311,7 @@ final readonly class SalesReturnReader
           JOIN inventory_item i ON i.tenant_id = sol.tenant_id AND i.id = sol.inventory_item_id
           JOIN storage_location fsl ON fsl.tenant_id = fl.tenant_id AND fsl.id = fl.storage_location_id
           JOIN storage_location sl ON sl.tenant_id = srl.tenant_id AND sl.id = srl.storage_location_id
-        SQL, \sprintf(self::CREDITED_ON_RETURN_LINE, 'srl'));
+        SQL, self::creditedOnReturnLine('srl'));
     }
 
     private const LINES_ORDER = ' ORDER BY sol.line_number, fl.storage_location_id, srl.id';

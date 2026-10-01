@@ -43,11 +43,12 @@ namespace App\Modules\UserManagement\Domain;
  * ---------------------------------------------------------------------------
  * **Amendment 2 is ruled and applied in halves (ADR-008 A2.7). A2.1a is HERE since
  * 'Let an invoice issued in error be voided, and take voiding off admin' (2026-09-29):
- * `invoice.void` is on SoD-3's controlled half. A2.1b (`credit_note.issue`) and
- * SoD-5 are NOT:** those codes are not in `PermissionCatalogue`, so a row naming
- * them would not survive `PermissionCatalogue::has()`. They enter with
- * `IssueCreditNote` and `CreateSalesReturn`. The obligation is carried by
- * `DELIVERY_LEDGER.md` R-39 and `OwedAmendmentTripwireTest`, not by this docblock.
+ * `invoice.void` is on SoD-3's controlled half. A2.1b and SoD-5 are HERE since
+ * sales step 7 C1 ('Let finance credit a returned shipment…', 2026-10-01):**
+ * `credit_note.issue` is on SoD-3's controlled half, and SoD-5 pairs it with
+ * `sales_return.create` (which entered at R2, one commit ahead of its row, as A2.7
+ * allows the preparing side to). A2.1c (`credit_note.adjust`) enters with
+ * `IssueAdjustmentCreditNote` (C1b), never before A2.1b.
  *
  * *(Until 2026-09-29 this heading read "Amendment 2 is ruled and deliberately NOT
  * here", and SoD-3's controlled half was `invoice.pay` alone. A2.1a moved
@@ -58,7 +59,7 @@ namespace App\Modules\UserManagement\Domain;
 final class SeparationOfDuty
 {
     /**
-     * ADR-008 §2's four rows — SoD-3 with A2.1a applied (A2.7).
+     * ADR-008 §2's five rows — SoD-3 with A2.1a and A2.1b applied, and SoD-5 (A2.7).
      *
      * @var array<string, array{preparing: list<string>, controlled: list<string>}>
      */
@@ -73,12 +74,19 @@ final class SeparationOfDuty
         ],
         'SoD-3' => [
             'preparing' => ['invoice.issue'],
-            // `invoice.void` since A2.1a (ADR-008 A2.7, 2026-09-29). `credit_note.issue` enters at A2.1b.
-            'controlled' => ['invoice.pay', 'invoice.void'],
+            // `invoice.void` since A2.1a (ADR-008 A2.7, 2026-09-29); `credit_note.issue` since A2.1b (sales step 7 C1,
+            // 2026-10-01, with `IssueCreditNote`).
+            'controlled' => ['invoice.pay', 'invoice.void', 'credit_note.issue'],
         ],
         'SoD-4' => [
             'preparing' => ['sales_order.confirm', 'invoice.issue'],
             'controlled' => ['fulfilment.create'],
+        ],
+        // ADR-008 A2.2, entering with its SECOND code (A2.7): the person who records a customer return does not also issue
+        // the credit note that reduces the invoice for it (sales step 7 C1, 2026-10-01).
+        'SoD-5' => [
+            'preparing' => ['sales_return.create'],
+            'controlled' => ['credit_note.issue'],
         ],
     ];
 
