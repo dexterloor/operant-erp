@@ -55,7 +55,9 @@ use Symfony\Component\Uid\Uuid;
  *   12. 201, the note read back (`Location: /credit-notes/{id}`).
  *
  * **`IssueAdjustmentCreditNote` (C1b, owner ruling Q-A = B′; ADR-008 A2.1c)** is {@see self::adjust()}: the same
- * document and the same steps for goods the customer KEEPS (`damaged_goods_kept`, `short_shipped`), with no return —
+ * document and the same steps for billed units that come back on no return — `damaged_goods_kept` (the customer received
+ * them damaged and says they will keep them) or `short_shipped` (the customer says they did NOT receive them; definitions:
+ * `API.md` §15.1 `IssueAdjustmentCreditNote`, 2026-10-02) — with no return —
  * so no return-line bound, `sales_return_id` NULL (`credit_note_return_iff_goods_returned`) — on its OWN code,
  * `credit_note.adjust`, held by the owner alone, so E-1 covers it mechanically. One extra refusal after the status
  * (design §4.4b (ii)): an invoice whose payment was EVER reversed (`payment_reversed_at`) is adjusted only by an
@@ -130,7 +132,9 @@ final readonly class CreditNoteWriter
     }
 
     /**
-     * **`IssueAdjustmentCreditNote`** (C1b): a credit for goods the customer keeps — no return, owner-held code.
+     * **`IssueAdjustmentCreditNote`** (C1b): a credit for billed units received damaged and kept (`damaged_goods_kept`) or
+     * not received at all (`short_shipped`) — no return, owner-held code. It records nothing about which units it covered
+     * (`RESIDUAL_GAPS.md` G-29, G-30).
      *
      * @param array<mixed>|null $rawLines `lines` as decoded, unchecked
      */

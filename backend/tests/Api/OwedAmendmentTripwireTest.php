@@ -285,6 +285,30 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'ListCreditNotes',
     ];
 
+    /**
+     * **`operationId` => the obligation group it fires: the operations that WIDEN the double credit an adjustment allows**
+     * (`RESIDUAL_GAPS.md` G-29 and G-30, ruled 2026-10-02; part 1 of their sequencing, owner: *"Go ahead with part 1"*).
+     *
+     * Neither gap is reachable by anyone but an owner today: `credit_note.adjust` is held by the owner alone among the
+     * default roles, and `CreditNoteAdjustTest::aRoleWithoutCreditNoteAdjustIsRefused` goes red if a default role gains
+     * it. What that test cannot see is a role a TENANT composes — so `CreateRole` / `UpdateRole` (G-28's trigger, the same
+     * event, and G-29's and G-30's) are pinned here. `CreateStockAdjustment` is pinned because G-30 names its build commit
+     * as a hard trigger that must test path (iii), and G-21's phantom-stock sentence names it as unbuilt.
+     *
+     * Keyed by `operationId`, never a path (`1076ba3`). **None of the three is built** — this is a PIN that goes red on
+     * arrival, not an implication. Clearing an entry is a deliberate edit made in the commit that does what the failure
+     * message lists; the residual every sibling method carries applies (clearing without doing it defeats the pin).
+     * **Disclosed limit (G-29/G-30's own text):** a grant written by SQL (G-10's shape) composes a role with no operation,
+     * and nothing here sees it.
+     *
+     * @var array<string, 'role composition'|'stock count'>
+     */
+    private const OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT = [
+        'CreateRole' => 'role composition',
+        'UpdateRole' => 'role composition',
+        'CreateStockAdjustment' => 'stock count',
+    ];
+
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
     private const THE_INVOICE_CORRECTIONS = ['ReverseInvoicePayment', 'VoidInvoice'];
 
@@ -891,6 +915,87 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     {
         return array_values(array_filter($built, static fn (string $operation): bool => 1 === preg_match('/Invoice|Credit|DebitNote/', $operation)
             && !\in_array($operation, $allowed, true)));
+    }
+
+    /**
+     * **G-28, G-29 and G-30's composition trigger, and G-30 (iii)'s stock-count trigger, carried by a mechanism**
+     * (2026-10-02). Red the moment any key of {@see self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT} is in the generated
+     * spec, printing what that commit owes. Until this method, G-29 and G-30 said *"the composition trigger has no
+     * tripwire yet"*.
+     *
+     * **Controls, same test:** the positive control every sibling uses; a non-empty map; and the intersection over a
+     * literal map naming a BUILT operation must report it. **Mutations (run 2026-10-02, pasted in
+     * `docs/session13/g29-g30-part1-progress.md`):** each of the three keys planted into the built set in turn → red
+     * naming it with its own group's text; restored byte-identical.
+     */
+    #[Test]
+    public function noOperationThatWidensTheDoubleCreditHasBeenBuilt(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT,
+            'The double-credit pin is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
+        self::assertSame(['IssueAdjustmentCreditNote' => 'x'],
+            array_intersect_key(['IssueAdjustmentCreditNote' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT, $built);
+
+        self::assertSame([], $arrived, self::doubleCreditPointer($arrived));
+    }
+
+    /**
+     * The failure message: one block per obligation group that arrived. The text is `RESIDUAL_GAPS.md` G-28/G-29/G-30's
+     * (and G-21's), condensed; the register is the authority.
+     *
+     * @param array<string, string> $arrived
+     */
+    private static function doubleCreditPointer(array $arrived): string
+    {
+        $blocks = [];
+        if (\in_array('role composition', $arrived, true)) {
+            $blocks[] = "ROLE COMPOSITION (CreateRole / UpdateRole) -- a hard trigger of G-28, G-29 AND G-30, whichever comes first.\n"
+                ."Today `credit_note.adjust` is the owner's alone among the default roles; a composed role can hand it to a\n"
+                ."delegate, and delegated adjusters make G-30's double credit more frequent.\n"
+                ."  G-28 (Medium): PC-12's margin warning and its check are unbuilt. Build PC-12 clause 6's derived check\n"
+                ."    (sources from Perm cells and read shapes, PC-12 clause 2 and PC-17) and the role picker's warning with\n"
+                ."    its data (SEC + BE-LEAD + UX copy). V2-S-1c and B1N-11 are re-homed there. PC-17 is re-put to the owner\n"
+                ."    at this trigger. (PermissionListTest's CreateRole/UpdateRole pin separately owes `sod_rows`, V2-C-5.)\n"
+                ."  G-29 (Low) + G-30 (Medium) share ONE identity design (BE-LEAD + PO + UX, then a fresh RED). It must:\n"
+                ."    (a) make the person holding the paperwork decide when a return line falls on a shipped line that\n"
+                ."        already carries adjustment credits (PayInvoice's `acknowledged_return_ids` precedent; a new\n"
+                ."        accepted field, so a 4.2 `Accepts`-cell edit);\n"
+                ."    (b) RECORD that decision -- a link from the return line to the adjustment line that covered it -- so a\n"
+                ."        return whose units were already credited leaves BOTH `?creditable=true` and the blocked-by-payment\n"
+                ."        queue; state whether linked units are served as `quantity_credited` or apart. An acknowledgement\n"
+                ."        alone is not enough: it records nothing when finance correctly declines;\n"
+                ."    (c) settle G-29's lock question: whatever reads returns on the adjust path takes SalesOrderRowLock before\n"
+                ."        InvoiceRowLock (as PayInvoice does), or restates CreditNoteWriter's \"only GROWS a bound\" premise;\n"
+                ."    (d) rewrite, never delete, the current-behaviour pins: CreditNoteAdjustTest::\n"
+                ."        anAdjustmentIsBoundByWhatWasBilledAndShrinksWhatAReturnCanBeCredited (G-29) and\n"
+                ."        aReturnOfAdjustedUnitsIsCreditedAgainToday (G-30).\n"
+                ."  A grant written by SQL (G-10's shape) is not detected by this pin.";
+        }
+        if (\in_array('stock count', $arrived, true)) {
+            $blocks[] = "STOCK COUNT (CreateStockAdjustment) -- a hard trigger of G-30, and the operation G-21 names as unbuilt.\n"
+                ."  G-30 path (iii): `short_shipped` units that were never packed and are found on the shelf. Today no count\n"
+                ."    operation exists and, after invoicing, `recorded_in_error` is refused, so the only built sales document\n"
+                ."    that puts them back in stock is a return under another reason -- and that return is CREDITABLE, so the\n"
+                ."    units are credited twice. G-30's closing work: found units come back through F-6a's count adjustment,\n"
+                ."    without a return. THIS BUILD COMMIT MUST TEST PATH (iii).\n"
+                ."  G-21's phantom stock: every mistaken return posts stock that no built operation corrects (G-21 says\n"
+                ."    `CreateStockAdjustment` is unbuilt, E-25) -- that sentence becomes false in this commit; re-word it. G-21's\n"
+                ."    closing work is ruled reversal documents (SEC + BE-LEAD + PO); a count correction does not close it.\n"
+                ."  Also owed here: WriteOwnershipTest's E-25 (a) pin (the first 'adjustment' writer).";
+        }
+
+        return \sprintf("%s has been built, and it widens the double credit an adjustment allows (RESIDUAL_GAPS.md G-29, G-30).\n\n%s\n\n"
+            ."DO THE WORK ABOVE IN THIS COMMIT (or bring the trigger to the owner first), then clear the entry deliberately.\n"
+            ."Do not hand-edit this pin to green. Record: docs/RESIDUAL_GAPS.md G-28, G-29, G-30, G-21;\n"
+            ."docs/session13/l4-judge.md J-1, l4-final-red.md, l5-final-red.md.",
+            implode(', ', array_keys($arrived)), implode("\n\n", $blocks));
     }
 
     /**

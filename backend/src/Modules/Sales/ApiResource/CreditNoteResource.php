@@ -74,7 +74,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['invoice', 'id'],
             ],
         ),
-        // Sales step 7 C1b (owner ruling Q-A = B′; ADR-008 A2.1c): a credit for goods the customer KEEPS, no return, on
+        // Sales step 7 C1b (owner ruling Q-A = B′; ADR-008 A2.1c): a credit for goods kept damaged or not received, no return, on
         // its OWN code so E-1 covers it mechanically. §4.2 names its resource `AdjustmentCreditNote` (`Issue / CreditNote`
         // is taken), and its row IS a credit note: the `CreditNote` shape, `Location` → `GetCreditNote` (no `Get` of its own).
         new Post(

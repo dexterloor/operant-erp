@@ -16,7 +16,8 @@ use Symfony\Component\Uid\Uuid;
  * `docs/session13/output9-sales-8-design.md` §4.4b under owner ruling Q-A = **B′** (`output9-sales-8-ruling.md`) and
  * ADR-008 **A2.1c**, and `docs/session13/output9-sales-8-c0-amendments.md` A-7 (C1b's pin).
  *
- * A credit for goods the customer KEEPS: no return, `sales_return_id` NULL, on its own code `credit_note.adjust`, held by
+ * A credit for goods the customer received damaged and kept (`damaged_goods_kept`) or did not receive (`short_shipped`):
+ * no return, `sales_return_id` NULL, on its own code `credit_note.adjust`, held by
  * the owner alone among the default roles. One refusal `IssueCreditNote` does not have (design §4.4b (ii)): an invoice
  * whose payment was ever reversed is adjusted only by an owner-marker holder, so a delegate holding `invoice.pay` +
  * `credit_note.adjust` cannot reverse a colleague's payment and then write the invoice off in one seat.
@@ -227,6 +228,65 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
     }
 
+    /** @return iterable<string, array{string, string, bool}> reason, the return's reason, whether the return comes first */
+    public static function adjustedUnitsReturned(): iterable
+    {
+        // G-30 path (i): damaged units the customer said they would keep, sent back anyway.
+        yield 'damaged_goods_kept, adjusted then returned' => ['damaged_goods_kept', 'damaged_in_transit', false];
+        yield 'damaged_goods_kept, returned then adjusted' => ['damaged_goods_kept', 'damaged_in_transit', true];
+        // G-30 paths (ii)/(iii): units claimed not received that turn up and come back.
+        yield 'short_shipped, adjusted then returned' => ['short_shipped', 'other', false];
+        yield 'short_shipped, returned then adjusted' => ['short_shipped', 'other', true];
+    }
+
+    /**
+     * **⚠ THIS PINS CURRENT, KNOWN-WRONG BEHAVIOUR — `RESIDUAL_GAPS.md` G-30 (Medium), case J-1 of
+     * `docs/session13/l4-judge.md`.** Billed 10 on one shipped line. An owner credits 2 as an adjustment; the customer's
+     * return of 2 on the same line is recorded (after it, or before it); finance credits the return's 2. All three are
+     * answered 201 and the line carries **4** units of credit for **2** units the record can show at the customer's door
+     * — because nothing records WHICH units an adjustment covered, so the return stays creditable up to
+     * `billed − credited` whether or not its units are the adjusted ones. Every credit stays within the line's billing
+     * (`credit_note.quantity_within_billed`), so no quantity bound can tell this from two different sets of units.
+     *
+     * LEAD ran this case by a throwaway probe on 2026-10-02 (Move 423); this is that probe made permanent, in both
+     * orders and under both reasons, so G-30's closing commit cannot change the behaviour without seeing it.
+     * **G-30's closing commit (the shared identity design with G-29) must REWRITE this test to the decided behaviour —
+     * refused without the paperwork holder's decision, settled with it — never delete it.** No request here is refused,
+     * so one test per provider row never closes the shared entity manager.
+     */
+    #[Test]
+    #[DataProvider('adjustedUnitsReturned')]
+    public function aReturnOfAdjustedUnitsIsCreditedAgainToday(string $reason, string $returnReason, bool $returnFirst): void
+    {
+        $i = $this->invoicedShipment('ADJ-G30-'.$reason.($returnFirst ? '-R' : '-A'), [['10', '10.0000', '10']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+
+        if ($returnFirst) {
+            $return = $this->returnOf($i, [[0, '2']], $returnReason);
+            $this->adjust($i, [[0, '2']], $reason);
+            self::assertSame(201, $this->httpStatus(), 'The adjustment. '.(string) $this->client()->getResponse()->getContent());
+        } else {
+            $this->adjust($i, [[0, '2']], $reason);
+            self::assertSame(201, $this->httpStatus(), 'The adjustment. '.(string) $this->client()->getResponse()->getContent());
+            $return = $this->returnOf($i, [[0, '2']], $returnReason);
+        }
+
+        $this->send('GET', '/sales-returns?creditable=true');
+        self::assertContains($return, array_column($this->json()['items'], 'id'),
+            'G-30 today: a return of units an adjustment may already have credited is still offered for credit.');
+
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($i, $return, [[0, '2']]);
+        self::assertSame(201, $this->httpStatus(), 'G-30 today: the return\'s credit is accepted. '.(string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([['notes' => 2, 'quantity' => '4.000000', 'amount' => '40.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            SELECT count(DISTINCT cnl.credit_note_id) AS notes, sum(cnl.quantity)::text AS quantity, sum(cnl.amount)::text AS amount
+              FROM credit_note_line cnl WHERE cnl.fulfilment_line_id = ?::uuid
+            SQL, [$i['lines'][0]]), 'G-30 today: 4 units credited on the line for 2 units returned or adjusted.');
+        $this->send('GET', '/invoices/'.$i['invoice']);
+        self::assertSame(['40.0000', '60.0000'], [$this->json()['amount_credited'], $this->json()['amount_due']]);
+    }
+
     /**
      * The body: `reason` is an adjustment reason only (`goods_returned` is `IssueCreditNote`'s and needs a return); a
      * line must be a shipped line of the invoice's shipment; a line priced at nothing is not creditable.
@@ -257,6 +317,12 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
     {
         // A2.1c / Q-F: `owner` alone among the default roles. `finance` issues return credits and still may not adjust;
         // `admin` loses it by PC-14 (SoD-3's controlled half).
+        // ⚠ G-29 / G-30 (`RESIDUAL_GAPS.md`): this provider is the ONLY mechanical trigger of both gaps' "any change giving
+        // `credit_note.adjust` to a default role other than `owner`". If a role here starts answering 201, do not drop it
+        // from the list to get green: G-29 (an adjustment can use up a pending return's room) and G-30 (adjusted units
+        // returned are credited twice) become reachable by that role, and their shared identity design is owed first.
+        // A NEW default role holding the code is not caught here; a composed role is caught by OwedAmendmentTripwireTest
+        // (CreateRole / UpdateRole); a grant written by SQL (G-10) by nothing.
         foreach ([DefaultRoles::ADMIN, DefaultRoles::FINANCE, DefaultRoles::SALES_REP, DefaultRoles::WAREHOUSE_OPERATOR, DefaultRoles::VIEWER, DefaultRoles::BUYER, DefaultRoles::PURCHASING_MANAGER] as $role) {
             yield $role => [$role];
         }
