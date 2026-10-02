@@ -243,6 +243,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'vars' => ['id' => 'invoice'], 'setup' => 'returned_invoice',
             'body' => ['reason' => 'goods_returned', 'sales_return_id' => '@sales_return', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1']]],
         ],
+        // Sales step 7 C1b: an adjustment (no return) of the same invoice, naming this tenant's shipped line; a supplied
+        // tenant id that moved the write would credit B's invoice, which the digest names.
+        'IssueAdjustmentCreditNote' => [
+            'vars' => ['id' => 'invoice'], 'setup' => 'returned_invoice',
+            'body' => ['reason' => 'damaged_goods_kept', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1']]],
+        ],
         // A credit note issued through the operation in each tenant, so a probe that moved the read would answer B's.
         'GetCreditNote' => ['vars' => ['id' => 'credit_note'], 'setup' => 'credit_note'],
     ];

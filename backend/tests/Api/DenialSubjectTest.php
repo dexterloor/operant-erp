@@ -44,7 +44,8 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      */
     // Sales step 7 C1: `IssueCreditNote` (nested under the invoice) and `GetCreditNote` (a credit note read under
     // `invoice.view` — the case the path-first derivation exists for).
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'IssueCreditNote', 'IssueInvoice', 'RevokeRole'];
+    // Sales step 7 C1b: `IssueAdjustmentCreditNote`, nested under the invoice exactly as `IssueCreditNote` is.
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'RevokeRole'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';

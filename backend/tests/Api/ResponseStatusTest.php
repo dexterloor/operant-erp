@@ -147,6 +147,30 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     ];
 
     /**
+     * **Reading (4) — a `POST` whose row is a row of ANOTHER resource that a built `GET` already serves**, at a path
+     * reading (1) cannot reach. Added 2026-10-01 (sales step 7 C1b) for exactly one operation:
+     * `IssueAdjustmentCreditNote` (`POST /invoices/{id}/credit-note-adjustments`) inserts a `credit_note` row, which
+     * `GetCreditNote` serves at `/credit-notes/{id}` — design §4.4b and §14 item 25 (*"its `Location` is
+     * `/credit-notes/{id}`"*), approved with Q-A = B′. Reading (1) re-roots the last segment to
+     * `/credit-note-adjustments/{}`, which nothing serves, so without this the operation falls to branch 5 and is required
+     * to answer 200 with no `Location` — for a POST that does create an addressable row (API-21's own words).
+     *
+     * **Why not reading (3):** `CreatedRowLocation` exists for a row the vendor CANNOT address; this one it can (the
+     * resource's first item operation is `GetCreditNote`), and {@see self::theDeclaringSetIsTheOperationsTheRegistryCannotAddressItself()}
+     * forbids a declaration for a URI a built `GET` serves.
+     *
+     * **Closed and reconciled, like reading (3)** (RED exit audit F-1: a classification must not be author-declarable):
+     * a member is a reviewed edit to this file, and {@see self::aRowAddressedElsewhereIsServedByABuiltGetAndNoOtherReading()}
+     * holds each entry to a URI a built `GET` serves, an operation that is a built `POST`, and one no other reading
+     * already classifies. The branch-4 `Location` assertion then holds the answer to this URI.
+     *
+     * @var array<string, string>
+     */
+    private const ROWS_ADDRESSED_BY_ANOTHER_RESOURCE = [
+        'IssueAdjustmentCreditNote' => '/credit-notes/{id}',
+    ];
+
+    /**
      * **The probe.** Every built operation matches exactly one branch.
      *
      * The controls are inside this method on purpose: a sibling test does not
@@ -430,6 +454,50 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Reading (4)'s reconciliation** (sales step 7 C1b), registry-only so it runs on a clean checkout: every entry of
+     * {@see self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE} is a built `POST`, carries no `OPERATION_URI_TEMPLATE` (that is
+     * reading (3)'s), names a URI a built `GET` serves, and is one reading (1) does NOT already classify as creating —
+     * so an entry is never redundant and never a way for a transition `POST` to move itself out of branch 5 onto a URI
+     * nothing answers.
+     */
+    #[Test]
+    public function aRowAddressedElsewhereIsServedByABuiltGetAndNoOtherReading(): void
+    {
+        $operations = TransactionBoundaryTest::contractOperations();
+        $paths = array_map(static fn (HttpOperation $operation): string => self::normalised($operation), $operations);
+        $served = [];
+        foreach ($operations as $operation) {
+            if ('GET' === $operation->getMethod()) {
+                $served[] = self::normalised($operation);
+            }
+        }
+
+        self::assertNotSame([], self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE, 'Reading (4) has an empty pin, so this reconciliation is empty.');
+        // Control: the "already classified" clause can be true — a reading-(1) POST is recognised as creating.
+        self::assertTrue(self::createsAnAddressableRow($paths['IssueCreditNote'], $paths), 'Reading (1) no longer recognises IssueCreditNote, so the redundancy clause below is constant.');
+
+        $wrong = [];
+        foreach (self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE as $name => $uri) {
+            $operation = $operations[$name] ?? null;
+            if (null === $operation || 'POST' !== $operation->getMethod()) {
+                $wrong[] = $name.' is not a built POST';
+                continue;
+            }
+            if (\array_key_exists(CreatedRowLocation::OPERATION_URI_TEMPLATE, $operation->getExtraProperties())) {
+                $wrong[] = $name.' declares OPERATION_URI_TEMPLATE, which is reading (3)\'s';
+            }
+            if (!\in_array(self::normalisedPath($uri), $served, true)) {
+                $wrong[] = $name.' names '.$uri.', which no built GET serves';
+            }
+            if (self::createsAnAddressableRow($paths[$name], $paths)) {
+                $wrong[] = $name.' is already classified by reading (1); the entry is redundant';
+            }
+        }
+
+        self::assertSame([], $wrong, 'Reading (4)\'s pin is not what it claims to be.');
+    }
+
+    /**
      * The branches one operation falls into, by number.
      *
      * @param array<string, string> $registryPaths every built operation's normalised path
@@ -501,7 +569,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      */
     private static function declaredRowUri(string $name): ?string
     {
-        return self::DECLARED_ROW_URIS[$name] ?? null;
+        return self::DECLARED_ROW_URIS[$name] ?? self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE[$name] ?? null;
     }
 
     /**

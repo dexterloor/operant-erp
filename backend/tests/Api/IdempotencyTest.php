@@ -145,6 +145,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second credit_note, the invoice reduced twice (sales step 7 C1). Its mechanism is the header-sourced '
                 .'retry key on a TOTAL unique, the return\'s shape.',
         ],
+        'IssueAdjustmentCreditNote' => [
+            'method' => 'replayIssueAdjustmentCreditNote',
+            'why' => 'A second adjustment credit_note, the invoice written down twice (sales step 7 C1b). It shares '
+                .'IssueCreditNote\'s index; its digest binds its own operation name.',
+        ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
@@ -439,6 +444,25 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $first = $this->json()['id'];
         $this->credit($i, $return, [[0, '1']], $key);
+
+        self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the credit note the first call issued.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM credit_note'), $why);
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::CREDIT_NOTE_ISSUED),
+            'The replay wrote a second credit_note.issued row: the audit write is on the replay branch too.');
+    }
+
+    /** `replayIssueCreditNote()`'s twin for the adjustment (sales step 7 C1b): no return, the owner adjusts. */
+    private function replayIssueAdjustmentCreditNote(string $why): void
+    {
+        $i = $this->invoicedShipment('IDEM-ADJ', [['4', '10.0000', '2']]);
+        $this->actAsRole(\App\Modules\UserManagement\Domain\DefaultRoles::OWNER);
+        $body = ['reason' => 'damaged_goods_kept', 'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1']]];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json()['id'];
+        $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', $body, $key);
 
         self::assertSame($first, $this->json()['id'] ?? null, 'The replay did not return the credit note the first call issued.');
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM credit_note'), $why);

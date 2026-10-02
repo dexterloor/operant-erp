@@ -123,7 +123,8 @@ final class SeparationOfDutyTest extends TestCase
     /** `SECURITY_MODEL.md` §3's own heading. Pinned, never derived from the code under test. */
     /** 62 since 2026-10-01: sales step 7 R2 added `sales_return.view` and `sales_return.create`, neither on a SoD row yet. */
     // 63 since 2026-10-01 (sales step 7 C1): `credit_note.issue`, with A2.1b and SoD-5.
-    private const CATALOGUE_SIZE = 63;
+    // 64 since 2026-10-01 (sales step 7 C1b): `credit_note.adjust`, with A2.1c.
+    private const CATALOGUE_SIZE = 64;
 
     /**
      * §4's `admin` row: `60 − 7 = 53`. *(54 until 2026-09-29: A2.1a (ADR-008 A2.7, sales step 6 C7) put
@@ -132,6 +133,7 @@ final class SeparationOfDutyTest extends TestCase
      */
     // 55 since 2026-10-01 (sales step 7 R2): `62 − 7`; the two new codes are on no SoD row until SoD-5 enters at C1.
     // Still 55 at C1 (`63 − 8`): `credit_note.issue` entered on SoD-3's controlled half, so it never reached `admin`.
+    // Still 55 at C1b (`64 − 9`): `credit_note.adjust` entered on SoD-3's controlled half, the same way.
     private const ADMIN_SIZE = 55;
 
     /**
@@ -140,10 +142,11 @@ final class SeparationOfDutyTest extends TestCase
      * code, so the distinct count grows by one).
      */
     private const SOD_ROWS = 5;
-    private const CONTROLLED_CODES = 7;
+    // 8 since 2026-10-01 (sales step 7 C1b): A2.1c added `credit_note.adjust` to SoD-3's controlled half.
+    private const CONTROLLED_CODES = 8;
 
-    /** PC-14's `X(admin)`: the seven above **plus** E-15b's marker (seven until A2.1b). */
-    private const X_ADMIN_SIZE = 8;
+    /** PC-14's `X(admin)`: the controlled codes above **plus** E-15b's marker (seven until A2.1b, eight until A2.1c). */
+    private const X_ADMIN_SIZE = 9;
 
     /** §4's eight default roles. */
     private const DEFAULT_ROLES = 8;
@@ -171,12 +174,15 @@ final class SeparationOfDutyTest extends TestCase
     // 11 / 10 / 5 since 2026-10-01 (sales step 7 C1): A2.1b and SoD-5 add two vertices (`credit_note.issue`,
     // `sales_return.create`) and two edges; `credit_note.issue`–`sales_return.create` is covered by neither of the old
     // cover's codes, so the cover grows to five and the ceiling stays `63 − 5 = 58`. Read off `sod_check.py` and this run.
-    private const CONFLICT_VERTICES = 11;
-    private const CONFLICT_EDGES = 10;
+    // 12 / 11 / 5 since C1b (A2.1c): one vertex (`credit_note.adjust`) and one edge (`invoice.issue`–`credit_note.adjust`),
+    // already covered by `invoice.issue`, so the cover stays five and the ceiling grows with the catalogue, `64 − 5 = 59`.
+    private const CONFLICT_VERTICES = 12;
+    private const CONFLICT_EDGES = 11;
     private const MINIMUM_VERTEX_COVER = 5;
     // 58 since 2026-10-01 (sales step 7 R2): the graph did not move (the two new codes are on no row), so the cover is
     // still 4 and the ceiling is the catalogue minus it, `62 − 4`. Re-derived by running, never typed from arithmetic.
-    private const NEAR_OWNER_CEILING = 58;
+    // 59 since C1b: `64 − 5` (`sod_check.py` printed 59, run 2026-10-02).
+    private const NEAR_OWNER_CEILING = 59;
 
     // -----------------------------------------------------------------------
     // The empty-set trap. Everything below depends on these being non-empty.
@@ -195,7 +201,7 @@ final class SeparationOfDutyTest extends TestCase
         $catalogue = PermissionCatalogue::codes();
 
         self::assertNotSame([], $catalogue, 'The catalogue is empty: every clause below would pass vacuously.');
-        self::assertCount(self::CATALOGUE_SIZE, $catalogue, '§3 publishes 63 permission codes.');
+        self::assertCount(self::CATALOGUE_SIZE, $catalogue, '§3 publishes 64 permission codes.');
         self::assertSame($catalogue, array_values(array_unique($catalogue)), 'A code appears twice in the catalogue.');
         self::assertNotSame([], PermissionCatalogue::modules(), 'No module: PC-1a has no subject.');
 
@@ -246,7 +252,7 @@ final class SeparationOfDutyTest extends TestCase
         $controlled = SeparationOfDuty::controlledCodes();
 
         self::assertNotSame([], $controlled, 'No controlled half at all: X(admin) would be the marker alone.');
-        self::assertCount(self::CONTROLLED_CODES, $controlled, 'ADR-008 §2 puts six codes on its controlled halves (A2.1a).');
+        self::assertCount(self::CONTROLLED_CODES, $controlled, 'ADR-008 §2 puts eight codes on its controlled halves (A2.1c).');
 
         $expected = [...$controlled, OwnerMarker::CODE];
         sort($expected);
@@ -263,7 +269,7 @@ final class SeparationOfDutyTest extends TestCase
         // every one of this project's fake greens was before it was measured.
         $admin = DefaultRoles::codesFor(DefaultRoles::ADMIN);
 
-        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 62 − 7 = 55 codes.');
+        self::assertCount(self::ADMIN_SIZE, $admin, '`admin` holds 64 − 9 = 55 codes.');
         self::assertSame(
             [],
             array_values(array_intersect($admin, AdministrativeCharter::excludedCodes())),
@@ -498,7 +504,7 @@ final class SeparationOfDutyTest extends TestCase
         $baseline = $this->summarise($this->table());
 
         self::assertSame(
-            ['pc4' => self::PC4_ROLES, 'pairs' => 7, 'cover' => 5, 'ceiling' => 58],
+            ['pc4' => self::PC4_ROLES, 'pairs' => 7, 'cover' => 5, 'ceiling' => 59],
             $baseline,
             'BASELINE — the SoD table as ADR-008 §2 stands today.',
         );
@@ -594,7 +600,7 @@ final class SeparationOfDutyTest extends TestCase
 
         self::assertNotSame($baseline, $shrunk, 'Deleting SoD-4 moved nothing.');
         self::assertSame(4, $shrunk['cover'], 'Without SoD-4 the minimum vertex cover is four (three until SoD-5 entered).');
-        self::assertSame(59, $shrunk['ceiling'], 'Without SoD-4 the ceiling is 59 at a 63-code catalogue (`63 − 4`; 59 at 62 codes with the cover three, 57 at 60 codes while there were three splits).');
+        self::assertSame(60, $shrunk['ceiling'], 'Without SoD-4 the ceiling is 60 at a 64-code catalogue (`64 − 4`; 59 at 63 codes, 59 at 62 codes with the cover three, 57 at 60 codes while there were three splits).');
 
         // (iv) the empty table. Every check must collapse visibly.
         $empty = $this->summarise([]);

@@ -47,8 +47,8 @@ namespace App\Modules\UserManagement\Domain;
  * sales step 7 C1 ('Let finance credit a returned shipment…', 2026-10-01):**
  * `credit_note.issue` is on SoD-3's controlled half, and SoD-5 pairs it with
  * `sales_return.create` (which entered at R2, one commit ahead of its row, as A2.7
- * allows the preparing side to). A2.1c (`credit_note.adjust`) enters with
- * `IssueAdjustmentCreditNote` (C1b), never before A2.1b.
+ * allows the preparing side to). A2.1c (`credit_note.adjust`) is HERE since C1b
+ * (2026-10-01, with `IssueAdjustmentCreditNote`), after A2.1b as A2.8 requires.
  *
  * *(Until 2026-09-29 this heading read "Amendment 2 is ruled and deliberately NOT
  * here", and SoD-3's controlled half was `invoice.pay` alone. A2.1a moved
@@ -75,8 +75,8 @@ final class SeparationOfDuty
         'SoD-3' => [
             'preparing' => ['invoice.issue'],
             // `invoice.void` since A2.1a (ADR-008 A2.7, 2026-09-29); `credit_note.issue` since A2.1b (sales step 7 C1,
-            // 2026-10-01, with `IssueCreditNote`).
-            'controlled' => ['invoice.pay', 'invoice.void', 'credit_note.issue'],
+            // 2026-10-01, with `IssueCreditNote`); `credit_note.adjust` since A2.1c (C1b, with `IssueAdjustmentCreditNote`).
+            'controlled' => ['invoice.pay', 'invoice.void', 'credit_note.issue', 'credit_note.adjust'],
         ],
         'SoD-4' => [
             'preparing' => ['sales_order.confirm', 'invoice.issue'],

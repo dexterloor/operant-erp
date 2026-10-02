@@ -376,6 +376,19 @@ trait OperationSuccessRecipes
 
                 return [201, 'create, confirm, fulfil, invoice, return part, then credit it'];
             }],
+            // Sales step 7 C1b (2026-10-01): an adjustment credits goods the customer KEEPS, so no return is recorded.
+            'IssueAdjustmentCreditNote' => [fn (): array => $stockedSalesWorkspace('SO-245000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $key());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $invoice.'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $key());
+
+                return [201, 'create, confirm, fulfil, invoice, then credit part of the shipment the customer keeps'];
+            }],
             'GetCreditNote' => [fn (): array => $stockedSalesWorkspace('SO-244000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);
                 $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');

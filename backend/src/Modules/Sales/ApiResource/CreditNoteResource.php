@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Sales\ApiResource\State\CreditNoteProvider;
+use App\Modules\Sales\ApiResource\State\IssueAdjustmentCreditNoteProcessor;
 use App\Modules\Sales\ApiResource\State\IssueCreditNoteProcessor;
 use App\Modules\Sales\Application\CreditNoteLineView;
 use App\Modules\Sales\Application\CreditNoteView;
@@ -70,6 +71,32 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'credit_note.issue',
                 // F-1: a denial here names the invoice its path's {id} addresses, not a credit note.
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['invoice', 'id'],
+            ],
+        ),
+        // Sales step 7 C1b (owner ruling Q-A = B′; ADR-008 A2.1c): a credit for goods the customer KEEPS, no return, on
+        // its OWN code so E-1 covers it mechanically. §4.2 names its resource `AdjustmentCreditNote` (`Issue / CreditNote`
+        // is taken), and its row IS a credit note: the `CreditNote` shape, `Location` → `GetCreditNote` (no `Get` of its own).
+        new Post(
+            uriTemplate: '/invoices/{id}/credit-note-adjustments',
+            uriVariables: [
+                'id' => new Link(fromClass: InvoiceResource::class, identifiers: ['id'], parameterName: 'id'),
+            ],
+            name: 'IssueAdjustmentCreditNote',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'IssueAdjustmentCreditNote'),
+            input: IssueAdjustmentCreditNoteInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            read: false,
+            processor: IssueAdjustmentCreditNoteProcessor::class,
+            // Shares `unique:credit_note_idem_unique` with `IssueCreditNote`; each digest binds its own operation name.
+            // `credit_note.adjust`: owner-held among the default roles, on SoD-3's controlled half (A2.1c).
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'credit_note.adjust',
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['invoice', 'id'],
             ],
         ),

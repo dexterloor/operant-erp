@@ -67,6 +67,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 7 C1: the credit note (owner rulings Q-F / Q-B; A2.1b) and its read — money, so `invoice.view`.
         'IssueCreditNote' => 'credit_note.issue',
         'GetCreditNote' => 'invoice.view',
+        // Sales step 7 C1b: a credit with no return, on its own owner-held code (owner ruling Q-A = B′; ADR-008 A2.1c).
+        'IssueAdjustmentCreditNote' => 'credit_note.adjust',
         'PayInvoice' => 'invoice.pay',
         'ReverseInvoicePayment' => 'invoice.pay',
         // Sales step 6 C7 (2026-09-29): `owner` alone among the default roles holds it since A2.1a (ADR-008 A2.7).

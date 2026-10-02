@@ -235,6 +235,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         // return's shape exactly: a header-sourced key, `NOT NULL`, on a TOTAL
         // unique; the path's invoice is digested. `Version20261001000500` laid it.
         'IssueCreditNote' => 'unique:credit_note_idem_unique',
+        // Sales step 7 C1b, 2026-10-01. SHARES `IssueCreditNote`'s index (design §14 item 2): each writer's request
+        // digest binds its own operation name, so one key reused across the two is a conflict, never a replay.
+        'IssueAdjustmentCreditNote' => 'unique:credit_note_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -329,8 +332,11 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-01 (sales step 7 C1):** `GetCreditNote` (`no`): 120 rows, 77 unmarked; `IssueCreditNote` moves from
      * `⛔ none` to `unique:` (marked to marked): 43 marked.
+     *
+     * **2026-10-01 (sales step 7 C1b):** `IssueAdjustmentCreditNote` joins as a marked row
+     * (`unique:credit_note_idem_unique`, shared with `IssueCreditNote`): 121 rows, 77 unmarked, 44 marked.
      */
-    private const PINNED_ROW_COUNT = 120;
+    private const PINNED_ROW_COUNT = 121;
 
     private const PINNED_UNMARKED_COUNT = 77;
 
@@ -378,6 +384,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateFulfilment' => [IdempotencyKeyGuard::COLUMN],
         'CreateSalesReturn' => [IdempotencyKeyGuard::COLUMN],
         'IssueCreditNote' => [IdempotencyKeyGuard::COLUMN],
+        'IssueAdjustmentCreditNote' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -453,6 +460,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateSalesReturn',
         // Sales step 7 C1, 2026-10-01. The return's ground: the other unique is on the server-minted `credit_note_number`.
         'IssueCreditNote',
+        // Sales step 7 C1b, 2026-10-01. The same table and index as `IssueCreditNote`, the same ground.
+        'IssueAdjustmentCreditNote',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];

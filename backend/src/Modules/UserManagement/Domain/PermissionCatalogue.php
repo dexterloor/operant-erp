@@ -115,6 +115,8 @@ final class PermissionCatalogue
             // Sales step 7 C1 (2026-10-01): owner rulings Q-F (finance + owner) and ADR-008 A2.1b — it enters with its
             // SoD-3 entry and SoD-5's row in `SeparationOfDuty::ROWS`, in the same commit, never before (A2.7).
             'credit_note.issue',
+            // Sales step 7 C1b (2026-10-01): owner ruling Q-A = B′, ADR-008 A2.1c — with its SoD-3 entry, owner-held.
+            'credit_note.adjust',
         ],
         'Modules\\UserManagement' => [
             'app_user.view',

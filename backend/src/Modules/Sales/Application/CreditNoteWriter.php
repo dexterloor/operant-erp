@@ -6,6 +6,7 @@ namespace App\Modules\Sales\Application;
 
 use App\Modules\AuditLog\Infrastructure\CreditNoteAuditWriter;
 use App\Modules\Sales\Infrastructure\Entity\Invoice;
+use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
@@ -53,12 +54,27 @@ use Symfony\Component\Uid\Uuid;
  *   11. `credit_note.issued` `{"reason"}` (`SEC` S-5), insert branch only.
  *   12. 201, the note read back (`Location: /credit-notes/{id}`).
  *
- * **What it deliberately does NOT do:** credit without a return (C1b's operation, on its own code, owner-only — Q-A
- * B′); credit a paid invoice (Q-E, G-23); edit or void a credit note (Q-K, G-21: none can be undone).
+ * **`IssueAdjustmentCreditNote` (C1b, owner ruling Q-A = B′; ADR-008 A2.1c)** is {@see self::adjust()}: the same
+ * document and the same steps for goods the customer KEEPS (`damaged_goods_kept`, `short_shipped`), with no return —
+ * so no return-line bound, `sales_return_id` NULL (`credit_note_return_iff_goods_returned`) — on its OWN code,
+ * `credit_note.adjust`, held by the owner alone, so E-1 covers it mechanically. One extra refusal after the status
+ * (design §4.4b (ii)): an invoice whose payment was EVER reversed (`payment_reversed_at`) is adjusted only by an
+ * owner-marker holder (`OwnerPredicate`, never a role name) — `invoice.is_not_payment_reversed`, B′-void's rule reused
+ * because the predicate is about the invoice. Each operation's request digest binds its own operation name
+ * (`RequestDigest::of(OPERATION_*, …)`), and both share `credit_note_idem_unique`, so one key reused across the two
+ * is `idempotency-key-conflict`, never a replay of the other kind's note.
+ *
+ * **What it deliberately does NOT do:** credit a paid invoice (Q-E, G-23); edit or void a credit note (Q-K, G-21: none
+ * can be undone).
  */
 final readonly class CreditNoteWriter
 {
     public const OPERATION_ISSUE = 'IssueCreditNote';
+
+    public const OPERATION_ADJUST = 'IssueAdjustmentCreditNote';
+
+    /** The adjustment reasons (design §12 Q-I's credit reasons for a credit with no return). */
+    public const ADJUST_REASONS = ['damaged_goods_kept', 'short_shipped'];
 
     /**
      * The credit reasons `IssueCreditNote` accepts: a credit for returned goods. `credit_note_return_iff_goods_returned`
@@ -111,6 +127,30 @@ final readonly class CreditNoteWriter
         ]);
 
         return $this->write($invoiceId, $reason, $salesReturnId, $lines, $idempotencyKey, $digest);
+    }
+
+    /**
+     * **`IssueAdjustmentCreditNote`** (C1b): a credit for goods the customer keeps — no return, owner-held code.
+     *
+     * @param array<mixed>|null $rawLines `lines` as decoded, unchecked
+     */
+    public function adjust(string $invoiceId, mixed $reason, ?array $rawLines, string $idempotencyKey): CreditNoteView
+    {
+        if (!Uuid::isValid($invoiceId)) {
+            throw ApiProblem::notFound();
+        }
+        $invoiceId = Uuid::fromString($invoiceId)->toRfc4122();
+
+        $reason = self::reason($reason, self::ADJUST_REASONS);
+        $lines = self::lines($rawLines);
+
+        $digest = RequestDigest::of(self::OPERATION_ADJUST, [
+            'invoice_id' => RequestDigest::uuid($invoiceId),
+            'reason' => $reason,
+            'lines' => self::digestedLines($lines),
+        ]);
+
+        return $this->write($invoiceId, $reason, null, $lines, $idempotencyKey, $digest);
     }
 
     /**
@@ -167,7 +207,7 @@ final readonly class CreditNoteWriter
         // 2.–3.
         InvoiceRowLock::holdInside($em, $invoiceId);
         $invoice = $connection->fetchAssociative(
-            'SELECT id, status, fulfilment_id, total_amount FROM invoice WHERE id = ?::uuid',
+            'SELECT id, status, fulfilment_id, total_amount, payment_reversed_at FROM invoice WHERE id = ?::uuid',
             [$invoiceId],
         );
         if (false === $invoice) {
@@ -191,6 +231,13 @@ final readonly class CreditNoteWriter
         }
         if (Invoice::STATUS_PAID === $invoice['status']) {
             throw ApiProblem::businessRuleViolated('invoice.is_not_paid', 'This invoice has been paid. Reverse the payment before crediting it.');
+        }
+        // 5b. An adjustment (no return) on an invoice whose payment was ever reversed: owners only (design §4.4b (ii)).
+        if (null === $salesReturnId && null !== $invoice['payment_reversed_at'] && !OwnerPredicate::holdsMarker($identity->permissionCodes)) {
+            throw ApiProblem::businessRuleViolated(
+                'invoice.is_not_payment_reversed',
+                'A payment on this invoice was reversed, so only an owner can credit it without a return.',
+            );
         }
         $fulfilmentId = (string) $invoice['fulfilment_id'];
 

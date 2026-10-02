@@ -276,6 +276,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // Sales step 7 C1 (2026-10-01): a credit note only RAISES an invoice's credited sum (`credit_note_total_positive`),
         // and its read lowers nothing.
         'IssueCreditNote', 'GetCreditNote',
+        // Sales step 7 C1b (2026-10-01): an adjustment is a `credit_note` row like any other — it only RAISES the
+        // invoice's credited sum (`credit_note_total_positive`) and writes nothing to `invoice`. A ruling made by the
+        // person moving this list (the pin cannot judge it): it cannot lower a credit or raise a total.
+        'IssueAdjustmentCreditNote',
     ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
