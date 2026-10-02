@@ -26,7 +26,10 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *   refused.
  * - **Granting `tenant_settings.edit` is appointing a co-owner** for every exemption this function decides: DSoD-1 on
  *   `purchase_order.approve` / `.cancel` (A1.1), A2.3's reverser ≠ recorder (`ReverseInvoicePayment`), and — when built —
- *   E-15b, E-15e and E-15g. The owner was told so (`-ruling.md` (c)).
+ *   E-15b, E-15e and E-15g. The owner was told so (`-ruling.md` (c)). **Two more since, both B′-shaped (an invoice
+ *   whose payment was ever reversed):** voiding it (`VoidInvoice`, sales step 6 C7, `invoice.is_not_payment_reversed`)
+ *   and crediting it without a return (`IssueAdjustmentCreditNote`, sales step 7 C1b, design §4.4b (ii), the same
+ *   code reused) — an owner-marker holder passes both.
  *
  * **A second copy of this predicate is a violation in every track**, and `OwnerPredicateSingleSourceTest` makes it
  * impossible rather than merely forbidden: no `OWNER_ROLE_NAME`, no SQL or PHP comparison of a role name to `'owner'`,

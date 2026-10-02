@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\HttpOperation;
+use App\Modules\Sales\ApiResource\CreditNoteResource;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
@@ -35,7 +37,8 @@ use Symfony\Component\Uid\Uuid;
  * with a hole in it is a defect before any status is asserted against it.
  *
  * ---------------------------------------------------------------------------
- * Two readings taken here, stated rather than hidden
+ * Four readings taken here, stated rather than hidden *(the heading said "Two" until 2026-10-02; (3) was added
+ * 2026-09-19 and (4) at sales step 7 C1b)*
  * ---------------------------------------------------------------------------
  * **(1) "the row-level URI of the row this `POST` creates" is read from the
  * path alone**: the `POST`'s own path plus one `{param}` segment (`/items` →
@@ -46,6 +49,11 @@ use Symfony\Component\Uid\Uuid;
  * `CreateSupplier`, `IssueInvoice`, `AssignRole` 201; `ApprovePurchaseOrder`,
  * `IssueToken`, `ChangePassword`, `AskAssistant`, `CreateExport`, the three bulk
  * operations, `ReverseInvoicePayment`, `CreateSalesReturn`, `IssueCreditNote` 200.
+ * *(Corrected 2026-10-02, `RED` L-2: that list is the 2026-09-14 answer and two of its members have since moved —
+ * `CreateSalesReturn` is **branch 4 (201)** since sales step 7 R2, because `GetSalesReturn` serves
+ * `/sales-returns/{id}`, its re-rooted last segment; `IssueCreditNote` is **branch 4 (201)** since C1, because
+ * `GetCreditNote` serves `/credit-notes/{id}`. Both by reading (1). `IssueAdjustmentCreditNote` (C1b) is **branch 4
+ * (201)** by reading (4), below.)*
  *
  * **(2) "§4.2 declares" is evaluated against the registry**, which is §4.2's
  * built projection (§15.1). That keeps the probe free of the gitignored
@@ -67,6 +75,14 @@ use Symfony\Component\Uid\Uuid;
  * which this test must never trust, because that is the per-operation claim it exists to check. The
  * branch-4 `Location` assertion then holds the answer to **that template**, so declaring one is strictly
  * more checked than not declaring one.
+ *
+ * **(4) A `POST` also creates an addressable row when its row is a row of ANOTHER path's resource that a built
+ * `GET` already serves** and reading (1) cannot reach it — {@see self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE}, one member
+ * (`IssueAdjustmentCreditNote` → `/credit-notes/{id}`: its path's last segment, `credit-note-adjustments`, names no
+ * resource). Pinned like (3) and reconciled inside both probes by {@see self::assertReadingFourIsReconciled()}: the
+ * serving `GET` is on the `POST`'s own `ApiResource` class and is its first item operation (what the vendor's
+ * `Location` resolves through), and the `POST`'s path does not begin with that URI, so a transition on a row
+ * (`/purchase-orders/{id}/approval`) can never be moved into branch 4 by adding a line here (`RED` M-1, 2026-10-02).
  *
  * ⚠ **Reading (3) is PINNED, and the pin is the whole point** (RED exit audit F-1). As first written it
  * took the declaration from any operation that carried one, which handed every `POST` a way to move
@@ -195,6 +211,8 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // Control 1b — reading (3)'s domain is the pin and nothing else, so no operation can reclassify
         // itself out of branch 5 by declaring a template. Inside the method, for the --filter reason above.
         self::assertTheDeclaringSetIsThePin($operations);
+        // Control 1c — reading (4)'s pin, reconciled here too (`RED` M-2), for the same --filter reason.
+        self::assertReadingFourIsReconciled($operations);
 
         // Control 2 — the counter can report something other than one. An
         // operation no branch names must count zero, or the assertion below
@@ -258,6 +276,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
 
         self::assertNotSame([], $operations, 'The registry produced no operations, so nothing was driven.');
         self::assertTheDeclaringSetIsThePin($operations);
+        self::assertReadingFourIsReconciled($operations);
         $names = array_keys($operations);
         sort($names);
         $recipeNames = array_keys($recipes);
@@ -454,47 +473,119 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **Reading (4)'s reconciliation** (sales step 7 C1b), registry-only so it runs on a clean checkout: every entry of
-     * {@see self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE} is a built `POST`, carries no `OPERATION_URI_TEMPLATE` (that is
-     * reading (3)'s), names a URI a built `GET` serves, and is one reading (1) does NOT already classify as creating —
-     * so an entry is never redundant and never a way for a transition `POST` to move itself out of branch 5 onto a URI
-     * nothing answers.
+     * **Reading (4)'s reconciliation, as its own test** (sales step 7 C1b; tightened after `RED`'s review of D-C1b-1,
+     * `docs/session13/c1b-d1-red.md` M-1/M-2/L-1). The checks live in {@see self::assertReadingFourIsReconciled()},
+     * which both probes also call, so a `--filter` run of either is protected exactly as reading (3)'s pin is.
      */
     #[Test]
     public function aRowAddressedElsewhereIsServedByABuiltGetAndNoOtherReading(): void
     {
-        $operations = TransactionBoundaryTest::contractOperations();
-        $paths = array_map(static fn (HttpOperation $operation): string => self::normalised($operation), $operations);
-        $served = [];
-        foreach ($operations as $operation) {
-            if ('GET' === $operation->getMethod()) {
-                $served[] = self::normalised($operation);
-            }
-        }
+        self::assertReadingFourIsReconciled(TransactionBoundaryTest::contractOperations());
+    }
 
+    /**
+     * **Reading (4)'s pin, reconciled against the code** — called from both probes and from the dedicated test.
+     *
+     * Every entry of {@see self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE} must pass every clause of
+     * {@see self::readingFourRefusals()}: a built `POST`, no `OPERATION_URI_TEMPLATE` (reading (3)'s), a URI served by
+     * exactly one built `GET`, that `GET` declared on the **same** `ApiResource` class as the `POST` and being that class's
+     * **first item operation** (the operation the vendor's `IriConverter` resolves a 201's `Location` through, so the
+     * `Location` names the row the write produced), the `POST`'s path NOT beginning with the URI (a `POST` under a
+     * row's own URI is a transition ON that row — `RED` M-1's attack, `ApprovePurchaseOrder` → `/purchase-orders/{id}`),
+     * and not already classified by reading (1).
+     *
+     * **Negative controls inside the helper** (`RED` L-1), each asserting the SPECIFIC clause that refuses it, so no
+     * clause can be constant: `ApprovePurchaseOrder` → `/purchase-orders/{id}` (transition); `GetCreditNote` (not a
+     * `POST`); `CreateSalesOrderLine` (declares a template); the adjustment at its own last segment (unserved);
+     * `IssueInvoice` → `/credit-notes/{id}` (another resource's row); a planted earlier item `Get` on
+     * `CreditNoteResource` (not the first item operation); and `IssueCreditNote` → `/credit-notes/{id}` (redundant with
+     * reading (1)).
+     *
+     * @param array<string, HttpOperation> $operations
+     */
+    private static function assertReadingFourIsReconciled(array $operations): void
+    {
         self::assertNotSame([], self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE, 'Reading (4) has an empty pin, so this reconciliation is empty.');
-        // Control: the "already classified" clause can be true — a reading-(1) POST is recognised as creating.
-        self::assertTrue(self::createsAnAddressableRow($paths['IssueCreditNote'], $paths), 'Reading (1) no longer recognises IssueCreditNote, so the redundancy clause below is constant.');
+
+        $controls = [
+            ['ApprovePurchaseOrder', '/purchase-orders/{id}', 'transition_on_the_row', $operations],
+            ['GetCreditNote', '/credit-notes/{id}', 'not_a_post', $operations],
+            ['CreateSalesOrderLine', '/sales-orders/{id}/lines/{lineId}', 'declares_a_template', $operations],
+            ['IssueAdjustmentCreditNote', '/credit-note-adjustments/{id}', 'unserved', $operations],
+            ['IssueInvoice', '/credit-notes/{id}', 'another_resources_row', $operations],
+            ['IssueAdjustmentCreditNote', '/credit-notes/{id}', 'not_the_first_item_operation',
+                ['PlantedEarlierItemGet' => new Get(uriTemplate: '/credit-notes/{id}/planted', class: CreditNoteResource::class)] + $operations],
+            ['IssueCreditNote', '/credit-notes/{id}', 'redundant_with_reading_1', $operations],
+        ];
+        foreach ($controls as [$name, $uri, $clause, $domain]) {
+            self::assertContains($clause, self::readingFourRefusals($name, $uri, $domain),
+                \sprintf('Negative control: %s => %s was not refused by the "%s" clause, so that clause can no longer fail.', $name, $uri, $clause));
+        }
 
         $wrong = [];
         foreach (self::ROWS_ADDRESSED_BY_ANOTHER_RESOURCE as $name => $uri) {
-            $operation = $operations[$name] ?? null;
-            if (null === $operation || 'POST' !== $operation->getMethod()) {
-                $wrong[] = $name.' is not a built POST';
-                continue;
-            }
-            if (\array_key_exists(CreatedRowLocation::OPERATION_URI_TEMPLATE, $operation->getExtraProperties())) {
-                $wrong[] = $name.' declares OPERATION_URI_TEMPLATE, which is reading (3)\'s';
-            }
-            if (!\in_array(self::normalisedPath($uri), $served, true)) {
-                $wrong[] = $name.' names '.$uri.', which no built GET serves';
-            }
-            if (self::createsAnAddressableRow($paths[$name], $paths)) {
-                $wrong[] = $name.' is already classified by reading (1); the entry is redundant';
+            foreach (self::readingFourRefusals($name, $uri, $operations) as $clause) {
+                $wrong[] = $name.' => '.$uri.': '.$clause;
             }
         }
 
-        self::assertSame([], $wrong, 'Reading (4)\'s pin is not what it claims to be.');
+        self::assertSame([], $wrong, 'Reading (4)\'s pin is not what it claims to be: an entry is not a POST whose created row '
+            .'the named GET serves as its own resource\'s first item operation.');
+    }
+
+    /**
+     * The clauses a `(operation, row URI)` pair fails for reading (4), by name; `[]` means it qualifies. Pure over the
+     * registry it is given, so the negative controls can feed it a planted operation.
+     *
+     * @param array<string, HttpOperation> $operations in registry (declaration) order
+     *
+     * @return list<string>
+     */
+    private static function readingFourRefusals(string $name, string $uri, array $operations): array
+    {
+        $operation = $operations[$name] ?? null;
+        if (null === $operation || 'POST' !== $operation->getMethod()) {
+            return ['not_a_post'];
+        }
+
+        $refusals = [];
+        $target = self::normalisedPath($uri);
+        $path = self::normalised($operation);
+        $paths = array_map(static fn (HttpOperation $o): string => self::normalised($o), $operations);
+
+        if (\array_key_exists(CreatedRowLocation::OPERATION_URI_TEMPLATE, $operation->getExtraProperties())) {
+            $refusals[] = 'declares_a_template';
+        }
+
+        $serving = array_filter($operations, static fn (HttpOperation $o): bool => 'GET' === $o->getMethod() && self::normalised($o) === $target);
+        if (1 !== \count($serving)) {
+            $refusals[] = 'unserved';
+        } else {
+            $get = reset($serving);
+            if ($get->getClass() !== $operation->getClass()) {
+                $refusals[] = 'another_resources_row';
+            } else {
+                $firstItem = null;
+                foreach ($operations as $candidate) {
+                    if ($candidate instanceof Get && $candidate->getClass() === $operation->getClass()) {
+                        $firstItem = $candidate;
+                        break;
+                    }
+                }
+                if ($firstItem !== $get) {
+                    $refusals[] = 'not_the_first_item_operation';
+                }
+            }
+        }
+
+        if (str_starts_with($path, $target)) {
+            $refusals[] = 'transition_on_the_row';
+        }
+        if (self::createsAnAddressableRow($path, $paths)) {
+            $refusals[] = 'redundant_with_reading_1';
+        }
+
+        return $refusals;
     }
 
     /**
