@@ -280,6 +280,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // invoice's credited sum (`credit_note_total_positive`) and writes nothing to `invoice`. A ruling made by the
         // person moving this list (the pin cannot judge it): it cannot lower a credit or raise a total.
         'IssueAdjustmentCreditNote',
+        // Sales step 7 C2 (2026-10-02): the credit-note register is a read — it writes nothing, so it can neither lower a
+        // credit nor raise a total. A ruling made by the person moving this list.
+        'ListCreditNotes',
     ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */

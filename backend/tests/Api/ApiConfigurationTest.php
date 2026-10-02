@@ -184,7 +184,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // and INSERT on `credit_note_line`.
         // **And one more (sales step 7 C1b, 2026-10-01):** `IssueAdjustmentCreditNote` on `CreditNoteResource`, a POST at
         // `/invoices/{id}/credit-note-adjustments` (`credit_note.adjust`). No grant: C1's INSERT already names its columns.
-        self::assertCount(56, $checked, 'The route set changed. This slice declares fifty-six operations: '.implode(', ', array_keys($checked)));
+        // **And one more (sales step 7 C2, 2026-10-02):** `ListCreditNotes`, a `Get` on `CreditNoteCollection` at
+        // `/credit-notes` (`invoice.view`). No grant: `erp_app` already holds SELECT on the tables it reads.
+        self::assertCount(57, $checked, 'The route set changed. This slice declares fifty-seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

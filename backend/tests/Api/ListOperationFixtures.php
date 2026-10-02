@@ -199,6 +199,49 @@ trait ListOperationFixtures
                         'views' => ['sort=invoice_number', 'status=unpaid&sort=due_at', 'customer_id='.$customer.'&sort=issued_at']];
                 }];
             },
+            'ListCreditNotes' => function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Credits');
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-157500', $customer, null,
+                    SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+
+                return ['/credit-notes', function (int $rows) use ($order, $customer): array {
+                    // Sales step 7 C2. One shipment and its invoice, and line-less adjustment notes against it, as the
+                    // owner, each with a distinct number, so the register, the invoice's and the customer's views hold
+                    // every row. Numbered from `CN-800001` so they cannot collide with a note a success recipe issued
+                    // through the API (`CN-000001` upwards).
+                    $fulfilment = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                    $invoice = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number,
+                                                shipped_by_user_id, idempotency_key, request_digest)
+                        SELECT ?::uuid, so.tenant_id, so.id, so.warehouse_id, 'FUL-710001', ?::uuid,
+                               encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                          FROM sales_order so WHERE so.id = ?::uuid
+                        SQL, [$fulfilment, (string) $this->actorId, $order]);
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO invoice (id, tenant_id, fulfilment_id, sales_order_id, customer_id, invoice_number,
+                                             currency_code, total_amount, due_at, issued_by_user_id)
+                        SELECT ?::uuid, f.tenant_id, f.id, so.id, so.customer_id, 'INV-920001', so.currency_code, 1000,
+                               now() + interval '30 days', ?::uuid
+                          FROM fulfilment f JOIN sales_order so ON so.tenant_id = f.tenant_id AND so.id = f.sales_order_id
+                         WHERE f.id = ?::uuid
+                        SQL, [$invoice, (string) $this->actorId, $fulfilment]);
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO credit_note (id, tenant_id, invoice_id, credit_note_number, reason, currency_code,
+                                                     total_amount, issued_by_user_id, idempotency_key, request_digest)
+                            SELECT ?::uuid, inv.tenant_id, inv.id, ?, 'damaged_goods_kept', inv.currency_code, 1, ?::uuid,
+                                   encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                              FROM invoice inv WHERE inv.id = ?::uuid
+                            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \sprintf('CN-8%05d', $i), (string) $this->actorId, $invoice]);
+                    }
+
+                    // `invoice_id` and `customer_id` hold every row (`sales_return_id` names a return none of them has:
+                    // they are adjustments); TB-5 names `credit_note_number`; one order, so one view.
+                    return ['filter' => ['invoice_id' => $invoice, 'customer_id' => $customer,
+                        'sales_return_id' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122()], 'search' => 'CN-8', 'views' => ['']];
+                }];
+            },
             'ListPermissions' => function (): array {
                 // The vocabulary is global and seeded (IA §6.2), so there is nothing to seed and the "empty"
                 // path is already populated. Bounded (TB-1c): no filter, no searchable column TB-5 names, one view.

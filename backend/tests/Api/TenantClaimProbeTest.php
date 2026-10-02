@@ -251,6 +251,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         ],
         // A credit note issued through the operation in each tenant, so a probe that moved the read would answer B's.
         'GetCreditNote' => ['vars' => ['id' => 'credit_note'], 'setup' => 'credit_note'],
+        // Sales step 7 C2: the register over a credit note issued in each tenant, so the baseline page is non-empty.
+        'ListCreditNotes' => ['setup' => 'credit_note'],
     ];
 
     /** @var array<string, string> uuid => symbol, for the state the current request runs against */

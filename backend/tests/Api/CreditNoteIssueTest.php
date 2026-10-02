@@ -28,6 +28,7 @@ final class CreditNoteIssueTest extends PurchaseOrderTestCase
 
     /** The operations under `/credit-notes`. `IssueCreditNote` hangs off the invoice and is pinned with it. */
     public const PINNED_CREDIT_NOTE_OPERATIONS = [
+        'ListCreditNotes' => ['method' => 'GET', 'path' => '/credit-notes', 'idem' => false],
         'GetCreditNote' => ['method' => 'GET', 'path' => '/credit-notes/{id}', 'idem' => false],
     ];
 
@@ -95,6 +96,84 @@ final class CreditNoteIssueTest extends PurchaseOrderTestCase
         self::assertNull($this->json()['credit_target']);
         $this->send('GET', '/sales-returns?creditable=true');
         self::assertNotContains($return, array_column($this->json()['items'], 'id'));
+    }
+
+    /**
+     * **`ListCreditNotes` — the register (sales step 7 C2; design §4.5; API-O-35 closes).** Return-linked notes and an
+     * adjustment (C1b) on one invoice, and a note on another customer's invoice. Newest first by `credit_note_number`;
+     * `invoice_id`, `customer_id` (through the invoice), `sales_return_id` (an adjustment never matches) and `q` (number
+     * prefix) each narrow it; a foreign id is an empty page, never a 404; a row IS `GetCreditNote`'s document; the
+     * cursor walks both ways; a bad id or cursor is a 422; and the list is `invoice.view`'s (Q-B) — a
+     * `warehouse_operator`, who records returns, cannot read the money.
+     */
+    #[Test]
+    public function theRegisterFiltersAndPagesNewestFirst(): void
+    {
+        $a = $this->invoicedShipment('CN-LA', [['4', '12.5000', '3']]);
+        $b = $this->invoicedShipment('CN-LB', [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $returnA = $this->returnOf($a, [[0, '1']]);
+        $returnB = $this->returnOf($b, [[0, '1']]);
+
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($a, $returnA, [[0, '1']]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$a['invoice'].'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+            'lines' => [['fulfilment_line_id' => $a['lines'][0], 'quantity' => '1']]], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $adjustment = $this->json();
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($b, $returnB, [[0, '1']]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $third = $this->json();
+        $this->send('GET', '/invoices/'.$b['invoice']);
+        $customerB = $this->json()['customer']['id'];
+        [$n1, $n2, $n3] = [$first['id'], $adjustment['id'], $third['id']];
+
+        self::assertSame([$n3, $n2, $n1], $this->creditNoteIds('/credit-notes'), 'Not newest first by number.');
+        self::assertSame([$n2, $n1], $this->creditNoteIds('/credit-notes?invoice_id='.$a['invoice']));
+        self::assertSame([$n3], $this->creditNoteIds('/credit-notes?customer_id='.$customerB));
+        self::assertSame([$n1], $this->creditNoteIds('/credit-notes?sales_return_id='.$returnA), 'An adjustment credits no return.');
+        self::assertSame([$n3], $this->creditNoteIds('/credit-notes?sales_return_id='.$returnB.'&customer_id='.$customerB));
+        self::assertSame([], $this->creditNoteIds('/credit-notes?sales_return_id='.$returnB.'&invoice_id='.$a['invoice']), 'The filters do not combine with AND.');
+        self::assertSame([], $this->creditNoteIds('/credit-notes?invoice_id='.Uuid::v4()->toRfc4122()));
+        self::assertTrue($this->json()['tenant_has_rows']);
+        self::assertSame([$n3], $this->creditNoteIds('/credit-notes?q='.$third['credit_note_number']));
+        self::assertSame([$n3, $n2, $n1], $this->creditNoteIds('/credit-notes?q=CN-00'));
+        self::assertSame([], $this->creditNoteIds('/credit-notes?q=CN-1'));
+        self::assertSame([], $this->creditNoteIds('/credit-notes?q=000'), 'TB-5a: q is a PREFIX match, never an infix.');
+
+        $this->send('GET', '/credit-notes?invoice_id='.$a['invoice']);
+        self::assertSame([$adjustment, $first], $this->json()['items'], 'A list row is not the 201\'s (= GetCreditNote\'s) document.');
+
+        $this->send('GET', '/credit-notes?limit=2');
+        self::assertSame([$n3, $n2], array_column($this->json()['items'], 'id'));
+        self::assertNull($this->json()['previous_cursor']);
+        $this->send('GET', '/credit-notes?limit=2&after='.urlencode((string) $this->json()['next_cursor']));
+        self::assertSame([$n1], array_column($this->json()['items'], 'id'));
+        self::assertNull($this->json()['next_cursor']);
+        $this->send('GET', '/credit-notes?limit=2&before='.urlencode((string) $this->json()['previous_cursor']));
+        self::assertSame([$n3, $n2], array_column($this->json()['items'], 'id'), 'The backward walk does not return the first page.');
+
+        foreach (['customer_id=nope', 'sales_return_id=nope', 'after=nope', 'limit=201'] as $bad) {
+            $this->send('GET', '/credit-notes?'.$bad);
+            self::assertSame(422, $this->httpStatus(), $bad.': '.(string) $this->client()->getResponse()->getContent());
+        }
+
+        $this->actAsRole(DefaultRoles::WAREHOUSE_OPERATOR);
+        $this->send('GET', '/credit-notes');
+        self::assertSame(403, $this->httpStatus(), 'Q-B: credit notes are invoice.view\'s.');
+    }
+
+    /** @return list<string> */
+    private function creditNoteIds(string $path): array
+    {
+        $this->send('GET', $path);
+        self::assertSame(200, $this->httpStatus(), $path.': '.(string) $this->client()->getResponse()->getContent());
+
+        return array_column($this->json()['items'], 'id');
     }
 
     /** API-14 / D-B: the same key and body is the same note (201, identical body); the same key, another body, 409. */

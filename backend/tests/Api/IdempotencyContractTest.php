@@ -335,10 +335,12 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-01 (sales step 7 C1b):** `IssueAdjustmentCreditNote` joins as a marked row
      * (`unique:credit_note_idem_unique`, shared with `IssueCreditNote`): 121 rows, 77 unmarked, 44 marked.
+     *
+     * **2026-10-02 (sales step 7 C2):** `ListCreditNotes` (`no`): 122 rows, 78 unmarked, 44 marked.
      */
-    private const PINNED_ROW_COUNT = 121;
+    private const PINNED_ROW_COUNT = 122;
 
-    private const PINNED_UNMARKED_COUNT = 77;
+    private const PINNED_UNMARKED_COUNT = 78;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —

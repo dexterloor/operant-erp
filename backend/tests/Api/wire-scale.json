@@ -155,6 +155,18 @@
     "IssueInvoice $.total_amount": [
         4
     ],
+    "ListCreditNotes $.items[].lines[].amount": [
+        4
+    ],
+    "ListCreditNotes $.items[].lines[].fulfilment_line.quantity": [
+        6
+    ],
+    "ListCreditNotes $.items[].lines[].quantity": [
+        6
+    ],
+    "ListCreditNotes $.items[].total_amount": [
+        4
+    ],
     "ListFulfilments $.items[].lines[].quantity": [
         6
     ],

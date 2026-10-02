@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Application;
 
+use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **The read half of `/credit-notes` — `GetCreditNote`** (sales step 7 C1; built with `IssueCreditNote` so the 201's
+ * **The read half of `/credit-notes` — `GetCreditNote` and `ListCreditNotes`** (sales step 7 C1 and C2; built with `IssueCreditNote` so the 201's
  * `Location` answers, V2-R-4). `FulfilmentReader`'s shape: one statement for the header, one for the lines.
  *
  * **Joins.** All inner but the return: `invoice_id`, `issued_by_user_id` are NOT NULL under composite keys, and the
@@ -48,6 +49,84 @@ final readonly class CreditNoteReader
         }
 
         return self::view($row, $connection->fetchAllAssociative(self::LINES.' WHERE cnl.credit_note_id = ?::uuid'.self::LINES_ORDER, [$id]));
+    }
+
+    /**
+     * **`ListCreditNotes`** (sales step 7 C2; design §4.5): ONE statement, `GetCreditNote`'s header with the filters in
+     * its own WHERE, so a row is the very document `GetCreditNote` serves (the R3 shape, `SalesReturnReader::list()`).
+     * `customer_id` is the invoice's own `customer_id` (the copy taken at issue, `InvoiceReader`'s filter), read through
+     * the header's existing inner join. A foreign or unknown id is a predicate no visible row satisfies: an empty page,
+     * never a 404 (E-2).
+     */
+    public function list(CreditNoteListCriteria $criteria): CreditNotePage
+    {
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): CreditNotePage {
+            $connection = $em->getConnection();
+            $where = [];
+            $parameters = [];
+
+            foreach ([['cn.invoice_id', $criteria->invoiceId], ['inv.customer_id', $criteria->customerId],
+                ['cn.sales_return_id', $criteria->salesReturnId]] as [$column, $value]) {
+                if (null !== $value) {
+                    $where[] = $column.' = ?::uuid';
+                    $parameters[] = $value;
+                }
+            }
+            if (null !== $criteria->search) {
+                $where[] = 'cn.credit_note_number LIKE ?';
+                $parameters[] = addcslashes($criteria->search, '%_\\').'%';
+            }
+            $cursor = $criteria->after ?? $criteria->before;
+            if (null !== $cursor) {
+                // API-18: (sort key, id) as ONE row comparison; newest first, so forward continues BELOW the cursor.
+                $where[] = \sprintf('(cn.credit_note_number, cn.id) %s (?, ?::uuid)', $criteria->isBackwards() ? '>' : '<');
+                $parameters[] = $cursor->sortKey;
+                $parameters[] = $cursor->id;
+            }
+
+            $direction = $criteria->isBackwards() ? 'ASC' : 'DESC';
+            $sql = self::HEADER
+                .([] === $where ? '' : ' WHERE '.implode(' AND ', $where))
+                .\sprintf(' ORDER BY cn.credit_note_number %s, cn.id %s LIMIT ?', $direction, $direction);
+            $parameters[] = $criteria->limit + 1;
+
+            $rows = $connection->fetchAllAssociative($sql, $parameters);
+            $hasMore = \count($rows) > $criteria->limit;
+            if ($hasMore) {
+                array_splice($rows, $criteria->limit);
+            }
+            if ($criteria->isBackwards()) {
+                $rows = array_reverse($rows);
+            }
+
+            $linesByNote = [];
+            if ([] !== $rows) {
+                foreach ($connection->fetchAllAssociative(
+                    self::LINES.' WHERE cnl.credit_note_id = ANY (?::uuid[])'.self::LINES_ORDER,
+                    ['{'.implode(',', array_map(static fn (array $row): string => (string) $row['id'], $rows)).'}'],
+                ) as $line) {
+                    $linesByNote[(string) $line['credit_note_id']][] = $line;
+                }
+            }
+
+            $next = $previous = null;
+            if ([] !== $rows) {
+                $first = new Cursor((string) $rows[0]['credit_note_number'], (string) $rows[0]['id']);
+                $lastRow = $rows[array_key_last($rows)];
+                $last = new Cursor((string) $lastRow['credit_note_number'], (string) $lastRow['id']);
+                [$next, $previous] = $criteria->isBackwards()
+                    ? [$last->encode(), $hasMore ? $first->encode() : null]
+                    : [$hasMore ? $last->encode() : null, null !== $criteria->after ? $first->encode() : null];
+            }
+
+            return new CreditNotePage(
+                items: array_map(static fn (array $row): CreditNoteView => self::view($row, $linesByNote[(string) $row['id']] ?? []), $rows),
+                nextCursor: $next,
+                previousCursor: $previous,
+                // API-22: an EXISTS probe with no filter, only when the page is empty.
+                tenantHasRows: [] === $rows ? (bool) $connection->fetchOne('SELECT EXISTS (SELECT 1 FROM credit_note)') : true,
+            );
+        });
     }
 
     public const HEADER = <<<'SQL'
