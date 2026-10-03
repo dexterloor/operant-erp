@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
+use App\Platform\Runtime\ServingCredentialGuard;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Platform\Tenancy\SchemaManifest;
-use App\Tests\Api\TransactionBoundaryTest;
+use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -189,88 +190,148 @@ final class PreAuthPrincipalTest extends AuthTestCase
     }
 
     /**
-     * `/users` operations that write no `app_user` row, each by name at its exact path (see the guard method below).
-     *
-     * Moved ABOVE the guard's docblock in C3 (`roles-s2-sec.md` §C2 deviations 1.5): C2 inserted it between that docblock
-     * and `#[Test]`, and PHP attaches only the last doc comment before an element, so the guard had lost its own record.
-     *
-     * **Two entries, and `SEC` bounds it there (§C2 deviations 1.4): do not add a third by name.** Before a third `/users`
-     * operation (`GetUser`, `ListUsers`, …), replace this path proxy with the fact it stands for — the derived callers of
-     * `AppUser::delete()` and every SQL `UPDATE app_user … deleted_at` — with a planted control. Owner: `SEC`.
+     * The console commands allowed to run with a non-application credential present, pinned (`preauth-derived-check-design.md`
+     * §3.3). **Hygiene, not a control** — `ServingCredentialGuard`'s own words: anyone who can run the console with the owner
+     * DSN can run `psql`. It notices one thing: a command added to that list cooperatively. Such a command runs as the schema
+     * owner and so bypasses the grant check below on `app_user.deleted_at`.
      */
-    private const USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER = [
-        'RevokeRole' => '/users/{id}/roles/{roleId}',
-        // Roles slice 2, C3: inserts one `user_role` row and never writes `app_user` (`RoleAssignment`'s only write
-        // statement is `INSERT INTO user_role`); `SEC` §C2 deviations 1.4 grants it the same entry on the same grounds.
-        'AssignRole' => '/users/{id}/roles',
+    private const CONSOLE_OWNER_COMMANDS_REVIEWED = [
+        'doctrine:migrations:migrate',
+        'doctrine:migrations:diff',
+        'doctrine:migrations:status',
+        'doctrine:migrations:list',
+        'doctrine:migrations:up-to-date',
+        'doctrine:migrations:current',
+        'doctrine:migrations:latest',
+        'doctrine:migrations:execute',
     ];
 
     /**
      * A finding, pinned so it cannot be shipped past.
      *
-     * `erp_auth`'s column grant on `app_user` is `(id, tenant_id, email,
-     * password_hash, is_active)` — **`deleted_at` is not in it**, and Postgres
-     * requires the privilege for a reference in `WHERE` as much as in the select
-     * list. So `CredentialLookup` cannot exclude a soft-deleted user, and
-     * `app_user` is deletion class `soft`: a soft-deleted principal's password
-     * would still authenticate.
+     * `erp_auth`'s column grant on `app_user` is `(id, tenant_id, email, password_hash, is_active)` — **`deleted_at` is not
+     * in it**, and Postgres requires the privilege for a reference in `WHERE` as much as in the select list. So
+     * `CredentialLookup` cannot exclude a soft-deleted user, and `app_user` is deletion class `soft`: a soft-deleted
+     * principal's password would still authenticate.
      *
-     * **What keeps it unreachable this wave is that no shipped operation can
-     * create the state** — §4.2's `/users` rows are not implemented, so nothing
-     * calls `AppUser::delete()`. That is a fact about the registry, and the
-     * registry is where this reads it from. The day `DeleteUser` lands, this goes
-     * red and the grant decision — `SEC` + `DATA`'s, not `BE-LEAD`'s — has to be
-     * taken before it can go green again.
+     * **What keeps it unreachable is a grant fact the live server reports** (roles C0, 2026-10-03,
+     * `docs/session13/preauth-derived-check-design.md` FINAL block): while `erp_auth` cannot `SELECT app_user.deleted_at`,
+     * **no role on the server but the schema owner, superusers and Postgres's `pg_*` roles can `UPDATE` or `INSERT` that
+     * column.** The domain is read from `pg_roles`, never from `DatabaseRoles` alone; `has_column_privilege` counts a
+     * table-level grant, a `PUBLIC` grant and an inherited membership, so every ordinary route to the write is covered
+     * whatever the code that would issue it looks like — an entity loaded by a repository, DQL, DBAL `update()`, a framework
+     * processor: each, run as an application role, meets `42501`. `DeleteUser` cannot ship without granting
+     * `UPDATE (deleted_at)`, and that grant is what turns this red — so the `erp_auth` grant and the lookup predicate must come
+     * first, which is the order the old check enforced.
      *
-     * *Mutation, run:* add a `Delete` operation at `/users/{id}` to any resource;
-     * red. *Second mutation, run:* add `deleted_at` to the manifest's `erp_auth`
-     * column grant; the premise no longer holds, the guard stops applying, and
-     * it is red until the predicate is added — which is the order the two changes
-     * have to happen in.
+     * **Routes this cannot see, and what holds them:** a write run with the owner's rights — through a view, a materialized
+     * view's refresh, a rule or a referential action (`SchemaGuardTest::theSchemaContainsNoOwnerPrivilegedIndirection`), or a
+     * `SECURITY DEFINER` function (`SchemaGuardTest::theSchemaContainsNoSecurityDefinerObjects`). Owner-process writers
+     * (migrations; later, provisioning) are outside it; `CONSOLE_OWNER_COMMANDS_REVIEWED` notices a console command added to
+     * the owner list, which is hygiene, not a control. Superusers are outside every check by design. **Measured on the local
+     * cluster only**: on a hosted cluster a provider role (`neon_superuser`, not `rolsuper`) may hold the write, and this is
+     * then expected to go red — that is G-3's measurement arriving, not a reason to narrow the domain.
+     *
+     * **Superseded:** until roles C0 this read `/users` paths from the operation registry, with `RevokeRole` and `AssignRole`
+     * exempted by name — a proxy too strict for reads (`GetUser`) and too weak for an exempted operation that later called
+     * `AppUser::delete()`. Its two recorded mutations (add a `/users` delete operation; add `deleted_at` to the manifest's
+     * `erp_auth` grant) are replaced by the design's §4 table, run in C0 and recorded in
+     * `docs/session13/roles-s3-build-progress.md`.
      */
     #[Test]
     public function noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt(): void
     {
-        $readable = SchemaManifest::TABLES['app_user']['column_grants'][DatabaseRoles::AUTH]['SELECT'] ?? [];
-        self::assertNotSame([], $readable, 'erp_auth holds no column grant on app_user, so the pre-auth lookup could not run at all.');
+        $owner = $this->owner();
 
-        if (\in_array('deleted_at', $readable, true)) {
-            self::assertStringContainsString(
-                'deleted_at IS NULL',
-                (string) file_get_contents(\dirname(__DIR__, 2).'/src/Modules/UserManagement/Infrastructure/CredentialLookup.php'),
-                'erp_auth can now read deleted_at, so §7.1 step 4 must exclude a soft-deleted user. '
-                .'The grant landed before the predicate did.',
-            );
+        self::assertNotSame([], SchemaManifest::TABLES['app_user']['column_grants'][DatabaseRoles::AUTH]['SELECT'] ?? [],
+            'erp_auth holds no column grant on app_user, so the pre-auth lookup could not run at all.');
+
+        // The column exists: `has_column_privilege` errors on a missing column, and a dropped `deleted_at` would mean
+        // app_user stopped soft-deleting, which is a different finding.
+        self::assertSame(1, (int) $owner->fetchOne(
+            "SELECT count(*) FROM pg_attribute WHERE attrelid = 'app_user'::regclass AND attname = 'deleted_at' AND NOT attisdropped"),
+            'app_user.deleted_at is gone — reword this test rather than deleting it.');
+        self::assertSame(SchemaManifest::SOFT, SchemaManifest::TABLES['app_user']['deletion'],
+            'app_user stopped being soft-deleted, which would close this finding — reword the test rather than deleting it.');
+
+        // The premise, from the server (the manifest's agreement is GrantFootprintTest's).
+        $authCanRead = (bool) $owner->fetchOne(
+            "SELECT has_column_privilege(?, 'app_user', 'deleted_at', 'SELECT')", [DatabaseRoles::AUTH]);
+        if ($authCanRead) {
+            self::assertTrue(self::credentialLookupExcludesDeletedUsers(),
+                'erp_auth can now read deleted_at, so §7.1 step 4 must exclude a soft-deleted user: CredentialLookup carries '
+                .'no SQL literal with "deleted_at IS NULL". The grant landed before the predicate did.');
 
             return;
         }
 
-        self::assertSame(SchemaManifest::SOFT, SchemaManifest::TABLES['app_user']['deletion'],
-            'app_user stopped being soft-deleted, which would close this finding — reword the test rather than deleting it.');
+        // The table's owner, derived and then checked against the owner connection, so `ALTER TABLE … OWNER TO` cannot
+        // drop a role out of the domain unseen.
+        $tableOwner = (string) $owner->fetchOne("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'app_user'::regclass");
+        self::assertSame((string) $owner->fetchOne('SELECT current_user'), $tableOwner,
+            'app_user is owned by a role other than the owner connection, so the domain below would exclude it unseen.');
 
-        $paths = array_map(
-            static fn (\ApiPlatform\Metadata\HttpOperation $operation): string => (string) $operation->getUriTemplate(),
-            TransactionBoundaryTest::contractOperations(),
+        $domain = $owner->fetchFirstColumn(<<<'SQL'
+            SELECT rolname FROM pg_roles
+            WHERE NOT rolsuper AND rolname NOT LIKE 'pg\_%' AND rolname <> ?
+            ORDER BY 1
+            SQL, [$tableOwner]);
+        self::assertSame([], array_values(array_diff(DatabaseRoles::APPLICATION_ROLES, $domain)),
+            'The server-derived domain lost an application role, so the assertion below would be vacuous for it.');
+
+        $holders = static fn (): array => $owner->fetchFirstColumn(<<<'SQL'
+            SELECT r.rolname || ' ' || p.privilege
+            FROM pg_roles r CROSS JOIN (VALUES ('UPDATE'), ('INSERT')) AS p (privilege)
+            WHERE NOT r.rolsuper AND r.rolname NOT LIKE 'pg\_%' AND r.rolname <> ?
+              AND has_column_privilege(r.oid, 'app_user'::regclass, 'deleted_at', p.privilege)
+            ORDER BY 1
+            SQL, [$tableOwner]);
+
+        $found = $holders();
+        self::assertSame([], $found,
+            "A role can write app_user.deleted_at while erp_auth cannot read it, so a soft-deleted user's password would still "
+            .'sign in. SEC + DATA: grant erp_auth SELECT (deleted_at) and add deleted_at IS NULL to CredentialLookup before any '
+            .'role may write deleted_at. Holders: '.implode(', ', $found));
+
+        // True-control: the function answers true for a real column grant on this server.
+        self::assertTrue((bool) $owner->fetchOne(
+            "SELECT has_column_privilege(?, 'app_user', 'password_hash', 'UPDATE')", [DatabaseRoles::APP]),
+            'has_column_privilege reports no UPDATE (password_hash) for erp_app, which it holds — the check reads nothing.');
+
+        // Positive control, planted on the real server and rolled back (GrantFootprintTest's TEMPORARY precedent).
+        $owner->beginTransaction();
+        try {
+            $owner->executeStatement('GRANT UPDATE (deleted_at) ON app_user TO '.$owner->quoteSingleIdentifier(DatabaseRoles::RATE_LIMIT));
+            self::assertContains(DatabaseRoles::RATE_LIMIT.' UPDATE', $holders(),
+                'A planted GRANT UPDATE (deleted_at) to erp_ratelimit was not seen, so the empty result above proves nothing.');
+        } finally {
+            $owner->rollBack();
+        }
+        self::assertSame([], $holders(), 'The planted grant survived the rollback.');
+
+        self::assertSame(self::CONSOLE_OWNER_COMMANDS_REVIEWED, ServingCredentialGuard::CONSOLE_OWNER_COMMANDS,
+            'An owner-process command was added to ServingCredentialGuard::CONSOLE_OWNER_COMMANDS; it runs as the schema owner '
+            .'and bypasses the grant check on app_user.deleted_at. Before it ships, either it writes no deleted_at, or erp_auth '
+            .'can read it (and CredentialLookup excludes deleted users). Then add it here.');
+    }
+
+    /** The premise branch, matched on `CredentialLookup`'s SQL literals so a docblock or comment cannot satisfy it. */
+    private static function credentialLookupExcludesDeletedUsers(): bool
+    {
+        $scan = PhpSourceScan::scan((string) file_get_contents(
+            \dirname(__DIR__, 2).'/src/Modules/UserManagement/Infrastructure/CredentialLookup.php'));
+        $literals = array_merge(
+            ...array_map(static fn (array $method): array => $method['literals'], array_values($scan['methods'])),
+            ...array_map(static fn (array $constant): array => $constant['literals'], array_values($scan['constants'])),
         );
-        self::assertNotSame([], $paths, 'The operation registry is empty, so this guard has no domain.');
-
-        $userOperations = array_filter($paths, static fn (string $path): bool => 1 === preg_match('#/users(/|$)#', $path));
-
-        // Roles slice 2, C2 (2026-09-29): `RevokeRole` lives under `/users/{id}/roles/{roleId}` and cannot create the state
-        // this guard is about — it deletes one `user_role` row and never writes `app_user` (its writer is
-        // `RoleRevocation`, whose only write statement is `DELETE FROM user_role`; `PurchaseOrderRowLockTest`'s role scan
-        // derives every writer of `app_user.is_active`/`deleted_at` from `src/` and would name it). Exempted BY NAME and
-        // AT ITS PATH, so any other `/users` operation — `DeleteUser`, `UpdateUser`, `RestoreUser` — is still red here.
-        // Acknowledged by `SEC` (`roles-s2-sec.md` §C2 deviations 1.2); `AssignRole` joined in C3 on the same grounds (1.4).
-        foreach (self::USER_PATHS_THAT_CANNOT_SOFT_DELETE_A_USER as $name => $path) {
-            self::assertSame($path, $userOperations[$name] ?? null, $name.' is exempted here but is not shipped at '.$path.'; the exemption is stale.');
-            unset($userOperations[$name]);
+        $literals = array_merge($literals, $scan['outside']);
+        foreach ($literals as $literal) {
+            if (1 === preg_match('/\bdeleted_at\s+IS\s+NULL\b/i', $literal['value'])) {
+                return true;
+            }
         }
 
-        self::assertSame([], $userOperations,
-            'An operation addressing /users is now shipped, so app_user rows can be soft-deleted — and the '
-            ."pre-authentication lookup cannot see deleted_at, so a deleted user's password still signs in. "
-            .'Widen erp_auth\'s column grant and add the predicate before shipping it: '.implode(', ', $userOperations));
+        return false;
     }
 
     /**

@@ -417,18 +417,103 @@ final class SchemaGuardTest extends TenancyTestCase
      * callable by PUBLIC runs with the owner's rights and is a cross-tenant
      * disclosure path. Nothing in this schema needs one, so the strongest and
      * simplest assertion is that none exists.
+     *
+     * **Widened 2026-10-03 (roles C0, `docs/session13/preauth-derived-check-design.md` §3.6) from `public` to every
+     * namespace, functions whose owner is not a superuser** — the owner owns the database and could create a schema, and a
+     * definer function there would run with its rights all the same. Measured before widening: 0 such functions anywhere.
      */
     #[Test]
     public function theSchemaContainsNoSecurityDefinerObjects(): void
     {
         $rows = $this->owner()->fetchAllAssociative(<<<'SQL'
-            SELECT p.proname, pg_get_userbyid(p.proowner) AS owner, p.proconfig
+            SELECT n.nspname, p.proname, pg_get_userbyid(p.proowner) AS owner, p.proconfig
             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'public' AND p.prosecdef
+            JOIN pg_roles o ON o.oid = p.proowner
+            WHERE NOT o.rolsuper AND p.prosecdef
             ORDER BY 1
             SQL);
 
         self::assertSame([], $rows, "SECURITY DEFINER objects found:\n".json_encode($rows, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * **No object runs a write with the owner's rights on an application role's behalf** — no view, no materialized view,
+     * no rule, no foreign key with a referential action (roles C0, 2026-10-03; `docs/session13/preauth-derived-check-design.md`
+     * §3.6). Each is a route around every grant and every RLS policy on the tables it touches: an owner-owned view without
+     * `security_invoker` and a rule's action run as their owner, `REFRESH MATERIALIZED VIEW` runs the defining query as the
+     * view's owner (and Postgres 17's `MAINTAIN` lets a non-owner trigger it), and a referential action runs as the
+     * referencing table's owner. `PreAuthPrincipalTest`'s grant check on `app_user.deleted_at` cannot see any of them, because
+     * the application role's own column privilege stays false; this sweep is what makes that check whole. Its sibling for
+     * `SECURITY DEFINER` functions is the method above.
+     *
+     * **Domain: every namespace, objects whose owner is not a superuser** — so `pg_catalog`, `information_schema` and the
+     * bootstrap-owned objects are out, and any schema the owner could create (it owns the database) is in. **Why "none at
+     * all", not "none without `security_invoker`":** none exists, forbidding the kind needs no parsing of `reloptions`, and it
+     * mirrors the definer sweep. The commit that adds the first view narrows this to `security_invoker` and measures how
+     * `reloptions` stores it then. A new referential action must first show it cannot write an owner-only column.
+     *
+     * **Positive controls in the same test:** five throwaway `zz_*` plants in one owner transaction (no lock on a real table),
+     * each named by the sweep, then rolled back and the sweep asserted empty again. **On a hosted cluster** a provider-owned
+     * extension schema whose owner is not `rolsuper` may turn this red: that is G-3's measurement, not a reason to narrow it.
+     */
+    #[Test]
+    public function theSchemaContainsNoOwnerPrivilegedIndirection(): void
+    {
+        $owner = $this->owner();
+        $sweep = static fn (): array => [
+            'views' => $owner->fetchFirstColumn(<<<'SQL'
+                SELECT n.nspname || '.' || c.relname || ' (' || c.relkind::text || ')'
+                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles o ON o.oid = c.relowner
+                WHERE NOT o.rolsuper AND c.relkind IN ('v', 'm')
+                ORDER BY 1
+                SQL),
+            'rules' => $owner->fetchFirstColumn(<<<'SQL'
+                SELECT n.nspname || '.' || c.relname || ' ' || r.rulename
+                FROM pg_rewrite r JOIN pg_class c ON c.oid = r.ev_class JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_roles o ON o.oid = c.relowner
+                WHERE NOT o.rolsuper AND NOT (r.ev_type = '1' AND r.rulename = '_RETURN')
+                ORDER BY 1
+                SQL),
+            'referential_actions' => $owner->fetchFirstColumn(<<<'SQL'
+                SELECT n.nspname || '.' || c.relname || ' ' || k.conname
+                FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_roles o ON o.oid = c.relowner
+                WHERE k.contype = 'f' AND NOT o.rolsuper AND NOT (k.confdeltype = 'a' AND k.confupdtype = 'a')
+                ORDER BY 1
+                SQL),
+        ];
+        $empty = ['views' => [], 'rules' => [], 'referential_actions' => []];
+
+        self::assertSame($empty, $sweep(),
+            'An object runs writes or reads with its owner\'s rights, around every grant and RLS policy: a view, a materialized '
+            .'view, a rule or a referential action. Narrow this sweep deliberately (security_invoker; a proof the action writes '
+            .'no owner-only column) in the commit that adds it.');
+
+        $owner->beginTransaction();
+        try {
+            foreach ([
+                'CREATE VIEW zz_view_probe AS SELECT 1 AS one',
+                'CREATE MATERIALIZED VIEW zz_mat_probe AS SELECT 1 AS one',
+                'CREATE TABLE zz_rule_probe ()',
+                'CREATE RULE zz_r AS ON UPDATE TO zz_rule_probe DO ALSO NOTHING',
+                'CREATE TABLE zz_fk_parent (id int PRIMARY KEY)',
+                'CREATE TABLE zz_fk_child (p int CONSTRAINT zz_fk_child_p_fk REFERENCES zz_fk_parent ON DELETE CASCADE)',
+                'CREATE SCHEMA zz_schema_probe',
+                'CREATE VIEW zz_schema_probe.v AS SELECT 1 AS one',
+            ] as $plant) {
+                $owner->executeStatement($plant);
+            }
+            $planted = $sweep();
+            foreach (['public.zz_view_probe (v)', 'public.zz_mat_probe (m)', 'zz_schema_probe.v (v)'] as $name) {
+                self::assertContains($name, $planted['views'], 'A planted '.$name.' was not seen, so the empty sweep proves nothing.');
+            }
+            self::assertContains('public.zz_rule_probe zz_r', $planted['rules'], 'A planted rule was not seen.');
+            self::assertContains('public.zz_fk_child zz_fk_child_p_fk', $planted['referential_actions'], 'A planted ON DELETE CASCADE was not seen.');
+        } finally {
+            $owner->rollBack();
+        }
+
+        self::assertSame($empty, $sweep(), 'A planted object survived the rollback.');
     }
 
     /**
