@@ -188,6 +188,17 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'second role.assigned row. Its mechanism is the status guard (guard:role_grant_proposal.status, no header): '
                 .'the repeat meets a proposal that is no longer pending and is refused, and the row is byte-identical after.',
         ],
+        'RejectRoleGrantProposal' => [
+            'method' => 'replayDecideRoleGrantProposal',
+            'why' => 'A second rejection of a rejected proposal (roles slice 3 C3): a second role.assignment_rejected row and '
+                .'a rewritten reason. Status guard (guard:role_grant_proposal.status, no header): the repeat is refused and '
+                .'the row is byte-identical after.',
+        ],
+        'CancelRoleGrantProposal' => [
+            'method' => 'replayDecideRoleGrantProposal',
+            'why' => 'A second withdrawal of a withdrawn proposal (roles slice 3 C3): a second role.assignment_cancelled row. '
+                .'Status guard, as Reject.',
+        ],
         'PayInvoice' => [
             'method' => 'replayPayInvoice',
             'why' => 'A second payment of a paid invoice: a second invoice.paid row, and the recorder or paid_at '
@@ -740,6 +751,36 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A, $row, [$proposal]), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM user_role WHERE user_id = ?::uuid', [$subject]), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM audit_log WHERE event_type = 'role.assigned'"), $why);
+    }
+
+    /** Reject and Withdraw (C3): the first decision 200, the repeat 409 on the status rule, the row byte-identical, one event. */
+    private function replayDecideRoleGrantProposal(string $why): void
+    {
+        $reject = str_contains($why, 'rejection');
+        $proposer = $this->seedPrincipal(self::TENANT_A, ['role.assign', 'role.view']);
+        $proposal = Uuid::v4()->toRfc4122();
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+            [$role, self::TENANT_A, 'Repeat Decision']);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+            SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+              FROM (SELECT clock_timestamp() AS t) c
+            SQL, [$proposal, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), $role, $proposer]);
+        $this->actAsUser(self::TENANT_A, $reject ? $this->seedPrincipal(self::TENANT_A, ['role.assign', 'tenant_settings.edit']) : $proposer);
+        $path = '/role-grant-proposals/'.$proposal.($reject ? '/rejection' : '/cancellation');
+
+        $this->send('POST', $path, $reject ? ['reason' => 'First'] : null);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $row = 'SELECT to_jsonb(p)::text AS r FROM role_grant_proposal p WHERE id = ?::uuid';
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A, $row, [$proposal]);
+
+        $this->send('POST', $path, $reject ? ['reason' => 'Second'] : null);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role_grant_proposal.status_transition_is_legal', $this->json()['rule']);
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A, $row, [$proposal]), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM audit_log WHERE event_type LIKE 'role.assignment_%'"), $why);
     }
 
     private function replayCancelSalesOrder(string $why): void

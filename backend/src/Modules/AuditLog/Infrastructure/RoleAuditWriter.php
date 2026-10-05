@@ -15,7 +15,8 @@ use Symfony\Component\Uid\Uuid;
  * `docs/session13/roles-s2-design.md` §4.5; `API.md` §9.2's `ROLE_ASSIGNED` / `ROLE_REVOKED` row).
  *
  * `role.revoked` (C2), `role.assigned` (C3; and from a confirmation, roles slice 3 C2), and E-15e's
- * `role.assignment_proposed` / `role.assignment_lapsed` (roles slice 3, C1). All are **security** events (`AuditEvent::SECURITY`): read only
+ * `role.assignment_proposed` / `role.assignment_lapsed` (roles slice 3, C1) and `role.assignment_rejected` /
+ * `role.assignment_cancelled` (C3). All are **security** events (`AuditEvent::SECURITY`): read only
  * through `audit_log.view`, and they carry the request's IP (E-3's field; `audit_log_ip_address_scope` admits one for
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
@@ -57,6 +58,26 @@ final readonly class RoleAuditWriter
         $this->record(AuditEvent::ROLE_ASSIGNED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress, [
             RoleEventMetadata::PROPOSAL_ID => $proposalId,
             RoleEventMetadata::PROPOSED_BY_USER_ID => $proposedByUserId,
+        ]);
+    }
+
+    /**
+     * `role.assignment_rejected` — `RejectRoleGrantProposal` (roles slice 3, C3), after its flush, in the same locked
+     * transaction. The actor is the rejecter; `metadata` ids only (§5.2.8) — never the reason text (PC-16 condition 3).
+     */
+    public function recordRejected(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, string $proposalId, string $proposedByUserId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_ASSIGNMENT_REJECTED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress, [
+            RoleEventMetadata::PROPOSAL_ID => $proposalId,
+            RoleEventMetadata::PROPOSED_BY_USER_ID => $proposedByUserId,
+        ]);
+    }
+
+    /** `role.assignment_cancelled` — `CancelRoleGrantProposal` (roles slice 3, C3): the proposer withdrew it. */
+    public function recordCancelled(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, string $proposalId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_ASSIGNMENT_CANCELLED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress, [
+            RoleEventMetadata::PROPOSAL_ID => $proposalId,
         ]);
     }
 

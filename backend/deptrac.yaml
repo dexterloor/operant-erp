@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-05 with `RejectRoleGrantProposal` and `CancelRoleGrantProposal` in the tree (roles slice 3, C3):
+  # the three commands return **134 / 84 / 24** -- SIX edge lines added: `RoleGrantProposalRejection` and
+  # `RoleGrantProposalCancellation` each `-> RoleAuditWriter` (A-5) and `-> Entity\RoleGrantProposal`, `-> Entity\AppUser`
+  # (A-7). `make deptrac`: **0 violations / 344 skipped / 2240 allowed**.)
   # (Re-derived 2026-10-05 with `ConfirmRoleGrantProposal` in the tree (roles slice 3, C2): the three commands return
   # **128 / 80 / 22** -- FOUR edge lines added: `RoleGrantProposalConfirmation -> RoleAuditWriter` (A-5),
   # `RoleGrantProposalConfirmation -> Entity\RoleGrantProposal` and `-> Entity\AppUser` (A-7, `confirm()` and the
@@ -526,6 +530,17 @@ deptrac:
     App\Modules\UserManagement\Application\RoleGrantProposalConfirmation:
       # Roles slice 3 C2, 2026-10-05: the confirmation's `role.assigned` written synchronously (`RoleAssignment`'s shape);
       # `confirm()`'s status guard and flush under the lock, with the confirmer as a reference (`InvoicePayment`'s shape).
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal   # A-7
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\RoleGrantProposalRejection:
+      # Roles slice 3 C3, 2026-10-05: `role.assignment_rejected` written synchronously; `reject()` and the rejecter's
+      # reference under the lock (the confirmation's shape).
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal   # A-7
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\RoleGrantProposalCancellation:
+      # Roles slice 3 C3, 2026-10-05: `role.assignment_cancelled`; `cancel()` and the proposer's reference under the lock.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
       - App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal   # A-7
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7

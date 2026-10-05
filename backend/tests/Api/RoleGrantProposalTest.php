@@ -43,6 +43,9 @@ final class RoleGrantProposalTest extends ApiTestCase
         'ListRoleGrantProposals' => ['method' => 'GET', 'path' => '/role-grant-proposals', 'idem' => false],
         // Roles slice 3 C2: a `guard:` cell, so no header is demanded.
         'ConfirmRoleGrantProposal' => ['method' => 'POST', 'path' => '/role-grant-proposals/{id}/confirmation', 'idem' => false],
+        // Roles slice 3 C3: both `guard:` cells.
+        'RejectRoleGrantProposal' => ['method' => 'POST', 'path' => '/role-grant-proposals/{id}/rejection', 'idem' => false],
+        'CancelRoleGrantProposal' => ['method' => 'POST', 'path' => '/role-grant-proposals/{id}/cancellation', 'idem' => false],
     ];
 
     /** `UX` §3 (#4–#13), verbatim. */

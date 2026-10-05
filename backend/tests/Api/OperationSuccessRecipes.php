@@ -705,6 +705,48 @@ trait OperationSuccessRecipes
 
                 return [200, 'confirm a grant proposal'];
             }],
+            // Roles slice 3, C3: a pending proposal by a second user who manages roles (so the rig actor is NOT the
+            // proposer: R-15), rejected by the actor made an owner for this one request, as Confirm's recipe does.
+            'RejectRoleGrantProposal' => [function (): array {
+                $proposer = $this->seedPrincipal(self::TENANT_A, ['role.assign']);
+                $proposal = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+                    SELECT ?::uuid, ?::uuid, ?::uuid, (SELECT ur.role_id FROM user_role ur WHERE ur.user_id = ?::uuid LIMIT 1), '["role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+                      FROM (SELECT clock_timestamp() AS t) c
+                    SQL, [$proposal, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), $proposer, $proposer]);
+
+                return ['proposal' => $proposal];
+            }, function (array $c): array {
+                $marker = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_permission (id, tenant_id, role_id, permission_code)
+                    SELECT ?::uuid, ur.tenant_id, ur.role_id, 'tenant_settings.edit' FROM user_role ur WHERE ur.user_id = ?::uuid LIMIT 1
+                    SQL, [$marker, $this->actorId]);
+                try {
+                    $this->send('POST', '/role-grant-proposals/'.$c['proposal'].'/rejection', ['reason' => 'Recipe']);
+                } finally {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, 'DELETE FROM role_permission WHERE id = ?::uuid', [$marker]);
+                }
+
+                return [200, 'reject a grant proposal'];
+            }],
+            // Roles slice 3, C3: a pending proposal BY the rig actor (withdrawing needs only `role.assign` and being its
+            // proposer), of a role the actor holds, for a user holding nothing.
+            'CancelRoleGrantProposal' => [function (): array {
+                $proposal = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+                    SELECT ?::uuid, ?::uuid, ?::uuid, (SELECT ur.role_id FROM user_role ur WHERE ur.user_id = ?::uuid LIMIT 1), '["role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+                      FROM (SELECT clock_timestamp() AS t) c
+                    SQL, [$proposal, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), (string) $this->actorId, (string) $this->actorId]);
+
+                return ['proposal' => $proposal];
+            }, function (array $c): array {
+                $this->send('POST', '/role-grant-proposals/'.$c['proposal'].'/cancellation');
+
+                return [200, 'withdraw a grant proposal'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

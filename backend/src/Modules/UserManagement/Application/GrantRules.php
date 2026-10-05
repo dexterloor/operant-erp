@@ -61,20 +61,20 @@ final class GrantRules
 
     /**
      * The sentences that differ by route (`UX`: slice-2 copy §3.11 for `AssignRole`, `roles-s3-ux-copy.md` §3 #6/#7/#9
-     * for Create, §4.1 #21/#22/#25 for Confirm at C2), verbatim and pinned per route in each route's test. Confirm's C2
-     * texts hold until C3, which moves their pins to the C3 texts (`UX` rule 4: Reject does not exist before C3).
+     * for Create, §4.1 #21/#22/#25 for Confirm), verbatim and pinned per route in each route's test. Confirm's texts are
+     * the C3 ones since roles slice 3 C3 (`UX` rule 4: they say "reject it" only once Reject exists).
      */
     private const PER_ROUTE = [
         'user_role.role_is_archived' => [
             self::ROUTE_ASSIGN => 'This role is archived, so it can\'t be given to anyone. Choose another role.',
             self::ROUTE_PROPOSE => 'This role is archived, so it can\'t be given to anyone. Choose another role.',
             // #21: "Choose another role" is a wall for a confirmer, who cannot change a proposal's role (R2-M1; F-2).
-            self::ROUTE_CONFIRM => 'This role is archived, so it can\'t be given to anyone, and this proposal can\'t be confirmed.',
+            self::ROUTE_CONFIRM => 'This role is archived, so it can\'t be given to anyone, and this proposal can\'t be confirmed. Reject it to close it.',
         ],
         'user_role.actor_is_subject' => [
             self::ROUTE_ASSIGN => 'Nobody can give themselves a role. Ask someone else who manages roles to do it.',
             self::ROUTE_PROPOSE => 'Nobody can propose a role for themselves. Ask someone else who manages roles to do it.',
-            self::ROUTE_CONFIRM => 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it.',
+            self::ROUTE_CONFIRM => 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it. You can reject it if you don\'t want it.',
         ],
         'user_role.exceeds_actor_permissions' => [
             self::ROUTE_ASSIGN => 'This role includes permissions you don\'t have yourself, so you can\'t give it to anyone. Ask an owner, or someone who holds all of its permissions.',
@@ -86,13 +86,13 @@ final class GrantRules
     /**
      * PC-13's sentence ends with what the reader can do, by route (`UX` flag F-2, ruled 2026-10-05, #27): the granter and
      * the proposer can choose another role or person — the shipped tail, so `AssignRole`'s and Create's sentences are
-     * byte-identical — and a confirmer cannot, so Confirm's tail only says the proposal can't be confirmed (C2; C3 adds
-     * "Reject it to close it."). A route with no entry throws, never a silent default.
+     * byte-identical — and a confirmer cannot, so Confirm's tail says the proposal can't be confirmed and how to close it
+     * (C3 text; C2 read only "This proposal can't be confirmed."). A route with no entry throws, never a silent default.
      */
     private const SOD_TAILS = [
         self::ROUTE_ASSIGN => RoleAssignment::SOD_SHIPPED_TAIL,
         self::ROUTE_PROPOSE => RoleAssignment::SOD_SHIPPED_TAIL,
-        self::ROUTE_CONFIRM => 'This proposal can\'t be confirmed.',
+        self::ROUTE_CONFIRM => 'This proposal can\'t be confirmed. Reject it to close it.',
     ];
 
     /**

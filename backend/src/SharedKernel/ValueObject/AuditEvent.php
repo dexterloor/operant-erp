@@ -400,6 +400,22 @@ final class AuditEvent
      */
     public const ROLE_ASSIGNMENT_LAPSED = 'role.assignment_lapsed';
 
+    /**
+     * **A pending proposal refused by an owner** — E-15e, minted 2026-10-05 with `RejectRoleGrantProposal` (roles slice 3,
+     * C3). Security, on `ROLE_ASSIGNMENT_PROPOSED`'s ground (§5.2.8). Actor the rejecter (an owner who manages roles,
+     * Q-6 (c′)); subject the `app_user` the role was proposed for; the request's IP; `metadata` ids only —
+     * `RoleEventMetadata::ROLE_ID`, `::PROPOSAL_ID`, `::PROPOSED_BY_USER_ID`. **Never the reason text** (PC-16 condition
+     * 3: free text stays on the proposal row, under `role.assign`). Name assigned by `BE-LEAD`.
+     */
+    public const ROLE_ASSIGNMENT_REJECTED = 'role.assignment_rejected';
+
+    /**
+     * **A pending proposal withdrawn by its proposer** — E-15e, minted 2026-10-05 with `CancelRoleGrantProposal` (roles
+     * slice 3, C3; the copy says "withdraw"). Security, on the same ground. Actor the proposer; `metadata` `role_id`,
+     * `proposal_id`. Name assigned by `BE-LEAD`.
+     */
+    public const ROLE_ASSIGNMENT_CANCELLED = 'role.assignment_cancelled';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -700,6 +716,8 @@ final class AuditEvent
         self::ROLE_REVOKED,
         self::ROLE_ASSIGNMENT_PROPOSED,
         self::ROLE_ASSIGNMENT_LAPSED,
+        self::ROLE_ASSIGNMENT_REJECTED,
+        self::ROLE_ASSIGNMENT_CANCELLED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -735,6 +753,8 @@ final class AuditEvent
         self::ROLE_REVOKED,
         self::ROLE_ASSIGNMENT_PROPOSED,
         self::ROLE_ASSIGNMENT_LAPSED,
+        self::ROLE_ASSIGNMENT_REJECTED,
+        self::ROLE_ASSIGNMENT_CANCELLED,
     ];
 
     /**
@@ -836,6 +856,8 @@ final class AuditEvent
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',
         self::ROLE_ASSIGNMENT_LAPSED => 'app_user',
+        self::ROLE_ASSIGNMENT_REJECTED => 'app_user',
+        self::ROLE_ASSIGNMENT_CANCELLED => 'app_user',
     ];
 
     /**

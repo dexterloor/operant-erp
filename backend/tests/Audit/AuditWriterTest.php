@@ -138,6 +138,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // request's IP; `Version20261004000200` re-issues `audit_log_ip_address_scope` with both.
         'role.assignment_proposed',
         'role.assignment_lapsed',
+        // Roles slice 3 C3 (2026-10-05): the other two decisions; `Version20261005000300` re-issues the scope with both.
+        'role.assignment_rejected',
+        'role.assignment_cancelled',
     ];
 
     /**

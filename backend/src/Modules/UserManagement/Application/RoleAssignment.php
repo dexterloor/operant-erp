@@ -35,6 +35,11 @@ use Doctrine\ORM\EntityManagerInterface;
  *     `user_role.exceeds_actor_permissions`.
  *  7. **C12:** already held → 409 `user_role.already_held` (a race loser against an out-of-band writer gets the same code
  *     from the translated `23505` on `user_role_unique`).
+ *  7a. **Slot B (roles slice 3 C3; design §5 change 2, D-7 / Q-4 (f)):** the (user, role) pair already has a `pending`
+ *     proposal — live or expired, whoever the actor is → 409 `user_role.proposal_pending`, always. Its sentence is one of
+ *     three (`UX` #36a–c, F-5): chosen by `expires_at > $at` and the pure routing policy — it decides nothing. The
+ *     refusal does not carry the proposal's id; the screen finds it through `ListRoleGrantProposals?user=&role=&
+ *     status=pending` (Q-4 (d)).
  *  8. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
  *     naming each SoD row id, never the codes.
  *  9. **E-15e routing, LAST** (roles slice 3 C2; design §4.7 slot R, §5 change 3): {@see GrantConfirmationPolicy} → 409
@@ -55,7 +60,10 @@ use Doctrine\ORM\EntityManagerInterface;
  * `RoleAssignTest`. `actor_is_inactive` is `RoleAdministrationActor`'s, shared with `RevokeRole` and unchanged in C3.
  *
  * Every decision reads `LiveGrantReader` on the locked connection; every caller decision about the marker goes through
- * `OwnerPredicate::holdsMarker()` over that lock-time set. No PHP clock stamps or decides anything.
+ * `OwnerPredicate::holdsMarker()` over that lock-time set. No PHP clock stamps or decides anything. **Since roles slice 3 C3
+ * there is ONE database clock read** (step 2a, `SELECT clock_timestamp()` right after the actor re-check, design §4.1
+ * step 3's position): it is compared in SQL with a pending proposal's `expires_at` ONLY to choose slot B's sentence; the
+ * refusal itself stays free of any time comparison (Q-4 (f), owner notice given 2026-10-05).
  *
  * **Roles slice 3:** steps 3–8 and 10 are `GrantRules`' phases 1–5 — the one copy of the grant rules, shared with
  * `CreateRoleGrantProposal` (C1) and `ConfirmRoleGrantProposal` (C2). C1 kept routing in the temporary slot S between
@@ -106,6 +114,27 @@ final readonly class RoleAssignment
     public const NEEDS_OWNER_CONFIRMATION = 'Giving someone this role needs an owner\'s confirmation. You can propose it instead; it takes effect only if an owner confirms it within 14 days.';
 
     /**
+     * `UX` #36a–#36c (ruled 2026-10-05, F-5; 36a revised by RED M-2), from roles slice 3 C3: `user_role.proposal_pending`,
+     * one rule, three sentences — a live proposal; an expired one where this actor's grant needs confirmation (a new
+     * proposal would replace it); an expired one where it does not (it must be rejected or withdrawn first).
+     */
+    public const PROPOSAL_PENDING_LIVE = 'This role has already been proposed for this person, and that proposal is still open, so the role can\'t be given this way. You can find it among the open role proposals.';
+
+    public const PROPOSAL_PENDING_EXPIRED_PROPOSABLE = 'This role was proposed for this person more than 14 days ago. That proposal can\'t be confirmed any more, but it is still open. A new proposal would replace it.';
+
+    public const PROPOSAL_PENDING_EXPIRED_GIVE_DIRECTLY = 'This role was proposed for this person more than 14 days ago. That proposal can\'t be confirmed any more, but it is still open, so it has to be rejected or withdrawn before the role can be given directly. You can find it among the open role proposals.';
+
+    /**
+     * Slot B — names `role_grant_proposal` only (T2: no statement naming `user_role` names proposals). `live` is bound to
+     * the post-lock `$at` — Create step 8's shape — never `now()`, which is the transaction's start, before the lock wait.
+     */
+    private const PENDING_SAME_PAIR = <<<'SQL'
+        SELECT expires_at > ?::timestamptz AS live
+          FROM role_grant_proposal
+         WHERE user_id = ?::uuid AND role_id = ?::uuid AND status = 'pending'
+        SQL;
+
+    /**
      * @param array{0: ?string, 1: ?string} $denialSubject what `PermissionGate::denialSubjectOf()` resolves for this request
      */
     public function assign(string $userId, ?string $roleId, ?string $ipAddress, array $denialSubject): RoleView
@@ -147,6 +176,9 @@ final readonly class RoleAssignment
             return $actorCodes;
         }
 
+        // 2a. The post-lock database instant (roles slice 3 C3; `UX` F-5): used ONLY to choose slot B's sentence.
+        $atText = (string) $em->getConnection()->fetchOne('SELECT clock_timestamp()::text');
+
         // 3.–9. The grant rules, as `GrantRules`' phases (roles slice 3; design §4.7), routing LAST in slot R (C2).
         ['user_id' => $userId, 'subject' => $subject, 'role_id' => $roleId, 'role' => $role] = GrantRules::subjectAndRole($em, $userId, $roleId);
 
@@ -158,6 +190,18 @@ final readonly class RoleAssignment
 
         // 7. Phase 3: C12.
         GrantRules::refuseAlreadyHeld($em, $userId, $roleId);
+
+        // 7a. Slot B (C3): the pair already has a pending proposal — live or expired, whoever the actor is (D-7 / Q-4 (f)).
+        // The refusal is unconditional; `live` (against the post-lock `$at`, never `now()`) and the pure routing policy
+        // choose only the sentence.
+        $pending = $em->getConnection()->fetchAssociative(self::PENDING_SAME_PAIR, [$atText, $userId, $roleId]);
+        if (false !== $pending) {
+            throw ApiProblem::businessRuleViolated('user_role.proposal_pending', match (true) {
+                true === $pending['live'] => self::PROPOSAL_PENDING_LIVE,
+                GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes']) => self::PROPOSAL_PENDING_EXPIRED_PROPOSABLE,
+                default => self::PROPOSAL_PENDING_EXPIRED_GIVE_DIRECTLY,
+            });
+        }
 
         // 8. Phase 4: PC-13.
         GrantRules::refuseConflict(GrantRules::ROUTE_ASSIGN, $em, $userId, $role);

@@ -57,27 +57,34 @@ use Symfony\Component\Uid\Uuid;
  * `already_held`; `23514` on `role_grant_proposal_confirmer_not_proposer` / `…_confirmer_not_subject` → the handler codes
  * above. Unreachable while the handler checks come first; they exist so a future writer's violation is never a 500.
  *
- * Every refusal sentence is `UX`'s (`docs/session13/roles-s3-ux-copy.md` §4.1, the **C2** texts — Reject and Withdraw do
- * not exist until C3, whose commit moves these pins), verbatim and pinned in `RoleGrantProposalConfirmTest`.
+ * Every refusal sentence is `UX`'s (`docs/session13/roles-s3-ux-copy.md` §4.1, the **C3** texts since roles slice 3 C3,
+ * which moved them from the C2 texts once Reject and Withdraw existed), verbatim and pinned in
+ * `RoleGrantProposalConfirmTest`.
  */
 final readonly class RoleGrantProposalConfirmation
 {
-    /** `UX` #14, the C2 text (C3: "…confirm or reject role proposals…"). Says "role proposals", never "this proposal". */
-    public const DECIDER_NOT_OWNER = 'Only an owner can confirm role proposals. Ask an owner.';
+    /**
+     * `UX` #14/#29, the C3 text, SHARED by Confirm and Reject (C2 read "…can confirm role proposals…"). Says "role
+     * proposals", never "this proposal": it is given for any id, before the proposal is read (`UX` rule 5).
+     */
+    public const DECIDER_NOT_OWNER = 'Only an owner can confirm or reject role proposals. Ask an owner.';
 
-    /** `UX` #16–#19 and #24, the C2 texts. */
-    public const EXPIRED = 'This proposal is more than 14 days old, so it can\'t be confirmed any more. If the role is still wanted, it can be given directly.';
+    /**
+     * `UX` #16–#19 and #24, the C3 texts (roles slice 3 C3 moved them from the C2 texts: Reject and Withdraw exist now,
+     * so each sentence says how the open proposal is closed — `UX` rule 4).
+     */
+    public const EXPIRED = 'This proposal is more than 14 days old, so it can\'t be confirmed any more. It can still be rejected or withdrawn to close it, and then the role can be given directly if it\'s still wanted.';
 
-    public const CONFIRMER_IS_PROPOSER = 'You proposed this, so you can\'t confirm it too. Another owner has to confirm it.';
+    public const CONFIRMER_IS_PROPOSER = 'You proposed this, so you can\'t confirm it too. Another owner has to confirm it. You can still withdraw it.';
 
-    public const PROPOSER_IS_INACTIVE = 'The person who proposed this is no longer active in this workspace, so the proposal can\'t be confirmed. If the role is still wanted, it can be given directly.';
+    public const PROPOSER_IS_INACTIVE = 'The person who proposed this is no longer active in this workspace, so the proposal can\'t be confirmed. Reject it to close it; then the role can be given directly if it\'s still wanted.';
 
-    public const PROPOSER_CANNOT_ASSIGN = 'The person who proposed this can no longer manage roles, so the proposal can\'t be confirmed. If the role is still wanted, it can be given directly.';
+    public const PROPOSER_CANNOT_ASSIGN = 'The person who proposed this can no longer manage roles, so the proposal can\'t be confirmed. Reject it to close it; then the role can be given directly if it\'s still wanted.';
 
-    public const ROLE_CHANGED = 'This role\'s permissions have changed since it was proposed, so the proposal can\'t be confirmed: it would give something other than what was proposed. If the role is still wanted, it can be given directly.';
+    public const ROLE_CHANGED = 'This role\'s permissions have changed since it was proposed, so the proposal can\'t be confirmed: it would give something other than what was proposed. Reject it to close it; then the role can be given directly if it\'s still wanted.';
 
-    /** `UX` #22 — Confirm's `actor_is_subject`, also what the translated `23514` answers. */
-    private const CONFIRMER_IS_SUBJECT = 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it.';
+    /** `UX` #22, the C3 text — Confirm's `actor_is_subject`, also what the translated `23514` answers. */
+    private const CONFIRMER_IS_SUBJECT = 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it. You can reject it if you don\'t want it.';
 
     /** The code a proposer needs to have made the proposal, re-checked at confirmation (C9). */
     private const PROPOSER_CODE = 'role.assign';

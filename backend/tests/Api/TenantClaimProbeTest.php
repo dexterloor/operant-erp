@@ -119,6 +119,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
         'ConfirmRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'confirmable_proposal'],
+        // Roles slice 3, C3: the same seeded proposal, rejected by the actor made an owner (the Confirm setup), and
+        // withdrawn by the actor made its proposer. A moved write would decide B's proposal: the digest.
+        'RejectRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'confirmable_proposal', 'body' => ['reason' => 'Probe']],
+        'CancelRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'withdrawable_proposal'],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -442,6 +446,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $this->seedConfirmableProposal(self::TENANT_A);
             $this->seedConfirmableProposal(self::TENANT_B);
         }
+        if ('withdrawable_proposal' === ($recipe['setup'] ?? null)) {
+            $this->seedWithdrawableProposal(self::TENANT_A, 'A');
+            $this->seedWithdrawableProposal(self::TENANT_B, 'B');
+        }
         if ('paid_invoice' === ($recipe['setup'] ?? null)) {
             $this->seedPaidInvoice('A', self::TENANT_A);
             $this->seedPaidInvoice('B', self::TENANT_B);
@@ -752,6 +760,13 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
               FROM role r, (VALUES ('Revokable Role', 'role.assign'), ('Fixture Role', 'tenant_settings.edit')) c(name, code)
              WHERE r.tenant_id = ?::uuid AND r.name = c.name
             SQL, [$tenantId]);
+    }
+
+    /** Roles slice 3 C3: the seeded proposal is the actor's own, so the actor may withdraw it. In both tenants. */
+    private function seedWithdrawableProposal(string $tenantId, string $letter): void
+    {
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE role_grant_proposal SET proposed_by_user_id = ?::uuid WHERE id = ?::uuid',
+            [$this->id($letter, 'actor'), $this->id($letter, 'proposal')]);
     }
 
     private function seedPaidInvoice(string $letter, string $tenantId): void

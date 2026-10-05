@@ -377,11 +377,11 @@ final class SchemaManifest
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             // INSERT: Create's one INSERT … SELECT, column for column (`status` excluded, so every inserted row is pending).
             // UPDATE: Create's lapse-on-touch flush (lapse()), C1; decided_by_user_id with Confirm's flush (confirm()), C2
-            // (`Version20261005000100`); reason arrives with Reject (C3). Never DELETE.
+            // (`Version20261005000100`); reason with Reject's flush (reject()), C3 (`Version20261005000200`). Never DELETE.
             'column_grants' => [
                 DatabaseRoles::APP => [
                     'INSERT' => ['id', 'tenant_id', 'user_id', 'role_id', 'permission_codes', 'proposed_by_user_id', 'proposed_at', 'expires_at'],
-                    'UPDATE' => ['status', 'decided_at', 'lapse_reason', 'updated_at', 'decided_by_user_id'],
+                    'UPDATE' => ['status', 'decided_at', 'lapse_reason', 'updated_at', 'decided_by_user_id', 'reason'],
                 ],
             ],
         ],

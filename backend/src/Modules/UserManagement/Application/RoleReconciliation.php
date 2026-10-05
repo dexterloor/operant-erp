@@ -29,13 +29,14 @@ use Symfony\Component\Uid\Uuid;
  *    empty), bound as ONE array parameter into one literal statement — so E-15e's proposal events, and E-15f's future
  *    `role.permissions_changed`, are inside it with no edit here, and leaving one out is a recorded decision.
  *  - **G — `proposal_outcome_unaccounted`** (roles slice 3; design §10 arm G, recommended and taken — `SEC` + `BE-LEAD`'s
- *    call, not one of G-10's conditions). **C2 ships its confirmation half**, one statement, three cases printed with the
- *    proposal id: `decision_event_missing` — a `confirmed` proposal with no `role.assigned` carrying its
- *    `RoleEventMetadata::PROPOSAL_ID` (i); `event_names_unconfirmed_proposal` — a `role.assigned` carrying a proposal id
- *    whose proposal is absent or not `confirmed` (ii); `decider_differs` — a confirmed proposal whose
- *    `decided_by_user_id` is not the actor of its `role.assigned` (iii, a relabelled decider). It catches a careless or
- *    bypassing writer of proposal status — `erp_app` may UPDATE `status` — and, like every arm, proves nothing against a
- *    forger who also writes the event (G-10). C3 adds the rejected / cancelled / lapsed half of (i) and (iv).
+ *    call, not one of G-10's conditions). One statement, three cases printed with the proposal id (C2 shipped the
+ *    confirmation half): `decision_event_missing` — a decided proposal with no decision event carrying its
+ *    `RoleEventMetadata::PROPOSAL_ID` (i); `event_names_proposal_in_another_state` — a decision event carrying a proposal
+ *    id whose proposal is absent or not in that decision's status (ii); `decider_differs` — a human decision whose
+ *    `decided_by_user_id` is not the actor of its event (iii, a relabelled decider). **C3 widens (i)–(iii) to every
+ *    decision** (`role.assignment_rejected`, `…_cancelled`, `…_lapsed` beside `role.assigned`) and adds (iv)
+ *    `pending_on_a_held_pair` (report-only). It catches a careless or bypassing writer of proposal status — `erp_app` may
+ *    UPDATE `status` — and, like every arm, proves nothing against a forger who also writes the event (G-10).
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
@@ -118,34 +119,55 @@ final readonly class RoleReconciliation
         SQL;
 
     /**
-     * Arm G, the confirmation half (C2). Binds: the role key, the proposal key, `role.assigned`, the proposal key. Names
-     * `role_grant_proposal` and `audit_log` only — never `user_role` (T2: no statement naming grants names proposals).
+     * Arm G (C2: the confirmation half; C3: every decision). Binds: the four decision events in `m`'s order (confirmed,
+     * rejected, cancelled, lapsed), the role key, the proposal key, the proposal key. Names `role_grant_proposal` and
+     * `audit_log` only — never `user_role` (T2: no statement naming grants names proposals); case (iv) is computed in PHP
+     * from two separate statements for that reason ({@see self::PENDING_PAIRS}, {@see self::HELD_PAIRS}).
      */
     private const ARM_G = <<<'SQL'
         WITH t AS (
             SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid AS id
         ),
+        m (status, event_type, human) AS (
+            VALUES ('confirmed', ?::text, true), ('rejected', ?::text, true), ('cancelled', ?::text, true), ('lapsed', ?::text, false)
+        ),
         ev AS (
-            SELECT a.subject_id, a.actor_user_id, a.occurred_at, a.metadata->>? AS role_id_text, a.metadata->>? AS proposal_id_text
-              FROM audit_log a JOIN t ON a.tenant_id = t.id
-             WHERE a.event_type = ? AND (a.metadata->>?) IS NOT NULL
+            SELECT a.subject_id, a.actor_user_id, a.occurred_at, a.event_type, a.metadata->>? AS role_id_text, a.metadata->>? AS proposal_id_text
+              FROM audit_log a JOIN t ON a.tenant_id = t.id JOIN m ON m.event_type = a.event_type
+             WHERE (a.metadata->>?) IS NOT NULL
         ),
         p AS (
             SELECT rgp.id, rgp.user_id, rgp.role_id, rgp.status, rgp.decided_by_user_id, rgp.decided_at
               FROM role_grant_proposal rgp JOIN t ON rgp.tenant_id = t.id
         )
         SELECT 'decision_event_missing' AS kind, p.id::text AS proposal_id, p.user_id::text AS user_id, p.role_id::text AS role_id, p.decided_at::text AS at
-          FROM p
-         WHERE p.status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM ev WHERE ev.proposal_id_text = p.id::text)
+          FROM p JOIN m ON m.status = p.status
+         WHERE NOT EXISTS (SELECT 1 FROM ev WHERE ev.proposal_id_text = p.id::text AND ev.event_type = m.event_type)
         UNION ALL
-        SELECT 'event_names_unconfirmed_proposal', ev.proposal_id_text, ev.subject_id::text, ev.role_id_text, ev.occurred_at::text
-          FROM ev
-         WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.id::text = ev.proposal_id_text AND p.status = 'confirmed')
+        SELECT 'event_names_proposal_in_another_state', ev.proposal_id_text, ev.subject_id::text, ev.role_id_text, ev.occurred_at::text
+          FROM ev JOIN m ON m.event_type = ev.event_type
+         WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.id::text = ev.proposal_id_text AND p.status = m.status)
         UNION ALL
         SELECT 'decider_differs', p.id::text, p.user_id::text, p.role_id::text, p.decided_at::text
-          FROM p JOIN ev ON ev.proposal_id_text = p.id::text
-         WHERE p.status = 'confirmed' AND ev.actor_user_id IS DISTINCT FROM p.decided_by_user_id
+          FROM p JOIN m ON m.status = p.status AND m.human
+          JOIN ev ON ev.proposal_id_text = p.id::text AND ev.event_type = m.event_type
+         WHERE ev.actor_user_id IS DISTINCT FROM p.decided_by_user_id
          ORDER BY 1, 5, 2
+        SQL;
+
+    /** Arm G (iv), half one: the pending pairs — names `role_grant_proposal` only (T2). */
+    private const PENDING_PAIRS = <<<'SQL'
+        SELECT rgp.id::text AS proposal_id, rgp.user_id::text AS user_id, rgp.role_id::text AS role_id, rgp.proposed_at::text AS at
+          FROM role_grant_proposal rgp
+         WHERE rgp.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid AND rgp.status = 'pending'
+         ORDER BY rgp.proposed_at, rgp.id
+        SQL;
+
+    /** Arm G (iv), half two: the held pairs — names `user_role` only (T2). */
+    private const HELD_PAIRS = <<<'SQL'
+        SELECT ur.user_id::text AS user_id, ur.role_id::text AS role_id
+          FROM user_role ur
+         WHERE ur.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
         SQL;
 
     /**
@@ -223,8 +245,29 @@ final readonly class RoleReconciliation
                 'proposal_id' => (string) $row['proposal_id'],
                 'case' => (string) $row['kind'],
             ], $connection->fetchAllAssociative(self::ARM_G, [
-                RoleEventMetadata::ROLE_ID, RoleEventMetadata::PROPOSAL_ID, AuditEvent::ROLE_ASSIGNED, RoleEventMetadata::PROPOSAL_ID,
+                AuditEvent::ROLE_ASSIGNED, AuditEvent::ROLE_ASSIGNMENT_REJECTED, AuditEvent::ROLE_ASSIGNMENT_CANCELLED, AuditEvent::ROLE_ASSIGNMENT_LAPSED,
+                RoleEventMetadata::ROLE_ID, RoleEventMetadata::PROPOSAL_ID, RoleEventMetadata::PROPOSAL_ID,
             ]))];
+
+            // Arm G (iv), report-only: a PENDING proposal on a pair the subject already holds (C3). Through the API only an
+            // out-of-band writer can make one now that `AssignRole` refuses a pending pair; such a row can be rejected or
+            // withdrawn.
+            $held = [];
+            foreach ($connection->fetchAllAssociative(self::HELD_PAIRS) as $row) {
+                $held[$row['user_id'].'|'.$row['role_id']] = true;
+            }
+            foreach ($connection->fetchAllAssociative(self::PENDING_PAIRS) as $row) {
+                if (isset($held[$row['user_id'].'|'.$row['role_id']])) {
+                    $findings[] = [
+                        'finding' => self::FINDING_PROPOSAL_OUTCOME_UNACCOUNTED,
+                        'user_id' => (string) $row['user_id'],
+                        'role_id' => (string) $row['role_id'],
+                        'at' => (string) $row['at'],
+                        'proposal_id' => (string) $row['proposal_id'],
+                        'case' => 'pending_on_a_held_pair',
+                    ];
+                }
+            }
 
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {
                 $findings[] = ['finding' => self::FINDING_NO_ACTIVE_OWNER, 'user_id' => null, 'role_id' => null, 'at' => null];

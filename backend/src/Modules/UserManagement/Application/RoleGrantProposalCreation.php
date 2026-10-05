@@ -38,6 +38,8 @@ use Symfony\Component\Uid\Uuid;
  *  10. Slot R — **inverse routing, last** (RED-3 M-1): a grant that needs no confirmation → 409
  *     `role_grant_proposal.grant_directly`. Every rule `AssignRole` applies has already been applied here, so "give it
  *     directly" is said only when `AssignRole` would admit it. An owner never passes this step: **an owner never proposes.**
+ *     Since C3 its sentence has a variant (`UX` #13a): when step 8 remembered an expired same-pair proposal, `AssignRole`
+ *     would refuse that pair (`proposal_pending`), so the sentence says the old proposal must be closed first.
  *  11. If step 8 remembered an expired proposal: `find` + `refresh`; **if it is no longer pending** (only an out-of-band
  *     owner process can decide it between steps 8 and 11 — every API writer holds the lock) there is nothing to lapse;
  *     otherwise `lapse('expired', $at)`, `flush()`, `role.assignment_lapsed`. Then the proposal `INSERT` — raw DBAL,
@@ -58,6 +60,12 @@ final readonly class RoleGrantProposalCreation
 {
     /** The proposal window, in HOURS — never `'14 days'`, which adds calendar days in the session `TimeZone` (RED L-4). */
     public const WINDOW = '336 hours';
+
+    /** `UX` #13. */
+    public const GRANT_DIRECTLY = 'This role doesn\'t need anyone\'s confirmation when you give it, so there\'s nothing to propose. Give it to this person directly instead.';
+
+    /** `UX` #13a (C3): step 8 remembered an expired same-pair proposal, which `AssignRole`'s slot B would refuse on. */
+    public const GRANT_DIRECTLY_AFTER_CLEARING = 'This role doesn\'t need anyone\'s confirmation when you give it, so there\'s nothing to propose. An earlier proposal for this person and role is more than 14 days old but still open; it has to be rejected or withdrawn before the role can be given directly. You can find it among the open role proposals.';
 
     private const PENDING_UNIQUE = 'role_grant_proposal_pending_unique';
 
@@ -161,8 +169,10 @@ final readonly class RoleGrantProposalCreation
         GrantRules::refuseConflict(GrantRules::ROUTE_PROPOSE, $em, $userId, $role);
 
         // 10. Slot R: inverse routing, last.
+        // `UX` #13 / #13a (F-4, ruled 2026-10-05; C3): from C3 `AssignRole` refuses a pair with an open proposal, so "give it
+        // directly" is false while step 8 remembered an expired one — that variant says it must be closed first.
         if (!GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes'])) {
-            throw ApiProblem::businessRuleViolated('role_grant_proposal.grant_directly', 'This role doesn\'t need anyone\'s confirmation when you give it, so there\'s nothing to propose. Give it to this person directly instead.');
+            throw ApiProblem::businessRuleViolated('role_grant_proposal.grant_directly', null === $expired ? self::GRANT_DIRECTLY : self::GRANT_DIRECTLY_AFTER_CLEARING);
         }
 
         // 11. The lapse of an expired same-pair proposal, flushed BEFORE the successor's INSERT (F-9).

@@ -91,6 +91,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateRoleGrantProposal' => 'role.assign',
         // Roles slice 3 C2: the bare code (Q-6 (c′)); the owner check is the handler's, under the lock, never this pin's.
         'ConfirmRoleGrantProposal' => 'role.assign',
+        // Roles slice 3 C3: Reject bare `role.assign` (owner check in the handler, Q-6 (c′)); Cancel `role.assign` only.
+        'RejectRoleGrantProposal' => 'role.assign',
+        'CancelRoleGrantProposal' => 'role.assign',
         'GetRoleGrantProposal' => 'role.assign',
         'ListRoleGrantProposals' => 'role.assign',
         'ListRoles' => 'role.view',

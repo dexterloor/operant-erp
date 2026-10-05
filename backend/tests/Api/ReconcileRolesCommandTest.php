@@ -226,7 +226,7 @@ final class ReconcileRolesCommandTest extends ApiTestCase
     /**
      * **Arm G, the confirmation half (roles slice 3 C2; design §10):** three plants, each reported once with its case and
      * the proposal's id — (i) a `confirmed` proposal with no `role.assigned` naming it (`decision_event_missing`); (ii) a
-     * `role.assigned` naming a proposal that is still pending (`event_names_unconfirmed_proposal`); (iii) a confirmed
+     * `role.assigned` naming a proposal that is still pending (`event_names_proposal_in_another_state`); (iii) a confirmed
      * proposal whose event's actor is not its recorded decider (`decider_differs`). **Control in the same run:** a proposal
      * confirmed THROUGH THE API — whose `role.assigned` carries `proposal_id` and whose actor is the decider — is not
      * reported, which is what turns a writer's key drift (`PROPOSAL_ID` missing from the confirmation's metadata) red here.
@@ -264,9 +264,63 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         self::assertSame([
             'decider_differs' => $relabelled,
             'decision_event_missing' => $missing,
-            'event_names_unconfirmed_proposal' => $pending,
+            'event_names_proposal_in_another_state' => $pending,
         ], $cases);
         self::assertStringNotContainsString($viaApi, $out, 'The API confirmation was reported: its role.assigned does not account for it.');
+    }
+
+    /**
+     * **Arm G, every decision (roles slice 3 C3):** (i) a `rejected` and a `lapsed` proposal with no event naming them; (ii)
+     * a `role.assignment_cancelled` naming a proposal that is still pending; (iii) a `rejected` proposal whose event's actor
+     * is not its decider; (iv) a PENDING proposal on a pair the subject already holds (report-only). **Controls in the same
+     * run:** a proposal rejected and one withdrawn THROUGH THE API are not reported.
+     */
+    #[Test]
+    public function armGReportsEveryDecisionTheTrailDoesNotAccountFor(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $role = $this->roleWith('invoice.pay');
+        $proposer = $this->accountedPrincipal(['role.assign', 'role.view', 'invoice.pay']);
+        $owner = $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+
+        $rejectedSilently = $this->plantProposal('rejected', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, $owner);
+        $lapsedSilently = $this->plantProposal('lapsed', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, null);
+        $stillPending = $this->plantProposal('pending', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, null);
+        $this->plantProposalEvent($stillPending, $proposer, $role, 'role.assignment_cancelled');
+        $relabelled = $this->plantProposal('rejected', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, $owner);
+        $this->plantProposalEvent($relabelled, $proposer, $role, 'role.assignment_rejected');
+        $holder = $this->accountedPrincipal(['role.view']);
+        $onHeld = $this->plantProposal('pending', $holder, $this->onlyRoleOf($holder), $proposer, null);
+
+        $viaApiRejected = $this->plantProposal('pending', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, null);
+        $this->actAsUser(self::TENANT_A, $owner);
+        $this->send('POST', '/role-grant-proposals/'.$viaApiRejected.'/rejection', []);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $viaApiWithdrawn = $this->plantProposal('pending', $this->seedPrincipal(self::TENANT_A, []), $role, $proposer, null);
+        $this->actAsUser(self::TENANT_A, $proposer);
+        $this->send('POST', '/role-grant-proposals/'.$viaApiWithdrawn.'/cancellation');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $found = [];
+        foreach (explode("\n", trim($out)) as $line) {
+            if (1 === preg_match('/^'.RoleReconciliation::FINDING_PROPOSAL_OUTCOME_UNACCOUNTED.',.*,proposal_id=([0-9a-f-]{36}),case=([a-z_]+)$/', $line, $m)) {
+                $found[] = $m[2].' '.$m[1];
+            }
+        }
+        sort($found);
+        $expected = [
+            'decider_differs '.$relabelled,
+            'decision_event_missing '.$lapsedSilently,
+            'decision_event_missing '.$rejectedSilently,
+            'event_names_proposal_in_another_state '.$stillPending,
+            'pending_on_a_held_pair '.$onHeld,
+        ];
+        sort($expected);
+        self::assertSame($expected, $found, $out);
+        self::assertStringNotContainsString($viaApiRejected, $out, 'The API rejection was reported.');
+        self::assertStringNotContainsString($viaApiWithdrawn, $out, 'The API withdrawal was reported.');
     }
 
     /** The controls refuse with exit 2 and print no finding: a tenant with no user (a wrong id) and a non-uuid. */
@@ -358,24 +412,24 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, status, proposed_by_user_id,
-                                             proposed_at, expires_at, decided_by_user_id, decided_at)
+                                             proposed_at, expires_at, decided_by_user_id, decided_at, lapse_reason)
             SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["invoice.pay"]'::jsonb, ?, ?::uuid, c.t, c.t + interval '336 hours',
-                   ?::uuid, CASE WHEN ? = 'pending' THEN NULL ELSE c.t + interval '1 hour' END
+                   ?::uuid, CASE WHEN ? = 'pending' THEN NULL ELSE c.t + interval '1 hour' END, CASE WHEN ? = 'lapsed' THEN 'expired' END
               FROM (SELECT clock_timestamp() - interval '2 hours' AS t) c
-            SQL, [$id, self::TENANT_A, $user, $role, $status, $proposer, $decider, $status]);
+            SQL, [$id, self::TENANT_A, $user, $role, $status, $proposer, $decider, $status, $status]);
 
         return $id;
     }
 
-    /** A confirmation's `role.assigned` for `$proposal`, by `$actor`, keyed as `RoleAuditWriter` keys it. */
-    private function plantProposalEvent(string $proposal, string $actor, string $role): void
+    /** A decision event (default a confirmation's `role.assigned`) for `$proposal`, by `$actor`, keyed as `RoleAuditWriter` keys it. */
+    private function plantProposalEvent(string $proposal, string $actor, string $role, string $event = 'role.assigned'): void
     {
         $user = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT user_id::text AS u FROM role_grant_proposal WHERE id = ?::uuid', [$proposal])[0]['u'];
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
-            VALUES (gen_random_uuid(), ?::uuid, clock_timestamp(), 'role.assigned', ?::uuid, 'Planted', 'app_user', ?::uuid, NULL,
+            VALUES (gen_random_uuid(), ?::uuid, clock_timestamp(), ?, ?::uuid, 'Planted', 'app_user', ?::uuid, NULL,
                     jsonb_build_object('role_id', ?::text, 'proposal_id', ?::text))
-            SQL, [self::TENANT_A, $actor, $user, $role, $proposal]);
+            SQL, [self::TENANT_A, $event, $actor, $user, $role, $proposal]);
     }
 
     private function plantEvent(string $event, string $user, string $role, string $at): void

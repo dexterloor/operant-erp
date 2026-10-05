@@ -9,8 +9,10 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\CancelRoleGrantProposalProcessor;
 use App\Modules\UserManagement\ApiResource\State\ConfirmRoleGrantProposalProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleGrantProposalProcessor;
+use App\Modules\UserManagement\ApiResource\State\RejectRoleGrantProposalProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleGrantProposalProvider;
 use App\Modules\UserManagement\Application\RoleGrantProposalView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -19,7 +21,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
  * **A grant proposal — E-15e's pending grant of a role, waiting for an owner's confirmation** (roles slice 3, C1; Confirm
- * since C2;
+ * since C2, Reject and Cancel since C3;
  * `docs/session13/roles-s3-design.md` §3; `SECURITY_MODEL.md` §5.2).
  *
  * The shape is §4.4.3's `RoleGrantProposal` row, closed: `id`, `user = {id, display_name}`, `role = {id, name}`,
@@ -94,6 +96,42 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             extraProperties: [
                 PermissionGate::OPERATION_PERMISSION => 'role.assign',
                 // F-4: `{id}` addresses a proposal, not a role.
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['role_grant_proposal', 'id'],
+            ],
+        ),
+        // Roles slice 3 C3 — API-21 branch 5: 200, the proposal now `rejected`. `guard:role_grant_proposal.status`, so no
+        // header. Body `{reason?}` (typed `mixed` so a non-string is named `not_a_string`). Bare `role.assign` (Q-6 (c′));
+        // the owner check is the handler's, under the lock, before the proposal is read.
+        new Post(
+            uriTemplate: '/role-grant-proposals/{id}/rejection',
+            name: 'RejectRoleGrantProposal',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RejectRoleGrantProposal'),
+            input: RejectRoleGrantProposalInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            read: false,
+            processor: RejectRoleGrantProposalProcessor::class,
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'role.assign',
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['role_grant_proposal', 'id'],
+            ],
+        ),
+        // Roles slice 3 C3 — the proposer withdraws (copy: "withdraw"). Branch 5: 200, the proposal now `cancelled`. No
+        // body, no header (a `guard:` cell), `role.assign` only — no owner check.
+        new Post(
+            uriTemplate: '/role-grant-proposals/{id}/cancellation',
+            name: 'CancelRoleGrantProposal',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'CancelRoleGrantProposal'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: CancelRoleGrantProposalProcessor::class,
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'role.assign',
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['role_grant_proposal', 'id'],
             ],
         ),

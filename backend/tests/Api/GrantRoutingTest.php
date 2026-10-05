@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\UserManagement\Application\GrantConfirmationPolicy;
+use App\Modules\UserManagement\Application\RoleAssignment;
+use App\Modules\UserManagement\Application\RoleGrantProposalCreation;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\OwnerMarker;
 use PHPUnit\Framework\Attributes\Test;
@@ -319,6 +321,131 @@ final class GrantRoutingTest extends ApiTestCase
         $this->confirm($id);
 
         $this->assertRule('role_grant_proposal.role_changed');
+    }
+
+    // =======================================================================
+    // Roles slice 3 C3 — `AssignRole`'s slot B (`user_role.proposal_pending`) and Create's #13a.
+    // =======================================================================
+
+    /**
+     * **T17 (C3; design §5 change 2, D-7 / Q-4 (f); `UX` #36a–c, F-5):** a grant of a pair with a PENDING proposal is
+     * refused `user_role.proposal_pending` whoever makes it and however old the proposal is; only the sentence varies —
+     *  - live, an owner granting → 36a;
+     *  - expired, a non-owner whose grant needs confirmation (`admin` + `finance`) → 36b ("a new proposal would replace
+     *    it" — and Create then accepts it, lapsing the old one);
+     *  - expired, an owner (no confirmation needed) → 36c;
+     *  - no pending proposal → 201 (control).
+     * Nothing is granted on a refusal. Mutations: the step deleted → 201s red; the variant selector inverted → 36a/36b
+     * literals red.
+     */
+    #[Test]
+    public function aGrantOfAPairWithAPendingProposalIsRefusedWithTheSentenceForItsCase(): void
+    {
+        $proposer = $this->principal(DefaultRoles::ADMIN);
+        $owner = $this->principal(DefaultRoles::OWNER);
+        $admin = $this->principal(DefaultRoles::ADMIN);
+
+        $live = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $this->seedPendingProposal($live, $finance, $proposer);
+        $this->actAsUser(self::TENANT_A, $owner);
+        $this->send('POST', '/users/'.$live.'/roles', ['role_id' => $finance], $this->key());
+        $this->assertPending(RoleAssignment::PROPOSAL_PENDING_LIVE, 'live, owner');
+
+        $stale = $this->seedPrincipal(self::TENANT_A, []);
+        $this->seedPendingProposal($stale, $finance, $proposer, ageHours: 360);
+        $this->actAsUser(self::TENANT_A, $admin);
+        $this->send('POST', '/users/'.$stale.'/roles', ['role_id' => $finance], $this->key());
+        $this->assertPending(RoleAssignment::PROPOSAL_PENDING_EXPIRED_PROPOSABLE, 'expired, admin');
+        $this->propose($stale, $finance);
+        self::assertSame(201, $this->httpStatus(), '36b says a new proposal would replace it, and Create refused: '.$this->client()->getResponse()->getContent());
+
+        $staleForOwner = $this->seedPrincipal(self::TENANT_A, []);
+        $this->seedPendingProposal($staleForOwner, $finance, $proposer, ageHours: 360);
+        $this->actAsUser(self::TENANT_A, $owner);
+        $this->send('POST', '/users/'.$staleForOwner.'/roles', ['role_id' => $finance], $this->key());
+        $this->assertPending(RoleAssignment::PROPOSAL_PENDING_EXPIRED_GIVE_DIRECTLY, 'expired, owner');
+
+        $this->send('POST', '/users/'.$this->seedPrincipal(self::TENANT_A, []).'/roles', ['role_id' => $finance], $this->key());
+        self::assertSame(201, $this->httpStatus(), 'Control: an owner\'s grant of a pair with no proposal was refused.');
+    }
+
+    /** The three sentences, verbatim (`UX` #36a–c, ruled 2026-10-05; 36a revised by RED M-2). */
+    #[Test]
+    public function theProposalPendingSentencesAreUxs(): void
+    {
+        self::assertSame([
+            'This role has already been proposed for this person, and that proposal is still open, so the role can\'t be given this way. You can find it among the open role proposals.',
+            'This role was proposed for this person more than 14 days ago. That proposal can\'t be confirmed any more, but it is still open. A new proposal would replace it.',
+            'This role was proposed for this person more than 14 days ago. That proposal can\'t be confirmed any more, but it is still open, so it has to be rejected or withdrawn before the role can be given directly. You can find it among the open role proposals.',
+        ], [RoleAssignment::PROPOSAL_PENDING_LIVE, RoleAssignment::PROPOSAL_PENDING_EXPIRED_PROPOSABLE, RoleAssignment::PROPOSAL_PENDING_EXPIRED_GIVE_DIRECTLY]);
+    }
+
+    /** `AssignRole` (C3): C12 + slot B → `already_held` (an owner granting a held pair that also has a pending proposal). */
+    #[Test]
+    public function onAssignRoleAlreadyHeldOutranksAPendingProposal(): void
+    {
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $subject = $this->holderOf([$finance]);
+        $this->seedPendingProposal($subject, $finance, $this->principal(DefaultRoles::ADMIN));
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::OWNER));
+        $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $finance], $this->key());
+
+        $this->assertRule('user_role.already_held');
+    }
+
+    /**
+     * `AssignRole` (C3): slot B + PC-13 → `proposal_pending` (pending `finance` for a `sales_rep` holder: SoD-3); and slot
+     * B + routing → `proposal_pending` for a non-owner too (RED-4 L-2: `needs_owner_confirmation` → `proposal_pending`).
+     */
+    #[Test]
+    public function onAssignRoleAPendingProposalOutranksSeparationOfDutyAndRouting(): void
+    {
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $salesHolder = $this->holderOf([$this->systemRole(DefaultRoles::SALES_REP)]);
+        $this->seedPendingProposal($salesHolder, $finance, $this->principal(DefaultRoles::ADMIN));
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::OWNER));
+        $this->send('POST', '/users/'.$salesHolder.'/roles', ['role_id' => $finance], $this->key());
+        $this->assertRule('user_role.proposal_pending');
+
+        $fresh = $this->seedPrincipal(self::TENANT_A, []);
+        $this->seedPendingProposal($fresh, $finance, $this->principal(DefaultRoles::ADMIN));
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+        $this->send('POST', '/users/'.$fresh.'/roles', ['role_id' => $finance], $this->key());
+        $this->assertRule('user_role.proposal_pending');
+    }
+
+    /**
+     * **#13a (C3; `UX` F-4):** Create refuses `grant_directly` with the variant that says the earlier, expired proposal
+     * must be closed first — because `AssignRole` would now refuse "give it directly" on that pair (slot B). Control: with
+     * no earlier proposal, #13 unchanged. Mutation: always #13 → red.
+     */
+    #[Test]
+    public function grantDirectlySaysToCloseAnExpiredProposalFirst(): void
+    {
+        $buyer = $this->systemRole(DefaultRoles::BUYER);
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $this->seedPendingProposal($subject, $buyer, $this->principal(DefaultRoles::ADMIN), ageHours: 360);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+
+        $this->propose($subject, $buyer);
+        $this->assertRule('role_grant_proposal.grant_directly');
+        self::assertSame(RoleGrantProposalCreation::GRANT_DIRECTLY_AFTER_CLEARING, $this->json()['detail'] ?? null);
+        self::assertSame('This role doesn\'t need anyone\'s confirmation when you give it, so there\'s nothing to propose. An earlier proposal for this person and role is more than 14 days old but still open; it has to be rejected or withdrawn before the role can be given directly. You can find it among the open role proposals.',
+            RoleGrantProposalCreation::GRANT_DIRECTLY_AFTER_CLEARING);
+        self::assertSame([['status' => 'pending']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT status FROM role_grant_proposal WHERE user_id = ?::uuid', [$subject]), 'The refused proposal lapsed the old one.');
+
+        $this->propose($this->seedPrincipal(self::TENANT_A, []), $buyer);
+        $this->assertRule('role_grant_proposal.grant_directly');
+        self::assertSame(RoleGrantProposalCreation::GRANT_DIRECTLY, $this->json()['detail'] ?? null);
+    }
+
+    private function assertPending(string $sentence, string $case): void
+    {
+        self::assertSame(409, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
+        self::assertSame('user_role.proposal_pending', $this->json()['rule'] ?? null, $case);
+        self::assertSame($sentence, $this->json()['detail'] ?? null, $case);
     }
 
     private function assertRule(string $rule): void

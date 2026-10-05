@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * **E-15e's confirmation, C2: `ConfirmRoleGrantProposal`** (roles slice 3; `docs/session13/roles-s3-design.md` §4.1, §4.3,
- * §4.7, §8, §15; owner ruling Q-6 (c′); `UX` `roles-s3-ux-copy.md` §4.1 and §4.3, the C2 texts).
+ * §4.7, §8, §15; owner ruling Q-6 (c′); `UX` `roles-s3-ux-copy.md` §4.1 and §4.3; C3 texts since roles slice 3 C3).
  *
  * One rule per test: the 200 and its body (the proposal, now `confirmed`, PC-16's three references `{id, display_name}`;
  * the grant addressable from the body), the one `role.assigned` row with Q1's metadata (T11), T1's positive half
@@ -29,8 +29,8 @@ use Symfony\Component\Uid\Uuid;
  * tail — T8), and the stale identity map (S-12). **Every positive confirmation seeds the owner marker explicitly**
  * (`principal(OWNER)` holds the whole catalogue; RED-5 M-2), because the house's default principal is not an owner.
  *
- * **Every refusal's sentence is pinned as a literal** — `UX`'s C2 text, so the C3 commit, which moves several of them to
- * their C3 texts (Reject and Withdraw exist only from C3, `UX` rule 4), is a visible edit. The order between the rules is
+ * **Every refusal's sentence is pinned as a literal** — `UX`'s text; the C3 commit moved the C2 texts to their C3 texts
+ * (Reject and Withdraw exist only from C3, `UX` rule 4), a visible edit here. The order between the rules is
  * `GrantRoutingTest`'s; the concurrency half (positional lock-first case, demotion twins A and B, Confirm ∥ Confirm,
  * Confirm ∥ `AssignRole`) lives in `PurchaseOrderRowLockTest`.
  */
@@ -38,18 +38,21 @@ final class RoleGrantProposalConfirmTest extends ApiTestCase
 {
     use RoleGrantFixtures;
 
-    /** `UX` §4.1, the C2 column, verbatim. */
+    /**
+     * `UX` §4.1, the **C3** column, verbatim (roles slice 3 C3 moved these pins from the C2 texts: Reject and Withdraw
+     * exist now, so a sentence may say how an open proposal is closed — `UX` rule 4). #25 is the same at C2 and C3.
+     */
     public const COPY = [
-        'role_grant_proposal.decider_not_owner' => 'Only an owner can confirm role proposals. Ask an owner.',
-        'role_grant_proposal.expired' => 'This proposal is more than 14 days old, so it can\'t be confirmed any more. If the role is still wanted, it can be given directly.',
-        'role_grant_proposal.confirmer_is_proposer' => 'You proposed this, so you can\'t confirm it too. Another owner has to confirm it.',
-        'role_grant_proposal.proposer_is_inactive' => 'The person who proposed this is no longer active in this workspace, so the proposal can\'t be confirmed. If the role is still wanted, it can be given directly.',
-        'role_grant_proposal.proposer_cannot_assign' => 'The person who proposed this can no longer manage roles, so the proposal can\'t be confirmed. If the role is still wanted, it can be given directly.',
+        'role_grant_proposal.decider_not_owner' => 'Only an owner can confirm or reject role proposals. Ask an owner.',
+        'role_grant_proposal.expired' => 'This proposal is more than 14 days old, so it can\'t be confirmed any more. It can still be rejected or withdrawn to close it, and then the role can be given directly if it\'s still wanted.',
+        'role_grant_proposal.confirmer_is_proposer' => 'You proposed this, so you can\'t confirm it too. Another owner has to confirm it. You can still withdraw it.',
+        'role_grant_proposal.proposer_is_inactive' => 'The person who proposed this is no longer active in this workspace, so the proposal can\'t be confirmed. Reject it to close it; then the role can be given directly if it\'s still wanted.',
+        'role_grant_proposal.proposer_cannot_assign' => 'The person who proposed this can no longer manage roles, so the proposal can\'t be confirmed. Reject it to close it; then the role can be given directly if it\'s still wanted.',
         'user_role.subject_is_deleted' => 'This person has been removed from the workspace, so they can\'t be given a role.',
         'user_role.subject_is_inactive' => 'This person\'s account is not active, so they can\'t be given a role.',
-        'user_role.role_is_archived' => 'This role is archived, so it can\'t be given to anyone, and this proposal can\'t be confirmed.',
-        'user_role.actor_is_subject' => 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it.',
-        'role_grant_proposal.role_changed' => 'This role\'s permissions have changed since it was proposed, so the proposal can\'t be confirmed: it would give something other than what was proposed. If the role is still wanted, it can be given directly.',
+        'user_role.role_is_archived' => 'This role is archived, so it can\'t be given to anyone, and this proposal can\'t be confirmed. Reject it to close it.',
+        'user_role.actor_is_subject' => 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it. You can reject it if you don\'t want it.',
+        'role_grant_proposal.role_changed' => 'This role\'s permissions have changed since it was proposed, so the proposal can\'t be confirmed: it would give something other than what was proposed. Reject it to close it; then the role can be given directly if it\'s still wanted.',
         'user_role.exceeds_actor_permissions' => 'This role includes permissions you don\'t have yourself, so you can\'t confirm it. An owner who holds all of its permissions can.',
         'user_role.already_held' => 'This person already has this role.',
     ];
@@ -522,8 +525,8 @@ final class RoleGrantProposalConfirmTest extends ApiTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('user_role.separation_of_duty', $this->json()['rule'] ?? null);
         $name = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT name FROM role WHERE id = ?::uuid', [$warehouse])[0]['name'];
-        self::assertSame(RoleAssignment::separationOfDutyMessage($name, ['SoD-2'], 'This proposal can\'t be confirmed.'), $this->json()['detail'] ?? null);
-        self::assertStringEndsWith('(SoD-2). This proposal can\'t be confirmed.', (string) $this->json()['detail'], 'Confirm\'s SoD sentence does not end with its own tail.');
+        self::assertSame(RoleAssignment::separationOfDutyMessage($name, ['SoD-2'], 'This proposal can\'t be confirmed. Reject it to close it.'), $this->json()['detail'] ?? null);
+        self::assertStringEndsWith('(SoD-2). This proposal can\'t be confirmed. Reject it to close it.', (string) $this->json()['detail'], 'Confirm\'s SoD sentence does not end with its own (C3) tail.');
 
         $viewerHolder = $this->holderOf([$this->systemRole(DefaultRoles::VIEWER)]);
         $this->confirm($this->seedPendingProposal($viewerHolder, $this->systemRole(DefaultRoles::BUYER), $proposer));
@@ -586,9 +589,9 @@ final class RoleGrantProposalConfirmTest extends ApiTestCase
         self::assertSame([['status' => 'pending']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM role_grant_proposal WHERE id = ?::uuid', [$id]));
     }
 
-    /** The handler's own sentences are `UX`'s C2 texts, held here so the class and this test cannot drift apart. */
+    /** The handler's own sentences are `UX`'s C3 texts, held here so the class and this test cannot drift apart. */
     #[Test]
-    public function theHandlersSentencesAreUxsC2Texts(): void
+    public function theHandlersSentencesAreUxsC3Texts(): void
     {
         self::assertSame(self::COPY['role_grant_proposal.decider_not_owner'], RoleGrantProposalConfirmation::DECIDER_NOT_OWNER);
         self::assertSame(self::COPY['role_grant_proposal.expired'], RoleGrantProposalConfirmation::EXPIRED);
