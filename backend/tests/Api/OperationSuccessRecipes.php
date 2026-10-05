@@ -433,6 +433,28 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, return part, then read the return'];
             }],
+            // G-29 / G-30 part 3 C1 (design T-7): an invoice, an adjustment and a return stamped for credit, all through the API,
+            // then a `same` decision -- by a principal holding everything, so `invoice.view` too: the decision members
+            // (`quantity_covered_by_adjustment`, `adjustment_decisions[].quantity`) are in the 200 and the walkers see them.
+            'CreateAdjustmentDecision' => [fn (): array => $stockedSalesWorkspace('SO-247000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+                $raiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $key());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $invoice.'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $key());
+                $adjustmentLine = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $key());
+                $return = (string) $this->json()['id'];
+                $this->send('POST', '/sales-returns/'.$return.'/adjustment-decisions', ['kind' => 'same',
+                    'sales_return_line_id' => $this->json()['lines'][0]['id'], 'credit_note_line_id' => $adjustmentLine, 'quantity' => '0.5'], $key());
+
+                return [200, 'create, confirm, fulfil, invoice, adjust part, return it, then record it as already credited'];
+            }],
             // Sales step 7 R3: the register, read after a return the API recorded, by a holder of everything.
             'ListSalesReturns' => [fn (): array => $stockedSalesWorkspace('SO-240000'), function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);

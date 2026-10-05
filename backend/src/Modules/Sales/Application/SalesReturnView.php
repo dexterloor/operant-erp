@@ -28,6 +28,8 @@ final readonly class SalesReturnView
         public string $createdAt,
         public array $lines,
         public ?bool $creditBlockedByPayment,
+        /** G-29 / G-30 part 3 (design §5): a decision is owed on some line; `null` (absent) without `invoice.view`. */
+        public ?bool $adjustmentDecisionOwed = null,
     ) {
     }
 }

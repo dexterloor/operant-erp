@@ -157,6 +157,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second adjustment credit_note, the invoice written down twice (sales step 7 C1b). It shares '
                 .'IssueCreditNote\'s index; its digest binds its own operation name.',
         ],
+        'CreateAdjustmentDecision' => [
+            'method' => 'replayCreateAdjustmentDecision',
+            'why' => 'A second adjustment_decision for one return line and adjustment, and the returned units taken out of the '
+                .'return\'s room twice (G-29 / G-30 part 3 C1). Its mechanism is the header-sourced retry key on nullable '
+                .'both-or-neither columns under a TOTAL unique.',
+        ],
         'CreatePurchaseOrderLine' => [
             'method' => 'replayCreatePurchaseOrderLine',
             'why' => 'A second purchase_order_line, and a second helping of its amount on the order total (V2-R-12). Its '
@@ -492,6 +498,29 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM credit_note'), $why);
         self::assertCount(1, $this->auditRowsOf(AuditEvent::CREDIT_NOTE_ISSUED),
             'The replay wrote a second credit_note.issued row: the audit write is on the replay branch too.');
+    }
+
+    private function replayCreateAdjustmentDecision(string $why): void
+    {
+        $i = $this->invoicedShipment('IDEM-ADD', [['4', '10.0000', '4']]);
+        $this->actAsRole(\App\Modules\UserManagement\Domain\DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+            'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '2']]], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $adjustmentLine = $this->json()['lines'][0]['id'];
+        $return = $this->returnOf($i, [[0, '2']]);
+        $body = ['kind' => 'same', 'sales_return_line_id' => $this->json()['lines'][0]['id'], 'credit_note_line_id' => $adjustmentLine, 'quantity' => '1'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/sales-returns/'.$return.'/adjustment-decisions', $body, $key);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+        $this->send('POST', '/sales-returns/'.$return.'/adjustment-decisions', $body, $key);
+
+        self::assertSame($first, $this->json(), 'The replay did not answer the return as the first call left it.');
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM adjustment_decision'), $why);
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::CREDIT_NOTE_RETURN_DECIDED),
+            'The replay wrote a second credit_note.return_decided row: the audit write is on the replay branch too.');
     }
 
     private function replayCreateFulfilment(string $why): void

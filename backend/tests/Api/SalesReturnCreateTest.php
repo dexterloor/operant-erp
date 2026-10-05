@@ -28,6 +28,8 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         // Sales step 7 R3 (declared first on its own resource class, so listed first).
         'ListSalesReturns' => ['method' => 'GET', 'path' => '/sales-returns', 'idem' => false],
         'GetSalesReturn' => ['method' => 'GET', 'path' => '/sales-returns/{id}', 'idem' => false],
+        // G-29 / G-30 part 3 C1 (2026-10-05): a decision about the return's units, `credit_note.issue`, branch 5.
+        'CreateAdjustmentDecision' => ['method' => 'POST', 'path' => '/sales-returns/{id}/adjustment-decisions', 'idem' => true],
     ];
 
     /**
@@ -230,7 +232,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         self::assertSame(self::RETURN_LINE_KEYS, $lineKeys);
         // relative pin kept as a cheap second check
         self::assertSame(
-            array_values(array_diff(array_keys($fin), ['credit_blocked_by_payment'])),
+            array_values(array_diff(array_keys($fin), ['credit_blocked_by_payment', 'adjustment_decision_owed'])),
             array_keys($op),
         );
         self::assertTrue($fin['credit_blocked_by_payment']);                            // positive control

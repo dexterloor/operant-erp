@@ -47,6 +47,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     description: 'true: returns that would be creditable but whose invoice is paid. Served only to an invoice.view holder; refused as a parameter error for anyone else.',
                     schema: ['type' => 'string', 'enum' => ['true', 'false']],
                 ),
+                'adjustment_decision_owed' => new QueryParameter(
+                    description: 'true: returns on an order line that already carries a credit without a return, waiting for a decision (already credited, or, by an owner, different goods) before they can be credited. Served only to an invoice.view holder; refused as a parameter error for anyone else.',
+                    schema: ['type' => 'string', 'enum' => ['true', 'false']],
+                ),
+                'adjustment_decided' => new QueryParameter(
+                    description: 'same: returns carrying a live "already credited" decision — the owner\'s review list. Served only to an invoice.view holder.',
+                    schema: ['type' => 'string', 'enum' => ['same']],
+                ),
+                'decided_since' => new QueryParameter(
+                    description: 'With adjustment_decided=same: only decisions recorded at or after this RFC 3339 instant. A decision\'s time is its transaction\'s start, so start each review a little before the last one. Served only to an invoice.view holder.',
+                    schema: ['type' => 'string'],
+                ),
                 'q' => new QueryParameter(
                     description: 'Free-text search. API-19d/TB-5: one searchable column, sales_return.sales_return_number, matched by prefix.',
                     schema: ['type' => 'string'],

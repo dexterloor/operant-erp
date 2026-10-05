@@ -271,6 +271,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
             // Sales step 6, C5: `PayInvoice` acts on an invoice. Seeded as the owner on that shipment, `issued`, so the
             // path names a real, payable invoice and the refusal is the planted field's, not a 404's or a 409's.
             'invoices' => $this->seedInvoiceOf($fulfilment),
+            // G-29 / G-30 part 3 C1: `CreateAdjustmentDecision` acts on a return. A real one on that shipment (owner INSERT,
+            // header only), so the refusal is the planted field's and not a 404's.
+            'sales-returns' => $this->seedReturnOf($fulfilment),
             // Roles slice 2, C2: `RevokeRole` binds a real user and a role THAT USER HOLDS, so the refusal is the planted
             // field's and not a 404's (design §12 item 8).
             'users' => $user = $this->seedPrincipal(self::TENANT_A, ['role.view']),
@@ -353,6 +356,21 @@ final class RequestContractTest extends PurchaseOrderTestCase
                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
               FROM sales_order so WHERE so.id = ?::uuid
             SQL, [$id, self::freshNumber('FUL'), (string) $this->actorId, $orderId]);
+
+        return $id;
+    }
+
+    /** A header-only sales return of `$fulfilmentId`, as the owner (G-29 / G-30 part 3 C1). */
+    private function seedReturnOf(string $fulfilmentId): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO sales_return (id, tenant_id, fulfilment_id, sales_return_number, reason, returned_at, recorded_by_user_id,
+                                      deducts, idempotency_key, request_digest)
+            SELECT ?::uuid, f.tenant_id, f.id, ?, 'other', now(), ?::uuid, false,
+                   encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+              FROM fulfilment f WHERE f.id = ?::uuid
+            SQL, [$id, self::freshNumber('RET'), (string) $this->actorId, $fulfilmentId]);
 
         return $id;
     }

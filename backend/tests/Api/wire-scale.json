@@ -11,6 +11,18 @@
     "ConfirmSalesOrder $.total_amount": [
         4
     ],
+    "CreateAdjustmentDecision $.lines[].adjustment_decisions[].quantity": [
+        6
+    ],
+    "CreateAdjustmentDecision $.lines[].quantity": [
+        6
+    ],
+    "CreateAdjustmentDecision $.lines[].quantity_covered_by_adjustment": [
+        6
+    ],
+    "CreateAdjustmentDecision $.lines[].quantity_credited": [
+        6
+    ],
     "CreateFulfilment $.lines[].quantity": [
         6
     ],
@@ -57,6 +69,9 @@
         4
     ],
     "CreateSalesReturn $.lines[].quantity": [
+        6
+    ],
+    "CreateSalesReturn $.lines[].quantity_covered_by_adjustment": [
         6
     ],
     "CreateSalesReturn $.lines[].quantity_credited": [
@@ -117,6 +132,9 @@
         4
     ],
     "GetSalesReturn $.lines[].quantity": [
+        6
+    ],
+    "GetSalesReturn $.lines[].quantity_covered_by_adjustment": [
         6
     ],
     "GetSalesReturn $.lines[].quantity_credited": [
@@ -236,7 +254,13 @@
     "ListSalesOrders $.items[].total_amount": [
         4
     ],
+    "ListSalesReturns $.items[].lines[].adjustment_decisions[].quantity": [
+        6
+    ],
     "ListSalesReturns $.items[].lines[].quantity": [
+        6
+    ],
+    "ListSalesReturns $.items[].lines[].quantity_covered_by_adjustment": [
         6
     ],
     "ListSalesReturns $.items[].lines[].quantity_credited": [

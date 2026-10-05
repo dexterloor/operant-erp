@@ -265,8 +265,9 @@ final readonly class CreditNoteWriter
                 );
             }
             foreach ($connection->fetchAllAssociative(\sprintf(
-                'SELECT rl.id, rl.fulfilment_line_id, rl.quantity, %s AS credited FROM sales_return_line rl WHERE rl.sales_return_id = ?::uuid',
+                'SELECT rl.id, rl.fulfilment_line_id, rl.quantity, %s AS credited, %s AS same FROM sales_return_line rl WHERE rl.sales_return_id = ?::uuid',
                 SalesReturnReader::creditedOnReturnLine('rl'),
+                SalesReturnReader::sameOnReturnLine('rl'),
             ), [$salesReturnId]) as $row) {
                 $returnLines[(string) $row['fulfilment_line_id']] = $row;
             }
@@ -316,13 +317,16 @@ final readonly class CreditNoteWriter
             }
             if (null !== $salesReturnId) {
                 $returned = $returnLines[$line['fulfilmentLine']];
-                if (1 === bccomp(bcadd((string) $returned['credited'], $line['quantity'], 6), (string) $returned['quantity'], 6)) {
+                // G-29 / G-30 part 3 (design §2.3): units recorded as ALREADY CREDITED by an adjustment (`same`) leave the
+                // return line's room through the one named term, `sameOnReturnLine`.
+                if (1 === bccomp(bcadd(bcadd((string) $returned['credited'], (string) $returned['same'], 6), $line['quantity'], 6), (string) $returned['quantity'], 6)) {
                     throw ApiProblem::businessRuleViolated(
                         'credit_note.quantity_within_returned',
-                        \sprintf('This return took back %s of order line %d and %s of it has already been credited, so %s more cannot be credited against it.',
+                        \sprintf('This return took back %s of order line %d and %s of it has already been credited%s, so %s more cannot be credited against it.',
                             QuantityRendering::render((string) $returned['quantity']),
                             (int) $row['line_number'],
                             QuantityRendering::render((string) $returned['credited']),
+                            $this->sameClause($em, (string) $returned['id'], (string) $returned['same'], $identity),
                             QuantityRendering::render($line['quantity'])),
                     );
                 }
@@ -404,6 +408,21 @@ final readonly class CreditNoteWriter
         // 12.
         return $this->reader->readInside($em, $id)
             ?? throw new \LogicException('The credit note just inserted is not visible to its own transaction.');
+    }
+
+    /**
+     * FR-7's amendment to the shipped `quantity_within_returned` copy: when units of the line were recorded as already
+     * credited, say so and name the adjustment. **The whole clause is an `invoice.view` holder's** (`SEC` §5: `same`
+     * quantities are decision members), so anyone else reads the shipped sentence unchanged.
+     */
+    private function sameClause(EntityManagerInterface $em, string $returnLineId, string $same, Identity $identity): string
+    {
+        if (1 !== bccomp($same, '0', 6) || !$identity->holds('invoice.view')) {
+            return '';
+        }
+        $numbers = $em->getConnection()->fetchFirstColumn(SalesReturnReader::adjustmentsRecordedSameOnReturnLineSql(), [$returnLineId]);
+
+        return \sprintf(' and %s were recorded as already credited without a return (%s)', QuantityRendering::render($same), implode(', ', $numbers));
     }
 
     private function nextNumber(EntityManagerInterface $em): string

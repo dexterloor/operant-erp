@@ -358,6 +358,8 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                 'before' => $cursor,
                 'q' => $context['search'],
                 'archived' => 'true',
+                // G-29 / G-30 part 3 C1: an instant for `ListSalesReturns`' review window (sent with its companion below).
+                'decided_since' => '2026-01-01T00:00:00Z',
                 // The list's own filter parameter, keyed by its name so a list filtered by
                 // something other than `supplier_id` needs no edit here. A list that declares
                 // one and supplies no value is reported below rather than skipped.
@@ -370,7 +372,13 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                     $defects[] = $name.' declares `'.$parameter.'` and no value for it could be derived, so its acceptance was never sent';
                     continue;
                 }
-                $this->send('GET', $path.'?'.$parameter.'='.urlencode((string) $value));
+                // A parameter that stands only beside another (`decided_since` narrows `adjustment_decided=same`, and is
+                // refused alone with `needs_adjustment_decided`, design §5) is sent with that companion — never alone,
+                // which would test the dependency rather than the acceptance. The companion is itself declared.
+                $companion = self::COMPANIONS[$parameter] ?? null;
+                self::assertTrue(null === $companion || \in_array(explode('=', $companion)[0], $declared, true),
+                    $name.' declares `'.$parameter.'` whose companion `'.(string) $companion.'` it does not declare.');
+                $this->send('GET', $path.'?'.(null === $companion ? '' : $companion.'&').$parameter.'='.urlencode((string) $value));
                 if (200 !== $this->httpStatus()) {
                     $defects[] = \sprintf('%s refused its declared `%s=%s`: %d %s', $name, $parameter, $value, $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 200));
                 }
@@ -380,6 +388,9 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
         self::assertSame([], $defects, 'API-19b: an operation accepts a query parameter its §4.2 row does not declare, or refuses one it does.');
         self::assertGreaterThan(0, $refused, 'No operation refused the probe, so the refusal shape was never observed.');
     }
+
+    /** Parameters accepted only beside a companion parameter, with the companion's accepted value (G-29 / G-30 part 3). */
+    private const COMPANIONS = ['decided_since' => 'adjustment_decided=same'];
 
     private function refusalDefect(string $parameter): ?string
     {

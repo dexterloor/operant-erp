@@ -44,4 +44,50 @@ final readonly class CreditNoteAuditWriter
                 ]);
         });
     }
+
+    /**
+     * **`credit_note.return_decided`** (G-29 / G-30 part 3; `SEC` S-4, F-S1): business, subject the credit note of the
+     * decision row's OWN adjustment line, actor the recorder, no IP, ids-only metadata — `quantity` only for `same` (scale
+     * 6, as written), `reverses_decision_id` only for a reversal. One call per decision row, insert branch only.
+     */
+    public function recordReturnDecided(
+        string $tenantId,
+        string $actorUserId,
+        string $actorLabel,
+        string $creditNoteId,
+        string $decisionId,
+        string $kind,
+        string $salesReturnLineId,
+        string $creditNoteLineId,
+        ?string $quantity,
+        ?string $reversesDecisionId,
+    ): void {
+        $metadata = ['kind' => $kind, 'adjustment_decision_id' => $decisionId, 'sales_return_line_id' => $salesReturnLineId,
+            'credit_note_line_id' => $creditNoteLineId];
+        if (null !== $quantity) {
+            $metadata['quantity'] = $quantity;
+        }
+        if (null !== $reversesDecisionId) {
+            $metadata['reverses_decision_id'] = $reversesDecisionId;
+        }
+
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $creditNoteId, $metadata): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, ?::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::CREDIT_NOTE_RETURN_DECIDED,
+                    $actorUserId,
+                    $actorLabel,
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::CREDIT_NOTE_RETURN_DECIDED],
+                    $creditNoteId,
+                    json_encode($metadata, \JSON_THROW_ON_ERROR),
+                ]);
+        });
+    }
 }

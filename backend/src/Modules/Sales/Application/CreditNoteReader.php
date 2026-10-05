@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Application;
 
 use App\Platform\Http\Pagination\Cursor;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
@@ -23,6 +24,7 @@ final readonly class CreditNoteReader
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
+        private RequestIdentity $identities,
     ) {
     }
 
@@ -48,7 +50,43 @@ final readonly class CreditNoteReader
             return null;
         }
 
-        return self::view($row, $connection->fetchAllAssociative(self::LINES.' WHERE cnl.credit_note_id = ?::uuid'.self::LINES_ORDER, [$id]));
+        $lines = $connection->fetchAllAssociative(self::LINES.' WHERE cnl.credit_note_id = ?::uuid'.self::LINES_ORDER, [$id]);
+
+        return self::view($row, $lines, $this->decisionsByLine($em, $lines));
+    }
+
+    /**
+     * `return_decisions[]` per credit-note line (G-29 / G-30 part 3, design §5), for an `invoice.view` holder only — the
+     * PC-17 hold-test gate, so the two credit WRITES' 201 omit it for a holder of the write code alone (J-8; `SEC` S-7).
+     * `null` — the member absent — otherwise, and no statement is run.
+     *
+     * @param list<array<string, mixed>> $lines
+     *
+     * @return array<string, list<ReturnDecisionView>>|null
+     */
+    private function decisionsByLine(EntityManagerInterface $em, array $lines): ?array
+    {
+        if (!$this->identities->authenticated()->holds('invoice.view')) {
+            return null;
+        }
+        $byLine = [];
+        if ([] === $lines) {
+            return $byLine;
+        }
+        foreach ($em->getConnection()->fetchAllAssociative(SalesReturnReader::decisionsOnAdjustmentLinesSql(),
+            ['{'.implode(',', array_map(static fn (array $line): string => (string) $line['id'], $lines)).'}']) as $d) {
+            $byLine[(string) $d['credit_note_line_id']][] = new ReturnDecisionView(
+                id: (string) $d['id'],
+                salesReturn: new SalesReturnNumberRef((string) $d['sales_return_id'], (string) $d['sales_return_number']),
+                kind: (string) $d['kind'],
+                quantity: null === $d['quantity'] ? null : (string) $d['quantity'],
+                reversesDecisionId: null === $d['reverses_id'] ? null : (string) $d['reverses_id'],
+                recordedBy: new SalesActorRef((string) $d['recorded_by_id'], (string) $d['recorded_by_display_name']),
+                recordedAt: (string) SalesOrderRow::timestamp($d['created_at']),
+            );
+        }
+
+        return $byLine;
     }
 
     /**
@@ -100,14 +138,17 @@ final readonly class CreditNoteReader
             }
 
             $linesByNote = [];
+            $allLines = [];
             if ([] !== $rows) {
                 foreach ($connection->fetchAllAssociative(
                     self::LINES.' WHERE cnl.credit_note_id = ANY (?::uuid[])'.self::LINES_ORDER,
                     ['{'.implode(',', array_map(static fn (array $row): string => (string) $row['id'], $rows)).'}'],
                 ) as $line) {
                     $linesByNote[(string) $line['credit_note_id']][] = $line;
+                    $allLines[] = $line;
                 }
             }
+            $decisions = $this->decisionsByLine($em, $allLines);
 
             $next = $previous = null;
             if ([] !== $rows) {
@@ -120,7 +161,7 @@ final readonly class CreditNoteReader
             }
 
             return new CreditNotePage(
-                items: array_map(static fn (array $row): CreditNoteView => self::view($row, $linesByNote[(string) $row['id']] ?? []), $rows),
+                items: array_map(static fn (array $row): CreditNoteView => self::view($row, $linesByNote[(string) $row['id']] ?? [], $decisions), $rows),
                 nextCursor: $next,
                 previousCursor: $previous,
                 // API-22: an EXISTS probe with no filter, only when the page is empty.
@@ -157,7 +198,7 @@ final readonly class CreditNoteReader
      * @param array<string, mixed>       $row
      * @param list<array<string, mixed>> $lines
      */
-    public static function view(array $row, array $lines): CreditNoteView
+    public static function view(array $row, array $lines, ?array $decisions = null): CreditNoteView
     {
         return new CreditNoteView(
             id: (string) $row['id'],
@@ -169,7 +210,7 @@ final readonly class CreditNoteReader
             totalAmount: (string) $row['total_amount'],
             issuedAt: (string) SalesOrderRow::timestamp($row['issued_at']),
             issuedBy: new SalesActorRef((string) $row['issued_by_id'], (string) $row['issued_by_display_name']),
-            lines: array_map(static function (array $line): CreditNoteLineView {
+            lines: array_map(static function (array $line) use ($decisions): CreditNoteLineView {
                 $item = new SalesItemRef((string) $line['inventory_item_id'], (string) $line['inventory_item_sku'], (string) $line['inventory_item_name']);
 
                 return new CreditNoteLineView(
@@ -183,6 +224,7 @@ final readonly class CreditNoteReader
                     inventoryItem: $item,
                     quantity: (string) $line['quantity'],
                     amount: (string) $line['amount'],
+                    returnDecisions: null === $decisions ? null : ($decisions[(string) $line['id']] ?? []),
                 );
             }, $lines),
         );

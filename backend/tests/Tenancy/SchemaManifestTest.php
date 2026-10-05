@@ -229,6 +229,9 @@ final class SchemaManifestTest extends TenancyTestCase
      * **A second ruled exception, on the same terms** (roles slice 3, C1; design F-10, R-7's by-name exception):
      * `role_grant_proposal_pending_unique` — at most one PENDING proposal per (user, role) on the class-`none`
      * `role_grant_proposal`, predicate `(status = 'pending'::text)` measured off the catalogue (M-3).
+     *
+     * **A third, on the same terms** (G-29 / G-30 part 3, C1, 2026-10-05): `adjustment_decision_one_distinct_per_round`,
+     * predicate `(kind = 'distinct'::text)` — the database backstop for "one live `distinct` per pair" (design §2.4).
      */
     #[Test]
     public function businessUniquenessIsPartialOnSoftDeletedTablesAndTotalElsewhere(): void
@@ -254,6 +257,9 @@ final class SchemaManifestTest extends TenancyTestCase
             'invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)",
             // Roles slice 3 C1 (`roles-s3-design.md` F-10; `DATA` §1.4): one PENDING proposal per (user, role).
             'role_grant_proposal_pending_unique' => "(status = 'pending'::text)",
+            // G-29 / G-30 part 3 C1 (design §2.4, RED d1d4's D2 note): one `distinct` per pair per decision round on the
+            // class-`none`, append-only `adjustment_decision`; a reversed `distinct` keeps its round, so the next is round + 1.
+            'adjustment_decision_one_distinct_per_round' => "(kind = 'distinct'::text)",
         ];
 
         foreach ($rows as $r) {

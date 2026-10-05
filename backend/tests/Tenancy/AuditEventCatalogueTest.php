@@ -149,6 +149,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // Edited deliberately 2026-10-01 (sales step 7 C1) on `SEC`'s filing (S-5: BUSINESS, subject the credit note,
         // `{"reason"}`, no IP), which preceded the code; its subject is `credit_note`, so (4c) does not reach it.
         'credit_note.issued',
+        // Edited deliberately 2026-10-05 (G-29 / G-30 part 3 C1) on `SEC`'s filing (`g29-g30-sec.md` S-4, F-S1: BUSINESS,
+        // subject the credit note of each row's own adjustment line — never the return — ids-only metadata, no IP),
+        // which preceded the code; its subject is `credit_note`, so (4c) does not reach it.
+        'credit_note.return_decided',
     ];
 
     /**

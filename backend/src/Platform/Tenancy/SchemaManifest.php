@@ -644,6 +644,23 @@ final class SchemaManifest
             // it names every column but the two timestamps (sales_return_line's precedent). erp_ai SELECT: SEC S-1.
             'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']],
         ],
+        'adjustment_decision' => [
+            'module' => 'Modules\\Sales',
+            'tenant' => true,
+            'deletion' => self::NONE,
+            'why' => 'Which returned units an adjustment credit (a credit without a return) already covered: `same` with a quantity, `distinct`, or the owner\'s `reversal` of one row (G-29 / G-30 part 3, `Version20261005000400`; owner ruling 2026-10-05, D1 (a), D1b (s-iii), D2 (b)). Append-only, never edited and never deleted: a wrong decision is undone by appending a reversal, never by an UPDATE or DELETE (`SEC` §1.3 condition 4). The key columns are nullable with a both-or-neither CHECK (the V2-R-12 form): the adjust path\'s rows ride the credit note\'s key. One live `distinct` per pair per `decision_round` (a partial unique; the round is `1 + reversed distincts`, read under InvoiceRowLock). Same shipped line, an adjustment line, and the return stamped for the adjustment\'s invoice are application rules (three-column FKs are refused), so G-15 widens to name their forgery by SQL.',
+            // ADR-002 A4: SELECT for the readers (SalesReturnReader's named terms, the decision members, CreditNoteReader's
+            // `return_decisions`). erp_ai SELECT: SEC S-3, 2026-10-05 (PC-8 maps it to invoice.view; `recorded_by_user_id`
+            // joins M-15's list) -- declared explicitly here, never left to TENANT_READ_DEFAULT. Never UPDATE, never DELETE.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            // `Version20261005000400`: the union of the two writers' INSERTs (AdjustmentDecisionWriter names all eleven;
+            // CreditNoteWriter::adjust()'s `distinct` rows, C2, name nine) -- never `created_at`, which defaults.
+            'column_grants' => [
+                DatabaseRoles::APP => [
+                    'INSERT' => ['id', 'tenant_id', 'sales_return_line_id', 'credit_note_line_id', 'kind', 'quantity', 'reverses_id', 'decision_round', 'recorded_by_user_id', 'idempotency_key', 'request_digest'],
+                ],
+            ],
+        ],
     ];
 
     /**

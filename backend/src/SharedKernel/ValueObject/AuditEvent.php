@@ -682,6 +682,27 @@ final class AuditEvent
     public const CREDIT_NOTE_ISSUED = 'credit_note.issued';
 
     /**
+     * **A decision recorded about which returned units an adjustment already credited** — minted 2026-10-05 with
+     * `CreateAdjustmentDecision` (G-29 / G-30 part 3, C1, `docs/session13/g29-g30-identity-design.md` §3): one row per
+     * `adjustment_decision` row written — a `same`, a `distinct`, a reversal, each row a reversal cascades to, each record
+     * row it writes, and (C2) each `distinct` row the adjust path writes for a named pending return.
+     *
+     * **Filed by `SEC` before the code** (`g29-g30-sec.md` S-4, F-S1): **business**, admitted to `.view_record` under
+     * PC-11 (4a). **The subject is the CREDIT NOTE of the row's own adjustment line, never the return** — and that is why
+     * the name is `credit_note.`-prefixed (`SEC`'s recommendation; the `role.*` events are the house precedent for a name
+     * chosen to match its subject). With the return as subject, `ListAuditRecords` would tell a `warehouse_operator`
+     * (`sales_return.view`, no `invoice.view`) that the return was matched to a credit without a return, which PC-9's
+     * third exception forbids. The History of a credit note is gated by PC-9's mapping (`credit_note` read →
+     * `invoice.view`), never by a `credit_note.view` code (none exists; R-7). A cascaded reversal row names ITS OWN
+     * adjustment's note, which may differ from the reversed row's (R-1). Actor the caller (= `recorded_by_user_id`), **no
+     * IP**, no permission code, ids-only `metadata` **`{"kind", "adjustment_decision_id", "sales_return_line_id",
+     * "credit_note_line_id", "quantity"?, "reverses_decision_id"?}`** — `quantity` only for `same`, at scale 6;
+     * `reverses_decision_id` only for a reversal. **Step 6 does not apply.** Written by
+     * `CreditNoteAuditWriter::recordReturnDecided()` on the **insert** branch only.
+     */
+    public const CREDIT_NOTE_RETURN_DECIDED = 'credit_note.return_decided';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -725,6 +746,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_DELETED,
         self::SALES_RETURN_CREATED,
         self::CREDIT_NOTE_ISSUED,
+        self::CREDIT_NOTE_RETURN_DECIDED,
     ];
 
     /**
@@ -793,6 +815,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_DELETED,
         self::SALES_RETURN_CREATED,
         self::CREDIT_NOTE_ISSUED,
+        self::CREDIT_NOTE_RETURN_DECIDED,
     ];
 
     // ---------------------------------------------------------------------
@@ -852,6 +875,7 @@ final class AuditEvent
         self::PURCHASE_ORDER_DELETED => 'purchase_order',
         self::SALES_RETURN_CREATED => 'sales_return',
         self::CREDIT_NOTE_ISSUED => 'credit_note',
+        self::CREDIT_NOTE_RETURN_DECIDED => 'credit_note',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

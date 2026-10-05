@@ -13,6 +13,7 @@ use App\Modules\Sales\Application\SalesReturnReader;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\RequestIdentity;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -79,7 +80,7 @@ final readonly class SalesReturnCollectionProvider implements ProviderInterface
         }
 
         $flags = [];
-        foreach (['creditable', 'deducts', 'credit_blocked_by_payment'] as $name) {
+        foreach (['creditable', 'deducts', 'credit_blocked_by_payment', 'adjustment_decision_owed'] as $name) {
             $flags[$name] = null;
             if (isset($query[$name])) {
                 $raw = $query[$name];
@@ -94,6 +95,36 @@ final readonly class SalesReturnCollectionProvider implements ProviderInterface
             // M4-1: the filter names payment as the cause; it is an invoice.view holder's alone.
             $errors[] = self::error('credit_blocked_by_payment', 'not_permitted',
                 'This filter needs the permission to read invoices (invoice.view).');
+        }
+
+        // G-29 / G-30 part 3 (design §5; `SEC` S-5): the decision queue and the owner's review list name which returns
+        // were matched to a credit without a return — credit facts, refused before any read, by identity alone, to a
+        // caller without `invoice.view` (the `credit_blocked_by_payment` form; PC-9's third exception).
+        $invoiceReader = $this->identities->authenticated()->holds('invoice.view');
+        foreach (['adjustment_decision_owed', 'adjustment_decided', 'decided_since'] as $name) {
+            if (isset($query[$name]) && !$invoiceReader) {
+                $errors[] = self::error($name, 'not_permitted', 'This filter needs the permission to read invoices (invoice.view).');
+            }
+        }
+        $decidedSame = false;
+        if (isset($query['adjustment_decided'])) {
+            if ('same' !== $query['adjustment_decided']) {
+                $errors[] = self::error('adjustment_decided', 'not_a_decision', 'adjustment_decided must be same.');
+            } else {
+                $decidedSame = true;
+            }
+        }
+        $decidedSince = null;
+        if (isset($query['decided_since'])) {
+            $raw = $query['decided_since'];
+            $parsed = \is_string($raw) ? Rfc3339Timestamp::parse($raw) : null;
+            if (null === $parsed) {
+                $errors[] = self::error('decided_since', 'not_a_timestamp', 'decided_since must be an RFC 3339 timestamp.');
+            } elseif (!isset($query['adjustment_decided'])) {
+                $errors[] = self::error('decided_since', 'needs_adjustment_decided', 'decided_since applies only with adjustment_decided=same.');
+            } else {
+                $decidedSince = $parsed->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z');
+            }
         }
 
         $search = null;
@@ -123,6 +154,9 @@ final readonly class SalesReturnCollectionProvider implements ProviderInterface
             creditable: $flags['creditable'],
             deducts: $flags['deducts'],
             creditBlockedByPayment: $flags['credit_blocked_by_payment'],
+            adjustmentDecisionOwed: $flags['adjustment_decision_owed'],
+            adjustmentDecidedSame: $decidedSame,
+            decidedSince: $decidedSince,
             search: $search,
             after: $after,
             before: $before,

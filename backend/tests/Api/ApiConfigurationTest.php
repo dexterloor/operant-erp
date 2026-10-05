@@ -195,7 +195,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // grants `erp_app` a column UPDATE on `decided_by_user_id`.
         // **And two more (roles slice 3 C3, 2026-10-05):** `RejectRoleGrantProposal` and `CancelRoleGrantProposal` on
         // `RoleGrantProposalResource` (`role.assign`). Their migration grants `erp_app` a column UPDATE on `reason`.
-        self::assertCount(63, $checked, 'The route set changed. This slice declares sixty-three operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G-29 / G-30 part 3 C1, 2026-10-05):** `CreateAdjustmentDecision` on `SalesReturnResource`, a POST
+        // at `/sales-returns/{id}/adjustment-decisions` (`credit_note.issue`; branch 5). Its migration creates
+        // `adjustment_decision`: SELECT to `erp_app`/`erp_ai`, a column INSERT on eleven columns to `erp_app`.
+        self::assertCount(64, $checked, 'The route set changed. This slice declares sixty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

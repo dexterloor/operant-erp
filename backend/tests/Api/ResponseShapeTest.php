@@ -104,6 +104,26 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      *
      * @var array<string, list<list<string>>>
      */
+    /**
+     * **Child collections a read SERVES that no accepted cell declares** (G-29 / G-30 part 3 C1, 2026-10-05): the decision
+     * rows, served on both parents — `adjustment_decisions[]` on a return line, `return_decisions[]` on an adjustment's
+     * credit-note line (`API.md` §4.4.1's branch-5 sentence: "a deliberate child fact served on both parents"). Each
+     * element is a ROW (its own `id`, written by `CreateAdjustmentDecision`), not a reference; its `credit_note` /
+     * `sales_return` / `recorded_by` members are references and are walked as such.
+     *
+     * @var list<string>
+     */
+    private const SERVED_CHILD_COLLECTIONS = ['adjustment_decisions', 'return_decisions'];
+
+    /**
+     * **`_id` members that name a SIBLING row of the same served child collection, not a foreign table to expand**
+     * (G-29 / G-30 part 3 C1): `reverses_decision_id` — a reversal row names the decision row it undid, which is served
+     * beside it in the same list (a reversal is always on its target's pair), and a decision row has no display field.
+     *
+     * @var list<string>
+     */
+    private const SIBLING_ROW_IDS = ['reverses_decision_id'];
+
     private const RULED_DISPLAY_SHAPES = [
         // The return side (R2, with the bin the goods left from) and the money side (C0's invoice lines, C1's credit-note
         // lines: binless, with the shipped quantity) — both owner ruling Q-H.
@@ -682,7 +702,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         foreach ($value as $key => $member) {
             $key = (string) $key;
-            if (str_ends_with($key, '_id') && !\in_array($key, ['subject_id', 'source_id'], true)) {
+            if (str_ends_with($key, '_id') && !\in_array($key, ['subject_id', 'source_id', ...self::SIBLING_ROW_IDS], true)) {
                 $found[] = ['bare', $where.'.'.$key, $member];
             }
             // An envelope's items and a declared nested collection hold rows; any
@@ -957,7 +977,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      */
     private static function nestedCollections(): array
     {
-        $nested = [];
+        $nested = self::SERVED_CHILD_COLLECTIONS;
         foreach (ContractDocument::operationRows() as $row) {
             preg_match_all('/`([a-z_]+)\[\]\./', $row['accepts'], $m);
             $nested = [...$nested, ...$m[1]];

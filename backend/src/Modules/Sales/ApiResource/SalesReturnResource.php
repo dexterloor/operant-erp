@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Sales\ApiResource\State\CreateAdjustmentDecisionProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesReturnProcessor;
 use App\Modules\Sales\ApiResource\State\SalesReturnProvider;
 use App\Modules\Sales\Application\FulfilmentRef;
@@ -72,6 +73,32 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['fulfilment', 'id'],
             ],
         ),
+        // G-29 / G-30 part 3 (design §3): record which returned units an adjustment already credited (`same`), that they
+        // are different goods (`distinct`, owner marker), or undo one decision (`reversal`, owner marker, D2 (b)).
+        // API-21 branch 5: **200**, the return as it now reads, no `Location` — no operation addresses a decision row, so
+        // §4.4.1's rule puts it in branch 5 literally (a deliberate child fact served on both parents, not
+        // API-O-35-shaped). `unique:adjustment_decision_idem_unique`; `credit_note.issue` (E-1); the owner marker is the
+        // handler's check, under the invoice lock.
+        new Post(
+            uriTemplate: '/sales-returns/{id}/adjustment-decisions',
+            name: 'CreateAdjustmentDecision',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'CreateAdjustmentDecision'),
+            input: CreateAdjustmentDecisionInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            // The return and its invoice are locked and re-read inside the deciding transaction, never by a provider.
+            read: false,
+            processor: CreateAdjustmentDecisionProcessor::class,
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'credit_note.issue',
+                // `{id}` addresses a sales return, not a credit note.
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['sales_return', 'id'],
+            ],
+        ),
     ],
 )]
 final class SalesReturnResource
@@ -109,6 +136,15 @@ final class SalesReturnResource
         #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
         #[ApiProperty(required: false)]
         public ?bool $creditBlockedByPayment = null,
+        /**
+         * G-29 / G-30 part 3 (design §5): `true` when some line of this return falls on an order line that already
+         * carries a credit without a return and nothing has decided whether its units are those (`undecidedPair`).
+         * **Absent for a caller without `invoice.view`** — the credit-without-a-return fact is PC-9's to withhold.
+         */
+        #[SerializedName('adjustment_decision_owed')]
+        #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
+        #[ApiProperty(required: false)]
+        public ?bool $adjustmentDecisionOwed = null,
     ) {
     }
 
@@ -116,6 +152,6 @@ final class SalesReturnResource
     {
         return new self($view->id, $view->salesReturnNumber, $view->reason, $view->returnedAt, $view->fulfilment,
             $view->invoice, $view->creditTarget, $view->deducts, $view->recordedBy, $view->createdAt, $view->lines,
-            $view->creditBlockedByPayment);
+            $view->creditBlockedByPayment, $view->adjustmentDecisionOwed);
     }
 }

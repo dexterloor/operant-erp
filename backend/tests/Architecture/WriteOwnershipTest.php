@@ -175,7 +175,8 @@ final class WriteOwnershipTest extends KernelTestCase
         // **15 -> 16 on 2026-10-01** (sales step 7 R2): `SalesReturnAuditWriter::recordCreated()`'s `INSERT INTO audit_log`
         // for `sales_return.created`, metadata `jsonb_build_object('reason', ?, 'deducts', ?)`.
         // **16 -> 17 on 2026-10-01** (sales step 7 C1): `CreditNoteAuditWriter::recordIssued()`'s `INSERT INTO audit_log`.
-        'Modules\\AuditLog' => 17,
+        // **17 -> 18 on 2026-10-05** (G-29 / G-30 part 3, C1): `CreditNoteAuditWriter::recordReturnDecided()`'s INSERT.
+        'Modules\\AuditLog' => 18,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see
@@ -231,7 +232,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // excludes, and its amount read is a SELECT.
         // **16 -> 18 on 2026-10-01** (sales step 7 C1): `CreditNoteWriter`'s `INSERT INTO credit_note` and
         // `INSERT INTO credit_note_line` (read off the failure, never typed).
-        'Modules\\Sales' => 18,
+        // **18 -> 19 on 2026-10-05** (G-29 / G-30 part 3, C1): `AdjustmentDecisionWriter::INSERT`, the one statement every
+        // decision row (same, distinct, reversal, cascade, record) goes through (read off the failure, never typed).
+        'Modules\\Sales' => 19,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).

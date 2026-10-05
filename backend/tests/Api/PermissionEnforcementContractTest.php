@@ -60,6 +60,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Sales step 7 R2 (owner rulings Q-F, Q-B).
         'CreateSalesReturn' => 'sales_return.create',
         'GetSalesReturn' => 'sales_return.view',
+        // G-29 / G-30 part 3 C1: E-1 is `credit_note.issue`; `distinct` and the reversal add the owner marker in the handler.
+        'CreateAdjustmentDecision' => 'credit_note.issue',
         'ListSalesReturns' => 'sales_return.view',
         'ListInvoices' => 'invoice.view',
         // Sales step 7 C0: an invoice's derived lines — money, so `invoice.view`, never `fulfilment.view` (Q-B, V2-S-8).

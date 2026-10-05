@@ -43,6 +43,49 @@ final class OwnerPredicateSingleSourceTest extends TestCase
             .'about the caller.',
     ];
 
+    /**
+     * **Every class that calls `OwnerPredicate::holdsMarker()`** — G-29 / G-30 part 3 (`SEC` S-2, R-5, 2026-10-05). Each
+     * caller is an act the owner marker decides, and granting the marker appoints a co-owner for every one of them, so
+     * the predicate's docblock enumerates them. A new caller fails here until the docblock list and this pin are both
+     * edited deliberately. Derived at build by `git grep -nE "holdsMarker\("` over `src/`, never copied from a design.
+     *
+     * @var list<string>
+     */
+    private const HOLDS_MARKER_CALLERS = [
+        'AdjustmentDecisionWriter',
+        'CreditNoteWriter',
+        'GrantConfirmationPolicy',
+        'GrantRules',
+        'InvoicePaymentReversal',
+        'InvoiceVoiding',
+        'PurchaseOrderDutySeparation',
+        'RoleGrantProposalConfirmation',
+        'RoleGrantProposalRejection',
+        'RoleRevocation',
+        'SalesReturnWriter',
+    ];
+
+    #[Test]
+    public function theCallersOfTheMarkerAreExactlyThePinnedList(): void
+    {
+        $callers = [];
+        foreach (PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src') as $path) {
+            $tokens = array_values(array_filter(self::codeTokens((string) file_get_contents($path)), static fn (array $t): bool => \T_WHITESPACE !== $t[0]));
+            foreach ($tokens as $i => [$id, $text]) {
+                if (\T_STRING === $id && 'holdsMarker' === $text && '::' === ($tokens[$i - 1][1] ?? null) && '(' === ($tokens[$i + 1][1] ?? null)
+                    && 'OwnerPredicate.php' !== basename($path)) {
+                    $callers[] = basename($path, '.php');
+                    break;
+                }
+            }
+        }
+        sort($callers);
+        self::assertGreaterThan(5, \count($callers), 'The scan found almost no caller, so it is not scanning.');
+        self::assertSame(self::HOLDS_MARKER_CALLERS, $callers,
+            'The classes calling OwnerPredicate::holdsMarker() are not exactly HOLDS_MARKER_CALLERS. Each caller is an act the owner '
+            .'marker decides; add it to OwnerPredicate\'s docblock enumeration AND to this pin, deliberately (SEC S-2, R-5).');
+    }
+
     #[Test]
     public function thereIsExactlyOneAnswerToWhetherTheCallerIsTheOwner(): void
     {

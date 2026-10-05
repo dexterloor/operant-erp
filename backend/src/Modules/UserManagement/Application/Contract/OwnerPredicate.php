@@ -27,16 +27,33 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  * - **Why the marker is not A1.1's refused "permission-set reading":** A1.1 refused exempting by SoD-1's controlled codes,
  *   which `purchasing_manager` holds. The marker is on no SoD row and `purchasing_manager` does not hold it, so it stays
  *   refused.
- * - **Granting `tenant_settings.edit` is appointing a co-owner** for every exemption this function decides: DSoD-1 on
- *   `purchase_order.approve` / `.cancel` (A1.1), A2.3's reverser ≠ recorder (`ReverseInvoicePayment`), and — when built —
- *   E-15b, E-15e and E-15g. The owner was told so (`-ruling.md` (c)). **Two more since, both B′-shaped (an invoice
- *   whose payment was ever reversed):** voiding it (`VoidInvoice`, sales step 6 C7, `invoice.is_not_payment_reversed`)
- *   and crediting it without a return (`IssueAdjustmentCreditNote`, sales step 7 C1b, design §4.4b (ii), the same
- *   code reused) — an owner-marker holder passes both.
+ * - **Granting `tenant_settings.edit` is appointing a co-owner** for every exemption this function decides (the owner was
+ *   told so, `-ruling.md` (c)). **The complete list of callers, re-derived by `git grep -nE "holdsMarker\("` over `src/`
+ *   (2026-10-05, G-29 / G-30 part 3) and pinned by `OwnerPredicateSingleSourceTest::HOLDS_MARKER_CALLERS`:**
+ *   - `PurchaseOrderDutySeparation` — DSoD-1 on `purchase_order.approve` / `.cancel` (A1.1);
+ *   - `InvoicePaymentReversal` — A2.3's reverser ≠ recorder (`ReverseInvoicePayment`);
+ *   - `InvoiceVoiding` — B′: voiding an invoice whose payment was ever reversed (`VoidInvoice`, sales step 6 C7,
+ *     `invoice.is_not_payment_reversed`);
+ *   - `CreditNoteWriter` — B′: crediting such an invoice without a return (`IssueAdjustmentCreditNote`, sales step 7 C1b,
+ *     design §4.4b (ii), the same code reused);
+ *   - `SalesReturnWriter` — Q-L (a′): who may record a pre-invoice return that `deducts`;
+ *   - `GrantConfirmationPolicy` — E-15e: an owner's grant of an `X(admin)` code needs no proposal (roles slice 3);
+ *   - `RoleGrantProposalConfirmation`, `RoleGrantProposalRejection` — E-15e: only an owner confirms or rejects a
+ *     proposal (roles slice 3 C2/C3; lock-time codes);
+ *   - `AdjustmentDecisionWriter` — **G-29 / G-30 part 3:** recording that returned goods are DIFFERENT from units an
+ *     adjustment already credited (`distinct`, owner ruling D1 (a)), and undoing any decision (the reversal, D2 (b));
+ *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
+ *     role" — not to the caller's exemption.)*
+ *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no
+ *   holder of `credit_note.issue` without the marker can ever perform them, so the marker is the only route — a
+ *   capability no catalogue entry names, invisible to anyone composing a role from `ListPermissions`.
  *
  * **A second copy of this predicate is a violation in every track**, and `OwnerPredicateSingleSourceTest` makes it
  * impossible rather than merely forbidden: no `OWNER_ROLE_NAME`, no SQL or PHP comparison of a role name to `'owner'`,
- * and `OwnerMarker::CODE` read only by the classes it allows. It grants nothing; it only decides an exemption.
+ * and `OwnerMarker::CODE` read only by the classes it allows. **It grants nothing on its own: E-1's code still gates
+ * every act it decides. For some acts (recording `distinct`, naming a pending return on the adjust path, and reversing a
+ * decision, from G-29/G-30 part 3) the refusal it exempts from is unconditional, so the marker is the only route.**
+ * (`SEC` S-2, R-5, 2026-10-05: the earlier sentence "it only decides an exemption" stayed true only by the letter.)
  */
 final class OwnerPredicate
 {

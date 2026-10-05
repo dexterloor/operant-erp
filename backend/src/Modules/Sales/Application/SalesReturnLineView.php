@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\Application;
 
+use Symfony\Component\Serializer\Attribute\Context;
 use Symfony\Component\Serializer\Attribute\SerializedName;
+use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 
 /**
  * One line of a sales return (design §4.2; §14 item 25): the shipped line it returns (Q-H), the item, the quantity
@@ -29,6 +31,23 @@ final readonly class SalesReturnLineView
         public SalesLocationRef $storageLocation,
         #[SerializedName('quantity_credited')]
         public string $quantityCredited,
+        /**
+         * G-29 / G-30 part 3 (design §5 (4)): the units of this line recorded as ALREADY CREDITED by an adjustment
+         * (live `same` decisions), numeric(19,6). Not `quantity_credited`, which stays what credit notes naming this line
+         * credited. **Absent — not null — for a caller without `invoice.view`** (M-4; PC-9's third exception).
+         */
+        #[SerializedName('quantity_covered_by_adjustment')]
+        #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
+        public ?string $quantityCoveredByAdjustment = null,
+        /**
+         * Every decision recorded on this line, oldest first, reversals included ({@see AdjustmentDecisionView}).
+         * **Absent for a caller without `invoice.view`.**
+         *
+         * @var list<AdjustmentDecisionView>|null
+         */
+        #[SerializedName('adjustment_decisions')]
+        #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
+        public ?array $adjustmentDecisions = null,
     ) {
     }
 }

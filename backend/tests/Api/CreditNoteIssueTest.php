@@ -72,7 +72,9 @@ final class CreditNoteIssueTest extends PurchaseOrderTestCase
         self::assertSame(['EUR', '12.5000'], [$body['currency_code'], $body['total_amount']]);
         self::assertSame(['id' => $issuer, 'display_name' => 'Fixture Actor'], $body['issued_by']);
         self::assertCount(1, $body['lines']);
-        self::assertSame(['id', 'fulfilment_line', 'inventory_item', 'quantity', 'amount'], array_keys($body['lines'][0]));
+        // G-29 / G-30 part 3 C1: `return_decisions` (an `invoice.view` holder's; `[]` on a return credit's line).
+        self::assertSame(['id', 'fulfilment_line', 'inventory_item', 'quantity', 'amount', 'return_decisions'], array_keys($body['lines'][0]));
+        self::assertSame([], $body['lines'][0]['return_decisions']);
         self::assertSame(['id', 'sales_order_line', 'inventory_item', 'quantity'], array_keys($body['lines'][0]['fulfilment_line']), 'Q-H money side: binless, with the shipped quantity.');
         self::assertSame(['1.000000', '12.5000', '2.000000'], [$body['lines'][0]['quantity'], $body['lines'][0]['amount'], $body['lines'][0]['fulfilment_line']['quantity']]);
 

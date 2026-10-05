@@ -241,6 +241,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         // Sales step 7 C1b, 2026-10-01. SHARES `IssueCreditNote`'s index (design §14 item 2): each writer's request
         // digest binds its own operation name, so one key reused across the two is a conflict, never a replay.
         'IssueAdjustmentCreditNote' => 'unique:credit_note_idem_unique',
+        // G-29 / G-30 part 3 C1, 2026-10-05: a header-sourced key on NULLABLE columns with a both-or-neither CHECK (the
+        // V2-R-12 form): the adjust path's `distinct` rows (C2) ride the credit note's key, several to a request. The
+        // unique is TOTAL (class none; NULLs never collide). The path's return and every declared field are digested.
+        'CreateAdjustmentDecision' => 'unique:adjustment_decision_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -354,8 +358,11 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-05 (roles slice 3 C3):** `RejectRoleGrantProposal` and `CancelRoleGrantProposal`
      * (`guard:role_grant_proposal.status`): 128 rows, 80 unmarked, 48 marked.
+     *
+     * **2026-10-05 (G-29 / G-30 part 3 C1):** `CreateAdjustmentDecision` (`unique:adjustment_decision_idem_unique`):
+     * 129 rows, 80 unmarked, 49 marked.
      */
-    private const PINNED_ROW_COUNT = 128;
+    private const PINNED_ROW_COUNT = 129;
 
     private const PINNED_UNMARKED_COUNT = 80;
 
@@ -406,6 +413,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateSalesReturn' => [IdempotencyKeyGuard::COLUMN],
         'IssueCreditNote' => [IdempotencyKeyGuard::COLUMN],
         'IssueAdjustmentCreditNote' => [IdempotencyKeyGuard::COLUMN],
+        'CreateAdjustmentDecision' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -483,6 +491,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         'IssueCreditNote',
         // Sales step 7 C1b, 2026-10-01. The same table and index as `IssueCreditNote`, the same ground.
         'IssueAdjustmentCreditNote',
+        // G-29 / G-30 part 3 C1, 2026-10-05. A decision row has no client-supplied business key at all.
+        'CreateAdjustmentDecision',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];

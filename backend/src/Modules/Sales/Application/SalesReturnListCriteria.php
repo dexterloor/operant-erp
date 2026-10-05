@@ -20,6 +20,12 @@ final readonly class SalesReturnListCriteria
         public ?bool $creditable = null,
         public ?bool $deducts = null,
         public ?bool $creditBlockedByPayment = null,
+        /** G-29 / G-30 part 3: the decision queue (`invoice.view` only; the provider refuses it otherwise). */
+        public ?bool $adjustmentDecisionOwed = null,
+        /** (s-iii): `adjustment_decided=same` — returns carrying a live `same` (`invoice.view` only). */
+        public bool $adjustmentDecidedSame = false,
+        /** (s-iii): `decided_since`, an RFC 3339 instant normalised to UTC; only with `adjustment_decided`. */
+        public ?string $decidedSince = null,
         public ?string $search = null,
         public ?Cursor $after = null,
         public ?Cursor $before = null,
