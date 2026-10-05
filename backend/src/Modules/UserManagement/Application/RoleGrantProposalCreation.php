@@ -158,7 +158,7 @@ final readonly class RoleGrantProposalCreation
         $expired = false === $pending ? null : (string) $pending['id'];
 
         // 9. Phase 4.
-        GrantRules::refuseConflict($em, $userId, $role);
+        GrantRules::refuseConflict(GrantRules::ROUTE_PROPOSE, $em, $userId, $role);
 
         // 10. Slot R: inverse routing, last.
         if (!GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes'])) {

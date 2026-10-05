@@ -12,12 +12,14 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * **The grant rules — ONE copy, as five ordered phases, shared by every route that can make or propose a grant**
- * (roles slice 3, C1; `docs/session13/roles-s3-design.md` §4.7, revised after RED H-1 and RED-3 M-1/L-2/L-3).
+ * (roles slice 3, C1; `docs/session13/roles-s3-design.md` §4.7, revised after RED H-1 and RED-3 M-1/L-2/L-3). Since C2
+ * every route calls the phases in order with its routing LAST (slot R): `AssignRole`, Create (inverse routing) and
+ * Confirm (routing not re-tested: the confirmer is an owner, checked under the lock).
  *
  * Confirmation re-runs every grant rule *"as if the confirmer were granting now"* (`SECURITY_MODEL.md` §5.2.4), and the
  * proposal route applies the same rules to the proposer. Two copies would be the design's first drift point — slice 2
- * extracted `RoleAdministrationActor` for the same reason. One call could not keep `AssignRole`'s order (routing sits
- * between E-15b and E-15c today, and Create needs its own step between C12 and PC-13), so the unit is five public phases,
+ * extracted `RoleAdministrationActor` for the same reason. One call could not keep `AssignRole`'s order (routing sat
+ * between E-15b and E-15c until C2, and Create needs its own step between C12 and PC-13), so the unit is five public phases,
  * each taking the grantor's lock-time codes and id, and **each route calls them in order and puts its own steps in named
  * slots** (the table in design §4.7):
  *
@@ -33,9 +35,11 @@ use Symfony\Component\Uid\Uuid;
  * (`GrantRoutingTest`; `RoleAssignTest::onlyAnOwnerGrantsARoleConferringTheMarker` for E-15b before routing).
  *
  * **One rule, one code (design D-5); one sentence per route where the shared sentence would be advice into a wall**
- * (RED R2-M1; `UX` `roles-s3-ux-copy.md` §1, §3): the route is a parameter, and only `actor_is_subject` and
- * `exceeds_actor_permissions` carry a per-route sentence in C1 (Create's #7 and #9). Every other sentence is the shipped
- * one, byte-identical on both routes. Confirm's sentences arrive with Confirm (C2).
+ * (RED R2-M1; `UX` `roles-s3-ux-copy.md` §1, §3, §4.1): the route is a parameter. `actor_is_subject` and
+ * `exceeds_actor_permissions` carry a per-route sentence (Create's #7 and #9 since C1; Confirm's #22 and #25 since C2),
+ * and since C2 `role_is_archived` does too (Confirm's #21) and PC-13's sentence takes its last clause by route (Confirm's
+ * #27 — `UX` flag F-2, ruled 2026-10-05: one map keyed by route constant, a missing entry throws). On `AssignRole` and
+ * Create every sentence is the shipped one, byte-identical.
  *
  * **Not here, deliberately:** routing (each route's own, in its own slot), the audit row (callers differ in `metadata`,
  * design §4.7), the lock and the actor re-check (`RoleAdministrationLock`, `RoleAdministrationActor`, always first).
@@ -52,19 +56,43 @@ final class GrantRules
     /** `CreateRoleGrantProposal`: the grantor proposes it, for an owner to confirm. */
     public const ROUTE_PROPOSE = 'propose';
 
+    /** `ConfirmRoleGrantProposal` (C2): an owner confirms a proposal, re-running every rule as if granting now (§5.2.4). */
+    public const ROUTE_CONFIRM = 'confirm';
+
     /**
-     * The sentences that differ by route (`UX`: slice-2 copy §3.11 for `AssignRole`, `roles-s3-ux-copy.md` §3 #7 and #9
-     * for Create), verbatim and pinned per route in each route's test.
+     * The sentences that differ by route (`UX`: slice-2 copy §3.11 for `AssignRole`, `roles-s3-ux-copy.md` §3 #6/#7/#9
+     * for Create, §4.1 #21/#22/#25 for Confirm at C2), verbatim and pinned per route in each route's test. Confirm's C2
+     * texts hold until C3, which moves their pins to the C3 texts (`UX` rule 4: Reject does not exist before C3).
      */
     private const PER_ROUTE = [
+        'user_role.role_is_archived' => [
+            self::ROUTE_ASSIGN => 'This role is archived, so it can\'t be given to anyone. Choose another role.',
+            self::ROUTE_PROPOSE => 'This role is archived, so it can\'t be given to anyone. Choose another role.',
+            // #21: "Choose another role" is a wall for a confirmer, who cannot change a proposal's role (R2-M1; F-2).
+            self::ROUTE_CONFIRM => 'This role is archived, so it can\'t be given to anyone, and this proposal can\'t be confirmed.',
+        ],
         'user_role.actor_is_subject' => [
             self::ROUTE_ASSIGN => 'Nobody can give themselves a role. Ask someone else who manages roles to do it.',
             self::ROUTE_PROPOSE => 'Nobody can propose a role for themselves. Ask someone else who manages roles to do it.',
+            self::ROUTE_CONFIRM => 'You can\'t confirm a role proposed for yourself. Another owner has to confirm it.',
         ],
         'user_role.exceeds_actor_permissions' => [
             self::ROUTE_ASSIGN => 'This role includes permissions you don\'t have yourself, so you can\'t give it to anyone. Ask an owner, or someone who holds all of its permissions.',
             self::ROUTE_PROPOSE => 'This role includes permissions you don\'t have yourself, so you can\'t propose it. Ask an owner, or someone who holds all of its permissions.',
+            self::ROUTE_CONFIRM => 'This role includes permissions you don\'t have yourself, so you can\'t confirm it. An owner who holds all of its permissions can.',
         ],
+    ];
+
+    /**
+     * PC-13's sentence ends with what the reader can do, by route (`UX` flag F-2, ruled 2026-10-05, #27): the granter and
+     * the proposer can choose another role or person — the shipped tail, so `AssignRole`'s and Create's sentences are
+     * byte-identical — and a confirmer cannot, so Confirm's tail only says the proposal can't be confirmed (C2; C3 adds
+     * "Reject it to close it."). A route with no entry throws, never a silent default.
+     */
+    private const SOD_TAILS = [
+        self::ROUTE_ASSIGN => RoleAssignment::SOD_SHIPPED_TAIL,
+        self::ROUTE_PROPOSE => RoleAssignment::SOD_SHIPPED_TAIL,
+        self::ROUTE_CONFIRM => 'This proposal can\'t be confirmed.',
     ];
 
     /**
@@ -111,7 +139,7 @@ final class GrantRules
             throw ApiProblem::businessRuleViolated('user_role.subject_is_inactive', 'This person\'s account is not active, so they can\'t be given a role.');
         }
         if (!$role['live']) {
-            throw ApiProblem::businessRuleViolated('user_role.role_is_archived', 'This role is archived, so it can\'t be given to anyone. Choose another role.');
+            throw self::refused('user_role.role_is_archived', $route);
         }
 
         if ($subjectId === Uuid::fromString($grantorId)->toRfc4122()) {
@@ -148,22 +176,24 @@ final class GrantRules
 
     /**
      * Phase 4 — PC-13 / E-18, "new conflict only" ({@see GrantConflict::newRows()}) over the subject's LIVE roles as they
-     * stand under the lock, naming each SoD row id in `UX`'s sentence, never the codes.
+     * stand under the lock, naming each SoD row id in `UX`'s sentence, never the codes; the sentence's last clause is the
+     * route's ({@see self::SOD_TAILS}).
      *
      * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
      */
-    public static function refuseConflict(EntityManagerInterface $em, string $subjectId, array $role): void
+    public static function refuseConflict(string $route, EntityManagerInterface $em, string $subjectId, array $role): void
     {
+        $tail = self::SOD_TAILS[$route] ?? throw new \LogicException(\sprintf('No separation-of-duty tail for route %s.', $route));
         $conflicts = GrantConflict::newRows(LiveGrantReader::codesHeldBy($em, $subjectId), $role['codes']);
         if ([] !== $conflicts) {
-            throw ApiProblem::businessRuleViolated('user_role.separation_of_duty', RoleAssignment::separationOfDutyMessage($role['name'], $conflicts));
+            throw ApiProblem::businessRuleViolated('user_role.separation_of_duty', RoleAssignment::separationOfDutyMessage($role['name'], $conflicts, $tail));
         }
     }
 
     /**
      * Phase 5 — `INSERT INTO user_role (id, tenant_id, user_id, role_id)`: exactly H1's four columns, the only ones
      * `erp_app` may insert (`Version20260930000100`); `inserted_by` is the database's `session_user`. The one statement
-     * every grant goes through (`AssignRole` now, confirmation at C2).
+     * every grant goes through (`AssignRole`, and confirmation since C2).
      */
     public static function insert(EntityManagerInterface $em, string $tenantId, string $subjectId, string $roleId): void
     {

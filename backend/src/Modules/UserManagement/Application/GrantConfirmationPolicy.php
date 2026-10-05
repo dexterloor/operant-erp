@@ -16,8 +16,9 @@ use App\Modules\UserManagement\Domain\AdministrativeCharter;
  * ```
  *
  * An owner grants anything directly. Anyone else may grant a role only while it meets no `X(admin)` code; a role that does
- * needs the owner's confirmation — a route that does not exist until the proposal slice (slice 3), so until then
- * `AssignRole` refuses with `user_role.needs_owner_confirmation` and names no route.
+ * needs the owner's confirmation. Through slice 2 that route did not exist, so `AssignRole` refused with
+ * `user_role.needs_owner_confirmation` and named no route; since roles slice 3 C2 (`ConfirmRoleGrantProposal`) the same
+ * code's sentence names the proposal route (`UX` `roles-s3-ux-copy.md` #28), and routing runs LAST on `AssignRole`.
  *
  * **No typed code list** (T4; V2-R-2 fails if `X(admin)` is typed): `X(admin)` is `AdministrativeCharter::excludedCodes()`,
  * derived from `SeparationOfDuty`, so A2.1a's `invoice.void` is already inside it and A2.1b's `credit_note.issue` will be

@@ -34,7 +34,10 @@ final class RoleAssignTest extends ApiTestCase
     private const COPY = [
         'user_role.actor_is_subject' => 'Nobody can give themselves a role. Ask someone else who manages roles to do it.',
         'user_role.marker_needs_owner' => 'Only an owner can give someone this role, because it makes them an owner.',
-        'user_role.needs_owner_confirmation' => 'Only an owner can give someone this role, because it includes permissions that only an owner can hand out. Ask an owner to give it.',
+        // Roles slice 3 C2 (`UX` `roles-s3-ux-copy.md` #28, ruled 2026-10-05, F-3): the route exists, so the sentence names
+        // it. Was the slice-2 "Only an owner can give someone this role, because it includes permissions that only an owner
+        // can hand out. Ask an owner to give it." — shipped wording changed, owner told.
+        'user_role.needs_owner_confirmation' => 'Giving someone this role needs an owner\'s confirmation. You can propose it instead; it takes effect only if an owner confirms it within 14 days.',
         'user_role.exceeds_actor_permissions' => 'This role includes permissions you don\'t have yourself, so you can\'t give it to anyone. Ask an owner, or someone who holds all of its permissions.',
         'user_role.subject_is_deleted' => 'This person has been removed from the workspace, so they can\'t be given a role.',
         'user_role.subject_is_inactive' => 'This person\'s account is not active, so they can\'t be given a role.',
@@ -186,6 +189,9 @@ final class RoleAssignTest extends ApiTestCase
      * `exceeds_actor_permissions` iff a composed role is outside the seat's set, else 201. Literal controls: `admin`+`buyer`
      * → 201; `admin`+`finance` → confirmation; `owner`+`finance` → 201; `admin`+`owner` → marker.
      * Mutations M2 (key on `role.assign`), M2b (key on the role name `owner`), M2c (delete the routing call) → red.
+     * **The oracle encodes the slice-2 order (routing before E-15c)** and is correct only over its own domain — fresh users
+     * and no composed role carrying an `X(admin)` code, where routing and E-15c never both fail. The routing-last order of
+     * roles slice 3 C2 is `GrantRoutingTest`'s, over the widened domain.
      */
     #[Test]
     public function assignRoleAdmitsExactlyTheGrantsNeedingNoConfirmation(): void
@@ -231,9 +237,35 @@ final class RoleAssignTest extends ApiTestCase
     }
 
     /**
+     * **Roles slice 3 C2 — the routing refusal names the proposal route, and is TRUE** (`UX` #28; design §5 change 1, F-8).
+     * `admin` granting `finance` to a fresh user is refused `needs_owner_confirmation` with #28's literal sentence — the
+     * first wire assertion of this sentence (the slice-2 entry in `COPY` was never asserted by any test) — and the proposal
+     * route it names then accepts the same grant (201). Mutation: the slice-2 sentence back → red on the literal.
+     */
+    #[Test]
+    public function aGrantNeedingConfirmationNamesTheProposalRouteAndThatRouteAcceptsIt(): void
+    {
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+
+        $this->grant($subject, $finance);
+        $this->assertRefused('user_role.needs_owner_confirmation');
+        self::assertSame(RoleAssignment::NEEDS_OWNER_CONFIRMATION, $this->json()['detail'] ?? null);
+        $members = array_keys($this->json());
+        sort($members);
+        self::assertSame(['detail', 'message', 'rule', 'status', 'title', 'type'], $members, 'The body grew a member: §5.2 fixes rule + message (D-2b).');
+        self::assertSame(0, $this->grantsOf($subject));
+
+        $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $finance], $this->key());
+        self::assertSame(201, $this->httpStatus(), 'The route the sentence names refused the same grant: '.$this->client()->getResponse()->getContent());
+    }
+
+    /**
      * **E-15c:** a composed role whose codes are not a subset of the actor's is refused; inside the set it is granted. The
-     * actor is a composed seat (for `admin` every code outside its set is `X(admin)`, so routing answers first). Mutation A1
-     * (drop E-15c) → the outside grant 201, red.
+     * actor is a composed seat (for `admin` every code outside its set is `X(admin)`; since roles slice 3 C2 routing runs
+     * LAST, so E-15c now answers first there too — `GrantRoutingTest`). Mutation A1 (drop E-15c) → the outside grant 201,
+     * red.
      */
     #[Test]
     public function aComposedRoleOutsideTheActorsSetCannotBeGranted(): void

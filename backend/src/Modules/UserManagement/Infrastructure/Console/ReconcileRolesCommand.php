@@ -61,6 +61,10 @@ final class ReconcileRolesCommand extends Command
                 // Arm A (H1): which login inserted the row, and whether that is an owner process rather than the application.
                 $line .= ','.$finding['inserted_by'].',owner_process_row='.(($finding['owner_process_row'] ?? false) ? 'yes' : 'no');
             }
+            if (\array_key_exists('proposal_id', $finding)) {
+                // Arm G (roles slice 3 C2): which proposal, and which of its cases.
+                $line .= ',proposal_id='.$finding['proposal_id'].',case='.($finding['case'] ?? '');
+            }
             if (RoleReconciliation::FINDING_NO_ACTIVE_OWNER === $finding['finding']) {
                 $line .= ' (attribution and recovery triage, not detection)';
             }

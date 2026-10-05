@@ -247,6 +247,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CancelPurchaseOrder' => 'guard:purchase_order.status',
         'ConfirmSalesOrder' => 'guard:sales_order.status',
         'CancelSalesOrder' => 'guard:sales_order.status',
+        // Roles slice 3 C2, 2026-10-05: a repeat finds the proposal no longer pending and `confirm()`'s guard refuses it.
+        'ConfirmRoleGrantProposal' => 'guard:role_grant_proposal.status',
         'PayInvoice' => 'guard:invoice.status',
         'VoidInvoice' => 'guard:invoice.status',
         // ⚠ **2026-09-14, owner ruling (OI-2).** Unbuilt. `paid → issued` is a
@@ -343,8 +345,11 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-04 (roles slice 3 C1):** `ListRoleGrantProposals` and `GetRoleGrantProposal` (`no`), and
      * `CreateRoleGrantProposal` (`unique:role_grant_proposal_pending_unique`): 125 rows, 80 unmarked, 45 marked.
+     *
+     * **2026-10-05 (roles slice 3 C2):** `ConfirmRoleGrantProposal` (`guard:role_grant_proposal.status`): 126 rows, 80
+     * unmarked, 46 marked.
      */
-    private const PINNED_ROW_COUNT = 125;
+    private const PINNED_ROW_COUNT = 126;
 
     private const PINNED_UNMARKED_COUNT = 80;
 

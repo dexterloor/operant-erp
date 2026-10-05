@@ -274,8 +274,11 @@ final class RequestContractTest extends PurchaseOrderTestCase
             // Roles slice 2, C2: `RevokeRole` binds a real user and a role THAT USER HOLDS, so the refusal is the planted
             // field's and not a 404's (design §12 item 8).
             'users' => $user = $this->seedPrincipal(self::TENANT_A, ['role.view']),
-            'users/roles' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'users/roles' => $userRole = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
                 'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$user])[0]['r'],
+            // Roles slice 3, C2: `ConfirmRoleGrantProposal` acts on a proposal. A real PENDING one (owner INSERT, for a
+            // second user, of the first user's role), so the refusal is the planted field's and not a 404's.
+            'role-grant-proposals' => $this->seedPendingProposalOf($userRole, $user),
         ];
 
         $segments = explode('/', $uriTemplate);
@@ -350,6 +353,19 @@ final class RequestContractTest extends PurchaseOrderTestCase
                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
               FROM sales_order so WHERE so.id = ?::uuid
             SQL, [$id, self::freshNumber('FUL'), (string) $this->actorId, $orderId]);
+
+        return $id;
+    }
+
+    /** A PENDING proposal of `$roleId` for a fresh user, proposed by `$proposerId` (owner INSERT; roles slice 3 C2). */
+    private function seedPendingProposalOf(string $roleId, string $proposerId): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+            SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+              FROM (SELECT clock_timestamp() AS t) c
+            SQL, [$id, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), $roleId, $proposerId]);
 
         return $id;
     }

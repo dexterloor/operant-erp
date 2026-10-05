@@ -41,6 +41,8 @@ final class RoleGrantProposalTest extends ApiTestCase
     public const PINNED_ROLE_GRANT_PROPOSAL_OPERATIONS = [
         'GetRoleGrantProposal' => ['method' => 'GET', 'path' => '/role-grant-proposals/{id}', 'idem' => false],
         'ListRoleGrantProposals' => ['method' => 'GET', 'path' => '/role-grant-proposals', 'idem' => false],
+        // Roles slice 3 C2: a `guard:` cell, so no header is demanded.
+        'ConfirmRoleGrantProposal' => ['method' => 'POST', 'path' => '/role-grant-proposals/{id}/confirmation', 'idem' => false],
     ];
 
     /** `UX` §3 (#4–#13), verbatim. */

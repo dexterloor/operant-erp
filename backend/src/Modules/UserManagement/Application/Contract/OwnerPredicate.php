@@ -18,6 +18,9 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *   `app_user`, live `role`, `user_role` and `role_permission` — so it runs **no SQL**, and the request is authorised
  *   (E-1) and exempted from ONE snapshot. A marker revoked mid-request still exempts that one request, exactly as the
  *   permission that authorised it still counts; nothing serialises a revocation against an approval in either version.
+ *   **Callers inside the role-administration lock pass `RoleAdministrationActor`'s lock-time codes instead (S-6)** —
+ *   `AssignRole`, `RevokeRole`, `ConfirmRoleGrantProposal` — so there a marker revoked while the request waited does NOT
+ *   exempt it; other callers pass the request's set (roles slice 3 C2; design §21 item 23, RED-5 L-3).
  * - **Why the marker and not a name:** a name is tenant-writable text. The name test failed both ways — a role merely
  *   NAMED `owner` with no codes was exempt, and a co-owner the owner composed under another name was not. Who can hold
  *   the marker is governed by rules written for exactly that (E-15b, §5.2.9, E-15f).
@@ -37,7 +40,10 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  */
 final class OwnerPredicate
 {
-    /** @param list<string> $liveCodes the permission codes E-1 enforced for this request (`Identity::$permissionCodes`) */
+    /**
+     * @param list<string> $liveCodes callers inside the role-administration lock pass `RoleAdministrationActor`'s lock-time
+     *                                codes (S-6); other callers pass the request's set (`Identity::$permissionCodes`)
+     */
     public static function holdsMarker(array $liveCodes): bool
     {
         return \in_array(OwnerMarker::CODE, $liveCodes, true);

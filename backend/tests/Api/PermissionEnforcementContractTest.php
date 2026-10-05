@@ -89,6 +89,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Roles slice 3, C1: E-15e's proposal route and its reads — `role.assign`, deliberately NOT `role.view`
         // (SECURITY_MODEL.md §5.2.3: a pending proposal is privilege history, and `viewer` holds `role.view`).
         'CreateRoleGrantProposal' => 'role.assign',
+        // Roles slice 3 C2: the bare code (Q-6 (c′)); the owner check is the handler's, under the lock, never this pin's.
+        'ConfirmRoleGrantProposal' => 'role.assign',
         'GetRoleGrantProposal' => 'role.assign',
         'ListRoleGrantProposals' => 'role.assign',
         'ListRoles' => 'role.view',

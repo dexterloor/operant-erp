@@ -100,6 +100,31 @@ trait RoleGrantFixtures
         return $id;
     }
 
+    /**
+     * A DECIDED proposal seeded by owner INSERT (never by UPDATE: a decided row is final), 400 hours old, decided an hour
+     * after its window closed — every shape CHECK satisfied for `$status`: `confirmed` / `rejected` / `cancelled` carry
+     * `$decider` (`cancelled` needs the proposer), `lapsed` carries `lapse_reason = 'expired'` and no decider (roles slice 3,
+     * C2: the status-guard sentences, `UX` F-1).
+     */
+    private function seedDecidedProposal(string $status, string $userId, string $roleId, string $proposerId, ?string $decider): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, status, proposed_by_user_id,
+                                             proposed_at, expires_at, decided_by_user_id, decided_at, lapse_reason)
+            SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["invoice.pay"]'::jsonb, ?, ?::uuid, c.t, c.t + interval '336 hours',
+                   ?::uuid, c.t + interval '337 hours', CASE WHEN ? = 'lapsed' THEN 'expired' END
+              FROM (SELECT clock_timestamp() - interval '400 hours' AS t) c
+            SQL, [$id, self::TENANT_A, $userId, $roleId, $status, $proposerId, $decider, $status]);
+
+        return $id;
+    }
+
+    private function confirm(string $proposalId): void
+    {
+        $this->send('POST', '/role-grant-proposals/'.$proposalId.'/confirmation');
+    }
+
     /** @return list<array<string, mixed>> */
     private function proposalRows(): array
     {

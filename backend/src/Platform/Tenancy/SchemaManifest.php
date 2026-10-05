@@ -376,12 +376,12 @@ final class SchemaManifest
             // Declared explicitly so erp_ai gets NOTHING (§5.2.2) -- TENANT_READ_DEFAULT would give it SELECT.
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             // INSERT: Create's one INSERT … SELECT, column for column (`status` excluded, so every inserted row is pending).
-            // UPDATE: Create's lapse-on-touch flush (lapse()). decided_by_user_id arrives with Confirm (C2), reason with
-            // Reject (C3). Never DELETE.
+            // UPDATE: Create's lapse-on-touch flush (lapse()), C1; decided_by_user_id with Confirm's flush (confirm()), C2
+            // (`Version20261005000100`); reason arrives with Reject (C3). Never DELETE.
             'column_grants' => [
                 DatabaseRoles::APP => [
                     'INSERT' => ['id', 'tenant_id', 'user_id', 'role_id', 'permission_codes', 'proposed_by_user_id', 'proposed_at', 'expires_at'],
-                    'UPDATE' => ['status', 'decided_at', 'lapse_reason', 'updated_at'],
+                    'UPDATE' => ['status', 'decided_at', 'lapse_reason', 'updated_at', 'decided_by_user_id'],
                 ],
             ],
         ],

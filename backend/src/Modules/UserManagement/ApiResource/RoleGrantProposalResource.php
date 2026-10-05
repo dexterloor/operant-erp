@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\ConfirmRoleGrantProposalProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleGrantProposalProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleGrantProposalProvider;
 use App\Modules\UserManagement\Application\RoleGrantProposalView;
@@ -17,7 +18,8 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * **A grant proposal — E-15e's pending grant of a role, waiting for an owner's confirmation** (roles slice 3, C1;
+ * **A grant proposal — E-15e's pending grant of a role, waiting for an owner's confirmation** (roles slice 3, C1; Confirm
+ * since C2;
  * `docs/session13/roles-s3-design.md` §3; `SECURITY_MODEL.md` §5.2).
  *
  * The shape is §4.4.3's `RoleGrantProposal` row, closed: `id`, `user = {id, display_name}`, `role = {id, name}`,
@@ -70,6 +72,29 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 PermissionGate::OPERATION_PERMISSION => 'role.assign',
                 // F-4: `{id}` addresses the USER whose privileges would change, not a role.
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['app_user', 'id'],
+            ],
+        ),
+        // Roles slice 3 C2 — API-21 branch 5: 200, the proposal in its NEW state (`confirmed`), no `Location`: the
+        // transition creates no row this resource serves, and the grant it makes is addressed by the client from fields in
+        // the body (`/users/{user.id}/roles/{role.id}`; design D-4 dropped `granted_role_uri`). §4.2's `Idem` cell is
+        // `guard:role_grant_proposal.status`: a replay meets a proposal that is no longer pending and is refused by
+        // `confirm()`'s guard, so no header is demanded (the `ConfirmSalesOrder` precedent). `input: false` +
+        // `deserialize: false`: §4.2 accepts no field, and a caller who sends one is told so (`BodylessWriteRefusal`).
+        // `read: false`: nothing is read before the role-administration lock. **Perm is the bare `role.assign` (Q-6 (c′),
+        // owner ruling 2026-10-01); the owner check is the handler's, under the lock, before the proposal is read.**
+        new Post(
+            uriTemplate: '/role-grant-proposals/{id}/confirmation',
+            name: 'ConfirmRoleGrantProposal',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'ConfirmRoleGrantProposal'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: ConfirmRoleGrantProposalProcessor::class,
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'role.assign',
+                // F-4: `{id}` addresses a proposal, not a role.
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['role_grant_proposal', 'id'],
             ],
         ),
     ],

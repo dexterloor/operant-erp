@@ -2790,7 +2790,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
         $role = $this->onlyRoleOf($subject);
         $grantable = $this->grantableRole();
-        $this->actAsRole(DefaultRoles::ADMIN);
+        // Roles slice 3 C2: a pending `finance` proposal for the subject by an `admin`, confirmed by an owner (the marker
+        // is the confirmer's, Q-6 (c′)); seeded before the recorder starts.
+        $proposal = 'ConfirmRoleGrantProposal' === $case
+            ? $this->seedPendingRoleProposal($subject, $this->systemRole(DefaultRoles::FINANCE), $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)))
+            : null;
+        $this->actAsRole('ConfirmRoleGrantProposal' === $case ? DefaultRoles::OWNER : DefaultRoles::ADMIN);
 
         $this->recorder()->start();
         match ($case) {
@@ -2802,6 +2807,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // E-15c does not judge a system role), so the grant needs an owner's confirmation and is proposed.
             'CreateRoleGrantProposal' => $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $this->systemRole(DefaultRoles::FINANCE)],
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            // Roles slice 3, C2: one transaction writes `user_role` (the grant) AND `role_grant_proposal` (the decision).
+            'ConfirmRoleGrantProposal' => $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation'),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -2821,6 +2828,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'RevokeRole' => ['RevokeRole', 204];
         yield 'AssignRole' => ['AssignRole', 201];
         yield 'CreateRoleGrantProposal' => ['CreateRoleGrantProposal', 201];
+        yield 'ConfirmRoleGrantProposal' => ['ConfirmRoleGrantProposal', 200];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3188,9 +3196,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
     /**
      * `GrantRules::insert()` is the one `INSERT INTO user_role` (roles slice 3 C1), and the scan derives IT as the writer.
-     * Its lock-first evidence is the `AssignRole` positional case, which holds only while every caller is a lock-first-
-     * checked path: so its callers under `src/` are exactly `RoleAssignment` (C2 adds `RoleGrantProposalConfirmation`,
-     * with its own positional case). Planted control: the caller scan finds a planted caller.
+     * Its lock-first evidence is the positional cases of the paths that reach it, which hold only while every caller is a
+     * lock-first-checked path: so its callers under `src/` are exactly `RoleAssignment` (`AssignRole`) and, since C2,
+     * `RoleGrantProposalConfirmation` (`ConfirmRoleGrantProposal`), each with its own positional case. Planted control:
+     * the caller scan finds a planted caller.
      */
     #[Test]
     public function grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths(): void
@@ -3217,9 +3226,180 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
         }
 
-        self::assertSame(['RoleAssignment'], $callersIn($sources),
-            'GrantRules::insert() has a caller other than RoleAssignment: give that path its own case in everyRoleWritePath() '
+        self::assertSame(['RoleAssignment', 'RoleGrantProposalConfirmation'], $callersIn($sources),
+            'GrantRules::insert() has a caller other than RoleAssignment and RoleGrantProposalConfirmation: give that path its own case in everyRoleWritePath() '
             .'(and its operation in ROLE_LOCK_FIRST_CHECKED) before it may write user_role.');
+    }
+
+    /**
+     * **The confirmation's demotion twins — one fixture, two revocations** (roles slice 3 C2; design §8, RED-5 M-3). The
+     * confirmer holds `role.assign` through composed role R1 and the owner marker through composed role R2 — never the
+     * built-in `owner` role, which holds both, so revoking it would stop at the `role.assign` re-check and never reach the
+     * owner check. While the confirmation waits on the role lock, the holder (a second owner's revocation, as `erp_app`)
+     * removes one of them:
+     *  - **twin A** removes R1 → the gate's 403, byte for byte, and exactly one denial row, naming the SAME pair a gate
+     *    denial of the same path names (`('role_grant_proposal', {id})`); nothing else written;
+     *  - **twin B** removes R2 → 409 `role_grant_proposal.decider_not_owner` and NO denial row (a 409, not a permission
+     *    refusal); nothing written.
+     * In both the proposal stays pending and the subject gains nothing. Mutation M2e (the owner check on the REQUEST's
+     * codes, not the lock-time ones) → twin B 200, red; A5 (the actor's codes from the request `Identity`) → twin A 200.
+     */
+    #[Test]
+    #[DataProvider('confirmationDemotionTwins')]
+    public function aConfirmerDemotedWhileWaitingCannotConfirm(string $twin): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $proposal = $this->seedPendingRoleProposal($subject, $finance, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $r1 = $this->composedRoleOf([...DefaultRoles::codesFor(DefaultRoles::FINANCE), 'role.assign', 'role.view']);
+        $r2 = $this->composedRoleOf([\App\Modules\UserManagement\Domain\OwnerMarker::CODE]);
+        $confirmer = $this->seedPrincipal(self::TENANT_A, []);
+        foreach ([$r1, $r2] as $role) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+                [self::TENANT_A, $confirmer, $role]);
+        }
+        $revoker = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $lost = 'A' === $twin ? $r1 : $r2;
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $confirmer);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$confirmer, $lost]],
+            [self::HOLDER_ROLE_REVOKED, [self::TENANT_A, $revoker, $confirmer, $lost]],
+        ], request: fn () => $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation'), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame([['status' => 'pending']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM role_grant_proposal WHERE id = ?::uuid', [$proposal]));
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]),
+            'The subject gained the role although the confirmation was refused.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_ASSIGNED]));
+
+        if ('B' === $twin) {
+            self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+            self::assertSame('role_grant_proposal.decider_not_owner', $this->json()['rule'] ?? null);
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::AUTHZ_PERMISSION_DENIED]),
+                'Twin B wrote a denial row; losing the marker is a 409, not a permission refusal.');
+
+            return;
+        }
+
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        [$lockTime] = $this->denialRows();
+        self::assertSame(['role_grant_proposal', $proposal], [$lockTime['subject_type'], $lockTime['subject_id']],
+            'The lock-time denial does not name the proposal the request addressed.');
+        $this->actAs(self::TENANT_A, []);
+        $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation');
+        self::assertSame(403, $this->httpStatus());
+        $gate = array_values(array_filter($this->denialRows(), fn (array $row): bool => $row['actor'] === $this->actorId));
+        self::assertCount(1, $gate);
+        self::assertSame([$gate[0]['subject_type'], $gate[0]['subject_id']], [$lockTime['subject_type'], $lockTime['subject_id']],
+            'A confirmation denial under the lock names a different (subject_type, subject_id) pair from the gate\'s denial of the same path.');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function confirmationDemotionTwins(): iterable
+    {
+        yield 'twin A: role.assign lost' => ['A'];
+        yield 'twin B: the owner marker lost' => ['B'];
+    }
+
+    /**
+     * **Confirm ∥ Confirm, the same proposal: one grant, one `role.assigned`, one refusal** (design §8; a supplement to the
+     * positional case). The holder, as `erp_app` under the role lock, confirms the proposal the way the API does — the
+     * decision columns, the `user_role` row, the event — and commits; the request, an owner confirming the same proposal,
+     * waits, re-reads it under the lock (`refresh()`), and is refused with the status sentence. Dropping the lock → two
+     * grants (`23505`, translated `already_held`) or a trigger refusal; dropping `refresh()` → the same.
+     */
+    #[Test]
+    public function twoConfirmationsOfOneProposalGrantOnce(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $proposal = $this->seedPendingRoleProposal($subject, $finance, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $first = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER)));
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ["UPDATE role_grant_proposal SET status = 'confirmed', decided_by_user_id = ?::uuid, decided_at = clock_timestamp(), updated_at = clock_timestamp() WHERE id = ?::uuid", [$first, $proposal]],
+            ['INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)', [self::TENANT_A, $subject, $finance]],
+            [str_replace("'role.revoked'", "'role.assigned'", self::HOLDER_ROLE_REVOKED), [self::TENANT_A, $first, $subject, $finance]],
+        ], request: fn () => $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation'), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role_grant_proposal.status_transition_is_legal', $this->json()['rule'] ?? null);
+        self::assertSame('This proposal has already been confirmed.', $this->json()['detail'] ?? null);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]), 'Not exactly one grant.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_ASSIGNED]));
+        self::assertSame([['decider' => $first]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT decided_by_user_id::text AS decider FROM role_grant_proposal WHERE id = ?::uuid', [$proposal]));
+    }
+
+    /**
+     * **Confirm ∥ `AssignRole`, a conflicting pair: exactly one lands** (design §8). The holder grants `sales_rep` (SoD-3's
+     * preparing half) to S under the role lock; the request — an owner confirming a `finance` proposal for S (SoD-3's
+     * controlled half) — waits, re-reads S's live roles under the lock (PC-13 "as it stands now"), and is refused
+     * `separation_of_duty` naming SoD-3 in the confirmer's words. S holds `sales_rep` alone; the proposal stays pending.
+     */
+    #[Test]
+    public function aConfirmationAndAConflictingGrantLeaveExactlyOne(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $proposal = $this->seedPendingRoleProposal($subject, $finance, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $granter = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER)));
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)', [self::TENANT_A, $subject, $salesRep]],
+            [str_replace("'role.revoked'", "'role.assigned'", self::HOLDER_ROLE_REVOKED), [self::TENANT_A, $granter, $subject, $salesRep]],
+        ], request: fn () => $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation'), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('user_role.separation_of_duty', $this->json()['rule'] ?? null);
+        self::assertStringEndsWith('(SoD-3). This proposal can\'t be confirmed.', (string) ($this->json()['detail'] ?? ''));
+        self::assertSame([['r' => $salesRep]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$subject]), 'Both conflicting grants landed.');
+        self::assertSame([['status' => 'pending']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM role_grant_proposal WHERE id = ?::uuid', [$proposal]));
+    }
+
+    /** A PENDING proposal, owner-INSERTed with the column-granted shape, its snapshot the role's live codes. */
+    private function seedPendingRoleProposal(string $userId, string $roleId, string $proposerId): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+            SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid,
+                   (SELECT jsonb_agg(rp.permission_code ORDER BY rp.permission_code) FROM role_permission rp WHERE rp.role_id = ?::uuid),
+                   ?::uuid, c.t, c.t + interval '336 hours'
+              FROM (SELECT clock_timestamp() AS t) c
+            SQL, [$id, self::TENANT_A, $userId, $roleId, $roleId, $proposerId]);
+
+        return $id;
+    }
+
+    /**
+     * A composed role (`is_system = false`) holding exactly `$codes`.
+     *
+     * @param list<string> $codes
+     */
+    private function composedRoleOf(array $codes): string
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+            [$role, self::TENANT_A, 'Composed '.substr($role, 0, 8)]);
+        foreach ($codes as $code) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                [self::TENANT_A, $role, $code]);
+        }
+
+        return $role;
     }
 
     /** A system role (`is_system = true`) holding `$name`'s default codes, as the seeded catalogue would. */
@@ -3314,6 +3494,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths` holds its callers to that path.
         'AssignRole' => 'GrantRules::insert',
         'CreateRoleGrantProposal' => 'RoleGrantProposalCreation::propose',
+        // Roles slice 3 C2: the confirmation's own transaction (its `confirm()` flush and the audit row); its `user_role`
+        // INSERT is `GrantRules::insert()`, reached after the lock (`grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths`).
+        'ConfirmRoleGrantProposal' => 'RoleGrantProposalConfirmation::confirm',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */

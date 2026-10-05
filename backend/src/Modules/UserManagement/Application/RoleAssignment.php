@@ -31,14 +31,19 @@ use Doctrine\ORM\EntityManagerInterface;
  *  4. **E-15a:** nobody grants themselves a role → 409 `user_role.actor_is_subject`.
  *  5. **E-15b / Q5:** a role conferring the owner marker is granted only by an actor holding it → 409
  *     `user_role.marker_needs_owner` — it takes NEITHER route (the proposal route refuses it too), so no route is named.
- *  6. **E-15e routing:** {@see GrantConfirmationPolicy} → 409 `user_role.needs_owner_confirmation`. Until slice 3 the refusal
- *     names no route; slice 3 adds the proposal route to the body without changing the code.
- *  7. **E-15c:** a composed role (`is_system = false`) whose codes are not a subset of the actor's → 409
+ *  6. **E-15c:** a composed role (`is_system = false`) whose codes are not a subset of the actor's → 409
  *     `user_role.exceeds_actor_permissions`.
- *  8. **C12:** already held → 409 `user_role.already_held` (a race loser against an out-of-band writer gets the same code
+ *  7. **C12:** already held → 409 `user_role.already_held` (a race loser against an out-of-band writer gets the same code
  *     from the translated `23505` on `user_role_unique`).
- *  9. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
+ *  8. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
  *     naming each SoD row id, never the codes.
+ *  9. **E-15e routing, LAST** (roles slice 3 C2; design §4.7 slot R, §5 change 3): {@see GrantConfirmationPolicy} → 409
+ *     `user_role.needs_owner_confirmation`, whose sentence **names the proposal route in the sentence; the body stays
+ *     `rule` + `message`** (`UX` `roles-s3-ux-copy.md` #28, ruled 2026-10-05 — it replaced the pre-written slice-2 §3.5
+ *     text, which promised a decision nothing delivers). Because routing is last, "you can propose it" is said only when
+ *     every rule the proposal route applies has already passed here; a request that fails routing AND E-15c, C12 or PC-13
+ *     gets that rule's refusal instead (each was `needs_owner_confirmation` until C2 — shipped behaviour changed, owner
+ *     told). *(Slice 2 ran routing at step 6, before E-15c, and named no route, because none existed.)*
  * 10. `INSERT INTO user_role (id, tenant_id, user_id, role_id)` — exactly H1's four columns, the only ones `erp_app` may
  *     insert (`Version20260930000100`); `inserted_by` is the database's `session_user`.
  * 11. `role.assigned`, subject the user, `{role_id}`, the request's IP, `clock_timestamp()`.
@@ -52,9 +57,9 @@ use Doctrine\ORM\EntityManagerInterface;
  * Every decision reads `LiveGrantReader` on the locked connection; every caller decision about the marker goes through
  * `OwnerPredicate::holdsMarker()` over that lock-time set. No PHP clock stamps or decides anything.
  *
- * **Roles slice 3, C1:** steps 3–5 and 7–10 are `GrantRules`' phases 1–5 — the one copy of the grant rules, shared with
- * `CreateRoleGrantProposal` now and with confirmation at C2 — called in the shipped order, with routing (step 6) in the
- * temporary slot S between phases 1 and 2. Behaviour unchanged; C2 moves routing last (design §4.7, §5 change 3).
+ * **Roles slice 3:** steps 3–8 and 10 are `GrantRules`' phases 1–5 — the one copy of the grant rules, shared with
+ * `CreateRoleGrantProposal` (C1) and `ConfirmRoleGrantProposal` (C2). C1 kept routing in the temporary slot S between
+ * phases 1 and 2 (behaviour unchanged); **C2 moved it to slot R, last before the insert** (design §4.7, §5 change 3).
  */
 final readonly class RoleAssignment
 {
@@ -75,6 +80,12 @@ final readonly class RoleAssignment
         'SoD-5' => 'record goods as returned and also credit the invoice for them',
     ];
 
+    /**
+     * The last clause of PC-13's sentence on the routes whose reader can act on it (`AssignRole`, Create): the shipped
+     * slice-2 text (`roles-s2-ux-copy.md` §3.10). Confirm's reader cannot, so its tail is its own (`GrantRules::SOD_TAILS`).
+     */
+    public const SOD_SHIPPED_TAIL = 'Choose another role or another person.';
+
     /** The unique index a concurrent out-of-band grant collides on (`Version20260906000100`). */
     private const UNIQUE_INDEX = 'user_role_unique';
 
@@ -87,6 +98,12 @@ final readonly class RoleAssignment
         private RoleReader $roles,
     ) {
     }
+
+    /**
+     * `UX` `roles-s3-ux-copy.md` #28 (ruled 2026-10-05, F-3), from roles slice 3 C2: the proposal route exists, so the
+     * refusal names it — and promises no decision, since nothing tells an owner a proposal is waiting (G-31).
+     */
+    public const NEEDS_OWNER_CONFIRMATION = 'Giving someone this role needs an owner\'s confirmation. You can propose it instead; it takes effect only if an owner confirms it within 14 days.';
 
     /**
      * @param array{0: ?string, 1: ?string} $denialSubject what `PermissionGate::denialSubjectOf()` resolves for this request
@@ -130,27 +147,25 @@ final readonly class RoleAssignment
             return $actorCodes;
         }
 
-        // 3.–9. The grant rules, as `GrantRules`' phases (roles slice 3, C1; design §4.7). **C1 keeps the shipped order:**
-        // routing sits in the temporary slot S, between phases 1 and 2, exactly where step 6 always stood — so no outcome
-        // moves and `RoleAssignTest` is byte-identical. C2 moves routing to slot R (last), with the slice-3 sentence.
+        // 3.–9. The grant rules, as `GrantRules`' phases (roles slice 3; design §4.7), routing LAST in slot R (C2).
         ['user_id' => $userId, 'subject' => $subject, 'role_id' => $roleId, 'role' => $role] = GrantRules::subjectAndRole($em, $userId, $roleId);
 
         // 3.–5. Phase 1: V2-R-6, E-15a, E-15b.
         GrantRules::refuseSubjectRoleAndMarker(GrantRules::ROUTE_ASSIGN, $subject, $role, $userId, $identity->userId, $actorCodes);
 
-        // 6. Slot S (C1 only): E-15e routing.
-        if (GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes'])) {
-            throw ApiProblem::businessRuleViolated('user_role.needs_owner_confirmation', 'Only an owner can give someone this role, because it includes permissions that only an owner can hand out. Ask an owner to give it.');
-        }
-
-        // 7. Phase 2: E-15c.
+        // 6. Phase 2: E-15c.
         GrantRules::refuseBeyondGrantor(GrantRules::ROUTE_ASSIGN, $role, $actorCodes);
 
-        // 8. Phase 3: C12.
+        // 7. Phase 3: C12.
         GrantRules::refuseAlreadyHeld($em, $userId, $roleId);
 
-        // 9. Phase 4: PC-13.
-        GrantRules::refuseConflict($em, $userId, $role);
+        // 8. Phase 4: PC-13.
+        GrantRules::refuseConflict(GrantRules::ROUTE_ASSIGN, $em, $userId, $role);
+
+        // 9. Slot R: E-15e routing, last (C2). The sentence names the proposal route (`UX` #28).
+        if (GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes'])) {
+            throw ApiProblem::businessRuleViolated('user_role.needs_owner_confirmation', self::NEEDS_OWNER_CONFIRMATION);
+        }
 
         // 10. Phase 5: the one INSERT.
         GrantRules::insert($em, $identity->tenantId, $userId, $roleId);
@@ -171,18 +186,19 @@ final readonly class RoleAssignment
 
     /**
      * `UX`'s sentence (`roles-s2-ux-copy.md` §3.10): the role by name, one clause per SoD row about the WORK (never a code),
-     * the row ids in brackets at the end.
+     * the row ids in brackets, then the route's tail. `$tail` defaults to the shipped one, so every slice-2 caller and pin
+     * is byte-identical; Confirm passes its own (`UX` flag F-2, ruled 2026-10-05; `GrantRules::SOD_TAILS`).
      *
      * @param list<string> $rows
      */
-    public static function separationOfDutyMessage(string $roleName, array $rows): string
+    public static function separationOfDutyMessage(string $roleName, array $rows, string $tail = self::SOD_SHIPPED_TAIL): string
     {
         $clauses = array_map(static fn (string $row): string => self::SOD_CLAUSES[$row] ?? throw new \LogicException(
             'SoD row '.$row.' has no sentence in RoleAssignment::SOD_CLAUSES.'), $rows);
         $last = array_pop($clauses);
         $joined = [] === $clauses ? (string) $last : implode(', ', $clauses).' and '.$last;
 
-        return \sprintf('%s can\'t be given to this person: with the roles they already have, one person could %s (%s). '
-            .'Choose another role or another person.', $roleName, $joined, implode(', ', $rows));
+        return \sprintf('%s can\'t be given to this person: with the roles they already have, one person could %s (%s). %s',
+            $roleName, $joined, implode(', ', $rows), $tail);
     }
 }

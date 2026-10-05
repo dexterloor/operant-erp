@@ -116,6 +116,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetRoleGrantProposal' => ['vars' => ['id' => 'proposal']],
         'ListRoleGrantProposals' => [],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
+        // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
+        // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
+        'ConfirmRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'confirmable_proposal'],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -435,6 +438,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $this->seedCreditNote('A');
             $this->seedCreditNote('B');
         }
+        if ('confirmable_proposal' === ($recipe['setup'] ?? null)) {
+            $this->seedConfirmableProposal(self::TENANT_A);
+            $this->seedConfirmableProposal(self::TENANT_B);
+        }
         if ('paid_invoice' === ($recipe['setup'] ?? null)) {
             $this->seedPaidInvoice('A', self::TENANT_A);
             $this->seedPaidInvoice('B', self::TENANT_B);
@@ -733,6 +740,20 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
      * An invoice issued through the operation, then marked paid AS THE OWNER by a second user of the same tenant, so
      * the tenant's own token may reverse it (C6: the reverser may not be the recorder).
      */
+    /**
+     * Roles slice 3 C2: the seeded proposal becomes confirmable — its proposer (`revoke_subject`) gains `role.assign` (C9)
+     * and the actor's fixture role gains the owner marker (Q-6 (c′)). In both tenants, so the mirror stays a mirror.
+     */
+    private function seedConfirmableProposal(string $tenantId): void
+    {
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO role_permission (id, tenant_id, role_id, permission_code)
+            SELECT gen_random_uuid(), r.tenant_id, r.id, c.code
+              FROM role r, (VALUES ('Revokable Role', 'role.assign'), ('Fixture Role', 'tenant_settings.edit')) c(name, code)
+             WHERE r.tenant_id = ?::uuid AND r.name = c.name
+            SQL, [$tenantId]);
+    }
+
     private function seedPaidInvoice(string $letter, string $tenantId): void
     {
         $this->seedInvoice($letter);

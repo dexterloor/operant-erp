@@ -53,6 +53,9 @@ use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
  * nobody would think to look at. **It is here because the day the first operation
  * calls `place()` is Output 9's, and its author has no reason to read §8.2:**
  * without this arm an entirely correct guard answers a legal request with a 500.
+ *
+ * `RoleGrantProposal`'s handlers rewrite this sentence for vocabulary only (UX F-1); the house choice of table + status
+ * in `detail` stands (`RoleGrantProposalStatusRefusal`, roles slice 3 C2).
  */
 #[AsEventListener(event: ExceptionEvent::class, priority: 0)]
 final readonly class FrameworkProblemTranslator

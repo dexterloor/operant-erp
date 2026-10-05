@@ -46,6 +46,7 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
      * owner's Q-6 ruling; a proposal write built without an entry here is red.
      */
     private const RULED_BY_NAME = [
+        'ConfirmRoleGrantProposal' => 'roles slice 3 C2 (`roles-s3-design.md` §3.2, §3.3, §4.3 step 12; API-21 branch 5; owner ruling Q-6 (c′), 2026-10-01): the 200 body is the proposal in its new state, GetRoleGrantProposal\'s shape, under role.assign — PC-16\'s gate, so its three references are served under the read\'s own code',
         'CreateRoleGrantProposal' => 'roles slice 3 C1 (`roles-s3-design.md` §3.2, §4.2 step 13; API-21 branch 4): the 201 body is the created proposal, GetRoleGrantProposal\'s shape, under role.assign, the read\'s own code (PC-16 condition 1)',
     ];
 

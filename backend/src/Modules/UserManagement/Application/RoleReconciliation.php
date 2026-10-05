@@ -28,6 +28,14 @@ use Symfony\Component\Uid\Uuid;
  *    `AuditEvent::ALL` member with the `role.` prefix, minus {@see self::ARM_C_EXCLUDED} (each entry with its reason;
  *    empty), bound as ONE array parameter into one literal statement — so E-15e's proposal events, and E-15f's future
  *    `role.permissions_changed`, are inside it with no edit here, and leaving one out is a recorded decision.
+ *  - **G — `proposal_outcome_unaccounted`** (roles slice 3; design §10 arm G, recommended and taken — `SEC` + `BE-LEAD`'s
+ *    call, not one of G-10's conditions). **C2 ships its confirmation half**, one statement, three cases printed with the
+ *    proposal id: `decision_event_missing` — a `confirmed` proposal with no `role.assigned` carrying its
+ *    `RoleEventMetadata::PROPOSAL_ID` (i); `event_names_unconfirmed_proposal` — a `role.assigned` carrying a proposal id
+ *    whose proposal is absent or not `confirmed` (ii); `decider_differs` — a confirmed proposal whose
+ *    `decided_by_user_id` is not the actor of its `role.assigned` (iii, a relabelled decider). It catches a careless or
+ *    bypassing writer of proposal status — `erp_app` may UPDATE `status` — and, like every arm, proves nothing against a
+ *    forger who also writes the event (G-10). C3 adds the rejected / cancelled / lapsed half of (i) and (iv).
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
@@ -55,6 +63,8 @@ final readonly class RoleReconciliation
     public const FINDING_UNACCOUNTED_GRANT = 'unaccounted_grant';
 
     public const FINDING_EVENT_WITHOUT_ROLE_KEY = 'event_without_role_key';
+
+    public const FINDING_PROPOSAL_OUTCOME_UNACCOUNTED = 'proposal_outcome_unaccounted';
 
     public const CADENCE = 'An empty result means no careless writer, never no forgery; this runs only when invoked.';
 
@@ -108,6 +118,37 @@ final readonly class RoleReconciliation
         SQL;
 
     /**
+     * Arm G, the confirmation half (C2). Binds: the role key, the proposal key, `role.assigned`, the proposal key. Names
+     * `role_grant_proposal` and `audit_log` only — never `user_role` (T2: no statement naming grants names proposals).
+     */
+    private const ARM_G = <<<'SQL'
+        WITH t AS (
+            SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid AS id
+        ),
+        ev AS (
+            SELECT a.subject_id, a.actor_user_id, a.occurred_at, a.metadata->>? AS role_id_text, a.metadata->>? AS proposal_id_text
+              FROM audit_log a JOIN t ON a.tenant_id = t.id
+             WHERE a.event_type = ? AND (a.metadata->>?) IS NOT NULL
+        ),
+        p AS (
+            SELECT rgp.id, rgp.user_id, rgp.role_id, rgp.status, rgp.decided_by_user_id, rgp.decided_at
+              FROM role_grant_proposal rgp JOIN t ON rgp.tenant_id = t.id
+        )
+        SELECT 'decision_event_missing' AS kind, p.id::text AS proposal_id, p.user_id::text AS user_id, p.role_id::text AS role_id, p.decided_at::text AS at
+          FROM p
+         WHERE p.status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM ev WHERE ev.proposal_id_text = p.id::text)
+        UNION ALL
+        SELECT 'event_names_unconfirmed_proposal', ev.proposal_id_text, ev.subject_id::text, ev.role_id_text, ev.occurred_at::text
+          FROM ev
+         WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.id::text = ev.proposal_id_text AND p.status = 'confirmed')
+        UNION ALL
+        SELECT 'decider_differs', p.id::text, p.user_id::text, p.role_id::text, p.decided_at::text
+          FROM p JOIN ev ON ev.proposal_id_text = p.id::text
+         WHERE p.status = 'confirmed' AND ev.actor_user_id IS DISTINCT FROM p.decided_by_user_id
+         ORDER BY 1, 5, 2
+        SQL;
+
+    /**
      * `role.*` events arm C deliberately does not read, each with its reason. **Empty**: every `role.*` event carries
      * `RoleEventMetadata::ROLE_ID` (`RoleAuditWriter` writes it first on every row).
      *
@@ -120,7 +161,7 @@ final readonly class RoleReconciliation
     }
 
     /**
-     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool}>}
+     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string}>}
      */
     public function run(string $tenantId): array
     {
@@ -172,6 +213,17 @@ final readonly class RoleReconciliation
                 'at' => (string) $row['at'],
             ], $connection->fetchAllAssociative(self::ARM_C, [
                 '{'.implode(',', self::armCEvents()).'}', RoleEventMetadata::ROLE_ID,
+            ]))];
+
+            $findings = [...$findings, ...array_map(static fn (array $row): array => [
+                'finding' => self::FINDING_PROPOSAL_OUTCOME_UNACCOUNTED,
+                'user_id' => (string) $row['user_id'],
+                'role_id' => null === $row['role_id'] ? null : (string) $row['role_id'],
+                'at' => null === $row['at'] ? null : (string) $row['at'],
+                'proposal_id' => (string) $row['proposal_id'],
+                'case' => (string) $row['kind'],
+            ], $connection->fetchAllAssociative(self::ARM_G, [
+                RoleEventMetadata::ROLE_ID, RoleEventMetadata::PROPOSAL_ID, AuditEvent::ROLE_ASSIGNED, RoleEventMetadata::PROPOSAL_ID,
             ]))];
 
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {

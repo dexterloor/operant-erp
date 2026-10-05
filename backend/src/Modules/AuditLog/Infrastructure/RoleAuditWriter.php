@@ -14,15 +14,16 @@ use Symfony\Component\Uid\Uuid;
  * **E-15 — a change to a user's roles writes exactly one `role.*` row, in the transaction that made it** (roles slice 2;
  * `docs/session13/roles-s2-design.md` §4.5; `API.md` §9.2's `ROLE_ASSIGNED` / `ROLE_REVOKED` row).
  *
- * `role.revoked` (C2), `role.assigned` (C3), and E-15e's `role.assignment_proposed` / `role.assignment_lapsed` (roles
- * slice 3, C1). All are **security** events (`AuditEvent::SECURITY`): read only
+ * `role.revoked` (C2), `role.assigned` (C3; and from a confirmation, roles slice 3 C2), and E-15e's
+ * `role.assignment_proposed` / `role.assignment_lapsed` (roles slice 3, C1). All are **security** events (`AuditEvent::SECURITY`): read only
  * through `audit_log.view`, and they carry the request's IP (E-3's field; `audit_log_ip_address_scope` admits one for
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
  *  - **Subject:** `('app_user', <the user whose privileges changed>)`, read off `AuditEvent::SUBJECT_TYPES`.
  *  - **`metadata` always carries `RoleEventMetadata::ROLE_ID`** — the key the reconciliation reads (G-10 condition (1),
  *    A-7) — and, for the proposal events (roles slice 3, C1; `SECURITY_MODEL.md` §5.2.8), the further id keys
- *    `PROPOSAL_ID`, `SUPERSEDES_PROPOSAL_ID` and the `LAPSE_REASON` enum value. The map is built in PHP from
+ *    `PROPOSAL_ID`, `SUPERSEDES_PROPOSAL_ID`, `PROPOSED_BY_USER_ID` (a confirmation's `role.assigned`, C2) and the
+ *    `LAPSE_REASON` enum value. The map is built in PHP from
  *    `RoleEventMetadata` constants and bound as ONE `?::jsonb` parameter, never interpolated; one private statement
  *    still writes every `role.*` row (design §2 F-6), so the rows cannot drift apart in shape. Nothing else is copied:
  *    the role's name and codes are the role row's, and PC-15 condition 6 / PC-16 condition 3 forbid display data.
@@ -43,6 +44,20 @@ final readonly class RoleAuditWriter
     public function recordAssigned(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress): void
     {
         $this->record(AuditEvent::ROLE_ASSIGNED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress);
+    }
+
+    /**
+     * `role.assigned` written by a CONFIRMATION — `ConfirmRoleGrantProposal` (roles slice 3, C2), after its `INSERT`, in the
+     * same locked transaction. The actor is the confirmer, the granter of record; `metadata` adds the proposal and its
+     * proposer (Q1 of the E-15e ruling; `SECURITY_MODEL.md` §5.2.8). The same event as a direct grant, so arms A and B pair
+     * it with the `user_role` row through {@see RoleEventMetadata::ROLE_ID} exactly as they pair `AssignRole`'s.
+     */
+    public function recordAssignedByConfirmation(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, string $proposalId, string $proposedByUserId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_ASSIGNED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress, [
+            RoleEventMetadata::PROPOSAL_ID => $proposalId,
+            RoleEventMetadata::PROPOSED_BY_USER_ID => $proposedByUserId,
+        ]);
     }
 
     /** `role.revoked` — `RevokeRole` (C2), after its `DELETE`, in the same locked transaction. */

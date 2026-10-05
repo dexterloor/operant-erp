@@ -669,6 +669,42 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the grant proposals'];
             }],
+            // Roles slice 3, C2: a pending proposal of a composed X(admin) role (`invoice.pay`, `role.view`, both held by the
+            // actor, so E-15c passes) for a user holding nothing, by a proposer who still holds `role.assign` (C9). The
+            // actor holds every declared code and never the marker (no built operation declares it), so — Q-6 (c′) — the
+            // request step makes it an owner for this one request and takes the marker back afterwards: every other
+            // recipe, before and after, still runs as a non-owner (`CreateRoleGrantProposal`'s needs exactly that).
+            'ConfirmRoleGrantProposal' => [function (): array {
+                $proposal = Uuid::v4()->toRfc4122();
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Proposal '.substr($role, 0, 8)]);
+                foreach (['invoice.pay', 'role.view'] as $code) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A,
+                        'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                        [self::TENANT_A, $role, $code]);
+                }
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+                    SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["invoice.pay", "role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+                      FROM (SELECT clock_timestamp() AS t) c
+                    SQL, [$proposal, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), $role, $this->seedPrincipal(self::TENANT_A, ['role.assign'])]);
+
+                return ['proposal' => $proposal];
+            }, function (array $c): array {
+                $marker = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_permission (id, tenant_id, role_id, permission_code)
+                    SELECT ?::uuid, ur.tenant_id, ur.role_id, 'tenant_settings.edit' FROM user_role ur WHERE ur.user_id = ?::uuid LIMIT 1
+                    SQL, [$marker, $this->actorId]);
+                try {
+                    $this->send('POST', '/role-grant-proposals/'.$c['proposal'].'/confirmation');
+                } finally {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, 'DELETE FROM role_permission WHERE id = ?::uuid', [$marker]);
+                }
+
+                return [200, 'confirm a grant proposal'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

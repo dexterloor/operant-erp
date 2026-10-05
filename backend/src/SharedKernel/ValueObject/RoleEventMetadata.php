@@ -31,6 +31,12 @@ final class RoleEventMetadata
     /** On a `role.assignment_proposed` that lapsed an expired same-pair proposal: the lapsed proposal's id. */
     public const SUPERSEDES_PROPOSAL_ID = 'supersedes_proposal_id';
 
+    /**
+     * On a `role.assigned` written by a confirmation (roles slice 3, C2; Q1 of the E-15e ruling, §5.2.8), beside
+     * {@see self::PROPOSAL_ID}: who proposed the grant. The row's actor is the confirmer, the granter of record.
+     */
+    public const PROPOSED_BY_USER_ID = 'proposed_by_user_id';
+
     /** On `role.assignment_lapsed`: `expired` | `subject_removed` | `proposer_removed`. */
     public const LAPSE_REASON = 'lapse_reason';
 
