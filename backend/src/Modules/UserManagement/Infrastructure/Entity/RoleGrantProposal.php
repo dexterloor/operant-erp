@@ -1,0 +1,203 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\UserManagement\Infrastructure\Entity;
+
+use App\Platform\Domain\GuardsStatusTransitions;
+use App\Platform\Persistence\Type\TimestampTzMicrosecondsImmutableType;
+use Doctrine\DBAL\Types\Types;
+use Doctrine\ORM\Mapping as ORM;
+use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Uid\Uuid;
+
+/**
+ * **A proposed grant of a role — E-15e's pending state, outside `user_role`, so it confers nothing by construction**
+ * (roles slice 3, C1; `docs/session13/roles-s3-design.md` §6; `SECURITY_MODEL.md` §5.2.2; DDL reviewed by `DATA`,
+ * `roles-s3-data.md`).
+ *
+ * **Never persisted new.** Rows come from `RoleGrantProposalCreation`'s one DBAL `INSERT … SELECT`, which names exactly
+ * the eight column-granted columns, so `status` takes `DEFAULT 'pending'` and `proposed_at` / `expires_at` come from one
+ * post-lock `clock_timestamp()` (S-11). The ORM only ever UPDATEs a loaded row through the four transitions below, and
+ * nothing here writes `permission_codes`, `user_id`, `role_id`, `proposed_by_user_id`, `proposed_at` or `expires_at`
+ * after insert — the column grant makes that a database fact (`erp_app` may UPDATE only the decision columns).
+ *
+ * **Four transitions, all present from C1** (`TransitionGuardTest` clause (b): every `STATUS_*` reachable by a declared
+ * method), whose callers arrive over C1–C3: `lapse()` (C1, Create's lapse-on-touch), `confirm()` (C2), `reject()`,
+ * `cancel()` (C3). Each FIRST refuses anything but `pending`, then sets `status`, `decidedAt` and `updatedAt` from the
+ * SAME `$at` — the post-lock database instant (S-11) — and the decider where a human decides. **Transitions read status
+ * only** (RED R2-M5): confirmer ≠ proposer, canceller = proposer, E-15a and the `reason` length are the handlers' rules
+ * (and CHECKs), never these methods'.
+ *
+ * `decided_at` is written at MICROSECOND precision (`DATA` §2): `role_grant_proposal_decided_not_before_proposed`
+ * compares it with `proposed_at`, which the database writes with microseconds, and the default type drops the fraction —
+ * a decision in the proposal's own second would land before it (`Invoice::$paidAt`'s precedent).
+ *
+ * The four associations are single-column `ManyToOne`s — never a composite association (the composite FKs are database
+ * constraints; `DoctrineMappingTest`). Handlers read the subject and the role by id through DBAL, never through these
+ * proxies: `SoftDeleteFilter` is on for soft tables (RED L-2).
+ */
+#[ORM\Entity]
+#[ORM\Table(name: 'role_grant_proposal')]
+#[ORM\UniqueConstraint(name: 'role_grant_proposal_tenant_id_id_key', columns: ['tenant_id', 'id'])]
+// One pending proposal per (user, role). The `where` is the catalogue's normalised spelling (M-3).
+#[ORM\UniqueConstraint(name: 'role_grant_proposal_pending_unique', columns: ['tenant_id', 'user_id', 'role_id'], options: ['where' => "(status = 'pending'::text)"])]
+#[ORM\Index(name: 'role_grant_proposal_pending_by_role', columns: ['tenant_id', 'role_id'], options: ['where' => "(status = 'pending'::text)"])]
+// ListRoleGrantProposals' keyset, newest first, scanned backwards (no DESC: `SCHEMA.md` §9).
+#[ORM\Index(name: 'role_grant_proposal_tenant_proposed', columns: ['tenant_id', 'proposed_at', 'id'])]
+class RoleGrantProposal
+{
+    use GuardsStatusTransitions;
+
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_CONFIRMED = 'confirmed';
+    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_CANCELLED = 'cancelled';
+    public const STATUS_LAPSED = 'lapsed';
+
+    #[ORM\Id]
+    #[ORM\Column(type: UuidType::NAME)]
+    private Uuid $id;
+
+    /** An ordinary mapped field (A1.6), shared with no association below. */
+    #[ORM\Column(name: 'tenant_id', type: UuidType::NAME)]
+    private Uuid $tenantId;
+
+    /** The subject: the person who would be given the role (named `user_id` for `pathBoundColumns()`, response R-7). */
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'user_id', referencedColumnName: 'id', nullable: false)]
+    private AppUser $user;
+
+    #[ORM\ManyToOne(targetEntity: Role::class)]
+    #[ORM\JoinColumn(name: 'role_id', referencedColumnName: 'id', nullable: false)]
+    private Role $role;
+
+    /**
+     * The role's live codes at proposal time, sorted (C14's snapshot). Compared as a SET at confirmation, both sides
+     * decoded and sorted in PHP (RED L-6; `DATA` D-5: the local cluster cannot reveal a collation bug).
+     *
+     * @var list<string>
+     */
+    #[ORM\Column(name: 'permission_codes', type: Types::JSON, options: ['jsonb' => true])]
+    private array $permissionCodes = [];
+
+    #[ORM\Column(type: Types::TEXT, options: ['default' => 'pending'])]
+    private string $status = self::STATUS_PENDING;
+
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'proposed_by_user_id', referencedColumnName: 'id', nullable: false)]
+    private AppUser $proposedBy;
+
+    #[ORM\Column(name: 'proposed_at', type: Types::DATETIMETZ_IMMUTABLE, insertable: false, updatable: false)]
+    private \DateTimeImmutable $proposedAt;
+
+    #[ORM\Column(name: 'expires_at', type: Types::DATETIMETZ_IMMUTABLE, insertable: false, updatable: false)]
+    private \DateTimeImmutable $expiresAt;
+
+    /** NULL on `pending` and `lapsed` (`role_grant_proposal_decider_iff_human`). Written by Confirm (C2), Reject, Cancel (C3). */
+    #[ORM\ManyToOne(targetEntity: AppUser::class)]
+    #[ORM\JoinColumn(name: 'decided_by_user_id', referencedColumnName: 'id', nullable: true)]
+    private ?AppUser $decidedBy = null;
+
+    #[ORM\Column(name: 'decided_at', type: TimestampTzMicrosecondsImmutableType::NAME, nullable: true)]
+    private ?\DateTimeImmutable $decidedAt = null;
+
+    /** Only on `rejected`, 1–500 characters (`role_grant_proposal_reason_only_on_reject`). */
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $reason = null;
+
+    /** `expired` | `subject_removed` | `proposer_removed`, exactly when `lapsed`. */
+    #[ORM\Column(name: 'lapse_reason', type: Types::TEXT, nullable: true)]
+    private ?string $lapseReason = null;
+
+    #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, insertable: false, updatable: false, options: ['default' => 'now()'])]
+    private \DateTimeImmutable $createdAt;
+
+    #[ORM\Column(name: 'updated_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
+    private \DateTimeImmutable $updatedAt;
+
+    /** Never constructed: rows are inserted by DBAL (see the class docblock). */
+    private function __construct()
+    {
+    }
+
+    public function getId(): Uuid
+    {
+        return $this->id;
+    }
+
+    public function getTenantId(): Uuid
+    {
+        return $this->tenantId;
+    }
+
+    public function getStatus(): string
+    {
+        return $this->status;
+    }
+
+    /** @return list<string> */
+    public function getPermissionCodes(): array
+    {
+        return $this->permissionCodes;
+    }
+
+    public function getExpiresAt(): \DateTimeImmutable
+    {
+        return $this->expiresAt;
+    }
+
+    public function getDecidedAt(): ?\DateTimeImmutable
+    {
+        return $this->decidedAt;
+    }
+
+    /** §8.3: `pending → confirmed`. The confirmer is the granter of record (Q1). Caller: Confirm (C2). */
+    public function confirm(\DateTimeImmutable $at, AppUser $by): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+
+        $this->status = self::STATUS_CONFIRMED;
+        $this->decidedBy = $by;
+        $this->decidedAt = $at;
+        $this->updatedAt = $at;
+    }
+
+    /** §8.3: `pending → rejected`, with an optional reason (the handler bounds it). Caller: Reject (C3). */
+    public function reject(\DateTimeImmutable $at, AppUser $by, ?string $reason): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+
+        $this->status = self::STATUS_REJECTED;
+        $this->decidedBy = $by;
+        $this->decidedAt = $at;
+        $this->updatedAt = $at;
+        $this->reason = $reason;
+    }
+
+    /** §8.3: `pending → cancelled` (the copy says "withdraw"). Caller: Cancel (C3). */
+    public function cancel(\DateTimeImmutable $at, AppUser $by): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+
+        $this->status = self::STATUS_CANCELLED;
+        $this->decidedBy = $by;
+        $this->decidedAt = $at;
+        $this->updatedAt = $at;
+    }
+
+    /**
+     * §8.3: `pending → lapsed`, no human decider. Writes exactly `status`, `decided_at`, `lapse_reason` and `updated_at` —
+     * the four C1 column grants (M-26: a fifth column in this changeset is a `42501`; fix the entity, never the grant).
+     * Callers: Create's lapse-on-touch (`expired`, C1); E-15g's paths later (`subject_removed`, `proposer_removed`).
+     */
+    public function lapse(string $reason, \DateTimeImmutable $at): void
+    {
+        $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+
+        $this->status = self::STATUS_LAPSED;
+        $this->lapseReason = $reason;
+        $this->decidedAt = $at;
+        $this->updatedAt = $at;
+    }
+}

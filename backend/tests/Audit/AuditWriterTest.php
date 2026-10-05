@@ -134,6 +134,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'data.export.completed',
         'role.assigned',
         'role.revoked',
+        // Roles slice 3 C1 (2026-10-04): E-15e's proposal events, SECURITY (`SECURITY_MODEL.md` §5.2.8), carrying the
+        // request's IP; `Version20261004000200` re-issues `audit_log_ip_address_scope` with both.
+        'role.assignment_proposed',
+        'role.assignment_lapsed',
     ];
 
     /**
@@ -367,6 +371,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $roleWriter->recordRevoked(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), ipAddress: self::PROBE_IP);
         // Roles slice 2, C3: `role.assigned`, the same SECURITY shape through the same private statement.
         $roleWriter->recordAssigned(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), ipAddress: self::PROBE_IP);
+        // Roles slice 3, C1: E-15e's proposal events, the same SECURITY shape through the same private statement.
+        $roleWriter->recordProposed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), supersedesProposalId: null, ipAddress: self::PROBE_IP);
+        $roleWriter->recordLapsed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), lapseReason: 'expired', ipAddress: self::PROBE_IP);
 
         $withIp = [];
         $written = [];

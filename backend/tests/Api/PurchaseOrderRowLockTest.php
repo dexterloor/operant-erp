@@ -18,6 +18,7 @@ use App\Modules\UserManagement\Application\RoleAdministrationLock;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Modules\UserManagement\Infrastructure\Entity\Role;
+use App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal;
 use App\Modules\UserManagement\Infrastructure\Entity\RolePermission;
 use App\Modules\UserManagement\Infrastructure\Entity\UserRole;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -2797,16 +2798,20 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // Roles slice 2, C3: a one-code composed role (`role.view`, inside `admin`'s set, no X(admin) code, no SoD row).
             'AssignRole' => $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $grantable],
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            // Roles slice 3, C1: `admin` proposes the SYSTEM `finance` role (it meets X(admin) through `invoice.pay`, and
+            // E-15c does not judge a system role), so the grant needs an owner's confirmation and is proposed.
+            'CreateRoleGrantProposal' => $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $this->systemRole(DefaultRoles::FINANCE)],
+                [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
 
         $writing = array_values(array_filter($this->transactionsRecorded(), static fn (array $statements): bool => [] !== preg_grep(
-            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+user_role\b/i', $statements,
+            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(?:user_role|role_grant_proposal)\b/i', $statements,
         )));
-        self::assertCount(1, $writing, 'Expected exactly one transaction writing user_role.');
+        self::assertCount(1, $writing, 'Expected exactly one transaction writing user_role or role_grant_proposal.');
         self::assertSame(RoleAdministrationLock::SQL, $writing[0][0] ?? null,
-            "The first statement of the transaction writing user_role is not the role-administration lock. Statements, in order:\n"
+            "The first statement of the transaction writing a role table is not the role-administration lock. Statements, in order:\n"
             .implode("\n", $writing[0]));
     }
 
@@ -2815,6 +2820,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     {
         yield 'RevokeRole' => ['RevokeRole', 204];
         yield 'AssignRole' => ['AssignRole', 201];
+        yield 'CreateRoleGrantProposal' => ['CreateRoleGrantProposal', 201];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3105,6 +3111,117 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_ASSIGNED]), 'Not exactly one grant happened.');
     }
 
+    /**
+     * **The proposal twin of the demotion race** (roles slice 3 C1; design §14 C1 "the Create demotion twin"). The holder
+     * removes the actor's only `role.assign`-conferring role; the waiting proposal is refused with the gate's 403, byte for
+     * byte; the refusal commits exactly one `audit_log` row (the denial), no `role.*` row and no proposal; and the lock-time
+     * row names the SAME pair (`('app_user', {id})`) a gate denial of the same path names. Mutation (the actor's codes from
+     * the request `Identity`) → 201, red.
+     */
+    #[Test]
+    public function anActorDemotedWhileWaitingCannotPropose(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $path = '/users/'.$subject.'/role-grant-proposals';
+        $body = ['role_id' => $this->systemRole(DefaultRoles::FINANCE)];
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $actor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('POST', $path, $body,
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'),
+            'The committed refusal wrote something besides its one denial row.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM role_grant_proposal'),
+            'A proposal was inserted although the actor had lost role.assign.');
+
+        [$lockTime] = $this->denialRows();
+        $this->actAs(self::TENANT_A, []);
+        $this->send('POST', $path, $body);
+        self::assertSame(403, $this->httpStatus());
+        $gate = array_values(array_filter($this->denialRows(), fn (array $row): bool => $row['actor'] === $this->actorId));
+        self::assertCount(1, $gate);
+        self::assertSame([$gate[0]['subject_type'], $gate[0]['subject_id']], [$lockTime['subject_type'], $lockTime['subject_id']],
+            'A proposal denial under the lock names a different (subject_type, subject_id) pair from the gate\'s denial of the same path.');
+        self::assertSame(['app_user', $subject], [$lockTime['subject_type'], $lockTime['subject_id']]);
+    }
+
+    /**
+     * **Create ∥ Create, the same pair: exactly one pending proposal** (design §8 races; a supplement to the positional
+     * case, never the evidence). The holder, as `erp_app` under the role lock, inserts a pending proposal for (S, finance)
+     * with the column-granted statement; the request — a second admin proposing the same pair — waits, reads the pair under
+     * the lock, and is refused 409 `role_grant_proposal.already_pending`. Dropping the lock (or the step-8 read) → `23505`
+     * translated to the same code, so the step's own assertion is the single row; the request writes no `role.*` row.
+     */
+    #[Test]
+    public function twoProposalsOfOnePairLeaveExactlyOnePending(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $finance = $this->systemRole(DefaultRoles::FINANCE);
+        $proposer = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            [<<<'SQL'
+                INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+                SELECT gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, '["invoice.pay"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+                  FROM (SELECT clock_timestamp() AS t) c
+                SQL, [self::TENANT_A, $subject, $finance, $proposer]],
+        ], request: fn () => $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $finance],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role_grant_proposal.already_pending', $this->json()['rule'] ?? null);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            "SELECT count(*) FROM role_grant_proposal WHERE status = 'pending'"), 'Not exactly one pending proposal for the pair.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type LIKE 'role.%'"),
+            'The refused proposal wrote a role.* row.');
+    }
+
+    /**
+     * `GrantRules::insert()` is the one `INSERT INTO user_role` (roles slice 3 C1), and the scan derives IT as the writer.
+     * Its lock-first evidence is the `AssignRole` positional case, which holds only while every caller is a lock-first-
+     * checked path: so its callers under `src/` are exactly `RoleAssignment` (C2 adds `RoleGrantProposalConfirmation`,
+     * with its own positional case). Planted control: the caller scan finds a planted caller.
+     */
+    #[Test]
+    public function grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths(): void
+    {
+        $callersIn = static function (array $sources): array {
+            $callers = [];
+            foreach ($sources as $file => $source) {
+                if (1 === preg_match('/\bGrantRules::insert\s*\(/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) $source))) {
+                    $callers[] = basename((string) $file, '.php');
+                }
+            }
+            sort($callers);
+
+            return $callers;
+        };
+
+        self::assertSame(['Planted'], $callersIn(['Planted.php' => '<?php GrantRules::insert($em, $t, $u, $r);', 'Comment.php' => '<?php // GrantRules::insert(']),
+            'The caller scan does not see a planted caller, or reads a comment as one.');
+
+        $sources = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(\dirname(__DIR__, 2).'/src', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file instanceof \SplFileInfo && 'php' === $file->getExtension() && 'GrantRules.php' !== $file->getFilename()) {
+                $sources[$file->getPathname()] = (string) file_get_contents($file->getPathname());
+            }
+        }
+
+        self::assertSame(['RoleAssignment'], $callersIn($sources),
+            'GrantRules::insert() has a caller other than RoleAssignment: give that path its own case in everyRoleWritePath() '
+            .'(and its operation in ROLE_LOCK_FIRST_CHECKED) before it may write user_role.');
+    }
+
     /** A system role (`is_system = true`) holding `$name`'s default codes, as the seeded catalogue would. */
     private function systemRole(string $name): string
     {
@@ -3182,14 +3299,21 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             '/\b(?:UPDATE\s+app_user\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b(?:is_active|deleted_at)\s*=|DELETE\s+FROM\s+app_user\b)/i',
             '/\b(?:UPDATE\s+[\w\\\\]*AppUser\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b\w+\.(?:isActive|deletedAt)\s*=|DELETE\s+FROM\s+[\w\\\\]*AppUser\b)/',
         ],
-        'entities' => [UserRole::class, RolePermission::class, Role::class],
+        // `RoleGrantProposal` joined at roles slice 3 C1 (design F-14): without it the proposal's transition flushes would be
+        // invisible to this derivation (spar S-1/S-2).
+        'entities' => [UserRole::class, RolePermission::class, Role::class, RoleGrantProposal::class],
         'mutator_only' => [AppUser::class => ['isActive', 'deletedAt']],
     ];
 
     /** `everyRoleWritePath()`'s case => the method it enters. */
     private const ROLE_LOCK_FIRST_CHECKED = [
         'RevokeRole' => 'RoleRevocation::revoke',
-        'AssignRole' => 'RoleAssignment::assign',
+        // Roles slice 3 C1: `AssignRole`'s one `INSERT INTO user_role` moved into `GrantRules::insert()` — the phase every
+        // grant goes through (design §4.7) — so that is the writer the scan derives. The AssignRole positional case is the
+        // path that reaches it, after the lock (`RoleAssignment::assign()` → `GrantRules::insert()`);
+        // `grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths` holds its callers to that path.
+        'AssignRole' => 'GrantRules::insert',
+        'CreateRoleGrantProposal' => 'RoleGrantProposalCreation::propose',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */

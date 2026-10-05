@@ -174,6 +174,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateRole' => 'unique:role_tenant_name_live',
         'CreateSupplierProduct' => 'unique:supplier_product_unique',
         'AssignRole' => 'unique:user_role_unique',
+        // Roles slice 3 C1, 2026-10-04: the natural pair on a STATUS-PARTIAL unique (one pending proposal per
+        // (user, role)), allowed by name in LIFECYCLE_PARTIALS. The header is demanded and unused, as `AssignRole`.
+        'CreateRoleGrantProposal' => 'unique:role_grant_proposal_pending_unique',
         // ⚠ **Step 5, 2026-09-11.** The only `unique:` whose client-supplied
         // value arrives as the `Idempotency-Key` HEADER rather than in the body.
         // `Version20260911000100` laid the column; see PINNED_HEADER_KEY.
@@ -337,10 +340,13 @@ final class IdempotencyContractTest extends TenancyTestCase
      * (`unique:credit_note_idem_unique`, shared with `IssueCreditNote`): 121 rows, 77 unmarked, 44 marked.
      *
      * **2026-10-02 (sales step 7 C2):** `ListCreditNotes` (`no`): 122 rows, 78 unmarked, 44 marked.
+     *
+     * **2026-10-04 (roles slice 3 C1):** `ListRoleGrantProposals` and `GetRoleGrantProposal` (`no`), and
+     * `CreateRoleGrantProposal` (`unique:role_grant_proposal_pending_unique`): 125 rows, 80 unmarked, 45 marked.
      */
-    private const PINNED_ROW_COUNT = 122;
+    private const PINNED_ROW_COUNT = 125;
 
-    private const PINNED_UNMARKED_COUNT = 78;
+    private const PINNED_UNMARKED_COUNT = 80;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —
@@ -376,6 +382,8 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateRole' => ['name'],
         'CreateSupplierProduct' => ['supplier_id', 'inventory_item_id'],
         'AssignRole' => ['user_id', 'role_id'],
+        // Roles slice 3 C1: `user_id` from the path's `/users/{id}` (pathBoundColumns, response R-7), `role_id` from the body.
+        'CreateRoleGrantProposal' => ['user_id', 'role_id'],
         // The header-sourced one. See PINNED_HEADER_KEY for why that is a
         // legitimate source and why it cannot be stretched into a general one.
         'CreatePurchaseOrder' => [IdempotencyKeyGuard::COLUMN],
@@ -508,6 +516,9 @@ final class IdempotencyContractTest extends TenancyTestCase
      */
     private const LIFECYCLE_PARTIALS = [
         'invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)",
+        // Roles slice 3 C1 (design F-10, R-7's by-name exception; `DATA` §1.4): one PENDING proposal per (user, role) on
+        // the class-`none` `role_grant_proposal`. The predicate is the catalogue's normalised spelling (M-3, measured).
+        'role_grant_proposal_pending_unique' => "(status = 'pending'::text)",
     ];
 
     private const UNDECIDABLE_CATEGORIES = [

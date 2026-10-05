@@ -53,9 +53,10 @@ final class RoleReadTest extends ApiTestCase
 
     /**
      * Flipped by the slice-3 migration that creates proposal storage, and never before: the tripwire is
-     * red in both directions (see {@see self::proposalStorageArmsTheInvisibilityTest()}).
+     * red in both directions (see {@see self::proposalStorageArmsTheInvisibilityTest()}). **Flipped 2026-10-04 by roles slice 3
+     * C1** (`Version20261004000100`, `role_grant_proposal`), with {@see self::aPendingProposalIsInvisibleToTheRoleReads()}.
      */
-    public const PROPOSAL_STORAGE_EXISTS = false;
+    public const PROPOSAL_STORAGE_EXISTS = true;
 
     /** A member name matching this is privilege history, which no role read may serve. */
     private const PRIVILEGE_HISTORY = '/pending|proposal|propos|decided/';
@@ -396,6 +397,53 @@ final class RoleReadTest extends ApiTestCase
             self::assertTrue(method_exists(self::class, 'aPendingProposalIsInvisibleToTheRoleReads'),
                 'Proposal storage exists and RoleReadTest::aPendingProposalIsInvisibleToTheRoleReads does not.');
         }
+    }
+
+    /**
+     * **IA §6.8 / PC-16 condition 1 — a pending proposal is invisible to every role read** (roles slice 3 C1; design §9
+     * item 3; the spec is `proposalStorageArmsTheInvisibilityTest`'s failure message). A PENDING proposal on role R for user
+     * U is seeded by owner INSERT; as a principal holding ONLY `role.view`, and again as a `role.assign` holder (R-10
+     * dropped the field for everyone), every role read is byte-identical before and after the insert, and `holder_count`
+     * does not move (a proposal confers nothing, SECURITY_MODEL §5.2.2). Mutation: add a `pending_*` member to `RoleView`
+     * (or join `role_grant_proposal` into `RoleReader`) → red.
+     */
+    #[Test]
+    public function aPendingProposalIsInvisibleToTheRoleReads(): void
+    {
+        $role = $this->seedRole(self::TENANT_A, 'Proposed', ['invoice.pay', 'role.view']);
+        $holder = $this->seedUser(self::TENANT_A);
+        $this->grant(self::TENANT_A, $holder, $role);
+        $subject = $this->seedUser(self::TENANT_A);
+        $readers = [
+            'role.view only' => $this->tokenFor(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, ['role.view'])),
+            'role.assign holder' => $this->tokenFor(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, ['role.view', 'role.assign'])),
+        ];
+
+        $read = function () use ($role, $readers): array {
+            $bodies = [];
+            foreach ($readers as $who => $token) {
+                foreach ($this->roleReadPaths($role) as $path) {
+                    $this->send('GET', $path, headers: ['Authorization' => 'Bearer '.$token]);
+                    self::assertSame(200, $this->httpStatus(), $who.' '.$path);
+                    $bodies[$who.' '.$path] = (string) $this->client()->getResponse()->getContent();
+                }
+            }
+
+            return $bodies;
+        };
+
+        $before = $read();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+            SELECT gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, '["invoice.pay", "role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+              FROM (SELECT clock_timestamp() AS t) c
+            SQL, [self::TENANT_A, $subject, $role, $holder]);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role_grant_proposal WHERE status = 'pending'"),
+            'Fixture: the pending proposal was not seeded.');
+
+        self::assertSame($before, $read(), 'A role read changed when a pending proposal was added: it serves privilege history.');
+        $this->send('GET', '/roles/'.$role, headers: ['Authorization' => 'Bearer '.$readers['role.view only']]);
+        self::assertSame(1, $this->json()['holder_count'], 'A pending proposal moved holder_count: it conferred the role.');
     }
 
     /**

@@ -21,7 +21,20 @@ final class RoleEventMetadata
 {
     public const ROLE_ID = 'role_id';
 
-    /** Not instantiable: one named key. */
+    /**
+     * Roles slice 3 (`SECURITY_MODEL.md` §5.2.8; design §2 F-6): the proposal events' further keys, ids and one enum value
+     * only — never a reason text, a display name or a code list (PC-16 condition 3). Every `role.*` row still carries
+     * {@see self::ROLE_ID}, so reconciliation arm C sees a key drift on any of them.
+     */
+    public const PROPOSAL_ID = 'proposal_id';
+
+    /** On a `role.assignment_proposed` that lapsed an expired same-pair proposal: the lapsed proposal's id. */
+    public const SUPERSEDES_PROPOSAL_ID = 'supersedes_proposal_id';
+
+    /** On `role.assignment_lapsed`: `expired` | `subject_removed` | `proposer_removed`. */
+    public const LAPSE_REASON = 'lapse_reason';
+
+    /** Not instantiable: named keys only. */
     private function __construct()
     {
     }

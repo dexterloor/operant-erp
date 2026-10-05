@@ -45,7 +45,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     // Sales step 7 C1: `IssueCreditNote` (nested under the invoice) and `GetCreditNote` (a credit note read under
     // `invoice.view` — the case the path-first derivation exists for).
     // Sales step 7 C1b: `IssueAdjustmentCreditNote`, nested under the invoice exactly as `IssueCreditNote` is.
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'RevokeRole'];
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'RevokeRole'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -69,6 +69,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      */
     private const PATH_TABLE_IS_NOT_THE_PERMISSIONS = [
         '/credit-notes/{}' => 'A credit note is money: read under invoice.view (owner ruling Q-B, sales step 7 C1), never a code of its own.',
+        '/role-grant-proposals/{}' => 'A pending grant is privilege history: read under role.assign (SECURITY_MODEL.md §5.2.3, never role.view, which viewer holds), never a code of its own (roles slice 3 C1; design F-4).',
     ];
 
     /**

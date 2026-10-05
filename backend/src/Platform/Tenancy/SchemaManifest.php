@@ -367,6 +367,24 @@ final class SchemaManifest
             // H1's limit (G-10): it tells an owner-process row from an erp_app row, never an API grant from a forged one.
             'column_grants' => [DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'user_id', 'role_id']]],
         ],
+        'role_grant_proposal' => [
+            'module' => 'Modules\\UserManagement',
+            'tenant' => true,
+            'deletion' => self::NONE,
+            'why' => 'E-15e\'s pending state (roles slice 3 C1, `Version20261004000100`; SECURITY_MODEL.md §5.2.2; DDL reviewed by DATA, docs/session13/roles-s3-data.md): a proposed grant lives here, never in user_role, so no permission reader can confer it. A record of a security decision, never removed; no retention_column (SEC-O-1 / F-18 refuse the key) and growth is unbounded by design, which is why the list pages. **Only the decision columns are ever updatable, and only once:** the column UPDATE grant names decision columns only (subject, role, proposer, expiry and the code snapshot are immutable to the application after insert), and the invoker-rights trigger `role_grant_proposal_decided_is_final` refuses ANY update of a row that is no longer pending, so SQL as erp_app cannot reopen or relabel a decision (it does not narrow G-10). **Disclosed residual (DATA §1.1), inside G-10\'s bound:** proposed_at and expires_at are in the INSERT grant with no default, because both must come from one post-lock clock_timestamp() (S-11) — so SQL as erp_app can insert a proposal with a chosen proposed_at, i.e. one that never expires or expires at once (the window CHECK ties expires_at to it). Not worse than G-10: erp_app can insert user_role directly.',
+            // ADR-002 A4.1 / RED M-3: exactly what C1's callers issue. SELECT: Get, List, Create's lock-time reads.
+            // Declared explicitly so erp_ai gets NOTHING (§5.2.2) -- TENANT_READ_DEFAULT would give it SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT']],
+            // INSERT: Create's one INSERT … SELECT, column for column (`status` excluded, so every inserted row is pending).
+            // UPDATE: Create's lapse-on-touch flush (lapse()). decided_by_user_id arrives with Confirm (C2), reason with
+            // Reject (C3). Never DELETE.
+            'column_grants' => [
+                DatabaseRoles::APP => [
+                    'INSERT' => ['id', 'tenant_id', 'user_id', 'role_id', 'permission_codes', 'proposed_by_user_id', 'proposed_at', 'expires_at'],
+                    'UPDATE' => ['status', 'decided_at', 'lapse_reason', 'updated_at'],
+                ],
+            ],
+        ],
 
         // ------------------------------------------------------------------
         // Modules\AuditLog

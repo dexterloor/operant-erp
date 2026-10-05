@@ -7,6 +7,7 @@ namespace App\Tests\Domain;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal;
 use App\Platform\Domain\IllegalTransition;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Support\ContractDocument;
@@ -175,6 +176,33 @@ final class TransitionGuardTest extends TestCase
             'to' => [Invoice::STATUS_VOID],
             'blocks' => [],
         ],
+        // Roles slice 3 C1, 2026-10-04 (`roles-s3-design.md` §6.2, RED R2-M5): all four transitions exist from C1, so every
+        // `STATUS_*` is reachable by a declared method at every commit; their callers arrive over C1–C3 (`lapse()` C1,
+        // `confirm()` C2, `reject()` and `cancel()` C3). Each reads status only — every actor rule is the handler's.
+        [
+            'entity' => RoleGrantProposal::class, 'method' => 'confirm',
+            'from' => [RoleGrantProposal::STATUS_PENDING],
+            'to' => [RoleGrantProposal::STATUS_CONFIRMED],
+            'blocks' => [],
+        ],
+        [
+            'entity' => RoleGrantProposal::class, 'method' => 'reject',
+            'from' => [RoleGrantProposal::STATUS_PENDING],
+            'to' => [RoleGrantProposal::STATUS_REJECTED],
+            'blocks' => [],
+        ],
+        [
+            'entity' => RoleGrantProposal::class, 'method' => 'cancel',
+            'from' => [RoleGrantProposal::STATUS_PENDING],
+            'to' => [RoleGrantProposal::STATUS_CANCELLED],
+            'blocks' => [],
+        ],
+        [
+            'entity' => RoleGrantProposal::class, 'method' => 'lapse',
+            'from' => [RoleGrantProposal::STATUS_PENDING],
+            'to' => [RoleGrantProposal::STATUS_LAPSED],
+            'blocks' => [],
+        ],
     ];
 
     /**
@@ -216,6 +244,7 @@ final class TransitionGuardTest extends TestCase
             // reaches both (sales step 5, commit 4). The sales side now owes nothing either.
         ],
         Invoice::class => [],
+        RoleGrantProposal::class => [],
     ];
 
     /**
@@ -261,7 +290,7 @@ final class TransitionGuardTest extends TestCase
      * `theStatusGuardRefusesBeforeAnyPreconditionDoes` accepted **any**
      * non-status refusal, so a value that tripped the wrong precondition passed.
      *
-     * @var array<string, array{satisfying: int|bool, refusing: int|bool|null, rule: ?string, why: string}>
+     * @var array<string, array{satisfying: int|bool|string|null, refusing: int|bool|string|null, rule: ?string, why: string}>
      */
     private const PRECONDITION_SCALARS = [
         PurchaseOrder::class.'::place($liveLineCount)' => [
@@ -300,6 +329,21 @@ final class TransitionGuardTest extends TestCase
                 .'-- it chooses between `partially_fulfilled` and `fulfilled`, it does not gate the transition -- so '
                 .'there is no refusing value to give it. What the flag decides is `FulfilmentCreateTest`\'s.',
         ],
+        RoleGrantProposal::class.'::lapse($reason)' => [
+            'satisfying' => 'expired',
+            'refusing' => null,
+            'rule' => null,
+            'why' => 'Roles slice 3 C1 (M-25: the register\'s value type widened to take a string): which of the three lapse reasons '
+                .'is recorded. The entity validates none of them (`role_grant_proposal_lapse_reason` is the CHECK; the caller '
+                .'passes a literal), so there is no refusing value — the transition reads status only (RED R2-M5).',
+        ],
+        RoleGrantProposal::class.'::reject($reason)' => [
+            'satisfying' => 'Not needed',
+            'refusing' => null,
+            'rule' => null,
+            'why' => 'Roles slice 3 C1: the rejecter\'s optional reason, a nullable type without a default (so required). Its 1–500 '
+                .'bound is the handler\'s (C3) and the CHECK\'s, never the entity\'s, so there is no refusing value.',
+        ],
         PurchaseOrder::class.'::recordReceipt($allLinesReceived)' => [
             'satisfying' => true,
             'refusing' => null,
@@ -327,6 +371,13 @@ final class TransitionGuardTest extends TestCase
      * @var array<string, string>
      */
     private const ENTITY_ARGUMENTS = [
+        RoleGrantProposal::class.'::confirm($by)' => 'Roles slice 3 C1: the confirmer is the granter of record (Q1) and '
+            .'`role_grant_proposal_decider_iff_human` makes the decision and its decider one write. The guard reads status '
+            .'only; confirmer ≠ proposer / subject are the handler\'s rules (C2) and CHECKs (RED R2-M5).',
+        RoleGrantProposal::class.'::reject($by)' => 'Roles slice 3 C1: the rejecter, set inside the transition for the same '
+            .'reason; rejecter ≠ proposer is the handler\'s rule (C3) and a CHECK.',
+        RoleGrantProposal::class.'::cancel($by)' => 'Roles slice 3 C1: the canceller, set inside the transition; canceller = '
+            .'proposer is the handler\'s rule (C3) and a CHECK.',
         Invoice::class.'::markPaid($paidBy)' => 'Sales step 6 C5: who recorded the payment is set inside the transition '
             .'that records it (`invoice_paid_by_matches_status`, two-way), never by a sibling setter a caller could skip. '
             .'The guard reads status only; the payer is the authenticated caller (`SEC` §2), decided by `InvoicePayment`.',

@@ -259,6 +259,34 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'ROLE-ENV', 'views' => ['']];
                 }];
             },
+            'ListRoleGrantProposals' => function (): array {
+                // Roles slice 3 C1. One subject, one role, one proposer: the newest row is PENDING and every earlier one
+                // LAPSED (one pending per (user, role); decided rows are INSERTed decided, never updated — the
+                // decided-is-final trigger), all seeded by owner INSERT. `user` and `role` hold every row; `status` is
+                // sent from its enum; no searchable column (TB-5 names none for proposals); one order, so one view.
+                $subject = $this->seedPrincipal(self::TENANT_A, []);
+                $proposer = $this->seedPrincipal(self::TENANT_A, ['role.assign']);
+                $role = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'PROPOSAL-ENV']);
+
+                return ['/role-grant-proposals', function (int $rows) use ($subject, $proposer, $role): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $pending = $i === $rows;
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id,
+                                                             proposed_at, expires_at, status, decided_at, lapse_reason)
+                            SELECT gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, '["invoice.pay"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours',
+                                   ?::text,
+                                   CASE WHEN ?::text = 'pending' THEN NULL ELSE c.t + interval '337 hours' END,
+                                   CASE WHEN ?::text = 'pending' THEN NULL ELSE 'expired' END
+                              FROM (SELECT clock_timestamp() - make_interval(hours => ?) AS t) c
+                            SQL, [self::TENANT_A, $subject, $role, $proposer, $status = $pending ? 'pending' : 'lapsed', $status, $status, $pending ? 0 : 400 + $rows - $i]);
+                    }
+
+                    return ['filter' => ['user' => $subject, 'role' => $role], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListInvoiceLines' => function (): array {
                 // Sales step 7 C0. An invoice (as the owner) on a LINE-LESS shipment, so the empty page is readable
                 // first; the seed step gives the shipment its lines, one order line each. Numbers from `-91xxxx` so

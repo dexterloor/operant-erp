@@ -79,6 +79,11 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-04 with `CreateRoleGrantProposal` in the tree (roles slice 3, C1): the three commands return
+  # **124 / 77 / 21** -- TWO edge lines added: `RoleGrantProposalCreation -> RoleAuditWriter` (A-5, the proposal events)
+  # and `RoleGrantProposalCreation -> Entity\RoleGrantProposal` (A-7, the lapse-on-touch status guard). `make deptrac`:
+  # **0 violations / 330 skipped / 2153 allowed**. `GrantRules` reaches nothing a layer forbids; the reader returns an
+  # Application view, so no `Application -> ApiResource` pair.)
   # (Re-derived 2026-10-01 with `IssueCreditNote` in the tree (sales step 7, C1): the three commands return
   # **122 / 76 / 20** -- TWO edge lines added: `CreditNoteWriter -> CreditNoteAuditWriter` (A-5) and
   # `CreditNoteWriter -> Entity\Invoice` (A-7, the status refusals).)
@@ -507,6 +512,12 @@ deptrac:
       - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-5
     App\Modules\UserManagement\Application\RoleAssignment:
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\RoleGrantProposalCreation:
+      # Roles slice 3 C1, 2026-10-04: `role.assignment_proposed` / `role.assignment_lapsed` written synchronously
+      # (`RoleAssignment`'s shape), and the lapse-on-touch runs the entity's status guard under the lock
+      # (`InvoicePayment -> Entity\Invoice`'s shape).
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal   # A-7
     App\Modules\UserManagement\Application\RoleRevocation:
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\UserManagement\Application\SignIn:

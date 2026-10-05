@@ -22,9 +22,12 @@ use Symfony\Component\Uid\Uuid;
  *    in `psql`) is told apart from an `erp_app` row, but an `erp_app` row can NOT be told apart from a forged one (G-10).
  *  - **B — `unaccounted_removal`:** the trail's latest grant-or-revoke event for a (user, role) pair is `role.assigned`
  *    and no `user_role` row exists — a `DELETE` nobody audited.
- *  - **C — `event_without_role_key`:** a `role.assigned` / `role.revoked` row whose `metadata` lacks
- *    `RoleEventMetadata::ROLE_ID` — a row arms A and B cannot pair with any grant, so it would hide a forged or careless
- *    write from both (a writer's key drift, mutation A6, is what this arm sees).
+ *  - **C — `event_without_role_key`:** a `role.*` row whose `metadata` lacks `RoleEventMetadata::ROLE_ID` — a row arms
+ *    A and B cannot pair with any grant, so it would hide a forged or careless write from both (a writer's key drift,
+ *    mutation A6, is what this arm sees). **Its domain is derived (roles slice 3, C1; design §10, RED R2-L5):** every
+ *    `AuditEvent::ALL` member with the `role.` prefix, minus {@see self::ARM_C_EXCLUDED} (each entry with its reason;
+ *    empty), bound as ONE array parameter into one literal statement — so E-15e's proposal events, and E-15f's future
+ *    `role.permissions_changed`, are inside it with no edit here, and leaving one out is a recorded decision.
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
@@ -92,14 +95,25 @@ final readonly class RoleReconciliation
          ORDER BY ur.created_at, ur.user_id, ur.role_id
         SQL;
 
-    /** Arm C. Binds: key, 2 events. `->>` and `IS NULL`, never the `?` operator, which DBAL would read as a placeholder. */
+    /**
+     * Arm C. Binds: the event domain as a text array ({@see self::armCEvents()}), then the key. `->>` and `IS NULL`, never
+     * the `?` operator, which DBAL would read as a placeholder.
+     */
     private const ARM_C = <<<'SQL'
         SELECT a.subject_id::text AS user_id, a.occurred_at::text AS at
           FROM audit_log a
          WHERE a.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
-           AND a.event_type IN (?, ?) AND (a.metadata->>?) IS NULL
+           AND a.event_type = ANY (?::text[]) AND (a.metadata->>?) IS NULL
          ORDER BY a.occurred_at, a.id
         SQL;
+
+    /**
+     * `role.*` events arm C deliberately does not read, each with its reason. **Empty**: every `role.*` event carries
+     * `RoleEventMetadata::ROLE_ID` (`RoleAuditWriter` writes it first on every row).
+     *
+     * @var array<string, string>
+     */
+    public const ARM_C_EXCLUDED = [];
 
     public function __construct(private TenantContext $tenants)
     {
@@ -157,7 +171,7 @@ final readonly class RoleReconciliation
                 'role_id' => null,
                 'at' => (string) $row['at'],
             ], $connection->fetchAllAssociative(self::ARM_C, [
-                AuditEvent::ROLE_ASSIGNED, AuditEvent::ROLE_REVOKED, RoleEventMetadata::ROLE_ID,
+                '{'.implode(',', self::armCEvents()).'}', RoleEventMetadata::ROLE_ID,
             ]))];
 
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {
@@ -166,6 +180,20 @@ final readonly class RoleReconciliation
 
             return ['refused' => null, 'findings' => $findings];
         });
+    }
+
+    /**
+     * Arm C's domain: `AuditEvent::ALL`'s `role.` members, minus {@see self::ARM_C_EXCLUDED}. Event names are
+     * `[a-z_.]+` (the catalogue's own shape), so the array literal needs no quoting.
+     *
+     * @return list<string>
+     */
+    public static function armCEvents(): array
+    {
+        return array_values(array_filter(
+            AuditEvent::ALL,
+            static fn (string $event): bool => str_starts_with($event, 'role.') && !\array_key_exists($event, self::ARM_C_EXCLUDED),
+        ));
     }
 
     /**

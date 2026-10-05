@@ -129,6 +129,13 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'mechanism is `unique:user_role_unique` on the natural pair, and a repeat is REFUSED 409 '
                 .'user_role.already_held, never replayed: the key header is required and its value is not stored.',
         ],
+        'CreateRoleGrantProposal' => [
+            'method' => 'repeatCreateRoleGrantProposal',
+            'why' => 'A second pending proposal for one (user, role) and a second role.assignment_proposed row (roles slice 3 '
+                .'C1). Its mechanism is `unique:role_grant_proposal_pending_unique` on the natural pair, partial on the '
+                .'LIFECYCLE (one PENDING proposal), and a repeat is REFUSED 409 role_grant_proposal.already_pending, never '
+                .'replayed: the key header is required and its value is not stored.',
+        ],
         'IssueInvoice' => [
             'method' => 'repeatIssueInvoice',
             'why' => 'A second live invoice for one shipment, and a second invoice.issued row (sales step 6 C3). Its '
@@ -528,6 +535,31 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM user_role WHERE user_id = ?::uuid', [$subject]), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT id FROM audit_log WHERE event_type = 'role.assigned'"), $why);
+    }
+
+    private function repeatCreateRoleGrantProposal(string $why): void
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+            [$role, self::TENANT_A, 'Repeat Proposal']);
+        foreach (['invoice.pay', 'role.view'] as $code) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                [self::TENANT_A, $role, $code]);
+        }
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $role], $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $role], $key);
+
+        self::assertSame(409, $this->httpStatus(), 'The repeat was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('role_grant_proposal.already_pending', $this->json()['rule']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM role_grant_proposal WHERE user_id = ?::uuid', [$subject]), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT id FROM audit_log WHERE event_type = 'role.assignment_proposed'"), $why);
     }
 
     private function repeatIssueInvoice(string $why): void

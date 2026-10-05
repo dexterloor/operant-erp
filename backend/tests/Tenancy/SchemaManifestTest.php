@@ -225,6 +225,10 @@ final class SchemaManifestTest extends TenancyTestCase
      * shared with `IdempotencyContractTest`'s: one constant read by both checks is
      * one source, and a wrong entry would pass both (`ARCH` §7.1). A second partial
      * unique on `invoice`, or this one with any other predicate, is still red.
+     *
+     * **A second ruled exception, on the same terms** (roles slice 3, C1; design F-10, R-7's by-name exception):
+     * `role_grant_proposal_pending_unique` — at most one PENDING proposal per (user, role) on the class-`none`
+     * `role_grant_proposal`, predicate `(status = 'pending'::text)` measured off the catalogue (M-3).
      */
     #[Test]
     public function businessUniquenessIsPartialOnSoftDeletedTablesAndTotalElsewhere(): void
@@ -246,7 +250,11 @@ final class SchemaManifestTest extends TenancyTestCase
         $soft = SchemaManifest::softDeletedTables();
         $wrong = [];
         // index => its exact normalised predicate (`pg_get_expr(indpred, indrelid)`, measured at C2: M-5).
-        $lifecyclePartials = ['invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)"];
+        $lifecyclePartials = [
+            'invoice_tenant_fulfilment_not_void' => "(status <> 'void'::text)",
+            // Roles slice 3 C1 (`roles-s3-design.md` F-10; `DATA` §1.4): one PENDING proposal per (user, role).
+            'role_grant_proposal_pending_unique' => "(status = 'pending'::text)",
+        ];
 
         foreach ($rows as $r) {
             if (!\in_array($r['tbl'], SchemaManifest::tenantScopedTables(), true)) {

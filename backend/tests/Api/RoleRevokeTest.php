@@ -39,6 +39,8 @@ final class RoleRevokeTest extends ApiTestCase
         'RevokeRole' => ['method' => 'DELETE', 'path' => '/users/{id}/roles/{roleId}', 'idem' => false],
         // Roles slice 2, C3. `idem`: §4.2's `unique:user_role_unique` — the header is demanded (428 without it).
         'AssignRole' => ['method' => 'POST', 'path' => '/users/{id}/roles', 'idem' => true],
+        // Roles slice 3, C1. `idem`: §4.2's `unique:role_grant_proposal_pending_unique` — the header is demanded.
+        'CreateRoleGrantProposal' => ['method' => 'POST', 'path' => '/users/{id}/role-grant-proposals', 'idem' => true],
     ];
 
     /**

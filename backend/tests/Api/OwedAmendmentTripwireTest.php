@@ -309,6 +309,33 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'CreateStockAdjustment' => 'stock count',
     ];
 
+    /**
+     * **What roles slice 3 hands forward, mechanised** (`docs/session13/roles-s3-design.md` §11; C1, 2026-10-04). E-15e's
+     * proposals now exist, and five unbuilt operations owe something to them. Each key is an `operationId` (the pick-read
+     * precedent, `1076ba3`); each value is the obligation the failure message carries — the design §11 table, condensed;
+     * the design and `SECURITY_MODEL.md` §5.2 are the authority. **`GetUser` is not keyed: Q-1 was ruled "withdraw"** (its
+     * §15.1 cell records it). Clearing an entry is a deliberate edit in the commit that does the work.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
+        'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
+            .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
+            .'(SECURITY_MODEL.md §5.2.5); plus `UPDATE (is_active)` on app_user with its caller (G-12). The lapse is a bulk '
+            .'UPDATE that MUST carry `AND status = \'pending\'` — the decided-is-final trigger refuses any other (DATA §3.1).',
+        'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0).',
+        'DeleteRole' => 'E-15h: refuse while any `status = \'pending\'` row exists on the role (stale ones included — fails '
+            .'closed), naming the count, read via `role_grant_proposal_pending_by_role`. OPEN, for SEC at this build: the refusal '
+            .'may not reveal pending existence beyond role.assign (PC-16 condition 1) and DeleteRole is role.delete — serve the '
+            .'count only to a role.assign holder, or refuse without it; decide how a role.delete-only seat is told what to do. '
+            .'Every such proposal must be clearable by someone the tenant still has — re-check Q-5 (a) before building.',
+        'CreateBulkRoleAssignment' => 'Bulk never proposes (refused wholesale before any member id is read, keeping E-14\'s '
+            .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).',
+        'UpdateRole' => 'E-15f: pending proposals on the role are not written to (C14 refuses their confirmation as '
+            .'`role_changed`); a role that LOSES its X(admin) codes leaves pending proposals non-owners now meet at AssignRole\'s '
+            .'gap B (`proposal_pending`, design §5 change 2, RED L-8); G-10 arm D is owed in the same commit.',
+    ];
+
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
     private const THE_INVOICE_CORRECTIONS = ['ReverseInvoicePayment', 'VoidInvoice'];
 
@@ -944,6 +971,37 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $arrived = array_intersect_key(self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT, $built);
 
         self::assertSame([], $arrived, self::doubleCreditPointer($arrived));
+    }
+
+    /**
+     * **Roles slice 3's hand-forward, carried by a mechanism** (C1, 2026-10-04; design §11). Red the moment any key of
+     * {@see self::OPERATIONS_OWING_PROPOSAL_HANDLING} is in the generated spec, printing each arrived operation's
+     * obligation. **Controls, same test:** the positive control every sibling uses; a non-empty map; and the intersection
+     * over a literal map naming a BUILT operation (`CreateRoleGrantProposal`) must report it. Mutation: plant a built
+     * `operationId` as a key → red naming it.
+     */
+    #[Test]
+    public function noOperationOwingProposalHandlingHasBeenBuilt(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_PROPOSAL_HANDLING,
+            'The proposal-handling map is empty, so it holds over nothing. Its entries leave only with the work they list.');
+        self::assertSame(['CreateRoleGrantProposal' => 'x'],
+            array_intersect_key(['CreateRoleGrantProposal' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_PROPOSAL_HANDLING, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built, and E-15e's proposals (roles slice 3) are owed handling by it:\n\n%s\n\n"
+            ."DO THE WORK IN THIS COMMIT, then clear the entry deliberately. Do not hand-edit this pin to green. "
+            ."Record: docs/session13/roles-s3-design.md §11; SECURITY_MODEL.md §5.2.",
+            implode(', ', array_keys($arrived)),
+            implode("\n\n", array_map(static fn (string $id, string $owed): string => $id.': '.$owed, array_keys($arrived), $arrived)),
+        ));
     }
 
     /**

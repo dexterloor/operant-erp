@@ -38,6 +38,17 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
         'ChangePassword' => 'returns a confirmation of a credential change; a password is never read',
     ];
 
+    /**
+     * **Role-grant-proposal writes, ruled by name and never under PC-17** (PC-17's Bounds, RED-3 H-2: such a body is
+     * ruled by name; their read is gated on `role.assign`, an administrative code). Each entry cites its ruling; the test
+     * holds the body to `GetRoleGrantProposal`'s schema anyway (design §3.2/§3.3: the proposal, PC-16's three references
+     * under `role.assign`), and never counts it as admitted under PC-17. Confirm and Reject join with C2 and C3 under the
+     * owner's Q-6 ruling; a proposal write built without an entry here is red.
+     */
+    private const RULED_BY_NAME = [
+        'CreateRoleGrantProposal' => 'roles slice 3 C1 (`roles-s3-design.md` §3.2, §4.2 step 13; API-21 branch 4): the 201 body is the created proposal, GetRoleGrantProposal\'s shape, under role.assign, the read\'s own code (PC-16 condition 1)',
+    ];
+
     #[Test]
     public function everyWriteServesTheReadShapeOfTheResourceItActedOn(): void
     {
@@ -52,12 +63,19 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
 
         $defects = [];
         $admitted = [];
+        $ruledByName = [];
         foreach ($byId as $id => $operation) {
             if (1 === preg_match('/^(Get|List)[A-Z]/', $id) || null === ($body = self::bodySchema($operation))) {
                 continue;
             }
             if (str_ends_with($id, 'RoleGrantProposal')) {
-                $defects[] = $id.' is a role-grant-proposal write: PC-17 excludes it and Q-6 rules its body by name; it may not be admitted here';
+                if (!isset(self::RULED_BY_NAME[$id])) {
+                    $defects[] = $id.' is a role-grant-proposal write: PC-17 excludes it and Q-6 rules its body by name; it may not be admitted here, and it has no RULED_BY_NAME entry';
+                } elseif (!self::sameShape($body, self::readOf('RoleGrantProposal', $byId, $spec)[1] ?? [], $spec)) {
+                    $defects[] = $id.' is ruled by name to serve GetRoleGrantProposal\'s shape, and serves '.json_encode($body);
+                } else {
+                    $ruledByName[] = $id;
+                }
                 continue;
             }
             if (isset(self::NO_READ[$id])) {
@@ -90,6 +108,10 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
         self::assertSame('ListPurchaseOrderLines', $admitted['UpdatePurchaseOrderLine'] ?? null, 'The List fallback did not apply to a line write.');
         self::assertSame('GetRole', $admitted['AssignRole'] ?? null);
         self::assertGreaterThan(20, \count($admitted), 'Almost no write was checked, so the rule held over nothing.');
+
+        // The by-name register: exactly the built proposal writes with a body, never admitted under PC-17.
+        self::assertSame(array_keys(self::RULED_BY_NAME), $ruledByName, 'RULED_BY_NAME names a proposal write that is not built, or did not match its ruled shape.');
+        self::assertSame([], array_intersect(array_keys(self::RULED_BY_NAME), array_keys($admitted)), 'A proposal write was admitted under PC-17.');
 
         // (b) The excluded set: every entry is built, has no read, and none is a role-grant-proposal write.
         foreach (array_keys(self::NO_READ) as $id) {

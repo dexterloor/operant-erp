@@ -381,6 +381,25 @@ final class AuditEvent
      */
     public const ROLE_REVOKED = 'role.revoked';
 
+    /**
+     * **A grant of a role proposed, pending an owner's confirmation** — E-15e, minted 2026-10-04 with
+     * `CreateRoleGrantProposal` (roles slice 3, C1). **Filed security by `SEC`** (`SECURITY_MODEL.md` §5.2.8): a pending
+     * grant is privilege history, PC-11 (4a) excludes it from `.view_record` whatever its name, and its subject is the
+     * `app_user` whose privileges would change — so PC-11 (4c) bars it from the business allowlist structurally. Actor the
+     * proposer; the request's IP (API-O-18: `audit_log_ip_address_scope` re-issued, `Version20261004000200`); `metadata`
+     * ids only — `RoleEventMetadata::ROLE_ID`, `::PROPOSAL_ID` and, on a proposal that lapsed an expired one,
+     * `::SUPERSEDES_PROPOSAL_ID`. **Name assigned by `BE-LEAD`** (§5.2.8: *"the names are `BE-LEAD`'s"*).
+     */
+    public const ROLE_ASSIGNMENT_PROPOSED = 'role.assignment_proposed';
+
+    /**
+     * **A pending proposal closed with no decision** — a lapse caused by a committed request: in C1, an expired same-pair
+     * proposal lapsed by a new proposal (`lapse_reason` `expired`); later E-15g's deactivation and deletion paths
+     * (`subject_removed`, `proposer_removed`). Security, on `ROLE_ASSIGNMENT_PROPOSED`'s ground (§5.2.8). Actor the
+     * requester; `metadata` `role_id`, `proposal_id`, `lapse_reason` (the enum value only).
+     */
+    public const ROLE_ASSIGNMENT_LAPSED = 'role.assignment_lapsed';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -679,6 +698,8 @@ final class AuditEvent
         self::STOCK_MOVEMENT_ADJUSTED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
+        self::ROLE_ASSIGNMENT_PROPOSED,
+        self::ROLE_ASSIGNMENT_LAPSED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -712,6 +733,8 @@ final class AuditEvent
         self::DATA_EXPORT_COMPLETED,
         self::ROLE_ASSIGNED,
         self::ROLE_REVOKED,
+        self::ROLE_ASSIGNMENT_PROPOSED,
+        self::ROLE_ASSIGNMENT_LAPSED,
     ];
 
     /**
@@ -811,6 +834,8 @@ final class AuditEvent
         self::CREDIT_NOTE_ISSUED => 'credit_note',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
+        self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',
+        self::ROLE_ASSIGNMENT_LAPSED => 'app_user',
     ];
 
     /**

@@ -62,6 +62,8 @@ final class DomainRefusalTest extends KernelTestCase
         \App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder::class => 'purchase_order.status_transition_is_legal',
         \App\Modules\Sales\Infrastructure\Entity\SalesOrder::class => 'sales_order.status_transition_is_legal',
         \App\Platform\Tenancy\Entity\Tenant::class => 'tenant.status_transition_is_legal',
+        // Roles slice 3 C1: the proposal's four transitions (§8.3), from `pending` only (M-16).
+        \App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal::class => 'role_grant_proposal.status_transition_is_legal',
     ];
 
     /**

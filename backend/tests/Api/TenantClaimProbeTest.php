@@ -110,6 +110,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // actor's set, no `X(admin)` code, no SoD row. A supplied tenant id that moved the write would grant in B, which
         // the digest names. The `Idempotency-Key` is supplied by the driver (`OPERATION_FLAG`).
         'AssignRole' => ['vars' => ['id' => 'assign_subject'], 'body' => ['role_id' => '@revoke_role']],
+        // Roles slice 3, C1: the seeded pending proposal (`seedMirror()`) and the register over it; a supplied tenant id that
+        // moved the read would return B's proposal. Create proposes the X(admin) composed role for a user holding nothing;
+        // a moved write would propose in B, which the digest names.
+        'GetRoleGrantProposal' => ['vars' => ['id' => 'proposal']],
+        'ListRoleGrantProposals' => [],
+        'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -546,6 +552,26 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Assign Subject')",
             [$assignSubject, $tenantId, 'assign-'.$assignSubject.'@example.test']);
+
+        // Roles slice 3, C1: a composed role carrying an X(admin) code the actor holds (`invoice.pay`) plus `role.view`, so a
+        // non-owner's grant of it needs confirmation and is proposed; a subject holding nothing to propose it for; and one
+        // PENDING proposal of it for `assign_subject` (seeded by owner INSERT), so Get and List read a real row.
+        $proposalRole = $this->remember($letter, 'proposal_role', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, 'Proposable Role')", [$proposalRole, $tenantId]);
+        foreach (['invoice.pay', 'role.view'] as $code) {
+            $this->insertAsOwnerForTenant($tenantId,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                [$tenantId, $proposalRole, $code]);
+        }
+        $proposalSubject = $this->remember($letter, 'proposal_subject', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Proposal Subject')",
+            [$proposalSubject, $tenantId, 'proposal-'.$proposalSubject.'@example.test']);
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+            SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["invoice.pay", "role.view"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+              FROM (SELECT clock_timestamp() AS t) c
+            SQL, [$this->remember($letter, 'proposal', Uuid::v4()->toRfc4122()), $tenantId, $assignSubject, $proposalRole, $subject]);
 
         $supplier = $this->remember($letter, 'supplier', $this->seedSupplier($tenantId, 'Acme'));
         $customer = $this->remember($letter, 'customer', $this->seedCustomer($tenantId, 'Acme Retail'));

@@ -913,6 +913,107 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The `role_grant_proposal` columns `CreateRoleGrantProposal`'s one `INSERT … SELECT` names, and the columns its
+     * lapse-on-touch flush (`RoleGrantProposal::lapse()`) sets (roles slice 3, C1; design §7; `DATA` §4). **Typed by
+     * hand from the statements, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`' reason).
+     * `decided_by_user_id` joins the UPDATE set at C2 (Confirm) and `reason` at C3 (Reject) — RED M-3: a write no `src/`
+     * path issues is not granted.
+     */
+    private const PROPOSAL_COLUMNS_THE_CREATE_INSERTS = ['expires_at', 'id', 'permission_codes', 'proposed_at', 'proposed_by_user_id', 'role_id', 'tenant_id', 'user_id'];
+
+    private const PROPOSAL_COLUMNS_THE_LAPSE_UPDATES = ['decided_at', 'lapse_reason', 'status', 'updated_at'];
+
+    /**
+     * **Roles slice 3 C1: `erp_app` can INSERT exactly the eight proposal columns Create names and UPDATE exactly the four
+     * the lapse writes — proved by running the statements as `erp_app`** (design §7 "New: a column probe"; `DATA` §4).
+     * `theApplicationCanInsertOnlyTheGrantColumnsItWrites`' shape, for both privileges: the domain is server-derived
+     * (`pg_attribute`), one connection and one rolled-back transaction per column and privilege, zero-row probes
+     * (`INSERT … SELECT … WHERE false`, `UPDATE … SET c = c WHERE false`), so only the privilege can refuse.
+     *
+     * **Positive controls:** `role_id` INSERT and `status` UPDATE accepted. **Anti-vacuity:** `status` and `created_at`
+     * refused on INSERT (every inserted row is `pending`); `permission_codes`, `user_id`, `expires_at`,
+     * `decided_by_user_id` and `reason` refused on UPDATE (the snapshot and the subject are immutable after insert; the
+     * last two flip at C2 and C3). **Planted control, committed then undone:** `GRANT UPDATE (permission_codes)` must
+     * produce exactly one violation.
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheProposalColumnsItsCallersWrite(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'role_grant_proposal'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach (['INSERT', 'UPDATE'] as $privilege) {
+                foreach ($columns as $column) {
+                    $connection = $this->secondClient();
+                    $connection->beginTransaction();
+                    try {
+                        $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                        $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                        $connection->executeStatement('INSERT' === $privilege
+                            ? sprintf('INSERT INTO role_grant_proposal (%1$s) SELECT %1$s FROM role_grant_proposal WHERE false', $quoted)
+                            : sprintf('UPDATE role_grant_proposal SET %1$s = %1$s WHERE false', $quoted));
+                        $outcomes[$privilege.' '.$column] = 'accepted';
+                    } catch (DriverException $e) {
+                        $outcomes[$privilege.' '.$column] = '42501' === $e->getSQLState()
+                            && str_contains($e->getMessage(), 'permission denied for table role_grant_proposal')
+                            ? 'refused'
+                            : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                    } finally {
+                        $connection->rollBack();
+                        $connection->close();
+                    }
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$privilege, $column] = explode(' ', $key, 2);
+                $written = \in_array($column, 'INSERT' === $privilege ? self::PROPOSAL_COLUMNS_THE_CREATE_INSERTS : self::PROPOSAL_COLUMNS_THE_LAPSE_UPDATES, true);
+                if ($written && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('%s role_grant_proposal.%s: a C1 caller writes it, but erp_app got "%s"', $privilege, $column, $outcome);
+                } elseif (!$written && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('%s role_grant_proposal.%s: no C1 caller writes it, but erp_app got "%s"', $privilege, $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        self::assertSame('accepted', $outcomes['INSERT role_id'] ?? null, 'Positive control: erp_app could not insert role_grant_proposal.role_id.');
+        self::assertSame('accepted', $outcomes['UPDATE status'] ?? null, 'Positive control: erp_app could not update role_grant_proposal.status.');
+        foreach (['INSERT status', 'INSERT created_at', 'UPDATE permission_codes', 'UPDATE user_id', 'UPDATE expires_at', 'UPDATE decided_by_user_id', 'UPDATE reason'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null, "erp_app must not {$closed} on role_grant_proposal, and the probe did not see it refused.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's column grants on role_grant_proposal are not exactly what C1's callers write. A 42501 from a writer is "
+            ."fixed in the writer (or the entity's changeset, M-26), never by widening the grant:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (permission_codes) ON role_grant_proposal TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['UPDATE role_grant_proposal.permission_codes: no C1 caller writes it, but erp_app got "accepted"'],
+                $violations($probe()),
+                'A committed UPDATE (permission_codes) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (permission_codes) ON role_grant_proposal FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted permission_codes grant survived its REVOKE.');
+    }
+
+    /**
      * The `invoice` columns the invoice's UPDATE writers set, and no others (sales step 6: C5 `PayInvoice`,
      * `Version20260928000400`; C6 `ReverseInvoicePayment` adds `payment_reversed_at`, `Version20260928000600`). **Typed by hand from the SET lists measured in the statement log (M-11), never read from
      * `SchemaManifest`** — `APP_USER_COLUMNS_THE_CALLERS_WRITE`'s reason: a copy derived from the manifest cannot see the

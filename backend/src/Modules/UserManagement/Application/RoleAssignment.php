@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\UserManagement\Application;
 
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
-use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
-use App\Modules\UserManagement\Domain\GrantConflict;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\Identity;
 use App\Platform\Security\RequestIdentity;
@@ -14,7 +12,6 @@ use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\Uid\Uuid;
 
 /**
  * **`AssignRole` — give one user one role, under every rule E-15 writes** (roles slice 2, C3;
@@ -40,7 +37,7 @@ use Symfony\Component\Uid\Uuid;
  *     `user_role.exceeds_actor_permissions`.
  *  8. **C12:** already held → 409 `user_role.already_held` (a race loser against an out-of-band writer gets the same code
  *     from the translated `23505` on `user_role_unique`).
- *  9. **PC-13 / E-18:** {@see GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
+ *  9. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
  *     naming each SoD row id, never the codes.
  * 10. `INSERT INTO user_role (id, tenant_id, user_id, role_id)` — exactly H1's four columns, the only ones `erp_app` may
  *     insert (`Version20260930000100`); `inserted_by` is the database's `session_user`.
@@ -54,6 +51,10 @@ use Symfony\Component\Uid\Uuid;
  *
  * Every decision reads `LiveGrantReader` on the locked connection; every caller decision about the marker goes through
  * `OwnerPredicate::holdsMarker()` over that lock-time set. No PHP clock stamps or decides anything.
+ *
+ * **Roles slice 3, C1:** steps 3–5 and 7–10 are `GrantRules`' phases 1–5 — the one copy of the grant rules, shared with
+ * `CreateRoleGrantProposal` now and with confirmation at C2 — called in the shipped order, with routing (step 6) in the
+ * temporary slot S between phases 1 and 2. Behaviour unchanged; C2 moves routing last (design §4.7, §5 change 3).
  */
 final readonly class RoleAssignment
 {
@@ -103,7 +104,7 @@ final readonly class RoleAssignment
             // Caught OUTSIDE `run()`: the failed statement aborted the transaction and closed the entity manager. Only an
             // out-of-band writer (the owner process, which never takes the lock) can insert the pair between step 8 and 10.
             if (str_contains($e->getMessage(), self::UNIQUE_INDEX)) {
-                throw self::alreadyHeld();
+                throw GrantRules::alreadyHeld();
             }
 
             throw $e;
@@ -129,68 +130,30 @@ final readonly class RoleAssignment
             return $actorCodes;
         }
 
-        // 3. The subject, then the role named in the body.
-        if (!Uuid::isValid($userId)) {
-            throw ApiProblem::notFound();
-        }
-        $userId = Uuid::fromString($userId)->toRfc4122();
-        $subject = LiveGrantReader::user($em, $userId) ?? throw ApiProblem::notFound();
+        // 3.–9. The grant rules, as `GrantRules`' phases (roles slice 3, C1; design §4.7). **C1 keeps the shipped order:**
+        // routing sits in the temporary slot S, between phases 1 and 2, exactly where step 6 always stood — so no outcome
+        // moves and `RoleAssignTest` is byte-identical. C2 moves routing to slot R (last), with the slice-3 sentence.
+        ['user_id' => $userId, 'subject' => $subject, 'role_id' => $roleId, 'role' => $role] = GrantRules::subjectAndRole($em, $userId, $roleId);
 
-        if (null === $roleId) {
-            throw self::roleIdRefused('required', 'This field is required.');
-        }
-        if (!Uuid::isValid($roleId)) {
-            throw self::roleIdRefused('not_a_uuid', 'This field must be a UUID naming a role in this workspace.');
-        }
-        $roleId = Uuid::fromString($roleId)->toRfc4122();
-        $role = LiveGrantReader::role($em, $roleId) ?? throw self::roleIdRefused('unknown_reference', 'No role in this workspace has this id.');
+        // 3.–5. Phase 1: V2-R-6, E-15a, E-15b.
+        GrantRules::refuseSubjectRoleAndMarker(GrantRules::ROUTE_ASSIGN, $subject, $role, $userId, $identity->userId, $actorCodes);
 
-        if ($subject['deleted']) {
-            throw ApiProblem::businessRuleViolated('user_role.subject_is_deleted', 'This person has been removed from the workspace, so they can\'t be given a role.');
-        }
-        if (!$subject['is_active']) {
-            throw ApiProblem::businessRuleViolated('user_role.subject_is_inactive', 'This person\'s account is not active, so they can\'t be given a role.');
-        }
-        if (!$role['live']) {
-            throw ApiProblem::businessRuleViolated('user_role.role_is_archived', 'This role is archived, so it can\'t be given to anyone. Choose another role.');
-        }
-
-        // 4.
-        if ($userId === Uuid::fromString($identity->userId)->toRfc4122()) {
-            throw ApiProblem::businessRuleViolated('user_role.actor_is_subject', 'Nobody can give themselves a role. Ask someone else who manages roles to do it.');
-        }
-
-        // 5.
-        if (OwnerPredicate::holdsMarker($role['codes']) && !OwnerPredicate::holdsMarker($actorCodes)) {
-            throw ApiProblem::businessRuleViolated('user_role.marker_needs_owner', 'Only an owner can give someone this role, because it makes them an owner.');
-        }
-
-        // 6.
+        // 6. Slot S (C1 only): E-15e routing.
         if (GrantConfirmationPolicy::needsConfirmation($actorCodes, $role['codes'])) {
             throw ApiProblem::businessRuleViolated('user_role.needs_owner_confirmation', 'Only an owner can give someone this role, because it includes permissions that only an owner can hand out. Ask an owner to give it.');
         }
 
-        // 7.
-        if (!$role['is_system'] && [] !== array_diff($role['codes'], $actorCodes)) {
-            throw ApiProblem::businessRuleViolated('user_role.exceeds_actor_permissions', 'This role includes permissions you don\'t have yourself, so you can\'t give it to anyone. Ask an owner, or someone who holds all of its permissions.');
-        }
+        // 7. Phase 2: E-15c.
+        GrantRules::refuseBeyondGrantor(GrantRules::ROUTE_ASSIGN, $role, $actorCodes);
 
-        // 8.
-        if (null !== LiveGrantReader::grant($em, $userId, $roleId)) {
-            throw self::alreadyHeld();
-        }
+        // 8. Phase 3: C12.
+        GrantRules::refuseAlreadyHeld($em, $userId, $roleId);
 
-        // 9.
-        $conflicts = GrantConflict::newRows(LiveGrantReader::codesHeldBy($em, $userId), $role['codes']);
-        if ([] !== $conflicts) {
-            throw ApiProblem::businessRuleViolated('user_role.separation_of_duty', self::separationOfDutyMessage($role['name'], $conflicts));
-        }
+        // 9. Phase 4: PC-13.
+        GrantRules::refuseConflict($em, $userId, $role);
 
-        // 10.
-        $em->getConnection()->executeStatement(
-            'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)',
-            [Uuid::v4()->toRfc4122(), $identity->tenantId, $userId, $roleId],
-        );
+        // 10. Phase 5: the one INSERT.
+        GrantRules::insert($em, $identity->tenantId, $userId, $roleId);
 
         // 11.
         $this->audit->recordAssigned(
@@ -221,15 +184,5 @@ final readonly class RoleAssignment
 
         return \sprintf('%s can\'t be given to this person: with the roles they already have, one person could %s (%s). '
             .'Choose another role or another person.', $roleName, $joined, implode(', ', $rows));
-    }
-
-    private static function alreadyHeld(): ApiProblem
-    {
-        return ApiProblem::businessRuleViolated('user_role.already_held', 'This person already has this role.');
-    }
-
-    private static function roleIdRefused(string $code, string $message): ApiProblem
-    {
-        return ApiProblem::validationFailed([['pointer' => '/role_id', 'code' => $code, 'message' => $message]]);
     }
 }

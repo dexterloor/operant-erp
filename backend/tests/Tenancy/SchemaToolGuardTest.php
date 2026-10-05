@@ -23,11 +23,18 @@ use Symfony\Component\Console\Tester\ApplicationTester;
  */
 final class SchemaToolGuardTest extends TenancyTestCase
 {
+    /**
+     * Keyed by NAME (roles slice 3 C1, 2026-10-04): this read `… AND contype = 'f'` with no name and no ORDER BY, and
+     * `inventory_item` carries four FKs, so `fetchOne()` returned whichever `pg_constraint` row the plan gave first. It
+     * held by accident until C1's migrations grew the catalogue, after which it answered `inventory_item_currency_fk`
+     * (first by name, the order of `pg_constraint`'s `conrelid` index) [I: the plan change is inferred, not EXPLAINed].
+     * The composite tenant FK is the one the test is about.
+     */
     private function compositeForeignKeyDefinition(): ?string
     {
         $def = $this->owner()->fetchOne(<<<'SQL'
             SELECT pg_get_constraintdef(oid) FROM pg_constraint
-            WHERE conrelid = 'inventory_item'::regclass AND contype = 'f'
+            WHERE conrelid = 'inventory_item'::regclass AND contype = 'f' AND conname = 'inventory_item_supplier_fk'
             SQL);
 
         return \is_string($def) ? $def : null;

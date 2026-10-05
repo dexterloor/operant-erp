@@ -237,7 +237,11 @@ final class WriteOwnershipTest extends KernelTestCase
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).
         // `Modules\\AuditLog` does NOT move: `role.assigned` is written by the same private statement as `role.revoked`
         // (`RoleAuditWriter::record()`), where the design had predicted +1.
-        'Modules\\UserManagement' => 7,
+        // **7 -> 8 on 2026-10-04** (roles slice 3, C1): `RoleGrantProposalCreation`'s `INSERT INTO role_grant_proposal`
+        // (eight columns, the column grant). `RoleAssignment`'s user_role INSERT MOVED into `GrantRules::insert()` (same
+        // module, same one statement — not a new one). `Modules\\AuditLog` does NOT move: the two proposal events go through
+        // `RoleAuditWriter::record()`'s one statement (design F-6, as predicted).
+        'Modules\\UserManagement' => 8,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

@@ -186,7 +186,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // `/invoices/{id}/credit-note-adjustments` (`credit_note.adjust`). No grant: C1's INSERT already names its columns.
         // **And one more (sales step 7 C2, 2026-10-02):** `ListCreditNotes`, a `Get` on `CreditNoteCollection` at
         // `/credit-notes` (`invoice.view`). No grant: `erp_app` already holds SELECT on the tables it reads.
-        self::assertCount(57, $checked, 'The route set changed. This slice declares fifty-seven operations: '.implode(', ', array_keys($checked)));
+        // **And three more (roles slice 3 C1, 2026-10-04):** `GetRoleGrantProposal` and `CreateRoleGrantProposal` on
+        // `RoleGrantProposalResource` (item `Get` declared first, so no `$notExposed` fallback route), and
+        // `ListRoleGrantProposals` on `RoleGrantProposalCollection`. Its migration creates `role_grant_proposal` and grants
+        // `erp_app` SELECT, a column INSERT on eight columns and a column UPDATE on four; `erp_ai` nothing.
+        self::assertCount(60, $checked, 'The route set changed. This slice declares sixty operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

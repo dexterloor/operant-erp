@@ -627,6 +627,48 @@ trait OperationSuccessRecipes
 
                 return [201, 'give another user a role'];
             }],
+            // Roles slice 3, C1: a user holding nothing; a composed role carrying an X(admin) code the actor holds
+            // (`invoice.pay`) and `role.view`. The actor holds every declared code and never the marker, so the grant needs
+            // an owner's confirmation and is proposed: E-15b, E-15c, C12, the pending pair and PC-13 have nothing to say.
+            'CreateRoleGrantProposal' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Proposal '.substr($role, 0, 8)]);
+                foreach (['invoice.pay', 'role.view'] as $code) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A,
+                        'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                        [self::TENANT_A, $role, $code]);
+                }
+
+                return ['subject' => $this->seedPrincipal(self::TENANT_A, []), 'role' => $role];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/users/'.$c['subject'].'/role-grant-proposals', ['role_id' => $c['role']], $key());
+
+                return [201, 'propose a role for another user'];
+            }],
+            // A pending proposal seeded by owner INSERT (the proposer a second user), read back.
+            'GetRoleGrantProposal' => [function (): array {
+                $proposal = Uuid::v4()->toRfc4122();
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Proposal '.substr($role, 0, 8)]);
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_grant_proposal (id, tenant_id, user_id, role_id, permission_codes, proposed_by_user_id, proposed_at, expires_at)
+                    SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid, '["invoice.pay"]'::jsonb, ?::uuid, c.t, c.t + interval '336 hours'
+                      FROM (SELECT clock_timestamp() AS t) c
+                    SQL, [$proposal, self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []), $role, $this->seedPrincipal(self::TENANT_A, ['role.assign'])]);
+
+                return ['proposal' => $proposal];
+            }, function (array $c): array {
+                $this->send('GET', '/role-grant-proposals/'.$c['proposal']);
+
+                return [200, 'read a grant proposal'];
+            }],
+            'ListRoleGrantProposals' => [$none, function (): array {
+                $this->send('GET', '/role-grant-proposals');
+
+                return [200, 'list the grant proposals'];
+            }],
             'GetCurrentUser' => [$none, function (): array {
                 $this->send('GET', '/me');
 

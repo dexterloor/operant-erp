@@ -183,6 +183,46 @@ final class ReconcileRolesCommandTest extends ApiTestCase
             && RoleReconciliation::CADENCE !== $l)), 'The API grant and revoke produced a finding: '.$out);
     }
 
+    /**
+     * **Arm C's domain is derived (roles slice 3 C1; design §10, RED R2-L5):** a keyless `role.assignment_proposed` row is
+     * reported exactly as a keyless `role.assigned` is — the arm reads every `AuditEvent::ALL` member with the `role.`
+     * prefix (minus a reasoned, empty exclusion list), never a hand list. Controls in the same run: the rows an API proposal
+     * writes carry the key, so they are not reported; and the derived domain names both proposal events. Mutation: arm C
+     * back to the two-event `IN (?, ?)` list → the planted row unreported, red.
+     */
+    #[Test]
+    public function armCReadsEveryRoleEventIncludingTheProposalEvents(): void
+    {
+        self::assertContains('role.assignment_proposed', RoleReconciliation::armCEvents());
+        self::assertContains('role.assignment_lapsed', RoleReconciliation::armCEvents());
+        self::assertSame([], RoleReconciliation::ARM_C_EXCLUDED, 'An arm C exclusion was added; each needs its reason reviewed here.');
+
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $keyless = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+            VALUES (gen_random_uuid(), ?::uuid, '2026-09-29T10:00:00Z', 'role.assignment_proposed', NULL, 'Owner process', 'app_user', ?::uuid, NULL, jsonb_build_object('proposal_id', ?::text))
+            SQL, [self::TENANT_A, $keyless, Uuid::v4()->toRfc4122()]);
+
+        $finance = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name, is_system) VALUES (?::uuid, ?::uuid, ?, true)',
+            [$finance, self::TENANT_A, 'finance '.substr($finance, 0, 8)]);
+        foreach (DefaultRoles::codesFor(DefaultRoles::FINANCE) as $code) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                [self::TENANT_A, $finance, $code]);
+        }
+        $this->actAsUser(self::TENANT_A, $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('POST', '/users/'.$this->seedPrincipal(self::TENANT_A, []).'/role-grant-proposals', ['role_id' => $finance], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $lines = array_values(array_filter(explode("\n", trim($out)), static fn (string $l): bool => str_starts_with($l, RoleReconciliation::FINDING_EVENT_WITHOUT_ROLE_KEY)));
+        self::assertCount(1, $lines, 'Not exactly the planted keyless proposal event: '.$out);
+        self::assertStringStartsWith(RoleReconciliation::FINDING_EVENT_WITHOUT_ROLE_KEY.','.$keyless.',,', $lines[0]);
+    }
+
     /** The controls refuse with exit 2 and print no finding: a tenant with no user (a wrong id) and a non-uuid. */
     #[Test]
     public function aFailedControlPrintsNoFindings(): void
