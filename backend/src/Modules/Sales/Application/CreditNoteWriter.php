@@ -29,8 +29,20 @@ use Symfony\Component\Uid\Uuid;
  *   1. The E-1 gate (`credit_note.issue`) has already run — `PermissionGate`.
  *   2.–3. **`InvoiceRowLock`, the transaction's first statement** (V2-R-17's mechanism: the void, the payment, the
  *      reversal and every other credit take the same lock), then the invoice re-read under it; another workspace's
- *      invoice and a random id are the same 404. **No `SalesOrderRowLock`** (design step 3): nothing the credit reads is
- *      written concurrently except under this lock, or only GROWS a bound (a concurrent return makes more creditable).
+ *      invoice and a random id are the same 404. **Per writer (G-29 / G-30 part 3 C2; design §4.2):**
+ *      - **`IssueCreditNote` takes NO `SalesOrderRowLock`** (design step 3): nothing the return credit reads is written
+ *        concurrently except under this lock, or only GROWS a bound (a concurrent return makes more creditable). *(This
+ *        premise was written when a credit read no pending quantity. It still holds for THIS writer: a return recorded
+ *        meanwhile only adds a return line nobody has named, and 8c reads only decisions, which are written only under
+ *        this invoice lock.)*
+ *      - **`IssueAdjustmentCreditNote` takes `SalesOrderRowLock`, THEN `InvoiceRowLock`** (as `PayInvoice`, `InvoicePayment`
+ *        1a/2/2a): its step 10 reads the returns a concurrent `CreateSalesReturn` writes under the ORDER lock alone
+ *        (`SalesReturnWriter`), so the pending bound is stable only if the order is locked too. The order of the two is
+ *        the house's — no writer takes the order lock after the invoice lock (`LockOrderScanTest` derives it from
+ *        `src/`), so there is no cycle. Its 1a pre-read finds the order in its own short transaction, and 2a asserts the
+ *        invoice's order, its fulfilment's order and the locked order agree (a forged invoice, G-15: 500-class, nothing
+ *        credited).
+ *      - Decisions (`CreateAdjustmentDecision`) hold the invoice lock alone and are written only under it.
  *   4. The replay, by key hash, under the lock (the fulfilment precedent): same digest → the note; else 409.
  *   5. Status, re-read: `void` → 409 `invoice.is_not_void` (V2-R-17's mirror); `paid` → 409 `invoice.is_not_paid` (Q-E).
  *   6. The return: visible and of this invoice's fulfilment, else 422 `/sales_return_id`; stamped for credit against
@@ -128,17 +140,19 @@ final readonly class CreditNoteWriter
             'lines' => self::digestedLines($lines),
         ]);
 
-        return $this->write($invoiceId, $reason, $salesReturnId, $lines, $idempotencyKey, $digest);
+        return $this->write($invoiceId, $reason, $salesReturnId, $lines, [], $idempotencyKey, $digest);
     }
 
     /**
      * **`IssueAdjustmentCreditNote`** (C1b): a credit for billed units received damaged and kept (`damaged_goods_kept`) or
-     * not received at all (`short_shipped`) — no return, owner-held code. It records nothing about which units it covered
-     * (`RESIDUAL_GAPS.md` G-29, G-30).
+     * not received at all (`short_shipped`) — no return, owner-held code. **Since G-29 / G-30 part 3 C2 it is held to the
+     * returns still waiting for a credit and asks the owner about them** (design §4.2): the pending bound (step 10, G-29),
+     * the acknowledgement `acknowledged_return_ids` (step 11, an owner-marker act that writes one `distinct` decision per
+     * open return line, step 12), and the order → invoice lock order. `short_shipped` carries the same bound.
      *
      * @param array<mixed>|null $rawLines `lines` as decoded, unchecked
      */
-    public function adjust(string $invoiceId, mixed $reason, ?array $rawLines, string $idempotencyKey): CreditNoteView
+    public function adjust(string $invoiceId, mixed $reason, ?array $rawLines, mixed $acknowledgedReturnIds, string $idempotencyKey): CreditNoteView
     {
         if (!Uuid::isValid($invoiceId)) {
             throw ApiProblem::notFound();
@@ -147,30 +161,50 @@ final readonly class CreditNoteWriter
 
         $reason = self::reason($reason, self::ADJUST_REASONS);
         $lines = self::lines($rawLines);
+        $acknowledged = self::acknowledgedShape($acknowledgedReturnIds);
 
+        // FR-14 / design §4.2 step 2: `acknowledged_return_ids` is INSIDE the digest, sorted and de-duplicated, so a retry
+        // naming a different set is a different request and conflicts — it never replays the first note with its
+        // `distinct` rows.
         $digest = RequestDigest::of(self::OPERATION_ADJUST, [
             'invoice_id' => RequestDigest::uuid($invoiceId),
             'reason' => $reason,
             'lines' => self::digestedLines($lines),
+            'acknowledged_return_ids' => [] === $acknowledged ? null : $acknowledged,
         ]);
 
-        return $this->write($invoiceId, $reason, null, $lines, $idempotencyKey, $digest);
+        return $this->write($invoiceId, $reason, null, $lines, $acknowledged, $idempotencyKey, $digest);
     }
 
     /**
      * @param list<array{fulfilmentLine: string, quantity: string}> $lines
+     * @param list<string>                                         $acknowledged sorted, de-duplicated (the adjust path only)
      */
-    private function write(string $invoiceId, string $reason, ?string $salesReturnId, array $lines, string $idempotencyKey, string $digest): CreditNoteView
+    private function write(string $invoiceId, string $reason, ?string $salesReturnId, array $lines, array $acknowledged, string $idempotencyKey, string $digest): CreditNoteView
     {
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
         $identity = $this->identities->authenticated();
         $id = Uuid::v4()->toRfc4122();
 
+        // 1a (the adjust path only). The lock key is read BEFORE the locks, in its own short transaction (`InvoicePayment`
+        // 1a's form): the order lock must come first, and the order is found through the invoice.
+        $orderId = null;
+        if (null === $salesReturnId) {
+            $found = $this->tenants->run($this->tenant->tenantId(), static fn (EntityManagerInterface $em): mixed => $em->getConnection()->fetchOne(
+                'SELECT f.sales_order_id FROM invoice i JOIN fulfilment f ON f.tenant_id = i.tenant_id AND f.id = i.fulfilment_id WHERE i.id = ?::uuid',
+                [$invoiceId],
+            ));
+            if (false === $found || null === $found) {
+                throw ApiProblem::notFound();
+            }
+            $orderId = (string) $found;
+        }
+
         try {
             return $this->tenants->run(
                 $this->tenant->tenantId(),
                 fn (EntityManagerInterface $em): CreditNoteView => $this->writeInside(
-                    $em, $id, $invoiceId, $reason, $salesReturnId, $lines, $identity, $keyHash, $digest,
+                    $em, $id, $invoiceId, $orderId, $reason, $salesReturnId, $lines, $acknowledged, $identity, $keyHash, $digest,
                 ),
             );
         } catch (UniqueConstraintViolationException $e) {
@@ -199,23 +233,38 @@ final readonly class CreditNoteWriter
         EntityManagerInterface $em,
         string $id,
         string $invoiceId,
+        ?string $orderId,
         string $reason,
         ?string $salesReturnId,
         array $lines,
+        array $acknowledged,
         Identity $identity,
         string $keyHash,
         string $digest,
     ): CreditNoteView {
         $connection = $em->getConnection();
 
-        // 2.–3.
+        // 2.–3. The adjust path locks the ORDER first, then the invoice (design §4.2; see the class docblock).
+        if (null !== $orderId) {
+            SalesOrderRowLock::holdInside($em, $orderId);
+        }
         InvoiceRowLock::holdInside($em, $invoiceId);
         $invoice = $connection->fetchAssociative(
-            'SELECT id, status, fulfilment_id, total_amount, payment_reversed_at FROM invoice WHERE id = ?::uuid',
+            'SELECT i.id, i.status, i.fulfilment_id, i.total_amount, i.payment_reversed_at, i.sales_order_id::text AS invoice_order, f.sales_order_id::text AS fulfilment_order
+               FROM invoice i JOIN fulfilment f ON f.tenant_id = i.tenant_id AND f.id = i.fulfilment_id WHERE i.id = ?::uuid',
             [$invoiceId],
         );
         if (false === $invoice) {
             throw ApiProblem::notFound();
+        }
+        // 2a (the adjust path): the invoice's order, its fulfilment's order and the locked order agree, else the invoice was
+        // written outside the application (G-15) and the lock protected the wrong row — 500-class, nothing credited.
+        if (null !== $orderId && ($invoice['invoice_order'] !== $invoice['fulfilment_order'] || $invoice['fulfilment_order'] !== $orderId)) {
+            throw new \RuntimeException(\sprintf(
+                'Invoice %s names order %s, its fulfilment\'s order is %s, and the order locked was %s. The invoice was written '
+                .'outside the application (RESIDUAL_GAPS.md G-15). Nothing was credited.',
+                $invoiceId, (string) $invoice['invoice_order'], (string) $invoice['fulfilment_order'], $orderId,
+            ));
         }
 
         // 4.
@@ -278,14 +327,15 @@ final readonly class CreditNoteWriter
         $shipped = [];
         foreach ($connection->fetchAllAssociative(\sprintf(<<<'SQL'
             SELECT fl.id, sol.line_number, sol.unit_price,
-                   (fl.quantity - %1$s)::numeric(19,6) AS billed,
-                   round((fl.quantity - %1$s) * sol.unit_price, 4) AS billed_amount,
-                   %2$s AS credited
+                   %1$s::numeric(19,6) AS billed,
+                   round(%1$s * sol.unit_price, 4) AS billed_amount,
+                   %2$s AS credited,
+                   %3$s::numeric(19,6) AS pending
               FROM fulfilment_line fl
               JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
               JOIN invoice live ON live.tenant_id = fl.tenant_id AND live.id = ?::uuid
              WHERE fl.fulfilment_id = ?::uuid
-            SQL, SalesReturnReader::returnedBeforeIssue('fl'), SalesReturnReader::creditedOnFulfilmentLine('fl', 'live')),
+            SQL, SalesReturnReader::billed('fl'), SalesReturnReader::creditedOnFulfilmentLine('fl', 'live'), SalesReturnReader::pending('fl')),
             [$invoiceId, $fulfilmentId]) as $row) {
             $shipped[(string) $row['id']] = $row;
         }
@@ -375,6 +425,25 @@ final readonly class CreditNoteWriter
             );
         }
 
+        // 8c (IssueCreditNote only; design §4.1). After 8b, so every shipped refusal keeps its answer: a return line this
+        // credit takes that has an UNDECIDED pair with an adjustment on the same shipped line is refused until the pair is
+        // decided (`same`, by finance; `distinct`, by an owner). Decisions are written only under this invoice lock.
+        if (null !== $salesReturnId) {
+            $this->refuseUndecidedPairs($em, $invoiceId, array_map(
+                static fn (array $line): string => (string) $returnLines[$line['fulfilmentLine']]['id'],
+                $lines,
+            ), $identity);
+        }
+
+        // 10. (the adjust path; design §4.2). After 8b (L-1): `credited(l) + pending(l) + q ≤ billed(l)` — an adjustment
+        // may not take the room a pending return needs. This closes G-29.
+        $named = [];
+        if (null === $salesReturnId) {
+            $this->refuseTheRoomOfAPendingReturn($em, $invoiceId, $lines, $shipped, $identity);
+            // 11.
+            $named = $this->acknowledgedPendingReturns($em, $invoiceId, (string) $invoice['fulfilment_id'], $lines, $acknowledged, $identity);
+        }
+
         // 9.–10.
         $connection->executeStatement(<<<'SQL'
             INSERT INTO credit_note
@@ -384,13 +453,15 @@ final readonly class CreditNoteWriter
               FROM invoice inv WHERE inv.id = ?::uuid
             SQL, [$id, $salesReturnId, $this->nextNumber($em), $reason, $total, $identity->userId, $keyHash, $digest, $invoiceId]);
 
+        $newLines = [];
         foreach ($lines as $index => $line) {
+            $newLines[$line['fulfilmentLine']] = Uuid::v4()->toRfc4122();
             $connection->executeStatement(<<<'SQL'
                 INSERT INTO credit_note_line
                     (id, tenant_id, credit_note_id, fulfilment_line_id, sales_return_line_id, quantity, amount)
                 VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric, ?::numeric)
                 SQL, [
-                    Uuid::v4()->toRfc4122(), $identity->tenantId, $id, $line['fulfilmentLine'],
+                    $newLines[$line['fulfilmentLine']], $identity->tenantId, $id, $line['fulfilmentLine'],
                     null === $salesReturnId ? null : (string) $returnLines[$line['fulfilmentLine']]['id'],
                     $line['quantity'], $amounts[$index],
                 ]);
@@ -405,9 +476,271 @@ final readonly class CreditNoteWriter
             reason: $reason,
         );
 
-        // 12.
+        // 12. (the adjust path): one `distinct` row per (open return line on an adjusted line of a NAMED pending return, new
+        // adjustment line), the caller recording it (the owner marker was checked at step 11); each writes its event.
+        foreach ($named as $row) {
+            $adjustmentLine = $newLines[$row['fulfilment_line_id']];
+            $round = (int) $connection->fetchOne(SalesReturnReader::decisionRoundSql(), [$adjustmentLine, $row['return_line_id']]);
+            $decision = Uuid::v4()->toRfc4122();
+            $connection->executeStatement(<<<'SQL'
+                INSERT INTO adjustment_decision
+                    (id, tenant_id, sales_return_line_id, credit_note_line_id, kind, quantity, reverses_id, decision_round,
+                     recorded_by_user_id, idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'distinct', NULL, NULL, ?::smallint, ?::uuid, NULL, NULL)
+                SQL, [$decision, $identity->tenantId, $row['return_line_id'], $adjustmentLine, $round, $identity->userId]);
+            $this->audit->recordReturnDecided(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                creditNoteId: $id,
+                decisionId: $decision,
+                kind: 'distinct',
+                salesReturnLineId: (string) $row['return_line_id'],
+                creditNoteLineId: $adjustmentLine,
+                quantity: null,
+                reversesDecisionId: null,
+            );
+        }
+
+        // 13.
         return $this->reader->readInside($em, $id)
             ?? throw new \LogicException('The credit note just inserted is not visible to its own transaction.');
+    }
+
+    /**
+     * **Step 8c** (design §4.1): refuse 409 `credit_note.adjustment_decision_owed` while a return line this credit takes has
+     * an undecided pair with an adjustment. The copy is neutral unless the PAIR is arithmetically impossible
+     * (`provenOverlap > 0`, J-1), then it says how many units are proven the same (FR-4). Adjustment numbers are an
+     * `invoice.view` holder's; anyone else is told the same thing without them (T-12).
+     *
+     * @param list<string> $returnLineIds
+     */
+    private function refuseUndecidedPairs(EntityManagerInterface $em, string $invoiceId, array $returnLineIds, Identity $identity): void
+    {
+        $pairs = $em->getConnection()->fetchAllAssociative(SalesReturnReader::undecidedPairsSql(), [$invoiceId, '{'.implode(',', $returnLineIds).'}']);
+        if ([] === $pairs) {
+            return;
+        }
+
+        $numbers = $identity->holds('invoice.view');
+        $byLine = [];
+        foreach ($pairs as $pair) {
+            $byLine[(int) $pair['line_number']][] = $pair;
+        }
+        $sentences = [];
+        foreach ($byLine as $lineNumber => $group) {
+            $impossible = null;
+            foreach ($group as $pair) {
+                if (1 === bccomp((string) $pair['proven_overlap'], '0', 6)) {
+                    $impossible = $pair;
+                    break;
+                }
+            }
+            if (!$numbers) {
+                $sentences[] = \sprintf('Order line %d also has units credited without a return. Before crediting this return, record whether its goods are those units: if they are, record that they were already credited; if they are other goods, an owner must record that.', $lineNumber);
+            } elseif (null !== $impossible) {
+                $sentences[] = \sprintf('Order line %d cannot hold both: at least %s of these %s returned units are units %s already credited. Record at least %s as already credited. For the rest, record only what you know; if they are other goods, an owner must record that.',
+                    $lineNumber, QuantityRendering::render((string) $impossible['proven_overlap']), QuantityRendering::render((string) $impossible['open_return_line']),
+                    (string) $impossible['credit_note_number'], QuantityRendering::render((string) $impossible['proven_overlap']));
+            } else {
+                $open = '0';
+                foreach ($group as $pair) {
+                    $open = bcadd($open, (string) $pair['open_adjustment_line'], 6);
+                }
+                $sentences[] = \sprintf('Order line %d also has %s credited without a return (%s). Before crediting this return, record whether its goods are those units: if they are, record that they were already credited; if they are other goods, an owner must record that.',
+                    $lineNumber, QuantityRendering::render($open), implode(', ', array_values(array_unique(array_map(static fn (array $pair): string => (string) $pair['credit_note_number'], $group)))));
+            }
+        }
+
+        throw ApiProblem::businessRuleViolated('credit_note.adjustment_decision_owed', implode(' ', $sentences));
+    }
+
+    /**
+     * **Step 10** (design §4.2; closes G-29): `credited(l) + pending(l) + q ≤ billed(l)`, else 409
+     * `credit_note.adjustment_within_pending_returns`. The copy branches on the CAUSE (J-2, FR-6), in the order (i) → (i′) →
+     * (ii): an existing adjustment already overlaps a pending return (proven), or may (undecided), or — G-29's own case, no
+     * adjustment yet — the NEW quantity is what overlaps and "record that…" would be a dead end.
+     *
+     * @param list<array{fulfilmentLine: string, quantity: string}> $lines
+     * @param array<string, array<string, mixed>>                  $shipped
+     */
+    private function refuseTheRoomOfAPendingReturn(EntityManagerInterface $em, string $invoiceId, array $lines, array $shipped, Identity $identity): void
+    {
+        foreach ($lines as $line) {
+            $row = $shipped[$line['fulfilmentLine']];
+            $need = bcadd(bcadd((string) $row['credited'], (string) $row['pending'], 6), $line['quantity'], 6);
+            if (1 !== bccomp($need, (string) $row['billed'], 6)) {
+                continue;
+            }
+
+            $connection = $em->getConnection();
+            $pendingLines = $connection->fetchAllAssociative(SalesReturnReader::pendingReturnLinesSql(), [$invoiceId, '{'.$line['fulfilmentLine'].'}']);
+            $returnNumbers = array_values(array_unique(array_map(static fn (array $r): string => (string) $r['sales_return_number'], $pendingLines)));
+            $ret = $identity->holds('sales_return.view') ? implode(', ', $returnNumbers) : 'a return';
+            $numbers = $identity->holds('invoice.view');
+            $pairs = [] === $pendingLines ? [] : $connection->fetchAllAssociative(
+                SalesReturnReader::undecidedPairsSql(),
+                [$invoiceId, '{'.implode(',', array_map(static fn (array $r): string => (string) $r['return_line_id'], $pendingLines)).'}'],
+            );
+            $impossible = null;
+            foreach ($pairs as $pair) {
+                if (1 === bccomp((string) $pair['proven_overlap'], '0', 6)) {
+                    $impossible = $pair;
+                    break;
+                }
+            }
+            $hasError = [] !== array_filter($pendingLines, static fn (array $r): bool => SalesReturnWriter::RECORDED_IN_ERROR === $r['reason']);
+            $room = bcsub(bcsub((string) $row['billed'], (string) $row['credited'], 6), (string) $row['pending'], 6);
+
+            if (null !== $impossible) {
+                $retOf = $identity->holds('sales_return.view') ? (string) $impossible['sales_return_number'] : 'a return';
+                $detail = \sprintf('%s brought back at least %s units that %s already credited. Record that, then adjust only what remains.',
+                    $retOf, QuantityRendering::render((string) $impossible['proven_overlap']), $numbers ? (string) $impossible['credit_note_number'] : 'an adjustment');
+            } elseif ([] !== $pairs) {
+                $first = $pairs[0];
+                $retOf = $identity->holds('sales_return.view') ? (string) $first['sales_return_number'] : 'a return';
+                $detail = \sprintf('%s may have brought back units %s already credited. If so, record that first; it frees room.',
+                    $retOf, $numbers ? (string) $first['credit_note_number'] : 'an adjustment');
+            } elseif ($hasError) {
+                $errors = array_values(array_unique(array_map(static fn (array $r): string => (string) $r['sales_return_number'],
+                    array_filter($pendingLines, static fn (array $r): bool => SalesReturnWriter::RECORDED_IN_ERROR === $r['reason']))));
+                $detail = \sprintf('Credit %s first.', $identity->holds('sales_return.view') ? implode(', ', $errors) : 'the return');
+            } elseif (1 !== bccomp($room, '0', 6)) {
+                $detail = \sprintf('Nothing on this line can be adjusted while %s waits; if these are the returned units, credit the return.', $ret);
+            } else {
+                $detail = \sprintf('Order line %d was billed %s; %s has been credited and %s came back on %s, still waiting. If the units you mean are the returned ones, credit the return instead. Otherwise adjust at most %s, naming the return.',
+                    (int) $row['line_number'], QuantityRendering::render((string) $row['billed']), QuantityRendering::render((string) $row['credited']),
+                    QuantityRendering::render((string) $row['pending']), $ret, QuantityRendering::render($room));
+            }
+
+            throw ApiProblem::businessRuleViolated('credit_note.adjustment_within_pending_returns', $detail);
+        }
+    }
+
+    /**
+     * **Step 11** (design §4.2): every return stamped for credit against this invoice with open units on an adjusted line
+     * must be NAMED (`acknowledged_return_ids`), else 409 `credit_note.has_no_pending_return`; naming one is a `distinct`
+     * assertion, so it needs the owner marker (409 `adjustment_decision.distinct_needs_the_owner`), and a `recorded_in_error`
+     * return cannot be named (409 `credit_note.error_return_cannot_be_acknowledged`, `PayInvoice`'s guard mirrored). An id
+     * that is no return of this invoice's shipment is 422 on its pointer; a named return that is no longer pending is
+     * ignored (stale). Return numbers and ids go only to a `sales_return.view` holder.
+     *
+     * @param list<array{fulfilmentLine: string, quantity: string}> $lines
+     * @param list<string>                                         $acknowledged
+     *
+     * @return list<array{return_line_id: string, fulfilment_line_id: string}> the open return lines to record `distinct` for
+     */
+    private function acknowledgedPendingReturns(EntityManagerInterface $em, string $invoiceId, string $fulfilmentId, array $lines, array $acknowledged, Identity $identity): array
+    {
+        $connection = $em->getConnection();
+        $ofShipment = [];
+        foreach ($connection->fetchAllAssociative('SELECT id::text AS id FROM sales_return WHERE fulfilment_id = ?::uuid', [$fulfilmentId]) as $row) {
+            $ofShipment[(string) $row['id']] = true;
+        }
+        $errors = [];
+        foreach ($acknowledged as $index => $returnId) {
+            if (!isset($ofShipment[$returnId])) {
+                $errors[] = ['pointer' => '/acknowledged_return_ids/'.$index, 'code' => 'unknown_reference',
+                    'message' => 'No return of the shipment this invoice bills has this id.'];
+            }
+        }
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+
+        $pending = $connection->fetchAllAssociative(
+            SalesReturnReader::pendingReturnLinesSql(),
+            [$invoiceId, '{'.implode(',', array_map(static fn (array $line): string => $line['fulfilmentLine'], $lines)).'}'],
+        );
+        $byReturn = [];
+        foreach ($pending as $row) {
+            $byReturn[(string) $row['return_id']][] = $row;
+        }
+
+        foreach ($acknowledged as $returnId) {
+            if (isset($byReturn[$returnId]) && SalesReturnWriter::RECORDED_IN_ERROR === $byReturn[$returnId][0]['reason']) {
+                throw ApiProblem::businessRuleViolated(
+                    'credit_note.error_return_cannot_be_acknowledged',
+                    $identity->holds('sales_return.view')
+                        ? \sprintf('%s records goods that were never shipped. Credit it before adjusting this line.', (string) $byReturn[$returnId][0]['sales_return_number'])
+                        : 'A return on this line records goods that were never shipped. Credit it before adjusting this line.',
+                );
+            }
+        }
+
+        $unnamed = array_diff_key($byReturn, array_flip($acknowledged));
+        if ([] !== $unnamed) {
+            if ($identity->holds('sales_return.view')) {
+                $clauses = [];
+                foreach ($unnamed as $rows) {
+                    $open = '0';
+                    foreach ($rows as $r) {
+                        $open = bcadd($open, (string) $r['open_return_line'], 6);
+                    }
+                    $clauses[] = \sprintf('%s brought back %s of order line %d, not yet credited', (string) $rows[0]['sales_return_number'], QuantityRendering::render($open), (int) $rows[0]['line_number']);
+                }
+                $detail = implode('; ', $clauses).'. If those are the units you mean, credit the return instead. If you are crediting other units, name the return to confirm they are different: '
+                    .implode(', ', array_map(static fn (array $rows): string => $rows[0]['return_id'].' ('.$rows[0]['sales_return_number'].')', $unnamed)).'.';
+            } else {
+                $detail = 'Goods on the lines you are crediting came back on a return that has not been credited yet. If those are the units you mean, credit the return instead. If you are crediting other units, name the return to confirm they are different.';
+            }
+
+            throw ApiProblem::businessRuleViolated('credit_note.has_no_pending_return', $detail);
+        }
+
+        $effective = array_values(array_intersect_key($byReturn, array_flip($acknowledged)));
+        if ([] === $effective) {
+            return [];
+        }
+        // Naming a return is a `distinct` assertion: the owner marker, an exemption from a refusal every `credit_note.adjust`
+        // holder otherwise meets (`SEC` S-2; the refusal is unconditional, so the marker is the only route).
+        if (!OwnerPredicate::holdsMarker($identity->permissionCodes)) {
+            throw ApiProblem::businessRuleViolated('adjustment_decision.distinct_needs_the_owner',
+                'Only an owner can confirm that returned goods are different from units already credited without a return.');
+        }
+
+        $rows = [];
+        foreach ($effective as $returnRows) {
+            foreach ($returnRows as $r) {
+                $rows[] = ['return_line_id' => (string) $r['return_line_id'], 'fulfilment_line_id' => (string) $r['fulfilment_line_id']];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The shape of `acknowledged_return_ids`: absent or a list of uuids, sorted and de-duplicated so a retry naming the same
+     * set in another order is a replay (final RED R-8's form). Which returns they are is step 11's.
+     *
+     * @return list<string>
+     */
+    private static function acknowledgedShape(mixed $value): array
+    {
+        if (null === $value) {
+            return [];
+        }
+        if (!\is_array($value) || !array_is_list($value)) {
+            throw ApiProblem::validationFailed([['pointer' => '/acknowledged_return_ids', 'code' => 'not_a_list',
+                'message' => 'This field must be a list of return ids.']]);
+        }
+        $errors = [];
+        $ids = [];
+        foreach ($value as $index => $id) {
+            if (!\is_string($id) || !Uuid::isValid($id)) {
+                $errors[] = ['pointer' => '/acknowledged_return_ids/'.$index, 'code' => 'not_a_uuid',
+                    'message' => 'This field must be a UUID naming a return in this workspace.'];
+                continue;
+            }
+            $ids[] = Uuid::fromString($id)->toRfc4122();
+        }
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
     }
 
     /**

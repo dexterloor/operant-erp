@@ -1850,6 +1850,140 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Return ∥ adjust on one invoice serialise on the ORDER lock — and the adjust path takes it BEFORE the invoice lock**
+     * (G-29 / G-30 part 3 C2; design §4.2, §7 test 12; M11 removes the adjust path's order lock). Both commit orders:
+     *   - `return first`: A holds the shipment's order lock and records a return stamped for credit under it. The real
+     *     `IssueAdjustmentCreditNote` WAITS on the order lock (it takes it first now), then reads the committed return and
+     *     refuses 409 `credit_note.has_no_pending_return` — the return is pending and not named. Without the order lock the
+     *     adjustment would not wait, read no return, and credit the line the return needed (G-29).
+     *   - `adjust first`: A holds the order lock AND the invoice lock — in the house order — and writes an adjustment under
+     *     them. The real `CreateSalesReturn` waits on the order lock, then records the return against the live invoice: it
+     *     is a decision's to make (`adjustment_decision_owed`), never silently creditable (G-30).
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function returnAndAdjustOrders(): iterable
+    {
+        yield 'return first' => ['return first'];
+        yield 'adjust first' => ['adjust first'];
+    }
+
+    #[Test]
+    #[DataProvider('returnAndAdjustOrders')]
+    public function aReturnAndAnAdjustmentOfOneInvoiceSerialiseOnTheOrderLock(string $order): void
+    {
+        $i = $this->invoicedShipment('RACE-RA-'.$order, [['4', '10.0000', '2']]);
+
+        if ('return first' === $order) {
+            $returnId = Uuid::v4()->toRfc4122();
+            $this->actAsRole(DefaultRoles::OWNER);
+            $holder = $this->raceAgainstAHolder($i['order'], before: [
+                [<<<'SQL'
+                    INSERT INTO sales_return (id, tenant_id, fulfilment_id, invoice_id, sales_return_number, reason, returned_at,
+                                              recorded_by_user_id, deducts, idempotency_key, request_digest)
+                    VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'RET-900001', 'other', now(), ?::uuid, false,
+                            encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                    SQL, [$returnId, self::TENANT_A, $i['fulfilment'], $i['invoice'], (string) $this->actorId]],
+                ['INSERT INTO sales_return_line (id, tenant_id, sales_return_id, fulfilment_line_id, storage_location_id, quantity) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 1)',
+                    [Uuid::v4()->toRfc4122(), self::TENANT_A, $returnId, $i['lines'][0], $i['bin']]],
+            ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', [
+                'reason' => 'short_shipped', 'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1']],
+            ], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]), table: 'sales_order');
+
+            $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+            self::assertSame([409, 'credit_note.has_no_pending_return'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
+
+            return;
+        }
+
+        $note = Uuid::v4()->toRfc4122();
+        $this->actAsRole(DefaultRoles::OWNER);
+        $holder = $this->raceAgainstAHolder($i['order'], before: [
+            ['SELECT 1 FROM invoice WHERE id = ?::uuid FOR NO KEY UPDATE', [$i['invoice']]],
+            [<<<'SQL'
+                INSERT INTO credit_note (id, tenant_id, invoice_id, sales_return_id, credit_note_number, reason, currency_code,
+                                         total_amount, issued_by_user_id, idempotency_key, request_digest)
+                SELECT ?::uuid, inv.tenant_id, inv.id, NULL, 'CN-900001', 'damaged_goods_kept', inv.currency_code, 10, ?::uuid,
+                       encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                  FROM invoice inv WHERE inv.id = ?::uuid
+                SQL, [$note, (string) $this->actorId, $i['invoice']]],
+            ['INSERT INTO credit_note_line (id, tenant_id, credit_note_id, fulfilment_line_id, sales_return_line_id, quantity, amount) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, NULL, 1, 10)',
+                [Uuid::v4()->toRfc4122(), self::TENANT_A, $note, $i['lines'][0]]],
+        ], request: fn () => $this->send('POST', '/fulfilments/'.$i['fulfilment'].'/sales-returns', ['reason' => 'other', 'lines' => [
+            ['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1', 'storage_location_id' => $i['bin']],
+        ]], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]), table: 'sales_order');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertTrue($this->json()['adjustment_decision_owed'], 'The return recorded after an adjustment is a decision\'s to make.');
+    }
+
+    /**
+     * **Decision ∥ credit on one return line serialise on the INVOICE lock** (design §7 test 12; M10's neighbour). A holds
+     * the invoice lock and records a `same` of the return's whole quantity under it. The real `IssueCreditNote` of that
+     * return waits, re-reads, and is refused `credit_note.quantity_within_returned` — the units are out of the room. Without
+     * the lock it would credit them a second time.
+     */
+    #[Test]
+    public function aDecisionAndACreditOfOneReturnLineSerialiseOnTheInvoiceLock(): void
+    {
+        [$i, $return, $holdsSame] = $this->adjustedAndReturned('RACE-DC');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [$holdsSame], request: fn () => $this->credit($i, $return, [[0, '2']]), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame([409, 'credit_note.quantity_within_returned'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'), 'Only the adjustment exists.');
+    }
+
+    /**
+     * **Decision ∥ adjust on one invoice serialise on the INVOICE lock** (design §7 test 12). A holds the invoice lock and
+     * records the `same` that takes the pending return's units out of the room. The real adjustment takes the order lock (free)
+     * and WAITS on the invoice lock; when it reads the return the decision has committed, so nothing is pending and it is
+     * accepted without naming it. Without the invoice lock it would read the return still pending and refuse
+     * `credit_note.has_no_pending_return`.
+     */
+    #[Test]
+    public function aDecisionAndAnAdjustmentOfOneInvoiceSerialiseOnTheInvoiceLock(): void
+    {
+        [$i, , $holdsSame] = $this->adjustedAndReturned('RACE-DA');
+        $this->actAsRole(DefaultRoles::OWNER);
+
+        $holder = $this->raceAgainstAHolder($i['invoice'], before: [$holdsSame], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', [
+            'reason' => 'short_shipped', 'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1']],
+        ], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]), table: 'invoice');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * An invoiced shipment billed 10 with an adjustment of 2 kept and a return of 2, both through the API; returns
+     * `[shipment, return id, the holder statement that records `same` 2 on (the return line, the adjustment line)]`.
+     *
+     * @return array{0: array<string, mixed>, 1: string, 2: array{0: string, 1: list<string>}}
+     */
+    private function adjustedAndReturned(string $tag): array
+    {
+        $i = $this->invoicedShipment($tag, [['10', '10.0000', '10']]);
+        $owner = $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', [
+            'reason' => 'damaged_goods_kept', 'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '2']],
+        ], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), 'Fixture: the adjustment. '.(string) $this->client()->getResponse()->getContent());
+        $adjustmentLine = (string) $this->json()['lines'][0]['id'];
+        $return = $this->returnOf($i, [[0, '2']]);
+        $returnLine = (string) $this->json()['lines'][0]['id'];
+
+        return [$i, $return, [
+            'INSERT INTO adjustment_decision (id, tenant_id, sales_return_line_id, credit_note_line_id, kind, quantity, recorded_by_user_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, \'same\', 2, ?::uuid)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $returnLine, $adjustmentLine, $owner],
+        ]];
+    }
+
+    /**
      * **The 23505 translations, each reached by a race across TWO invoices** (design §4.4 step 10a; RED M-4): credits on
      * different invoices hold different locks, so only the unique indexes answer.
      *   - the key: A holds invoice 1 and inserts a credit note keyed `K`, uncommitted; the real credit on invoice 2 with

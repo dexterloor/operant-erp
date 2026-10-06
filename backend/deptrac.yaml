@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-06 with the adjust path's decisions in the tree (G-29 / G-30 part 3, C2): the three commands
+  # return **137 / 85 / 25** -- NO edge line added or removed: `CreditNoteWriter`'s new references (`SalesOrderRowLock`,
+  # `SalesReturnReader`, `OwnerPredicate`, `CreditNoteAuditWriter`) were all registered before, or are same-module.
+  # `make deptrac`: **0 violations / 349 skipped / 2369 allowed** (2342 -> 2369: more occurrences of already-registered pairs).)
   # (Re-derived 2026-10-05 with `CreateAdjustmentDecision` in the tree (G-29 / G-30 part 3, C1): the three commands
   # return **137 / 85 / 25** -- THREE edge lines added: `AdjustmentDecisionWriter -> CreditNoteAuditWriter` (A-5),
   # `AdjustmentDecisionWriter -> Entity\Invoice` (A-7, the void status) and `Entity\AdjustmentDecision -> AppUser` (A-12,

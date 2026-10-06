@@ -234,7 +234,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // `INSERT INTO credit_note_line` (read off the failure, never typed).
         // **18 -> 19 on 2026-10-05** (G-29 / G-30 part 3, C1): `AdjustmentDecisionWriter::INSERT`, the one statement every
         // decision row (same, distinct, reversal, cascade, record) goes through (read off the failure, never typed).
-        'Modules\\Sales' => 19,
+        // **19 -> 20 on 2026-10-06** (G-29 / G-30 part 3, C2): `CreditNoteWriter`'s own `INSERT INTO adjustment_decision` (step
+        // 12, the `distinct` row a named pending return gets), a second writer of the table beside `AdjustmentDecisionWriter`
+        // — same module, same column list as the grant (read off the failure, never typed).
+        'Modules\\Sales' => 20,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).

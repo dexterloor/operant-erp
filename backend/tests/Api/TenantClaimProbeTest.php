@@ -259,7 +259,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Sales step 7 C1b: an adjustment (no return) of the same invoice, naming this tenant's shipped line; a supplied
         // tenant id that moved the write would credit B's invoice, which the digest names.
         'IssueAdjustmentCreditNote' => [
-            'vars' => ['id' => 'invoice'], 'setup' => 'returned_invoice',
+            // G-29 / G-30 part 3 C2: NO return on the line — a pending return would have to be NAMED (step 11, an owner-marker
+            // act this probe's principal does not hold), so the baseline is an invoice with nothing pending.
+            'vars' => ['id' => 'invoice'], 'setup' => 'invoice',
             'body' => ['reason' => 'damaged_goods_kept', 'lines' => [['fulfilment_line_id' => '@fulfilment_line', 'quantity' => '1']]],
         ],
         // G-29 / G-30 part 3 C1: a `same` decision on a return recorded after an adjustment, in each tenant, naming this
@@ -738,11 +740,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->remember($letter, 'sales_return', (string) $this->json()['id']);
     }
 
-    /** G-29 / G-30 part 3 C1: a returned invoice whose shipped line also carries an adjustment of 1 (no return). */
+    /**
+     * G-29 / G-30 part 3 C1/C2: an invoice whose shipped line carries an adjustment of 1 (no return), then a return of 1
+     * recorded AFTER it — the order C2 allows without naming anything (a return recorded first would be pending, and the
+     * adjustment would have to name it).
+     */
     private function seedAdjustedReturn(string $letter): void
     {
-        $this->seedReturnedInvoice($letter);
-        $this->remember($letter, 'sales_return_line', (string) $this->json()['lines'][0]['id']);
+        $this->seedInvoice($letter);
         $this->send('POST', '/invoices/'.$this->id($letter, 'invoice').'/credit-note-adjustments', [
             'reason' => 'damaged_goods_kept',
             'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1']],
@@ -753,6 +758,17 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         self::assertSame(201, $this->httpStatus(), 'The adjustment fixture for tenant '.$letter.' was not issued: '
             .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
         $this->remember($letter, 'adjustment_line', (string) $this->json()['lines'][0]['id']);
+        $this->send('POST', '/fulfilments/'.$this->id($letter, 'fulfilment').'/sales-returns', [
+            'reason' => 'other',
+            'lines' => [['fulfilment_line_id' => $this->id($letter, 'fulfilment_line'), 'quantity' => '1', 'storage_location_id' => $this->id($letter, 'bin')]],
+        ], [
+            'Idempotency-Key' => Uuid::v4()->toRfc4122(),
+            'Authorization' => 'Bearer '.$this->id($letter, 'token'),
+        ]);
+        self::assertSame(201, $this->httpStatus(), 'The return fixture for tenant '.$letter.' was not recorded: '
+            .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+        $this->remember($letter, 'sales_return', (string) $this->json()['id']);
+        $this->remember($letter, 'sales_return_line', (string) $this->json()['lines'][0]['id']);
     }
 
     /** Sales step 7 C1: a credit note issued through the operation on that return. */

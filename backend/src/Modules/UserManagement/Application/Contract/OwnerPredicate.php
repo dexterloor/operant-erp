@@ -35,7 +35,10 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *   - `InvoiceVoiding` — B′: voiding an invoice whose payment was ever reversed (`VoidInvoice`, sales step 6 C7,
  *     `invoice.is_not_payment_reversed`);
  *   - `CreditNoteWriter` — B′: crediting such an invoice without a return (`IssueAdjustmentCreditNote`, sales step 7 C1b,
- *     design §4.4b (ii), the same code reused);
+ *     design §4.4b (ii), the same code reused); **and, from G-29 / G-30 part 3 C2, naming a pending return on the adjust
+ *     path** (`acknowledged_return_ids`, step 11): a `distinct` assertion that the returned goods are different from the
+ *     units adjusted. The refusal this exempts from is UNCONDITIONAL — `adjustment_decision.distinct_needs_the_owner` —
+ *     so an adjuster without the marker cannot adjust past a pending return at all (design §4.2);
  *   - `SalesReturnWriter` — Q-L (a′): who may record a pre-invoice return that `deducts`;
  *   - `GrantConfirmationPolicy` — E-15e: an owner's grant of an `X(admin)` code needs no proposal (roles slice 3);
  *   - `RoleGrantProposalConfirmation`, `RoleGrantProposalRejection` — E-15e: only an owner confirms or rejects a

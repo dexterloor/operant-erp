@@ -200,91 +200,185 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Bounds: an adjustment is held to what the line billed (`credit_note.quantity_within_billed`), and it counts in
-     * every credited term (amendments A-8: `CREDITED_ON_FULFILMENT_LINE` covers adjustments) — so once the kept goods
-     * are credited in full, a return of the same line is no longer creditable, through the queue AND the write.
+     * **Test 2a (G-29 / G-30 part 3 C2; design §7 2a, J-5) — the SPLIT keeps the adjust path's billed bound and A-8's
+     * queue/write agreement under a fixture C2 allows: ADJUST FIRST.** An adjustment is held to what the line billed
+     * (`credit_note.quantity_within_billed`) and counts in every credited term (`CREDITED_ON_FULFILMENT_LINE` covers
+     * adjustments), so once the kept goods are credited in full, a later return of the same line is not creditable, through
+     * the queue AND the write. ("Return credited first" cannot carry the queue assertion — no pending return remains —
+     * and return-first cannot either: the pending bound is exactly what stops the shrink.)
+     *
+     * **The positive control the shipped fixture's "the return starts creditable" precondition becomes:** a second,
+     * unadjusted line's return in the same shipment IS creditable. Step 7's billed bound fires before 8c and step 10, so
+     * both refusals keep their code; mutation M20 (drop the billed bound on the adjust path) reddens this method.
      */
     #[Test]
     public function anAdjustmentIsBoundByWhatWasBilledAndShrinksWhatAReturnCanBeCredited(): void
     {
-        $i = $this->invoicedShipment('ADJ-BND', [['4', '10.0000', '2']]);
+        $i = $this->invoicedShipment('ADJ-BND', [['4', '10.0000', '2'], ['4', '10.0000', '2']]);
         $this->actAsRole(DefaultRoles::OWNER);
-        $return = $this->returnOf($i, [[0, '1']]);
-
-        $this->send('GET', '/sales-returns?creditable=true');
-        self::assertContains($return, array_column($this->json()['items'], 'id'), 'Fixture: the return starts creditable.');
 
         $this->adjust($i, [[0, '2']], 'short_shipped');
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $adjusted = $this->returnOf($i, [[0, '1']]);
+        $control = $this->returnOf($i, [[1, '1']]);
+
         $this->send('GET', '/invoices/'.$i['invoice']);
-        self::assertTrue($this->json()['credited_in_full']);
+        self::assertSame('20.0000', $this->json()['amount_credited']);
         $this->send('GET', '/sales-returns?creditable=true');
-        self::assertNotContains($return, array_column($this->json()['items'], 'id'), 'An adjustment did not count against the return\'s creditable quantity.');
+        $creditable = array_column($this->json()['items'], 'id');
+        self::assertContains($control, $creditable, 'Positive control: a return of an UNADJUSTED line of the same shipment is creditable.');
+        self::assertNotContains($adjusted, $creditable, 'An adjustment did not count against the return\'s creditable quantity.');
 
         $this->adjust($i, [[0, '0.5']], 'short_shipped');
         self::assertSame([409, 'credit_note.quantity_within_billed'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
-        $this->credit($i, $return, [[0, '1']]);
+        $this->credit($i, $adjusted, [[0, '1']]);
         self::assertSame([409, 'credit_note.quantity_within_billed'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM credit_note'));
     }
 
-    /** @return iterable<string, array{string, string, bool}> reason, the return's reason, whether the return comes first */
+    /** @return iterable<string, array{string, string, bool, bool}> reason, the return's reason, whether the return comes first, whether the goods are the same */
     public static function adjustedUnitsReturned(): iterable
     {
-        // G-30 path (i): damaged units the customer said they would keep, sent back anyway.
-        yield 'damaged_goods_kept, adjusted then returned' => ['damaged_goods_kept', 'damaged_in_transit', false];
-        yield 'damaged_goods_kept, returned then adjusted' => ['damaged_goods_kept', 'damaged_in_transit', true];
-        // G-30 paths (ii)/(iii): units claimed not received that turn up and come back.
-        yield 'short_shipped, adjusted then returned' => ['short_shipped', 'other', false];
-        yield 'short_shipped, returned then adjusted' => ['short_shipped', 'other', true];
+        // G-30 path (i): damaged units the customer said they would keep, sent back anyway. G-30 paths (ii)/(iii): units
+        // claimed not received that turn up and come back. Two reasons x two orders x {same, different} = 8 rows (design
+        // §4.3 rows 1-4, walked).
+        foreach ([['damaged_goods_kept', 'damaged_in_transit'], ['short_shipped', 'other']] as [$reason, $returnReason]) {
+            foreach ([false, true] as $returnFirst) {
+                foreach ([true, false] as $same) {
+                    yield $reason.', '.($returnFirst ? 'returned then adjusted' : 'adjusted then returned').', '.($same ? 'the same units' : 'different units')
+                        => [$reason, $returnReason, $returnFirst, $same];
+                }
+            }
+        }
     }
 
     /**
-     * **⚠ THIS PINS CURRENT, KNOWN-WRONG BEHAVIOUR — `RESIDUAL_GAPS.md` G-30 (Medium), case J-1 of
-     * `docs/session13/l4-judge.md`.** Billed 10 on one shipped line. An owner credits 2 as an adjustment; the customer's
-     * return of 2 on the same line is recorded (after it, or before it); finance credits the return's 2. All three are
-     * answered 201 and the line carries **4** units of credit for **2** units the record can show at the customer's door
-     * — because nothing records WHICH units an adjustment covered, so the return stays creditable up to
-     * `billed − credited` whether or not its units are the adjusted ones. Every credit stays within the line's billing
-     * (`credit_note.quantity_within_billed`), so no quantity bound can tell this from two different sets of units.
+     * **Test 1 (G-29 / G-30 part 3 C2) — REWRITTEN from `aReturnOfAdjustedUnitsIsCreditedAgainToday`, never deleted.** The
+     * part-1 pin recorded G-30's J-1 case: billed 10, an owner credits 2 as an adjustment, the customer's return of 2 on
+     * the same line is recorded (after it or before it), finance credits the return's 2 — all 201, **4** units of credit for
+     * **2** units. The decided behaviour (design §4.3 rows 1-4) is that a return on an adjusted line WAITS FOR A DECISION:
      *
-     * LEAD ran this case by a throwaway probe on 2026-10-02 (Move 423); this is that probe made permanent, in both
-     * orders and under both reasons, so G-30's closing commit cannot change the behaviour without seeing it.
-     * **G-30's closing commit (the shared identity design with G-29) must REWRITE this test to the decided behaviour —
-     * refused without the paperwork holder's decision, settled with it — never delete it.** No request here is refused,
-     * so one test per provider row never closes the shared entity manager.
+     *  - adjust then return, the SAME units: finance's credit is refused 409 `credit_note.adjustment_decision_owed`; finance
+     *    records `same` 2; the return leaves `creditable`, 2 units / 20.0000 are credited in all, payment needs no
+     *    acknowledgement and the return never enters `credit_blocked_by_payment`;
+     *  - adjust then return, DIFFERENT units: the same refusal; an OWNER records `distinct`; finance's credit is accepted —
+     *    4 units / 40.0000, correct, both seats on record;
+     *  - return then adjust, the same units: the owner's adjustment that does not name the pending return is refused 409
+     *    `credit_note.has_no_pending_return`; finance credits the return — 2 units / 20.0000;
+     *  - return then adjust, different units: the owner names the return (writing a `distinct`), and finance's credit is
+     *    accepted without being asked again — 4 units / 40.0000.
+     *
+     * Assertions are rule codes, quantities and amounts (`2.000000` / `20.0000` vs `4.000000` / `40.0000`), queue
+     * membership and `amount_due`, never a bare status. At most one refusal precedes a success per row.
      */
     #[Test]
     #[DataProvider('adjustedUnitsReturned')]
-    public function aReturnOfAdjustedUnitsIsCreditedAgainToday(string $reason, string $returnReason, bool $returnFirst): void
+    public function aReturnOnAnAdjustedLineWaitsForADecision(string $reason, string $returnReason, bool $returnFirst, bool $same): void
     {
-        $i = $this->invoicedShipment('ADJ-G30-'.$reason.($returnFirst ? '-R' : '-A'), [['10', '10.0000', '10']]);
+        $i = $this->invoicedShipment('ADJ-G30-'.$reason.($returnFirst ? '-R' : '-A').($same ? 'S' : 'D'), [['10', '10.0000', '10']]);
         $this->actAsRole(DefaultRoles::OWNER);
 
         if ($returnFirst) {
             $return = $this->returnOf($i, [[0, '2']], $returnReason);
-            $this->adjust($i, [[0, '2']], $reason);
-            self::assertSame(201, $this->httpStatus(), 'The adjustment. '.(string) $this->client()->getResponse()->getContent());
-        } else {
-            $this->adjust($i, [[0, '2']], $reason);
-            self::assertSame(201, $this->httpStatus(), 'The adjustment. '.(string) $this->client()->getResponse()->getContent());
-            $return = $this->returnOf($i, [[0, '2']], $returnReason);
+            $returnLine = (string) $this->json()['lines'][0]['id'];
+            if ($same) {
+                // The owner forgets to name the return: refused; finance then credits the return (the correct paperwork).
+                $this->adjust($i, [[0, '2']], $reason);
+                self::assertSame([409, 'credit_note.has_no_pending_return'], [$this->httpStatus(), $this->json()['rule'] ?? null],
+                    (string) $this->client()->getResponse()->getContent());
+                $this->actAsRole(DefaultRoles::FINANCE);
+                $this->credit($i, $return, [[0, '2']]);
+                self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+                self::assertSame(['20.0000', '80.0000', 1, '2.000000'], $this->moneyAndUnits($i));
+
+                return;
+            }
+            $this->adjust($i, [[0, '2']], $reason, null, [$return]);
+            self::assertSame(201, $this->httpStatus(), 'The owner names the return. '.(string) $this->client()->getResponse()->getContent());
+            self::assertSame(['distinct'], array_column($this->json()['lines'][0]['return_decisions'], 'kind'));
+            $this->actAsRole(DefaultRoles::FINANCE);
+            $this->credit($i, $return, [[0, '2']]);
+            self::assertSame(201, $this->httpStatus(), 'Finance is not asked again. '.(string) $this->client()->getResponse()->getContent());
+            self::assertSame(['40.0000', '60.0000', 2, '4.000000'], $this->moneyAndUnits($i));
+            unset($returnLine);
+
+            return;
         }
 
-        $this->send('GET', '/sales-returns?creditable=true');
-        self::assertContains($return, array_column($this->json()['items'], 'id'),
-            'G-30 today: a return of units an adjustment may already have credited is still offered for credit.');
+        [$adjustment, $adjustmentLine] = $this->adjustAndRead($i, '2', $reason);
+        $return = $this->returnOf($i, [[0, '2']], $returnReason);
+        $returnLine = (string) $this->json()['lines'][0]['id'];
 
         $this->actAsRole(DefaultRoles::FINANCE);
         $this->credit($i, $return, [[0, '2']]);
-        self::assertSame(201, $this->httpStatus(), 'G-30 today: the return\'s credit is accepted. '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame([409, 'credit_note.adjustment_decision_owed'], [$this->httpStatus(), $this->json()['rule'] ?? null],
+            'G-30 closed: finance credited a return of adjusted units without a decision. '.(string) $this->client()->getResponse()->getContent());
 
-        self::assertSame([['notes' => 2, 'quantity' => '4.000000', 'amount' => '40.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
-            SELECT count(DISTINCT cnl.credit_note_id) AS notes, sum(cnl.quantity)::text AS quantity, sum(cnl.amount)::text AS amount
+        if ($same) {
+            $this->decide($return, ['kind' => 'same', 'sales_return_line_id' => $returnLine, 'credit_note_line_id' => $adjustmentLine, 'quantity' => '2']);
+            self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+            self::assertSame(['0.000000', '2.000000'], [$this->json()['lines'][0]['quantity_credited'], $this->json()['lines'][0]['quantity_covered_by_adjustment']]);
+            $this->send('GET', '/sales-returns?creditable=true');
+            self::assertNotContains($return, array_column($this->json()['items'], 'id'), 'A decided return leaves the creditable queue.');
+            $this->send('GET', '/sales-returns?credit_blocked_by_payment=true');
+            self::assertNotContains($return, array_column($this->json()['items'], 'id'));
+            self::assertSame(['20.0000', '80.0000', 1, '2.000000'], $this->moneyAndUnits($i));
+            $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+            self::assertSame(200, $this->httpStatus(), 'Payment needs no acknowledgement of a decided return. '.(string) $this->client()->getResponse()->getContent());
+
+            return;
+        }
+
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->decide($return, ['kind' => 'distinct', 'sales_return_line_id' => $returnLine, 'credit_note_line_id' => $adjustmentLine]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('GET', '/sales-returns?creditable=true');
+        self::assertContains($return, array_column($this->json()['items'], 'id'), 'Different units: the return is owed and stays creditable.');
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($i, $return, [[0, '2']]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['40.0000', '60.0000', 2, '4.000000'], $this->moneyAndUnits($i));
+        unset($adjustment);
+    }
+
+    /**
+     * `[amount credited, amount due, number of credit notes, units credited]` of the shipment's invoice and line 0.
+     *
+     * @param array{invoice: string, lines: list<string>} $shipment
+     *
+     * @return array{0: string, 1: string, 2: int, 3: string}
+     */
+    private function moneyAndUnits(array $shipment): array
+    {
+        $this->send('GET', '/invoices/'.$shipment['invoice']);
+        $money = [$this->json()['amount_credited'], $this->json()['amount_due']];
+        $row = $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            SELECT count(DISTINCT cnl.credit_note_id)::int AS notes, sum(cnl.quantity)::numeric(19,6)::text AS quantity
               FROM credit_note_line cnl WHERE cnl.fulfilment_line_id = ?::uuid
-            SQL, [$i['lines'][0]]), 'G-30 today: 4 units credited on the line for 2 units returned or adjusted.');
-        $this->send('GET', '/invoices/'.$i['invoice']);
-        self::assertSame(['40.0000', '60.0000'], [$this->json()['amount_credited'], $this->json()['amount_due']]);
+            SQL, [$shipment['lines'][0]])[0];
+
+        return [...$money, (int) $row['notes'], (string) $row['quantity']];
+    }
+
+    /**
+     * An adjustment of line 0; returns `[credit note id, its line id]`.
+     *
+     * @param array{invoice: string, lines: list<string>} $shipment
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function adjustAndRead(array $shipment, string $quantity, string $reason): array
+    {
+        $this->adjust($shipment, [[0, $quantity]], $reason);
+        self::assertSame(201, $this->httpStatus(), 'The adjustment. '.(string) $this->client()->getResponse()->getContent());
+
+        return [(string) $this->json()['id'], (string) $this->json()['lines'][0]['id']];
+    }
+
+    /** @param array<string, mixed> $body */
+    private function decide(string $returnId, array $body): void
+    {
+        $this->send('POST', '/sales-returns/'.$returnId.'/adjustment-decisions', $body, ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
     }
 
     /**
@@ -317,12 +411,12 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
     {
         // A2.1c / Q-F: `owner` alone among the default roles. `finance` issues return credits and still may not adjust;
         // `admin` loses it by PC-14 (SoD-3's controlled half).
-        // ⚠ G-29 / G-30 (`RESIDUAL_GAPS.md`): this provider is the ONLY mechanical trigger of both gaps' "any change giving
-        // `credit_note.adjust` to a default role other than `owner`". If a role here starts answering 201, do not drop it
-        // from the list to get green: G-29 (an adjustment can use up a pending return's room) and G-30 (adjusted units
-        // returned are credited twice) become reachable by that role, and their shared identity design is owed first.
-        // A NEW default role holding the code is not caught here; a composed role is caught by OwedAmendmentTripwireTest
-        // (CreateRole / UpdateRole); a grant written by SQL (G-10) by nothing.
+        // ⚠ G-32 (`RESIDUAL_GAPS.md`; G-29 / G-30's remainder after G-29 / G-30 part 3): this provider is the ONLY
+        // mechanical trigger of "any change giving `credit_note.adjust` to a default role other than `owner`". If a role
+        // here starts answering 201, do not drop it from the list to get green: **`credit_note.adjust` on a non-owner
+        // default role re-rates G-32's over-credit part from Low to Medium** (`SEC`, `g29-g30-sec.md` §1.3 item 1), and
+        // `SEC` must re-rate in that commit. A NEW default role holding the code is not caught here; a composed role is
+        // caught by OwedAmendmentTripwireTest (CreateRole / UpdateRole); a grant written by SQL (G-10) by nothing.
         foreach ([DefaultRoles::ADMIN, DefaultRoles::FINANCE, DefaultRoles::SALES_REP, DefaultRoles::WAREHOUSE_OPERATOR, DefaultRoles::VIEWER, DefaultRoles::BUYER, DefaultRoles::PURCHASING_MANAGER] as $role) {
             yield $role => [$role];
         }
@@ -344,12 +438,13 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
      *
      * @param array{invoice: string, lines: list<string>} $shipment
      * @param list<array{0: int, 1: string}>             $lines    `[line index, quantity]`
+     * @param list<string>|null                          $acknowledged `acknowledged_return_ids`
      */
-    private function adjust(array $shipment, array $lines, string $reason, ?string $key = null): void
+    private function adjust(array $shipment, array $lines, string $reason, ?string $key = null, ?array $acknowledged = null): void
     {
         $this->send('POST', '/invoices/'.$shipment['invoice'].'/credit-note-adjustments', [
             'reason' => $reason,
             'lines' => array_map(static fn (array $l): array => ['fulfilment_line_id' => $shipment['lines'][$l[0]], 'quantity' => $l[1]], $lines),
-        ], ['Idempotency-Key' => $key ?? Uuid::v4()->toRfc4122()]);
+        ] + (null === $acknowledged ? [] : ['acknowledged_return_ids' => $acknowledged]), ['Idempotency-Key' => $key ?? Uuid::v4()->toRfc4122()]);
     }
 }

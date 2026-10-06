@@ -39,9 +39,11 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
         $this->actAsRole(DefaultRoles::OWNER);
         [, $c1] = $this->adjustment($i, '2', 'damaged_goods_kept');
         [$r, $rl] = $this->returned($i, '5');
+        // The credited unit is SEEDED as the owner (the G-15 shape): through the API, C2's step 8c refuses a credit while the
+        // pair is undecided, and the pair cannot be decided `same` AND credited first — this pins the TERM (a credited unit
+        // counts against the return line's room, M-8), not a reachable sequence.
+        $this->seedCreditNote($i['invoice'], '10.0000', [[$i['lines'][0], '1', '10.0000', $rl]], $r);
         $this->actAsRole(DefaultRoles::FINANCE);
-        $this->credit($i, $r, [[0, '1']]);
-        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         $this->decide($r, ['kind' => 'same', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $c1, 'quantity' => '1']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -690,6 +692,217 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
         $detail = (string) $this->json()['detail'];
         self::assertStringContainsString($this->returnNumber($r2), $detail);
         self::assertStringNotContainsString($this->returnNumber($r0), $detail, 'A credit numbered before the adjustment is never listed.');
+    }
+
+    /**
+     * **Test 3 (G-29 / G-30 part 3 C2):** a decided return leaves BOTH queues, and `PayInvoice`'s Q-P stops demanding it.
+     * Adjust, return, finance pays naming the return (Q-P) — the return is now in `credit_blocked_by_payment` (G-23's
+     * queue); finance records `same` (allowed on a paid invoice, §3 step 9) and the return is out of both queues with
+     * `credit_target` null.
+     */
+    #[Test]
+    public function aDecidedReturnLeavesBothQueues(): void
+    {
+        $i = $this->invoicedShipment('AD-3', [['10', '10.0000', '10']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        [, $c1] = $this->adjustment($i, '2', 'damaged_goods_kept');
+        [$r, $rl] = $this->returned($i, '2');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', ['acknowledged_return_ids' => [$r]]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('GET', '/sales-returns?credit_blocked_by_payment=true');
+        self::assertContains($r, array_column($this->json()['items'], 'id'), 'Paid past: the return waits in G-23\'s queue.');
+
+        $this->decide($r, ['kind' => 'same', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $c1, 'quantity' => '2']);
+        self::assertSame(200, $this->httpStatus(), 'A `same` is allowed on a paid invoice. '.(string) $this->client()->getResponse()->getContent());
+        self::assertNull($this->json()['credit_target']);
+        self::assertFalse($this->json()['credit_blocked_by_payment']);
+        $this->send('GET', '/sales-returns?credit_blocked_by_payment=true');
+        self::assertNotContains($r, array_column($this->json()['items'], 'id'), 'A decided return left G-23\'s queue.');
+        $this->send('GET', '/sales-returns?creditable=true');
+        self::assertNotContains($r, array_column($this->json()['items'], 'id'));
+    }
+
+    /**
+     * **Test 3's `PayInvoice` sentence, finance (RED d1d4 F-2; M31):** the refusal before the acknowledgement says a
+     * decision is owed on the return — by number to a caller holding `invoice.view` AND `sales_return.view`.
+     */
+    #[Test]
+    public function payInvoiceTellsFinanceADecisionIsOwed(): void
+    {
+        $i = $this->owedReturnOnAnUnpaidInvoice('AD-3F');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame([409, 'invoice.has_no_uncredited_return'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        self::assertStringContainsString('A decision is owed on '.$i['number_of_return'].' (already credited, or, by an owner, different goods)', (string) $this->json()['detail']);
+        self::assertStringContainsString('marks the invoice for good', (string) $this->json()['detail']);
+    }
+
+    /** **Test 3, `actAs(["invoice.pay"])` (the shipped precedent):** no `invoice.view`, so no decision sentence and no return number. */
+    #[Test]
+    public function payInvoiceSaysNothingOfDecisionsWithoutInvoiceView(): void
+    {
+        $i = $this->owedReturnOnAnUnpaidInvoice('AD-3P');
+        $this->actAs(self::TENANT_A, ['invoice.pay']);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame([409, 'invoice.has_no_uncredited_return'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        self::assertStringNotContainsString('A decision is owed', (string) $this->json()['detail']);
+        self::assertStringNotContainsString('RET-', (string) $this->json()['detail']);
+    }
+
+    /**
+     * **Test 3, `["invoice.pay", "invoice.view"]` (final RED R-4; M35):** the sentence is there, but the return's number is
+     * a `sales_return.view` holder's too, so it reads "on one of these returns" and carries no `RET-`.
+     */
+    #[Test]
+    public function payInvoiceNamesNoReturnToAnInvoiceViewerWhoCannotViewReturns(): void
+    {
+        $i = $this->owedReturnOnAnUnpaidInvoice('AD-3V');
+        $this->actAs(self::TENANT_A, ['invoice.pay', 'invoice.view']);
+
+        $this->send('POST', '/invoices/'.$i['invoice'].'/payment', []);
+        self::assertSame([409, 'invoice.has_no_uncredited_return'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        self::assertStringContainsString('A decision is owed on one of these returns', (string) $this->json()['detail']);
+        self::assertStringNotContainsString('RET-', (string) $this->json()['detail']);
+    }
+
+    /**
+     * **Test 22 (J-13; M21):** two returns on one shipped line, the first credited, NO adjustment. The second return's credit
+     * is not refused with `adjustment_decision_owed`: a return credit's line can never form a pair, because the adjustment
+     * filter is in `undecidedPair`'s own text.
+     */
+    #[Test]
+    public function aReturnCreditsLineNeverFormsAPair(): void
+    {
+        $i = $this->invoicedShipment('AD-22', [['10', '10.0000', '10']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        [$r1] = $this->returned($i, '2');
+        [$r2] = $this->returned($i, '2');
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($i, $r1, [[0, '2']]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->credit($i, $r2, [[0, '2']]);
+        self::assertSame(201, $this->httpStatus(), 'The first return\'s credit line formed a pair with the second return. '.(string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * **Test 23, FR-1's sequence and FR-2 (Q-2 (b); M24):** billed 10; A1 = 1 kept; R = 3; finance `same` 1 on (R, A1); an
+     * owner adjusts A2 = 1 NAMING R (a `distinct` on (R, A2)); R is credited 2; the owner reverses the `same`. The cascade
+     * reverses the (R, A2) `distinct` too — so `adjustment_decision_owed` is true while EITHER pair is undecided: after
+     * recording `distinct` on (R, A1) it is STILL true, and only a second `distinct`, on (R, A2) in decision round 2 (FR-2),
+     * clears it.
+     */
+    #[Test]
+    public function aReversalReopensEveryDistinctOnEitherLine(): void
+    {
+        $i = $this->invoicedShipment('AD-FR1', [['10', '10.0000', '10']]);
+        $owner = $this->actAsRole(DefaultRoles::OWNER);
+        [, $a1] = $this->adjustment($i, '1', 'damaged_goods_kept');
+        [$r, $rl] = $this->returned($i, '3');
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->decide($r, ['kind' => 'same', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $a1, 'quantity' => '1']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $same = $this->json()['lines'][0]['adjustment_decisions'][0]['id'];
+        $this->actAsUser(self::TENANT_A, $owner);
+        $this->send('POST', '/invoices/'.$i['invoice'].'/credit-note-adjustments', [
+            'reason' => 'short_shipped', 'lines' => [['fulfilment_line_id' => $i['lines'][0], 'quantity' => '1']], 'acknowledged_return_ids' => [$r],
+        ], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $a2 = (string) $this->json()['lines'][0]['id'];
+        $this->actAsRole(DefaultRoles::FINANCE);
+        $this->credit($i, $r, [[0, '2']]);
+        self::assertSame(201, $this->httpStatus(), 'The decided pairs let the return be credited. '.(string) $this->client()->getResponse()->getContent());
+
+        $this->actAsUser(self::TENANT_A, $owner);
+        $this->decide($r, ['kind' => 'reversal', 'reverses_decision_id' => $same]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertTrue($this->json()['adjustment_decision_owed']);
+        $this->decide($r, ['kind' => 'distinct', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $a1]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertTrue($this->json()['adjustment_decision_owed'], 'The (R, A2) `distinct` was not reopened by the reversal (FR-1).');
+        $this->decide($r, ['kind' => 'distinct', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $a2]);
+        self::assertSame(200, $this->httpStatus(), 'FR-2: the reopened pair accepts a new `distinct`. '.(string) $this->client()->getResponse()->getContent());
+        self::assertFalse($this->json()['adjustment_decision_owed']);
+        self::assertSame([2], array_map('intval', array_column($this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            SELECT decision_round FROM adjustment_decision WHERE kind = 'distinct' AND credit_note_line_id = ?::uuid ORDER BY decision_round DESC LIMIT 1
+            SQL, [$a2]), 'decision_round')));
+        $this->credit($i, $r, [[0, '1']]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * **Test 16, 8c's copy is the PAIR's, not the line's (J-1; M23)** — the R1/R2 case: billed 5; CN-1 2 kept; R1 returns
+     * the 2 kept units; R2 returns 2 different units; finance credits R2. The line-wide excess is `2 + 2 + 2 > 5`, but R2's
+     * own pair with CN-1 is `0 + 0 + 2 + 2 ≤ 5`, so nothing is PROVEN to overlap: the copy is the neutral one and never says
+     * "at least".
+     */
+    #[Test]
+    public function theDecisionOwedCopyIsNeutralWhereThePairIsNotImpossible(): void
+    {
+        $i = $this->invoicedShipment('AD-16N', [['5', '10.0000', '5']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->adjustment($i, '2', 'damaged_goods_kept');
+        $this->returned($i, '2');
+        [$r2] = $this->returned($i, '2');
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        $this->credit($i, $r2, [[0, '2']]);
+        self::assertSame([409, 'credit_note.adjustment_decision_owed'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        $detail = (string) $this->json()['detail'];
+        self::assertStringNotContainsString('at least', $detail, 'A pair that is not impossible was told it overlaps (a line-wide sum, M23).');
+        self::assertStringContainsString('also has 2 credited without a return (CN-', $detail);
+        self::assertStringContainsString('record whether its goods are those units', $detail);
+    }
+
+    /** @return iterable<string, array{string, string, string, string}> billed, adjusted, returned, the proven overlap (FR-4) */
+    public static function provenOverlaps(): iterable
+    {
+        yield 'A-1: billed 3, adjusted 2, returned 2' => ['3', '2', '2', '1'];
+        yield 'billed 10, adjusted 4 short_shipped, returned 7' => ['10', '4', '7', '1'];
+    }
+
+    /**
+     * **Test 16, FR-4 (M25; the 8c half of the refusal tests):** where the PAIR is impossible the copy says "at least {o}" of
+     * the returned units are units the adjustment already credited, with `{o}` = `provenOverlap`, never the returned quantity.
+     */
+    #[Test]
+    #[DataProvider('provenOverlaps')]
+    public function theDecisionOwedCopyNamesTheProvenOverlap(string $billed, string $adjusted, string $returned, string $overlap): void
+    {
+        $i = $this->invoicedShipment('AD-16P-'.$billed.$adjusted.$returned, [[$billed, '10.0000', $billed]]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->adjustment($i, $adjusted, '10' === $billed ? 'short_shipped' : 'damaged_goods_kept');
+        [$r] = $this->returned($i, $returned);
+        $this->actAsRole(DefaultRoles::FINANCE);
+
+        // A credit of ONE unit: the whole return would be refused first by the billed bound (step 7), before 8c is reached.
+        $this->credit($i, $r, [[0, '1']]);
+        self::assertSame([409, 'credit_note.adjustment_decision_owed'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        self::assertStringContainsString(
+            \sprintf('at least %s of these %s returned units are units CN-', $overlap, $returned),
+            (string) $this->json()['detail'],
+            'The copy did not name the proven overlap (FR-4: provenOverlap, not the returned or adjusted quantity).',
+        );
+        self::assertStringContainsString(\sprintf('Record at least %s as already credited', $overlap), (string) $this->json()['detail']);
+    }
+
+    /**
+     * An unpaid invoice with an adjustment of 2 kept and an undecided return of 2.
+     *
+     * @return array{invoice: string, number_of_return: string}
+     */
+    private function owedReturnOnAnUnpaidInvoice(string $tag): array
+    {
+        $i = $this->invoicedShipment($tag, [['10', '10.0000', '10']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->adjustment($i, '2', 'damaged_goods_kept');
+        [$r] = $this->returned($i, '2');
+
+        return ['invoice' => $i['invoice'], 'number_of_return' => $this->returnNumber($r)];
     }
 
     /**

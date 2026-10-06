@@ -18,4 +18,11 @@ final class IssueAdjustmentCreditNoteInput
 
     /** @var array<mixed>|null */
     public ?array $lines = null;
+
+    /**
+     * G-29 / G-30 part 3: the returns still waiting for a credit that the caller confirms are DIFFERENT goods from the
+     * units adjusted — each one named here gets a `distinct` decision in the same transaction (an owner-marker act). A
+     * list of UUIDs; every pending return on an adjusted line must be named (`credit_note.has_no_pending_return`).
+     */
+    public mixed $acknowledged_return_ids = null;
 }

@@ -34,7 +34,7 @@ final readonly class IssueAdjustmentCreditNoteProcessor implements ProcessorInte
             : '';
 
         return CreditNoteResource::fromView(
-            $this->writer->adjust((string) ($uriVariables['id'] ?? ''), $data->reason, $data->lines, $key),
+            $this->writer->adjust((string) ($uriVariables['id'] ?? ''), $data->reason, $data->lines, $data->acknowledged_return_ids, $key),
         );
     }
 }

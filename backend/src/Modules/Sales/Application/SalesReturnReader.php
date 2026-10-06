@@ -529,6 +529,82 @@ final readonly class SalesReturnReader
     }
 
     /**
+     * **`pending(l, live)`** (design §2.3; G-29): Σ over the return lines on shipped line `$fl` of returns STAMPED FOR CREDIT
+     * against `live`, of `GREATEST(openOnReturnLine(rl), 0)` — the units a return still owes a credit for. No billed
+     * `LEAST`, and rightly (RED §4): `IssueAdjustmentCreditNote`'s step 10 compares `credited + pending + q` to billed. A
+     * pre-invoice DEDUCTING return is not stamped for credit, so it is not pending (it already left the bill, M15).
+     * Needs the invoice in scope as `live` (`stampedForCredit()` names it); the inner return is aliased `r` for the same
+     * reason and shadows any outer `r` inside this subquery only.
+     */
+    public static function pending(string $fl): string
+    {
+        return \sprintf(<<<'SQL'
+            COALESCE((SELECT SUM(GREATEST(%2$s, 0::numeric(19,6)))
+                        FROM sales_return_line prl
+                        JOIN sales_return r ON r.tenant_id = prl.tenant_id AND r.id = prl.sales_return_id
+                       WHERE prl.tenant_id = %1$s.tenant_id AND prl.fulfilment_line_id = %1$s.id AND %3$s), 0::numeric(19,6))
+            SQL, $fl, self::openOnReturnLine('prl'), self::stampedForCredit());
+    }
+
+    /**
+     * **The undecided pairs of the return lines `= ANY (?::uuid[])` with an adjustment line on invoice `?`** (§4.1 8c; §4.2
+     * step 10's causes (i)/(i′)): one row per pair, with both numbers, the order line, the open quantities and
+     * `provenOverlap` — `distinctIsImpossible` is `proven_overlap > 0`. One copy of `undecidedPair`; the writers add none.
+     */
+    public static function undecidedPairsSql(): string
+    {
+        return \sprintf(<<<'SQL'
+            SELECT r.id::text AS return_id, r.sales_return_number, rl.id::text AS return_line_id, cn.credit_note_number,
+                   cnl.id::text AS credit_note_line_id, sol.line_number,
+                   %1$s::numeric(19,6) AS open_return_line, %2$s::numeric(19,6) AS open_adjustment_line,
+                   %3$s::numeric(19,6) AS proven_overlap
+              FROM sales_return_line rl
+              JOIN sales_return r ON r.tenant_id = rl.tenant_id AND r.id = rl.sales_return_id
+              JOIN invoice live ON live.tenant_id = rl.tenant_id AND live.id = ?::uuid
+              JOIN fulfilment_line fl ON fl.tenant_id = rl.tenant_id AND fl.id = rl.fulfilment_line_id
+              JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
+              JOIN credit_note_line cnl ON cnl.tenant_id = rl.tenant_id AND cnl.fulfilment_line_id = rl.fulfilment_line_id
+              JOIN credit_note cn ON cn.tenant_id = cnl.tenant_id AND cn.id = cnl.credit_note_id
+             WHERE rl.id = ANY (?::uuid[]) AND %4$s
+             ORDER BY sol.line_number, r.sales_return_number, cn.credit_note_number
+            SQL,
+            self::openOnReturnLine('rl'),
+            self::openOnAdjustmentLine('cnl'),
+            self::provenOverlap('rl', 'cnl', 'fl', 'live'),
+            self::undecidedPair('rl', 'cnl', 'live'),
+        );
+    }
+
+    /**
+     * **The pending return lines on the shipped lines `= ANY (?::uuid[])` of invoice `?`** (§4.2 steps 10–12): every return
+     * line stamped for credit against the invoice that still has open units, with its return's number and reason.
+     */
+    public static function pendingReturnLinesSql(): string
+    {
+        return \sprintf(<<<'SQL'
+            SELECT r.id::text AS return_id, r.sales_return_number, r.reason, rl.id::text AS return_line_id,
+                   rl.fulfilment_line_id::text AS fulfilment_line_id, sol.line_number, %1$s::numeric(19,6) AS open_return_line
+              FROM sales_return_line rl
+              JOIN sales_return r ON r.tenant_id = rl.tenant_id AND r.id = rl.sales_return_id
+              JOIN invoice live ON live.tenant_id = rl.tenant_id AND live.id = ?::uuid
+              JOIN fulfilment_line fl ON fl.tenant_id = rl.tenant_id AND fl.id = rl.fulfilment_line_id
+              JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
+             WHERE rl.fulfilment_line_id = ANY (?::uuid[]) AND %1$s > 0 AND %2$s
+             ORDER BY sol.line_number, r.sales_return_number, rl.id
+            SQL, self::openOnReturnLine('rl'), self::stampedForCredit());
+    }
+
+    /**
+     * The `distinct` row a named pending return gets against a NEW adjustment line (§4.2 step 12): `decisionRound` is the
+     * ONE count (R-7 (b)), read for the pair `(?, ?)`.
+     */
+    public static function decisionRoundSql(): string
+    {
+        return \sprintf('SELECT %s FROM sales_return_line rl JOIN credit_note_line cnl ON cnl.tenant_id = rl.tenant_id AND cnl.id = ?::uuid WHERE rl.id = ?::uuid',
+            self::decisionRound('rl', 'cnl'));
+    }
+
+    /**
      * Every decision on the return lines `= ANY (?::uuid[])`, oldest first, with the adjustment's number and the recorder
      * — `adjustment_decisions[]` (design §5). One copy; `invoice.view` holders only.
      */

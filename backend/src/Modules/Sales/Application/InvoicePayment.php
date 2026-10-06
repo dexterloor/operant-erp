@@ -201,12 +201,12 @@ final readonly class InvoicePayment
     {
         $returns = [];
         foreach ($em->getConnection()->fetchAllAssociative(\sprintf(<<<'SQL'
-            SELECT r.id::text AS id, r.sales_return_number, r.reason, %s AS creditable
+            SELECT r.id::text AS id, r.sales_return_number, r.reason, %s AS creditable, %s AS decision_owed
               FROM sales_return r
               LEFT JOIN invoice live ON live.tenant_id = r.tenant_id AND live.fulfilment_id = r.fulfilment_id AND live.status <> '%s'
              WHERE r.fulfilment_id = ?::uuid
              ORDER BY r.sales_return_number
-            SQL, SalesReturnReader::creditable(), Invoice::STATUS_VOID), [$fulfilmentId]) as $row) {
+            SQL, SalesReturnReader::creditable(), SalesReturnReader::adjustmentDecisionOwed(), Invoice::STATUS_VOID), [$fulfilmentId]) as $row) {
             $returns[(string) $row['id']] = $row;
         }
 
@@ -239,6 +239,18 @@ final readonly class InvoicePayment
             if ($identity->holds('sales_return.view')) {
                 $detail .= ' To record the payment anyway, name each of these returns in acknowledged_return_ids: '
                     .implode(', ', array_map(static fn (array $row): string => $row['id'].' ('.$row['sales_return_number'].')', $unnamed)).'.';
+            }
+
+            // G-29 / G-30 part 3 (RED d1d4 F-2, final RED R-4): an unnamed return that is also awaiting an adjustment
+            // DECISION is told so — paying past it turns a later `distinct` into G-23's queue, and the way out
+            // (`ReverseInvoicePayment`) marks the invoice for good. Copy only; an `invoice.view` holder's, and the return
+            // number only for a caller who also holds `sales_return.view`.
+            $owed = array_filter($unnamed, static fn (array $row): bool => (bool) $row['decision_owed']);
+            if ([] !== $owed && $identity->holds('invoice.view')) {
+                $detail .= \sprintf(' A decision is owed on %s (already credited, or, by an owner, different goods). If it turns out to be different goods after you record the payment, its credit will need the payment reversed, which marks the invoice for good.',
+                    $identity->holds('sales_return.view')
+                        ? implode(', ', array_map(static fn (array $row): string => (string) $row['sales_return_number'], $owed))
+                        : 'one of these returns');
             }
 
             throw ApiProblem::businessRuleViolated('invoice.has_no_uncredited_return', $detail);
