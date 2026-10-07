@@ -247,7 +247,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // (eight columns, the column grant). `RoleAssignment`'s user_role INSERT MOVED into `GrantRules::insert()` (same
         // module, same one statement — not a new one). `Modules\\AuditLog` does NOT move: the two proposal events go through
         // `RoleAuditWriter::record()`'s one statement (design F-6, as predicted).
-        'Modules\\UserManagement' => 8,
+        // **8 -> 10 on 2026-10-07** (roles slice 4, C1): `RoleCreation`'s `INSERT INTO role` (four columns, the column grant)
+        // and its one multi-row `INSERT INTO role_permission` — both `Modules\\UserManagement`'s own tables, read off this
+        // test's failure. `Modules\\AuditLog` does NOT move: `role.permissions_changed` goes through `RoleAuditWriter::record()`.
+        'Modules\\UserManagement' => 10,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

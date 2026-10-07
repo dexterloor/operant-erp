@@ -40,6 +40,8 @@ final class RoleReadTest extends ApiTestCase
     public const PINNED_ROLE_OPERATIONS = [
         'GetRole' => ['method' => 'GET', 'path' => '/roles/{id}', 'idem' => false],
         'ListRoles' => ['method' => 'GET', 'path' => '/roles', 'idem' => false],
+        // Roles slice 4 C1. `idem`: §4.2's `unique:role_tenant_name_live` — the header is demanded (428 without it).
+        'CreateRole' => ['method' => 'POST', 'path' => '/roles', 'idem' => true],
     ];
 
     /**

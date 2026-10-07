@@ -416,6 +416,14 @@ final class AuditEvent
      */
     public const ROLE_ASSIGNMENT_CANCELLED = 'role.assignment_cancelled';
 
+    /**
+     * E-15f's one row per role definition change (roles slice 4, C1; `docs/session13/roles-s4-design.md` §7,
+     * `roles-s4-sec-data.md` D-7.3): `CreateRole` with the full set, `UpdateRole` (C2) when the code set changes. Subject
+     * `('role', id)`; `metadata` `{role_id, added, removed}` — codes, bounded by the catalogue. SECURITY: it changes what
+     * every holder may do (PC-11 (4a)); IP-bearing.
+     */
+    public const ROLE_PERMISSIONS_CHANGED = 'role.permissions_changed';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -739,6 +747,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_LAPSED,
         self::ROLE_ASSIGNMENT_REJECTED,
         self::ROLE_ASSIGNMENT_CANCELLED,
+        self::ROLE_PERMISSIONS_CHANGED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -777,6 +786,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_LAPSED,
         self::ROLE_ASSIGNMENT_REJECTED,
         self::ROLE_ASSIGNMENT_CANCELLED,
+        self::ROLE_PERMISSIONS_CHANGED,
     ];
 
     /**
@@ -882,6 +892,9 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_LAPSED => 'app_user',
         self::ROLE_ASSIGNMENT_REJECTED => 'app_user',
         self::ROLE_ASSIGNMENT_CANCELLED => 'app_user',
+        // Roles slice 4 C1: the ROLE is the subject — a definition change touches every holder at once, so no single
+        // person is its subject. `role` is a table (`everyDeclaredSubjectTypeNamesATableInTheDatabase`).
+        self::ROLE_PERMISSIONS_CHANGED => 'role',
     ];
 
     /**

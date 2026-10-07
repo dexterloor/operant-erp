@@ -224,6 +224,80 @@ final class ReconcileRolesCommandTest extends ApiTestCase
     }
 
     /**
+     * **Arm C over a ROLE-subject event (roles slice 4 C1; design §7, RED F-13):** a `role.permissions_changed` without
+     * `role_id` is reported with the role in the ROLE column, never mislabelled as a user.
+     */
+    #[Test]
+    public function armCReportsARoleSubjectEventWithoutTheRoleKeyUnderTheRole(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+            VALUES (gen_random_uuid(), ?::uuid, '2026-10-07T10:00:00Z', 'role.permissions_changed', NULL, 'Owner process', 'role', ?::uuid, NULL,
+                    jsonb_build_object('added', '[]'::jsonb, 'removed', '[]'::jsonb))
+            SQL, [self::TENANT_A, $role]);
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $lines = array_values(array_filter(explode("\n", trim($out)), static fn (string $l): bool => str_starts_with($l, RoleReconciliation::FINDING_EVENT_WITHOUT_ROLE_KEY)));
+        self::assertCount(1, $lines, $out);
+        self::assertStringStartsWith(RoleReconciliation::FINDING_EVENT_WITHOUT_ROLE_KEY.',,'.$role.',', $lines[0]);
+    }
+
+    /**
+     * **Arm D (roles slice 4 C1; G-10 condition (1); design §7), planted.** Four roles, each in its own state:
+     *  - a role whose rows match the fold of its events (one added two codes, a later one removed one) — NOT reported;
+     *  - a role with a row no event added (`unaccounted_permission`, naming the code);
+     *  - a role whose event added a code with no row (`phantom_permission`);
+     *  - a role created before the baseline whose rows differ from the (empty) fold — reported ONCE as `pre_event_role`;
+     *  - a SYSTEM role with any code row — the interim `system_role_has_permission_rows` (no seeder writes one today).
+     * **Control in the same run:** a role composed THROUGH THE API (`CreateRole`) is not reported — which is what turns the
+     * writer's `added` drift (mutation: `added` empty on Create) red here.
+     */
+    #[Test]
+    public function armDReportsRoleCodesTheTrailDoesNotAccountFor(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $folded = $this->roleWith('role.view');
+        $this->plantDefinitionEvent($folded, ['role.view', 'invoice.view'], [], '2026-10-07T08:00:00Z');
+        $this->plantDefinitionEvent($folded, [], ['invoice.view'], '2026-10-07T09:00:00Z');
+        $unaccounted = $this->roleWith('role.view');
+        $this->plantDefinitionEvent($unaccounted, [], [], '2026-10-07T08:00:00Z');
+        $phantom = $this->roleWith('role.view');
+        $this->plantDefinitionEvent($phantom, ['role.view', 'invoice.view'], [], '2026-10-07T08:00:00Z');
+        $legacy = $this->roleWith('role.view');
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE role SET created_at = '2026-09-01T00:00:00Z' WHERE id = ?::uuid", [$legacy]);
+        $system = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name, is_system) VALUES (?::uuid, ?::uuid, ?, true)',
+            [$system, self::TENANT_A, 'viewer '.substr($system, 0, 8)]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+            [self::TENANT_A, $system]);
+
+        $this->actAsUser(self::TENANT_A, $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('POST', '/roles', ['name' => 'Composed through the API', 'permission_codes' => ['role.view', 'invoice.view']], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $viaApi = (string) $this->json()['id'];
+
+        [$code, $out] = $this->reconcile(self::TENANT_A, [$unaccounted, $legacy, $viaApi]);
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $armD = [RoleReconciliation::FINDING_UNACCOUNTED_PERMISSION, RoleReconciliation::FINDING_PHANTOM_PERMISSION,
+            RoleReconciliation::FINDING_PRE_EVENT_ROLE, RoleReconciliation::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS];
+        $lines = array_values(array_filter(explode("\n", trim($out)), static fn (string $l): bool => \in_array(explode(',', $l)[0], $armD, true)));
+        $seen = array_map(static fn (string $l): string => preg_replace('/^([a-z_]+),,([0-9a-f-]+),[^,]*(,permission_code=[a-z_.]+)?$/', '$1 $2$3', $l), $lines);
+        sort($seen);
+        $expected = [
+            RoleReconciliation::FINDING_UNACCOUNTED_PERMISSION.' '.$unaccounted.',permission_code=role.view',
+            RoleReconciliation::FINDING_PHANTOM_PERMISSION.' '.$phantom.',permission_code=invoice.view',
+            RoleReconciliation::FINDING_PRE_EVENT_ROLE.' '.$legacy,
+            RoleReconciliation::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS.' '.$system,
+        ];
+        sort($expected);
+        self::assertSame($expected, $seen, 'Arm D did not report exactly the four planted states: '.$out);
+    }
+
+    /**
      * **Arm G, the confirmation half (roles slice 3 C2; design §10):** three plants, each reported once with its case and
      * the proposal's id — (i) a `confirmed` proposal with no `role.assigned` naming it (`decision_event_missing`); (ii) a
      * `role.assigned` naming a proposal that is still pending (`event_names_proposal_in_another_state`); (iii) a confirmed
@@ -354,9 +428,10 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         $owner = self::getContainer()->get('test.sql_recorder.owner');
         $app = self::getContainer()->get('test.sql_recorder.app');
         \assert($owner instanceof SqlRecorder && $app instanceof SqlRecorder);
+        $this->accountRoleDefinitions([]); // arm D's fixture accounting is an owner write: done before the recorders start
         $owner->start();
         $app->start();
-        [$code] = $this->reconcile(self::TENANT_A);
+        [$code] = $this->reconcile(self::TENANT_A, null);
         $owner->stop();
         $app->stop();
         self::assertSame(0, $code);
@@ -364,14 +439,44 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         self::assertNotSame([], $app->statements(), 'Control: the app recorder saw nothing, so the owner\'s silence proves nothing.');
     }
 
-    /** @return array{0: int, 1: string} */
-    private function reconcile(string $tenant): array
+    /**
+     * **Since arm D (roles slice 4 C1), every composed role the rig seeds is itself a finding** — an owner-written
+     * `role_permission` row with no `role.permissions_changed` behind it is exactly what arm D reports. So before each run
+     * the composed roles that carry no definition event get the event `CreateRole` would have written (their current codes
+     * as `added`), except those in `$leaveUnaccounted` — which is how arm D's own tests plant a finding.
+     *
+     * @param list<string>|null $leaveUnaccounted null = account nothing (the caller already did, outside a recorder)
+     *
+     * @return array{0: int, 1: string}
+     */
+    private function reconcile(string $tenant, ?array $leaveUnaccounted = []): array
     {
+        if (self::TENANT_A === $tenant && null !== $leaveUnaccounted) {
+            $this->accountRoleDefinitions($leaveUnaccounted);
+        }
+
         $application = new Application(self::$kernel ?? throw new \LogicException('No kernel.'));
         $tester = new CommandTester($application->find('app:roles:reconcile'));
         $code = $tester->execute('' === $tenant ? [] : ['--tenant' => $tenant]);
 
         return [$code, $tester->getDisplay()];
+    }
+
+    /** @param list<string> $leaveUnaccounted */
+    private function accountRoleDefinitions(array $leaveUnaccounted): void
+    {
+        {
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+                SELECT gen_random_uuid(), r.tenant_id, r.created_at, 'role.permissions_changed', NULL, 'Owner process', 'role', r.id, NULL,
+                       jsonb_build_object('role_id', r.id::text,
+                                          'added', COALESCE((SELECT jsonb_agg(rp.permission_code ORDER BY rp.permission_code) FROM role_permission rp WHERE rp.role_id = r.id), '[]'::jsonb),
+                                          'removed', '[]'::jsonb)
+                  FROM role r
+                 WHERE r.tenant_id = ?::uuid AND NOT r.is_system AND NOT (r.id::text = ANY (?::text[]))
+                   AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.event_type = 'role.permissions_changed' AND a.subject_id = r.id)
+                SQL, [self::TENANT_A, '{'.implode(',', $leaveUnaccounted).'}']);
+        }
     }
 
     /**
@@ -404,6 +509,16 @@ final class ReconcileRolesCommandTest extends ApiTestCase
             [self::TENANT_A, $role, $code]);
 
         return $role;
+    }
+
+    /** A `role.permissions_changed` for `$role`, as `CreateRole` writes it, at `$at`. */
+    private function plantDefinitionEvent(string $role, array $added, array $removed, string $at): void
+    {
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+            VALUES (gen_random_uuid(), ?::uuid, ?::timestamptz, 'role.permissions_changed', NULL, 'Owner process', 'role', ?::uuid, NULL,
+                    jsonb_build_object('role_id', ?::text, 'added', ?::jsonb, 'removed', ?::jsonb))
+            SQL, [self::TENANT_A, $at, $role, $role, json_encode($added), json_encode($removed)]);
     }
 
     /** A proposal planted by owner INSERT: `pending`, or `confirmed` by `$decider` (every shape CHECK satisfied). */

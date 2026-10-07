@@ -37,6 +37,21 @@ use Symfony\Component\Uid\Uuid;
  *    decision** (`role.assignment_rejected`, `…_cancelled`, `…_lapsed` beside `role.assigned`) and adds (iv)
  *    `pending_on_a_held_pair` (report-only). It catches a careless or bypassing writer of proposal status — `erp_app` may
  *    UPDATE `status` — and, like every arm, proves nothing against a forger who also writes the event (G-10).
+ *  - **D — `unaccounted_permission` / `phantom_permission` / `pre_event_role`** (G-10 condition (1): *"`role_permission`
+ *    against the edit event"*; roles slice 4 C1, design §7 — shipped with the first writer of `role_permission`, a
+ *    detection one commit later than its writer being a window). For every NON-system role, the set of `role_permission` rows
+ *    must equal the fold, in `occurred_at` order, of that role's `role.permissions_changed` events (`added` − `removed`). A row
+ *    the fold lacks is `unaccounted_permission` (an INSERT nobody audited); a fold code with no row is `phantom_permission`
+ *    (an audited code that is gone, or an event that lies). A role created before {@see self::ARM_D_BASELINE} (the arm's
+ *    commit date; no event could exist for it) whose rows differ from the fold is reported ONCE as `pre_event_role`, never
+ *    per code. **Baseline by date only** (final RED M-1): an SQL-created role after it is not "legacy". `role_permission`
+ *    has no `inserted_by` column, so arm A's owner-process marker cannot be printed here (deviation, recorded).
+ *    **Interim `system_role_has_permission_rows`** (final2 RED M-2; `DATA` D-10.2): no migration or `src/` path writes a
+ *    system role's codes today, so ANY `role_permission` row on an `is_system` role is anomalous with no baseline — reported
+ *    once per role. *Interim: retired by the seeder build, which adds `role.default_key` + `seed_catalogue_version`
+ *    (`roles-s4-sec-data.md` D-10.2) and makes arm D-system a command arm.* Reads under no lock (final RED L-2): a
+ *    concurrent `CreateRole` can print a transient finding — re-run before acting on one. Proves nothing against a forger
+ *    who also writes the event (G-10).
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
@@ -66,6 +81,21 @@ final readonly class RoleReconciliation
     public const FINDING_EVENT_WITHOUT_ROLE_KEY = 'event_without_role_key';
 
     public const FINDING_PROPOSAL_OUTCOME_UNACCOUNTED = 'proposal_outcome_unaccounted';
+
+    public const FINDING_UNACCOUNTED_PERMISSION = 'unaccounted_permission';
+
+    public const FINDING_PHANTOM_PERMISSION = 'phantom_permission';
+
+    public const FINDING_PRE_EVENT_ROLE = 'pre_event_role';
+
+    public const FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS = 'system_role_has_permission_rows';
+
+    /**
+     * Arm D's date baseline: the day `role.permissions_changed` was minted (roles slice 4 C1, `Version20261007000200`). A
+     * role created before it cannot have a creation event. A constant, not `doctrine_migration_versions`, which `erp_app`
+     * cannot read.
+     */
+    public const ARM_D_BASELINE = '2026-10-07T00:00:00+00:00';
 
     public const CADENCE = 'An empty result means no careless writer, never no forgery; this runs only when invoked.';
 
@@ -111,7 +141,8 @@ final readonly class RoleReconciliation
      * the `?` operator, which DBAL would read as a placeholder.
      */
     private const ARM_C = <<<'SQL'
-        SELECT a.subject_id::text AS user_id, a.occurred_at::text AS at
+        SELECT CASE WHEN a.subject_type = 'app_user' THEN a.subject_id::text END AS user_id,
+               CASE WHEN a.subject_type = 'role' THEN a.subject_id::text END AS role_id, a.occurred_at::text AS at
           FROM audit_log a
          WHERE a.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
            AND a.event_type = ANY (?::text[]) AND (a.metadata->>?) IS NULL
@@ -155,6 +186,30 @@ final readonly class RoleReconciliation
          ORDER BY 1, 5, 2
         SQL;
 
+    /** Arm D: every role, system or not, with whether it predates the baseline. Names `role` only. */
+    private const ARM_D_ROLES = <<<'SQL'
+        SELECT r.id::text AS role_id, r.is_system, r.created_at < ?::timestamptz AS pre_event, r.created_at::text AS at
+          FROM role r
+         WHERE r.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+         ORDER BY r.created_at, r.id
+        SQL;
+
+    /** Arm D: the stored codes. */
+    private const ARM_D_ROWS = <<<'SQL'
+        SELECT rp.role_id::text AS role_id, rp.permission_code AS code
+          FROM role_permission rp
+         WHERE rp.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+        SQL;
+
+    /** Arm D: the definition events, in the order they are folded. Binds: the event, the two list keys. */
+    private const ARM_D_EVENTS = <<<'SQL'
+        SELECT a.subject_id::text AS role_id, (a.metadata->?)::text AS added, (a.metadata->?)::text AS removed, a.occurred_at::text AS at
+          FROM audit_log a
+         WHERE a.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+           AND a.event_type = ? AND a.subject_type = 'role'
+         ORDER BY a.occurred_at, a.id
+        SQL;
+
     /** Arm G (iv), half one: the pending pairs — names `role_grant_proposal` only (T2). */
     private const PENDING_PAIRS = <<<'SQL'
         SELECT rgp.id::text AS proposal_id, rgp.user_id::text AS user_id, rgp.role_id::text AS role_id, rgp.proposed_at::text AS at
@@ -183,7 +238,7 @@ final readonly class RoleReconciliation
     }
 
     /**
-     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string}>}
+     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string, permission_code?: string}>}
      */
     public function run(string $tenantId): array
     {
@@ -230,8 +285,8 @@ final readonly class RoleReconciliation
 
             $findings = [...$findings, ...array_map(static fn (array $row): array => [
                 'finding' => self::FINDING_EVENT_WITHOUT_ROLE_KEY,
-                'user_id' => (string) $row['user_id'],
-                'role_id' => null,
+                'user_id' => null === $row['user_id'] ? null : (string) $row['user_id'],
+                'role_id' => null === $row['role_id'] ? null : (string) $row['role_id'],
                 'at' => (string) $row['at'],
             ], $connection->fetchAllAssociative(self::ARM_C, [
                 '{'.implode(',', self::armCEvents()).'}', RoleEventMetadata::ROLE_ID,
@@ -269,12 +324,84 @@ final readonly class RoleReconciliation
                 }
             }
 
+            $findings = [...$findings, ...self::armD($em)];
+
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {
                 $findings[] = ['finding' => self::FINDING_NO_ACTIVE_OWNER, 'user_id' => null, 'role_id' => null, 'at' => null];
             }
 
             return ['refused' => null, 'findings' => $findings];
         });
+    }
+
+    /**
+     * Arm D and its interim system-role finding (see the class docblock). Three reads, folded in PHP.
+     *
+     * @return list<array{finding: string, user_id: null, role_id: string, at: ?string, permission_code?: string}>
+     */
+    private static function armD(EntityManagerInterface $em): array
+    {
+        $connection = $em->getConnection();
+
+        $stored = [];
+        foreach ($connection->fetchAllAssociative(self::ARM_D_ROWS) as $row) {
+            $stored[(string) $row['role_id']][] = (string) $row['code'];
+        }
+
+        $folded = [];
+        foreach ($connection->fetchAllAssociative(self::ARM_D_EVENTS, [RoleEventMetadata::ADDED, RoleEventMetadata::REMOVED, AuditEvent::ROLE_PERMISSIONS_CHANGED]) as $event) {
+            $role = (string) $event['role_id'];
+            $set = $folded[$role] ?? [];
+            $added = json_decode((string) ($event['added'] ?? 'null'), true);
+            $removed = json_decode((string) ($event['removed'] ?? 'null'), true);
+            foreach (\is_array($added) ? $added : [] as $code) {
+                $set[(string) $code] = true;
+            }
+            foreach (\is_array($removed) ? $removed : [] as $code) {
+                unset($set[(string) $code]);
+            }
+            $folded[$role] = $set;
+        }
+
+        $findings = [];
+        $known = [];
+        foreach ($connection->fetchAllAssociative(self::ARM_D_ROLES, [self::ARM_D_BASELINE]) as $role) {
+            $id = (string) $role['role_id'];
+            $known[$id] = true;
+            $rows = $stored[$id] ?? [];
+            sort($rows);
+            if (true === $role['is_system']) {
+                if ([] !== $rows) {
+                    $findings[] = ['finding' => self::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS, 'user_id' => null, 'role_id' => $id, 'at' => (string) $role['at']];
+                }
+                continue;
+            }
+            $fold = array_keys($folded[$id] ?? []);
+            sort($fold);
+            if ($rows === $fold) {
+                continue;
+            }
+            if (true === $role['pre_event']) {
+                $findings[] = ['finding' => self::FINDING_PRE_EVENT_ROLE, 'user_id' => null, 'role_id' => $id, 'at' => (string) $role['at']];
+                continue;
+            }
+            foreach (array_diff($rows, $fold) as $code) {
+                $findings[] = ['finding' => self::FINDING_UNACCOUNTED_PERMISSION, 'user_id' => null, 'role_id' => $id, 'at' => (string) $role['at'], 'permission_code' => $code];
+            }
+            foreach (array_diff($fold, $rows) as $code) {
+                $findings[] = ['finding' => self::FINDING_PHANTOM_PERMISSION, 'user_id' => null, 'role_id' => $id, 'at' => (string) $role['at'], 'permission_code' => $code];
+            }
+        }
+        // An event naming a role that does not exist: every code it folds to is phantom.
+        foreach ($folded as $id => $set) {
+            if (!isset($known[$id])) {
+                foreach (array_keys($set) as $code) {
+                    $findings[] = ['finding' => self::FINDING_PHANTOM_PERMISSION, 'user_id' => null, 'role_id' => (string) $id, 'at' => null, 'permission_code' => (string) $code];
+                }
+            }
+        }
+
+        return $findings;
     }
 
     /**

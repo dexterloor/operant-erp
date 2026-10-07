@@ -388,7 +388,12 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
         self::assertFalse($this->json()['adjustment_decision_owed']);
     }
 
-    /** @return iterable<string, array{string}> */
+    /**
+     * Default roles only; composed seats are G-32's Medium part since roles slice 4 C1 — pinned reachable by
+     * {@see self::aComposedMarkerSeatWithoutAdjustRecordsDifferentGoods()}.
+     *
+     * @return iterable<string, array{string}>
+     */
     public static function rolesWithoutTheMarker(): iterable
     {
         foreach ([DefaultRoles::ADMIN, DefaultRoles::FINANCE, DefaultRoles::SALES_REP, DefaultRoles::WAREHOUSE_OPERATOR, DefaultRoles::VIEWER, DefaultRoles::BUYER, DefaultRoles::PURCHASING_MANAGER] as $role) {
@@ -432,6 +437,33 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
         $this->decide($r2, ['kind' => 'distinct', 'sales_return_line_id' => $rl2, 'credit_note_line_id' => $c1]);
         self::assertSame(200, $this->httpStatus(), 'A co-owner holds the marker under another name. '.(string) $this->client()->getResponse()->getContent());
         self::assertArrayNotHasKey('adjustment_decisions', $this->json()['lines'][0], 'No invoice.view: the members are absent from its own 200.');
+    }
+
+    /**
+     * **G-32's Medium path, pinned REACHABLE (roles slice 4 C1; `roles-s4-sec-data-red.md` item 2, the decisive case).** An
+     * owner composes, through `CreateRole`, a seat holding the marker and `credit_note.issue` with `invoice.view` (D-5a) and
+     * WITHOUT `credit_note.adjust`, grants it, and its holder records `distinct` — an adjustment-class credit power its owner
+     * withheld, which no catalogue entry names. This is why the over-credit part is MEDIUM; a later change that silently
+     * refuses it must move this test (and G-32's rating) visibly.
+     */
+    #[Test]
+    public function aComposedMarkerSeatWithoutAdjustRecordsDifferentGoods(): void
+    {
+        $i = $this->invoicedShipment('AD-COMPOSED', [['10', '10.0000', '10']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        [, $c1] = $this->adjustment($i, '2', 'damaged_goods_kept');
+        [$r, $rl] = $this->returned($i, '2');
+        $this->send('POST', '/roles', ['name' => 'Finance lead', 'permission_codes' => ['tenant_settings.edit', 'credit_note.issue', 'invoice.view']], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertNotContains('credit_note.adjust', $this->json()['permission_codes']);
+        $role = (string) $this->json()['id'];
+        $lead = $this->seedPrincipal(self::TENANT_A, []);
+        $this->send('POST', '/users/'.$lead.'/roles', ['role_id' => $role], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->actAsUser(self::TENANT_A, $lead);
+        $this->decide($r, ['kind' => 'distinct', 'sales_return_line_id' => $rl, 'credit_note_line_id' => $c1]);
+        self::assertSame(200, $this->httpStatus(), 'The composed marker seat without credit_note.adjust could not say distinct: '.(string) $this->client()->getResponse()->getContent());
     }
 
     /** D2 (b): only an owner undoes a decision — finance, who may record the `same`, may not reverse it. */

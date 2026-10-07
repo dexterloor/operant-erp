@@ -20,7 +20,8 @@ use Symfony\Component\Uid\Uuid;
  * through `audit_log.view`, and they carry the request's IP (E-3's field; `audit_log_ip_address_scope` admits one for
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
- *  - **Subject:** `('app_user', <the user whose privileges changed>)`, read off `AuditEvent::SUBJECT_TYPES`.
+ *  - **Subject:** `('app_user', <the user whose privileges changed>)`, read off `AuditEvent::SUBJECT_TYPES` — except
+ *    `role.permissions_changed` (roles slice 4 C1), whose subject is `('role', <the role whose definition changed>)`.
  *  - **`metadata` always carries `RoleEventMetadata::ROLE_ID`** — the key the reconciliation reads (G-10 condition (1),
  *    A-7) — and, for the proposal events (roles slice 3, C1; `SECURITY_MODEL.md` §5.2.8), the further id keys
  *    `PROPOSAL_ID`, `SUPERSEDES_PROPOSAL_ID`, `PROPOSED_BY_USER_ID` (a confirmation's `role.assigned`, C2) and the
@@ -114,16 +115,33 @@ final readonly class RoleAuditWriter
     }
 
     /**
-     * One statement for every `role.*` event, so the rows cannot drift apart in shape (reconciliation arms A, B and C read
-     * them together). `ROLE_ID` is always the first key; `$extra` adds the proposal keys.
+     * `role.permissions_changed` — `CreateRole` (roles slice 4 C1) with the full set and `removed` empty; `UpdateRole` (C2)
+     * when the code set changes. The ROLE is the subject (`AuditEvent::SUBJECT_TYPES`), so `$roleId` is passed as both the
+     * subject and `RoleEventMetadata::ROLE_ID` — arm C's key stays on every `role.*` row.
      *
-     * @param array<string, string> $extra
+     * @param list<string> $added
+     * @param list<string> $removed
      */
-    private function record(string $event, string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress, array $extra = []): void
+    public function recordPermissionsChanged(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, array $added, array $removed, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_PERMISSIONS_CHANGED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress, [
+            RoleEventMetadata::ADDED => array_values($added),
+            RoleEventMetadata::REMOVED => array_values($removed),
+        ]);
+    }
+
+    /**
+     * One statement for every `role.*` event, so the rows cannot drift apart in shape (reconciliation arms A, B and C read
+     * them together). `ROLE_ID` is always the first key; `$extra` adds the proposal keys (ids) or, for a definition change,
+     * the code lists. `$subjectId` is a user's id, or a role's for `role.permissions_changed` (`AuditEvent::SUBJECT_TYPES`).
+     *
+     * @param array<string, string|list<string>> $extra
+     */
+    private function record(string $event, string $tenantId, string $actorUserId, string $actorLabel, string $subjectId, string $roleId, ?string $ipAddress, array $extra = []): void
     {
         $metadata = json_encode([RoleEventMetadata::ROLE_ID => $roleId, ...$extra], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES);
 
-        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($event, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $metadata, $ipAddress): void {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($event, $tenantId, $actorUserId, $actorLabel, $subjectId, $metadata, $ipAddress): void {
             $em->getConnection()->executeStatement(<<<'SQL'
                 INSERT INTO audit_log
                     (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
@@ -137,7 +155,7 @@ final readonly class RoleAuditWriter
                     $actorUserId,
                     $actorLabel,
                     AuditEvent::SUBJECT_TYPES[$event],
-                    $subjectUserId,
+                    $subjectId,
                     $ipAddress,
                     $metadata,
                 ]);

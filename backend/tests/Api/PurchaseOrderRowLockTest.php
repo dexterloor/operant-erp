@@ -2938,6 +2938,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $this->actAsRole($decision ? DefaultRoles::OWNER : DefaultRoles::ADMIN);
         }
 
+        // Seeded before the recorder: since roles slice 4 C1 the filter below also matches `role` / `role_permission`, which
+        // `systemRole()` inserts as the owner.
+        $financeRole = 'CreateRoleGrantProposal' === $case ? $this->systemRole(DefaultRoles::FINANCE) : null;
         $this->recorder()->start();
         match ($case) {
             'RevokeRole' => $this->send('DELETE', '/users/'.$subject.'/roles/'.$role),
@@ -2946,21 +2949,24 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
             // Roles slice 3, C1: `admin` proposes the SYSTEM `finance` role (it meets X(admin) through `invoice.pay`, and
             // E-15c does not judge a system role), so the grant needs an owner's confirmation and is proposed.
-            'CreateRoleGrantProposal' => $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $this->systemRole(DefaultRoles::FINANCE)],
+            'CreateRoleGrantProposal' => $this->send('POST', '/users/'.$subject.'/role-grant-proposals', ['role_id' => $financeRole],
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
             // Roles slice 3, C2: one transaction writes `user_role` (the grant) AND `role_grant_proposal` (the decision).
             'ConfirmRoleGrantProposal' => $this->send('POST', '/role-grant-proposals/'.$proposal.'/confirmation'),
             // Roles slice 3, C3: each writes `role_grant_proposal` (the decision) and the audit row in one transaction.
             'RejectRoleGrantProposal' => $this->send('POST', '/role-grant-proposals/'.$proposal.'/rejection', ['reason' => 'Lock-first case']),
             'CancelRoleGrantProposal' => $this->send('POST', '/role-grant-proposals/'.$proposal.'/cancellation'),
+            // Roles slice 4, C1: `admin` composes a one-code role — writes `role`, `role_permission` and the audit row.
+            'CreateRole' => $this->send('POST', '/roles', ['name' => 'Lock-first case', 'permission_codes' => ['role.view']],
+                [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
 
         $writing = array_values(array_filter($this->transactionsRecorded(), static fn (array $statements): bool => [] !== preg_grep(
-            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(?:user_role|role_grant_proposal)\b/i', $statements,
+            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(?:user_role|role(?:_permission|_grant_proposal)?)\b/i', $statements,
         )));
-        self::assertCount(1, $writing, 'Expected exactly one transaction writing user_role or role_grant_proposal.');
+        self::assertCount(1, $writing, 'Expected exactly one transaction writing a role-administration table.');
         self::assertSame(RoleAdministrationLock::SQL, $writing[0][0] ?? null,
             "The first statement of the transaction writing a role table is not the role-administration lock. Statements, in order:\n"
             .implode("\n", $writing[0]));
@@ -2975,6 +2981,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'ConfirmRoleGrantProposal' => ['ConfirmRoleGrantProposal', 200];
         yield 'RejectRoleGrantProposal' => ['RejectRoleGrantProposal', 200];
         yield 'CancelRoleGrantProposal' => ['CancelRoleGrantProposal', 200];
+        yield 'CreateRole' => ['CreateRole', 201];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3444,6 +3451,61 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'A confirmation denial under the lock names a different (subject_type, subject_id) pair from the gate\'s denial of the same path.');
     }
 
+    /**
+     * **`CreateRole`'s demotion twins — the ceiling reads the LOCK-time set (`SEC` D-4; roles slice 4 C1).** The creator
+     * holds `role.create` (+ `role.view`) through R1 and `invoice.void` (+ `invoice.view`) through R2, and asks for a role
+     * holding `invoice.void`. While the request waits on the role lock, the holder revokes one of them:
+     *  - **twin A** removes R1 → the gate's 403 for `role.create` and exactly one lock-time denial row; nothing written;
+     *  - **twin B** removes R2 → 409 `role.exceeds_actor_permissions`, NO denial row; nothing written.
+     * Mutation: the ceiling read from the request's `Identity` (gate-time codes) → twin B 201, red.
+     */
+    #[Test]
+    #[DataProvider('createRoleDemotionTwins')]
+    public function aCreatorDemotedWhileWaitingCannotExceedTheirLockTimeCodes(string $twin): void
+    {
+        $r1 = $this->composedRoleOf(['role.create', 'role.view']);
+        $r2 = $this->composedRoleOf(['invoice.void', 'invoice.view']);
+        $creator = $this->seedPrincipal(self::TENANT_A, []);
+        foreach ([$r1, $r2] as $role) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+                [self::TENANT_A, $creator, $role]);
+        }
+        $revoker = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $lost = 'A' === $twin ? $r1 : $r2;
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $creator);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$creator, $lost]],
+            [self::HOLDER_ROLE_REVOKED, [self::TENANT_A, $revoker, $creator, $lost]],
+        ], request: fn () => $this->send('POST', '/roles', ['name' => 'Void desk '.$twin, 'permission_codes' => ['invoice.view', 'invoice.void']],
+            [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role WHERE name LIKE 'Void desk%'"), 'A role was created by a demoted creator.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_PERMISSIONS_CHANGED]));
+
+        if ('B' === $twin) {
+            self::assertSame([409, 'role.exceeds_actor_permissions'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::AUTHZ_PERMISSION_DENIED]),
+                'Twin B wrote a denial row; exceeding one\'s codes is a 409, not a permission refusal.');
+
+            return;
+        }
+
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role.create', $this->json()['required_permission'] ?? null);
+        self::assertCount(1, $this->denialRows(), 'Twin A: not exactly one lock-time denial row.');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function createRoleDemotionTwins(): iterable
+    {
+        yield 'twin A: role.create lost' => ['A'];
+        yield 'twin B: invoice.void lost' => ['B'];
+    }
+
     /** @return iterable<string, array{string}> */
     public static function confirmationDemotionTwins(): iterable
     {
@@ -3767,6 +3829,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // Roles slice 3 C3: the other two decisions, each its own transaction (flush + audit row).
         'RejectRoleGrantProposal' => 'RoleGrantProposalRejection::reject',
         'CancelRoleGrantProposal' => 'RoleGrantProposalCancellation::cancel',
+        // Roles slice 4 C1: one transaction writes `role`, `role_permission` and `role.permissions_changed`.
+        'CreateRole' => 'RoleCreation::create',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */

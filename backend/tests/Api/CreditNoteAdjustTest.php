@@ -417,9 +417,36 @@ final class CreditNoteAdjustTest extends PurchaseOrderTestCase
         // default role re-rates G-32's over-credit part from Low to Medium** (`SEC`, `g29-g30-sec.md` §1.3 item 1), and
         // `SEC` must re-rate in that commit. A NEW default role holding the code is not caught here; a composed role is
         // caught by OwedAmendmentTripwireTest (CreateRole / UpdateRole); a grant written by SQL (G-10) by nothing.
+        // Default roles only. Since roles slice 4 C1 a composed `credit_note.adjust` seat can exist (an owner's composition
+        // and grant); it is NOT G-32's Medium part (that is marker + `credit_note.issue` without adjust, `roles-s4-sec-data-red.md`
+        // N-1/N-2) — see `aComposedAdjustSeatMayAdjustAndMustHoldInvoiceView`.
         foreach ([DefaultRoles::ADMIN, DefaultRoles::FINANCE, DefaultRoles::SALES_REP, DefaultRoles::WAREHOUSE_OPERATOR, DefaultRoles::VIEWER, DefaultRoles::BUYER, DefaultRoles::PURCHASING_MANAGER] as $role) {
             yield $role => [$role];
         }
+    }
+
+    /**
+     * **G-32 / D-7.7's composed-role cases (roles slice 4 C1).** An owner composes a delegated adjuster through `CreateRole`;
+     * without `invoice.view` it cannot be composed at all (owner D-5a, `role.missing_companion_view`); with it, it is
+     * composed, granted by the owner, and its holder adjusts — a delegated, bounded power (G-30's part 3), not G-32's Medium.
+     */
+    #[Test]
+    public function aComposedAdjustSeatMayAdjustAndMustHoldInvoiceView(): void
+    {
+        $i = $this->invoicedShipment('ADJ-COMPOSED', [['4', '10.0000', '2']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+        $this->send('POST', '/roles', ['name' => 'Blind adjuster', 'permission_codes' => ['credit_note.adjust']], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame([409, 'role.missing_companion_view'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
+        $this->send('POST', '/roles', ['name' => 'Adjust desk', 'permission_codes' => ['credit_note.adjust', 'invoice.view']], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $role = (string) $this->json()['id'];
+        $delegate = $this->seedPrincipal(self::TENANT_A, []);
+        $this->send('POST', '/users/'.$delegate.'/roles', ['role_id' => $role], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), 'The owner grants the composed adjuster directly: '.(string) $this->client()->getResponse()->getContent());
+
+        $this->actAsUser(self::TENANT_A, $delegate);
+        $this->adjust($i, [[0, '1']], 'damaged_goods_kept');
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
     }
 
     #[Test]

@@ -198,7 +198,7 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (G-29 / G-30 part 3 C1, 2026-10-05):** `CreateAdjustmentDecision` on `SalesReturnResource`, a POST
         // at `/sales-returns/{id}/adjustment-decisions` (`credit_note.issue`; branch 5). Its migration creates
         // `adjustment_decision`: SELECT to `erp_app`/`erp_ai`, a column INSERT on eleven columns to `erp_app`.
-        self::assertCount(64, $checked, 'The route set changed. This slice declares sixty-four operations: '.implode(', ', array_keys($checked)));
+        self::assertCount(65, $checked, 'The route set changed. This slice declares sixty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

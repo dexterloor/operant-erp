@@ -298,7 +298,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * half and names this build commit as a hard trigger that must test path (iii), and G-21's phantom-stock sentence
      * names it as unbuilt.
      *
-     * Keyed by `operationId`, never a path (`1076ba3`). **None of the three is built** — this is a PIN that goes red on
+     * Keyed by `operationId`, never a path (`1076ba3`). **Neither remaining entry is built** (`CreateRole` was cleared at roles
+     * slice 4 C1, its work done) — this is a PIN that goes red on
      * arrival, not an implication. Clearing an entry is a deliberate edit made in the commit that does what the failure
      * message lists; the residual every sibling method carries applies (clearing without doing it defeats the pin).
      * **Disclosed limit (G-32's own text):** a grant written by SQL (G-10's shape) composes a role with no operation,
@@ -307,7 +308,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, 'role composition'|'stock count'>
      */
     private const OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT = [
-        'CreateRole' => 'role composition',
+        // `CreateRole` LEFT 2026-10-07 (roles slice 4 C1), in the commit that did its block's work: G-28 narrowed (C0's
+        // derived check, C1a's `margin_exposure`), PC-17 re-put (owner D-5b), G-32's over-credit part re-rated MEDIUM by
+        // `SEC` (`roles-s4-sec-data.md` D-7.7 as corrected by `-red.md` item 2), and the composed-role cases in
+        // `CreditNoteAdjustTest` / `AdjustmentDecisionTest`. `UpdateRole` stays until C2.
         'UpdateRole' => 'role composition',
         'CreateStockAdjustment' => 'stock count',
     ];
@@ -1016,20 +1020,17 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     {
         $blocks = [];
         if (\in_array('role composition', $arrived, true)) {
-            $blocks[] = "ROLE COMPOSITION (CreateRole / UpdateRole) -- a hard trigger of G-28 AND G-32, whichever comes first.\n"
-                ."Today `credit_note.adjust` is the owner's alone among the default roles, and the owner marker (`tenant_settings.edit`)\n"
-                ."is held only through the default owner role; a composed role can hand either to a delegate.\n"
-                ."  G-28 (Medium): PC-12's margin warning and its check are unbuilt. Build PC-12 clause 6's derived check\n"
-                ."    (sources from Perm cells and read shapes, PC-12 clause 2 and PC-17) and the role picker's warning with\n"
-                ."    its data (SEC + BE-LEAD + UX copy). V2-S-1c and B1N-11 are re-homed there. PC-17 is re-put to the owner\n"
-                ."    at this trigger. (PermissionListTest's CreateRole/UpdateRole pin separately owes `sod_rows`, V2-C-5.)\n"
-                ."  G-32 (Low, SEC): G-29 and G-30 are CLOSED by G-29/G-30 part 3 except path (iii)'s paperwork half, which G-32 carries.\n"
-                ."    G-32's over-credit part re-rates Low -> Medium if the composed role holds `tenant_settings.edit` with\n"
-                ."    `credit_note.issue` or `credit_note.adjust` (a non-owner seat holding the marker with either code), or if\n"
-                ."    `credit_note.adjust` reaches a non-owner role. Re-rate (SEC) in this commit.\n"
-                ."    A marker holder with `credit_note.issue` can say `distinct` and then credit: a second credit of the same\n"
-                ."    money class as `credit_note.adjust`. Check also CreditNoteAdjustTest::rolesThatMayNotAdjust and\n"
-                ."    AdjustmentDecisionTest::onlyAnOwnerRecordsDifferentGoods (the default-role provider).\n"
+            $blocks[] = "ROLE COMPOSITION (UpdateRole) -- a hard trigger of G-28 AND G-32. CreateRole (roles slice 4 C1) already did\n"
+                ."this block's first half: G-28 NARROWED (C0's derived check, C1a's `margin_exposure`; item 1, the pair warning at\n"
+                ."assignment, still owed to GetUser's picker), PC-17 re-put (owner D-5b: role.create/edit/delete need role.view), and\n"
+                ."G-32's over-credit part RE-RATED Low -> MEDIUM by SEC at C1 (roles-s4-sec-data.md D-7.7 as corrected by\n"
+                ."roles-s4-sec-data-red.md item 2): an owner can compose a seat holding the marker and `credit_note.issue` WITHOUT\n"
+                ."`credit_note.adjust`, which can say `distinct` and then credit.\n"
+                ."  Owed at UpdateRole (C2): a NON-OWNER can make the same seat by removing `credit_note.adjust` from a held marker\n"
+                ."    role (D-7.5) -- G-32's text already names it; SEC is asked whether a held marker role should be editable by\n"
+                ."    its holders' peers at all (RED N-3). Companions run on the RESULT (D-5a/D-5b/D-6), PC-4 unconditionally.\n"
+                ."  Re-rate again only if `credit_note.adjust` reaches a non-owner DEFAULT role (CreditNoteAdjustTest::rolesThatMayNotAdjust)\n"
+                ."    or the marker reaches one (AdjustmentDecisionTest::rolesWithoutTheMarker).\n"
                 ."  A grant written by SQL (G-10's shape) is not detected by this pin.";
         }
         if (\in_array('stock count', $arrived, true)) {

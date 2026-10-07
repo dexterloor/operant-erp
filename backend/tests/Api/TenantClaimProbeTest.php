@@ -123,6 +123,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // withdrawn by the actor made its proposer. A moved write would decide B's proposal: the digest.
         'RejectRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'confirmable_proposal', 'body' => ['reason' => 'Probe']],
         'CancelRoleGrantProposal' => ['vars' => ['id' => 'proposal'], 'setup' => 'withdrawable_proposal'],
+        // Roles slice 4, C1: a one-code (`role.view`) role composed by the actor. A supplied tenant id that moved the write
+        // would create the role in B, which the digest names.
+        'CreateRole' => ['body' => ['name' => 'Probe composed', 'permission_codes' => ['role.view']]],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],

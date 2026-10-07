@@ -652,6 +652,13 @@ trait OperationSuccessRecipes
             // Roles slice 3, C1: a user holding nothing; a composed role carrying an X(admin) code the actor holds
             // (`invoice.pay`) and `role.view`. The actor holds every declared code and never the marker, so the grant needs
             // an owner's confirmation and is proposed: E-15b, E-15c, C12, the pending pair and PC-13 have nothing to say.
+            // Roles slice 4, C1: a one-code role (`role.view`) composed by the actor, who holds every declared code — inside
+            // its set (the ceiling), no SoD row (PC-4), no companion owed (`role.view` needs none). A fresh name per run.
+            'CreateRole' => [$none, function () use ($key): array {
+                $this->send('POST', '/roles', ['name' => 'Recipe composed '.substr(Uuid::v4()->toRfc4122(), 0, 8), 'permission_codes' => ['role.view']], $key());
+
+                return [201, 'compose a role'];
+            }],
             'CreateRoleGrantProposal' => [function (): array {
                 $role = Uuid::v4()->toRfc4122();
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',

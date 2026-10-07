@@ -913,6 +913,130 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The columns `CreateRole`'s two INSERTs name (roles slice 4 C1, `Version20261007000100`). **Typed by hand from
+     * `RoleCreation::INSERT_ROLE` / `INSERT_CODES`, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
+     * reason).
+     *
+     * @var array<string, list<string>>
+     */
+    private const ROLE_DEFINITION_COLUMNS_CREATE_INSERTS = [
+        'role' => ['description', 'id', 'name', 'tenant_id'],
+        'role_permission' => ['id', 'permission_code', 'role_id', 'tenant_id'],
+    ];
+
+    /**
+     * **Roles slice 4 C1: `erp_app` can INSERT exactly the columns `CreateRole` names on `role` and `role_permission`, and
+     * UPDATE none of them — proved by running the statements as `erp_app`** (design §8.1; E-15h: *"`is_system` set by any
+     * path other than provisioning"* is closed at the PRIVILEGE level). `theApplicationCanInsertOnlyTheGrantColumnsItWrites`'
+     * shape: domain from `pg_attribute`, one connection and one rolled-back transaction per (table, column, privilege),
+     * zero-row probes. **Positive control:** `role.name` INSERT accepted. **Anti-vacuity:** `role.is_system` refused for
+     * INSERT and UPDATE. **Planted control, committed then undone:** `GRANT UPDATE (is_system) ON role` must produce exactly
+     * one violation. UPDATE arrives at C2 (name, description, updated_at), `deleted_at` at C3 — this test moves with them.
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheRoleColumnsCreateRoleNames(): void
+    {
+        $columns = [];
+        foreach (array_keys(self::ROLE_DEFINITION_COLUMNS_CREATE_INSERTS) as $table) {
+            $columns[$table] = $this->owner()->fetchFirstColumn(
+                'SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum', [$table]);
+        }
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach ($columns as $table => $tableColumns) {
+                foreach ($tableColumns as $column) {
+                    foreach (['INSERT' => 'INSERT INTO %2$s (%1$s) SELECT %1$s FROM %2$s WHERE false', 'UPDATE' => 'UPDATE %2$s SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
+                        $connection = $this->secondClient();
+                        $connection->beginTransaction();
+                        try {
+                            $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                            $connection->executeStatement(sprintf($sql, $connection->getDatabasePlatform()->quoteSingleIdentifier($column), $table));
+                            $outcomes[$table.'.'.$column.' '.$privilege] = 'accepted';
+                        } catch (DriverException $e) {
+                            $outcomes[$table.'.'.$column.' '.$privilege] = '42501' === $e->getSQLState()
+                                && str_contains($e->getMessage(), 'permission denied for table '.$table)
+                                ? 'refused'
+                                : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                        } finally {
+                            $connection->rollBack();
+                            $connection->close();
+                        }
+                    }
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$tableColumn, $privilege] = explode(' ', $key);
+                [$table, $column] = explode('.', $tableColumn);
+                $granted = 'INSERT' === $privilege && \in_array($column, self::ROLE_DEFINITION_COLUMNS_CREATE_INSERTS[$table], true);
+                if ($granted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('%s: CreateRole writes it, but erp_app got "%s"', $key, $outcome);
+                } elseif (!$granted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('%s: CreateRole does not write it, but erp_app got "%s"', $key, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+        self::assertSame('accepted', $outcomes['role.name INSERT'] ?? null, 'The positive control failed: erp_app could not insert role.name.');
+        self::assertSame(['refused', 'refused'], [$outcomes['role.is_system INSERT'] ?? null, $outcomes['role.is_system UPDATE'] ?? null],
+            'is_system must be unwritable by erp_app (E-15h), and the probe did not see it refused.');
+        self::assertSame([], $violations($outcomes),
+            "erp_app's writes on role / role_permission are not exactly CreateRole's columns:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (is_system) ON role TO %s', DatabaseRoles::APP));
+            self::assertSame(['role.is_system UPDATE: CreateRole does not write it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (is_system) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_system) ON role FROM %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The planted is_system grant survived its REVOKE.');
+    }
+
+    /**
+     * **`DATA` D-10.1's backstop CHECKs refuse, as `erp_app`, what the application refuses** (roles slice 4 C1): a zero-width
+     * space, a trailing space, a bidi override, an empty name and a 101-character name → `23514 role_name_shape`; a control
+     * character in the description → `role_description_shape`. **Positive control:** a plain name (and a description with a
+     * tab and a newline) is accepted — every probe rolled back. G-10's SQL writer is what these stop; the API never reaches them.
+     */
+    #[Test]
+    public function theRoleShapeChecksRefuseInvisibleOrBlankNamesWrittenAsTheApplication(): void
+    {
+        $insert = function (string $name, string $description): string {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement('INSERT INTO role (id, tenant_id, name, description) VALUES (?::uuid, ?::uuid, ?, ?)',
+                    [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $name, $description]);
+
+                return 'accepted';
+            } catch (DriverException $e) {
+                return ($e->getSQLState() ?? '?').(str_contains($e->getMessage(), 'role_name_shape') ? ' role_name_shape' : (str_contains($e->getMessage(), 'role_description_shape') ? ' role_description_shape' : ' '.$e->getMessage()));
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        self::assertSame('accepted', $insert('Night shift', "Two lines,\tone tab\nhere"), 'Positive control: a plain role was refused.');
+        foreach (["Own\u{200B}er", 'Clerk ', "Clerk\u{202E}", '', str_repeat('n', 101), "\u{FEFF}Owner"] as $name) {
+            self::assertSame('23514 role_name_shape', $insert($name, ''), 'role_name_shape admitted '.json_encode($name));
+        }
+        self::assertSame('23514 role_description_shape', $insert('Clerk', "a\u{0001}b"));
+        self::assertSame('23514 role_description_shape', $insert('Clerk', str_repeat('d', 501)));
+    }
+
+    /**
      * The `role_grant_proposal` columns `CreateRoleGrantProposal`'s one `INSERT … SELECT` names, and the columns its
      * lapse-on-touch flush (`RoleGrantProposal::lapse()`) and Confirm's flush (`RoleGrantProposal::confirm()`) set (roles
      * slice 3, C1 and C2; design §7; `DATA` §4). **Typed by hand from the statements, never read from `SchemaManifest`**

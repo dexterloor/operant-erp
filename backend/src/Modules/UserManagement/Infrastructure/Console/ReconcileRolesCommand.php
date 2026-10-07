@@ -65,6 +65,10 @@ final class ReconcileRolesCommand extends Command
                 // Arm G (roles slice 3 C2): which proposal, and which of its cases.
                 $line .= ',proposal_id='.$finding['proposal_id'].',case='.($finding['case'] ?? '');
             }
+            if (\array_key_exists('permission_code', $finding)) {
+                // Arm D (roles slice 4 C1): which code is unaccounted for, or phantom.
+                $line .= ',permission_code='.$finding['permission_code'];
+            }
             if (RoleReconciliation::FINDING_NO_ACTIVE_OWNER === $finding['finding']) {
                 $line .= ' (attribution and recovery triage, not detection)';
             }

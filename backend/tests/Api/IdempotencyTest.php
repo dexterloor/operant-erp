@@ -129,6 +129,13 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'mechanism is `unique:user_role_unique` on the natural pair, and a repeat is REFUSED 409 '
                 .'user_role.already_held, never replayed: the key header is required and its value is not stored.',
         ],
+        'CreateRole' => [
+            'method' => 'repeatCreateRole',
+            'why' => 'A second role of one name and a second role.permissions_changed row (roles slice 4 C1). Its mechanism is '
+                .'`unique:role_tenant_name_live` on the natural key `name` — checked case-insensitively under the role lock '
+                .'first — and a repeat is REFUSED 409 role.name_taken, never replayed: the key header is required and its '
+                .'value is not stored.',
+        ],
         'CreateRoleGrantProposal' => [
             'method' => 'repeatCreateRoleGrantProposal',
             'why' => 'A second pending proposal for one (user, role) and a second role.assignment_proposed row (roles slice 3 '
@@ -581,6 +588,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM user_role WHERE user_id = ?::uuid', [$subject]), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT id FROM audit_log WHERE event_type = 'role.assigned'"), $why);
+    }
+
+    private function repeatCreateRole(string $why): void
+    {
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+        $body = ['name' => 'Repeat composed', 'permission_codes' => ['role.view']];
+
+        $this->send('POST', '/roles', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/roles', $body, $key);
+
+        self::assertSame(409, $this->httpStatus(), 'The repeat was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('role.name_taken', $this->json()['rule']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM role WHERE name = 'Repeat composed'"), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT id FROM audit_log WHERE event_type = 'role.permissions_changed'"), $why);
     }
 
     private function repeatCreateRoleGrantProposal(string $why): void

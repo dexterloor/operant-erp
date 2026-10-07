@@ -141,6 +141,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Roles slice 3 C3 (2026-10-05): the other two decisions; `Version20261005000300` re-issues the scope with both.
         'role.assignment_rejected',
         'role.assignment_cancelled',
+        // Roles slice 4 C1 (2026-10-07): E-15f's definition event, SECURITY (`roles-s4-sec-data.md` D-7.3), carrying the
+        // request's IP; `Version20261007000200` re-issues the scope with it.
+        'role.permissions_changed',
     ];
 
     /**

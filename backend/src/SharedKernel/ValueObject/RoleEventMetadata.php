@@ -40,6 +40,15 @@ final class RoleEventMetadata
     /** On `role.assignment_lapsed`: `expired` | `subject_removed` | `proposer_removed`. */
     public const LAPSE_REASON = 'lapse_reason';
 
+    /**
+     * Roles slice 4 C1 (E-15f; `roles-s4-design.md` §7): on `role.permissions_changed`, the codes the change ADDED and
+     * REMOVED, each a sorted list (bounded by the catalogue). At creation `added` is the full set and `removed` is `[]`.
+     * Reconciliation arm D folds them, in `occurred_at` order, into the set `role_permission` must hold.
+     */
+    public const ADDED = 'added';
+
+    public const REMOVED = 'removed';
+
     /** Not instantiable: named keys only. */
     private function __construct()
     {

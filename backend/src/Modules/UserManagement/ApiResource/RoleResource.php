@@ -11,6 +11,7 @@ use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
+use App\Modules\UserManagement\ApiResource\State\CreateRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RevokeRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleProvider;
 use App\Modules\UserManagement\Application\RoleView;
@@ -107,6 +108,27 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 // F-1 / `SEC` Acknowledgement B.3 item 1: `{id}` addresses the USER whose privileges change, not a role.
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['app_user', 'id'],
                 CreatedRowLocation::OPERATION_URI_TEMPLATE => '/users/{id}/roles/{roleId}',
+            ],
+        ),
+        // Roles slice 4, C1 (2026-10-07). API-21 branch 4: 201, the created role in `GetRole`'s shape, `Location` = its
+        // `GetRole` URI (this resource's own IRI). §4.2's `Idem` cell is `unique:role_tenant_name_live`: the header is
+        // demanded (428 without it) and not stored; a retry meets the name rule (`role.name_taken`). `read: false`: nothing
+        // is read before the role-administration lock. The denial subject is the default derivation (no `{id}`).
+        new Post(
+            uriTemplate: '/roles',
+            name: 'CreateRole',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateRole'),
+            input: CreateRoleInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            read: false,
+            processor: CreateRoleProcessor::class,
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'role.create',
             ],
         ),
     ],

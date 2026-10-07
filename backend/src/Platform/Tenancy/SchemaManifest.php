@@ -344,12 +344,21 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Audit entries name the role that granted an action; deleting the role outright would orphan that history.',
+            // Roles slice 4, C1 (2026-10-07, Version20261007000100): CreateRole's one INSERT, COLUMN-level, exactly its four
+            // columns. is_system stays unwritable by erp_app, so E-15h's "is_system set by any path other than provisioning"
+            // is closed at the privilege level. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'name', 'description']]],
         ],
         'role_permission' => [
             'module' => 'Modules\\UserManagement',
             'tenant' => true,
             'deletion' => self::HARD,
             'why' => 'A join row. Revoking a permission from a role is a removal, and the fact that it happened lives in audit_log.',
+            // Roles slice 4, C1 (Version20261007000100): CreateRole's one multi-row INSERT, COLUMN-level. Never UPDATE (no
+            // ON CONFLICT DO UPDATE); DELETE arrives with UpdateRole (C2). erp_ai keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => ['INSERT' => ['id', 'tenant_id', 'role_id', 'permission_code']]],
         ],
         'user_role' => [
             'module' => 'Modules\\UserManagement',
