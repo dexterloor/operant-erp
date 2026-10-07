@@ -291,28 +291,35 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * **moved at G-29 / G-30 part 3 C2, 2026-10-06: G-29 is CLOSED and G-30 closed except path (iii)'s paperwork half, and
      * what remains is `RESIDUAL_GAPS.md` G-32 — this pin now carries G-28 and G-32**).
      *
-     * G-32 is not reachable by anyone but an owner today: `credit_note.adjust` is held by the owner alone among the
-     * default roles, and `CreditNoteAdjustTest::aRoleWithoutCreditNoteAdjustIsRefused` goes red if a default role gains
-     * it. What that test cannot see is a role a TENANT composes — so `CreateRole` / `UpdateRole` (G-28's trigger, the same
-     * event, and G-32's) are pinned here. `CreateStockAdjustment` is pinned because G-32 carries G-30 path (iii)'s paperwork
+     * Among the default roles `credit_note.adjust` is held by the owner alone, and
+     * `CreditNoteAdjustTest::aRoleWithoutCreditNoteAdjustIsRefused` goes red if a default role gains it. What that test
+     * cannot see is a role a TENANT composes — so `CreateRole` / `UpdateRole` (G-28's trigger, the same event, and G-32's)
+     * WERE pinned here, until roles slice 4 C1 / C2 built them with the work their block listed (G-32 re-rated MEDIUM at C1;
+     * Q-A and R-1 at C2). `CreateStockAdjustment` is pinned because G-32 carries G-30 path (iii)'s paperwork
      * half and names this build commit as a hard trigger that must test path (iii), and G-21's phantom-stock sentence
      * names it as unbuilt.
      *
-     * Keyed by `operationId`, never a path (`1076ba3`). **Neither remaining entry is built** (`CreateRole` was cleared at roles
-     * slice 4 C1, its work done) — this is a PIN that goes red on
+     * Keyed by `operationId`, never a path (`1076ba3`). **The remaining entry is not built** (`CreateRole` was cleared at roles
+     * slice 4 C1 and `UpdateRole` at C2, each with its work done) — this is a PIN that goes red on
      * arrival, not an implication. Clearing an entry is a deliberate edit made in the commit that does what the failure
      * message lists; the residual every sibling method carries applies (clearing without doing it defeats the pin).
      * **Disclosed limit (G-32's own text):** a grant written by SQL (G-10's shape) composes a role with no operation,
      * and nothing here sees it.
      *
-     * @var array<string, 'role composition'|'stock count'>
+     * @var array<string, 'stock count'>
      */
     private const OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT = [
         // `CreateRole` LEFT 2026-10-07 (roles slice 4 C1), in the commit that did its block's work: G-28 narrowed (C0's
         // derived check, C1a's `margin_exposure`), PC-17 re-put (owner D-5b), G-32's over-credit part re-rated MEDIUM by
         // `SEC` (`roles-s4-sec-data.md` D-7.7 as corrected by `-red.md` item 2), and the composed-role cases in
-        // `CreditNoteAdjustTest` / `AdjustmentDecisionTest`. `UpdateRole` stays until C2.
-        'UpdateRole' => 'role composition',
+        // `CreditNoteAdjustTest` / `AdjustmentDecisionTest`.
+        // `UpdateRole` LEFT 2026-10-07 (roles slice 4 C2), in the commit that did the rest of the block's work: `SEC`'s RED N-3
+        // question answered by Q-A (`roles-s4-c2-decisions.md` FINAL — a role whose stored or resulting codes confer the
+        // marker is changed only by an owner, `role.marker_needs_owner`); companions run on the RESULT and PC-4
+        // unconditionally (`RoleUpdateTest`); G-32's over-credit bullet REPLACED with `roles-s4-c2-decisions-red.md` §6 (e)
+        // (R-1: a non-owner can still complete the Medium seat across a holder's roles — pinned by
+        // `RoleUpdateTest::aNonOwnerCanStillTakeAdjustmentPowerOffAMarkerHoldersOtherRole`) and its parenthesis with §6 (f).
+        // The 'role composition' group left the `@var` with it; its message block is gone (a dead branch is not left).
         'CreateStockAdjustment' => 'stock count',
     ];
 
@@ -329,8 +336,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
             .'(SECURITY_MODEL.md §5.2.5); plus `UPDATE (is_active)` on app_user with its caller (G-12). The lapse is a bulk '
-            .'UPDATE that MUST carry `AND status = \'pending\'` — the decided-is-final trigger refuses any other (DATA §3.1).',
-        'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0).',
+            .'UPDATE that MUST carry `AND status = \'pending\'` — the decided-is-final trigger refuses any other (DATA §3.1); '
+            .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
+            .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
+        'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0); '
+            .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
+            .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
         'DeleteRole' => 'E-15h: refuse while any `status = \'pending\'` row exists on the role (stale ones included — fails '
             .'closed), naming the count, read via `role_grant_proposal_pending_by_role`. OPEN, for SEC at this build: the refusal '
             .'may not reveal pending existence beyond role.assign (PC-16 condition 1) and DeleteRole is role.delete — serve the '
@@ -338,9 +349,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'Every such proposal must be clearable by someone the tenant still has — re-check Q-5 (a) before building.',
         'CreateBulkRoleAssignment' => 'Bulk never proposes (refused wholesale before any member id is read, keeping E-14\'s '
             .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).',
-        'UpdateRole' => 'E-15f: pending proposals on the role are not written to (C14 refuses their confirmation as '
-            .'`role_changed`); a role that LOSES its X(admin) codes leaves pending proposals non-owners now meet at AssignRole\'s '
-            .'gap B (`proposal_pending`, design §5 change 2, RED L-8); G-10 arm D is owed in the same commit.',
+        // `UpdateRole` LEFT 2026-10-07 (roles slice 4 C2), its work done: pending proposals are not written to and a
+        // confirmation after the edit is refused `role_changed`, and a role that LOSES its X(admin) code leaves its pending
+        // proposal for a non-owner to meet at AssignRole's gap B (`proposal_pending`) — both in
+        // `RoleUpdateTest::aRoleThatLosesAnAdminExcludedCodeLeavesItsPendingProposalUntouched`; G-10 arm D shipped one commit
+        // EARLIER, at C1 (`0bd4a97`, design §7's recommendation: the first writer of `role_permission`), with a fixed
+        // cut-off date (C1 deviation 2), and C2's code-set edits write the `role.permissions_changed` rows it folds.
     ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
@@ -1019,20 +1033,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private static function doubleCreditPointer(array $arrived): string
     {
         $blocks = [];
-        if (\in_array('role composition', $arrived, true)) {
-            $blocks[] = "ROLE COMPOSITION (UpdateRole) -- a hard trigger of G-28 AND G-32. CreateRole (roles slice 4 C1) already did\n"
-                ."this block's first half: G-28 NARROWED (C0's derived check, C1a's `margin_exposure`; item 1, the pair warning at\n"
-                ."assignment, still owed to GetUser's picker), PC-17 re-put (owner D-5b: role.create/edit/delete need role.view), and\n"
-                ."G-32's over-credit part RE-RATED Low -> MEDIUM by SEC at C1 (roles-s4-sec-data.md D-7.7 as corrected by\n"
-                ."roles-s4-sec-data-red.md item 2): an owner can compose a seat holding the marker and `credit_note.issue` WITHOUT\n"
-                ."`credit_note.adjust`, which can say `distinct` and then credit.\n"
-                ."  Owed at UpdateRole (C2): a NON-OWNER can make the same seat by removing `credit_note.adjust` from a held marker\n"
-                ."    role (D-7.5) -- G-32's text already names it; SEC is asked whether a held marker role should be editable by\n"
-                ."    its holders' peers at all (RED N-3). Companions run on the RESULT (D-5a/D-5b/D-6), PC-4 unconditionally.\n"
-                ."  Re-rate again only if `credit_note.adjust` reaches a non-owner DEFAULT role (CreditNoteAdjustTest::rolesThatMayNotAdjust)\n"
-                ."    or the marker reaches one (AdjustmentDecisionTest::rolesWithoutTheMarker).\n"
-                ."  A grant written by SQL (G-10's shape) is not detected by this pin.";
-        }
         if (\in_array('stock count', $arrived, true)) {
             $blocks[] = "STOCK COUNT (CreateStockAdjustment) -- a hard trigger of G-32 (G-30 path (iii)'s paperwork half), and the operation G-21 names as unbuilt.\n"
                 ."  G-30 path (iii): `short_shipped` units that were never packed and are found on the shelf. Today no count\n"

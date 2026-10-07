@@ -282,6 +282,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
             // Roles slice 3, C2: `ConfirmRoleGrantProposal` acts on a proposal. A real PENDING one (owner INSERT, for a
             // second user, of the first user's role), so the refusal is the planted field's and not a 404's.
             'role-grant-proposals' => $this->seedPendingProposalOf($userRole, $user),
+            // Roles slice 4, C2: `UpdateRole` acts on a role. The same composed one-code role (`role.view`, not a system role),
+            // so the refusal is the planted field's and not a 404's or an `is_system` 409.
+            'roles' => $userRole,
         ];
 
         $segments = explode('/', $uriTemplate);

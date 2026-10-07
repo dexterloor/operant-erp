@@ -8,12 +8,14 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
+use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RevokeRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleProvider;
+use App\Modules\UserManagement\ApiResource\State\UpdateRoleProcessor;
 use App\Modules\UserManagement\Application\RoleView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
@@ -24,7 +26,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `GetRole` — `GET /api/v1/roles/{id}`, `role.view`. Roles slice 1, C3. Also carries `RevokeRole` (roles slice 2, C2),
  * `DELETE /api/v1/users/{id}/roles/{roleId}` under `role.assign` — 204, no body, so it adds nothing to this shape — and
  * `AssignRole` (C3), `POST /api/v1/users/{id}/roles`, whose 201 body IS this shape: the granted role (`SEC` S-1 (b)), so
- * `Assign / Role` and `Get / Role` resolve to one DTO class and `ResponseShapeTest`'s one-DTO-per-resource holds.
+ * `Assign / Role` and `Get / Role` resolve to one DTO class; `CreateRole` (roles slice 4 C1) and `UpdateRole` (C2) answer
+ * with it too, and `ResponseShapeTest`'s one-DTO-per-resource holds.
  *
  * The shape is API-23's derivation for `Role`:
  *   1. `CreateRole`'s accepted fields — `name`, `description`, `permission_codes`;
@@ -130,6 +133,27 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 IdempotencyKeyGuard::OPERATION_FLAG => true,
                 PermissionGate::OPERATION_PERMISSION => 'role.create',
             ],
+        ),
+        // Roles slice 4, C2 (2026-10-07). API-21 branch 5: 200, the role in its new state. §4.2's `Idem` cell is `no` and is
+        // sound because the edit is a SET: a repeat computes an empty delta and writes nothing (residual R-4: two stale full
+        // sets — last writer wins, visible in the audit row's `added`/`removed`). `read: false`: the role is read under the
+        // role-administration lock, never by a provider before it opens (E-1). The denial subject is the default derivation
+        // (`('role', {id})`, path-first).
+        new Patch(
+            uriTemplate: '/roles/{id}',
+            name: 'UpdateRole',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateRole'),
+            input: UpdateRoleInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                // The row is named by the path and by nothing else (§3.1 case 2) — `UpdateSalesOrder`'s reason.
+                'api_allow_update' => false,
+            ],
+            read: false,
+            processor: UpdateRoleProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'role.edit'],
         ),
     ],
 )]

@@ -424,6 +424,15 @@ final class AuditEvent
      */
     public const ROLE_PERMISSIONS_CHANGED = 'role.permissions_changed';
 
+    /**
+     * Roles slice 4 C2 (`UpdateRole`; `SEC` D-7.3, `roles-s4-sec-data.md`): an edit that changes ONLY a role's name and/or
+     * description. Subject `('role', id)`; `metadata` `{role_id, fields}` — field names, never values. SECURITY: a held
+     * role's name is what an owner reads when granting and confirming (E-15h treats name-keyed trust as the violation), so
+     * a rename is security-relevant on its own ground; IP-bearing. An edit that changes the code set writes
+     * {@see self::ROLE_PERMISSIONS_CHANGED} alone, naming any changed fields.
+     */
+    public const ROLE_UPDATED = 'role.updated';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -748,6 +757,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_REJECTED,
         self::ROLE_ASSIGNMENT_CANCELLED,
         self::ROLE_PERMISSIONS_CHANGED,
+        self::ROLE_UPDATED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -787,6 +797,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_REJECTED,
         self::ROLE_ASSIGNMENT_CANCELLED,
         self::ROLE_PERMISSIONS_CHANGED,
+        self::ROLE_UPDATED,
     ];
 
     /**
@@ -895,6 +906,8 @@ final class AuditEvent
         // Roles slice 4 C1: the ROLE is the subject — a definition change touches every holder at once, so no single
         // person is its subject. `role` is a table (`everyDeclaredSubjectTypeNamesATableInTheDatabase`).
         self::ROLE_PERMISSIONS_CHANGED => 'role',
+        // Roles slice 4 C2: the same subject as the code-set event, for the same reason.
+        self::ROLE_UPDATED => 'role',
     ];
 
     /**

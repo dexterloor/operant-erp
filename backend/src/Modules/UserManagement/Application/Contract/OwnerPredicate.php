@@ -45,6 +45,9 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *     proposal (roles slice 3 C2/C3; lock-time codes);
  *   - `AdjustmentDecisionWriter` — **G-29 / G-30 part 3:** recording that returned goods are DIFFERENT from units an
  *     adjustment already credited (`distinct`, owner ruling D1 (a)), and undoing any decision (the reversal, D2 (b));
+ *   - `RoleUpdate` — **roles slice 4 C2, Q-A** (`roles-s4-c2-decisions.md` FINAL): only a marker holder (lock-time codes)
+ *     may change a role whose stored or resulting codes confer the marker; the predicate is also applied to a ROLE's
+ *     codes there (the stored set, the resulting set, and the removed codes for API-20's floor);
  *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
  *     role" — not to the caller's exemption.)*
  *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no

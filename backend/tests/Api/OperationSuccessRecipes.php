@@ -659,6 +659,22 @@ trait OperationSuccessRecipes
 
                 return [201, 'compose a role'];
             }],
+            // Roles slice 4, C2: a one-code composed role (`role.view`, seeded as the owner, unheld) renamed and given a second
+            // code the actor holds (`inventory_item.view`) — no marker (Q-A), inside the ceiling, no SoD row, no companion owed.
+            'UpdateRole' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Edit '.substr($role, 0, 8)]);
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+                    [self::TENANT_A, $role]);
+
+                return ['role' => $role];
+            }, function (array $c): array {
+                $this->send('PATCH', '/roles/'.$c['role'], ['name' => 'Recipe edited '.substr($c['role'], 0, 8), 'permission_codes' => ['role.view', 'inventory_item.view']]);
+
+                return [200, 'edit a role'];
+            }],
             'CreateRoleGrantProposal' => [function (): array {
                 $role = Uuid::v4()->toRfc4122();
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',

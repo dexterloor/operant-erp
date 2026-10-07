@@ -62,6 +62,8 @@ final class OwnerPredicateSingleSourceTest extends TestCase
         'RoleGrantProposalConfirmation',
         'RoleGrantProposalRejection',
         'RoleRevocation',
+        // Roles slice 4 C2 (2026-10-07): Q-A — only an owner changes a role that makes its holders owners.
+        'RoleUpdate',
         'SalesReturnWriter',
     ];
 

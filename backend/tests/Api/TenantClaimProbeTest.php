@@ -126,6 +126,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Roles slice 4, C1: a one-code (`role.view`) role composed by the actor. A supplied tenant id that moved the write
         // would create the role in B, which the digest names.
         'CreateRole' => ['body' => ['name' => 'Probe composed', 'permission_codes' => ['role.view']]],
+        // Roles slice 4, C2: the one-code (`role.view`) composed role seeded in `seedMirror()` (never the actor's own fixture
+        // role, which holds every declared code and so spans every split — PC-4 on the result would refuse it), re-described.
+        // A supplied tenant id that moved the write would edit B's role, which the digest names.
+        'UpdateRole' => ['vars' => ['id' => 'revoke_role'], 'body' => ['description' => 'Probe edited']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],

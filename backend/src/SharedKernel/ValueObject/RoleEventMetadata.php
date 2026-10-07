@@ -49,6 +49,13 @@ final class RoleEventMetadata
 
     public const REMOVED = 'removed';
 
+    /**
+     * Roles slice 4 C2 (`UpdateRole`; `SEC` D-7.3): the NAMES of the non-code fields an edit changed — a list drawn from
+     * `name`, `description` — on `role.updated` always, and on a `role.permissions_changed` that also renamed or
+     * re-described. **Field names only, never the values** (ids-and-codes-only metadata; the current name is `GetRole`'s).
+     */
+    public const FIELDS = 'fields';
+
     /** Not instantiable: named keys only. */
     private function __construct()
     {

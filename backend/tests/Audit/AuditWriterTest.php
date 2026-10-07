@@ -144,6 +144,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Roles slice 4 C1 (2026-10-07): E-15f's definition event, SECURITY (`roles-s4-sec-data.md` D-7.3), carrying the
         // request's IP; `Version20261007000200` re-issues the scope with it.
         'role.permissions_changed',
+        // Roles slice 4 C2 (2026-10-07): an edit of only a role's name/description, SECURITY (D-7.3), IP-bearing;
+        // `Version20261007000400` re-issues the scope with it.
+        'role.updated',
     ];
 
     /**

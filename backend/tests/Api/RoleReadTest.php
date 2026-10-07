@@ -42,6 +42,8 @@ final class RoleReadTest extends ApiTestCase
         'ListRoles' => ['method' => 'GET', 'path' => '/roles', 'idem' => false],
         // Roles slice 4 C1. `idem`: §4.2's `unique:role_tenant_name_live` — the header is demanded (428 without it).
         'CreateRole' => ['method' => 'POST', 'path' => '/roles', 'idem' => true],
+        // Roles slice 4 C2. `idem`: §4.2's `no` — the edit is a set; a repeat is an empty delta and writes nothing.
+        'UpdateRole' => ['method' => 'PATCH', 'path' => '/roles/{id}', 'idem' => false],
     ];
 
     /**

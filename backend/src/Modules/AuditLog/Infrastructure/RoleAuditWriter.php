@@ -21,7 +21,8 @@ use Symfony\Component\Uid\Uuid;
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
  *  - **Subject:** `('app_user', <the user whose privileges changed>)`, read off `AuditEvent::SUBJECT_TYPES` — except
- *    `role.permissions_changed` (roles slice 4 C1), whose subject is `('role', <the role whose definition changed>)`.
+ *    `role.permissions_changed` (roles slice 4 C1) and `role.updated` (C2), whose subject is `('role', <the role whose
+ *    definition changed>)`.
  *  - **`metadata` always carries `RoleEventMetadata::ROLE_ID`** — the key the reconciliation reads (G-10 condition (1),
  *    A-7) — and, for the proposal events (roles slice 3, C1; `SECURITY_MODEL.md` §5.2.8), the further id keys
  *    `PROPOSAL_ID`, `SUPERSEDES_PROPOSAL_ID`, `PROPOSED_BY_USER_ID` (a confirmation's `role.assigned`, C2) and the
@@ -116,17 +117,38 @@ final readonly class RoleAuditWriter
 
     /**
      * `role.permissions_changed` — `CreateRole` (roles slice 4 C1) with the full set and `removed` empty; `UpdateRole` (C2)
-     * when the code set changes. The ROLE is the subject (`AuditEvent::SUBJECT_TYPES`), so `$roleId` is passed as both the
-     * subject and `RoleEventMetadata::ROLE_ID` — arm C's key stays on every `role.*` row.
+     * when the code set changes, with `$fields` naming any of `name` / `description` the same edit changed (`SEC` D-7.3;
+     * the key is written only when non-empty, so a creation's row is C1's shape). The ROLE is the subject
+     * (`AuditEvent::SUBJECT_TYPES`), so `$roleId` is passed as both the subject and `RoleEventMetadata::ROLE_ID` — arm C's key
+     * stays on every `role.*` row.
      *
      * @param list<string> $added
      * @param list<string> $removed
+     * @param list<string> $fields
      */
-    public function recordPermissionsChanged(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, array $added, array $removed, ?string $ipAddress): void
+    public function recordPermissionsChanged(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, array $added, array $removed, ?string $ipAddress, array $fields = []): void
     {
-        $this->record(AuditEvent::ROLE_PERMISSIONS_CHANGED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress, [
+        $extra = [
             RoleEventMetadata::ADDED => array_values($added),
             RoleEventMetadata::REMOVED => array_values($removed),
+        ];
+        if ([] !== $fields) {
+            $extra[RoleEventMetadata::FIELDS] = array_values($fields);
+        }
+
+        $this->record(AuditEvent::ROLE_PERMISSIONS_CHANGED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress, $extra);
+    }
+
+    /**
+     * `role.updated` — `UpdateRole` (roles slice 4 C2) when ONLY the name and/or description changed (`SEC` D-7.3): `metadata`
+     * `{role_id, fields}`, field NAMES only, never values. Subject the role, as `role.permissions_changed`.
+     *
+     * @param list<string> $fields
+     */
+    public function recordUpdated(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, array $fields, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_UPDATED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress, [
+            RoleEventMetadata::FIELDS => array_values($fields),
         ]);
     }
 

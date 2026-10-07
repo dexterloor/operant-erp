@@ -425,6 +425,9 @@ trait ArchivedRowSubjects
             // Roles slice 2, C3: the base body; the driver adds `role_id` (the live / archived role) itself —
             // `ARCHIVED_SUBJECT_IN_THE_BODY`. The fixture role carries no code, so the live grant meets no E-15 rule.
             'AssignRole' => [],
+            // Roles slice 4 C2: a rename. The fixture role carries no code (so no Q-A, no PC-4, no companion), and the actor
+            // holds `role.edit`, so the LIVE twin succeeds and the archived twin's 409 is `role.is_archived`'s alone.
+            'UpdateRole' => ['name' => 'Renamed role'],
         ];
     }
 

@@ -89,6 +89,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Roles slice 2, C3: the same code, re-derived under the same lock by the same `RoleAdministrationActor`.
         'AssignRole' => 'role.assign',
         'CreateRole' => 'role.create',
+        // Roles slice 4 C2: re-derived under the lock with its own code (`RoleAdministrationActor`, C0's parameter).
+        'UpdateRole' => 'role.edit',
         // Roles slice 3, C1: E-15e's proposal route and its reads — `role.assign`, deliberately NOT `role.view`
         // (SECURITY_MODEL.md §5.2.3: a pending proposal is privilege history, and `viewer` holds `role.view`).
         'CreateRoleGrantProposal' => 'role.assign',

@@ -148,14 +148,16 @@ final class LiveGrantReader
      * `AssignRole` refuses an archived role (V2-R-6) before it reads the codes for any decision, so every decision it takes
      * on these codes is on a LIVE role's codes.
      *
-     * @return array{name: string, live: bool, is_system: bool, codes: list<string>}|null
+     * `description` joined at roles slice 4 C2 (`UpdateRole` compares it to tell a re-description from a no-op).
+     *
+     * @return array{name: string, description: string, live: bool, is_system: bool, codes: list<string>}|null
      */
     public static function role(EntityManagerInterface $em, string $roleId): ?array
     {
         $connection = $em->getConnection();
 
         $row = $connection->fetchAssociative(<<<'SQL'
-            SELECT r.name, r.deleted_at IS NULL AS live, r.is_system,
+            SELECT r.name, r.description, r.deleted_at IS NULL AS live, r.is_system,
                    COALESCE((SELECT array_to_json(array_agg(rp.permission_code ORDER BY rp.permission_code))
                                FROM role_permission rp
                               WHERE rp.tenant_id = r.tenant_id AND rp.role_id = r.id), '[]') AS codes
@@ -165,6 +167,7 @@ final class LiveGrantReader
 
         return false === $row ? null : [
             'name' => (string) $row['name'],
+            'description' => (string) $row['description'],
             'live' => (bool) $row['live'],
             'is_system' => (bool) $row['is_system'],
             'codes' => self::codes((string) $row['codes']),
@@ -188,6 +191,66 @@ final class LiveGrantReader
         $connection = $em->getConnection();
 
         return (int) $connection->fetchOne(self::ACTIVE_MARKER_HOLDERS.' AND ur.id <> ?::uuid', [OwnerMarker::CODE, $userRoleId]);
+    }
+
+    /**
+     * API-20's `after` for an edit that REMOVES the marker from one role (roles slice 4 C2, `UpdateRole`; design §4.3 step
+     * 9b): the same count with every grant of that role taken away. It counts USERS, so a holder who also holds the marker
+     * through another live role still counts.
+     */
+    public static function activeMarkerHolderCountWithoutRole(EntityManagerInterface $em, string $roleId): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne(self::ACTIVE_MARKER_HOLDERS.' AND ur.role_id <> ?::uuid', [OwnerMarker::CODE, $roleId]);
+    }
+
+    /**
+     * **The ONE "live holder" predicate** (`SEC` D-7.4, `roles-s4-sec-data.md`; roles slice 4 C2): a holder of a role is ANY
+     * `user_role` row for it, whatever the user's `is_active` / `deleted_at` — fail closed (E-15h). A deactivated user's row
+     * is a privilege-in-waiting (E-15g's strip is unbuilt; `IdentityReader` ignores `is_active`, API-O-22), so an edit
+     * changes what it would restore. Read by `UpdateRole`'s `X(admin)`-on-held-role clause and (C3) `DeleteRole`'s E-15h
+     * refusal. NOT the last-owner floor's predicate, which counts ACTIVE, undeleted marker holders ({@see self::ACTIVE_MARKER_HOLDERS}):
+     * that one answers "is an owner left", this one "who would be affected". `GetRole`'s `holder_count` (soft-deleted users
+     * excluded) is a display figure, not this.
+     */
+    public static function holderRowCount(EntityManagerInterface $em, string $roleId): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne('SELECT count(*) FROM user_role WHERE role_id = ?::uuid', [$roleId]);
+    }
+
+    /**
+     * **The holder set beside {@see self::holderRowCount()}, for E-15f's PC-13 re-run** (design §4.7, `SEC` D-7.1): for every
+     * `user_role` row of the role (the same fail-closed predicate), the union of that user's codes through their OTHER LIVE
+     * roles — `H` in `edges(H∪N) − edges(H) − edges(N) − edges(H∪O)`. One statement for every holder (no N+1), on
+     * `user_role_tenant_role_idx`. A role that is archived contributes nothing (it confers nothing).
+     *
+     * @return array<string, list<string>> user id => sorted codes held through the user's other live roles
+     */
+    public static function holdersOtherCodes(EntityManagerInterface $em, string $roleId): array
+    {
+        $connection = $em->getConnection();
+
+        $rows = $connection->fetchAllAssociative(<<<'SQL'
+            SELECT ur.user_id::text AS user_id,
+                   COALESCE((SELECT array_to_json(array_agg(DISTINCT rp.permission_code ORDER BY rp.permission_code))
+                               FROM user_role o
+                               JOIN role r ON r.tenant_id = o.tenant_id AND r.id = o.role_id AND r.deleted_at IS NULL
+                               JOIN role_permission rp ON rp.tenant_id = r.tenant_id AND rp.role_id = r.id
+                              WHERE o.tenant_id = ur.tenant_id AND o.user_id = ur.user_id AND o.role_id <> ur.role_id), '[]') AS codes
+              FROM user_role ur
+             WHERE ur.role_id = ?::uuid
+             ORDER BY ur.user_id
+            SQL, [$roleId]);
+
+        $holders = [];
+        foreach ($rows as $row) {
+            $holders[(string) $row['user_id']] = self::codes((string) $row['codes']);
+        }
+
+        return $holders;
     }
 
     /**

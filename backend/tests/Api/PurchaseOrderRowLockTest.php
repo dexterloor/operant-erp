@@ -2941,6 +2941,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // Seeded before the recorder: since roles slice 4 C1 the filter below also matches `role` / `role_permission`, which
         // `systemRole()` inserts as the owner.
         $financeRole = 'CreateRoleGrantProposal' === $case ? $this->systemRole(DefaultRoles::FINANCE) : null;
+        // Roles slice 4, C2: an unheld one-code composed role, seeded before the recorder for the same reason.
+        $editable = 'UpdateRole' === $case ? $this->composedRoleOf(['role.view']) : null;
         $this->recorder()->start();
         match ($case) {
             'RevokeRole' => $this->send('DELETE', '/users/'.$subject.'/roles/'.$role),
@@ -2959,6 +2961,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // Roles slice 4, C1: `admin` composes a one-code role — writes `role`, `role_permission` and the audit row.
             'CreateRole' => $this->send('POST', '/roles', ['name' => 'Lock-first case', 'permission_codes' => ['role.view']],
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            // Roles slice 4, C2: `admin` renames the role and adds a code it holds — writes `role`, `role_permission`, audit.
+            'UpdateRole' => $this->send('PATCH', '/roles/'.$editable, ['name' => 'Lock-first edit', 'permission_codes' => ['role.view', 'inventory_item.view']]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -2982,6 +2986,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'RejectRoleGrantProposal' => ['RejectRoleGrantProposal', 200];
         yield 'CancelRoleGrantProposal' => ['CancelRoleGrantProposal', 200];
         yield 'CreateRole' => ['CreateRole', 201];
+        yield 'UpdateRole' => ['UpdateRole', 200];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3506,6 +3511,63 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'twin B: invoice.void lost' => ['B'];
     }
 
+    /**
+     * **`UpdateRole`'s demotion twins — Q-A reads the LOCK-time set** (roles slice 4 C2; `roles-s4-c2-decisions-red.md` Q2:
+     * *"C2 needs a demotion-twin test: the actor's marker is revoked between request and lock, and the edit is refused"*). The
+     * editor holds `role.edit` (+ `role.view`) through R1 and the owner marker through R2, and renames a role conferring the
+     * marker. While the request waits on the role lock, the holder revokes one of them:
+     *  - **twin A** removes R1 → the gate's 403 for `role.edit` and exactly one lock-time denial row; nothing written;
+     *  - **twin B** removes R2 → 409 `role.marker_needs_owner`, NO denial row; nothing written.
+     * Mutation: Q-A read from the request's `Identity` (gate-time codes) → twin B 200, red.
+     */
+    #[Test]
+    #[DataProvider('updateRoleDemotionTwins')]
+    public function anEditorDemotedWhileWaitingCannotChangeAMarkerRole(string $twin): void
+    {
+        $r1 = $this->composedRoleOf(['role.edit', 'role.view']);
+        $r2 = $this->composedRoleOf(['tenant_settings.edit']);
+        $target = $this->composedRoleOf(['tenant_settings.edit', 'role.view']);
+        $editor = $this->seedPrincipal(self::TENANT_A, []);
+        foreach ([$r1, $r2] as $role) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+                [self::TENANT_A, $editor, $role]);
+        }
+        // A second owner, so revoking R2 cannot leave the workspace without one (the holder writes SQL, not the API).
+        $revoker = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $lost = 'A' === $twin ? $r1 : $r2;
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $editor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$editor, $lost]],
+            [self::HOLDER_ROLE_REVOKED, [self::TENANT_A, $revoker, $editor, $lost]],
+        ], request: fn () => $this->send('PATCH', '/roles/'.$target, ['name' => 'Co-owner desk '.$twin]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role WHERE name LIKE 'Co-owner desk%'"), 'A demoted editor renamed a marker role.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type IN (?, ?)', [AuditEvent::ROLE_PERMISSIONS_CHANGED, AuditEvent::ROLE_UPDATED]));
+
+        if ('B' === $twin) {
+            self::assertSame([409, 'role.marker_needs_owner'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::AUTHZ_PERMISSION_DENIED]),
+                'Twin B wrote a denial row; Q-A is a 409, not a permission refusal.');
+
+            return;
+        }
+
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role.edit', $this->json()['required_permission'] ?? null);
+        self::assertCount(1, $this->denialRows(), 'Twin A: not exactly one lock-time denial row.');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function updateRoleDemotionTwins(): iterable
+    {
+        yield 'twin A: role.edit lost' => ['A'];
+        yield 'twin B: the owner marker lost' => ['B'];
+    }
+
     /** @return iterable<string, array{string}> */
     public static function confirmationDemotionTwins(): iterable
     {
@@ -3831,6 +3893,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CancelRoleGrantProposal' => 'RoleGrantProposalCancellation::cancel',
         // Roles slice 4 C1: one transaction writes `role`, `role_permission` and `role.permissions_changed`.
         'CreateRole' => 'RoleCreation::create',
+        // Roles slice 4 C2: one transaction writes `role`, `role_permission` and `role.permissions_changed` / `role.updated`.
+        'UpdateRole' => 'RoleUpdate::update',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */

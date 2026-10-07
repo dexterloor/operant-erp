@@ -913,57 +913,73 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
-     * The columns `CreateRole`'s two INSERTs name (roles slice 4 C1, `Version20261007000100`). **Typed by hand from
-     * `RoleCreation::INSERT_ROLE` / `INSERT_CODES`, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
-     * reason).
+     * The columns the role-definition writers name, per privilege (roles slice 4: C1 `Version20261007000100`, C2
+     * `Version20261007000300`). **Typed by hand from `RoleCreation::INSERT_ROLE` / `INSERT_CODES` and `RoleUpdate::UPDATE_ROLE`
+     * / `INSERT_CODES`, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`' reason). `DELETE` is
+     * table-level (Postgres has no column DELETE): `RoleUpdate::DELETE_CODES` on `role_permission` only.
      *
-     * @var array<string, list<string>>
+     * @var array<string, array<string, list<string>>> privilege => table => columns
      */
-    private const ROLE_DEFINITION_COLUMNS_CREATE_INSERTS = [
-        'role' => ['description', 'id', 'name', 'tenant_id'],
-        'role_permission' => ['id', 'permission_code', 'role_id', 'tenant_id'],
+    private const ROLE_DEFINITION_COLUMN_WRITES = [
+        'INSERT' => [
+            'role' => ['description', 'id', 'name', 'tenant_id'],
+            'role_permission' => ['id', 'permission_code', 'role_id', 'tenant_id'],
+        ],
+        'UPDATE' => [
+            'role' => ['description', 'name', 'updated_at'],
+            'role_permission' => [],
+        ],
     ];
 
+    /** @var list<string> the tables `RoleUpdate` deletes from (table-level) */
+    private const ROLE_DEFINITION_DELETES = ['role_permission'];
+
     /**
-     * **Roles slice 4 C1: `erp_app` can INSERT exactly the columns `CreateRole` names on `role` and `role_permission`, and
-     * UPDATE none of them — proved by running the statements as `erp_app`** (design §8.1; E-15h: *"`is_system` set by any
-     * path other than provisioning"* is closed at the PRIVILEGE level). `theApplicationCanInsertOnlyTheGrantColumnsItWrites`'
-     * shape: domain from `pg_attribute`, one connection and one rolled-back transaction per (table, column, privilege),
-     * zero-row probes. **Positive control:** `role.name` INSERT accepted. **Anti-vacuity:** `role.is_system` refused for
-     * INSERT and UPDATE. **Planted control, committed then undone:** `GRANT UPDATE (is_system) ON role` must produce exactly
-     * one violation. UPDATE arrives at C2 (name, description, updated_at), `deleted_at` at C3 — this test moves with them.
+     * **Roles slice 4: `erp_app` can write exactly the columns `CreateRole` (C1) and `UpdateRole` (C2) name on `role` and
+     * `role_permission`, and DELETE from `role_permission` only — proved by running the statements as `erp_app`** (design
+     * §8.1; E-15h: *"`is_system` set by any path other than provisioning"* is closed at the PRIVILEGE level).
+     * `theApplicationCanInsertOnlyTheGrantColumnsItWrites`' shape: domain from `pg_attribute`, one connection and one
+     * rolled-back transaction per (table, column, privilege), zero-row probes; one zero-row `DELETE` per table.
+     * **Positive controls:** `role.name` INSERT and UPDATE accepted, `role_permission` DELETE accepted. **Anti-vacuity:**
+     * `role.is_system` refused for INSERT and UPDATE; `role` DELETE refused. **Planted control, committed then undone:**
+     * `GRANT UPDATE (is_system) ON role` must produce exactly one violation. Moved deliberately at C2 (UPDATE on three
+     * `role` columns, DELETE on `role_permission`); `deleted_at` joins the UPDATE list at C3.
      */
     #[Test]
-    public function theApplicationCanWriteOnlyTheRoleColumnsCreateRoleNames(): void
+    public function theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName(): void
     {
         $columns = [];
-        foreach (array_keys(self::ROLE_DEFINITION_COLUMNS_CREATE_INSERTS) as $table) {
+        foreach (array_keys(self::ROLE_DEFINITION_COLUMN_WRITES['INSERT']) as $table) {
             $columns[$table] = $this->owner()->fetchFirstColumn(
                 'SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum', [$table]);
         }
 
-        $probe = function () use ($columns): array {
+        $run = function (string $table, string $key, string $sql) use (&$outcomes): void {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement($sql);
+                $outcomes[$key] = 'accepted';
+            } catch (DriverException $e) {
+                $outcomes[$key] = '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table '.$table)
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        $probe = function () use ($columns, $run, &$outcomes): array {
             $outcomes = [];
             foreach ($columns as $table => $tableColumns) {
                 foreach ($tableColumns as $column) {
                     foreach (['INSERT' => 'INSERT INTO %2$s (%1$s) SELECT %1$s FROM %2$s WHERE false', 'UPDATE' => 'UPDATE %2$s SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
-                        $connection = $this->secondClient();
-                        $connection->beginTransaction();
-                        try {
-                            $this->tenantContext()->establishOn($connection, self::TENANT_A);
-                            $connection->executeStatement(sprintf($sql, $connection->getDatabasePlatform()->quoteSingleIdentifier($column), $table));
-                            $outcomes[$table.'.'.$column.' '.$privilege] = 'accepted';
-                        } catch (DriverException $e) {
-                            $outcomes[$table.'.'.$column.' '.$privilege] = '42501' === $e->getSQLState()
-                                && str_contains($e->getMessage(), 'permission denied for table '.$table)
-                                ? 'refused'
-                                : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
-                        } finally {
-                            $connection->rollBack();
-                            $connection->close();
-                        }
+                        $run($table, $table.'.'.$column.' '.$privilege, sprintf($sql, '"'.$column.'"', $table));
                     }
                 }
+                $run($table, $table.'.* DELETE', sprintf('DELETE FROM %s WHERE false', $table));
             }
 
             return $outcomes;
@@ -974,11 +990,13 @@ final class GrantFootprintTest extends TenancyTestCase
             foreach ($outcomes as $key => $outcome) {
                 [$tableColumn, $privilege] = explode(' ', $key);
                 [$table, $column] = explode('.', $tableColumn);
-                $granted = 'INSERT' === $privilege && \in_array($column, self::ROLE_DEFINITION_COLUMNS_CREATE_INSERTS[$table], true);
+                $granted = 'DELETE' === $privilege
+                    ? \in_array($table, self::ROLE_DEFINITION_DELETES, true)
+                    : \in_array($column, self::ROLE_DEFINITION_COLUMN_WRITES[$privilege][$table], true);
                 if ($granted && 'accepted' !== $outcome) {
-                    $wrong[] = sprintf('%s: CreateRole writes it, but erp_app got "%s"', $key, $outcome);
+                    $wrong[] = sprintf('%s: a role-definition writer issues it, but erp_app got "%s"', $key, $outcome);
                 } elseif (!$granted && 'refused' !== $outcome) {
-                    $wrong[] = sprintf('%s: CreateRole does not write it, but erp_app got "%s"', $key, $outcome);
+                    $wrong[] = sprintf('%s: no role-definition writer issues it, but erp_app got "%s"', $key, $outcome);
                 }
             }
 
@@ -986,15 +1004,16 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame('accepted', $outcomes['role.name INSERT'] ?? null, 'The positive control failed: erp_app could not insert role.name.');
-        self::assertSame(['refused', 'refused'], [$outcomes['role.is_system INSERT'] ?? null, $outcomes['role.is_system UPDATE'] ?? null],
-            'is_system must be unwritable by erp_app (E-15h), and the probe did not see it refused.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['role.name INSERT'] ?? null, $outcomes['role.name UPDATE'] ?? null, $outcomes['role_permission.* DELETE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update role.name, or delete from role_permission.');
+        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['role.is_system INSERT'] ?? null, $outcomes['role.is_system UPDATE'] ?? null, $outcomes['role.* DELETE'] ?? null],
+            'is_system must be unwritable by erp_app (E-15h) and role undeletable, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
-            "erp_app's writes on role / role_permission are not exactly CreateRole's columns:\n  ".implode("\n  ", $violations($outcomes)));
+            "erp_app's writes on role / role_permission are not exactly the role-definition writers':\n  ".implode("\n  ", $violations($outcomes)));
 
         try {
             $this->owner()->executeStatement(sprintf('GRANT UPDATE (is_system) ON role TO %s', DatabaseRoles::APP));
-            self::assertSame(['role.is_system UPDATE: CreateRole does not write it, but erp_app got "accepted"'], $violations($probe()),
+            self::assertSame(['role.is_system UPDATE: no role-definition writer issues it, but erp_app got "accepted"'], $violations($probe()),
                 'A committed UPDATE (is_system) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
             $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_system) ON role FROM %s', DatabaseRoles::APP));
