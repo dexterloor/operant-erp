@@ -29,7 +29,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *   1. `CreateRole`'s accepted fields — `name`, `description`, `permission_codes`;
  *   2. plus `id`;
  *   3. plus `archived_at`, because `role` is `SchemaManifest::SOFT`;
- *   4. plus §4.4.3's additions row — **`is_system`** and **`holder_count`** (response R-10, ratified).
+ *   4. plus §4.4.3's additions row — **`is_system`** and **`holder_count`** (response R-10, ratified), and since roles
+ *      slice 4 C1a **`margin_exposure`** — PC-12 clause 3's warning at definition (`MarginExposure::of(permission_codes)`):
+ *      `true` when the role holds a cost source and a sale source without every `.view`. A **warning, never a refusal**
+ *      (owner 2026-09-16, *"Default strict, custom warned"*). A pure function of `permission_codes`, which the same body
+ *      serves, so it discloses nothing the caller cannot already compute. It is on every serving of the shape — `GetRole`,
+ *      `ListRoles` items, and `AssignRole`'s 201 (a G-28 trigger; the owner was told 2026-10-07; G-28 NARROWED, not closed:
+ *      the pair warning at assignment, PC-12 clause 4, stays owed to `GetUser`'s picker).
  *
  * **Deliberately absent, and pinned** (`RoleReadTest::theRoleShapeCarriesNoPrivilegeHistory`):
  * `pending_proposal_count` and any `pending_*`/`proposal*` member. `viewer` holds `role.view`, so nothing
@@ -120,6 +126,8 @@ final class RoleResource
         public bool $isSystem,
         #[SerializedName('holder_count')]
         public int $holderCount,
+        #[SerializedName('margin_exposure')]
+        public bool $marginExposure,
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {
@@ -127,6 +135,6 @@ final class RoleResource
 
     public static function fromView(RoleView $view): self
     {
-        return new self($view->id, $view->name, $view->description, $view->permissionCodes, $view->isSystem, $view->holderCount, $view->archivedAt);
+        return new self($view->id, $view->name, $view->description, $view->permissionCodes, $view->isSystem, $view->holderCount, $view->marginExposure, $view->archivedAt);
     }
 }

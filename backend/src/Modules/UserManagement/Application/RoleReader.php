@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
+use App\Modules\UserManagement\Domain\MarginExposure;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Platform\Tenancy\TenantContext;
@@ -128,14 +129,17 @@ final readonly class RoleReader
     {
         $codes = json_decode((string) $row['permission_codes'], true, 4, \JSON_THROW_ON_ERROR);
         \assert(\is_array($codes));
+        $codes = array_map(strval(...), array_values($codes));
 
         return new RoleView(
             id: (string) $row['id'],
             name: (string) $row['name'],
             description: (string) $row['description'],
-            permissionCodes: array_map(strval(...), array_values($codes)),
+            permissionCodes: $codes,
             isSystem: (bool) $row['is_system'],
             holderCount: (int) $row['holder_count'],
+            // PC-12 clause 3 at definition (roles slice 4 C1a): derived from the codes this same body serves, never stored.
+            marginExposure: MarginExposure::of($codes),
             archivedAt: null === $row['deleted_at']
                 ? null
                 : new \DateTimeImmutable((string) $row['deleted_at'])->format(\DateTimeInterface::RFC3339_EXTENDED),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\UserManagement\ApiResource\RoleResource;
+use App\Modules\UserManagement\Domain\PermissionCatalogue;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
@@ -45,8 +46,12 @@ final class RoleReadTest extends ApiTestCase
      * `RoleResource`'s serialized members — a second party to `ResponseShapeTest`'s derivation that `docs/`
      * cannot move. A joint edit to §4.4.3's additions row and the DTO would satisfy `ResponseShapeTest`
      * alone; this makes it a third, deliberate edit, to a file whose docblock says why.
+     *
+     * **`margin_exposure` added deliberately 2026-10-07 (roles slice 4 C1a; design §4.6, owner notice in
+     * `session22-owner-ruling.md`):** PC-12 clause 3's definition-time warning, a pure function of `permission_codes` — no
+     * privilege history, no pending state. The invisibility tripwire below is untouched.
      */
-    public const PINNED_ROLE_FIELDS = ['id', 'name', 'description', 'permission_codes', 'is_system', 'holder_count', 'archived_at'];
+    public const PINNED_ROLE_FIELDS = ['id', 'name', 'description', 'permission_codes', 'is_system', 'holder_count', 'margin_exposure', 'archived_at'];
 
     /** Every relation a role read may touch. An allowlist: a proposal table under any name is red. */
     public const ROLE_READ_TABLES = ['app_user', 'role', 'role_permission', 'user_role'];
@@ -94,8 +99,35 @@ final class RoleReadTest extends ApiTestCase
             'permission_codes' => ['inventory_item.view', 'purchase_order.create', 'purchase_order.view'],
             'is_system' => false,
             'holder_count' => 0,
+            'margin_exposure' => false,
             'archived_at' => null,
         ], $this->json());
+    }
+
+    /**
+     * **`margin_exposure` is PC-12 clause 3's warning at definition** (roles slice 4 C1a; design §4.6): a composed role
+     * holding a cost source (`purchase_order.view`) AND a sale source (`invoice.view`) without every `.view` reads `true`;
+     * each source alone reads `false`; and the every-`.view` seat (the `owner`/`admin` exemption) reads `false` although it
+     * holds both. Served on `GetRole` and, as the same DTO, on each `ListRoles` item — a warning, never a refusal (the read
+     * succeeds either way).
+     */
+    #[Test]
+    public function marginExposureWarnsARoleHoldingBothSourcesWithoutEveryView(): void
+    {
+        $exposed = $this->seedRole(self::TENANT_A, 'Exposed', ['purchase_order.view', 'invoice.view']);
+        $costOnly = $this->seedRole(self::TENANT_A, 'Cost only', ['purchase_order.view']);
+        $saleOnly = $this->seedRole(self::TENANT_A, 'Sale only', ['invoice.view']);
+        $everyView = $this->seedRole(self::TENANT_A, 'Every view', PermissionCatalogue::viewCodes());
+
+        foreach ([$exposed => true, $costOnly => false, $saleOnly => false, $everyView => false] as $role => $expected) {
+            $this->send('GET', '/roles/'.$role);
+            self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+            self::assertSame($expected, $this->json()['margin_exposure'], 'margin_exposure is wrong for role '.$this->json()['name']);
+        }
+
+        $this->send('GET', '/roles?q=Exposed');
+        self::assertSame(200, $this->httpStatus());
+        self::assertTrue($this->json()['items'][0]['margin_exposure'], 'ListRoles served a different margin_exposure from GetRole.');
     }
 
     /**
