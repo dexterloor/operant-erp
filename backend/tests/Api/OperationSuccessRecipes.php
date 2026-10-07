@@ -675,6 +675,22 @@ trait OperationSuccessRecipes
 
                 return [200, 'edit a role'];
             }],
+            // Roles slice 4, C3: an unheld one-code composed role (`role.view`, seeded as the owner) with no proposal, deleted
+            // by the actor, who holds `role.delete` and `role.assign` (every declared code — `roles-s4-sec-data-red.md` F1-D).
+            'DeleteRole' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                    [$role, self::TENANT_A, 'Recipe Delete '.substr($role, 0, 8)]);
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+                    [self::TENANT_A, $role]);
+
+                return ['role' => $role];
+            }, function (array $c): array {
+                $this->send('DELETE', '/roles/'.$c['role']);
+
+                return [204, 'delete a role'];
+            }],
             'CreateRoleGrantProposal' => [function (): array {
                 $role = Uuid::v4()->toRfc4122();
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',

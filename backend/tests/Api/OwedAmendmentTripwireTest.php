@@ -325,7 +325,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * **What roles slice 3 hands forward, mechanised** (`docs/session13/roles-s3-design.md` §11; C1, 2026-10-04). E-15e's
-     * proposals now exist, and five unbuilt operations owe something to them. Each key is an `operationId` (the pick-read
+     * proposals now exist, and five operations (unbuilt then) owed something to them — `UpdateRole` (C2) and `DeleteRole` (C3)
+     * have left, three remain. Each key is an `operationId` (the pick-read
      * precedent, `1076ba3`); each value is the obligation the failure message carries — the design §11 table, condensed;
      * the design and `SECURITY_MODEL.md` §5.2 are the authority. **`GetUser` is not keyed: Q-1 was ruled "withdraw"** (its
      * §15.1 cell records it). Clearing an entry is a deliberate edit in the commit that does the work.
@@ -342,13 +343,16 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0); '
             .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
             .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
-        'DeleteRole' => 'E-15h: refuse while any `status = \'pending\'` row exists on the role (stale ones included — fails '
-            .'closed), naming the count, read via `role_grant_proposal_pending_by_role`. OPEN, for SEC at this build: the refusal '
-            .'may not reveal pending existence beyond role.assign (PC-16 condition 1) and DeleteRole is role.delete — serve the '
-            .'count only to a role.assign holder, or refuse without it; decide how a role.delete-only seat is told what to do. '
-            .'Every such proposal must be clearable by someone the tenant still has — re-check Q-5 (a) before building.',
         'CreateBulkRoleAssignment' => 'Bulk never proposes (refused wholesale before any member id is read, keeping E-14\'s '
             .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).',
+        // `DeleteRole` LEFT 2026-10-07 (roles slice 4 C3), its work done: E-15h's pending refusal counts every `pending` row on
+        // the role, stale ones included (`LiveGrantReader::pendingProposalCount`, a `status = 'pending'` partial index), and names
+        // the count — `RoleDeleteTest::aRoleWithOpenRequestsIsRefusedCountingExpiredOnes`. The OPEN SEC question is answered by
+        // `roles-s4-sec-data.md` D-7.2 (owner D-6 option (1)): every API-composed `role.delete` seat holds `role.assign`, and a
+        // caller whose LOCK-time codes lack it is refused `role.delete_needs_role_assign` before the role is read, one body for
+        // every id (`…::aDeleterWithoutRoleAssignIsRefusedAloneTheSameWayForEveryId`; the lock-time read in
+        // `PurchaseOrderRowLockTest::aDeleterDemotedWhileWaitingMeetsTheBackstopOnItsLockTimeCodes`); PC-16's sentence written.
+        // Q-5 (a) re-checked by running it: `…::aStaleRequestIsClearedByAnOwnerAndTheRoleCanThenBeDeleted`.
         // `UpdateRole` LEFT 2026-10-07 (roles slice 4 C2), its work done: pending proposals are not written to and a
         // confirmation after the edit is refused `role_changed`, and a role that LOSES its X(admin) code leaves its pending
         // proposal for a non-owner to meet at AssignRole's gap B (`proposal_pending`) — both in

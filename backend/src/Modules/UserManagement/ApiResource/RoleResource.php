@@ -13,6 +13,7 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleProcessor;
+use App\Modules\UserManagement\ApiResource\State\DeleteRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RevokeRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleProvider;
 use App\Modules\UserManagement\ApiResource\State\UpdateRoleProcessor;
@@ -27,7 +28,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `DELETE /api/v1/users/{id}/roles/{roleId}` under `role.assign` — 204, no body, so it adds nothing to this shape — and
  * `AssignRole` (C3), `POST /api/v1/users/{id}/roles`, whose 201 body IS this shape: the granted role (`SEC` S-1 (b)), so
  * `Assign / Role` and `Get / Role` resolve to one DTO class; `CreateRole` (roles slice 4 C1) and `UpdateRole` (C2) answer
- * with it too, and `ResponseShapeTest`'s one-DTO-per-resource holds.
+ * with it too, and `ResponseShapeTest`'s one-DTO-per-resource holds; `DeleteRole` (C3, `DELETE /api/v1/roles/{id}`,
+ * `role.delete`) is 204 with no body, so it adds nothing to this shape.
  *
  * The shape is API-23's derivation for `Role`:
  *   1. `CreateRole`'s accepted fields — `name`, `description`, `permission_codes`;
@@ -154,6 +156,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             read: false,
             processor: UpdateRoleProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'role.edit'],
+        ),
+        // Roles slice 4, C3 (2026-10-07). API-21 branch 3: 204, no body. A SOFT delete (`role.deleted_at`). §4.2's `Idem` cell
+        // is `no`: a repeat meets the deleted role and is 409 `role.is_archived` (the `DeleteSalesOrder` precedent).
+        // `read: false`: the role is read under the role-administration lock (E-1). The denial subject is the default
+        // derivation (`('role', {id})`, path-first).
+        new Delete(
+            uriTemplate: '/roles/{id}',
+            name: 'DeleteRole',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteRole'),
+            read: false,
+            processor: DeleteRoleProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'role.delete'],
         ),
     ],
 )]

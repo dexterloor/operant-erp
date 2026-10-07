@@ -44,6 +44,8 @@ final class RoleReadTest extends ApiTestCase
         'CreateRole' => ['method' => 'POST', 'path' => '/roles', 'idem' => true],
         // Roles slice 4 C2. `idem`: §4.2's `no` — the edit is a set; a repeat is an empty delta and writes nothing.
         'UpdateRole' => ['method' => 'PATCH', 'path' => '/roles/{id}', 'idem' => false],
+        // Roles slice 4 C3. `idem`: §4.2's `no` — a repeat meets the deleted role and is 409 `role.is_archived`.
+        'DeleteRole' => ['method' => 'DELETE', 'path' => '/roles/{id}', 'idem' => false],
     ];
 
     /**

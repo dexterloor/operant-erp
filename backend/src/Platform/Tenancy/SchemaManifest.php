@@ -348,11 +348,13 @@ final class SchemaManifest
             // columns. is_system stays unwritable by erp_app, so E-15h's "is_system set by any path other than provisioning"
             // is closed at the privilege level. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
             // Roles slice 4, C2 (Version20261007000300): UpdateRole's one UPDATE, COLUMN-level, exactly its three SET columns
-            // (name, description, updated_at). is_system and deleted_at stay un-updatable (deleted_at arrives with DeleteRole, C3).
+            // (name, description, updated_at). is_system stays un-updatable.
+            // Roles slice 4, C3 (Version20261007000500): DeleteRole's soft delete adds deleted_at to the column UPDATE list
+            // (`RoleDeletion::DELETE_ROLE` sets deleted_at and updated_at). No DELETE on role: the delete is soft.
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'name', 'description'],
-                'UPDATE' => ['name', 'description', 'updated_at'],
+                'UPDATE' => ['name', 'description', 'updated_at', 'deleted_at'],
             ]],
         ],
         'role_permission' => [

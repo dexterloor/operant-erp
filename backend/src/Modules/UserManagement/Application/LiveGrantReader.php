@@ -209,8 +209,8 @@ final class LiveGrantReader
      * **The ONE "live holder" predicate** (`SEC` D-7.4, `roles-s4-sec-data.md`; roles slice 4 C2): a holder of a role is ANY
      * `user_role` row for it, whatever the user's `is_active` / `deleted_at` — fail closed (E-15h). A deactivated user's row
      * is a privilege-in-waiting (E-15g's strip is unbuilt; `IdentityReader` ignores `is_active`, API-O-22), so an edit
-     * changes what it would restore. Read by `UpdateRole`'s `X(admin)`-on-held-role clause and (C3) `DeleteRole`'s E-15h
-     * refusal. NOT the last-owner floor's predicate, which counts ACTIVE, undeleted marker holders ({@see self::ACTIVE_MARKER_HOLDERS}):
+     * changes what it would restore. Read by `UpdateRole`'s `X(admin)`-on-held-role clause and `DeleteRole`'s E-15h
+     * refusal (C3, `role.has_holders`). NOT the last-owner floor's predicate, which counts ACTIVE, undeleted marker holders ({@see self::ACTIVE_MARKER_HOLDERS}):
      * that one answers "is an owner left", this one "who would be affected". `GetRole`'s `holder_count` (soft-deleted users
      * excluded) is a display figure, not this.
      */
@@ -219,6 +219,19 @@ final class LiveGrantReader
         $connection = $em->getConnection();
 
         return (int) $connection->fetchOne('SELECT count(*) FROM user_role WHERE role_id = ?::uuid', [$roleId]);
+    }
+
+    /**
+     * **E-15h's pending half for `DeleteRole`** (roles slice 4 C3; `SEC` D-7.2; design §5.2): the role's proposals with
+     * `status = 'pending'` — **stale ones included** (an expired proposal not yet lapsed is still `pending`; fail closed) — on
+     * a `status = 'pending'` partial index (RLS supplies the tenant predicate). Read under the role lock, so no proposal can
+     * be created or decided between this count and the delete.
+     */
+    public static function pendingProposalCount(EntityManagerInterface $em, string $roleId): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne("SELECT count(*) FROM role_grant_proposal WHERE role_id = ?::uuid AND status = 'pending'", [$roleId]);
     }
 
     /**

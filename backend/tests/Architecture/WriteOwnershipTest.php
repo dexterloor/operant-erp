@@ -253,7 +253,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **10 -> 13 on 2026-10-07** (roles slice 4, C2): `RoleUpdate`'s `UPDATE role` (three SET columns, the column grant), its
         // `DELETE FROM role_permission` and its own multi-row `INSERT INTO role_permission` — all `Modules\\UserManagement`'s
         // tables, read off this test's failure. `Modules\\AuditLog` does NOT move: both events go through `RoleAuditWriter::record()`.
-        'Modules\\UserManagement' => 13,
+        // **13 -> 14 on 2026-10-07** (roles slice 4, C3): `RoleDeletion`'s `UPDATE role SET deleted_at, updated_at` (the soft
+        // delete), read off this test's failure. `Modules\\AuditLog` does NOT move: `role.deleted` goes through `RoleAuditWriter::record()`.
+        'Modules\\UserManagement' => 14,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

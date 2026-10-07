@@ -79,6 +79,9 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-07 with `DeleteRole` in the tree (roles slice 4, C3): the three commands return
+  # **140 / 85 / 28** -- ONE edge line added: `RoleDeletion -> RoleAuditWriter` (A-5, `role.deleted`).
+  # `make deptrac`: see the progress note's C3 gate (re-derive, never restate).)
   # (Re-derived 2026-10-07 with `UpdateRole` in the tree (roles slice 4, C2): the three commands return
   # **139 / 85 / 27** -- ONE edge line added: `RoleUpdate -> RoleAuditWriter` (A-5, `role.permissions_changed` / `role.updated`).
   # `make deptrac`: see the progress note's C2 gate (re-derive, never restate).)
@@ -566,6 +569,10 @@ deptrac:
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
       - App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal   # A-7
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\RoleDeletion:
+      # Roles slice 4 C3, 2026-10-07: `role.deleted` written synchronously in the deleting transaction (`RoleUpdate`'s
+      # shape). Raw SQL for the write, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\UserManagement\Application\RoleGrantProposalCancellation:
       # Roles slice 3 C3, 2026-10-05: `role.assignment_cancelled`; `cancel()` and the proposer's reference under the lock.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5

@@ -130,6 +130,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // role, which holds every declared code and so spans every split — PC-4 on the result would refuse it), re-described.
         // A supplied tenant id that moved the write would edit B's role, which the digest names.
         'UpdateRole' => ['vars' => ['id' => 'revoke_role'], 'body' => ['description' => 'Probe edited']],
+        // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every
+        // declared code, `role.assign` included — RED F1-D). A supplied tenant id that moved the write would delete B's role.
+        'DeleteRole' => ['vars' => ['id' => 'delete_role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -581,6 +584,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
             [$tenantId, $subject, $revokeRole]);
+        // Roles slice 4, C3: `DeleteRole`'s role — composed, unheld, no proposal, so the baseline deletes it.
+        $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, 'Deletable Role')",
+            [$this->remember($letter, 'delete_role', Uuid::v4()->toRfc4122()), $tenantId]);
         // Roles slice 2, C3: `AssignRole`'s subject — active, holding nothing.
         $assignSubject = $this->remember($letter, 'assign_subject', Uuid::v4()->toRfc4122());
         $this->insertAsOwnerForTenant($tenantId,

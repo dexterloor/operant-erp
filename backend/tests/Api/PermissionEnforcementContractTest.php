@@ -91,6 +91,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateRole' => 'role.create',
         // Roles slice 4 C2: re-derived under the lock with its own code (`RoleAdministrationActor`, C0's parameter).
         'UpdateRole' => 'role.edit',
+        // Roles slice 4 C3: re-derived under the lock with its own code; the `role.assign` backstop after it is a 409, never
+        // a second permission gate (`roles-s4-sec-data-red.md` item 1).
+        'DeleteRole' => 'role.delete',
         // Roles slice 3, C1: E-15e's proposal route and its reads — `role.assign`, deliberately NOT `role.view`
         // (SECURITY_MODEL.md §5.2.3: a pending proposal is privilege history, and `viewer` holds `role.view`).
         'CreateRoleGrantProposal' => 'role.assign',

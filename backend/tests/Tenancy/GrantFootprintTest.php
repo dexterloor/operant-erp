@@ -914,8 +914,8 @@ final class GrantFootprintTest extends TenancyTestCase
 
     /**
      * The columns the role-definition writers name, per privilege (roles slice 4: C1 `Version20261007000100`, C2
-     * `Version20261007000300`). **Typed by hand from `RoleCreation::INSERT_ROLE` / `INSERT_CODES` and `RoleUpdate::UPDATE_ROLE`
-     * / `INSERT_CODES`, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`' reason). `DELETE` is
+     * `Version20261007000300`, C3 `Version20261007000500`). **Typed by hand from `RoleCreation::INSERT_ROLE` / `INSERT_CODES`,
+     * `RoleUpdate::UPDATE_ROLE` / `INSERT_CODES` and `RoleDeletion::DELETE_ROLE`, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`' reason). `DELETE` is
      * table-level (Postgres has no column DELETE): `RoleUpdate::DELETE_CODES` on `role_permission` only.
      *
      * @var array<string, array<string, list<string>>> privilege => table => columns
@@ -926,7 +926,8 @@ final class GrantFootprintTest extends TenancyTestCase
             'role_permission' => ['id', 'permission_code', 'role_id', 'tenant_id'],
         ],
         'UPDATE' => [
-            'role' => ['description', 'name', 'updated_at'],
+            // `deleted_at` joined at C3 (`Version20261007000500`): `RoleDeletion::DELETE_ROLE`'s soft delete.
+            'role' => ['deleted_at', 'description', 'name', 'updated_at'],
             'role_permission' => [],
         ],
     ];
@@ -935,7 +936,7 @@ final class GrantFootprintTest extends TenancyTestCase
     private const ROLE_DEFINITION_DELETES = ['role_permission'];
 
     /**
-     * **Roles slice 4: `erp_app` can write exactly the columns `CreateRole` (C1) and `UpdateRole` (C2) name on `role` and
+     * **Roles slice 4: `erp_app` can write exactly the columns `CreateRole` (C1), `UpdateRole` (C2) and `DeleteRole` (C3) name on `role` and
      * `role_permission`, and DELETE from `role_permission` only — proved by running the statements as `erp_app`** (design
      * §8.1; E-15h: *"`is_system` set by any path other than provisioning"* is closed at the PRIVILEGE level).
      * `theApplicationCanInsertOnlyTheGrantColumnsItWrites`' shape: domain from `pg_attribute`, one connection and one
@@ -943,7 +944,8 @@ final class GrantFootprintTest extends TenancyTestCase
      * **Positive controls:** `role.name` INSERT and UPDATE accepted, `role_permission` DELETE accepted. **Anti-vacuity:**
      * `role.is_system` refused for INSERT and UPDATE; `role` DELETE refused. **Planted control, committed then undone:**
      * `GRANT UPDATE (is_system) ON role` must produce exactly one violation. Moved deliberately at C2 (UPDATE on three
-     * `role` columns, DELETE on `role_permission`); `deleted_at` joins the UPDATE list at C3.
+     * `role` columns, DELETE on `role_permission`), and again at C3 (`deleted_at` joins the UPDATE list — `DeleteRole` is a
+     * soft delete, so `role` DELETE stays refused). The anti-vacuity `is_system` assertion and the planted grant are unmoved.
      */
     #[Test]
     public function theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName(): void

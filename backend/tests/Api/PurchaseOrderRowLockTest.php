@@ -2942,7 +2942,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `systemRole()` inserts as the owner.
         $financeRole = 'CreateRoleGrantProposal' === $case ? $this->systemRole(DefaultRoles::FINANCE) : null;
         // Roles slice 4, C2: an unheld one-code composed role, seeded before the recorder for the same reason.
-        $editable = 'UpdateRole' === $case ? $this->composedRoleOf(['role.view']) : null;
+        $editable = \in_array($case, ['UpdateRole', 'DeleteRole'], true) ? $this->composedRoleOf(['role.view']) : null;
         $this->recorder()->start();
         match ($case) {
             'RevokeRole' => $this->send('DELETE', '/users/'.$subject.'/roles/'.$role),
@@ -2963,6 +2963,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
             // Roles slice 4, C2: `admin` renames the role and adds a code it holds — writes `role`, `role_permission`, audit.
             'UpdateRole' => $this->send('PATCH', '/roles/'.$editable, ['name' => 'Lock-first edit', 'permission_codes' => ['role.view', 'inventory_item.view']]),
+            // Roles slice 4, C3: `admin` (which holds `role.delete` and `role.assign`) deletes the same kind of role — writes
+            // `role` (`deleted_at`) and the audit row.
+            'DeleteRole' => $this->send('DELETE', '/roles/'.$editable),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -2987,6 +2990,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'CancelRoleGrantProposal' => ['CancelRoleGrantProposal', 200];
         yield 'CreateRole' => ['CreateRole', 201];
         yield 'UpdateRole' => ['UpdateRole', 200];
+        yield 'DeleteRole' => ['DeleteRole', 204];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3568,6 +3572,63 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'twin B: the owner marker lost' => ['B'];
     }
 
+    /**
+     * **`DeleteRole`'s demotion twins — the `role.assign` backstop reads the LOCK-time set** (roles slice 4 C3;
+     * `roles-s4-sec-data-red.md` F1-C). The deleter holds `role.delete` (+ `role.view`) through R1 and `role.assign` through
+     * R2, and deletes an unused composed role. While the request waits on the role lock, the holder revokes one of them:
+     *  - **twin A** removes R1 → the gate's 403 for `role.delete` and exactly one lock-time denial row; nothing written;
+     *  - **twin B** removes R2 → 409 `role.delete_needs_role_assign`, NO denial row (a business rule, not a second gate);
+     *    nothing written.
+     * Mutation: the backstop read from the request's `Identity` (gate-time codes) → twin B 204, red.
+     */
+    #[Test]
+    #[DataProvider('deleteRoleDemotionTwins')]
+    public function aDeleterDemotedWhileWaitingMeetsTheBackstopOnItsLockTimeCodes(string $twin): void
+    {
+        $r1 = $this->composedRoleOf(['role.delete', 'role.view']);
+        $r2 = $this->composedRoleOf(['role.assign', 'role.view']);
+        $target = $this->composedRoleOf(['role.view']);
+        $deleter = $this->seedPrincipal(self::TENANT_A, []);
+        foreach ([$r1, $r2] as $role) {
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+                [self::TENANT_A, $deleter, $role]);
+        }
+        $revoker = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $lost = 'A' === $twin ? $r1 : $r2;
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $deleter);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$deleter, $lost]],
+            [self::HOLDER_ROLE_REVOKED, [self::TENANT_A, $revoker, $deleter, $lost]],
+        ], request: fn () => $this->send('DELETE', '/roles/'.$target), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM role WHERE id = ?::uuid AND deleted_at IS NOT NULL', [$target]),
+            'A demoted deleter deleted the role.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_DELETED]));
+
+        if ('B' === $twin) {
+            self::assertSame([409, 'role.delete_needs_role_assign'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::AUTHZ_PERMISSION_DENIED]),
+                'Twin B wrote a denial row; the backstop is a 409, not a permission refusal.');
+
+            return;
+        }
+
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('role.delete', $this->json()['required_permission'] ?? null);
+        self::assertCount(1, $this->denialRows(), 'Twin A: not exactly one lock-time denial row.');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function deleteRoleDemotionTwins(): iterable
+    {
+        yield 'twin A: role.delete lost' => ['A'];
+        yield 'twin B: role.assign lost' => ['B'];
+    }
+
     /** @return iterable<string, array{string}> */
     public static function confirmationDemotionTwins(): iterable
     {
@@ -3895,6 +3956,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CreateRole' => 'RoleCreation::create',
         // Roles slice 4 C2: one transaction writes `role`, `role_permission` and `role.permissions_changed` / `role.updated`.
         'UpdateRole' => 'RoleUpdate::update',
+        // Roles slice 4 C3: one transaction writes `role` (`deleted_at`) and `role.deleted`.
+        'DeleteRole' => 'RoleDeletion::delete',
     ];
 
     /** Empty, and kept: a future entry is a reviewed line, with its reason. */

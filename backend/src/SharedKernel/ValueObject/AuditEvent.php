@@ -433,6 +433,14 @@ final class AuditEvent
      */
     public const ROLE_UPDATED = 'role.updated';
 
+    /**
+     * Roles slice 4 C3 (`DeleteRole`; design §7; `SEC` D-7.3's three-event set): a composed role soft-deleted. Subject
+     * `('role', id)`; `metadata` `{role_id}` only. SECURITY: E-15h's whole concern is role deletion changing privileges —
+     * with the holder and pending refusals it changes none, and this row is the record that a definition left the set;
+     * IP-bearing.
+     */
+    public const ROLE_DELETED = 'role.deleted';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -758,6 +766,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_CANCELLED,
         self::ROLE_PERMISSIONS_CHANGED,
         self::ROLE_UPDATED,
+        self::ROLE_DELETED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -798,6 +807,7 @@ final class AuditEvent
         self::ROLE_ASSIGNMENT_CANCELLED,
         self::ROLE_PERMISSIONS_CHANGED,
         self::ROLE_UPDATED,
+        self::ROLE_DELETED,
     ];
 
     /**
@@ -908,6 +918,8 @@ final class AuditEvent
         self::ROLE_PERMISSIONS_CHANGED => 'role',
         // Roles slice 4 C2: the same subject as the code-set event, for the same reason.
         self::ROLE_UPDATED => 'role',
+        // Roles slice 4 C3: the role whose definition left the set.
+        self::ROLE_DELETED => 'role',
     ];
 
     /**

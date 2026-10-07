@@ -21,7 +21,7 @@ use Symfony\Component\Uid\Uuid;
  * `role.*`, measured) — the `PasswordChangeAuditWriter` precedent.
  *
  *  - **Subject:** `('app_user', <the user whose privileges changed>)`, read off `AuditEvent::SUBJECT_TYPES` — except
- *    `role.permissions_changed` (roles slice 4 C1) and `role.updated` (C2), whose subject is `('role', <the role whose
+ *    `role.permissions_changed` (roles slice 4 C1), `role.updated` (C2) and `role.deleted` (C3), whose subject is `('role', <the role whose
  *    definition changed>)`.
  *  - **`metadata` always carries `RoleEventMetadata::ROLE_ID`** — the key the reconciliation reads (G-10 condition (1),
  *    A-7) — and, for the proposal events (roles slice 3, C1; `SECURITY_MODEL.md` §5.2.8), the further id keys
@@ -150,6 +150,15 @@ final readonly class RoleAuditWriter
         $this->record(AuditEvent::ROLE_UPDATED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress, [
             RoleEventMetadata::FIELDS => array_values($fields),
         ]);
+    }
+
+    /**
+     * `role.deleted` — `DeleteRole` (roles slice 4 C3): `metadata` `{role_id}` only. Subject the role, as the other two
+     * definition events.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_DELETED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress);
     }
 
     /**
