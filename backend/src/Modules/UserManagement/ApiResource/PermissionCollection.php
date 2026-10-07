@@ -46,11 +46,20 @@ final class PermissionCollection
         // theInlineItemSchemaIsTheDtosShape` holds these property names equal to the DTO's.
         #[ApiProperty(schema: ['type' => 'array', 'items' => [
             'type' => 'object',
-            'required' => ['code', 'module', 'description'],
+            'required' => ['code', 'module', 'description', 'sod_rows'],
             'properties' => [
                 'code' => ['type' => 'string'],
                 'module' => ['type' => 'string'],
                 'description' => ['type' => 'string'],
+                // V2-C-5 (roles slice 4 C0): every SoD row naming the code, and its half. `[]` for a code on no split.
+                'sod_rows' => ['type' => 'array', 'items' => [
+                    'type' => 'object',
+                    'required' => ['id', 'half'],
+                    'properties' => [
+                        'id' => ['type' => 'string'],
+                        'half' => ['type' => 'string', 'enum' => ['preparing', 'controlled']],
+                    ],
+                ]],
             ],
         ]])]
         public array $items,

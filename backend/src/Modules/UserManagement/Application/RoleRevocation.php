@@ -47,7 +47,7 @@ use Symfony\Component\Uid\Uuid;
 final readonly class RoleRevocation
 {
     /** The permission this operation requires — the gate's, re-derived under the lock. */
-    public const REQUIRED_PERMISSION = RoleAdministrationActor::REQUIRED_PERMISSION;
+    public const REQUIRED_PERMISSION = 'role.assign';
 
     public function __construct(
         private TenantContext $tenants,
@@ -85,7 +85,7 @@ final readonly class RoleRevocation
         RoleAdministrationLock::holdInside($em, $this->tenant->tenantId());
 
         // 2–3. Before any read of the subject (E-1): the one shared re-check (`RoleAdministrationActor`, extracted in C3).
-        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject);
+        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject, self::REQUIRED_PERMISSION);
         if ($actorCodes instanceof LockTimeDenial) {
             return $actorCodes;
         }

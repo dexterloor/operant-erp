@@ -171,7 +171,7 @@ final readonly class RoleAssignment
         RoleAdministrationLock::holdInside($em, $this->tenant->tenantId());
 
         // 2. Before any read of the subject (E-1).
-        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject);
+        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject, 'role.assign');
         if ($actorCodes instanceof LockTimeDenial) {
             return $actorCodes;
         }

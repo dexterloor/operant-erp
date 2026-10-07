@@ -209,6 +209,47 @@ final class SeparationOfDuty
     }
 
     /**
+     * **Where one code sits in the table** — every row naming it, and on which half. `Permission.sod_rows[]` (V2-C-5,
+     * roles slice 4 C0) serves exactly this, so a role-composition screen can refuse a split at selection time from the
+     * same table the server refuses it from. A code may sit on several rows, and on different halves of different rows
+     * (`purchase_order.approve` is SoD-1's controlled half and SoD-2's preparing half); never on both halves of one row.
+     *
+     * @return list<array{id: string, half: 'preparing'|'controlled'}> in §2's row order, preparing before controlled
+     */
+    public static function placementsOf(string $code): array
+    {
+        $placements = [];
+
+        foreach (self::ROWS as $id => $row) {
+            foreach (['preparing', 'controlled'] as $half) {
+                if (\in_array($code, $row[$half], true)) {
+                    $placements[] = ['id' => $id, 'half' => $half];
+                }
+            }
+        }
+
+        return $placements;
+    }
+
+    /**
+     * **The conflict edges a holder of `$codes` spans** — the pair-grained twin of {@see rowsSpannedBy()}: every edge of
+     * {@see conflictEdges()} whose two ends are both in `$codes`. Row grain cannot tell a holder already spanning SoD-3
+     * through (`invoice.issue`, `invoice.pay`) from one that also gains `credit_note.adjust`; edge grain can (roles slice 4
+     * design §4.7, RED F-2).
+     *
+     * @param list<string> $codes
+     *
+     * @return list<array{0: string, 1: string}> each edge sorted, in {@see conflictEdges()}' order
+     */
+    public static function edgesSpannedBy(array $codes): array
+    {
+        return array_values(array_filter(
+            self::conflictEdges(),
+            static fn (array $edge): bool => \in_array($edge[0], $codes, true) && \in_array($edge[1], $codes, true),
+        ));
+    }
+
+    /**
      * The conflict graph E-15b/E-15c's near-owner ceiling is a vertex cover of:
      * one undirected edge per (preparing code, controlled code) pair, per row.
      *

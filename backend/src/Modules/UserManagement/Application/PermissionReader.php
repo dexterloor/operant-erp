@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
+use App\Modules\UserManagement\Domain\SeparationOfDuty;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
@@ -25,6 +26,10 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * Rows come back in `code` order, the primary key's — the one order a bounded set is loaded in, not a
  * `sort` control.
+ *
+ * **`sod_rows` is derived, not stored** (V2-C-5, roles slice 4 C0): `SeparationOfDuty::placementsOf()` per row — the
+ * committed SoD home the server refuses a split from, so the composition screen and the refusal cannot disagree. A code the
+ * table does not name (a planted row, or any code on no split) carries `[]`.
  */
 final readonly class PermissionReader
 {
@@ -51,6 +56,7 @@ final readonly class PermissionReader
                     (string) $row['code'],
                     (string) $row['module'],
                     (string) $row['description'],
+                    SeparationOfDuty::placementsOf((string) $row['code']),
                 ), $rows),
                 'tenantHasRows' => $tenantHasRows,
             ];

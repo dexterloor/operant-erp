@@ -116,6 +116,17 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const SERVED_CHILD_COLLECTIONS = ['adjustment_decisions', 'return_decisions'];
 
     /**
+     * **Lists of VALUES whose `id` is not a table row's** (roles slice 4 C0, 2026-10-07): `Permission.sod_rows[]` is
+     * `{id, half}` where `id` names an ADR-008 §2 SoD row (`SoD-1`…), held in `SeparationOfDuty`, not in any table — so it is
+     * neither a reference (nothing to expand, no display field) nor a row of this tenant. `API.md` §4.4.3's Permission row
+     * says so in terms. Walked like a child collection: its elements are not judged as expansions, and a bare `_id` inside
+     * one would still be caught.
+     *
+     * @var list<string>
+     */
+    private const VALUE_COLLECTIONS = ['sod_rows'];
+
+    /**
      * **`_id` members that name a SIBLING row of the same served child collection, not a foreign table to expand**
      * (G-29 / G-30 part 3 C1): `reverses_decision_id` — a reversal row names the decision row it undid, which is served
      * beside it in the same list (a reversal is always on its target's pair), and a decision row has no display field.
@@ -977,7 +988,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      */
     private static function nestedCollections(): array
     {
-        $nested = self::SERVED_CHILD_COLLECTIONS;
+        $nested = [...self::SERVED_CHILD_COLLECTIONS, ...self::VALUE_COLLECTIONS];
         foreach (ContractDocument::operationRows() as $row) {
             preg_match_all('/`([a-z_]+)\[\]\./', $row['accepts'], $m);
             $nested = [...$nested, ...$m[1]];

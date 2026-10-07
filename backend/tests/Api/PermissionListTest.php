@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\UserManagement\ApiResource\PermissionResource;
 use App\Modules\UserManagement\Domain\PermissionCatalogue;
+use App\Modules\UserManagement\Domain\SeparationOfDuty;
 use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -15,7 +16,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * (`docs/session13/roles-s1-design.md` §2.1, owner rulings Q2 and Q3+Q4).
  *
  * The permission vocabulary is **global** (IA §6.2): `permission` has no `tenant_id` and no RLS, so
- * every tenant sees the same rows. The wire shape is `{code, module, description}` — no `id`, because
+ * every tenant sees the same rows. The wire shape is `{code, module, description, sod_rows}` (`sod_rows` since roles
+ * slice 4 C0) — no `id`, because
  * the table has none (its primary key is `code`), ruled 2026-09-23 and pinned in
  * `ResponseShapeTest::NO_ID_RESOURCES`; `module` is the stored, namespace-shaped value.
  *
@@ -84,7 +86,8 @@ final class PermissionListTest extends ApiTestCase
 
         $table = $this->owner()->fetchAllAssociative('SELECT code, module, description FROM permission ORDER BY code');
         self::assertNotSame([], $table, 'The permission table is empty, so the comparison has no subject.');
-        self::assertSame($table, $body['items']);
+        // The three stored columns, row for row; `sod_rows` is derived, not stored, and is held by its own test below.
+        self::assertSame($table, array_map(static fn (array $item): array => array_diff_key($item, ['sod_rows' => true]), $body['items']));
         self::assertCount(\count(PermissionCatalogue::codes()), $body['items'], 'The list is not the whole seeded catalogue.');
         foreach ($body['items'] as $row) {
             self::assertSame(PermissionCatalogue::moduleOf($row['code']), $row['module'], $row['code'].'\'s module is not the catalogue\'s.');
@@ -157,6 +160,39 @@ final class PermissionListTest extends ApiTestCase
     }
 
     /**
+     * **V2-C-5's `sod_rows[]`, equal to `SeparationOfDuty` for every code** (roles slice 4 C0 — what the tripwire below
+     * demanded). The expectation is rebuilt here from `rowIds()`/`row()`, not from `placementsOf()`, so a defect in the
+     * function the reader calls is a red diff, not an agreement. Controls: every governed code appears on the wire, a code on
+     * two rows carries both, and a code on no split carries `[]`.
+     */
+    #[Test]
+    public function sodRowsAreTheSeparationOfDutyTableForEveryCode(): void
+    {
+        $this->send('GET', '/permissions');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $served = array_column($this->json()['items'], 'sod_rows', 'code');
+        self::assertCount(\count(PermissionCatalogue::codes()), $served);
+        foreach ($served as $code => $rows) {
+            $expected = [];
+            foreach (SeparationOfDuty::rowIds() as $id) {
+                foreach (['preparing', 'controlled'] as $half) {
+                    if (\in_array($code, SeparationOfDuty::row($id)[$half], true)) {
+                        $expected[] = ['id' => $id, 'half' => $half];
+                    }
+                }
+            }
+            self::assertSame($expected, $rows, $code.'\'s sod_rows are not the SoD table\'s.');
+        }
+
+        foreach (SeparationOfDuty::governedCodes() as $code) {
+            self::assertNotSame([], $served[$code] ?? [], $code.' is on a split but carries no sod_rows.');
+        }
+        self::assertSame([['id' => 'SoD-1', 'half' => 'controlled'], ['id' => 'SoD-2', 'half' => 'preparing']], $served['purchase_order.approve']);
+        self::assertSame([], $served['warehouse.view']);
+    }
+
+    /**
      * `PermissionResource` is a plain DTO, not an ApiResource, so API Platform mints no `Permission`
      * component and the envelope's `items` carries an **inline** item schema (a `$ref` would dangle —
      * `OpenApiContractTest::everyReferenceInTheSpecResolves`). This holds the published inline schema's
@@ -187,8 +223,11 @@ final class PermissionListTest extends ApiTestCase
     /**
      * **V2-C-5, deferred by owner ruling Q2 (2026-09-23) — with a tripwire, not prose.** `sod_rows[]`
      * (which SoD row, and which half, each code sits on, so a role-composition screen can refuse a split at
-     * selection time) is not in slice 1. Its consumer is the role-composition flow (IA-O-9) and the refusal
-     * it mirrors (PC-4 on `role_permission` writes) ships with `CreateRole`.
+     * selection time) was not in slice 1. Its consumer is the role-composition flow (IA-O-9) and the refusal
+     * it mirrors (PC-4 on `role_permission` writes) ships with `CreateRole`. **Satisfied since roles slice 4 C0
+     * (2026-10-07), one commit ahead of `CreateRole`:** `PermissionResource` carries `sod_rows`, and
+     * `sodRowsAreTheSeparationOfDutyTableForEveryCode` holds it equal to the table. The pin stays, unedited, so
+     * removing the member while a composer exists goes red again.
      *
      * Red the moment `CreateRole` or `UpdateRole` appears in the generated spec — keyed on **operationId**,
      * never a path (`1076ba3`'s lesson) — while `PermissionResource` has no `sod_rows` member.

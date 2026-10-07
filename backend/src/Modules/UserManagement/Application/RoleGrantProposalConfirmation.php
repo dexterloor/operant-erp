@@ -155,7 +155,7 @@ final readonly class RoleGrantProposalConfirmation
     {
         RoleAdministrationLock::holdInside($em, $this->tenant->tenantId());
 
-        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject);
+        $actorCodes = $this->actor->reCheckUnderTheLock($em, $identity, $ipAddress, $denialSubject, 'role.assign');
         if ($actorCodes instanceof LockTimeDenial) {
             return $actorCodes;
         }
