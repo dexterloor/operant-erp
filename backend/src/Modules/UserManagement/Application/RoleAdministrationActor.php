@@ -64,11 +64,29 @@ final readonly class RoleAdministrationActor
             return new LockTimeDenial($requiredPermission);
         }
 
-        $actor = LiveGrantReader::user($em, $identity->userId);
-        if (null === $actor || !$actor['is_active']) {
-            throw ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so you can\'t change anyone\'s roles.');
+        if (self::isInactive(LiveGrantReader::user($em, $identity->userId))) {
+            throw self::inactiveRefusal();
         }
 
         return $actorCodes;
+    }
+
+    /**
+     * **`actor_is_inactive`'s predicate, pure** (users slice 1 C1a; design rev 3 §6 C1a, RED-2 H-2 fix 1): an actor with no
+     * row, or one whose `is_active` is false. The check itself stays in {@see self::reCheckUnderTheLock()} for all nine
+     * callers, before any subject read (E-1); the picker (`ListOfferedRoles`, C3) evaluates this same predicate first, as
+     * its whole-request refusal.
+     *
+     * @param array{deleted: bool, is_active: bool}|null $actor {@see LiveGrantReader::user()}'s shape
+     */
+    public static function isInactive(?array $actor): bool
+    {
+        return null === $actor || !$actor['is_active'];
+    }
+
+    /** `actor_is_inactive`'s refusal — ONE sentence for every role-administration operation (`UX` slice-2 copy §2). */
+    public static function inactiveRefusal(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so you can\'t change anyone\'s roles.');
     }
 }

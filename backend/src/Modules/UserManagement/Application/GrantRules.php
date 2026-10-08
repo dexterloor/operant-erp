@@ -30,6 +30,11 @@ use Symfony\Component\Uid\Uuid;
  *  4. {@see self::refuseConflict()} — PC-13 / E-18, "new conflict only" over the subject's live roles;
  *  5. {@see self::insert()} — the one `INSERT INTO user_role`, H1's four columns.
  *
+ * **Since users slice 1 C1a, phases 1–4 are also VERDICTS** ({@see self::firstVerdict()} and the four `*Verdict()`
+ * functions): pure functions of their inputs returning a {@see GrantVerdict} or null. The throwing phases are those
+ * verdicts plus {@see self::problem()}, so the picker read (`ListOfferedRoles`, C3) evaluates the same rules without a
+ * second copy. Behaviour-neutral: `GrantRulesCharacterisationTest` (C0) is its proof, unedited.
+ *
  * **The slots are a convention, held by tests, not by this class** (RED-3 L-3): the phases are separate methods, so
  * nothing mechanical stops a step being placed elsewhere. The order is pinned by the two-failure boundary cases
  * (`GrantRoutingTest`; `RoleAssignTest::onlyAnOwnerGrantsARoleConferringTheMarker` for E-15b before routing).
@@ -124,7 +129,7 @@ final class GrantRules
     }
 
     /**
-     * Phase 1 — V2-R-6, E-15a, E-15b, in that order.
+     * Phase 1 — V2-R-6, E-15a, E-15b, in that order. Throws {@see self::subjectRoleAndMarkerVerdict()}'s verdict.
      *
      * @param array{deleted: bool, is_active: bool}                                    $subject
      * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
@@ -132,24 +137,7 @@ final class GrantRules
      */
     public static function refuseSubjectRoleAndMarker(string $route, array $subject, array $role, string $subjectId, string $grantorId, array $grantorCodes): void
     {
-        if ($subject['deleted']) {
-            throw ApiProblem::businessRuleViolated('user_role.subject_is_deleted', 'This person has been removed from the workspace, so they can\'t be given a role.');
-        }
-        if (!$subject['is_active']) {
-            throw ApiProblem::businessRuleViolated('user_role.subject_is_inactive', 'This person\'s account is not active, so they can\'t be given a role.');
-        }
-        if (!$role['live']) {
-            throw self::refused('user_role.role_is_archived', $route);
-        }
-
-        if ($subjectId === Uuid::fromString($grantorId)->toRfc4122()) {
-            throw self::refused('user_role.actor_is_subject', $route);
-        }
-
-        // E-15b / Q5: the same sentence on every route, and it names no route, ever (`roles-s2-ux-copy.md` §3.4).
-        if (OwnerPredicate::holdsMarker($role['codes']) && !OwnerPredicate::holdsMarker($grantorCodes)) {
-            throw ApiProblem::businessRuleViolated('user_role.marker_needs_owner', 'Only an owner can give someone this role, because it makes them an owner.');
-        }
+        self::throwIf(self::subjectRoleAndMarkerVerdict($subject, $role, $subjectId, $grantorId, $grantorCodes), $route);
     }
 
     /**
@@ -161,15 +149,13 @@ final class GrantRules
      */
     public static function refuseBeyondGrantor(string $route, array $role, array $grantorCodes): void
     {
-        if (!$role['is_system'] && [] !== array_diff($role['codes'], $grantorCodes)) {
-            throw self::refused('user_role.exceeds_actor_permissions', $route);
-        }
+        self::throwIf(self::beyondGrantorVerdict($role, $grantorCodes), $route);
     }
 
     /** Phase 3 — C12: the subject already holds this role row (live or archived role; `LiveGrantReader::grant()`). */
     public static function refuseAlreadyHeld(EntityManagerInterface $em, string $subjectId, string $roleId): void
     {
-        if (null !== LiveGrantReader::grant($em, $subjectId, $roleId)) {
+        if (null !== self::alreadyHeldVerdict(null !== LiveGrantReader::grant($em, $subjectId, $roleId))) {
             throw self::alreadyHeld();
         }
     }
@@ -183,11 +169,122 @@ final class GrantRules
      */
     public static function refuseConflict(string $route, EntityManagerInterface $em, string $subjectId, array $role): void
     {
-        $tail = self::SOD_TAILS[$route] ?? throw new \LogicException(\sprintf('No separation-of-duty tail for route %s.', $route));
-        $conflicts = GrantConflict::newRows(LiveGrantReader::codesHeldBy($em, $subjectId), $role['codes']);
-        if ([] !== $conflicts) {
-            throw ApiProblem::businessRuleViolated('user_role.separation_of_duty', RoleAssignment::separationOfDutyMessage($role['name'], $conflicts, $tail));
+        self::SOD_TAILS[$route] ?? throw new \LogicException(\sprintf('No separation-of-duty tail for route %s.', $route));
+        self::throwIf(self::conflictVerdict(LiveGrantReader::codesHeldBy($em, $subjectId), $role), $route);
+    }
+
+    // -----------------------------------------------------------------------
+    // The phases as VERDICTS (users slice 1 C1a; `docs/session13/users-s1-design.md` rev 3 §6 C1a). Pure: every input is
+    // passed in, nothing is read, nothing is thrown. The throwing phases above are these plus {@see self::problem()}, so
+    // there is ONE copy of each rule — the picker (`ListOfferedRoles`, C3) evaluates the same functions from its one
+    // statement. A verdict is `{code, data}`, not a bare code: PC-13's sentence needs the rows and the role's name, and
+    // the per-route sentences need the route, which {@see self::problem()} takes.
+    //
+    // **Two held sets, never derived from each other** (RED-3 H-1/F-1): phase 3's input is whether ANY grant row exists
+    // for the pair (`LiveGrantReader::grant()`: live OR archived role), phase 4's is the union of the codes of the
+    // subject's grants on LIVE roles only (`LiveGrantReader::codesHeldBy()`). Feeding phase 4 the archived-inclusive set
+    // would refuse grants that ship as 201 (`GrantRulesCharacterisationTest::anArchivedHeldRoleDoesNotCountTowardsSeparationOfDuty`).
+    // -----------------------------------------------------------------------
+
+    /**
+     * Phase 1's verdict: the first of `subject_is_deleted`, `subject_is_inactive`, `role_is_archived`, `actor_is_subject`,
+     * `marker_needs_owner` that applies, or null.
+     *
+     * @param array{deleted: bool, is_active: bool}                                    $subject
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     * @param list<string>                                                             $grantorCodes
+     */
+    public static function subjectRoleAndMarkerVerdict(array $subject, array $role, string $subjectId, string $grantorId, array $grantorCodes): ?GrantVerdict
+    {
+        if ($subject['deleted']) {
+            return new GrantVerdict('user_role.subject_is_deleted');
         }
+        if (!$subject['is_active']) {
+            return new GrantVerdict('user_role.subject_is_inactive');
+        }
+        if (!$role['live']) {
+            return new GrantVerdict('user_role.role_is_archived');
+        }
+
+        if ($subjectId === Uuid::fromString($grantorId)->toRfc4122()) {
+            return new GrantVerdict('user_role.actor_is_subject');
+        }
+
+        // E-15b / Q5: the same sentence on every route, and it names no route, ever (`roles-s2-ux-copy.md` §3.4).
+        if (OwnerPredicate::holdsMarker($role['codes']) && !OwnerPredicate::holdsMarker($grantorCodes)) {
+            return new GrantVerdict('user_role.marker_needs_owner');
+        }
+
+        return null;
+    }
+
+    /**
+     * Phase 2's verdict: `exceeds_actor_permissions` for a composed role beyond the grantor's codes, else null.
+     *
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     * @param list<string>                                                             $grantorCodes
+     */
+    public static function beyondGrantorVerdict(array $role, array $grantorCodes): ?GrantVerdict
+    {
+        return !$role['is_system'] && [] !== array_diff($role['codes'], $grantorCodes)
+            ? new GrantVerdict('user_role.exceeds_actor_permissions')
+            : null;
+    }
+
+    /** Phase 3's verdict: `already_held` when a grant row for the pair exists (live or archived role), else null. */
+    public static function alreadyHeldVerdict(bool $grantExists): ?GrantVerdict
+    {
+        return $grantExists ? new GrantVerdict('user_role.already_held') : null;
+    }
+
+    /**
+     * Phase 4's verdict: `separation_of_duty` with `{rows, role_name}` when the grant newly spans a SoD row over the
+     * subject's LIVE held codes, else null.
+     *
+     * @param list<string>                                                             $heldLiveCodes the union of the codes of the subject's grants on LIVE roles
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     */
+    public static function conflictVerdict(array $heldLiveCodes, array $role): ?GrantVerdict
+    {
+        $conflicts = GrantConflict::newRows($heldLiveCodes, $role['codes']);
+
+        return [] === $conflicts ? null : new GrantVerdict('user_role.separation_of_duty', ['rows' => $conflicts, 'role_name' => $role['name']]);
+    }
+
+    /**
+     * Phases 1–4 in order with NO slot — the picker's walk (C3: it omits slot B by owner ruling Q-1 and runs no routing;
+     * its `requires_owner_confirmation` is {@see GrantConfirmationPolicy}, read only when this returns null).
+     *
+     * @param array{deleted: bool, is_active: bool}                                    $subject
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     * @param list<string>                                                             $grantorCodes
+     * @param list<string>                                                             $heldLiveCodes
+     */
+    public static function firstVerdict(array $subject, array $role, string $subjectId, string $grantorId, array $grantorCodes, bool $grantExists, array $heldLiveCodes): ?GrantVerdict
+    {
+        return self::subjectRoleAndMarkerVerdict($subject, $role, $subjectId, $grantorId, $grantorCodes)
+            ?? self::beyondGrantorVerdict($role, $grantorCodes)
+            ?? self::alreadyHeldVerdict($grantExists)
+            ?? self::conflictVerdict($heldLiveCodes, $role);
+    }
+
+    /**
+     * The refusal a verdict is on `$route` — every sentence the shipped throwing phases answered, byte-identical.
+     */
+    public static function problem(GrantVerdict $verdict, string $route): ApiProblem
+    {
+        return match ($verdict->code) {
+            'user_role.subject_is_deleted' => ApiProblem::businessRuleViolated($verdict->code, 'This person has been removed from the workspace, so they can\'t be given a role.'),
+            'user_role.subject_is_inactive' => ApiProblem::businessRuleViolated($verdict->code, 'This person\'s account is not active, so they can\'t be given a role.'),
+            'user_role.marker_needs_owner' => ApiProblem::businessRuleViolated($verdict->code, 'Only an owner can give someone this role, because it makes them an owner.'),
+            'user_role.already_held' => self::alreadyHeld(),
+            'user_role.separation_of_duty' => ApiProblem::businessRuleViolated($verdict->code, RoleAssignment::separationOfDutyMessage(
+                (string) $verdict->data['role_name'],
+                $verdict->data['rows'],
+                self::SOD_TAILS[$route] ?? throw new \LogicException(\sprintf('No separation-of-duty tail for route %s.', $route)),
+            )),
+            default => self::refused($verdict->code, $route),
+        };
     }
 
     /**
@@ -201,6 +298,13 @@ final class GrantRules
             'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)',
             [Uuid::v4()->toRfc4122(), $tenantId, $subjectId, $roleId],
         );
+    }
+
+    private static function throwIf(?GrantVerdict $verdict, string $route): void
+    {
+        if (null !== $verdict) {
+            throw self::problem($verdict, $route);
+        }
     }
 
     /** C12's refusal, also what a translated `23505` on `user_role_unique` answers (`RoleAssignment::assign()`). */
