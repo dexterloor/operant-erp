@@ -547,6 +547,11 @@ final class PermissionEnforcementTest extends ApiTestCase
             CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
             \App\Modules\UserManagement\Application\LiveGrantReader::joinedTablesRequiringNoDeletionPredicate(),
             'LiveGrantReader no longer makes the same assumption about the same joins as the request-time readers.');
+        // Users slice 1, C1: `UserReader` joins the same two tables without a deletion predicate.
+        self::assertSame(
+            CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
+            \App\Modules\UserManagement\Application\UserReader::joinedTablesRequiringNoDeletionPredicate(),
+            'UserReader no longer makes the same assumption about the same joins as the other readers.');
     }
 
     /**

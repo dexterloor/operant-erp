@@ -63,7 +63,9 @@ final class RoleRevokeTest extends ApiTestCase
     {
         $declared = [];
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            if (str_starts_with((string) $operation->getUriTemplate(), '/users')) {
+            // Users slice 1 C1: narrowed from every `/users` path to the `/users/{id}/…` family — `GetUser` (`/users/{id}`)
+            // and `ListUsers` (`/users`) are `UserReadTest::PINNED_USER_OPERATIONS`'.
+            if (1 === preg_match('#^/users/\{id\}/#', (string) $operation->getUriTemplate())) {
                 $declared[$name] = ['method' => $operation->getMethod(), 'path' => $operation->getUriTemplate()];
             }
         }

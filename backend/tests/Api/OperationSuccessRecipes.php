@@ -730,6 +730,15 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the grant proposals'];
             }],
+            // Users slice 1, C1: a second user holding one composed role (seeded as the owner), read back — a real row with
+            // a real grant, so `roles[]` carries a reference.
+            'GetUser' => [function (): array {
+                return ['user' => $this->seedPrincipal(self::TENANT_A, ['role.view'])];
+            }, function (array $c): array {
+                $this->send('GET', '/users/'.$c['user']);
+
+                return [200, 'read a user'];
+            }],
             // Roles slice 3, C2: a pending proposal of a composed X(admin) role (`invoice.pay`, `role.view`, both held by the
             // actor, so E-15c passes) for a user holding nothing, by a proposer who still holds `role.assign` (C9). The
             // actor holds every declared code and never the marker (no built operation declares it), so — Q-6 (c′) — the

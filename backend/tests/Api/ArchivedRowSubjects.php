@@ -41,9 +41,10 @@ use App\Tests\Support\ContractDocument;
  * clause, with its reason**, and every soft table is accounted for as included
  * or excluded — so none can drop out silently. The exclusions are the ones owner
  * decision (e) predicted: the soft tables with no built operation at all;
- * `app_user`'s only built read is `/me`, whose cell names `CurrentUser`, not
- * `User`; and `purchase_order_line` has no built direct-hit `Get`, so it is in
- * the list and write clauses only.
+ * and `purchase_order_line` has no built direct-hit `Get`, so it is in the list
+ * and write clauses only. *(Until users slice 1 C1, 2026-10-08, this also said
+ * `app_user`'s only built read was `/me`, whose cell names `CurrentUser`, not
+ * `User`; `GetUser` made `app_user` included.)*
  *
  * ⚠ **This paragraph carried a COUNT — *"eight soft tables have no built
  * operation at all"* — measured 2026-09-14 and never moved again. It was already
@@ -350,6 +351,13 @@ trait ArchivedRowSubjects
                     [$role, self::TENANT_A, 'ROLE-ARC-'.$tag.'-'.bin2hex(random_bytes(3))]);
 
                 return ['id' => $role, 'row' => $role];
+            },
+            // Added 2026-10-08 with `GetUser` (users slice 1, C1): `app_user` is class `soft` and has a built direct-hit
+            // `Get`. No write on the resource is built, so the write clause does not select it.
+            'app_user' => function (string $tag): array {
+                $user = $this->seedPrincipal(self::TENANT_A, []);
+
+                return ['id' => $user, 'row' => $user];
             },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));

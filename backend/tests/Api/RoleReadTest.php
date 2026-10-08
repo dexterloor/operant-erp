@@ -566,7 +566,7 @@ final class RoleReadTest extends ApiTestCase
      *
      * @return list<string>
      */
-    private static function textRelations(string $sql): array
+    public static function textRelations(string $sql): array
     {
         $sql = (string) preg_replace("/'(?:[^']|'')*'/", "''", $sql);
         $name = '((?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)(?:\s*\.\s*(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*))?)(\s*\()?';

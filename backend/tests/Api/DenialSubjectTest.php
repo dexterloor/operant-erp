@@ -51,14 +51,15 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     private const FLAT_CONTROL = 'GetItem';
 
     /**
-     * Path prefixes that address a known table although no item-`GET` is built at them. `'/users/{}' => 'app_user'` since
-     * roles slice 2, C2 (`RevokeRole`): `GetUser` is unbuilt (spar P16; `SEC` Acknowledgement B.3 item 2). **When `GetUser`
-     * ships, its commit removes this entry** — `tablesAddressedByPrefix()` accepts an agreeing duplicate silently, so
-     * nothing forces the removal (B.3 item 5: a hand-carried note, not a mechanism).
+     * Path prefixes that address a known table although no item-`GET` is built at them. **Empty since users slice 1 C1
+     * (2026-10-08):** `'/users/{}' => 'app_user'` stood here from roles slice 2, C2 (`RevokeRole`) while `GetUser` was
+     * unbuilt (spar P16; `SEC` Acknowledgement B.3 item 2), and `GetUser`'s commit removed it. The removal is now a
+     * mechanism, not a hand-carried note (B.3 item 5): {@see self::tablesAddressedByPrefix()} refuses an entry whose prefix
+     * has a built item-`GET` (design `users-s1-design.md` §7; mutation 15 re-adds the entry → red).
      *
      * @var array<string, string>
      */
-    private const ADDRESSED_WITHOUT_A_GET_OPERATION = ['/users/{}' => 'app_user'];
+    private const ADDRESSED_WITHOUT_A_GET_OPERATION = [];
 
     /**
      * Item-GET prefixes whose path names a table OTHER than their permission code's resource half — reviewed, each with
@@ -335,6 +336,11 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             $addressed[$prefix] = $table;
         }
 
+        foreach (self::ADDRESSED_WITHOUT_A_GET_OPERATION as $prefix => $table) {
+            self::assertFalse(self::hasBuiltItemGet($prefix),
+                \sprintf('ADDRESSED_WITHOUT_A_GET_OPERATION names %s, which now has a built item GET: remove the entry (users slice 1 C1).', $prefix));
+        }
+
         self::assertSame([], $unreviewed, "An item GET's path names a table other than its permission code's, and nobody reviewed it. "
             ."Name it in PATH_TABLE_IS_NOT_THE_PERMISSIONS with the reason, or fix the declaration:\n  ".implode("\n  ", $unreviewed));
         foreach (array_keys(self::PATH_TABLE_IS_NOT_THE_PERMISSIONS) as $prefix) {
@@ -375,6 +381,18 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         self::assertSame('sales_return', self::addressedTable('/sales-returns/{id}', 'sales_return.view', $tables));
         self::assertSame('app_user', self::addressedTable('/users/{id}', 'app_user.view', $tables));
         self::assertNull(self::addressedTable('/nothing-here/{id}', 'nothing.view', $tables));
+    }
+
+    /** Whether the registry builds a `GET` whose normalised template is exactly `$prefix`. */
+    private static function hasBuiltItemGet(string $prefix): bool
+    {
+        foreach (TransactionBoundaryTest::contractOperations() as $operation) {
+            if ('GET' === $operation->getMethod() && self::normalised(self::templateOf($operation)) === $prefix) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function templateOf(HttpOperation $operation): string

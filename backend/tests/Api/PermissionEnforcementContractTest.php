@@ -104,6 +104,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CancelRoleGrantProposal' => 'role.assign',
         'GetRoleGrantProposal' => 'role.assign',
         'ListRoleGrantProposals' => 'role.assign',
+        // Users slice 1 C1 (2026-10-08): owner, admin and viewer hold it (owner notice N-1, `session23-owner-ruling.md`).
+        'GetUser' => 'app_user.view',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

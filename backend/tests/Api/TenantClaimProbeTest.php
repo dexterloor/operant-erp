@@ -115,6 +115,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // a moved write would propose in B, which the digest names.
         'GetRoleGrantProposal' => ['vars' => ['id' => 'proposal']],
         'ListRoleGrantProposals' => [],
+        // Users slice 1 C1: the actor's own user, remembered per tenant; a supplied tenant id that moved the read would
+        // 404 here (B's actor is another id) or name B's user.
+        'GetUser' => ['vars' => ['id' => 'actor']],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
