@@ -205,7 +205,8 @@ final class ApiConfigurationTest extends ApiTestCase
         // branch 3, a soft delete). Its migration grants `erp_app` column UPDATE (deleted_at) on `role`.
         // **And one more (users slice 1 C1, 2026-10-08):** `GetUser`, a GET at `/users/{id}` on `UserResource` (`app_user.view`).
         // No migration, no grant.
-        self::assertCount(68, $checked, 'The route set changed. This slice declares sixty-eight operations: '.implode(', ', array_keys($checked)));
+        // **And one more (users slice 1 C2, 2026-10-08):** `ListUsers`, a GET at `/users` on `UserCollection` (`app_user.view`).
+        self::assertCount(69, $checked, 'The route set changed. This slice declares sixty-nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

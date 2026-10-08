@@ -42,11 +42,11 @@ final readonly class RoleCollectionProvider implements ProviderInterface
 
     /**
      * `SalesOrderLineCollectionProvider::archived()`'s parsing: `true`/`1`/`false`/`0`, anything else refused
-     * rather than coerced.
+     * rather than coerced. Public since users slice 1 C2: `ListUsers` and `ListOfferedRoles` share it (one module).
      *
      * @param array<string, mixed> $query
      */
-    private static function archived(array $query): bool
+    public static function archived(array $query): bool
     {
         if (!isset($query['archived'])) {
             return false;
@@ -68,7 +68,7 @@ final readonly class RoleCollectionProvider implements ProviderInterface
      *
      * @param array<string, mixed> $query
      */
-    private static function search(array $query): ?string
+    public static function search(array $query): ?string
     {
         if (!isset($query['q'])) {
             return null;

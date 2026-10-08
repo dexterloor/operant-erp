@@ -739,6 +739,11 @@ trait OperationSuccessRecipes
 
                 return [200, 'read a user'];
             }],
+            'ListUsers' => [$none, function (): array {
+                $this->send('GET', '/users');
+
+                return [200, 'list the workspace\'s users'];
+            }],
             // Roles slice 3, C2: a pending proposal of a composed X(admin) role (`invoice.pay`, `role.view`, both held by the
             // actor, so E-15c passes) for a user holding nothing, by a proposer who still holds `role.assign` (C9). The
             // actor holds every declared code and never the marker (no built operation declares it), so — Q-6 (c′) — the

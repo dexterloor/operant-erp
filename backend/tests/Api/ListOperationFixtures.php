@@ -259,6 +259,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'ROLE-ENV', 'views' => ['']];
                 }];
             },
+            'ListUsers' => function (): array {
+                // Users slice 1 C2. Bounded (TB-1c): no filter; TB-5 names `app_user.email`, so `q` is probed with the seeded
+                // prefix; one view (§10.2 exclusion 2). The actor is already on the page, as `ListRoles`' fixture role is.
+                return ['/users', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)
+                            VALUES (gen_random_uuid(), ?::uuid, ?, 'not-a-hash', 'Listed user')
+                            SQL, [self::TENANT_A, 'user-env-'.$i.'@example.test']);
+                    }
+
+                    return ['filter' => [], 'search' => 'user-env', 'views' => ['']];
+                }];
+            },
             'ListRoleGrantProposals' => function (): array {
                 // Roles slice 3 C1. One subject, one role, one proposer: the newest row is PENDING and every earlier one
                 // LAPSED (one pending per (user, role); decided rows are INSERTed decided, never updated — the

@@ -37,6 +37,8 @@ final class UserReadTest extends ApiTestCase
      */
     public const PINNED_USER_OPERATIONS = [
         'GetUser' => ['method' => 'GET', 'path' => '/users/{id}', 'idem' => false],
+        // Users slice 1 C2.
+        'ListUsers' => ['method' => 'GET', 'path' => '/users', 'idem' => false],
     ];
 
     /** `UserResource`'s serialized members — §4.4.3's `User` row as rewritten at C1 (K-1), pinned against the DTO. */
