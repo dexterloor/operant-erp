@@ -27,8 +27,8 @@ use Symfony\Component\Uid\Uuid;
  *     race-free against every API writer).
  *  2. The actor re-checked under the lock with **`role.create`** (`RoleAdministrationActor`, C0's parameter): a missing code
  *     writes the gate's denial row and returns a {@see LockTimeDenial} (403 outside `run()`); an inactive actor → 409
- *     `user_role.actor_is_inactive` with the SHARED sentence (*"… you can't change anyone's roles"*) — a per-operation
- *     sentence (design F-2) would need a sixth argument `RoleAdministrationActorCallerTest` reads as the code; owed to `UX`. The returned set is the **lock-time** set every later
+ *     `user_role.actor_is_inactive` with the role-definition sentence (`UX` copy #1), keyed on the code this call already
+ *     passes — no sixth argument (2026-10-09; until then the shared grant sentence). The returned set is the **lock-time** set every later
  *     decision reads (D-4: the ceiling is never the gate-time set).
  *  3. Field validation ({@see RoleDefinitionFields}, shared with `UpdateRole` since C2; 422, every field error at once, in body order): `name` required / string / not blank after
  *     trimming Unicode white space / ≤ 100 characters / no control or listed format character; `description` optional
@@ -42,7 +42,7 @@ use Symfony\Component\Uid\Uuid;
  *  5. Codes read from the `permission` TABLE (the FK's domain), never `PermissionCatalogue` → unknown 422
  *     `unknown_reference` at `/permission_codes/{i}`.
  *  6. **E-15f's ceiling (`SEC` D-4, V2-R-7 ruled):** every code ⊆ the actor's lock-time codes → else 409
- *     `role.exceeds_actor_permissions`, naming the codes the actor lacks. No owner exemption is needed: `owner` holds the
+ *     `role.exceeds_actor_permissions` — the sentence names no code (`UX` R-1; the screen marks them). No owner exemption is needed: `owner` holds the
  *     whole catalogue.
  *  7. **PC-4 (ADR-008 §2):** the set spans an SoD row → 409 `role.separation_of_duty`, naming each row by its work
  *     (`RoleAssignment::SOD_CLAUSES`) and id, never a code. **No owner exemption** (design §4.5): the exceptions PC-4
@@ -62,8 +62,9 @@ use Symfony\Component\Uid\Uuid;
  * `run()` and answered the same. A `23514` on `role_name_shape` / `role_description_shape` (unreachable while step 3 refuses
  * the same set) is answered as step 3's 422, never a 500.
  *
- * **The refusal sentences are `BE-LEAD` PLACEHOLDERS** in `UX`'s register (work-words; design §9) — `UX` owes the final
- * copy; each constant below is marked. No sentence names a holder or any other role's codes.
+ * **The refusal sentences are `UX`'s** (`docs/session13/roles-s4-ux-copy.md`, signed after RED, applied 2026-10-09; each
+ * constant names its number). **No sentence names a permission code** (R-1) — not even the caller's own — nor a holder or any
+ * other role's codes. Each is pinned as a LITERAL in `RoleCreateTest`, so a wording change is a visible edit.
  */
 final readonly class RoleCreation
 {
@@ -71,17 +72,37 @@ final readonly class RoleCreation
 
     public const DESCRIPTION_MAX = RoleDefinitionFields::DESCRIPTION_MAX;
 
-    /** PLACEHOLDER (`UX` §9 item 8): the caller's own name typed back, never "reserved". Shared with `UpdateRole`. */
+    /** `UX` `roles-s4-ux-copy.md` #2. Shared with `UpdateRole`. */
     public const NAME_TAKEN = RoleDefinitionFields::NAME_TAKEN;
 
-    /** PLACEHOLDER: names only codes the actor lacks — its own set, which it already knows. Shared with `UpdateRole`. */
-    public const EXCEEDS = 'You can only put permissions you hold yourself into a role, and you don\'t hold %s.';
+    /**
+     * `UX` `roles-s4-ux-copy.md` #3 — `CreateRole` only (`UpdateRole`'s ceiling binds additions alone and has its own, #9).
+     * Names no code (R-1): an owner holds the whole catalogue, so "ask an owner" is always possible.
+     */
+    public const EXCEEDS = 'This role would include permissions you don\'t have yourself, and a role can only be given permissions its creator holds. Leave those out, or ask an owner to create it.';
 
-    /** PLACEHOLDER, built like `RoleAssignment::separationOfDutyMessage()`: the work, then the row ids; never a code. */
-    public const SEPARATION_OF_DUTY = 'A role can\'t hold both sides of a separation of duty: anyone given it could %s (%s). Remove the permissions for one side.';
+    /** `UX` `roles-s4-ux-copy.md` #4 (shared with `UpdateRole`, #14): the work, then the row ids; never a code. */
+    public const SEPARATION_OF_DUTY = 'One role can\'t cover both sides of a job that has to be split: anyone given it could %s (%s). Leave out the permissions for one side.';
 
-    /** PLACEHOLDER: one clause per missing companion (D-5a, D-5b, D-6). */
-    public const MISSING_COMPANION = 'This role needs more permissions to be usable safely: %s. Add them, or remove the permission that needs them.';
+    /** `UX` `roles-s4-ux-copy.md` #5 (shared with `UpdateRole`, #15): one {@see self::COMPANION_CLAUSES} clause per broken row, joined with `; `. */
+    public const MISSING_COMPANION = 'Some permissions in this role only work alongside others it doesn\'t have: %s. Add the missing ones, or leave out the ones that need them.';
+
+    /**
+     * `UX` `roles-s4-ux-copy.md` §3.1's companion clauses — one per `RoleCompanions::rows()` entry, keyed holding → requires,
+     * in work-words (R-1: never a code). `RoleCreateTest::everyCompanionRowHasItsClause` holds this map EQUAL to the table, the
+     * `RoleAssignment::SOD_CLAUSES` precedent, so a new companion row cannot ship without its clause.
+     */
+    public const COMPANION_CLAUSES = [
+        'credit_note.issue' => ['invoice.view' => 'crediting invoices for returned goods needs seeing invoices'],
+        'credit_note.adjust' => ['invoice.view' => 'crediting invoices without a return needs seeing invoices'],
+        'role.create' => ['role.view' => 'creating roles needs seeing roles'],
+        'role.edit' => ['role.view' => 'changing roles needs seeing roles'],
+        'role.delete' => [
+            'role.view' => 'deleting roles needs seeing roles',
+            'role.assign' => 'deleting roles needs giving roles to people and taking them away',
+        ],
+        'role.assign' => ['app_user.view' => 'giving roles to people and taking them away needs seeing people'],
+    ];
 
     /** Step 9 — the column list IS the column INSERT grant (`Version20261007000100`). */
     private const INSERT_ROLE = 'INSERT INTO role (id, tenant_id, name, description) VALUES (?::uuid, ?::uuid, ?, ?)';
@@ -164,7 +185,7 @@ final readonly class RoleCreation
         // 6. E-15f's ceiling on the LOCK-time set (D-4).
         $beyond = RoleDefinitionRules::beyondCeiling($sorted, $actorCodes);
         if ([] !== $beyond) {
-            throw ApiProblem::businessRuleViolated('role.exceeds_actor_permissions', sprintf(self::EXCEEDS, implode(', ', $beyond)));
+            throw ApiProblem::businessRuleViolated('role.exceeds_actor_permissions', self::EXCEEDS);
         }
 
         // 7. PC-4, no exemption.
@@ -228,7 +249,8 @@ final readonly class RoleCreation
     public static function missingCompanionMessage(array $missing): string
     {
         return sprintf(self::MISSING_COMPANION, implode('; ', array_map(
-            static fn (array $row): string => sprintf('%s needs %s', $row['holding'], $row['requires']),
+            static fn (array $row): string => self::COMPANION_CLAUSES[$row['holding']][$row['requires']] ?? throw new \LogicException(
+                'Companion row '.$row['holding'].' -> '.$row['requires'].' has no clause in RoleCreation::COMPANION_CLAUSES.'),
             $missing,
         )));
     }

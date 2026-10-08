@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\UserManagement\Application\RoleAssignment;
-use App\Modules\UserManagement\Application\RoleCreation;
 use App\Modules\UserManagement\Application\RoleGrantProposalConfirmation;
-use App\Modules\UserManagement\Application\RoleUpdate;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\OwnerMarker;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -20,7 +18,7 @@ use Symfony\Component\Uid\Uuid;
  * **`UpdateRole` — `PATCH /api/v1/roles/{id}`, any subset of `{name, description, permission_codes}`** (roles slice 4, C2;
  * `docs/session13/roles-s4-design.md` §3.2, §4.1, §4.3, §4.5, §4.7, §7; **Q-A** `roles-s4-c2-decisions.md` FINAL +
  * `roles-s4-c2-decisions-red.md` §5 item 6 / §6 (a); `SEC` D-7.1, D-7.3, D-7.4, D-7.5). One rule per test; every refusal's
- * sentence is a `BE-LEAD` placeholder pinned by its constant; **every refusal writes nothing** (`assertUnchanged()` reads
+ * sentence is `UX`'s copy (`docs/session13/roles-s4-ux-copy.md` #1, #2, #4–#12), pinned as a LITERAL; **every refusal writes nothing** (`assertUnchanged()` reads
  * the role's codes, name and `updated_at`, and counts the two definition events).
  *
  * Roles are seeded as the owner connection (`RoleGrantFixtures`) — G-10's path, so a seeded role may hold what the API would
@@ -134,7 +132,7 @@ final class RoleUpdateTest extends ApiTestCase
 
         foreach ([[], ['name' => 'Renamed viewer']] as $body) {
             $this->patch($role, $body);
-            self::assertSame([409, 'role.is_system', RoleUpdate::IS_SYSTEM], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+            self::assertSame([409, 'role.is_system', 'This is one of the built-in roles, and built-in roles can\'t be changed. A new role can be created instead.'], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         }
         $this->assertUnchanged($role, $before);
     }
@@ -149,7 +147,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['name' => 'Back again']);
-        self::assertSame([409, 'role.is_archived', RoleUpdate::IS_ARCHIVED], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        self::assertSame([409, 'role.is_archived', 'This role is archived, so it can\'t be changed. Archived roles can\'t be restored, so a new role can be created in its place.'], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
     }
 
@@ -228,7 +226,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['name' => 'Purchasing Manager']);
-        self::assertSame([409, 'role.name_taken', sprintf(RoleCreation::NAME_TAKEN, 'Purchasing Manager')],
+        self::assertSame([409, 'role.name_taken', 'There\'s already a role named "Purchasing Manager", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
     }
@@ -245,7 +243,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['permission_codes' => ['invoice.view', 'invoice.pay', 'invoice.issue']]);
-        self::assertSame([409, 'role.exceeds_actor_permissions', sprintf(RoleCreation::EXCEEDS, 'invoice.issue')],
+        self::assertSame([409, 'role.exceeds_actor_permissions', 'Some of the permissions you\'re adding are ones you don\'t have yourself, and you can only add permissions you hold. Leave those out, or ask an owner to add them.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
 
@@ -277,7 +275,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, $body);
-        self::assertSame([409, 'role.marker_needs_owner', RoleUpdate::MARKER_NEEDS_OWNER],
+        self::assertSame([409, 'role.marker_needs_owner', 'Only an owner can change this role, because it makes, or would make, the people given it owners.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null], (string) $this->client()->getResponse()->getContent());
         $this->assertUnchanged($role, $before);
 
@@ -314,9 +312,12 @@ final class RoleUpdateTest extends ApiTestCase
     }
 
     /**
-     * **E-15f's 2026-09-22 clause:** a non-owner may not ADD an `X(admin)` code to a role anyone holds (any `user_role` row,
-     * `SEC` D-7.4 — a deactivated holder counts) → 409 `role.owner_needed_for_held_role`, naming the codes and the holder
-     * count. The same edit to an unheld role is 200 (its grant still routes through E-15e).
+     * **E-15f's 2026-09-22 clause, as amended 2026-10-08:** a non-owner may not ADD an `X(admin)` code to a role anyone holds
+     * (any `user_role` row, `SEC` D-7.4 — a deactivated holder counts) → 409 `role.owner_needed_for_held_role`, naming the
+     * holder count and NO code (`UX` copy #10; RED B-H1). Once the codes left the body this test is the only API-level
+     * evidence of WHICH added codes trigger the rule, so it adds one `X(admin)` code (`invoice.void`) AND one that is not
+     * (`inventory_item.view`), with the refusal pinned literally. The same edit to an unheld role is 200 (its grant still
+     * routes through E-15e).
      */
     #[Test]
     public function aNonOwnerCannotAddAnAdminExcludedCodeToAHeldRole(): void
@@ -325,16 +326,52 @@ final class RoleUpdateTest extends ApiTestCase
         $holder = $this->holderOf([$held]);
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$holder]);
         $unheld = $this->composedRole(['invoice.view']);
-        $this->actAs(self::TENANT_A, ['role.edit', 'role.view', 'invoice.view', 'invoice.void']);
+        $this->actAs(self::TENANT_A, ['role.edit', 'role.view', 'invoice.view', 'invoice.void', 'inventory_item.view']);
         $before = $this->snapshot($held);
 
-        $this->patch($held, ['permission_codes' => ['invoice.view', 'invoice.void']]);
-        self::assertSame([409, 'role.owner_needed_for_held_role', sprintf(RoleUpdate::OWNER_NEEDED_FOR_HELD_ROLE, 1, 'invoice.void')],
+        $this->patch($held, ['permission_codes' => ['invoice.view', 'invoice.void', 'inventory_item.view']]);
+        self::assertSame([409, 'role.owner_needed_for_held_role', 'This role is already given to 1 person, and some of the permissions you\'re adding can only reach people with an owner\'s confirmation. Ask an owner to add them, or they can go in a new role instead.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null], 'A deactivated holder must count (D-7.4).');
         $this->assertUnchanged($held, $before);
 
-        $this->patch($unheld, ['permission_codes' => ['invoice.view', 'invoice.void']]);
+        $this->patch($unheld, ['permission_codes' => ['invoice.view', 'invoice.void', 'inventory_item.view']]);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * **The other half of #10's evidence (RED B-H1):** a non-owner adding ONLY codes outside `X(admin)` to a held role is
+     * not routed to an owner — 200, the codes added. Together with the case above this pins that the rule keys on
+     * `added ∩ X(admin)`, not on `added`.
+     */
+    #[Test]
+    public function aNonOwnerMayAddCodesOutsideTheAdminExclusionToAHeldRole(): void
+    {
+        $held = $this->composedRole(['invoice.view']);
+        $this->holderOf([$held]);
+        $this->actAs(self::TENANT_A, ['role.edit', 'role.view', 'invoice.view', 'inventory_item.view', 'warehouse.view']);
+
+        $this->patch($held, ['permission_codes' => ['invoice.view', 'inventory_item.view', 'warehouse.view']]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['inventory_item.view', 'invoice.view', 'warehouse.view'], $this->json()['permission_codes']);
+    }
+
+    /**
+     * **`UX` copy #1 on `UpdateRole` (RED B-L2: no test drove an inactive ACTOR here — `:326`'s deactivates a HOLDER).** An
+     * actor holding `role.edit` whose account is not active → 409 `user_role.actor_is_inactive` with the role-definition
+     * sentence; the role is unchanged.
+     */
+    #[Test]
+    public function anInactiveActorCannotEditARole(): void
+    {
+        $role = $this->composedRole(['inventory_item.view']);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$this->actorId]);
+        $before = $this->snapshot($role);
+
+        $this->patch($role, ['name' => 'Renamed']);
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        $this->assertUnchanged($role, $before);
     }
 
     /**
@@ -356,7 +393,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['permission_codes' => ['purchase_order.view', 'purchase_order.approve']]);
-        self::assertSame([409, 'role.holder_would_conflict', sprintf(RoleUpdate::HOLDER_WOULD_CONFLICT, 1, RoleAssignment::SOD_CLAUSES['SoD-1'], 'SoD-1')],
+        self::assertSame([409, 'role.holder_would_conflict', 'With the other roles they have, 1 person given this role would then be able to raise purchase orders and also approve or cancel them (SoD-1). Leave these permissions out, or the conflicting roles have to be taken away from them first.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
 
@@ -384,7 +421,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['permission_codes' => ['role.edit', 'role.view']]);
-        self::assertSame([409, 'role.last_owner', RoleUpdate::LAST_OWNER], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        self::assertSame([409, 'role.last_owner', 'This change would leave the workspace with no owner. Make someone else an owner first.'], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
 
         $this->seedPrincipal(self::TENANT_A, [self::MARKER]);
@@ -404,7 +441,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['name' => 'Buyer-approver']);
-        self::assertSame([409, 'role.separation_of_duty', RoleCreation::separationOfDutyMessage(['SoD-1'])],
+        self::assertSame([409, 'role.separation_of_duty', 'One role can\'t cover both sides of a job that has to be split: anyone given it could raise purchase orders and also approve or cancel them (SoD-1). Leave out the permissions for one side.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
 
@@ -422,7 +459,7 @@ final class RoleUpdateTest extends ApiTestCase
 
         $this->patch($role, ['permission_codes' => ['credit_note.issue']]);
         self::assertSame([409, 'role.missing_companion_view'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
-        self::assertStringContainsString('credit_note.issue needs invoice.view', (string) $this->json()['detail']);
+        self::assertSame('Some permissions in this role only work alongside others it doesn\'t have: crediting invoices for returned goods needs seeing invoices. Add the missing ones, or leave out the ones that need them.', $this->json()['detail']);
         $this->assertUnchanged($role, $before);
     }
 

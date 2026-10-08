@@ -65,7 +65,7 @@ final readonly class RoleAdministrationActor
         }
 
         if (self::isInactive(LiveGrantReader::user($em, $identity->userId))) {
-            throw self::inactiveRefusal();
+            throw self::inactiveRefusal($requiredPermission);
         }
 
         return $actorCodes;
@@ -84,9 +84,21 @@ final readonly class RoleAdministrationActor
         return null === $actor || !$actor['is_active'];
     }
 
-    /** `actor_is_inactive`'s refusal — ONE sentence for every role-administration operation (`UX` slice-2 copy §2). */
-    public static function inactiveRefusal(): ApiProblem
+    /**
+     * `actor_is_inactive`'s refusal, keyed on the operation's own §4.2 `Perm` code — the argument
+     * {@see self::reCheckUnderTheLock()} already receives (`UX` `roles-s4-ux-copy.md` #1, so no sixth argument and no change
+     * to `RoleAdministrationActorCallerTest`). The grant family (`role.assign`: `AssignRole`, `RevokeRole`, the four proposal
+     * operations and the picker `ListOfferedRoles`) keeps the shipped slice-2 sentence (`roles-s2-ux-copy.md` §2), pinned
+     * literally in `RoleRevokeTest` and `GrantRulesCharacterisationTest` — do not "tidy" it. The role-definition family
+     * (`role.create` / `role.edit` / `role.delete`) gets its own. **No default arm** (RED B-L2): a future caller gated on
+     * another code (`UpdateUser`, a bulk operation) fails loudly with `\UnhandledMatchError` instead of silently inheriting a
+     * sentence that is false for it.
+     */
+    public static function inactiveRefusal(string $requiredPermission): ApiProblem
     {
-        return ApiProblem::businessRuleViolated('user_role.actor_is_inactive', 'Your account is not active, so you can\'t change anyone\'s roles.');
+        return ApiProblem::businessRuleViolated('user_role.actor_is_inactive', match ($requiredPermission) {
+            'role.assign' => 'Your account is not active, so you can\'t change anyone\'s roles.',
+            'role.create', 'role.edit', 'role.delete' => 'Your account is not active, so you can\'t create, change or delete roles.',
+        });
     }
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Modules\UserManagement\Application\RoleAssignment;
 use App\Modules\UserManagement\Application\RoleCreation;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\RoleCompanions;
@@ -22,8 +21,8 @@ use Symfony\Component\Uid\Uuid;
  * One rule per test: the 201 and its body, the one `role.permissions_changed` row, the 428, the case-insensitive name rule,
  * the 422 field errors, E-15f's ceiling on the LOCK-time set (`SEC` D-4), PC-4 with no owner exemption, the companion rows,
  * PC-12's warning (never a refusal), and the composed `X(admin)` delegate (`SEC` D-4's second question). Every refusal's
- * sentence is pinned: they are `BE-LEAD` placeholders (`UX` owes the register, design §9), so a wording change is a
- * visible edit. **Nothing is written by any refusal** — each refusal test counts `role` and `audit_log`.
+ * sentence is pinned as a LITERAL — `UX`'s copy (`docs/session13/roles-s4-ux-copy.md` #1–#5), never `sprintf` of the
+ * constant, so a wording change is a visible edit and a sentence that drops its `%s` cannot hide behind a surplus argument. **Nothing is written by any refusal** — each refusal test counts `role` and `audit_log`.
  *
  * The concurrency half (the positional lock-first case; the ceiling's demotion twin) lives in `PurchaseOrderRowLockTest`.
  */
@@ -115,7 +114,7 @@ final class RoleCreateTest extends ApiTestCase
             $this->create($name, []);
             self::assertSame([409, 'role.name_taken'], [$this->httpStatus(), $this->json()['rule'] ?? null], 'Not a collision: '.$name);
         }
-        self::assertSame(sprintf(RoleCreation::NAME_TAKEN, 'Purchasing Manager'), (function (): string {
+        self::assertSame('There\'s already a role named "Purchasing Manager", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.', (function (): string {
             $this->create('Purchasing Manager', []);
 
             return (string) $this->json()['detail'];
@@ -198,7 +197,7 @@ final class RoleCreateTest extends ApiTestCase
         $this->create('Voider', ['invoice.view', 'invoice.void']);
 
         self::assertSame([409, 'role.exceeds_actor_permissions'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
-        self::assertSame(sprintf(RoleCreation::EXCEEDS, 'invoice.void'), $this->json()['detail']);
+        self::assertSame('This role would include permissions you don\'t have yourself, and a role can only be given permissions its creator holds. Leave those out, or ask an owner to create it.', $this->json()['detail']);
         $this->assertNothingWritten();
 
         $this->create('Viewer of invoices', ['invoice.view']);
@@ -246,7 +245,7 @@ final class RoleCreateTest extends ApiTestCase
         $this->create('Buyer-approver', ['purchase_order.view', 'purchase_order.create', 'purchase_order.approve']);
 
         self::assertSame([409, 'role.separation_of_duty'], [$this->httpStatus(), $this->json()['rule'] ?? null]);
-        self::assertSame(sprintf(RoleCreation::SEPARATION_OF_DUTY, RoleAssignment::SOD_CLAUSES['SoD-1'], 'SoD-1'), $this->json()['detail']);
+        self::assertSame('One role can\'t cover both sides of a job that has to be split: anyone given it could raise purchase orders and also approve or cancel them (SoD-1). Leave out the permissions for one side.', $this->json()['detail']);
         self::assertStringNotContainsString('purchase_order.', (string) $this->json()['detail']);
         $this->assertNothingWritten();
 
@@ -268,7 +267,12 @@ final class RoleCreateTest extends ApiTestCase
         $this->create('Companion case', $codes);
 
         self::assertSame([409, 'role.missing_companion_view'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
-        self::assertStringContainsString($missing, (string) $this->json()['detail']);
+        self::assertSame(RoleCreation::missingCompanionMessage(RoleCompanions::missingFrom($codes)), $this->json()['detail']);
+        self::assertSame([['holding' => $codes[0], 'requires' => $missing]], array_map(
+            static fn (array $row): array => ['holding' => $row['holding'], 'requires' => $row['requires']],
+            RoleCompanions::missingFrom($codes),
+        ), 'The case breaks more than its own row.');
+        self::assertDoesNotMatchRegularExpression('/[a-z_]+\.[a-z_]+/', (string) $this->json()['detail'], 'A permission code in the sentence (UX R-1).');
         $this->assertNothingWritten();
 
         $this->create('Companion case', [...$codes, $missing]);
@@ -293,6 +297,60 @@ final class RoleCreateTest extends ApiTestCase
             } while ($codes !== $before);
             yield $row['ruling'].' '.$row['holding'].' needs '.$row['requires'] => [$codes, $row['requires']];
         }
+    }
+
+    /**
+     * **`UX` copy #5, pinned literally on its two-clause example** (`roles-s4-ux-copy.md` §3.1): `{role.delete}` alone breaks
+     * D-5b and D-6 (1), in `RoleCompanions` order, joined with `; `.
+     */
+    #[Test]
+    public function theCompanionSentenceNamesTheWorkOnBothSidesAndNoCode(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $this->create('Deleter', ['role.delete']);
+
+        self::assertSame([409, 'role.missing_companion_view', 'Some permissions in this role only work alongside others it doesn\'t have: '
+            .'deleting roles needs seeing roles; deleting roles needs giving roles to people and taking them away. '
+            .'Add the missing ones, or leave out the ones that need them.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        $this->assertNothingWritten();
+    }
+
+    /**
+     * **Every companion row has its clause, and no clause is orphaned** (`UX` copy §3.1 — the `RoleAssignment::SOD_CLAUSES`
+     * precedent): a new `RoleCompanions` row cannot ship without its sentence, and the map holds no row the table lacks.
+     */
+    #[Test]
+    public function everyCompanionRowHasItsClause(): void
+    {
+        $rows = array_map(static fn (array $row): string => $row['holding'].' -> '.$row['requires'], RoleCompanions::rows());
+        $clauses = [];
+        foreach (RoleCreation::COMPANION_CLAUSES as $holding => $byRequires) {
+            foreach ($byRequires as $requires => $clause) {
+                self::assertNotSame('', $clause);
+                $clauses[] = $holding.' -> '.$requires;
+            }
+        }
+        sort($rows);
+        sort($clauses);
+        self::assertSame($rows, $clauses);
+    }
+
+    /**
+     * **`UX` copy #1 on `CreateRole` (RED B-L2: no test drove an inactive ACTOR here).** An actor holding `role.create` whose
+     * account is not active → 409 `user_role.actor_is_inactive` with the role-definition sentence, not the grant family's;
+     * nothing written. (`IdentityReader` ignores `is_active`, API-O-22, so the request reaches the processor.)
+     */
+    #[Test]
+    public function anInactiveActorCannotCreateARole(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$this->actorId]);
+        $this->create('Stock clerk', ['inventory_item.view']);
+
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        $this->assertNothingWritten();
     }
 
     /** **PC-12 clause 3:** a composed role holding a cost and a sale source is WARNED (`margin_exposure`), never refused. */

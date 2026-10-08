@@ -115,7 +115,7 @@ final readonly class OfferedRoleReader
         return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($callerId, $subjectId, $archived, $search): array {
             // 2. The whole-request refusal, before the subject is resolved (E-1; RED-2 M-1).
             if (RoleAdministrationActor::isInactive(LiveGrantReader::user($em, $callerId))) {
-                throw RoleAdministrationActor::inactiveRefusal();
+                throw RoleAdministrationActor::inactiveRefusal('role.assign');
             }
 
             // 3.

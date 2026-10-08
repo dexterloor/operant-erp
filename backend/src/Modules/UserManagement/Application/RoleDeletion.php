@@ -49,24 +49,26 @@ use Symfony\Component\Uid\Uuid;
  * **G-31, worsened and disclosed (design §5.3; no pull-forward):** an expired proposal nobody opens now blocks deletion
  * until someone clears it; the refusal sentence names the way out.
  *
- * **The refusal sentences are `BE-LEAD` PLACEHOLDERS in `SEC`'s words (D-7.2), `UX`'s to sign.**
+ * **The refusal sentences are `UX`'s** (`docs/session13/roles-s4-ux-copy.md` #16–#20, signed over `SEC`'s D-7.2 intent; applied
+ * 2026-10-09), each pinned as a LITERAL in `RoleDeleteTest`. Counts are {@see RefusalCounts}; a remedy that depends on the
+ * reader is passive (R-3).
  */
 final readonly class RoleDeletion
 {
-    /** PLACEHOLDER (`SEC` D-7.2 item 4; RED F1-A). Identical for every id. */
-    public const NEEDS_ROLE_ASSIGN = 'Deleting roles also needs permission to manage who holds them. Ask an owner.';
+    /** `UX` `roles-s4-ux-copy.md` #16 (`SEC` D-7.2 item 4; RED F1-A). Identical for every id: no "it", no "this role". */
+    public const NEEDS_ROLE_ASSIGN = 'Deleting a role also needs permission to give roles to people and take them away, and you don\'t have it. Ask an owner.';
 
-    /** PLACEHOLDER (E-15h). */
-    public const IS_SYSTEM = 'This is one of the workspace\'s built-in roles, so it can\'t be deleted.';
+    /** `UX` `roles-s4-ux-copy.md` #17 (E-15h). */
+    public const IS_SYSTEM = 'This is one of the built-in roles, and built-in roles can\'t be deleted.';
 
-    /** PLACEHOLDER (a repeat lands here; no `RestoreRole`, D-8). */
-    public const IS_ARCHIVED = 'This role has already been deleted.';
+    /** `UX` `roles-s4-ux-copy.md` #18 (a repeat lands here; no `RestoreRole`, D-8). */
+    public const IS_ARCHIVED = 'This role has already been deleted. It\'s listed with the archived roles.';
 
-    /** PLACEHOLDER (`SEC` D-7.2 item 2: the row count, which may exceed `GetRole`'s `holder_count`). */
-    public const HAS_HOLDERS = 'This role is still given to %d account(s), including any that are deactivated. Take it away from each of them first, then delete it.';
+    /** `UX` `roles-s4-ux-copy.md` #19 (`SEC` D-7.2 item 2: the row count, which may exceed `GetRole`'s `holder_count`). */
+    public const HAS_HOLDERS = 'This role is still given to %s, counting anyone whose account is deactivated. It can be deleted once nobody holds it.';
 
-    /** PLACEHOLDER (`SEC` D-7.2 item 3: stale ones counted; names no proposal and no person). */
-    public const HAS_PENDING_PROPOSALS = '%d request(s) to give this role are still open, including any that have expired. An owner can turn them down, or whoever made a request can withdraw it; then delete the role.';
+    /** `UX` `roles-s4-ux-copy.md` #20 (`SEC` D-7.2 item 3: stale ones counted; names no proposal and no person). */
+    public const HAS_PENDING_PROPOSALS = '%s still open for this role, counting any that are more than 14 days old. It can be deleted once they\'re closed: an owner can reject them, and whoever proposed one can withdraw it. You can find them among the open role proposals.';
 
     /** The code step 3 requires of the lock-time set. */
     private const BACKSTOP_CODE = 'role.assign';
@@ -142,13 +144,13 @@ final readonly class RoleDeletion
         // 7.
         $holders = LiveGrantReader::holderRowCount($em, $roleId);
         if ($holders > 0) {
-            throw ApiProblem::businessRuleViolated('role.has_holders', sprintf(self::HAS_HOLDERS, $holders));
+            throw ApiProblem::businessRuleViolated('role.has_holders', sprintf(self::HAS_HOLDERS, RefusalCounts::people($holders)));
         }
 
         // 8.
         $pending = LiveGrantReader::pendingProposalCount($em, $roleId);
         if ($pending > 0) {
-            throw ApiProblem::businessRuleViolated('role.has_pending_proposals', sprintf(self::HAS_PENDING_PROPOSALS, $pending));
+            throw ApiProblem::businessRuleViolated('role.has_pending_proposals', sprintf(self::HAS_PENDING_PROPOSALS, RefusalCounts::openProposals($pending)));
         }
 
         // 9.

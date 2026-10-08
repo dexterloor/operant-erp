@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Modules\UserManagement\Application\RoleDeletion;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -15,7 +14,8 @@ use Symfony\Component\Uid\Uuid;
 /**
  * **`DeleteRole` — `DELETE /api/v1/roles/{id}`, a soft delete** (roles slice 4, C3; `docs/session13/roles-s4-design.md` §3.3,
  * §5.1–§5.4, §7; owner D-6 option (1); `SEC` `roles-s4-sec-data.md` D-7.2 as corrected by `roles-s4-sec-data-red.md` item 1,
- * and D-7.4). One rule per test; every refusal's sentence is a `BE-LEAD` placeholder pinned by its constant; **every
+ * and D-7.4). One rule per test; every refusal's sentence is `UX`'s copy (`docs/session13/roles-s4-ux-copy.md` #1,
+ * #16–#20), pinned as a LITERAL; **every
  * refusal writes nothing** (`assertUntouched()` reads `deleted_at`, `updated_at` and the role's codes, and counts
  * `role.deleted`).
  *
@@ -73,7 +73,7 @@ final class RoleDeleteTest extends ApiTestCase
         $before = $this->state($role);
         $this->delete($role);
 
-        self::assertSame([409, 'role.is_archived', RoleDeletion::IS_ARCHIVED], $this->refusal());
+        self::assertSame([409, 'role.is_archived', 'This role has already been deleted. It\'s listed with the archived roles.'], $this->refusal());
         self::assertSame($before, $this->state($role));
         self::assertCount(1, $this->deletionEvents(), 'A repeated delete wrote a second row.');
     }
@@ -88,7 +88,7 @@ final class RoleDeleteTest extends ApiTestCase
 
         $this->delete($role);
 
-        self::assertSame([409, 'role.is_system', RoleDeletion::IS_SYSTEM], $this->refusal());
+        self::assertSame([409, 'role.is_system', 'This is one of the built-in roles, and built-in roles can\'t be deleted.'], $this->refusal());
         $this->assertUntouched($role, $before);
     }
 
@@ -131,7 +131,7 @@ final class RoleDeleteTest extends ApiTestCase
 
         $this->delete($role);
 
-        self::assertSame([409, 'role.has_holders', sprintf(RoleDeletion::HAS_HOLDERS, 3)], $this->refusal());
+        self::assertSame([409, 'role.has_holders', 'This role is still given to 3 people, counting anyone whose account is deactivated. It can be deleted once nobody holds it.'], $this->refusal());
         $this->assertUntouched($role, $before);
         self::assertSame(3, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE role_id = ?::uuid', [$role]), 'A holder was stripped.');
     }
@@ -154,12 +154,12 @@ final class RoleDeleteTest extends ApiTestCase
 
         $this->delete($role);
 
-        self::assertSame([409, 'role.has_pending_proposals', sprintf(RoleDeletion::HAS_PENDING_PROPOSALS, 2)], $this->refusal());
+        self::assertSame([409, 'role.has_pending_proposals', '2 role proposals are still open for this role, counting any that are more than 14 days old. It can be deleted once they\'re closed: an owner can reject them, and whoever proposed one can withdraw it. You can find them among the open role proposals.'], $this->refusal());
         $this->assertUntouched($role, $before);
 
         $this->holderOf([$role]);
         $this->delete($role);
-        self::assertSame([409, 'role.has_holders', sprintf(RoleDeletion::HAS_HOLDERS, 1)], $this->refusal(), 'Holders are not checked before proposals.');
+        self::assertSame([409, 'role.has_holders', 'This role is still given to 1 person, counting anyone whose account is deactivated. It can be deleted once nobody holds it.'], $this->refusal(), 'Holders are not checked before proposals.');
     }
 
     /**
@@ -174,7 +174,7 @@ final class RoleDeleteTest extends ApiTestCase
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
 
         $this->delete($role);
-        self::assertSame([409, 'role.has_pending_proposals', sprintf(RoleDeletion::HAS_PENDING_PROPOSALS, 1)], $this->refusal());
+        self::assertSame([409, 'role.has_pending_proposals', '1 role proposal is still open for this role, counting any that are more than 14 days old. It can be deleted once they\'re closed: an owner can reject them, and whoever proposed one can withdraw it. You can find them among the open role proposals.'], $this->refusal());
 
         $this->send('POST', '/role-grant-proposals/'.$proposal.'/rejection', ['reason' => 'Retiring the role']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -214,11 +214,30 @@ final class RoleDeleteTest extends ApiTestCase
         }
 
         $this->delete($free);
-        self::assertSame([409, 'role.delete_needs_role_assign', RoleDeletion::NEEDS_ROLE_ASSIGN], $this->refusal());
+        self::assertSame([409, 'role.delete_needs_role_assign', 'Deleting a role also needs permission to give roles to people and take them away, and you don\'t have it. Ask an owner.'], $this->refusal());
         self::assertSame([$bodies['free']], array_values(array_unique($bodies, \SORT_REGULAR)), 'The backstop answered differently by id: '.json_encode($bodies));
         $this->assertUntouched($free, $before);
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::AUTHZ_PERMISSION_DENIED]),
             'The backstop wrote a denial row: it must be a business rule, not a second permission gate.');
+    }
+
+    /**
+     * **`UX` copy #1 on `DeleteRole` (RED B-L2: no test drove an inactive ACTOR here — `:127`'s deactivates a HOLDER).** An
+     * actor holding `role.delete` and `role.assign` whose account is not active → 409 `user_role.actor_is_inactive` with
+     * the role-definition sentence, after the permission re-check and before the role is read; nothing written.
+     */
+    #[Test]
+    public function anInactiveActorCannotDeleteARole(): void
+    {
+        $role = $this->composedRole(['inventory_item.view']);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$this->actorId]);
+        $before = $this->state($role);
+
+        $this->delete($role);
+
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'], $this->refusal());
+        $this->assertUntouched($role, $before);
     }
 
     private function delete(string $roleId): void

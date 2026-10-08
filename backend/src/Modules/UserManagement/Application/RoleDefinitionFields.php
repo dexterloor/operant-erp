@@ -35,8 +35,12 @@ final class RoleDefinitionFields
 
     public const DESCRIPTION_MAX = 500;
 
-    /** PLACEHOLDER (`UX` §9 item 8): the caller's own name typed back, never "reserved". */
-    public const NAME_TAKEN = 'A role called "%s" already exists in this workspace (names are compared ignoring capitals, spaces, dashes and underscores). Choose another name.';
+    /**
+     * `UX` `roles-s4-ux-copy.md` #2: the caller's own trimmed name typed back, never the colliding role's name and never
+     * "reserved". It describes the colliding role (exact, or differing only in capitals and separators), which the collision
+     * key makes true for every case; only live roles collide, so no archived name is revealed.
+     */
+    public const NAME_TAKEN = 'There\'s already a role named "%s", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.';
 
     /** The Unicode `White_Space` set the name is trimmed of (the CHECK's `btrim` covers ASCII space only). */
     private const EDGE_SPACE = '/^[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+|[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+$/u';

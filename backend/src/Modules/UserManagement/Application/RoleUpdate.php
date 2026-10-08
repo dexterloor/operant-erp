@@ -32,7 +32,7 @@ use Symfony\Component\Uid\Uuid;
  * One transaction, in this order — every refusal before any write:
  *  1. `RoleAdministrationLock` — the FIRST statement (§5.2.5).
  *  2. The actor re-checked under the lock with **`role.edit`** (`RoleAdministrationActor`): 403 + denial row / 409
- *     `user_role.actor_is_inactive` (the shared sentence, C1 deviation 1). The returned set is the LOCK-time set every
+ *     `user_role.actor_is_inactive` (the role-definition sentence, `UX` copy #1). The returned set is the LOCK-time set every
  *     later decision reads.
  *  3. `{id}` not a uuid, absent, or another workspace's → 404 (read ARCHIVED OR NOT, so step 5 can answer).
  *  4. **E-15h:** `is_system` → 409 `role.is_system` — even for a request that changes nothing (*"an edit to an `is_system`
@@ -52,7 +52,8 @@ use Symfony\Component\Uid\Uuid;
  *  9. If `added ≠ ∅`: (a) **E-15f's ceiling** on the lock-time set (held or unheld, D-3) → `role.exceeds_actor_permissions`;
  *     (b) **E-15f's 2026-09-22 clause:** the role has ANY holder (`LiveGrantReader::holderRowCount`, D-7.4) and the edit
  *     would route a grant to an owner (`GrantConfirmationPolicy::needsConfirmation(actor, added)` — not a marker holder and
- *     `added ∩ X(admin) ≠ ∅`) → `role.owner_needed_for_held_role`, naming the codes and the holder count; (c) **PC-13 re-run
+ *     `added ∩ X(admin) ≠ ∅`) → `role.owner_needed_for_held_role`, naming the holder count and no code (E-15f as amended
+ *     2026-10-08, `UX` copy #10: the codes are the caller's own additions); (c) **PC-13 re-run
  *     over every holder** at edge grain, new conflicts only (`SEC` D-7.1) → `role.holder_would_conflict`, naming the count
  *     of affected holders and the rows' work, never a holder.
  * 10. If the marker is REMOVED: **API-20** — `LastOwnerFloor::refuses(active marker holders, the same without this role)`
@@ -71,27 +72,35 @@ use Symfony\Component\Uid\Uuid;
  * **Pending proposals on the role are NOT written to** (E-15f): each carries its code snapshot, and
  * `ConfirmRoleGrantProposal` refuses a live-set mismatch as `role_changed`.
  *
- * **The refusal sentences are `BE-LEAD` PLACEHOLDERS** in `UX`'s register (design §9); no sentence names a holder.
+ * **The refusal sentences are `UX`'s** (`docs/session13/roles-s4-ux-copy.md` #6–#12, #14, #15; applied 2026-10-09). No sentence
+ * names a holder or a permission code (R-1); a count of people is {@see RefusalCounts::people()}. Each is pinned as a LITERAL
+ * in `RoleUpdateTest`.
  */
 final readonly class RoleUpdate
 {
-    /** PLACEHOLDER. */
-    public const IS_SYSTEM = 'This is one of the workspace\'s built-in roles, so it can\'t be changed. Create a new role instead.';
+    /** `UX` `roles-s4-ux-copy.md` #6 (E-15h). Passive remedy (R-3): a `role.edit` seat need not hold `role.create`. */
+    public const IS_SYSTEM = 'This is one of the built-in roles, and built-in roles can\'t be changed. A new role can be created instead.';
 
-    /** PLACEHOLDER (RED F-6: no Restore exists, so the way out is a new role). */
-    public const IS_ARCHIVED = 'This role has been deleted, so it can\'t be changed. Create a new role instead.';
+    /** `UX` `roles-s4-ux-copy.md` #7. "can't be restored" is true while `RestoreRole` is out (D-8); it changes if one ships. */
+    public const IS_ARCHIVED = 'This role is archived, so it can\'t be changed. Archived roles can\'t be restored, so a new role can be created in its place.';
 
-    /** PLACEHOLDER (Q-A; the sibling of `RevokeRole`'s `user_role.marker_needs_owner` sentence). */
-    public const MARKER_NEEDS_OWNER = 'Only an owner can change this role, because it makes the people who hold it owners.';
+    /** `UX` `roles-s4-ux-copy.md` #8 (Q-A): "makes, or would make" is true on both the stored and the resulting disjunct. */
+    public const MARKER_NEEDS_OWNER = 'Only an owner can change this role, because it makes, or would make, the people given it owners.';
 
-    /** PLACEHOLDER (E-15f: names the codes and the holder count). */
-    public const OWNER_NEEDED_FOR_HELD_ROLE = 'This role is given to %d account(s), so only an owner can add %s to it. Ask an owner, or create a new role for it.';
+    /** `UX` `roles-s4-ux-copy.md` #9 — the Update ceiling binds ADDED codes only (D-3), so it is not `CreateRole`'s #3. */
+    public const EXCEEDS = 'Some of the permissions you\'re adding are ones you don\'t have yourself, and you can only add permissions you hold. Leave those out, or ask an owner to add them.';
 
-    /** PLACEHOLDER (`SEC` D-7.1: the count and the work, never a holder). */
-    public const HOLDER_WOULD_CONFLICT = '%d account(s) given this role would then be able to %s (%s) through their other roles. Take the conflicting role away from them first, or leave these permissions out.';
+    /**
+     * `UX` `roles-s4-ux-copy.md` #10 (E-15f as amended 2026-10-08, `SEC` co-signed): the holder count as people, never the
+     * codes — they are the caller's own additions, and only the `X(admin)` ones trigger the rule.
+     */
+    public const OWNER_NEEDED_FOR_HELD_ROLE = 'This role is already given to %s, and some of the permissions you\'re adding can only reach people with an owner\'s confirmation. Ask an owner to add them, or they can go in a new role instead.';
 
-    /** PLACEHOLDER (API-20). */
-    public const LAST_OWNER = 'This would leave the workspace with no owner. Make someone else an owner first.';
+    /** `UX` `roles-s4-ux-copy.md` #11 (`SEC` D-7.1: the count and the work, never a holder). */
+    public const HOLDER_WOULD_CONFLICT = 'With the other roles they have, %s given this role would then be able to %s (%s). Leave these permissions out, or the conflicting roles have to be taken away from them first.';
+
+    /** `UX` `roles-s4-ux-copy.md` #12 (API-20). */
+    public const LAST_OWNER = 'This change would leave the workspace with no owner. Make someone else an owner first.';
 
     /** Step 13 — the column list IS the C2 column UPDATE grant (`Version20261007000300`). */
     private const UPDATE_ROLE = <<<'SQL'
@@ -218,12 +227,12 @@ final readonly class RoleUpdate
         if ([] !== $added) {
             $beyond = RoleDefinitionRules::beyondCeiling($added, $actorCodes);
             if ([] !== $beyond) {
-                throw ApiProblem::businessRuleViolated('role.exceeds_actor_permissions', sprintf(RoleCreation::EXCEEDS, implode(', ', $beyond)));
+                throw ApiProblem::businessRuleViolated('role.exceeds_actor_permissions', self::EXCEEDS);
             }
 
             $holderCount = LiveGrantReader::holderRowCount($em, $roleId);
             if ($holderCount > 0 && GrantConfirmationPolicy::needsConfirmation($actorCodes, $added)) {
-                throw ApiProblem::businessRuleViolated('role.owner_needed_for_held_role', sprintf(self::OWNER_NEEDED_FOR_HELD_ROLE, $holderCount, implode(', ', $added)));
+                throw ApiProblem::businessRuleViolated('role.owner_needed_for_held_role', sprintf(self::OWNER_NEEDED_FOR_HELD_ROLE, RefusalCounts::people($holderCount)));
             }
 
             $affected = 0;
@@ -314,6 +323,6 @@ final readonly class RoleUpdate
         $last = array_pop($clauses);
         $joined = [] === $clauses ? (string) $last : implode(', ', $clauses).' and '.$last;
 
-        return sprintf(self::HOLDER_WOULD_CONFLICT, $affected, $joined, implode(', ', $rows));
+        return sprintf(self::HOLDER_WOULD_CONFLICT, RefusalCounts::people($affected), $joined, implode(', ', $rows));
     }
 }
