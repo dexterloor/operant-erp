@@ -552,6 +552,11 @@ final class PermissionEnforcementTest extends ApiTestCase
             CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
             \App\Modules\UserManagement\Application\UserReader::joinedTablesRequiringNoDeletionPredicate(),
             'UserReader no longer makes the same assumption about the same joins as the other readers.');
+        // Users slice 1, C3: `OfferedRoleReader` too.
+        self::assertSame(
+            CurrentUserReader::joinedTablesRequiringNoDeletionPredicate(),
+            \App\Modules\UserManagement\Application\OfferedRoleReader::joinedTablesRequiringNoDeletionPredicate(),
+            'OfferedRoleReader no longer makes the same assumption about the same joins as the other readers.');
     }
 
     /**

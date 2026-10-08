@@ -41,6 +41,8 @@ final class RoleRevokeTest extends ApiTestCase
         'AssignRole' => ['method' => 'POST', 'path' => '/users/{id}/roles', 'idem' => true],
         // Roles slice 3, C1. `idem`: §4.2's `unique:role_grant_proposal_pending_unique` — the header is demanded.
         'CreateRoleGrantProposal' => ['method' => 'POST', 'path' => '/users/{id}/role-grant-proposals', 'idem' => true],
+        // Users slice 1, C3 (owner ruling Q-U2): the F-7 picker's data, a read under `role.assign`.
+        'ListOfferedRoles' => ['method' => 'GET', 'path' => '/users/{id}/offered-roles', 'idem' => false],
     ];
 
     /**

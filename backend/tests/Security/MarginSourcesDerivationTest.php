@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Security;
 
+use App\Modules\UserManagement\Application\OfferedRoleEvaluator;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\GrantConflict;
 use App\Modules\UserManagement\Domain\MarginExposure;
@@ -168,6 +169,53 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
         }
 
         self::assertSame(self::CLAUSE_4_PAIRS, $pairs, 'PC-12 clause 4: the derived default pairs moved. Re-derive the clause and the warning\'s domain (G-28 item 1).');
+    }
+
+    /**
+     * **The picker's pair rule IS this derivation** (users slice 1 C3, design §2.2; `SEC` §2.2 co-sign): over the default
+     * roles, `ListOfferedRoles`' `margin_exposure_with` — computed by `OfferedRoleEvaluator`, the shipped function — names
+     * exactly {@see self::CLAUSE_4_PAIRS}. Dropping its `newRows = ∅` exclusion adds `finance` + `warehouse_operator` and
+     * `sales_rep` + `warehouse_operator` (mutation 4).
+     */
+    #[Test]
+    public function thePickersMarginPartnersOverTheDefaultsAreTheClause4Pairs(): void
+    {
+        $live = [];
+        foreach (DefaultRoles::all() as $name => $codes) {
+            $live[] = ['id' => $name, 'name' => $name, 'codes' => $codes];
+        }
+        $items = array_map(static fn (array $r): array => $r + ['is_system' => true, 'live' => true], $live);
+        $views = OfferedRoleEvaluator::evaluate($items, $live, ['deleted' => false, 'is_active' => true],
+            '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', DefaultRoles::codesFor(DefaultRoles::OWNER), [], []);
+
+        $pairs = [];
+        foreach ($views as $view) {
+            foreach ($view->marginExposureWith as $partner) {
+                $pair = [$view->id, $partner['id']];
+                sort($pair);
+                $pairs[] = implode('+', $pair);
+            }
+        }
+        $pairs = array_values(array_unique($pairs));
+        sort($pairs);
+
+        self::assertSame(self::CLAUSE_4_PAIRS, $pairs, 'ListOfferedRoles\' margin_exposure_with over the defaults is not PC-12 clause 4\'s derived pairs.');
+    }
+
+    /**
+     * **`SEC` P-4 — every margin source is ONE code** (users slice 1 C3; design §5.2). While that holds, any exposed union
+     * contains an exposing pair or a role exposed alone, so the pair warning plus `User.margin_exposure` is complete.
+     */
+    #[Test]
+    public function everyMarginSourceIsOneCode(): void
+    {
+        $sources = [...MarginSources::costSources(), ...MarginSources::saleSources()];
+        self::assertNotSame([], $sources, 'No margin source, so the pin has no subject.');
+        foreach ($sources as $source) {
+            self::assertCount(1, $source, \sprintf(
+                'A margin source now needs more than one code (`%s`). PC-12 clause 4\'s pair warning (`ListOfferedRoles.margin_exposure_with[]`) is no longer complete: a union of three or more roles can expose with no exposing pair, and only `User.margin_exposure` catches it, after the grant. Re-open G-28 item 1 with `SEC` before moving this pin.',
+                implode(' + ', $source)));
+        }
     }
 
     /** @return array{cost: list<list<string>>, sale: list<list<string>>} */

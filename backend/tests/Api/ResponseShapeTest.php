@@ -561,6 +561,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         $defects = [];
         $examined = 0;
+        $offeredExamined = [];
 
         foreach ($this->drivenBodies() as $name => $body) {
             $found = [];
@@ -573,6 +574,14 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 }
 
                 ++$examined;
+                // Users slice 1 C3 (RED M-1): the picker's two nested reference paths must be examined, not merely allowed.
+                if ('ListOfferedRoles' === $name) {
+                    if (1 === preg_match('/^\$\.items\[\d+\]\.conflicts_with\[\d+\]\.role$/', $where)) {
+                        $offeredExamined['conflicts_with[*].role'] = true;
+                    } elseif (1 === preg_match('/^\$\.items\[\d+\]\.margin_exposure_with\[\d+\]$/', $where)) {
+                        $offeredExamined['margin_exposure_with[*]'] = true;
+                    }
+                }
                 $want = $this->expectedMembers((string) $value['id'], $skuTable, $documentNumbers, $subListedLineTables);
                 $members = array_keys($value);
                 sort($members);
@@ -587,6 +596,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
 
         self::assertGreaterThan(0, $examined, 'No expansion was examined, so the display-field half had no subject.');
+        ksort($offeredExamined);
+        self::assertSame(['conflicts_with[*].role' => true, 'margin_exposure_with[*]' => true], $offeredExamined,
+            'ListOfferedRoles\' nested references were not examined: its recipe must seed a conflicting pair and a margin pair (RED M-1).');
         self::assertSame([], $defects, 'API-23b: a reference is returned unexpanded, or an expansion carries more than its id and display field.');
     }
 

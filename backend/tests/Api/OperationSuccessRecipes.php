@@ -744,6 +744,27 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s users'];
             }],
+            // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
+            // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
+            // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at
+            // `items[*].conflicts_with[*].role` and at `items[*].margin_exposure_with[*]`.
+            'ListOfferedRoles' => [function (): array {
+                foreach (['Recipe PO create' => 'purchase_order.create', 'Recipe GR create' => 'goods_receipt.create',
+                    'Recipe PO view' => 'purchase_order.view', 'Recipe invoice view' => 'invoice.view'] as $name => $code) {
+                    $role = Uuid::v4()->toRfc4122();
+                    $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                        [$role, self::TENANT_A, $name.' '.substr($role, 0, 8)]);
+                    $this->insertAsOwnerForTenant(self::TENANT_A,
+                        'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                        [self::TENANT_A, $role, $code]);
+                }
+
+                return ['subject' => $this->seedPrincipal(self::TENANT_A, [])];
+            }, function (array $c): array {
+                $this->send('GET', '/users/'.$c['subject'].'/offered-roles');
+
+                return [200, 'read the roles that could be given to a user'];
+            }],
             // Roles slice 3, C2: a pending proposal of a composed X(admin) role (`invoice.pay`, `role.view`, both held by the
             // actor, so E-15c passes) for a user holding nothing, by a proposer who still holds `role.assign` (C9). The
             // actor holds every declared code and never the marker (no built operation declares it), so — Q-6 (c′) — the

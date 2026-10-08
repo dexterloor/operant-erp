@@ -312,6 +312,8 @@ final class UserReadTest extends ApiTestCase
     {
         self::assertContains('role_grant_proposal', RoleReadTest::textRelations('SELECT u.id FROM app_user u JOIN role_grant_proposal p ON p.user_id = u.id'),
             'Control: the text party missed a joined relation.');
+        self::assertContains('role_grant_proposal', RoleReadTest::textRelations('WITH x AS (SELECT p.id FROM role_grant_proposal p) SELECT r.id FROM role r, x'),
+            'Control: the text party missed a relation read inside a CTE body.');
 
         $user = $this->seedUser('Traced');
         $this->grant($user, $this->seedRole('Traced role', ['role.view']));
@@ -319,12 +321,15 @@ final class UserReadTest extends ApiTestCase
         self::assertNotSame([], $baseline['statements'], 'GET /me issued no statement, so there is no baseline.');
 
         $defects = [];
-        foreach ($this->userReadPaths($user) as $path) {
+        foreach ($this->readerPaths($user) as $path) {
             $drive = $this->recordedDrive($path);
             $own = array_values(array_unique(array_diff($drive['statements'], $baseline['statements'])));
             $namesAppUser = false;
             foreach ($own as $sql) {
-                $relations = array_values(array_unique([...RoleReadTest::textRelations($sql), ...self::planRelations($this->plan($sql, $drive['params'][$sql] ?? []))]));
+                // A CTE the statement itself defines is a name, not a relation (its body is read like any other text).
+                preg_match_all('/(?:\bWITH|,)\s*([a-z_][a-z0-9_]*)\s+AS\s*\(/i', $sql, $ctes);
+                $text = array_values(array_diff(RoleReadTest::textRelations($sql), array_map(strtolower(...), $ctes[1])));
+                $relations = array_values(array_unique([...$text, ...self::planRelations($this->plan($sql, $drive['params'][$sql] ?? []))]));
                 $namesAppUser = $namesAppUser || \in_array('app_user', $relations, true);
                 foreach (array_diff($relations, self::USER_READ_TABLES) as $stranger) {
                     $defects[] = \sprintf('%s touches %s: %s', $path, $stranger, $sql);
@@ -359,6 +364,10 @@ final class UserReadTest extends ApiTestCase
         // text is ALSO refused for any `*` select (control 3), so a planner that kept `u.*` cannot hide one.
         self::assertContains('password_hash', self::appUserColumns($this->plan('SELECT u.* FROM app_user u', [])), 'Control: the parser missed a whole-row u.*.');
         self::assertSame(1, preg_match(self::STAR, 'SELECT u.* FROM app_user u'), 'Control: the text check missed u.*.');
+        // A column a join's parent reads is seen even when the scan below returns its physical tuple.
+        self::assertContains('password_hash', self::appUserColumns($this->plan(
+            'SELECT ur.role_id, u.password_hash FROM user_role ur JOIN app_user u ON u.tenant_id = ur.tenant_id AND u.id = ur.user_id', [])),
+            'Control: a joined app_user column read by the parent was not seen.');
         self::assertSame(1, preg_match(self::STAR, 'SELECT * FROM app_user'), 'Control: the text check missed SELECT *.');
 
         $user = $this->seedUser('Columns');
@@ -367,14 +376,19 @@ final class UserReadTest extends ApiTestCase
 
         $observed = [];
         $joinKeys = [];
-        foreach ($this->userReadPaths($user) as $path) {
+        $strangers = [];
+        foreach ($this->readerPaths($user) as $path) {
             $drive = $this->recordedDrive($path);
             foreach (array_values(array_unique(array_diff($drive['statements'], $baseline['statements']))) as $sql) {
                 $plan = $this->plan($sql, $drive['params'][$sql] ?? []);
                 if (!\in_array('app_user', self::planRelations($plan), true)) {
                     continue;
                 }
-                $observed = [...$observed, ...self::appUserColumns($plan)];
+                $columns = self::appUserColumns($plan);
+                $observed = [...$observed, ...$columns];
+                foreach (array_diff($columns, self::APP_USER_COLUMNS) as $stranger) {
+                    $strangers[] = $path.' reads app_user.'.$stranger.': '.$sql;
+                }
                 self::assertSame(0, preg_match(self::STAR, $sql), 'A user read selects `*`: '.$sql);
                 preg_match_all('/=\s*u\.([a-z_]+)/', $sql, $m);
                 $joinKeys = [...$joinKeys, ...$m[1]];
@@ -391,7 +405,7 @@ final class UserReadTest extends ApiTestCase
         self::assertContains('deleted_at', $observed);
         self::assertSame(['id', 'tenant_id'], $joinKeys, 'The statement joins app_user on columns other than exactly id and tenant_id.');
 
-        self::assertSame([], array_values(array_diff($observed, self::APP_USER_COLUMNS)),
+        self::assertSame([], $strangers,
             'A user read reads an app_user column outside the allowlist (password_hash, last_login_at, … never; * never).');
     }
 
@@ -408,6 +422,23 @@ final class UserReadTest extends ApiTestCase
         $paths = ['/users/'.$user];
         if (\array_key_exists('ListUsers', TransactionBoundaryTest::contractOperations())) {
             array_push($paths, '/users', '/users?q=user-'.$user);
+        }
+
+        return $paths;
+    }
+
+    /**
+     * The paths whose reader statements the table and column allowlists examine: the user reads, and — since users slice 1
+     * C3 — the picker read `ListOfferedRoles` for the same user (`SEC` V-4's structural half and E-5 extended to the
+     * offered-role reader). The rig's actor holds every declared code, `role.assign` included.
+     *
+     * @return list<string>
+     */
+    private function readerPaths(string $user): array
+    {
+        $paths = $this->userReadPaths($user);
+        if (\array_key_exists('ListOfferedRoles', TransactionBoundaryTest::contractOperations())) {
+            array_push($paths, '/users/'.$user.'/offered-roles', '/users/'.$user.'/offered-roles?archived=true&q=T');
         }
 
         return $paths;
@@ -478,11 +509,20 @@ final class UserReadTest extends ApiTestCase
         $texts = [];
         $ownTexts = [];
         $walk = static function (array $node) use (&$walk, &$aliases, &$texts, &$ownTexts): void {
+            $physical = false;
             if ('app_user' === ($node['Relation Name'] ?? null)) {
-                $aliases[] = (string) ($node['Alias'] ?? 'app_user');
+                $alias = (string) ($node['Alias'] ?? 'app_user');
+                $aliases[] = $alias;
+                // **The physical-tlist optimisation**: a scan under a join may return the WHOLE stored tuple to skip a
+                // projection — every column in table order — although the statement reads only some (measured under
+                // `erp_app`, users slice 1 C3: `JOIN`/`EXISTS` on `app_user` inside `ListOfferedRoles`' CTEs). That
+                // Output is not a read; the columns actually read are the ones its parents reference, which the walk
+                // collects qualified. A projected scan (a single-table read) keeps its Output, so a planted
+                // `SELECT u.password_hash` is still seen, and a `u.*` select is refused on the statement text.
+                $physical = array_map(static fn (string $c): string => $alias.'.'.$c, self::$appUserColumns) === ($node['Output'] ?? null);
                 // A scan node writes its own columns UNQUALIFIED (`"Output": ["id", "password_hash"]`, `Index Cond: (id = …)`).
                 foreach ($node as $key => $value) {
-                    if ('Output' === $key && \is_array($value)) {
+                    if ('Output' === $key && \is_array($value) && !$physical) {
                         $ownTexts = [...$ownTexts, ...array_map(strval(...), $value)];
                     } elseif (\is_string($key) && \is_string($value) && ('Filter' === $key || str_ends_with($key, ' Cond'))) {
                         $ownTexts[] = $value;
@@ -490,7 +530,7 @@ final class UserReadTest extends ApiTestCase
                 }
             }
             foreach ($node as $key => $value) {
-                if ('Output' === $key && \is_array($value)) {
+                if ('Output' === $key && \is_array($value) && !$physical) {
                     $texts = [...$texts, ...array_map(strval(...), $value)];
                 } elseif (\is_string($key) && \is_string($value) && ('Filter' === $key || 'Join Filter' === $key || str_ends_with($key, ' Cond'))) {
                     $texts[] = $value;

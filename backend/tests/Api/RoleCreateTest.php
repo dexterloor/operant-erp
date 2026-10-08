@@ -279,13 +279,18 @@ final class RoleCreateTest extends ApiTestCase
     public static function companionRows(): iterable
     {
         foreach (RoleCompanions::rows() as $row) {
+            // Every OTHER companion is present, TRANSITIVELY (users slice 1 C3: `role.delete` → `role.assign` →
+            // `app_user.view`, owner Q-U3), so only this row can refuse and the role with this row's code added is complete.
             $codes = [$row['holding']];
-            // Every OTHER companion the holding code needs is present, so only this row can refuse.
-            foreach (RoleCompanions::rows() as $other) {
-                if ($other['holding'] === $row['holding'] && $other['requires'] !== $row['requires']) {
-                    $codes[] = $other['requires'];
+            do {
+                $before = $codes;
+                foreach (RoleCompanions::rows() as $other) {
+                    if (\in_array($other['holding'], [...$codes, $row['requires']], true) && $other !== $row && !\in_array($other['requires'], $codes, true)
+                        && $other['requires'] !== $row['requires']) {
+                        $codes[] = $other['requires'];
+                    }
                 }
-            }
+            } while ($codes !== $before);
             yield $row['ruling'].' '.$row['holding'].' needs '.$row['requires'] => [$codes, $row['requires']];
         }
     }

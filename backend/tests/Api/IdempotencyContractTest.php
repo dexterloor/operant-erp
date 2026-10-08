@@ -361,10 +361,12 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-05 (G-29 / G-30 part 3 C1):** `CreateAdjustmentDecision` (`unique:adjustment_decision_idem_unique`):
      * 129 rows, 80 unmarked, 49 marked.
+     *
+     * **2026-10-08 (users slice 1 C3):** `ListOfferedRoles` (`no`; K-3, owner ruling Q-U2): 130 rows, 81 unmarked, 49 marked.
      */
-    private const PINNED_ROW_COUNT = 129;
+    private const PINNED_ROW_COUNT = 130;
 
-    private const PINNED_UNMARKED_COUNT = 80;
+    private const PINNED_UNMARKED_COUNT = 81;
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —

@@ -11,7 +11,8 @@ namespace App\Modules\UserManagement\Domain;
  * Why this class exists
  * ---------------------------------------------------------------------------
  * `V2-R-2` / ADR-008 open item **D2**: E-15e, E-18/PC-13, E-15f and
- * `roles_offered[]` must all derive from one home, and until this commit that
+ * `roles_offered[]` (re-homed to `OfferedRole` / `ListOfferedRoles`, users
+ * slice 1 C3, 2026-10-08) must all derive from one home, and until this commit that
  * home was a **gitignored document** plus `docs/adr/sod_check.py`, which is not
  * committed either. Nothing in running code knew what the 60 codes were.
  *

@@ -206,7 +206,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (users slice 1 C1, 2026-10-08):** `GetUser`, a GET at `/users/{id}` on `UserResource` (`app_user.view`).
         // No migration, no grant.
         // **And one more (users slice 1 C2, 2026-10-08):** `ListUsers`, a GET at `/users` on `UserCollection` (`app_user.view`).
-        self::assertCount(69, $checked, 'The route set changed. This slice declares sixty-nine operations: '.implode(', ', array_keys($checked)));
+        // **And one more (users slice 1 C3, 2026-10-08):** `ListOfferedRoles`, a GET at `/users/{id}/offered-roles` on
+        // `OfferedRoleCollection` (`role.assign`; owner ruling Q-U2). No migration, no grant.
+        self::assertCount(70, $checked, 'The route set changed. This slice declares seventy operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

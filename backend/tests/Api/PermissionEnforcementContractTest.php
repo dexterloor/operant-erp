@@ -107,6 +107,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Users slice 1 C1 (2026-10-08): owner, admin and viewer hold it (owner notice N-1, `session23-owner-ruling.md`).
         'GetUser' => 'app_user.view',
         'ListUsers' => 'app_user.view',
+        // Users slice 1 C3 (owner ruling Q-U2; `SEC` V2-R-25 (b) made a gate): owner and admin among the defaults.
+        'ListOfferedRoles' => 'role.assign',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

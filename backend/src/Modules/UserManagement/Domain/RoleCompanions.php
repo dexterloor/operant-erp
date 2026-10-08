@@ -21,6 +21,11 @@ namespace App\Modules\UserManagement\Domain;
  *    existence is privilege history served only under `role.assign` (PC-16 condition 1, `SECURITY_MODEL.md` §5.2.3). Every
  *    seat that can meet that refusal is then a seat allowed to be told about it. Affects no default role (only `owner` and
  *    `admin` hold `role.delete`, and both hold `role.assign`).
+ *  - **Q-U3** `role.assign` → `app_user.view` (owner ruling 2026-10-08, `session23-owner-ruling.md`; `SEC` R1-1): the
+ *    picker read `ListOfferedRoles` is gated on `role.assign` alone, so without this a seat that gives roles but cannot
+ *    see users would read a person's held roles, removed/inactive state and SoD position in one silent request. The
+ *    picker lives on the user page, which already needs `app_user.view`, so the row strands nobody. Affects no default
+ *    role (only `owner` and `admin` hold `role.assign`, and both hold `app_user.view`).
  *  - `role.assign` → `role.view` is deliberately NOT a row: §5.2.11 records that exposure as accepted (design §4.4, F-7).
  *
  * **Per role, not per union** (R-3): the same blind seat is reachable by granting two clean roles and revoking the one with
@@ -41,6 +46,7 @@ final class RoleCompanions
         ['holding' => 'role.edit', 'requires' => 'role.view', 'ruling' => 'D-5b'],
         ['holding' => 'role.delete', 'requires' => 'role.view', 'ruling' => 'D-5b'],
         ['holding' => 'role.delete', 'requires' => 'role.assign', 'ruling' => 'D-6'],
+        ['holding' => 'role.assign', 'requires' => 'app_user.view', 'ruling' => 'Q-U3'],
     ];
 
     /** Not instantiable: a table, not a service. */

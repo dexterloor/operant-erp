@@ -273,6 +273,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'user-env', 'views' => ['']];
                 }];
             },
+            'ListOfferedRoles' => function (): array {
+                // Users slice 1 C3. Bounded; no filter; TB-5 names `role.name` (the list is derived from `role`), so `q` is
+                // probed with the seeded prefix; one view. The subject holds nothing; the actor's fixture role is on the page.
+                $subject = $this->seedPrincipal(self::TENANT_A, []);
+
+                return ['/users/'.$subject.'/offered-roles', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, 'ROLE-OFF-'.$i]);
+                    }
+
+                    return ['filter' => [], 'search' => 'ROLE-OFF', 'views' => ['']];
+                }];
+            },
             'ListRoleGrantProposals' => function (): array {
                 // Roles slice 3 C1. One subject, one role, one proposer: the newest row is PENDING and every earlier one
                 // LAPSED (one pending per (user, role); decided rows are INSERTed decided, never updated — the
