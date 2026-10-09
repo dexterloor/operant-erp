@@ -273,6 +273,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'user-env', 'views' => ['']];
                 }];
             },
+            'ListCustomers' => function (): array {
+                // Customers slice 1 C1. Keyset; no filter (§4.2 declares none); TB-5 names `customer.name` and `.code`, so `q`
+                // is probed once with the seeded name prefix (the name-vs-code, case and prefix-vs-infix probes are
+                // `CustomerListTest`'s — this driver takes one); the default view and both manifest orders by name (`PaginationContractTest` decodes exactly the declared enum from
+                // the views). `seedCustomer()`'s codes are
+                // letter-prefixed (CD-3), so no all-digit code reaches `WireScaleTest`.
+                return ['/customers', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedCustomer(self::TENANT_A, 'CUS-ENV-'.$i);
+                    }
+
+                    return ['filter' => [], 'search' => 'CUS-ENV', 'views' => ['', 'sort=name', 'sort=code']];
+                }];
+            },
             'ListOfferedRoles' => function (): array {
                 // Users slice 1 C3. Bounded; no filter; TB-5 names `role.name` (the list is derived from `role`), so `q` is
                 // probed with the seeded prefix; one view. The subject holds nothing; the actor's fixture role is on the page.

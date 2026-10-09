@@ -123,6 +123,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'ListUsers' => [],
         // Users slice 1 C3: the picker for the remembered revoke subject; a moved tenant would 404 (B's subject is another id).
         'ListOfferedRoles' => ['vars' => ['id' => 'revoke_subject']],
+        // Customers slice 1 C1: the customer every tenant remembers (`seedMirror()`); a supplied tenant id that moved the read
+        // would 404 here (B's customer is another id), and the list would return B's customers.
+        'GetCustomer' => ['vars' => ['id' => 'customer']],
+        'ListCustomers' => [],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
@@ -623,6 +627,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
 
         $supplier = $this->remember($letter, 'supplier', $this->seedSupplier($tenantId, 'Acme'));
         $customer = $this->remember($letter, 'customer', $this->seedCustomer($tenantId, 'Acme Retail'));
+        // Customers slice 1 C1: `seedCustomer()`'s code is random per seeding (an md5 of name and id), and from C1 the code is
+        // on the wire under `GetCustomer`/`ListCustomers`, so the baseline and the probe would differ by it alone. Pinned to
+        // one letter-bearing value per tenant, as role names are normalised to 'Fixture Role'.
+        $this->insertAsOwnerForTenant($tenantId, "UPDATE customer SET code = 'C-ACME' WHERE id = ?::uuid", [$customer]);
         $this->remember($letter, 'customer_address', $this->seedCustomerAddress($tenantId, $customer));
 
         $warehouse = $this->remember($letter, 'warehouse', Uuid::v4()->toRfc4122());

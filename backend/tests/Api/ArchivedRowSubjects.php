@@ -359,6 +359,14 @@ trait ArchivedRowSubjects
 
                 return ['id' => $user, 'row' => $user];
             },
+            // Added 2026-10-09 with `GetCustomer` (customers slice 1, C1): `customer` is class `soft` and has a built direct-hit
+            // `Get`, and `ListCustomers` is its live list. No write on the resource is built yet (C2 adds `UpdateCustomer`'s
+            // body), so the write clause does not select it.
+            'customer' => function (string $tag): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Archived Subject '.$tag.' '.bin2hex(random_bytes(3)));
+
+                return ['id' => $customer, 'row' => $customer];
+            },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
                 $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);

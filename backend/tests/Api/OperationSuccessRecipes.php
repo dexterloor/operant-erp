@@ -744,6 +744,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s users'];
             }],
+            // Customers slice 1, C1: a seeded customer (its code letter-prefixed by `seedCustomer()`, so `WireScaleTest` never
+            // reads an all-digit code as a decimal — CD-3), read back; the list is driven over a seeded one too, so
+            // `ResponseShapeTest` walks a real item.
+            'GetCustomer' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Customer')], function (array $c): array {
+                $this->send('GET', '/customers/'.$c['customer']);
+
+                return [200, 'read a customer'];
+            }],
+            'ListCustomers' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Listed Customer')], function (): array {
+                $this->send('GET', '/customers');
+
+                return [200, 'list the workspace\'s customers'];
+            }],
             // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
             // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
             // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at

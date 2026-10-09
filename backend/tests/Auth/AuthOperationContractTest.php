@@ -136,6 +136,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\RoleGrantProposalTest::PINNED_ROLE_GRANT_PROPOSAL_OPERATIONS),
             // Users slice 1, C1: `/users` and `/users/{id}` (the `/users/{id}/…` family stays `RoleRevokeTest`'s).
             array_keys(\App\Tests\Api\UserReadTest::PINNED_USER_OPERATIONS),
+            // Customers slice 1, C1: the `/customers` path family (C2 and C3 add their operations to the same pin).
+            array_keys(\App\Tests\Api\CustomerReadTest::PINNED_CUSTOMER_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

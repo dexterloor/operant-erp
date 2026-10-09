@@ -115,6 +115,9 @@ services:
             # container never sees has no routes at all.
             - '../src/Modules/Sales/ApiResource/{SalesNamedReference.php,CreateSalesOrderInput.php}'
             - '../src/Modules/Sales/Application/SalesOrderRow.php'
+            # Customers slice 1 C1 (2026-10-09): the read models and parsed criteria `CustomerReader` builds — data, not
+            # services. `CustomerResource` and `CustomerCollection` are NOT excluded, for `ItemResource`'s reason.
+            - '../src/Modules/Customers/Application/{CustomerView.php,CustomerPage.php,CustomerListCriteria.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

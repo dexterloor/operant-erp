@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Modules\Customers\Application\CustomerListCriteria;
+use App\Modules\Customers\Application\CustomerReader;
+use App\Platform\Http\Pagination\Cursor;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -302,18 +305,28 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             'stock_movement_tenant_item_idx');
     }
 
-    /** Customers: "the customer list, alphabetical" — the module's landing screen. */
+    /**
+     * Customers: "the customer list, alphabetical" — the module's landing screen.
+     *
+     * ⚠ **Repointed 2026-10-09 (customers slice 1 C1, RED L-4).** Until then this explained a hand-written
+     * `ORDER BY name LIMIT 50` that no code ran. It now explains the statement `ListCustomers` actually issues, taken from
+     * {@see CustomerReader::listStatement()} — the keyset page `(name, id) > (?, ?)` ordered `name, id` — so the plan
+     * pinned here cannot drift from the reader's. A second page (a cursor is present) is the harder case: the first page
+     * is the same statement without the row comparison.
+     */
     #[Test]
     public function theCustomerListUsesTheLiveNameIndex(): void
     {
+        [$sql, $parameters] = CustomerReader::listStatement(new CustomerListCriteria(
+            limit: CustomerListCriteria::DEFAULT_LIMIT,
+            after: new Cursor('A', '00000000-0000-4000-8000-000000000000'),
+        ));
+        self::assertStringContainsString('(c.name, c.id) > (?, ?::uuid)', $sql, 'The statement explained is not the name keyset page.');
+        self::assertStringContainsString('ORDER BY c.name ASC, c.id ASC', $sql);
+
         $this->assertPlan(
-            'Customers — alphabetical list, live rows only',
-            $this->plan(<<<'SQL'
-                SELECT id, name FROM customer
-                WHERE deleted_at IS NULL
-                ORDER BY name
-                LIMIT 50
-                SQL),
+            'Customers — alphabetical list, live rows only (the reader\'s keyset page)',
+            $this->plan($sql, $parameters),
             'customer_tenant_name_live');
     }
 
