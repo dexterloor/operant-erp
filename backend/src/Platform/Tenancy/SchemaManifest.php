@@ -537,7 +537,7 @@ final class SchemaManifest
             'module' => 'Modules\\Customers',
             'tenant' => true,
             'deletion' => self::HARD,
-            'why' => 'Deliberately hard, and it is the reason sales_order carries ship-to snapshot columns: an order pointing at a live address row would silently rewrite where a past shipment went every time the customer moves.',
+            'why' => 'Deliberately hard, and it is the reason sales_order carries ship-to snapshot columns: an order pointing at a live address row would silently rewrite where a past shipment went every time the customer moves. **Carries CreateCustomerAddress\'s retry key (customers slice 1 C0, Version20261009000200), on fulfilment\'s reasoning:** idempotency_key and request_digest are NOT NULL, CHECKed to 64 lower-case hex, and customer_address_idem_unique (tenant_id, idempotency_key) is TOTAL because the table has no deleted_at. That migration grants nothing; the writer\'s column INSERT lands with it (C3).',
         ],
 
         // ------------------------------------------------------------------

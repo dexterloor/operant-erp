@@ -173,7 +173,7 @@ final class InvoiceSchemaTest extends TenancyTestCase
             [$user, $tenantId, 'invoice-'.$tag.'@example.test']);
         $customer = Uuid::v4()->toRfc4122();
         $this->executeAsOwnerForTenant($tenantId,
-            'INSERT INTO customer (id, tenant_id, code, name, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, \'EUR\')',
+            'INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, \'GB\', \'EUR\')',
             [$customer, $tenantId, 'C-'.$tag, 'Customer '.$tag]);
         $warehouse = Uuid::v4()->toRfc4122();
         $this->executeAsOwnerForTenant($tenantId,

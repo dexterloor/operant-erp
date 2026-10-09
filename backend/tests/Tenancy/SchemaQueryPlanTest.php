@@ -85,8 +85,8 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     SQL, [$tenant]);
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
-                    INSERT INTO customer (id, tenant_id, code, name, currency_code)
-                    SELECT gen_random_uuid(), ?::uuid, 'CUS' || g, 'Customer ' || lpad(g::text, 4, '0'), 'EUR'
+                    INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
+                    SELECT gen_random_uuid(), ?::uuid, 'CUS' || g, 'Customer ' || lpad(g::text, 4, '0'), 'GB', 'EUR'
                     FROM generate_series(1, 200) g
                     SQL, [$tenant]);
 

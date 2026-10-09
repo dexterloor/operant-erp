@@ -106,14 +106,19 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      *
      * @return string the new row's id
      */
-    protected function seedCustomer(string $tenantId, string $name = 'Acme Retail'): string
+    protected function seedCustomer(string $tenantId, string $name = 'Acme Retail', string $countryCode = 'GB'): string
     {
         $id = Uuid::v4()->toRfc4122();
-        // `code` and `currency_code` are NOT NULL with no usable default, exactly as `supplier`'s are.
+        // `code`, `country_code` (customers slice 1 C0) and `currency_code` are NOT NULL with no usable default.
+        //
+        // ⚠ The code carries a LETTER PREFIX on purpose (`docs/RESIDUAL_GAPS.md` CD-3, customers slice 1 C0): eight hex
+        // characters alone are all-digit with probability (10/16)^8, about 2.3% per customer, and from C1 `code` is on the
+        // wire under `ListCustomers`, where `WireScaleTest` reads an all-digit string as a scale-0 decimal and goes red by
+        // chance. `C-` makes that impossible rather than unlikely.
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO customer (id, tenant_id, code, name, currency_code)
-            VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')
-            SQL, [$id, $tenantId, strtoupper(substr(md5($name.$id), 0, 8)), $name]);
+            INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
+            VALUES (?::uuid, ?::uuid, ?, ?, ?, 'EUR')
+            SQL, [$id, $tenantId, 'C-'.strtoupper(substr(md5($name.$id), 0, 8)), $name, $countryCode]);
 
         return $id;
     }
@@ -236,10 +241,15 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         string $countryCode = 'GB',
     ): string {
         $id = Uuid::v4()->toRfc4122();
+        // `idempotency_key` and `request_digest` are NOT NULL on a TOTAL tenant-wide unique (customers slice 1 C0,
+        // Version20261009000200), and this helper runs many times per tenant, so each row mints a DISTINCT random
+        // 64-hex value for both. They stand for a request no test replays; a test that replays uses the API.
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code)
-            VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
-            SQL, [$id, $tenantId, $customerId, $kind, $addressLine, $city, $postalCode, $countryCode]);
+            INSERT INTO customer_address
+                (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+            SQL, [$id, $tenantId, $customerId, $kind, $addressLine, $city, $postalCode, $countryCode,
+                hash('sha256', 'key:'.Uuid::v4()->toRfc4122()), hash('sha256', 'digest:'.Uuid::v4()->toRfc4122())]);
 
         return $id;
     }

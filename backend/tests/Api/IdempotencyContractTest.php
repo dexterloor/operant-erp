@@ -245,6 +245,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         // V2-R-12 form): the adjust path's `distinct` rows (C2) ride the credit note's key, several to a request. The
         // unique is TOTAL (class none; NULLs never collide). The path's return and every declared field are digested.
         'CreateAdjustmentDecision' => 'unique:adjustment_decision_idem_unique',
+        // ⚠ **Customers slice 1, C0, 2026-10-09.** Was `⛔ none`: `customer_address` carried no unique beyond its
+        // surrogate, so a retried timeout wrote a second address. `fulfilment`'s shape exactly: a header-sourced key,
+        // `NOT NULL` (nothing has ever written an address; one row per request), on a TOTAL unique (class `hard`, no
+        // `deleted_at`); the path's customer is digested. `Version20261009000200` laid it; C3 ships the writer.
+        'CreateCustomerAddress' => 'unique:customer_address_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -314,9 +319,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         // 2026-09-22** (sales step 5 C2), so the block is one shorter again --
         // and **`CreateSalesReturn` left on 2026-10-01** (sales step 7 R2), and
         // **`IssueCreditNote` left the same day** (sales step 7 C1) --
+        // and **`CreateCustomerAddress` left on 2026-10-09** (customers slice 1
+        // C0, when `customer_address_idem_unique` was laid) --
         // count the entries below; do not read a number here.
         'CreateCustomerContact' => '⛔ none',
-        'CreateCustomerAddress' => '⛔ none',
         'CreateStockAdjustment' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
     ];
@@ -416,6 +422,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'IssueCreditNote' => [IdempotencyKeyGuard::COLUMN],
         'IssueAdjustmentCreditNote' => [IdempotencyKeyGuard::COLUMN],
         'CreateAdjustmentDecision' => [IdempotencyKeyGuard::COLUMN],
+        'CreateCustomerAddress' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -495,6 +502,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         'IssueAdjustmentCreditNote',
         // G-29 / G-30 part 3 C1, 2026-10-05. A decision row has no client-supplied business key at all.
         'CreateAdjustmentDecision',
+        // Customers slice 1 C0, 2026-10-09. `CreateGoodsReceipt`'s ground: the table's only other key is the
+        // surrogate; one row per request.
+        'CreateCustomerAddress',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];

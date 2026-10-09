@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\Infrastructure\Entity;
 
+use App\SharedKernel\Reference\Country;
 use App\SharedKernel\Reference\Currency;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -74,6 +75,12 @@ class Customer
     #[ORM\JoinColumn(name: 'currency_code', referencedColumnName: 'code', nullable: false)]
     private Currency $currency;
 
+    // `customer.country_code` (customers slice 1 C0, Version20261009000100): NOT NULL with no default, so a
+    // customer cannot exist without the country §4.2 has always accepted. Reference data, as `currency` above.
+    #[ORM\ManyToOne(targetEntity: Country::class)]
+    #[ORM\JoinColumn(name: 'country_code', referencedColumnName: 'code', nullable: false)]
+    private Country $country;
+
     #[ORM\Column(name: 'payment_terms_days', type: Types::INTEGER, options: ['default' => 30])]
     private int $paymentTermsDays = 30;
 
@@ -89,12 +96,13 @@ class Customer
     #[ORM\Column(name: 'deleted_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $deletedAt = null;
 
-    public function __construct(Uuid $id, Uuid $tenantId, string $code, string $name, Currency $currency)
+    public function __construct(Uuid $id, Uuid $tenantId, string $code, string $name, Country $country, Currency $currency)
     {
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->code = $code;
         $this->name = $name;
+        $this->country = $country;
         $this->currency = $currency;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
@@ -118,6 +126,11 @@ class Customer
     public function getName(): string
     {
         return $this->name;
+    }
+
+    public function getCountry(): Country
+    {
+        return $this->country;
     }
 
     public function getCurrency(): Currency

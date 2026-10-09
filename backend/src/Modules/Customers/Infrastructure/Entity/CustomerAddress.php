@@ -37,6 +37,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'customer_address_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 // "The shipping addresses for this account" — the picker on the order form,
 // which filters by kind and never wants the billing rows.
+// CreateCustomerAddress's retry key (customers slice 1 C0, Version20261009000200): TOTAL, the table is class `hard`.
+#[ORM\UniqueConstraint(name: 'customer_address_idem_unique', columns: ['tenant_id', 'idempotency_key'])]
 #[ORM\Index(name: 'customer_address_tenant_customer_idx', columns: ['tenant_id', 'customer_id', 'kind'])]
 class CustomerAddress
 {
@@ -77,6 +79,18 @@ class CustomerAddress
     #[ORM\JoinColumn(name: 'country_code', referencedColumnName: 'code', nullable: false)]
     private Country $country;
 
+    /**
+     * The hex SHA-256 of the `Idempotency-Key` header (D-B), never the header. **Non-nullable, following
+     * `Fulfilment::$idempotencyKey`**: no address predates it and one request writes one row
+     * (`Version20261009000200`). Set once, in the `INSERT`, and there is no setter.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT)]
+    private string $idempotencyKey;
+
+    /** `RequestDigest::of()` of the request that created the row, the path's customer id included. Never read into the domain. */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT)]
+    private string $requestDigest;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
@@ -92,6 +106,8 @@ class CustomerAddress
         string $city,
         string $postalCode,
         Country $country,
+        string $idempotencyKey,
+        string $requestDigest,
     ) {
         $this->id = $id;
         $this->tenantId = $tenantId;
@@ -101,6 +117,8 @@ class CustomerAddress
         $this->city = $city;
         $this->postalCode = $postalCode;
         $this->country = $country;
+        $this->idempotencyKey = $idempotencyKey;
+        $this->requestDigest = $requestDigest;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }

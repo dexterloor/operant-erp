@@ -256,8 +256,8 @@ final class DeletionPolicyTest extends TenancyTestCase
 
         $orderId = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
-            INSERT INTO customer (id, tenant_id, code, name, currency_code)
-            VALUES (gen_random_uuid(), ?::uuid, 'CUS-C', 'Cascade Customer', 'EUR')
+            INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
+            VALUES (gen_random_uuid(), ?::uuid, 'CUS-C', 'Cascade Customer', 'GB', 'EUR')
             SQL, [self::TENANT_A]);
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
             INSERT INTO sales_order
@@ -319,8 +319,8 @@ final class DeletionPolicyTest extends TenancyTestCase
     {
         $this->seedWarehouse();
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
-            INSERT INTO customer (id, tenant_id, code, name, currency_code)
-            VALUES (gen_random_uuid(), ?::uuid, 'CUS-D', 'Draft Customer', 'EUR')
+            INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
+            VALUES (gen_random_uuid(), ?::uuid, 'CUS-D', 'Draft Customer', 'GB', 'EUR')
             SQL, [self::TENANT_A]);
         $order = function (string $number, string $status): string {
             $id = Uuid::v4()->toRfc4122();
@@ -502,8 +502,8 @@ final class DeletionPolicyTest extends TenancyTestCase
         } else {
             $item = $this->seedItem(self::TENANT_A, 'SKU-KEEP');
             $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
-                INSERT INTO customer (id, tenant_id, code, name, currency_code)
-                VALUES (gen_random_uuid(), ?::uuid, 'CUS-K', 'Keep Customer', 'EUR')
+                INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
+                VALUES (gen_random_uuid(), ?::uuid, 'CUS-K', 'Keep Customer', 'GB', 'EUR')
                 SQL, [self::TENANT_A]);
             $this->writeAsApp(<<<'SQL'
                 INSERT INTO sales_order

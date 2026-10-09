@@ -200,7 +200,7 @@ final class SalesReturnSchemaTest extends TenancyTestCase
         $statements = [
             ["INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Return Fixture')",
                 [$id['user'], $tenantId, 'return-'.$tag.'@example.test']],
-            ["INSERT INTO customer (id, tenant_id, code, name, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
+            ["INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'GB', 'EUR')",
                 [$id['customer'], $tenantId, 'C-'.$tag, 'Customer '.$tag]],
             ["INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, ?, ?, 'DE')",
                 [$id['warehouse'], $tenantId, 'W-'.$tag, 'Warehouse '.$tag]],
