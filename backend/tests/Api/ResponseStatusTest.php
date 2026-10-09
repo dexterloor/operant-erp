@@ -160,6 +160,11 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // IRI is `/roles/{id}`), and `CreatedRowLocation` fills `{roleId}` from the body's `id`, the granted role's
         // (`SEC` S-1 (b)). §4.4.1 is the precedent for a `Location` that answers `DELETE` and not `GET`.
         'AssignRole' => '/users/{id}/roles/{roleId}',
+        // Added 2026-10-09 (customers slice 1 C3, final RED M-1). It really does create the row that URI addresses: §4.2
+        // declares `UpdateCustomerAddress` and `DeleteCustomerAddress` there and no `Get` (TB-1c), so the registry cannot
+        // address it and `CreatedRowLocation` fills `{addressId}` from the body's `id`. Never branch 5 (200): the operation
+        // creates an addressable row.
+        'CreateCustomerAddress' => '/customers/{id}/addresses/{addressId}',
     ];
 
     /**

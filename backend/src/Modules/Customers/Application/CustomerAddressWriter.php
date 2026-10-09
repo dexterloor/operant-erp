@@ -1,0 +1,291 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\Customers\Application;
+
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
+use App\Platform\Http\Idempotency\RequestDigest;
+use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Tenancy\CurrentTenant;
+use App\Platform\Tenancy\TenantContext;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Uid\Uuid;
+
+/**
+ * **`CreateCustomerAddress` and `UpdateCustomerAddress`** (customers slice 1 C3; `docs/session13/customers-s1-design.md`
+ * §5 and its FINAL C3 block, `customers-s1-final-red.md` L-4, M-4's View shape). Takes wire-named scalars, returns a
+ * {@see CustomerAddressView}; never an `ApiResource` class (A-7) and never a `Doctrine\DBAL\Connection` (A-10).
+ *
+ * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['customer_address']`,
+ * `Version20261009000500`): the INSERT names `id, tenant_id, customer_id, kind, address_line, city, postal_code,
+ * country_code, idempotency_key, request_digest` (`region` omitted: its default `''` applies — it is neither accepted nor
+ * served, `sales_order` has no column for it); the UPDATE sets only submitted columns plus `updated_at`. **No statement
+ * touches `sales_order`:** an order holds a snapshot of the address (`ship_to_*`, copied by
+ * `SalesOrderWriter::shipToInside()`), so correcting an address moves no order, draft or confirmed (design §5.2; owner
+ * ruling O-3).
+ *
+ * **Create, in order** (design §5.1 as revised per RED L-1 — the purchase-order-line order):
+ *  1. shape, before any transaction (all five fields required; blank after trimming → `blank`, stored as sent otherwise —
+ *     no trim, final RED L-2; `kind` ∈ {billing, shipping}; country code shape);
+ *  2. the parent: absent or another workspace's → 404. **An archived customer is found here** (final RED L-4 (a)), so its
+ *     refusal is step 4's 409, not a 404;
+ *  3. **the key** (`unique:customer_address_idem_unique`, header-sourced, NOT NULL, TOTAL — the table is `hard`): the same
+ *     key with the same digest replays the stored row (201), with another digest → 409 `idempotency-key-conflict`. The
+ *     digest covers the **path's customer id** plus the shape-checked values (`SalesOrderWriter::lineDigest()`'s rule,
+ *     L-4 (b)), so the same key sent to another customer is a conflict, never a replay of that customer's address. The
+ *     lookup runs under RLS after the 404, so a key cannot be probed across workspaces. **It runs before the archived
+ *     guard on purpose:** a retry of a create that succeeded is handed its row even if the customer was archived in
+ *     between (`PurchaseOrderLineIdempotencyTest::aLineCreateRetryAfterApprovalReturnsTheLine`'s exemption);
+ *  4. archived customer → 409 `customer.is_archived` (ST-9: an archived row is read-only, children included). Inlined,
+ *     never a `refuseUnless…` method (`EditWindowGuardTest` clause (b) would read one as an edit window, RED L-3);
+ *  5. country not in the reference table → 422 `unknown_reference` (four rows, `RESIDUAL_GAPS.md` G-37);
+ *  6. the INSERT. A 23505 on `customer_address_idem_unique` (two requests with one key racing past step 3) is translated
+ *     **outside** `TenantContext::run()`, because the failed statement aborted the transaction, by re-reading the key: the
+ *     winner's row with the same digest replays, any other is the 409 conflict.
+ *
+ * **Update:** the pair `(customer, address)` (404 for an absent parent, a foreign one, or another customer's address —
+ * ST-5) → archived customer 409 → shape → country support → `UPDATE … WHERE id = ? AND customer_id = ?`. An empty PATCH
+ * issues no statement and answers the row. `null` on any field is refused (all five are NOT NULL).
+ *
+ * **No audit row** (deviation D-1 of C3, `docs/session13/customers-s1-build-progress.md`): no authority asks for one — the
+ * G-35 chain (`customers-s1-g35-judge.md`, `-g35-final-red.md`) minted `customer.created`/`.updated` for the payment-terms
+ * exposure, and an address carries no money term; `updated_at` records when, not who (G-19's shape).
+ */
+final readonly class CustomerAddressWriter
+{
+    public const CREATE_OPERATION = 'CreateCustomerAddress';
+
+    public const ARCHIVED_ON_CREATE = 'This customer is archived, so no address can be added to it.';
+
+    public const ARCHIVED_ON_UPDATE = 'This customer is archived, so its addresses can\'t be changed.';
+
+    public const KIND_UNKNOWN = 'An address is either a shipping address or a billing address.';
+
+    /** The five accepted fields, in §4.2's order, as wire names, and the column each is stored in. */
+    private const COLUMNS = [
+        'kind' => 'kind',
+        'line' => 'address_line',
+        'city' => 'city',
+        'postal_code' => 'postal_code',
+        'country_code' => 'country_code',
+    ];
+
+    private const KINDS = ['billing', 'shipping'];
+
+    public function __construct(
+        private TenantContext $tenants,
+        private CurrentTenant $tenant,
+    ) {
+    }
+
+    /** @param array<string, mixed> $values wire name => value, for the fields the body carried */
+    public function create(string $customerId, array $values, string $idempotencyKey): CustomerAddressView
+    {
+        self::refuseMalformed($values, array_keys(self::COLUMNS));
+
+        if (!Uuid::isValid($customerId)) {
+            throw ApiProblem::notFound();
+        }
+        $customerId = Uuid::fromString($customerId)->toRfc4122();
+
+        // D-B: the column holds the header's hash, never its value.
+        $keyHash = IdempotencyKeyHash::of($idempotencyKey);
+        $digest = self::digest($customerId, $values);
+        $tenantId = $this->tenant->tenantId();
+
+        try {
+            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($customerId, $values, $keyHash, $digest, $tenantId): CustomerAddressView {
+                $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
+
+                $replay = self::createdByKeyInside($em, $customerId, $keyHash, $digest);
+                if (null !== $replay) {
+                    return $replay;
+                }
+
+                // ST-9, after the key on purpose (see the class docblock, step 3).
+                if ($archived) {
+                    throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_CREATE);
+                }
+
+                self::refuseUnsupportedCountry($em, $values);
+
+                $id = Uuid::v4()->toRfc4122();
+                $em->getConnection()->executeStatement(
+                    'INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)'
+                    .' VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)',
+                    [$id, $tenantId, $customerId, $values['kind'], $values['line'], $values['city'], $values['postal_code'], $values['country_code'], $keyHash, $digest],
+                );
+
+                return CustomerAddressReader::readInside($em, $customerId, $id)
+                    ?? throw new \LogicException('The address just inserted is not readable.');
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Outside `run()`: the failed INSERT aborted the transaction. The table's only unique a write can hit is
+            // `customer_address_idem_unique` (the id is minted here): another request with this key won the race.
+            return $this->tenants->run($tenantId, static fn (EntityManagerInterface $em): CustomerAddressView => self::createdByKeyInside($em, $customerId, $keyHash, $digest)
+                ?? throw ApiProblem::idempotencyKeyConflict());
+        }
+    }
+
+    /** @param array<string, mixed> $submitted wire name => value, exactly the fields the body carried */
+    public function update(string $customerId, string $addressId, array $submitted): CustomerAddressView
+    {
+        if (!Uuid::isValid($customerId) || !Uuid::isValid($addressId)) {
+            throw ApiProblem::notFound();
+        }
+        $customerId = Uuid::fromString($customerId)->toRfc4122();
+        $addressId = Uuid::fromString($addressId)->toRfc4122();
+
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($customerId, $addressId, $submitted): CustomerAddressView {
+            $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
+            // The pair: another customer's address under this path is the same 404 as a random id (ST-5).
+            CustomerAddressReader::readInside($em, $customerId, $addressId) ?? throw ApiProblem::notFound();
+
+            if ($archived) {
+                throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_UPDATE);
+            }
+
+            self::refuseMalformed($submitted, []);
+            self::refuseUnsupportedCountry($em, $submitted);
+
+            $set = [];
+            $parameters = [];
+            foreach (self::COLUMNS as $field => $column) {
+                if (\array_key_exists($field, $submitted)) {
+                    $set[] = $column.' = ?';
+                    $parameters[] = $submitted[$field];
+                }
+            }
+            if ([] !== $set) {
+                $set[] = 'updated_at = now()';
+                $parameters[] = $addressId;
+                $parameters[] = $customerId;
+                $em->getConnection()->executeStatement(
+                    'UPDATE customer_address SET '.implode(', ', $set).' WHERE id = ?::uuid AND customer_id = ?::uuid',
+                    $parameters,
+                );
+            }
+
+            return CustomerAddressReader::readInside($em, $customerId, $addressId)
+                ?? throw new \LogicException('The address just updated is not readable.');
+        });
+    }
+
+    /** The customer's archived flag, or null when no customer of this workspace has the id. Archived customers ARE found. */
+    private static function parentArchivedInside(EntityManagerInterface $em, string $customerId): ?bool
+    {
+        // `fetchAssociative`, not `fetchOne`: a live customer's `false` would be indistinguishable from "no row".
+        $row = $em->getConnection()->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid', [$customerId]);
+
+        return false === $row ? null : (true === $row['archived']);
+    }
+
+    /**
+     * The address this key already created, or null. A digest mismatch — another body **or another customer**, since the
+     * path id is digested — is §6.2's 409, thrown before anything is written.
+     */
+    private static function createdByKeyInside(EntityManagerInterface $em, string $customerId, string $keyHash, string $digest): ?CustomerAddressView
+    {
+        $row = $em->getConnection()->fetchAssociative(
+            'SELECT id, request_digest FROM customer_address WHERE idempotency_key = ?',
+            [$keyHash],
+        );
+        if (false === $row) {
+            return null;
+        }
+        if (!hash_equals((string) $row['request_digest'], $digest)) {
+            throw ApiProblem::idempotencyKeyConflict();
+        }
+
+        // The digest carries the customer id, so a match is an address of THIS customer.
+        return CustomerAddressReader::readInside($em, $customerId, (string) $row['id'])
+            ?? throw new \LogicException('An address found by its key is not readable in the same transaction.');
+    }
+
+    /**
+     * D-B's digest: the **path's customer id** plus the five shape-checked fields, values as sent (nothing is normalised
+     * beyond the shape check: the house stores text as sent, so two spellings are two requests).
+     *
+     * @param array<string, mixed> $values
+     */
+    private static function digest(string $customerId, array $values): string
+    {
+        $fields = ['customer_id' => RequestDigest::uuid($customerId)];
+        foreach (array_keys(self::COLUMNS) as $field) {
+            $fields[$field] = $values[$field];
+        }
+
+        return RequestDigest::of(self::CREATE_OPERATION, $fields);
+    }
+
+    /**
+     * Shape, and only shape: decidable without the database.
+     *
+     * @param array<string, mixed> $values
+     * @param list<string>         $required
+     */
+    private static function refuseMalformed(array $values, array $required): void
+    {
+        $errors = [];
+
+        foreach (array_keys(self::COLUMNS) as $field) {
+            $present = \array_key_exists($field, $values);
+            $value = $values[$field] ?? null;
+
+            if (null === $value) {
+                if (\in_array($field, $required, true)) {
+                    $errors[] = self::error($field, 'required', 'This field is required.');
+                } elseif ($present) {
+                    $errors[] = self::error($field, 'not_nullable', 'This field may not be cleared.');
+                }
+                continue;
+            }
+
+            switch ($field) {
+                case 'kind':
+                    if (!\in_array($value, self::KINDS, true)) {
+                        $errors[] = self::error($field, 'not_an_address_kind', self::KIND_UNKNOWN);
+                    }
+                    break;
+                case 'line':
+                case 'city':
+                case 'postal_code':
+                    if (!\is_string($value)) {
+                        $errors[] = self::error($field, 'not_a_string', 'This field must be a string.');
+                    } elseif ('' === trim($value)) {
+                        $errors[] = self::error($field, 'blank', 'This field may not be blank.');
+                    }
+                    break;
+                case 'country_code':
+                    if (!\is_string($value) || 1 !== preg_match('/^[A-Z]{2}$/', $value)) {
+                        $errors[] = self::error($field, 'not_a_country_code', CustomerWriter::COUNTRY_SHAPE);
+                    }
+                    break;
+            }
+        }
+
+        if ([] !== $errors) {
+            throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /**
+     * `country` is reference data (ADR-002 §6), not tenant-scoped: an existence check that discloses nothing.
+     *
+     * @param array<string, mixed> $values
+     */
+    private static function refuseUnsupportedCountry(EntityManagerInterface $em, array $values): void
+    {
+        if (isset($values['country_code']) && false === $em->getConnection()->fetchOne('SELECT 1 FROM country WHERE code = ?', [$values['country_code']])) {
+            throw ApiProblem::validationFailed([self::error('country_code', 'unknown_reference', CustomerWriter::COUNTRY_UNSUPPORTED)]);
+        }
+    }
+
+    /** @return array{pointer: string, code: string, message: string} */
+    private static function error(string $field, string $code, string $message): array
+    {
+        return ['pointer' => '/'.$field, 'code' => $code, 'message' => $message];
+    }
+}

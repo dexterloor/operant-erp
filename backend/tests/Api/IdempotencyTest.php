@@ -110,6 +110,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second customer with the same code. Its mechanism is the live-row unique on (tenant, code), refused, never '
                 .'replayed (customers slice 1 C2), and a refused replay writes no second customer.created row.',
         ],
+        'CreateCustomerAddress' => [
+            'method' => 'replayCreateCustomerAddress',
+            'why' => 'A second customer_address for the same request (customers slice 1 C3). Its mechanism is the header-sourced '
+                .'retry key on a TOTAL unique (the table is hard): the repeat replays the stored address, same id, one row.',
+        ],
         'CreatePurchaseOrder' => [
             'method' => 'replayCreatePurchaseOrder',
             'why' => 'A second purchase_order. Its mechanism is the header-sourced retry key on a live-row unique.',
@@ -723,6 +728,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame('sales_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
         self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
+    }
+
+    private function replayCreateCustomerAddress(string $why): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Replayed Address Customer');
+        $body = ['kind' => 'shipping', 'line' => '1 Replay Road', 'city' => 'Leeds', 'postal_code' => 'LS1 4AP', 'country_code' => 'GB'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/customers/'.$customer.'/addresses', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+
+        $this->send('POST', '/customers/'.$customer.'/addresses', $body, $key);
+        self::assertSame(201, $this->httpStatus(), 'A replayed CreateCustomerAddress was not answered with the stored address.');
+        self::assertSame($first, $this->json(), $why);
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM customer_address WHERE customer_id = ?::uuid', [$customer]), $why);
     }
 
     private function replayCreateSalesOrderLine(string $why): void

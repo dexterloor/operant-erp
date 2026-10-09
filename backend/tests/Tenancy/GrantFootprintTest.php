@@ -1024,8 +1024,9 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
-     * The columns the customer writers name, per privilege (customers slice 1: C2 `Version20261009000300`). **Typed by hand
-     * from `CustomerWriter`'s INSERT and UPDATE, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
+     * The columns the customer writers name, per privilege (customers slice 1: C2 `Version20261009000300`, C3
+     * `Version20261009000500`). **Typed by hand from `CustomerWriter`'s and `CustomerAddressWriter`'s INSERT and UPDATE,
+     * never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
      * reason: a joint widening of the manifest and a migration must still fail here). No DELETE on either table.
      *
      * @var array<string, array<string, list<string>>> privilege => table => columns
@@ -1033,9 +1034,12 @@ final class GrantFootprintTest extends TenancyTestCase
     private const CUSTOMER_COLUMN_WRITES = [
         'INSERT' => [
             'customer' => ['code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days', 'tenant_id'],
+            'customer_address' => ['address_line', 'city', 'country_code', 'customer_id', 'id', 'idempotency_key', 'kind', 'postal_code',
+                'request_digest', 'tenant_id'],
         ],
         'UPDATE' => [
             'customer' => ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days', 'updated_at'],
+            'customer_address' => ['address_line', 'city', 'country_code', 'kind', 'postal_code', 'updated_at'],
         ],
     ];
 
@@ -1045,7 +1049,9 @@ final class GrantFootprintTest extends TenancyTestCase
      * `theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName`' shape: domain from `pg_attribute`, one
      * connection and one rolled-back transaction per (table, column, privilege), zero-row probes. **Positive controls:**
      * `customer.name` INSERT and UPDATE accepted. **Anti-vacuity:** `customer.deleted_at` UPDATE (archiving by SQL),
-     * `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **Planted control, committed then undone:**
+     * `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **C3 (`customer_address`):**
+     * `address_line` INSERT and UPDATE accepted; `region` INSERT (not accepted, defaulted), `idempotency_key` UPDATE
+     * (a stored key re-pointed by SQL) and `customer_address` DELETE refused. **Planted control, committed then undone:**
      * `GRANT UPDATE (deleted_at) ON customer` must produce exactly one violation (design mutation C2-6's twin). The UPDATE
      * columns also make `UpdateCustomer`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
      */
@@ -1110,6 +1116,10 @@ final class GrantFootprintTest extends TenancyTestCase
             'The positive controls failed: erp_app could not insert or update customer.name.');
         self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer.deleted_at UPDATE'] ?? null, $outcomes['customer.credit_limit UPDATE'] ?? null, $outcomes['customer.* DELETE'] ?? null],
             'erp_app must not archive a customer, set its credit limit or delete it, and the probe did not see them refused.');
+        self::assertSame(['accepted', 'accepted'], [$outcomes['customer_address.address_line INSERT'] ?? null, $outcomes['customer_address.address_line UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update customer_address.address_line.');
+        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_address.region INSERT'] ?? null, $outcomes['customer_address.idempotency_key UPDATE'] ?? null, $outcomes['customer_address.* DELETE'] ?? null],
+            'erp_app must not write an address region, re-point a stored retry key or delete an address, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on the customer tables are not exactly the customer writers':\n  ".implode("\n  ", $violations($outcomes)));
 

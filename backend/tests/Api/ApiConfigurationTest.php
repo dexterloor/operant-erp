@@ -78,6 +78,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // predicted from the purchase twin's shape before the operation was declared and then read off
         // this failure, which is the order that matters: the prediction was checked, not trusted.
         self::assertSame([
+            // **2026-10-09, customers slice 1 C3 (final RED M-1)**, the same case again and permanent: `CustomerAddress` has
+            // built writes at `/customers/{id}/addresses[/{addressId}]` and §4.2 declares no `GetCustomerAddress` (TB-1c).
+            // Predicted from the line twins' shape, then read off `debug:router` before the test ran
+            // (the vendor's route order puts it first).
+            '_api_/customer_addresses/{id}{._format}_get' => \App\Modules\Customers\ApiResource\CustomerAddressResource::class,
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
             '_api_/sales_order_lines/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderLineResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
@@ -213,7 +218,12 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And two more (customers slice 1 C2, 2026-10-09):** `CreateCustomer`, a POST at `/customers` (`customer.create`;
         // branch 4), and `UpdateCustomer`, a PATCH at `/customers/{id}` (`customer.edit`), both on `CustomerResource`. Its
         // migration grants `erp_app` a column INSERT and a column UPDATE on `customer`.
-        self::assertCount(74, $checked, 'The route set changed. This slice declares seventy-four operations: '.implode(', ', array_keys($checked)));
+        // **And three more (customers slice 1 C3, 2026-10-09):** `CreateCustomerAddress` (POST `/customers/{id}/addresses`,
+        // `customer.edit`; branch 4) and `UpdateCustomerAddress` (PATCH `/customers/{id}/addresses/{addressId}`,
+        // `customer.edit`) on `CustomerAddressResource`, and `ListCustomerAddresses` (GET `/customers/{id}/addresses`,
+        // `customer.view`, bounded) on `CustomerAddressCollection`. Its migration grants `erp_app` a column INSERT and a
+        // column UPDATE on `customer_address`; the not-exposed fallback route above is not counted.
+        self::assertCount(77, $checked, 'The route set changed. This slice declares seventy-seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

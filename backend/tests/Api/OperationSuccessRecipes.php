@@ -773,6 +773,34 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a customer'];
             }],
+            // Customers slice 1, C3: every recipe carries LETTER-bearing postal codes (CD-3: `WireScaleTest` reads an all-digit
+            // text value as a decimal; design §5.4). The list seeds one address so `ResponseShapeTest` has an item to walk.
+            'CreateCustomerAddress' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Address Customer')], function (array $c) use ($key): array {
+                $this->send('POST', '/customers/'.$c['customer'].'/addresses', [
+                    'kind' => 'shipping', 'line' => '10 Downing Street', 'city' => 'London', 'postal_code' => 'SW1A 2AA', 'country_code' => 'GB',
+                ], $key());
+
+                return [201, 'add an address to a customer'];
+            }],
+            'UpdateCustomerAddress' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Moved Customer');
+
+                return ['customer' => $customer, 'address' => $this->seedCustomerAddress(self::TENANT_A, $customer)];
+            }, function (array $c): array {
+                $this->send('PATCH', '/customers/'.$c['customer'].'/addresses/'.$c['address'], ['city' => 'Manchester', 'postal_code' => 'M3 2BW']);
+
+                return [200, 'correct a customer address'];
+            }],
+            'ListCustomerAddresses' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Listed Customer');
+                $this->seedCustomerAddress(self::TENANT_A, $customer);
+
+                return ['customer' => $customer];
+            }, function (array $c): array {
+                $this->send('GET', '/customers/'.$c['customer'].'/addresses');
+
+                return [200, 'list a customer\'s addresses'];
+            }],
             // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
             // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
             // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at

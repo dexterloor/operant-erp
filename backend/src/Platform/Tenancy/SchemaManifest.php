@@ -550,6 +550,16 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::HARD,
             'why' => 'Deliberately hard, and it is the reason sales_order carries ship-to snapshot columns: an order pointing at a live address row would silently rewrite where a past shipment went every time the customer moves. **Carries CreateCustomerAddress\'s retry key (customers slice 1 C0, Version20261009000200), on fulfilment\'s reasoning:** idempotency_key and request_digest are NOT NULL, CHECKed to 64 lower-case hex, and customer_address_idem_unique (tenant_id, idempotency_key) is TOTAL because the table has no deleted_at. That migration grants nothing; the writer\'s column INSERT lands with it (C3).',
+            // Customers slice 1 C3 (2026-10-09, Version20261009000500): CustomerAddressWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). region is in neither (not accepted, not
+            // served; defaulted). idempotency_key and request_digest are INSERT-only, so SQL as erp_app cannot re-point a stored
+            // key at another request. No DELETE: DeleteCustomerAddress is not built. Declared explicitly so erp_ai keeps exactly
+            // its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'customer_id', 'kind', 'address_line', 'city', 'postal_code', 'country_code', 'idempotency_key', 'request_digest'],
+                'UPDATE' => ['kind', 'address_line', 'city', 'postal_code', 'country_code', 'updated_at'],
+            ]],
         ],
 
         // ------------------------------------------------------------------

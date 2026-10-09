@@ -122,6 +122,9 @@ services:
             # constants-only class with a private constructor the container would otherwise try to instantiate.
             - '../src/Modules/Customers/ApiResource/{CreateCustomerInput.php,UpdateCustomerInput.php}'
             - '../src/Modules/Customers/Application/Contract/PaymentTerms.php'
+            # Customers slice 1 C3 (2026-10-09): the address read model and the two address request bodies — data, not services.
+            - '../src/Modules/Customers/Application/CustomerAddressView.php'
+            - '../src/Modules/Customers/ApiResource/{CreateCustomerAddressInput.php,UpdateCustomerAddressInput.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

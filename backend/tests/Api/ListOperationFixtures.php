@@ -368,6 +368,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListCustomerAddresses' => function (): array {
+                // Customers slice 1 C3. One customer; the seed step gives it N addresses with LETTER-bearing postal codes
+                // (CD-3), each its own row (distinct random keys, `seedCustomerAddress()`).
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Addresses');
+
+                return ['/customers/'.$customer.'/addresses', function (int $rows) use ($customer): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', $i.' Envelope Street', 'London', 'EC2R 8AH');
+                    }
+
+                    // Bounded (TB-1c), no query parameter at all (the table is `hard`, so not even `archived`).
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListSalesOrderLines' => function (): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-156000');
 

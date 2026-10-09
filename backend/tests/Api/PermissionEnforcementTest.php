@@ -77,6 +77,10 @@ final class PermissionEnforcementTest extends ApiTestCase
         // token is present. **Unlike the `sales_orders` entry above, this one is not transient:** §4.2
         // declares no `GetSalesOrderLine` at all, so no future commit removes it.
         '_api_/sales_order_lines/{id}{._format}_get',
+        // Added 2026-10-09 with `CreateCustomerAddress` (customers slice 1 C3, final RED M-1), `sales_order_lines`' entry
+        // exactly and permanent: `CustomerAddress` has built writes and §4.2 declares no `GetCustomerAddress` (TB-1c), so
+        // the vendor mints the not-exposed IRI route, answering 404 for every request with or without a token.
+        '_api_/customer_addresses/{id}{._format}_get',
     ];
 
     /**

@@ -287,7 +287,10 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'roles' => $userRole,
             // Customers slice 1 C2: `UpdateCustomer` acts on a live customer, so the refusal is the planted field's and not a
             // 404's or a `customer.is_archived` 409.
-            'customers' => $this->seedCustomer(self::TENANT_A, 'Request Contract Customer'),
+            'customers' => $customer = $this->seedCustomer(self::TENANT_A, 'Request Contract Customer'),
+            // Customers slice 1 C3: `UpdateCustomerAddress` acts on an address OF THAT customer (the pair names the row), so
+            // the refusal is the planted field's and not a 404's.
+            'customers/addresses' => $this->seedCustomerAddress(self::TENANT_A, $customer),
         ];
 
         $segments = explode('/', $uriTemplate);

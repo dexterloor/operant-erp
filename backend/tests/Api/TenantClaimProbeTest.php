@@ -131,6 +131,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],
         'UpdateCustomer' => ['vars' => ['id' => 'customer'], 'body' => ['name' => 'Renamed']],
+        // Customers slice 1 C3: the remembered customer and its remembered address. A moved read would 404 or list B's
+        // addresses; a moved create would 404 (B's customer is another id); a moved update would 404 on the pair.
+        'ListCustomerAddresses' => ['vars' => ['id' => 'customer']],
+        'CreateCustomerAddress' => ['vars' => ['id' => 'customer'], 'body' => ['kind' => 'shipping', 'line' => '1 Probe Street',
+            'city' => 'Leeds', 'postal_code' => 'LS1 1AA', 'country_code' => 'GB']],
+        'UpdateCustomerAddress' => ['vars' => ['id' => 'customer', 'addressId' => 'customer_address'], 'body' => ['city' => 'York']],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
