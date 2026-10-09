@@ -757,6 +757,22 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s customers'];
             }],
+            // Customers slice 1, C2: a create with a letter-bearing code (CD-3: `WireScaleTest` must never read an all-digit
+            // code as a decimal) and every field sent; an update that changes the name and the terms of a seeded customer,
+            // so the success path writes its `customer.updated` row.
+            'CreateCustomer' => [$none, function () use ($key): array {
+                $this->send('POST', '/customers', [
+                    'code' => 'C-RECIPE', 'name' => 'Recipe New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP',
+                    'payment_terms_days' => 45,
+                ], $key());
+
+                return [201, 'create a customer'];
+            }],
+            'UpdateCustomer' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Updated Customer')], function (array $c): array {
+                $this->send('PATCH', '/customers/'.$c['customer'], ['name' => 'Recipe Renamed Customer', 'payment_terms_days' => 60]);
+
+                return [200, 'update a customer'];
+            }],
             // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
             // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
             // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at

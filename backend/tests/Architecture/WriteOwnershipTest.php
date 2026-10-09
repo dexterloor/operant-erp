@@ -176,7 +176,13 @@ final class WriteOwnershipTest extends KernelTestCase
         // for `sales_return.created`, metadata `jsonb_build_object('reason', ?, 'deducts', ?)`.
         // **16 -> 17 on 2026-10-01** (sales step 7 C1): `CreditNoteAuditWriter::recordIssued()`'s `INSERT INTO audit_log`.
         // **17 -> 18 on 2026-10-05** (G-29 / G-30 part 3, C1): `CreditNoteAuditWriter::recordReturnDecided()`'s INSERT.
-        'Modules\\AuditLog' => 18,
+        // **18 -> 19 on 2026-10-09** (customers slice 1 C2): `CustomerAuditWriter::record()`'s ONE `INSERT INTO audit_log`,
+        // shared by `customer.created` and `customer.updated` (metadata a bound `?::jsonb`), read off this test's run.
+        'Modules\\AuditLog' => 19,
+        // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
+        // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
+        // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
+        'Modules\\Customers' => 2,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

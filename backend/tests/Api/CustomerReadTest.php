@@ -33,6 +33,9 @@ final class CustomerReadTest extends PurchaseOrderTestCase
     public const PINNED_CUSTOMER_OPERATIONS = [
         'GetCustomer' => ['method' => 'GET', 'path' => '/customers/{id}', 'idem' => false],
         'ListCustomers' => ['method' => 'GET', 'path' => '/customers', 'idem' => false],
+        // C2 (2026-10-09): the create demands the header (`unique:customer_tenant_code_live`); the PATCH does not.
+        'CreateCustomer' => ['method' => 'POST', 'path' => '/customers', 'idem' => true],
+        'UpdateCustomer' => ['method' => 'PATCH', 'path' => '/customers/{id}', 'idem' => false],
     ];
 
     /** `CustomerResource`'s serialized members — §4.4.3's derivation (design §2.3 item 8). */

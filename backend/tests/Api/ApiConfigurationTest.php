@@ -210,7 +210,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `OfferedRoleCollection` (`role.assign`; owner ruling Q-U2). No migration, no grant.
         // **And two more (customers slice 1 C1, 2026-10-09):** `GetCustomer`, a GET at `/customers/{id}` on `CustomerResource`,
         // and `ListCustomers`, a GET at `/customers` on `CustomerCollection` (both `customer.view`). No migration, no grant.
-        self::assertCount(72, $checked, 'The route set changed. This slice declares seventy-two operations: '.implode(', ', array_keys($checked)));
+        // **And two more (customers slice 1 C2, 2026-10-09):** `CreateCustomer`, a POST at `/customers` (`customer.create`;
+        // branch 4), and `UpdateCustomer`, a PATCH at `/customers/{id}` (`customer.edit`), both on `CustomerResource`. Its
+        // migration grants `erp_app` a column INSERT and a column UPDATE on `customer`.
+        self::assertCount(74, $checked, 'The route set changed. This slice declares seventy-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

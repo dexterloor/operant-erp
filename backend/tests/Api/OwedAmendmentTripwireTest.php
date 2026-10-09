@@ -333,6 +333,31 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      *
      * @var array<string, string>
      */
+    /**
+     * **G-35's re-rating trigger, mechanised** (customers slice 1 C2, 2026-10-09; `docs/session13/customers-s1-g35-judge.md`
+     * FINAL item 10). From C2 the customer trail (`customer.created` / `customer.updated`) attributes a payment-terms change,
+     * but only owner SQL can read it: G-35's "detection, not prevention" is evidence nobody in the workspace can see. The
+     * first audit read makes it usable, and that commit owes the re-rating and the prevention decision. Keyed by
+     * `operationId` (the pick-read precedent, `1076ba3`).
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_G35_RERATING = [
+        'ListAuditRecords' => 'the record-history read (L-7, `audit_log.view_record`).',
+        'ListAuditLogEntries' => 'the whole-trail read (`audit_log.view`).',
+    ];
+
+    /**
+     * **The supplier twin of G-35's trail, framed as a decision** (customers slice 1 C2, 2026-10-09; judge C-5, C-7).
+     * `UpdateSupplier` accepts the same five fields as `UpdateCustomer`; G-19's asymmetry rule says the two edits must not
+     * diverge silently. Keyed by `operationId`.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION = [
+        'UpdateSupplier' => 'mint `supplier.updated` on `customer.updated`\'s precedent, or record a twin gap.',
+    ];
+
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -995,6 +1020,66 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $arrived = array_intersect_key(self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT, $built);
 
         self::assertSame([], $arrived, self::doubleCreditPointer($arrived));
+    }
+
+    /**
+     * **`RESIDUAL_GAPS.md` G-35's hard trigger** (customers slice 1 C2; judge FINAL item 10). Red the moment either key of
+     * {@see self::OPERATIONS_OWING_THE_G35_RERATING} is in the generated spec. **Controls, same test:** the positive control
+     * every sibling uses; a non-empty map; and the intersection over a literal map naming a BUILT operation (`ListCustomers`)
+     * must report it. Mutation M-10: plant `ListCustomers` as a key → red naming it.
+     */
+    #[Test]
+    public function noAuditReadShipsWithoutReRatingG35(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_G35_RERATING,
+            'The G-35 re-rating map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
+        self::assertSame(['ListCustomers' => 'x'],
+            array_intersect_key(['ListCustomers' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_G35_RERATING, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            '%s has been built, so the customer trail (`customer.created` / `customer.updated`) is now readable by tenant users. '
+            .'RESIDUAL_GAPS.md G-35 is owed in THIS COMMIT: `SEC` re-rates it, and `PO` + `SEC` decide prevention (owner-gated '
+            .'terms, a role split) or record detection as the control. Also confirm `ListAuditRecords` resolves `customer` '
+            .'through PC-9 (`customer.view`). Do not hand-edit this pin to green. (%s)',
+            implode(', ', array_keys($arrived)),
+            implode(' ', $arrived),
+        ));
+    }
+
+    /**
+     * **The supplier trail decision** (customers slice 1 C2; judge FINAL item 10, C-5/C-7). Red the moment `UpdateSupplier`
+     * is in the generated spec. **Controls, same test:** the positive control; a non-empty map; a planted built-key
+     * intersection (`ListCustomers`). Mutation M-10: plant `ListCustomers` as a key → red naming it.
+     */
+    #[Test]
+    public function noSupplierEditShipsWithoutDecidingItsTrail(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION,
+            'The supplier-trail map is empty, so it holds over nothing. Its entry leaves only with the decision its message asks for.');
+        self::assertSame(['ListCustomers' => 'x'],
+            array_intersect_key(['ListCustomers' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            '%s has been built. It accepts the same five fields as UpdateCustomer, which writes `customer.updated` `{fields}` '
+            .'(G-35). In THIS COMMIT either mint `supplier.updated` on that precedent (`SEC` files it, names only, row-locked '
+            .'diff) or record a twin gap in RESIDUAL_GAPS.md — G-19\'s asymmetry rule. Do not hand-edit this pin to green. (%s)',
+            implode(', ', array_keys($arrived)),
+            implode(' ', $arrived),
+        ));
     }
 
     /**

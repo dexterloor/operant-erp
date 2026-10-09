@@ -153,6 +153,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // subject the credit note of each row's own adjustment line — never the return — ids-only metadata, no IP),
         // which preceded the code; its subject is `credit_note`, so (4c) does not reach it.
         'credit_note.return_decided',
+        // Edited by hand 2026-10-09 (customers slice 1 C2) on the delegated `SEC`-role filing in
+        // `docs/session13/customers-s1-g35-judge.md` C-4 (`SEC` to confirm; BUSINESS, subject the customer, `{}` and
+        // `{"fields"}` — names, never values — no IP), which preceded the code. A customer created or changed is the
+        // customer row's own state; its subject is `customer`, so (4c) does not reach either. `RESIDUAL_GAPS.md` G-35.
+        'customer.created',
+        'customer.updated',
     ];
 
     /**

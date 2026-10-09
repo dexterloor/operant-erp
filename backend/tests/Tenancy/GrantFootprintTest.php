@@ -1024,6 +1024,106 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The columns the customer writers name, per privilege (customers slice 1: C2 `Version20261009000300`). **Typed by hand
+     * from `CustomerWriter`'s INSERT and UPDATE, never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
+     * reason: a joint widening of the manifest and a migration must still fail here). No DELETE on either table.
+     *
+     * @var array<string, array<string, list<string>>> privilege => table => columns
+     */
+    private const CUSTOMER_COLUMN_WRITES = [
+        'INSERT' => [
+            'customer' => ['code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days', 'tenant_id'],
+        ],
+        'UPDATE' => [
+            'customer' => ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days', 'updated_at'],
+        ],
+    ];
+
+    /**
+     * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer` and `UpdateCustomer` name on `customer`,
+     * and delete nothing — proved by running the statements as `erp_app`** (design §4.4; ADR-002 A4.4's *"exactly"*).
+     * `theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName`' shape: domain from `pg_attribute`, one
+     * connection and one rolled-back transaction per (table, column, privilege), zero-row probes. **Positive controls:**
+     * `customer.name` INSERT and UPDATE accepted. **Anti-vacuity:** `customer.deleted_at` UPDATE (archiving by SQL),
+     * `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **Planted control, committed then undone:**
+     * `GRANT UPDATE (deleted_at) ON customer` must produce exactly one violation (design mutation C2-6's twin). The UPDATE
+     * columns also make `UpdateCustomer`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheCustomerColumnsTheCustomerWritersName(): void
+    {
+        $columns = [];
+        foreach (array_keys(self::CUSTOMER_COLUMN_WRITES['INSERT']) as $table) {
+            $columns[$table] = $this->owner()->fetchFirstColumn(
+                'SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum', [$table]);
+        }
+
+        $run = function (string $table, string $key, string $sql) use (&$outcomes): void {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement($sql);
+                $outcomes[$key] = 'accepted';
+            } catch (DriverException $e) {
+                $outcomes[$key] = '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table '.$table)
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        $probe = function () use ($columns, $run, &$outcomes): array {
+            $outcomes = [];
+            foreach ($columns as $table => $tableColumns) {
+                foreach ($tableColumns as $column) {
+                    foreach (['INSERT' => 'INSERT INTO %2$s (%1$s) SELECT %1$s FROM %2$s WHERE false', 'UPDATE' => 'UPDATE %2$s SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
+                        $run($table, $table.'.'.$column.' '.$privilege, sprintf($sql, '"'.$column.'"', $table));
+                    }
+                }
+                $run($table, $table.'.* DELETE', sprintf('DELETE FROM %s WHERE false', $table));
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$tableColumn, $privilege] = explode(' ', $key);
+                [$table, $column] = explode('.', $tableColumn);
+                $granted = 'DELETE' !== $privilege && \in_array($column, self::CUSTOMER_COLUMN_WRITES[$privilege][$table], true);
+                if ($granted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('%s: a customer writer issues it, but erp_app got "%s"', $key, $outcome);
+                } elseif (!$granted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('%s: no customer writer issues it, but erp_app got "%s"', $key, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+        self::assertSame(['accepted', 'accepted'], [$outcomes['customer.name INSERT'] ?? null, $outcomes['customer.name UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update customer.name.');
+        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer.deleted_at UPDATE'] ?? null, $outcomes['customer.credit_limit UPDATE'] ?? null, $outcomes['customer.* DELETE'] ?? null],
+            'erp_app must not archive a customer, set its credit limit or delete it, and the probe did not see them refused.');
+        self::assertSame([], $violations($outcomes),
+            "erp_app's writes on the customer tables are not exactly the customer writers':\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON customer TO %s', DatabaseRoles::APP));
+            self::assertSame(['customer.deleted_at UPDATE: no customer writer issues it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON customer FROM %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The planted deleted_at grant survived its REVOKE.');
+    }
+
+    /**
      * **`DATA` D-10.1's backstop CHECKs refuse, as `erp_app`, what the application refuses** (roles slice 4 C1): a zero-width
      * space, a trailing space, a bidi override, an empty name and a 101-character name → `23514 role_name_shape`; a control
      * character in the description → `role_description_shape`. **Positive control:** a plain name (and a description with a

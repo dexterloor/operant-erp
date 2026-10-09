@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\Application;
 
 use App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter;
+use App\Modules\Customers\Application\Contract\PaymentTerms;
 use App\Modules\Sales\Infrastructure\Entity\Invoice;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\Identity;
@@ -40,7 +41,9 @@ use Symfony\Component\Uid\Uuid;
  *     `assert…` and not `refuseUnless…`, so it stays outside `EditWindowGuardTest` clause (b): it is not an edit
  *     window.
  *  4. The customer's payment terms must be 0–3650 days (`invoice.payment_terms_are_usable`): `invoice_due_window`
- *     would otherwise refuse as a 23514 → 500.
+ *     would otherwise refuse as a 23514 → 500. The bound is {@see PaymentTerms::MAXIMUM_DAYS} — one source with
+ *     `CreateCustomer`/`UpdateCustomer`'s refusal since customers slice 1 C2 (`PaymentTermsBoundTest` holds it equal to
+ *     the CHECK); this step stays for a row stored outside it by SQL.
  *  5. The amount: `SUM(round((fulfilment_line.quantity − returned_before_issue) × sales_order_line.unit_price, 4))`
  *     — **what shipped, less the returns classified as deducting** (owner ruling Q1 as refined by Q-L (a′),
  *     2026-09-30: a return recorded before any invoice, by a `fulfilment.create` holder other than the shipper or by
@@ -76,9 +79,6 @@ final readonly class InvoiceIssuer
     private const NUMBER_INDEX = 'invoice_number_unique';
 
     private const LIVE_INDEX = 'invoice_tenant_fulfilment_not_void';
-
-    /** `invoice_due_window`'s bound, in days (`ARCH` §3). */
-    public const MAXIMUM_PAYMENT_TERMS_DAYS = 3650;
 
     /** `numeric(19,4)`: at most fifteen integer digits. */
     private const TOTAL_CEILING = '1000000000000000';
@@ -161,11 +161,11 @@ final readonly class InvoiceIssuer
 
         // 4.
         $terms = (int) $fulfilment['payment_terms_days'];
-        if ($terms < 0 || $terms > self::MAXIMUM_PAYMENT_TERMS_DAYS) {
+        if ($terms < PaymentTerms::MINIMUM_DAYS || $terms > PaymentTerms::MAXIMUM_DAYS) {
             throw ApiProblem::businessRuleViolated(
                 'invoice.payment_terms_are_usable',
                 \sprintf('This customer\'s payment terms are %d days. An invoice can only be issued on terms of 0 to %d days; correct the customer\'s terms first.',
-                    $terms, self::MAXIMUM_PAYMENT_TERMS_DAYS),
+                    $terms, PaymentTerms::MAXIMUM_DAYS),
             );
         }
 

@@ -285,6 +285,9 @@ final class RequestContractTest extends PurchaseOrderTestCase
             // Roles slice 4, C2: `UpdateRole` acts on a role. The same composed one-code role (`role.view`, not a system role),
             // so the refusal is the planted field's and not a 404's or an `is_system` 409.
             'roles' => $userRole,
+            // Customers slice 1 C2: `UpdateCustomer` acts on a live customer, so the refusal is the planted field's and not a
+            // 404's or a `customer.is_archived` 409.
+            'customers' => $this->seedCustomer(self::TENANT_A, 'Request Contract Customer'),
         ];
 
         $segments = explode('/', $uriTemplate);

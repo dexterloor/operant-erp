@@ -6,9 +6,14 @@ namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Customers\ApiResource\State\CreateCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerProvider;
+use App\Modules\Customers\ApiResource\State\UpdateCustomerProcessor;
 use App\Modules\Customers\Application\CustomerView;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -23,6 +28,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *
  * The gate refuses before the provider loads anything (E-1). A non-uuid, absent or another workspace's id is the same
  * 404; an archived customer in the caller's workspace is returned with `archived_at` set (§5.2a, ST-9).
+ *
+ * **`CreateCustomer` / `UpdateCustomer`** (customers slice 1 C2): `CustomerWriter` behind both, `ItemResource`'s operation
+ * shape. Each writes one audit row in its transaction (`customer.created` / `customer.updated` with field names only;
+ * `RESIDUAL_GAPS.md` G-35).
  */
 #[ApiResource(
     shortName: 'Customer',
@@ -34,6 +43,43 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CustomerProvider::class,
             // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, before the provider loads anything.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.view'],
+        ),
+        new Post(
+            uriTemplate: '/customers',
+            name: 'CreateCustomer',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateCustomer'),
+            input: CreateCustomerInput::class,
+            denormalizationContext: [
+                // API-9: unknown fields are refused and named back. A client `id` is refused by the layers `ItemResource`
+                // records (B-3); `CustomerWriter::create()` mints the id regardless.
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            processor: CreateCustomerProcessor::class,
+            // §4.2: `unique:customer_tenant_code_live`. API-14 demands the header; a repeat is refused by the code's live
+            // unique, never replayed (`ItemResource`'s `CreateItem` precedent).
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'customer.create',
+            ],
+        ),
+        new Patch(
+            uriTemplate: '/customers/{id}',
+            name: 'UpdateCustomer',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateCustomer'),
+            input: UpdateCustomerInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                // A body `id` is an undeclared field, never an IRI to resolve (`UpdateItem`'s reason).
+                'api_allow_update' => false,
+            ],
+            // The row is read first, so a PATCH at an id no row answers is `GetCustomer`'s 404 (§5.3 clause 2).
+            provider: CustomerProvider::class,
+            processor: UpdateCustomerProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
         ),
     ],
 )]

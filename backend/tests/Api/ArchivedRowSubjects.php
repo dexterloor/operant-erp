@@ -360,8 +360,8 @@ trait ArchivedRowSubjects
                 return ['id' => $user, 'row' => $user];
             },
             // Added 2026-10-09 with `GetCustomer` (customers slice 1, C1): `customer` is class `soft` and has a built direct-hit
-            // `Get`, and `ListCustomers` is its live list. No write on the resource is built yet (C2 adds `UpdateCustomer`'s
-            // body), so the write clause does not select it.
+            // `Get`, and `ListCustomers` is its live list. Its write is `UpdateCustomer` (C2, 2026-10-09; body in
+            // `archivedRowWriteBodies()`).
             'customer' => function (string $tag): array {
                 $customer = $this->seedCustomer(self::TENANT_A, 'Archived Subject '.$tag.' '.bin2hex(random_bytes(3)));
 
@@ -413,6 +413,9 @@ trait ArchivedRowSubjects
             'DeletePurchaseOrder' => null,
             'DeletePurchaseOrderLine' => null,
             'UpdateItem' => ['name' => 'Renamed'],
+            // Customers slice 1 C2 (final RED L-2 of the first attack): the live twin renames; the archived twin's 409 is
+            // `customer.is_archived`'s alone.
+            'UpdateCustomer' => ['name' => 'Renamed'],
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
             // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
             // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are

@@ -526,6 +526,18 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'ADR-007: a customer holding invoices cannot be hard-deleted.',
+            // Customers slice 1 C2 (2026-10-09, Version20261009000300): CustomerWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
+            // erp_app archive a customer (deleted_at) or set credit_limit/is_active/email/phone, which no operation writes
+            // (owner Q-C2, RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateCustomer's first-read FOR NO KEY UPDATE
+            // legal (A4.3 constraint 1, SalesOrderRowLock's precedent). Narrowing it to no columns turns that lock into a
+            // 42501. No DELETE: DeleteCustomer is not built, and its delete would be soft. Declared explicitly so erp_ai
+            // keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code', 'payment_terms_days'],
+                'UPDATE' => ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days', 'updated_at'],
+            ]],
         ],
         'customer_contact' => [
             'module' => 'Modules\\Customers',

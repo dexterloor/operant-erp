@@ -118,6 +118,10 @@ services:
             # Customers slice 1 C1 (2026-10-09): the read models and parsed criteria `CustomerReader` builds — data, not
             # services. `CustomerResource` and `CustomerCollection` are NOT excluded, for `ItemResource`'s reason.
             - '../src/Modules/Customers/Application/{CustomerView.php,CustomerPage.php,CustomerListCriteria.php}'
+            # Customers slice 1 C2 (2026-10-09): the two request bodies (the serializer builds them) and `PaymentTerms`, a
+            # constants-only class with a private constructor the container would otherwise try to instantiate.
+            - '../src/Modules/Customers/ApiResource/{CreateCustomerInput.php,UpdateCustomerInput.php}'
+            - '../src/Modules/Customers/Application/Contract/PaymentTerms.php'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

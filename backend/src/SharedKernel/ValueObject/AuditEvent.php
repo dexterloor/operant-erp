@@ -115,6 +115,7 @@ namespace App\SharedKernel\ValueObject;
  * draft-line operations, sales and purchasing, and `UpdateItem`) record no actor — `updated_at` records when, not who.
  * That is owner-accepted residual **`RESIDUAL_GAPS.md` G-19** (roles slice 2, Q-B, 2026-09-29), whose closing work is
  * one event design covering both modules. And `*.restored` is filed but unminted until a restore ships (G-8).
+ * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only).
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -160,7 +161,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Four entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Five entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -224,6 +225,13 @@ namespace App\SharedKernel\ValueObject;
  *     in the same commit**. Step 5 is `Version20260929000200`, whose literal list is the live constraint's sixteen
  *     members (read off `pg_constraint`, not generated) plus these five. **Step 6 does not apply.**
  *     `PINNED_ALLOWLIST` was edited deliberately with five literals.
+ *
+ *   - **`CUSTOMER_CREATED` and `CUSTOMER_UPDATED`**, 2026-10-09, customers slice 1 C2 — filed **`BUSINESS`** by the
+ *     delegated `SEC`-role filing in `docs/session13/customers-s1-g35-judge.md` C-4 (`SEC` to confirm), before the code;
+ *     `BE-A` did steps 3–5, **each with its writer in the same commit** (`CustomerAuditWriter`). Step 5 is
+ *     `Version20261009000400`, whose literal list is the live constraint's thirty-one members (read off
+ *     `pg_constraint`, not generated) plus these two. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with
+ *     two literals. `RESIDUAL_GAPS.md` G-35.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -728,6 +736,28 @@ final class AuditEvent
     public const CREDIT_NOTE_RETURN_DECIDED = 'credit_note.return_decided';
 
     /**
+     * **A customer created** — `CreateCustomer` (customers slice 1 C2, 2026-10-09; `RESIDUAL_GAPS.md` G-35). Subject
+     * `('customer', id)`. **Business** under PC-11 (4a): about the customer row's own state, and (4c) does not reach it
+     * (subject `customer`) — the delegated `SEC`-role filing in `docs/session13/customers-s1-g35-judge.md` C-4 (`SEC` to
+     * confirm). No IP, no permission code, `metadata` `{}`. Load-bearing, not decoration: `CreateCustomer` accepts
+     * `payment_terms_days`, so a customer can be opened at the maximum terms without any update (judge C-6). Written by
+     * `CustomerAuditWriter::recordCreated()` in `CustomerWriter`'s transaction, after the INSERT. **Step 6 does not
+     * apply.**
+     */
+    public const CUSTOMER_CREATED = 'customer.created';
+
+    /**
+     * **A customer changed** — `UpdateCustomer` (customers slice 1 C2, 2026-10-09; G-35). Subject `('customer', id)`.
+     * **Business** under PC-11 (4a), the same delegated filing (`SEC` to confirm). No IP, no permission code, `metadata`
+     * `{"fields": [...]}` — the wire names of the changed fields among `code`, `name`, `country_code`, `currency_code`,
+     * `payment_terms_days`, sorted, **never values**; **no row when nothing changed**. The diff is taken under a row lock
+     * (`FOR NO KEY UPDATE` on `CustomerWriter`'s first read), so a concurrent change cannot go unattributed (judge C-3).
+     * Written by `CustomerAuditWriter::recordUpdated()` in `CustomerWriter`'s transaction, after the UPDATE. **Step 6
+     * does not apply.**
+     */
+    public const CUSTOMER_UPDATED = 'customer.updated';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -775,6 +805,8 @@ final class AuditEvent
         self::SALES_RETURN_CREATED,
         self::CREDIT_NOTE_ISSUED,
         self::CREDIT_NOTE_RETURN_DECIDED,
+        self::CUSTOMER_CREATED,
+        self::CUSTOMER_UPDATED,
     ];
 
     /**
@@ -847,6 +879,8 @@ final class AuditEvent
         self::SALES_RETURN_CREATED,
         self::CREDIT_NOTE_ISSUED,
         self::CREDIT_NOTE_RETURN_DECIDED,
+        self::CUSTOMER_CREATED,
+        self::CUSTOMER_UPDATED,
     ];
 
     // ---------------------------------------------------------------------
@@ -907,6 +941,9 @@ final class AuditEvent
         self::SALES_RETURN_CREATED => 'sales_return',
         self::CREDIT_NOTE_ISSUED => 'credit_note',
         self::CREDIT_NOTE_RETURN_DECIDED => 'credit_note',
+        // Customers slice 1 C2: the customer row whose own state changed (G-35).
+        self::CUSTOMER_CREATED => 'customer',
+        self::CUSTOMER_UPDATED => 'customer',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

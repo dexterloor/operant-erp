@@ -105,6 +105,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'method' => 'replayCreateItem',
             'why' => 'A second inventory_item with the same SKU. Its mechanism is the live-row unique on (tenant, sku).',
         ],
+        'CreateCustomer' => [
+            'method' => 'replayCreateCustomer',
+            'why' => 'A second customer with the same code. Its mechanism is the live-row unique on (tenant, code), refused, never '
+                .'replayed (customers slice 1 C2), and a refused replay writes no second customer.created row.',
+        ],
         'CreatePurchaseOrder' => [
             'method' => 'replayCreatePurchaseOrder',
             'why' => 'A second purchase_order. Its mechanism is the header-sourced retry key on a live-row unique.',
@@ -346,6 +351,21 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         $this->send('POST', '/items', $body, $key);
 
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM inventory_item'), $why);
+    }
+
+    private function replayCreateCustomer(string $why): void
+    {
+        $body = ['code' => 'C-REPLAY', 'name' => 'Replayed', 'country_code' => 'GB', 'currency_code' => 'GBP'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/customers', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/customers', $body, $key);
+        self::assertSame(409, $this->httpStatus(), 'A repeated CreateCustomer was replayed, not refused.');
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM customer'), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM audit_log WHERE event_type = 'customer.created'"), $why);
     }
 
     /**
