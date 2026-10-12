@@ -165,6 +165,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // (4c) does not reach either. ONLY these two: `.deleted`/`.restored` come with their writers (final RED M-A).
         'supplier.created',
         'supplier.updated',
+        // Edited by hand 2026-10-12 (suppliers slice 1 C2b) on owner ruling F-12 / S4 "Record address changes"
+        // (`docs/session13/suppliers-s1-ruling.md`) and the `customer.*` filing's terms (`SEC` to confirm the address block):
+        // BUSINESS, subject the address row, `{}` and `{"fields"}` — names, never values (an address is personal data) — no
+        // IP. Its subject is `customer_address`, so (4c) does not reach either.
+        'customer_address.created',
+        'customer_address.updated',
     ];
 
     /**

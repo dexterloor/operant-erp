@@ -115,8 +115,9 @@ namespace App\SharedKernel\ValueObject;
  * draft-line operations, sales and purchasing, and `UpdateItem`) record no actor — `updated_at` records when, not who.
  * That is owner-accepted residual **`RESIDUAL_GAPS.md` G-19** (roles slice 2, Q-B, 2026-09-29), whose closing work is
  * one event design covering both modules. And `*.restored` is filed but unminted until a restore ships (G-8).
- * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only), and supplier edits
- * since suppliers slice 1 C2 (`supplier.updated`, the same shape).
+ * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only), supplier edits
+ * since suppliers slice 1 C2 (`supplier.updated`, the same shape), and customer address edits since suppliers slice 1
+ * C2b (`customer_address.created` / `.updated`, the same shape).
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -162,7 +163,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Six entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Seven entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -241,6 +242,14 @@ namespace App\SharedKernel\ValueObject;
  *     with their writers in the later archived-view slice (final RED M-A). Step 5 is `Version20261012000300`, whose
  *     literal list is the live constraint's thirty-three members (read off `pg_constraint`, not generated) plus these
  *     two. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
+ *
+ *   - **`CUSTOMER_ADDRESS_CREATED` and `CUSTOMER_ADDRESS_UPDATED`**, 2026-10-12, suppliers slice 1 C2b — owner ruling
+ *     F-12 / S4 "Record address changes" (`docs/session13/suppliers-s1-ruling.md`; `owed-roles-recs.md` S4 (a)), filed
+ *     **`BUSINESS`** on the `customer.*` filing's terms (`SEC` to confirm the address block, incl. the subject), before
+ *     the code; steps 3–5 done **each with its writer in the same commit** (`CustomerAddressAuditWriter`), in their own
+ *     commit serialised after the supplier re-issue (final RED L-E; G-17). Step 5 is `Version20261012000400`, whose
+ *     literal list is the live constraint's thirty-five members (read off `pg_constraint`, not generated) plus these two.
+ *     **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -787,6 +796,26 @@ final class AuditEvent
     public const SUPPLIER_UPDATED = 'supplier.updated';
 
     /**
+     * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
+     * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
+     * customer is derivable from it, not the reverse (`SEC` to confirm; `owed-roles-recs.md` S4 leaned `customer`).
+     * **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{}` — an address is personal data, so no
+     * value is ever carried. Written by `CustomerAddressAuditWriter::recordCreated()` in `CustomerAddressWriter`'s
+     * transaction, after the INSERT; a replayed create writes none. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_ADDRESS_CREATED = 'customer_address.created';
+
+    /**
+     * **A customer address changed** — `UpdateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 /
+     * S4). Subject `('customer_address', id)`. **Business** under PC-11 (4a). No IP, no permission code, `metadata`
+     * `{"fields": [...]}` — the wire names of the changed fields among `kind`, `line`, `city`, `postal_code`,
+     * `country_code`, sorted, **never values**; **no row when nothing changed**. The diff is taken under a row lock
+     * (`FOR NO KEY UPDATE` on the address). Written by `CustomerAddressAuditWriter::recordUpdated()` in
+     * `CustomerAddressWriter`'s transaction, after the UPDATE. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_ADDRESS_UPDATED = 'customer_address.updated';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -838,6 +867,8 @@ final class AuditEvent
         self::CUSTOMER_UPDATED,
         self::SUPPLIER_CREATED,
         self::SUPPLIER_UPDATED,
+        self::CUSTOMER_ADDRESS_CREATED,
+        self::CUSTOMER_ADDRESS_UPDATED,
     ];
 
     /**
@@ -914,6 +945,8 @@ final class AuditEvent
         self::CUSTOMER_UPDATED,
         self::SUPPLIER_CREATED,
         self::SUPPLIER_UPDATED,
+        self::CUSTOMER_ADDRESS_CREATED,
+        self::CUSTOMER_ADDRESS_UPDATED,
     ];
 
     // ---------------------------------------------------------------------
@@ -980,6 +1013,9 @@ final class AuditEvent
         // Suppliers slice 1 C2: the supplier row whose own state changed (owner Q-S5).
         self::SUPPLIER_CREATED => 'supplier',
         self::SUPPLIER_UPDATED => 'supplier',
+        // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` to confirm the subject).
+        self::CUSTOMER_ADDRESS_CREATED => 'customer_address',
+        self::CUSTOMER_ADDRESS_UPDATED => 'customer_address',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

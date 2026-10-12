@@ -79,6 +79,9 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-12 with the customer address trail in the tree (suppliers slice 1, C2b): the three commands return
+  # **143 / 85 / 31** -- ONE edge line added: `CustomerAddressWriter -> CustomerAddressAuditWriter` (A-5,
+  # `customer_address.created` / `customer_address.updated`). `make deptrac`: see the progress note's C2b gate.)
   # (Re-derived 2026-10-12 with `CreateSupplier` / `UpdateSupplier` in the tree (suppliers slice 1, C2): the three commands
   # return **142 / 85 / 30** -- ONE edge line added: `SupplierWriter -> SupplierAuditWriter` (A-5, `supplier.created` /
   # `supplier.updated`). `make deptrac`: see the progress note's C2 gate (re-derive, never restate).)
@@ -579,6 +582,10 @@ deptrac:
       # Roles slice 4 C3, 2026-10-07: `role.deleted` written synchronously in the deleting transaction (`RoleUpdate`'s
       # shape). Raw SQL for the write, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\Customers\Application\CustomerAddressWriter:
+      # Suppliers slice 1 C2b, 2026-10-12: `customer_address.created` / `customer_address.updated` written synchronously in
+      # the writing transaction (owner ruling F-12 / S4; `CustomerWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\CustomerAddressAuditWriter   # A-5
     App\Modules\Customers\Application\CustomerWriter:
       # Customers slice 1 C2, 2026-10-09: `customer.created` / `customer.updated` written synchronously in the writing
       # transaction (`RESIDUAL_GAPS.md` G-35; `RoleDeletion`'s shape). Raw SQL for the writes, so no entity edge.

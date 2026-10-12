@@ -371,6 +371,29 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         ],
     ];
 
+    /**
+     * **The customer address trail** (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4 "Record address changes",
+     * `docs/session13/suppliers-s1-ruling.md`) — an implication from its first day, the supplier map's shape: while either
+     * address write is in the spec, the tests that carry its trail must exist. Until C2b the shipped `CreateCustomerAddress`
+     * / `UpdateCustomerAddress` wrote no row (customers C3 deviation D-1), and nothing would have gone red had the trail
+     * been dropped again.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
+     */
+    private const OPERATIONS_OWING_THE_ADDRESS_TRAIL = [
+        'CreateCustomerAddress' => [
+            [CustomerAddressWriteTest::class, 'aCreatedAddressWritesExactlyOneCustomerAddressCreatedRow'],
+            [CustomerAddressWriteTest::class, 'aReplayedOrRefusedCreateWritesNoRow'],
+        ],
+        'UpdateCustomerAddress' => [
+            [CustomerAddressWriteTest::class, 'anAddressUpdateWritesOneRowNamingOnlyTheChangedFields'],
+            [CustomerAddressWriteTest::class, 'aNoOpAddressUpdateWritesNoRowAndNoStatement'],
+            [CustomerAddressWriteTest::class, 'aRefusedAddressUpdateWritesNoRow'],
+            [CustomerAddressWriteTest::class, 'theAddressUpdatedRowCarriesNamesNeverValues'],
+            [CustomerAddressWriteTest::class, 'aDiversionRacingACorrectionIsAttributedToTheCorrector'],
+        ],
+    ];
+
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -1102,6 +1125,44 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."names never values, diffed under `FOR NO KEY UPDATE`, no row on a no-op or a refusal; ONLY those two supplier events\n"
             ."are minted (`.deleted`/`.restored` with their writers, final RED M-A). Restore the test, or move its obligation to\n"
             ."another named test here, before removing it. Record: docs/session13/suppliers-s1-build-progress.md C2.",
+            implode("\n", $missing),
+        ));
+    }
+
+    /**
+     * **The customer address trail** (suppliers slice 1 C2b) — an implication: while `CreateCustomerAddress` or
+     * `UpdateCustomerAddress` is in the spec, every test named in {@see self::OPERATIONS_OWING_THE_ADDRESS_TRAIL} must exist.
+     * It detects a removed or renamed carrier, not a weakened one. **Controls, same test:** the positive control; a
+     * non-empty antecedent; and every antecedent must be BUILT (else the implication holds over nothing). Mutation: rename a
+     * carrier → red naming it.
+     */
+    #[Test]
+    public function noCustomerAddressWriteShipsWithoutItsTrail(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_ADDRESS_TRAIL,
+            'The address-trail implication has no antecedent, so it asserts nothing.');
+        self::assertSame(array_keys(self::OPERATIONS_OWING_THE_ADDRESS_TRAIL),
+            array_keys(array_intersect_key(self::OPERATIONS_OWING_THE_ADDRESS_TRAIL, $built)),
+            'An address-trail antecedent is not in the spec, so the implication holds over nothing: was an address write removed?');
+
+        $missing = [];
+        foreach (self::OPERATIONS_OWING_THE_ADDRESS_TRAIL as $operation => $carriers) {
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
+
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nThe owner ruled \"Record address changes\" (2026-10-12, F-12 / S4): `customer_address.created` `{}` per INSERT\n"
+            ."(never on a replay) and `customer_address.updated` `{fields}` per CHANGING update, names never values, diffed under\n"
+            ."`FOR NO KEY UPDATE`, no row on a no-op or a refusal. Restore the test, or move its obligation to another named test\n"
+            ."here, before removing it. Record: docs/session13/suppliers-s1-build-progress.md C2b.",
             implode("\n", $missing),
         ));
     }

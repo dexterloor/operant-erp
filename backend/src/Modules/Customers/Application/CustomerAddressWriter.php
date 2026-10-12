@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\Application;
 
+use App\Modules\AuditLog\Infrastructure\CustomerAddressAuditWriter;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -45,13 +47,21 @@ use Symfony\Component\Uid\Uuid;
  *     **outside** `TenantContext::run()`, because the failed statement aborted the transaction, by re-reading the key: the
  *     winner's row with the same digest replays, any other is the 409 conflict.
  *
- * **Update:** the pair `(customer, address)` (404 for an absent parent, a foreign one, or another customer's address —
- * ST-5) → archived customer 409 → shape → country support → `UPDATE … WHERE id = ? AND customer_id = ?`. An empty PATCH
- * issues no statement and answers the row. `null` on any field is refused (all five are NOT NULL).
+ * **Update:** the pair `(customer, address)`, the address read `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
+ * one, or another customer's address — ST-5) → archived customer 409 → shape → country support → the **changed** fields
+ * only: `UPDATE … SET <changed>, updated_at WHERE id = ? AND customer_id = ?`. An update that changes nothing — an empty
+ * PATCH, or every submitted value equal to the stored one — issues no statement, writes no audit row and answers the row
+ * (suppliers slice 1 C2b: until then a same-values PATCH moved `updated_at`). `null` on any field is refused (all five
+ * are NOT NULL).
  *
- * **No audit row** (deviation D-1 of C3, `docs/session13/customers-s1-build-progress.md`): no authority asks for one — the
- * G-35 chain (`customers-s1-g35-judge.md`, `-g35-final-red.md`) minted `customer.created`/`.updated` for the payment-terms
- * exposure, and an address carries no money term; `updated_at` records when, not who (G-19's shape).
+ * **The trail** (suppliers slice 1 C2b, 2026-10-12, owner ruling F-12 / S4 "Record address changes",
+ * `docs/session13/suppliers-s1-ruling.md`): one `customer_address.created` (`{}`) per INSERT — never on a replay, which
+ * inserts nothing — and one `customer_address.updated` (`{"fields": [...]}`, wire names, never values: an address is
+ * personal data) per CHANGING update, each written by {@see CustomerAddressAuditWriter} after its statement inside the
+ * same transaction, so a refused or failed write leaves no row. The diff is taken under the row lock, the `UpdateCustomer`
+ * precedent (`customers-s1-g35-judge.md` C-3): a concurrent update holding the row makes this one wait and diff against
+ * what it committed, so whatever this request changes back is named. *(Until C2b this said "No audit row" — customers C3
+ * deviation D-1 — and that was the state the owner ruled on.)*
  */
 final readonly class CustomerAddressWriter
 {
@@ -77,6 +87,8 @@ final readonly class CustomerAddressWriter
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
+        private RequestIdentity $identities,
+        private CustomerAddressAuditWriter $audit,
     ) {
     }
 
@@ -94,9 +106,10 @@ final readonly class CustomerAddressWriter
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
         $digest = self::digest($customerId, $values);
         $tenantId = $this->tenant->tenantId();
+        $identity = $this->identities->authenticated();
 
         try {
-            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($customerId, $values, $keyHash, $digest, $tenantId): CustomerAddressView {
+            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($customerId, $values, $keyHash, $digest, $tenantId, $identity): CustomerAddressView {
                 $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
 
                 $replay = self::createdByKeyInside($em, $customerId, $keyHash, $digest);
@@ -116,6 +129,14 @@ final readonly class CustomerAddressWriter
                     'INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)'
                     .' VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)',
                     [$id, $tenantId, $customerId, $values['kind'], $values['line'], $values['city'], $values['postal_code'], $values['country_code'], $keyHash, $digest],
+                );
+
+                // After the INSERT, in its transaction: a 23505 above leaves no row, and a replay never reaches here.
+                $this->audit->recordCreated(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    addressId: $id,
                 );
 
                 return CustomerAddressReader::readInside($em, $customerId, $id)
@@ -138,10 +159,20 @@ final readonly class CustomerAddressWriter
         $customerId = Uuid::fromString($customerId)->toRfc4122();
         $addressId = Uuid::fromString($addressId)->toRfc4122();
 
-        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($customerId, $addressId, $submitted): CustomerAddressView {
+        $identity = $this->identities->authenticated();
+
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($customerId, $addressId, $submitted, $identity): CustomerAddressView {
             $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
-            // The pair: another customer's address under this path is the same 404 as a random id (ST-5).
-            CustomerAddressReader::readInside($em, $customerId, $addressId) ?? throw ApiProblem::notFound();
+            // The pair: another customer's address under this path is the same 404 as a random id (ST-5). The row lock
+            // (C2b): the diff below is taken against a row no concurrent update can move until this transaction ends, so
+            // `customer_address.updated` names exactly what this request changed.
+            $row = $em->getConnection()->fetchAssociative(
+                'SELECT kind, address_line, city, postal_code, country_code FROM customer_address WHERE id = ?::uuid AND customer_id = ?::uuid FOR NO KEY UPDATE',
+                [$addressId, $customerId],
+            );
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
 
             if ($archived) {
                 throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_UPDATE);
@@ -150,15 +181,14 @@ final readonly class CustomerAddressWriter
             self::refuseMalformed($submitted, []);
             self::refuseUnsupportedCountry($em, $submitted);
 
-            $set = [];
-            $parameters = [];
-            foreach (self::COLUMNS as $field => $column) {
-                if (\array_key_exists($field, $submitted)) {
-                    $set[] = $column.' = ?';
+            $changed = self::changedFields($row, $submitted);
+            if ([] !== $changed) {
+                $set = [];
+                $parameters = [];
+                foreach ($changed as $field) {
+                    $set[] = self::COLUMNS[$field].' = ?';
                     $parameters[] = $submitted[$field];
                 }
-            }
-            if ([] !== $set) {
                 $set[] = 'updated_at = now()';
                 $parameters[] = $addressId;
                 $parameters[] = $customerId;
@@ -166,11 +196,42 @@ final readonly class CustomerAddressWriter
                     'UPDATE customer_address SET '.implode(', ', $set).' WHERE id = ?::uuid AND customer_id = ?::uuid',
                     $parameters,
                 );
+
+                // After the UPDATE, in its transaction.
+                $this->audit->recordUpdated(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    addressId: $addressId,
+                    fields: $changed,
+                );
             }
 
             return CustomerAddressReader::readInside($em, $customerId, $addressId)
                 ?? throw new \LogicException('The address just updated is not readable.');
         });
+    }
+
+    /**
+     * The wire names whose submitted value differs from the locked row, sorted ascending: every field compared as an exact
+     * string — no trim, no case folding (the stored-as-sent rule).
+     *
+     * @param array<string, mixed> $row       column => stored value
+     * @param array<string, mixed> $submitted wire name => value, shape-checked
+     *
+     * @return list<string>
+     */
+    private static function changedFields(array $row, array $submitted): array
+    {
+        $changed = [];
+        foreach (self::COLUMNS as $field => $column) {
+            if (\array_key_exists($field, $submitted) && (string) $row[$column] !== $submitted[$field]) {
+                $changed[] = $field;
+            }
+        }
+        sort($changed);
+
+        return $changed;
     }
 
     /** The customer's archived flag, or null when no customer of this workspace has the id. Archived customers ARE found. */
