@@ -125,6 +125,9 @@ services:
             # Customers slice 1 C3 (2026-10-09): the address read model and the two address request bodies — data, not services.
             - '../src/Modules/Customers/Application/CustomerAddressView.php'
             - '../src/Modules/Customers/ApiResource/{CreateCustomerAddressInput.php,UpdateCustomerAddressInput.php}'
+            # Suppliers slice 1 C1 (2026-10-12): the read models and parsed criteria `SupplierReader` builds — data, not
+            # services (customers C1's line, for the same reason).
+            - '../src/Modules/Suppliers/Application/{SupplierView.php,SupplierPage.php,SupplierListCriteria.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

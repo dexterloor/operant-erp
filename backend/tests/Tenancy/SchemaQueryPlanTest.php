@@ -6,6 +6,8 @@ namespace App\Tests\Tenancy;
 
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
+use App\Modules\Suppliers\Application\SupplierListCriteria;
+use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -83,8 +85,8 @@ final class SchemaQueryPlanTest extends TenancyTestCase
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code)
-                    SELECT gen_random_uuid(), ?::uuid, 'Supplier ' || g, 'SUP' || g, 'GB', 'EUR'
-                    FROM generate_series(1, 20) g
+                    SELECT gen_random_uuid(), ?::uuid, 'Supplier ' || lpad(g::text, 4, '0'), 'SUP' || g, 'GB', 'EUR'
+                    FROM generate_series(1, 200) g
                     SQL, [$tenant]);
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
@@ -328,6 +330,26 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             'Customers — alphabetical list, live rows only (the reader\'s keyset page)',
             $this->plan($sql, $parameters),
             'customer_tenant_name_live');
+    }
+
+    /**
+     * Suppliers: "the supplier list, alphabetical" (suppliers slice 1 C1, design FINAL F-2) — the statement `ListSuppliers`
+     * issues, taken from {@see SupplierReader::listStatement()} (customers' L-4 rule), on its harder second page.
+     */
+    #[Test]
+    public function theSupplierListUsesTheLiveNameIndex(): void
+    {
+        [$sql, $parameters] = SupplierReader::listStatement(new SupplierListCriteria(
+            limit: SupplierListCriteria::DEFAULT_LIMIT,
+            after: new Cursor('A', '00000000-0000-4000-8000-000000000000'),
+        ));
+        self::assertStringContainsString('(s.name, s.id) > (?, ?::uuid)', $sql, 'The statement explained is not the name keyset page.');
+        self::assertStringContainsString('ORDER BY s.name ASC, s.id ASC', $sql);
+
+        $this->assertPlan(
+            'Suppliers — alphabetical list, live rows only (the reader\'s keyset page)',
+            $this->plan($sql, $parameters),
+            'supplier_tenant_name_live');
     }
 
     /** AuditLog: "what happened in this tenant, newest first". */

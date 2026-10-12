@@ -287,6 +287,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => 'CUS-ENV', 'views' => ['', 'sort=name', 'sort=code']];
                 }];
             },
+            'ListSuppliers' => function (): array {
+                // Suppliers slice 1 C1, `ListCustomers`' entry. Keyset; no filter (§4.2 declares none); TB-5 names
+                // `supplier.name` and `.code`, so `q` is probed once with the seeded name prefix (the case, code-leaf and
+                // prefix-vs-infix probes are `SupplierListTest`'s); views decode exactly the declared `sort` enum
+                // (`PaginationContractTest`). `seedSupplier()`'s codes are letter-prefixed (CD-3) and name-derived, and the
+                // names here are distinct, so the live name and code uniques hold.
+                return ['/suppliers', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedSupplier(self::TENANT_A, 'SUP-ENV-'.$i);
+                    }
+
+                    return ['filter' => [], 'search' => 'SUP-ENV', 'views' => ['', 'sort=name', 'sort=code']];
+                }];
+            },
             'ListOfferedRoles' => function (): array {
                 // Users slice 1 C3. Bounded; no filter; TB-5 names `role.name` (the list is derived from `role`), so `q` is
                 // probed with the seeded prefix; one view. The subject holds nothing; the actor's fixture role is on the page.

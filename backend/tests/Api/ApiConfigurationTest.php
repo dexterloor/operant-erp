@@ -223,7 +223,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // `customer.edit`) on `CustomerAddressResource`, and `ListCustomerAddresses` (GET `/customers/{id}/addresses`,
         // `customer.view`, bounded) on `CustomerAddressCollection`. Its migration grants `erp_app` a column INSERT and a
         // column UPDATE on `customer_address`; the not-exposed fallback route above is not counted.
-        self::assertCount(77, $checked, 'The route set changed. This slice declares seventy-seven operations: '.implode(', ', array_keys($checked)));
+        // **And two more (suppliers slice 1 C1, 2026-10-12):** `GetSupplier`, a GET at `/suppliers/{id}` on `SupplierResource`,
+        // and `ListSuppliers`, a GET at `/suppliers` on `SupplierCollection` (both `supplier.view`). No migration, no grant.
+        self::assertCount(79, $checked, 'The route set changed. This slice declares seventy-nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

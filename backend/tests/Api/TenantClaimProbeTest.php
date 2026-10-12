@@ -127,6 +127,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // would 404 here (B's customer is another id), and the list would return B's customers.
         'GetCustomer' => ['vars' => ['id' => 'customer']],
         'ListCustomers' => [],
+        // Suppliers slice 1 C1: the supplier every tenant remembers (`seedMirror()`); a supplied tenant id that moved the read
+        // would 404 here (B's supplier is another id), and the list would return B's suppliers.
+        'GetSupplier' => ['vars' => ['id' => 'supplier']],
+        'ListSuppliers' => [],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

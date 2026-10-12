@@ -367,6 +367,14 @@ trait ArchivedRowSubjects
 
                 return ['id' => $customer, 'row' => $customer];
             },
+            // Added 2026-10-12 with `GetSupplier` (suppliers slice 1, C1): `supplier` is class `soft` and has a built direct-hit
+            // `Get`, and `ListSuppliers` is its live list. No write on the resource is built yet (C2 adds `UpdateSupplier`).
+            // `name` and `code` (an md5 of the name) are both live-unique, so the name carries a random suffix.
+            'supplier' => function (string $tag): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Archived Subject '.$tag.' '.bin2hex(random_bytes(3)));
+
+                return ['id' => $supplier, 'row' => $supplier];
+            },
             'purchase_order_line' => function (string $tag): array {
                 $draft = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
                 $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);

@@ -138,6 +138,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\UserReadTest::PINNED_USER_OPERATIONS),
             // Customers slice 1, C1: the `/customers` path family (C2 and C3 add their operations to the same pin).
             array_keys(\App\Tests\Api\CustomerReadTest::PINNED_CUSTOMER_OPERATIONS),
+            // Suppliers slice 1, C1: the `/suppliers` path family (later commits add their operations to the same pin).
+            array_keys(\App\Tests\Api\SupplierReadTest::PINNED_SUPPLIER_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

@@ -757,6 +757,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s customers'];
             }],
+            // Suppliers slice 1, C1: a seeded supplier (its code letter-prefixed by `seedSupplier()`, CD-3), read back; the
+            // list is driven over a seeded one too, so `ResponseShapeTest` walks a real item. `supplier.name` is UNIQUE among
+            // live suppliers (`supplier_tenant_name_live`), so each recipe's name carries a random suffix (design RED L-11).
+            'GetSupplier' => [fn (): array => ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Supplier '.bin2hex(random_bytes(3)))], function (array $c): array {
+                $this->send('GET', '/suppliers/'.$c['supplier']);
+
+                return [200, 'read a supplier'];
+            }],
+            'ListSuppliers' => [fn (): array => ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Listed Supplier '.bin2hex(random_bytes(3)))], function (): array {
+                $this->send('GET', '/suppliers');
+
+                return [200, 'list the workspace\'s suppliers'];
+            }],
             // Customers slice 1, C2: a create with a letter-bearing code (CD-3: `WireScaleTest` must never read an all-digit
             // code as a decimal) and every field sent; an update that changes the name and the terms of a seeded customer,
             // so the success path writes its `customer.updated` row.
