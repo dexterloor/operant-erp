@@ -394,6 +394,17 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         ],
     ];
 
+    /**
+     * **`RESIDUAL_GAPS.md` G-41's hard trigger, mechanised** (suppliers slice 1 C3, 2026-10-12; owner Q-S5, design L-7): the
+     * catalogue writes record no actor, accepted only while no suggestion or document reads a catalogue value. The first
+     * operation that does owes the trail. Keyed by `operationId` (the pick-read precedent, `1076ba3`). A PIN, red on arrival.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_CATALOGUE_TRAIL = [
+        'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion.',
+    ];
+
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -1084,6 +1095,37 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'RESIDUAL_GAPS.md G-35 is owed in THIS COMMIT: `SEC` re-rates it, and `PO` + `SEC` decide prevention (owner-gated '
             .'terms, a role split) or record detection as the control. Also confirm `ListAuditRecords` resolves `customer` '
             .'through PC-9 (`customer.view`). Do not hand-edit this pin to green. (%s)',
+            implode(', ', array_keys($arrived)),
+            implode(' ', $arrived),
+        ));
+    }
+
+    /**
+     * **G-41's trigger** (suppliers slice 1 C3). Red the moment any key of {@see self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL}
+     * is in the generated spec. **Controls, same test:** the positive control every sibling uses; a non-empty map; and the
+     * intersection over a literal map naming a BUILT operation (`ListSupplierProducts`) must report it. Mutation: plant
+     * `ListSupplierProducts` as a key → red naming it.
+     */
+    #[Test]
+    public function noCatalogueCostReachesASuggestionWithoutItsTrail(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL,
+            'The catalogue-trail map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
+        self::assertSame(['ListSupplierProducts' => 'x'],
+            array_intersect_key(['ListSupplierProducts' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            '%s has been built and %s RESIDUAL_GAPS.md G-41 is owed in THIS COMMIT: who changed a catalogue cost, lead time or '
+            .'minimum order is not recorded (owner Q-S5, 2026-10-12). Mint `supplier_product.created` / `.updated` / `.deleted` '
+            .'(field names, never values; `SEC` files them under PC-11 (4a)) with their writers in one catalogue re-issue, or '
+            .'have `SEC` re-rate G-41 with this reader in view. Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)),
             implode(' ', $arrived),
         ));

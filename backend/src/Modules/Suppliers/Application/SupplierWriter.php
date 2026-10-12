@@ -34,7 +34,9 @@ use Symfony\Component\Uid\Uuid;
  *     never a `refuseUnless…` name, which `EditWindowGuardTest` clause (b) would read as an edit window);
  *  3. country/currency not in the reference tables → 422 `unknown_reference` (the house's one sentence per code, held
  *     equal to `CustomerWriter`'s by `SupplierWriteTest`; `RESIDUAL_GAPS.md` G-37);
- *  4. **two live uniques, each refused, never replayed**, translated **by constraint name** from the 23505 **outside**
+ *  4. (update) `currency_code` CHANGED while the supplier has catalogue entries → 409
+ *     `supplier.currency_is_fixed_while_terms_exist` (C3, owner Q-S4 (ii); counted under the row lock, final RED M-B);
+ *  5. **two live uniques, each refused, never replayed**, translated **by constraint name** from the 23505 **outside**
  *     `TenantContext::run()` (the failed statement aborted the transaction): `supplier_tenant_code_live` → 409
  *     `supplier.code_is_unique_per_workspace` (the §4.2 `Idem` mechanism; the `Idempotency-Key` header is demanded and
  *     unused) and `supplier_tenant_name_live` → 409 `supplier.name_is_unique_per_workspace`. **The name unique compares
@@ -44,12 +46,14 @@ use Symfony\Component\Uid\Uuid;
  * One row lock, taken by the first read of every update (`FOR NO KEY UPDATE`, the lock the `UPDATE` would take anyway):
  * last writer still wins, and there is no `stale-record`; the lock exists so `supplier.updated`'s field list is exact —
  * an unlocked diff could hide a concurrent terms reset (`customers-s1-g35-judge.md` C-3). It is also the lock final RED
- * M-B asks `UpdateSupplier` to hold whenever `currency_code` is submitted: C3 adds `CreateSupplierProduct`'s `FOR SHARE`
- * on the parent and the currency-change refusal against it. One audit row per create and per changing update, field
- * names only. Both audit calls sit **after** their write statement, inside the same `run()`, so a 23505 (caught outside
+ * M-B asks `UpdateSupplier` to hold whenever `currency_code` is submitted: `CreateSupplierProduct`'s parent read is
+ * `FOR SHARE` (C3), which this lock conflicts with, and the currency-change refusal counts entries after taking it.
+ * One audit row per create and per changing update, field names only. Both audit calls sit **after** their write statement, inside the same `run()`, so a 23505 (caught outside
  * `run()`) or any 4xx leaves no row. An update that changes nothing issues no `UPDATE` and writes no row.
  *
- * Every field is editable at any time, `currency_code` included — until C3 nothing reads it (design §4.3). A rename
+ * Every field is editable at any time **except `currency_code` while the supplier has catalogue entries** (suppliers slice 1
+ * C3, owner Q-S4 (ii)): 409 `supplier.currency_is_fixed_while_terms_exist`, because each entry's `currency_code` was copied
+ * from the supplier (Q-S4 (a)) and a relabelled number is not a converted one. Refused only when the value CHANGES. A rename
  * changes the name shown on issued purchase orders, which join the live row (`RESIDUAL_GAPS.md` G-40, G-38's twin); who
  * renamed is recorded (`supplier.updated` `["name"]`), the old name is not.
  */
@@ -64,6 +68,8 @@ final readonly class SupplierWriter
     public const NAME_TAKEN_ON_UPDATE = 'Another supplier already uses this name. Keep the current name or choose a different one.';
 
     public const ARCHIVED = 'This supplier is archived, so it can\'t be changed.';
+
+    public const CURRENCY_FIXED = 'This supplier\'s catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.';
 
     public const TERMS_OUT_OF_RANGE = 'Payment terms must be a whole number of days from 0 to %d.';
 
@@ -163,6 +169,15 @@ final readonly class SupplierWriter
                 self::refuseUnsupportedReferences($em, $submitted);
 
                 $changed = self::changedFields($row, $submitted);
+                // Q-S4 (ii) (owner, 2026-10-12): the currency is fixed while the supplier has catalogue entries, whose
+                // `currency_code` was copied from it. Counted AFTER the row lock above, so a concurrent
+                // `CreateSupplierProduct` (whose parent read is `FOR SHARE`, `SupplierProductWriter::PARENT_LOCK`) has either
+                // committed its entry — and this statement, under READ COMMITTED, sees it — or is waiting on this lock and
+                // will copy the new currency (final RED M-B). An unchanged currency is not a change, so it is not refused.
+                if (\in_array('currency_code', $changed, true)
+                    && false !== $connection->fetchOne('SELECT 1 FROM supplier_product WHERE supplier_id = ?::uuid LIMIT 1', [$id])) {
+                    throw ApiProblem::businessRuleViolated('supplier.currency_is_fixed_while_terms_exist', self::CURRENCY_FIXED);
+                }
                 if ([] !== $changed) {
                     $set = [];
                     $parameters = [];

@@ -21,10 +21,15 @@ namespace App\Modules\UserManagement\Domain;
  *    code in it). Today every built operation is gated on one code, so every set has one member; a five-code
  *    `ListReorderSuggestions` would be one five-member set.
  *
- * **What is honestly NOT a source yet, because nothing serves it:** `supplier_product.view` — PC-12's original cost code —
- * reaches `supplier_product.unit_cost` through no built operation, so it is absent here; the first supplier-product read
- * turns the derivation red until it is added. Ask (PC-12 clause 2's third bullet) has no built tool; the derivation test
- * fails if an AI module appears under `src/Modules/` so that half cannot arrive unaccounted for.
+ * **`supplier_product.view` and `supplier_product.edit` became cost sources 2026-10-12 (suppliers slice 1 C3)** — the
+ * commit that first served `supplier_product.unit_cost` (`ListSupplierProducts` under `.view`; `CreateSupplierProduct` and
+ * `UpdateSupplierProduct`, whose 200/201 carry it, under `.edit`, PC-17). Until then PC-12's original cost code reached the
+ * column through no built operation and was deliberately absent (`SEC` 2026-10-08: never add a code ahead of its
+ * operation); the derivation went red on that commit until both were added. From it, a composed role holding
+ * `supplier_product.view` with a sale source reads `margin_exposure: true` (the session-23 owner notice (b)). No default
+ * role moves: every default holder of a `supplier_product.*` code already held a `purchase_order.*` cost source. Ask
+ * (PC-12 clause 2's third bullet) has no built tool; the derivation test fails if an AI module appears under
+ * `src/Modules/` so that half cannot arrive unaccounted for.
  *
  * **`credit_note.total_amount` and `credit_note_line.amount` are classified `sale`** at C0: a credit note reduces a sale
  * and its amounts are the invoice's sale price. PC-12 clause 1's written list (8 columns) predates both tables; `SEC` is
@@ -57,6 +62,10 @@ final class MarginSources
         ['purchase_order.create'],
         ['purchase_order.edit'],
         ['purchase_order.view'],
+        // Suppliers slice 1 C3 (2026-10-12): the catalogue serves `supplier_product.unit_cost` (list under `.view`; create and
+        // update 200/201 under `.edit`, PC-17). `DeleteSupplierProduct` (C4, 204) adds nothing.
+        ['supplier_product.edit'],
+        ['supplier_product.view'],
     ];
 
     /** @var list<list<string>> the sale sources — each a code set (PC-12 clause 2) */

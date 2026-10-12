@@ -787,6 +787,41 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a supplier'];
             }],
+            // Suppliers slice 1, C3: letter-bearing `supplier_sku` and item SKUs (CD-3: `WireScaleTest` reads an all-digit text
+            // value as a decimal), supplier names random-suffixed (live-unique, RED L-11). Every recipe serves `unit_cost` and
+            // `minimum_order_quantity`, so `wire-scale.json` pins them at 4 and 6 — the second source the margin derivation
+            // reads. The list seeds one entry so `ResponseShapeTest` has an item to walk.
+            'CreateSupplierProduct' => [function (): array {
+                return ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Catalogue Supplier '.bin2hex(random_bytes(3))),
+                    'item' => $this->seedItem(self::TENANT_A, 'SKU-RECIPE-CAT-'.bin2hex(random_bytes(3)))];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/suppliers/'.$c['supplier'].'/products', [
+                    'inventory_item_id' => $c['item'], 'supplier_sku' => 'ACME-SKU-A', 'unit_cost' => '12.5',
+                    'lead_time_days' => 9, 'minimum_order_quantity' => '10',
+                ], $key());
+
+                return [201, 'add an item to a supplier\'s catalogue'];
+            }],
+            'UpdateSupplierProduct' => [function (): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Repriced Supplier '.bin2hex(random_bytes(3)));
+
+                return ['supplier' => $supplier, 'product' => $this->seedSupplierProduct(self::TENANT_A, $supplier,
+                    $this->seedItem(self::TENANT_A, 'SKU-RECIPE-REP-'.bin2hex(random_bytes(3))))];
+            }, function (array $c): array {
+                $this->send('PATCH', '/suppliers/'.$c['supplier'].'/products/'.$c['product'], ['unit_cost' => '7.25', 'lead_time_days' => 12]);
+
+                return [200, 'change a supplier\'s terms for an item'];
+            }],
+            'ListSupplierProducts' => [function (): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
+                $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));
+
+                return ['supplier' => $supplier];
+            }, function (array $c): array {
+                $this->send('GET', '/suppliers/'.$c['supplier'].'/products');
+
+                return [200, 'list a supplier\'s catalogue'];
+            }],
             // Customers slice 1, C2: a create with a letter-bearing code (CD-3: `WireScaleTest` must never read an all-digit
             // code as a decimal) and every field sent; an update that changes the name and the terms of a seeded customer,
             // so the success path writes its `customer.updated` row.

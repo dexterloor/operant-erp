@@ -118,6 +118,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Suppliers slice 1 C2 (2026-10-12): `buyer`, `purchasing_manager`, `admin` and owner hold both; `viewer` neither.
         'CreateSupplier' => 'supplier.create',
         'UpdateSupplier' => 'supplier.edit',
+        // Suppliers slice 1 C3 (2026-10-12): PC-9's first deliberate exception — the catalogue keeps its own codes, `.edit`
+        // covering create and change (`buyer`, `purchasing_manager`, `admin`, owner hold both; `viewer` neither, PC-12).
+        'ListSupplierProducts' => 'supplier_product.view',
+        'CreateSupplierProduct' => 'supplier_product.edit',
+        'UpdateSupplierProduct' => 'supplier_product.edit',
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',

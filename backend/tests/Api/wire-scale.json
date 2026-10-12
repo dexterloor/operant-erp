@@ -77,6 +77,12 @@
     "CreateSalesReturn $.lines[].quantity_credited": [
         6
     ],
+    "CreateSupplierProduct $.minimum_order_quantity": [
+        6
+    ],
+    "CreateSupplierProduct $.unit_cost": [
+        4
+    ],
     "GetCreditNote $.lines[].amount": [
         4
     ],
@@ -266,6 +272,12 @@
     "ListSalesReturns $.items[].lines[].quantity_credited": [
         6
     ],
+    "ListSupplierProducts $.items[].minimum_order_quantity": [
+        6
+    ],
+    "ListSupplierProducts $.items[].unit_cost": [
+        4
+    ],
     "PayInvoice $.amount_credited": [
         4
     ],
@@ -342,6 +354,12 @@
         6
     ],
     "UpdateSalesOrderLine $.unit_price": [
+        4
+    ],
+    "UpdateSupplierProduct $.minimum_order_quantity": [
+        6
+    ],
+    "UpdateSupplierProduct $.unit_cost": [
         4
     ],
     "VoidInvoice $.amount_credited": [

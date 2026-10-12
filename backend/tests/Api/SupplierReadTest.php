@@ -37,6 +37,11 @@ final class SupplierReadTest extends PurchaseOrderTestCase
         // C2 (2026-10-12): the create demands the header (`unique:supplier_tenant_code_live`); the PATCH does not.
         'CreateSupplier' => ['method' => 'POST', 'path' => '/suppliers', 'idem' => true],
         'UpdateSupplier' => ['method' => 'PATCH', 'path' => '/suppliers/{id}', 'idem' => false],
+        // C3 (2026-10-12): the catalogue create demands the header (`unique:supplier_product_unique`); the PATCH and the
+        // bounded list do not.
+        'ListSupplierProducts' => ['method' => 'GET', 'path' => '/suppliers/{id}/products', 'idem' => false],
+        'CreateSupplierProduct' => ['method' => 'POST', 'path' => '/suppliers/{id}/products', 'idem' => true],
+        'UpdateSupplierProduct' => ['method' => 'PATCH', 'path' => '/suppliers/{id}/products/{productId}', 'idem' => false],
     ];
 
     /** `SupplierResource`'s serialized members — §4.4.3's derivation (design §2.3 item 4). */

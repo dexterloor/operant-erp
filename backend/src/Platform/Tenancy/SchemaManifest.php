@@ -483,7 +483,16 @@ final class SchemaManifest
             'module' => 'Modules\\Suppliers',
             'tenant' => true,
             'deletion' => self::HARD,
-            'why' => 'The supplier-side terms for one product. A purchase order line snapshots lead time and cost at order time, so removing the current terms strands nothing.',
+            'why' => 'The supplier-side terms for one product. A purchase order line snapshots lead time and cost at order time, so removing the current terms strands nothing. currency_code is copied from the supplier when an entry is added (owner Q-S4 (a), suppliers slice 1 C3) and never rewritten; the supplier\'s currency cannot change while entries exist (Q-S4 (ii)).',
+            // Suppliers slice 1 C3 (2026-10-12, Version20261012000500): SupplierProductWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). supplier_id, inventory_item_id and
+            // currency_code are INSERT-only: SQL as erp_app cannot re-point an entry or relabel its currency. No DELETE:
+            // DeleteSupplierProduct is C4. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'supplier_id', 'inventory_item_id', 'supplier_sku', 'unit_cost', 'lead_time_days', 'min_order_quantity', 'currency_code'],
+                'UPDATE' => ['supplier_sku', 'unit_cost', 'lead_time_days', 'min_order_quantity', 'updated_at'],
+            ]],
         ],
 
         // ------------------------------------------------------------------

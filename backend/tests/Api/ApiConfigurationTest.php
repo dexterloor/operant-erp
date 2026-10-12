@@ -85,6 +85,10 @@ final class ApiConfigurationTest extends ApiTestCase
             '_api_/customer_addresses/{id}{._format}_get' => \App\Modules\Customers\ApiResource\CustomerAddressResource::class,
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
             '_api_/sales_order_lines/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderLineResource::class,
+            // **2026-10-12, suppliers slice 1 C3**, the same case and permanent: `SupplierProduct` has built writes at
+            // `/suppliers/{id}/products[/{productId}]` and §4.2 declares no `GetSupplierProduct` (a bounded sub-list). Read off
+            // `debug:router` before the test ran (the vendor's route order puts it after `sales_order_lines`).
+            '_api_/supplier_products/{id}{._format}_get' => \App\Modules\Suppliers\ApiResource\SupplierProductResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
@@ -228,7 +232,12 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And two more (suppliers slice 1 C2, 2026-10-12):** `CreateSupplier`, a POST at `/suppliers` (`supplier.create`;
         // branch 4), and `UpdateSupplier`, a PATCH at `/suppliers/{id}` (`supplier.edit`), both on `SupplierResource`. Its
         // migration grants `erp_app` a column INSERT and a column UPDATE on `supplier`.
-        self::assertCount(81, $checked, 'The route set changed. This slice declares eighty-one operations: '.implode(', ', array_keys($checked)));
+        // **And three more (suppliers slice 1 C3, 2026-10-12):** `CreateSupplierProduct` (POST `/suppliers/{id}/products`,
+        // `supplier_product.edit`; branch 4) and `UpdateSupplierProduct` (PATCH `/suppliers/{id}/products/{productId}`,
+        // `supplier_product.edit`) on `SupplierProductResource`, and `ListSupplierProducts` (GET `/suppliers/{id}/products`,
+        // `supplier_product.view`, bounded) on `SupplierProductCollection`. Its migration grants `erp_app` a column INSERT and
+        // a column UPDATE on `supplier_product`; the not-exposed fallback route above is not counted.
+        self::assertCount(84, $checked, 'The route set changed. This slice declares eighty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

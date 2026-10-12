@@ -382,6 +382,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListSupplierProducts' => function (): array {
+                // Suppliers slice 1 C3. One supplier; the seed step gives it N catalogue entries, one per fresh item, each with a
+                // LETTER-bearing `supplier_sku` (`seedSupplierProduct()`'s `SP-` prefix, CD-3).
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Catalogue');
+
+                return ['/suppliers/'.$supplier.'/products', function (int $rows) use ($supplier): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-ENV-CAT-'.$i));
+                    }
+
+                    // Bounded (owner Q-S3 (b), TB-1c breach G-42), no query parameter at all (the table is `hard`).
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListCustomerAddresses' => function (): array {
                 // Customers slice 1 C3. One customer; the seed step gives it N addresses with LETTER-bearing postal codes
                 // (CD-3), each its own row (distinct random keys, `seedCustomerAddress()`).

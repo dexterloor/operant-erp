@@ -45,7 +45,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     // Sales step 7 C1: `IssueCreditNote` (nested under the invoice) and `GetCreditNote` (a credit note read under
     // `invoice.view` — the case the path-first derivation exists for).
     // Sales step 7 C1b: `IssueAdjustmentCreditNote`, nested under the invoice exactly as `IssueCreditNote` is.
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'RejectRoleGrantProposal', 'RevokeRole'];
+    // Suppliers slice 1 C3 (design §5.5, RED L-5): the three catalogue operations — gated `supplier_product.*`, their
+    // recorded `{id}` a `supplier` row.
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateSupplierProduct'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -175,6 +177,10 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         // the recorded variable — the row whose privileges change is the user.
         $user = $this->seedPrincipal(self::TENANT_A, ['role.view']);
         $grantedRole = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT role_id::text AS r FROM user_role WHERE user_id = ?::uuid', [$user])[0]['r'];
+        // Suppliers slice 1 C3: a REAL supplier and a real entry of its catalogue. `{productId}` is not the recorded variable
+        // — the declared subject is the supplier (`OPERATION_DENIAL_SUBJECT`).
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme F1 Catalogue');
+        $product = $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-F1-CAT'));
 
         $cases = [
             'CreateGoodsReceipt' => ['POST', '/purchase-orders/'.$po.'/goods-receipts', 'goods_receipt.create', $po],
@@ -187,6 +193,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             // Roles slice 2, C3 (B.3 items 1 and 3): the gate refuses before the body or the Idempotency-Key is read
             // (PermissionGate::PRIORITY: 401 → 403 → 428), and the row names the user.
             'AssignRole' => ['POST', '/users/'.$user.'/roles', 'role.assign', $user],
+            'ListSupplierProducts' => ['GET', '/suppliers/'.$supplier.'/products', 'supplier_product.view', $supplier],
+            'CreateSupplierProduct' => ['POST', '/suppliers/'.$supplier.'/products', 'supplier_product.edit', $supplier],
+            'UpdateSupplierProduct' => ['PATCH', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 
@@ -238,7 +247,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         sort($declared);
 
         self::assertSame(self::NESTED_OPERATIONS_OF_ANOTHER_RESOURCE, $declared,
-            'The operations declaring a denial subject are not exactly the four nested operations F-1 found plus RevokeRole and AssignRole.');
+            'The operations declaring a denial subject are not exactly the registered nested operations of another resource.');
     }
 
     /**

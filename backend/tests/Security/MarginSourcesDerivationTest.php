@@ -64,6 +64,9 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
         'PurchaseOrderLine.unit_cost' => ['purchase_order_line.unit_cost'],
         'SalesOrder.total_amount' => ['sales_order.total_amount'],
         'SalesOrderLine.unit_price' => ['sales_order_line.unit_price'],
+        // Suppliers slice 1 C3 (2026-10-12): the catalogue's cost, served by `ListSupplierProducts` (`supplier_product.view`)
+        // and by `CreateSupplierProduct` / `UpdateSupplierProduct`'s 200/201 (`supplier_product.edit`, PC-17).
+        'SupplierProduct.unit_cost' => ['supplier_product.unit_cost'],
     ];
 
     /**

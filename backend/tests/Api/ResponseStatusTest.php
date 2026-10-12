@@ -165,6 +165,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // address it and `CreatedRowLocation` fills `{addressId}` from the body's `id`. Never branch 5 (200): the operation
         // creates an addressable row.
         'CreateCustomerAddress' => '/customers/{id}/addresses/{addressId}',
+        // Added 2026-10-12 (suppliers slice 1 C3), `CreateCustomerAddress`'s case: §4.2 declares `UpdateSupplierProduct` (and
+        // C4's `DeleteSupplierProduct`) at that URI and no `Get`, so `CreatedRowLocation` fills `{productId}` from the body's
+        // `id`. Never branch 5 (200): the operation creates an addressable row.
+        'CreateSupplierProduct' => '/suppliers/{id}/products/{productId}',
     ];
 
     /**

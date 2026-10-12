@@ -81,6 +81,9 @@ final class PermissionEnforcementTest extends ApiTestCase
         // exactly and permanent: `CustomerAddress` has built writes and §4.2 declares no `GetCustomerAddress` (TB-1c), so
         // the vendor mints the not-exposed IRI route, answering 404 for every request with or without a token.
         '_api_/customer_addresses/{id}{._format}_get',
+        // Added 2026-10-12 with `CreateSupplierProduct` (suppliers slice 1 C3), `customer_addresses`' entry exactly and
+        // permanent: `SupplierProduct` has built writes and §4.2 declares no `GetSupplierProduct` (a bounded sub-list).
+        '_api_/supplier_products/{id}{._format}_get',
     ];
 
     /**

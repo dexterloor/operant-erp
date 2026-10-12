@@ -377,13 +377,18 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
      * lead time `CreatePurchaseOrderLine` snapshots. Without one the operation
      * refuses the line, which is a case the write test drives on purpose.
      */
-    protected function seedSupplierProduct(string $tenantId, string $supplierId, string $itemId, int $leadTimeDays = 7): void
+    protected function seedSupplierProduct(string $tenantId, string $supplierId, string $itemId, int $leadTimeDays = 7): string
     {
+        // Returns the id since suppliers slice 1 C3 (the catalogue operations address an entry by it). `supplier_sku` stays
+        // letter-bearing (`SP-` prefix, CD-3: from C3 it is on the wire).
+        $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO supplier_product
                 (id, tenant_id, supplier_id, inventory_item_id, supplier_sku, lead_time_days, unit_cost, currency_code)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, 1.0000, 'EUR')
-            SQL, [Uuid::v4()->toRfc4122(), $tenantId, $supplierId, $itemId, 'SP-'.substr(md5($itemId), 0, 8), $leadTimeDays]);
+            SQL, [$id, $tenantId, $supplierId, $itemId, 'SP-'.substr(md5($itemId), 0, 8), $leadTimeDays]);
+
+        return $id;
     }
 
     /**

@@ -135,6 +135,13 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered supplier (B's supplier is another id, so a moved update would 404).
         'CreateSupplier' => ['body' => ['code' => 'S-NEW', 'name' => 'New Supplier', 'country_code' => 'GB', 'currency_code' => 'GBP']],
         'UpdateSupplier' => ['vars' => ['id' => 'supplier'], 'body' => ['name' => 'Renamed Supplier']],
+        // Suppliers slice 1 C3: the remembered supplier and its remembered catalogue entry (`seedMirror()`). A moved read
+        // would 404 or list B's catalogue; a moved create would 404 (B's supplier is another id) — the item is the
+        // remembered uncatalogued one; a moved update would 404 on the pair.
+        'ListSupplierProducts' => ['vars' => ['id' => 'supplier']],
+        'CreateSupplierProduct' => ['vars' => ['id' => 'supplier'], 'body' => ['inventory_item_id' => '@loose_item',
+            'supplier_sku' => 'SP-PROBE', 'unit_cost' => '2.5', 'lead_time_days' => 3]],
+        'UpdateSupplierProduct' => ['vars' => ['id' => 'supplier', 'productId' => 'supplier_product'], 'body' => ['lead_time_days' => 4]],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

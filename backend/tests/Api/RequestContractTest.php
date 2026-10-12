@@ -293,7 +293,10 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'customers/addresses' => $this->seedCustomerAddress(self::TENANT_A, $customer),
             // Suppliers slice 1 C2: `UpdateSupplier` acts on a live supplier, so the refusal is the planted field's and not a
             // 404's or a `supplier.is_archived` 409.
-            'suppliers' => $this->seedSupplier(self::TENANT_A, 'Request Contract Supplier '.bin2hex(random_bytes(3))),
+            'suppliers' => $supplier = $this->seedSupplier(self::TENANT_A, 'Request Contract Supplier '.bin2hex(random_bytes(3))),
+            // Suppliers slice 1 C3: `UpdateSupplierProduct` acts on an entry OF THAT supplier (the pair names the row), so the
+            // refusal is the planted field's and not a 404's.
+            'suppliers/products' => $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RC-'.bin2hex(random_bytes(3)))),
         ];
 
         $segments = explode('/', $uriTemplate);

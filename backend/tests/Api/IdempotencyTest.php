@@ -115,6 +115,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second supplier with the same code. Its mechanism is the live-row unique on (tenant, code), refused, never '
                 .'replayed (suppliers slice 1 C2), and a refused replay writes no second supplier.created row.',
         ],
+        'CreateSupplierProduct' => [
+            'method' => 'replayCreateSupplierProduct',
+            'why' => 'A second supplier_product for the same (supplier, item). Its mechanism is the TOTAL unique on (tenant, '
+                .'supplier, item) — the table is hard — refused, never replayed (suppliers slice 1 C3): one row.',
+        ],
         'CreateCustomerAddress' => [
             'method' => 'replayCreateCustomerAddress',
             'why' => 'A second customer_address for the same request (customers slice 1 C3). Its mechanism is the header-sourced '
@@ -361,6 +366,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         $this->send('POST', '/items', $body, $key);
 
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM inventory_item'), $why);
+    }
+
+    private function replayCreateSupplierProduct(string $why): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Replayed Catalogue Supplier');
+        $body = ['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-REPLAY-CAT'), 'supplier_sku' => 'SP-REPLAY',
+            'unit_cost' => '3.5', 'lead_time_days' => 5];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/suppliers/'.$supplier.'/products', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/suppliers/'.$supplier.'/products', $body, $key);
+        self::assertSame(409, $this->httpStatus(), 'A repeated CreateSupplierProduct was replayed, not refused.');
+        self::assertSame('supplier_product.item_is_listed_once_per_supplier', $this->json()['rule'] ?? null, $why);
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM supplier_product WHERE supplier_id = ?::uuid', [$supplier]), $why);
     }
 
     private function replayCreateSupplier(string $why): void

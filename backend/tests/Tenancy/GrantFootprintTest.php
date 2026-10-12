@@ -1225,6 +1225,96 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The columns `SupplierProductWriter` names, per privilege (suppliers slice 1 C3, `Version20261012000500`). **Typed by
+     * hand from its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration
+     * must still fail here). No DELETE (C4 adds it with `DeleteSupplierProduct`).
+     *
+     * @var array<string, list<string>> privilege => columns
+     */
+    private const SUPPLIER_PRODUCT_COLUMN_WRITES = [
+        'INSERT' => ['currency_code', 'id', 'inventory_item_id', 'lead_time_days', 'min_order_quantity', 'supplier_id', 'supplier_sku', 'tenant_id', 'unit_cost'],
+        'UPDATE' => ['lead_time_days', 'min_order_quantity', 'supplier_sku', 'unit_cost', 'updated_at'],
+    ];
+
+    /**
+     * **Suppliers slice 1 C3: `erp_app` can write exactly the columns `CreateSupplierProduct` and `UpdateSupplierProduct`
+     * name on `supplier_product`, and delete nothing — proved by running the statements as `erp_app`** (design §5.4; ADR-002
+     * A4.4's *"exactly"*). The supplier method's shape. **Positive controls:** `unit_cost` INSERT and UPDATE accepted.
+     * **Anti-vacuity:** `currency_code` UPDATE (a price relabelled without being converted, owner Q-S4), `supplier_id` and
+     * `inventory_item_id` UPDATE (an entry re-pointed) and `supplier_product` DELETE (C4's) refused. **Planted control,
+     * committed then undone:** `GRANT UPDATE (currency_code) ON supplier_product` must produce exactly one violation.
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheCatalogueColumnsTheCatalogueWriterNames(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(
+            "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = 'supplier_product'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum");
+        self::assertContains('min_order_quantity', $columns, 'The column domain was not read from the server.');
+
+        $run = function (string $key, string $sql) use (&$outcomes): void {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement($sql);
+                $outcomes[$key] = 'accepted';
+            } catch (DriverException $e) {
+                $outcomes[$key] = '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table supplier_product')
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        $probe = function () use ($columns, $run, &$outcomes): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                foreach (['INSERT' => 'INSERT INTO supplier_product (%1$s) SELECT %1$s FROM supplier_product WHERE false', 'UPDATE' => 'UPDATE supplier_product SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
+                    $run($column.' '.$privilege, sprintf($sql, '"'.$column.'"'));
+                }
+            }
+            $run('* DELETE', 'DELETE FROM supplier_product WHERE false');
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$column, $privilege] = explode(' ', $key);
+                $granted = 'DELETE' !== $privilege && \in_array($column, self::SUPPLIER_PRODUCT_COLUMN_WRITES[$privilege], true);
+                if ($granted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('supplier_product.%s: SupplierProductWriter issues it, but erp_app got "%s"', $key, $outcome);
+                } elseif (!$granted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('supplier_product.%s: SupplierProductWriter does not issue it, but erp_app got "%s"', $key, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+        self::assertSame(['accepted', 'accepted'], [$outcomes['unit_cost INSERT'] ?? null, $outcomes['unit_cost UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update supplier_product.unit_cost.');
+        self::assertSame(['refused', 'refused', 'refused', 'refused'],
+            [$outcomes['currency_code UPDATE'] ?? null, $outcomes['supplier_id UPDATE'] ?? null, $outcomes['inventory_item_id UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not relabel an entry\'s currency, re-point it, or delete it, and the probe did not see them refused.');
+        self::assertSame([], $violations($outcomes),
+            "erp_app's writes on supplier_product are not exactly SupplierProductWriter's:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (currency_code) ON supplier_product TO %s', DatabaseRoles::APP));
+            self::assertSame(['supplier_product.currency_code UPDATE: SupplierProductWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (currency_code) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (currency_code) ON supplier_product FROM %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The planted supplier_product currency_code grant survived its REVOKE.');
+    }
+
+    /**
      * **`DATA` D-10.1's backstop CHECKs refuse, as `erp_app`, what the application refuses** (roles slice 4 C1): a zero-width
      * space, a trailing space, a bidi override, an empty name and a 101-character name → `23514 role_name_shape`; a control
      * character in the description → `role_description_shape`. **Positive control:** a plain name (and a description with a
