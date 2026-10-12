@@ -242,6 +242,36 @@ final class TenantIsolationTest extends TenancyTestCase
     }
 
     /**
+     * **The second `DELETE` grant (`role_permission`, roles slice 4 C2, `Version20261007000300`, `UpdateRole`) owed this
+     * test and shipped without it** — found 2026-10-13 (SESSION_LOG Move 493) and added afterwards. ADR-002 A4.4 item 2 is
+     * worded for the first grant; the harm it names (one workspace deleting another's rows) is the same for every grant, and
+     * here the rows are what a role is allowed to do. `erpAppCannotDeleteAnotherTenantsUserRole`'s shape: R3's precondition
+     * first, B's role permission survives a delete by its id from A's context, and the same statement deletes A's own row
+     * (the positive control).
+     */
+    #[Test]
+    public function erpAppCannotDeleteAnotherTenantsRolePermission(): void
+    {
+        $this->assertApplicationRoleHolds('DELETE', 'role_permission');
+        $rows = [];
+        foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
+            [$role, $row] = [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \Symfony\Component\Uid\Uuid::v4()->toRfc4122()];
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)", [$role, $tenant, 'Isolated Role '.bin2hex(random_bytes(3))]);
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (?::uuid, ?::uuid, ?::uuid, 'inventory_item.view')", [$row, $tenant, $role]);
+            $rows[$tenant] = $row;
+        }
+
+        $deleted = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM role_permission WHERE id = ?::uuid', [$rows[self::TENANT_B]]));
+        self::assertSame(0, $deleted, 'erp_app, in tenant A\'s context, deleted a permission from tenant B\'s role.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM role_permission WHERE id = ?::uuid', [$rows[self::TENANT_B]]));
+
+        $own = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM role_permission WHERE id = ?::uuid', [$rows[self::TENANT_A]]));
+        self::assertSame(1, $own, 'Control: erp_app could not delete its own tenant\'s role permission, so the zero above proves nothing.');
+    }
+
+    /**
      * R-15. ADR-002 §5: integrity checks always bypass row security, so a bare
      * UNIQUE (sku) would answer "that SKU is taken" for a row the caller may not
      * see. With UNIQUE (tenant_id, sku) the same SKU in two tenants is simply
