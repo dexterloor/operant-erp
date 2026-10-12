@@ -812,6 +812,17 @@ trait OperationSuccessRecipes
 
                 return [200, 'change a supplier\'s terms for an item'];
             }],
+            // C4: seeds an entry, removes it; 204, no body.
+            'DeleteSupplierProduct' => [function (): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Delisting Supplier '.bin2hex(random_bytes(3)));
+
+                return ['supplier' => $supplier, 'product' => $this->seedSupplierProduct(self::TENANT_A, $supplier,
+                    $this->seedItem(self::TENANT_A, 'SKU-RECIPE-DEL-'.bin2hex(random_bytes(3))))];
+            }, function (array $c): array {
+                $this->send('DELETE', '/suppliers/'.$c['supplier'].'/products/'.$c['product']);
+
+                return [204, 'remove an item from a supplier\'s catalogue'];
+            }],
             'ListSupplierProducts' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
                 $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));

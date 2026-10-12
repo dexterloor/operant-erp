@@ -237,7 +237,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `supplier_product.edit`) on `SupplierProductResource`, and `ListSupplierProducts` (GET `/suppliers/{id}/products`,
         // `supplier_product.view`, bounded) on `SupplierProductCollection`. Its migration grants `erp_app` a column INSERT and
         // a column UPDATE on `supplier_product`; the not-exposed fallback route above is not counted.
-        self::assertCount(84, $checked, 'The route set changed. This slice declares eighty-four operations: '.implode(', ', array_keys($checked)));
+        // **And one more (suppliers slice 1 C4, 2026-10-12):** `DeleteSupplierProduct` (DELETE
+        // `/suppliers/{id}/products/{productId}`, `supplier_product.edit`; branch 3, 204) on `SupplierProductResource`. Its
+        // migration grants `erp_app` table DELETE on `supplier_product`, the third DELETE grant.
+        self::assertCount(85, $checked, 'The route set changed. This slice declares eighty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

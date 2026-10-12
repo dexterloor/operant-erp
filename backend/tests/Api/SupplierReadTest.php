@@ -42,6 +42,8 @@ final class SupplierReadTest extends PurchaseOrderTestCase
         'ListSupplierProducts' => ['method' => 'GET', 'path' => '/suppliers/{id}/products', 'idem' => false],
         'CreateSupplierProduct' => ['method' => 'POST', 'path' => '/suppliers/{id}/products', 'idem' => true],
         'UpdateSupplierProduct' => ['method' => 'PATCH', 'path' => '/suppliers/{id}/products/{productId}', 'idem' => false],
+        // C4: a hard delete; `Idem` `no` (a repeat finds no row and is the same 404).
+        'DeleteSupplierProduct' => ['method' => 'DELETE', 'path' => '/suppliers/{id}/products/{productId}', 'idem' => false],
     ];
 
     /** `SupplierResource`'s serialized members — §4.4.3's derivation (design §2.3 item 4). */

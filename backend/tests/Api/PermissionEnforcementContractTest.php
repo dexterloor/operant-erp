@@ -123,6 +123,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'ListSupplierProducts' => 'supplier_product.view',
         'CreateSupplierProduct' => 'supplier_product.edit',
         'UpdateSupplierProduct' => 'supplier_product.edit',
+        // C4: removing an entry is a catalogue edit (§4.2).
+        'DeleteSupplierProduct' => 'supplier_product.edit',
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',

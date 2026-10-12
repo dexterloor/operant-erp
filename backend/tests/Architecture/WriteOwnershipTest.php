@@ -260,7 +260,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // supplier_product` (column list built from the sent fields) and one `UPDATE supplier_product` (SET built from the
         // submitted fields). No statement on `purchase_order*`: a placed line snapshots its lead time (design §5.1). The
         // parent read's `FOR SHARE` is a lock this scan excludes, like `FOR NO KEY UPDATE`.
-        'Modules\\Suppliers' => 4,
+        // **4 -> 5 on 2026-10-12** (suppliers slice 1 C4), read off this test's run: `SupplierProductWriter::DELETE`, the one
+        // `DELETE FROM supplier_product` `DeleteSupplierProduct` issues (the table is Suppliers'; no statement on
+        // `purchase_order*`).
+        'Modules\\Suppliers' => 5,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).

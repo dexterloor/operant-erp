@@ -212,6 +212,36 @@ final class TenantIsolationTest extends TenancyTestCase
     }
 
     /**
+     * **The third `DELETE` grant (`supplier_product`, suppliers slice 1 C4, `Version20261012000600`) brings its RLS-DELETE
+     * isolation test too** — ADR-002 A4.4 item 2 is worded for the first grant; the harm it names (one workspace deleting
+     * another's rows) is the same for every grant, so the pattern is repeated rather than inferred. `erpAppCannotDeleteAnother
+     * TenantsUserRole`'s shape: R3's precondition first, B's entry survives a delete by its id from A's context, and the same
+     * statement deletes A's own entry (the positive control).
+     */
+    #[Test]
+    public function erpAppCannotDeleteAnotherTenantsCatalogueEntry(): void
+    {
+        $this->assertApplicationRoleHolds('DELETE', 'supplier_product');
+        $entries = [];
+        foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
+            $supplier = $this->seedSupplier($tenant, 'Isolated Catalogue '.bin2hex(random_bytes(3)));
+            $item = $this->seedItem($tenant, 'SKU-ISO-'.bin2hex(random_bytes(3)));
+            $entry = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO supplier_product (id, tenant_id, supplier_id, inventory_item_id, supplier_sku, lead_time_days, unit_cost, currency_code) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'SP-ISO', 1, 1.0000, 'EUR')", [$entry, $tenant, $supplier, $item]);
+            $entries[$tenant] = $entry;
+        }
+
+        $deleted = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM supplier_product WHERE id = ?::uuid', [$entries[self::TENANT_B]]));
+        self::assertSame(0, $deleted, 'erp_app, in tenant A\'s context, deleted tenant B\'s catalogue entry.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM supplier_product WHERE id = ?::uuid', [$entries[self::TENANT_B]]));
+
+        $own = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM supplier_product WHERE id = ?::uuid', [$entries[self::TENANT_A]]));
+        self::assertSame(1, $own, 'Control: erp_app could not delete its own tenant\'s entry, so the zero above proves nothing.');
+    }
+
+    /**
      * R-15. ADR-002 §5: integrity checks always bypass row security, so a bare
      * UNIQUE (sku) would answer "that SKU is taken" for a row the caller may not
      * see. With UNIQUE (tenant_id, sku) the same SKU in two tenants is simply

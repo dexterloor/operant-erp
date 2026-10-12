@@ -142,6 +142,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'CreateSupplierProduct' => ['vars' => ['id' => 'supplier'], 'body' => ['inventory_item_id' => '@loose_item',
             'supplier_sku' => 'SP-PROBE', 'unit_cost' => '2.5', 'lead_time_days' => 3]],
         'UpdateSupplierProduct' => ['vars' => ['id' => 'supplier', 'productId' => 'supplier_product'], 'body' => ['lead_time_days' => 4]],
+        // C4: a moved delete would 404 on the pair (B's supplier and entry are other ids).
+        'DeleteSupplierProduct' => ['vars' => ['id' => 'supplier', 'productId' => 'supplier_product']],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

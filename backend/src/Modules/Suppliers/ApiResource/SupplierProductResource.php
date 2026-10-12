@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Suppliers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Suppliers\ApiResource\State\CreateSupplierProductProcessor;
+use App\Modules\Suppliers\ApiResource\State\DeleteSupplierProductProcessor;
 use App\Modules\Suppliers\ApiResource\State\SupplierProductProvider;
 use App\Modules\Suppliers\ApiResource\State\UpdateSupplierProductProcessor;
 use App\Modules\Suppliers\Application\SupplierProductView;
@@ -20,7 +22,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
  * **`CreateSupplierProduct` and `UpdateSupplierProduct`** (suppliers slice 1 C3; `docs/session13/suppliers-s1-design.md`
- * FINAL F-4 and §5). A DTO, never the entity. `CustomerAddressResource`'s operation shape.
+ * FINAL F-4 and §5), and **`DeleteSupplierProduct`** (C4, §6: 204, no body — it adds nothing to this shape and serves no
+ * cost). A DTO, never the entity. `CustomerAddressResource`'s operation shape.
  *
  * The shape is §4.4.3's derivation (API-23): the accepted fields `inventory_item_id` (expanded under API-23b to
  * `inventory_item = {id, sku, name}`), `supplier_sku`, `unit_cost`, `lead_time_days`, `minimum_order_quantity` (minus
@@ -36,7 +39,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * line, contact or address"*), so API Platform mints its not-exposed fallback route and `CreatedRowLocation` names the URI
  * §4.2 does declare.
  *
- * **`OPERATION_DENIAL_SUBJECT` = `['supplier', 'id']`** on both (design §5.5; the `AssignRole` precedent): the permission's
+ * **`OPERATION_DENIAL_SUBJECT` = `['supplier', 'id']`** on all three (design §5.5; the `AssignRole` precedent): the permission's
  * resource half is `supplier_product`, but the recorded `{id}` addresses a `supplier` row, so without the declaration a
  * denial would record `(supplier_product, <supplier id>)` — F-1's mislabel. (Customers did not need it: parent and
  * permission agree there.)
@@ -90,6 +93,25 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: SupplierProductProvider::class,
             processor: UpdateSupplierProductProcessor::class,
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no` — a PATCH sets absolute values on a row that exists.
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'supplier_product.edit',
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['supplier', 'id'],
+            ],
+        ),
+        // Suppliers slice 1 C4: a hard delete, 204 and no body (API-21 branch 3). `read: false` — the writer reads the parent,
+        // the pair and the archived state inside its own transaction (`RevokeRole`'s reason for a `HARD` row). `Idem` `no`:
+        // a repeat finds no row and is the same 404; re-adding the item is a fresh create.
+        new Delete(
+            uriTemplate: '/suppliers/{id}/products/{productId}',
+            uriVariables: [
+                'id' => new Link(fromClass: SupplierResource::class, identifiers: ['id'], parameterName: 'id'),
+                'productId' => new Link(fromClass: SupplierProductResource::class, identifiers: ['id'], parameterName: 'productId'),
+            ],
+            name: 'DeleteSupplierProduct',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteSupplierProduct'),
+            read: false,
+            processor: DeleteSupplierProductProcessor::class,
             extraProperties: [
                 PermissionGate::OPERATION_PERMISSION => 'supplier_product.edit',
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['supplier', 'id'],

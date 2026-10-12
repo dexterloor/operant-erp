@@ -1227,7 +1227,7 @@ final class GrantFootprintTest extends TenancyTestCase
     /**
      * The columns `SupplierProductWriter` names, per privilege (suppliers slice 1 C3, `Version20261012000500`). **Typed by
      * hand from its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration
-     * must still fail here). No DELETE (C4 adds it with `DeleteSupplierProduct`).
+     * must still fail here). DELETE is table-level and separate: {@see self::SUPPLIER_PRODUCT_DELETES}.
      *
      * @var array<string, list<string>> privilege => columns
      */
@@ -1237,12 +1237,20 @@ final class GrantFootprintTest extends TenancyTestCase
     ];
 
     /**
+     * Whether `SupplierProductWriter` issues a `DELETE` on `supplier_product` — **yes since C4** (`DeleteSupplierProduct`,
+     * `Version20261012000600`, `SupplierProductWriter::DELETE`). Typed by hand for the same reason as the column list.
+     */
+    private const SUPPLIER_PRODUCT_DELETES = true;
+
+    /**
      * **Suppliers slice 1 C3: `erp_app` can write exactly the columns `CreateSupplierProduct` and `UpdateSupplierProduct`
-     * name on `supplier_product`, and delete nothing — proved by running the statements as `erp_app`** (design §5.4; ADR-002
-     * A4.4's *"exactly"*). The supplier method's shape. **Positive controls:** `unit_cost` INSERT and UPDATE accepted.
-     * **Anti-vacuity:** `currency_code` UPDATE (a price relabelled without being converted, owner Q-S4), `supplier_id` and
-     * `inventory_item_id` UPDATE (an entry re-pointed) and `supplier_product` DELETE (C4's) refused. **Planted control,
-     * committed then undone:** `GRANT UPDATE (currency_code) ON supplier_product` must produce exactly one violation.
+     * name on `supplier_product`, and — since C4 — delete from it (`DeleteSupplierProduct`) — proved by running the statements as `erp_app`** (design §5.4; ADR-002
+     * A4.4's *"exactly"*). The supplier method's shape. **Positive controls:** `unit_cost` INSERT and UPDATE accepted, and
+     * from C4 the zero-row `DELETE` accepted (design §6's per-feature probe, FINAL F-5 / RED L-4 — the DELETE domain is this
+     * method's, not a shared list). **Anti-vacuity:** `currency_code` UPDATE (a price relabelled without being converted,
+     * owner Q-S4), `supplier_id` and `inventory_item_id` UPDATE (an entry re-pointed) refused. **Planted controls, committed
+     * then undone:** `GRANT UPDATE (currency_code) ON supplier_product` must produce exactly one violation; and
+     * `REVOKE DELETE` must produce exactly one (the C4 grant is seen in both directions).
      */
     #[Test]
     public function theApplicationCanWriteOnlyTheCatalogueColumnsTheCatalogueWriterNames(): void
@@ -1284,7 +1292,9 @@ final class GrantFootprintTest extends TenancyTestCase
             $wrong = [];
             foreach ($outcomes as $key => $outcome) {
                 [$column, $privilege] = explode(' ', $key);
-                $granted = 'DELETE' !== $privilege && \in_array($column, self::SUPPLIER_PRODUCT_COLUMN_WRITES[$privilege], true);
+                $granted = 'DELETE' === $privilege
+                    ? self::SUPPLIER_PRODUCT_DELETES
+                    : \in_array($column, self::SUPPLIER_PRODUCT_COLUMN_WRITES[$privilege], true);
                 if ($granted && 'accepted' !== $outcome) {
                     $wrong[] = sprintf('supplier_product.%s: SupplierProductWriter issues it, but erp_app got "%s"', $key, $outcome);
                 } elseif (!$granted && 'refused' !== $outcome) {
@@ -1296,11 +1306,11 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame(['accepted', 'accepted'], [$outcomes['unit_cost INSERT'] ?? null, $outcomes['unit_cost UPDATE'] ?? null],
-            'The positive controls failed: erp_app could not insert or update supplier_product.unit_cost.');
-        self::assertSame(['refused', 'refused', 'refused', 'refused'],
-            [$outcomes['currency_code UPDATE'] ?? null, $outcomes['supplier_id UPDATE'] ?? null, $outcomes['inventory_item_id UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
-            'erp_app must not relabel an entry\'s currency, re-point it, or delete it, and the probe did not see them refused.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['unit_cost INSERT'] ?? null, $outcomes['unit_cost UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update supplier_product.unit_cost, or delete an entry (C4).');
+        self::assertSame(['refused', 'refused', 'refused'],
+            [$outcomes['currency_code UPDATE'] ?? null, $outcomes['supplier_id UPDATE'] ?? null, $outcomes['inventory_item_id UPDATE'] ?? null],
+            'erp_app must not relabel an entry\'s currency or re-point it, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on supplier_product are not exactly SupplierProductWriter's:\n  ".implode("\n  ", $violations($outcomes)));
 
@@ -1312,6 +1322,15 @@ final class GrantFootprintTest extends TenancyTestCase
             $this->owner()->executeStatement(sprintf('REVOKE UPDATE (currency_code) ON supplier_product FROM %s', DatabaseRoles::APP));
         }
         self::assertSame([], $violations($probe()), 'The planted supplier_product currency_code grant survived its REVOKE.');
+
+        try {
+            $this->owner()->executeStatement(sprintf('REVOKE DELETE ON supplier_product FROM %s', DatabaseRoles::APP));
+            self::assertSame(['supplier_product.* DELETE: SupplierProductWriter issues it, but erp_app got "refused"'], $violations($probe()),
+                'A committed REVOKE DELETE from erp_app did not make this check fail, so the C4 grant is not checked.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('GRANT DELETE ON supplier_product TO %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The revoked supplier_product DELETE grant did not come back.');
     }
 
     /**

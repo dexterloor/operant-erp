@@ -12,7 +12,8 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`CreateSupplierProduct` and `UpdateSupplierProduct`** (suppliers slice 1 C3; `docs/session13/suppliers-s1-design.md`
+ * **`CreateSupplierProduct` and `UpdateSupplierProduct`** (suppliers slice 1 C3; and **`DeleteSupplierProduct`**, C4 — see
+ * {@see self::delete()}; `docs/session13/suppliers-s1-design.md`
  * FINAL F-4 and §5; owner ruling Q-S4 (a)+(ii), Q-S5, `suppliers-s1-ruling.md`; final RED M-B). `CustomerAddressWriter`'s
  * shape for its reasons. Takes wire-named scalars, returns a {@see SupplierProductView}; never an `ApiResource` class (A-7)
  * and never a `Doctrine\DBAL\Connection` (A-10).
@@ -65,6 +66,11 @@ final readonly class SupplierProductWriter
     public const ARCHIVED_ON_CREATE = 'This supplier is archived, so nothing can be added to its catalogue.';
 
     public const ARCHIVED_ON_UPDATE = 'This supplier is archived, so its catalogue can\'t be changed.';
+
+    public const ARCHIVED_ON_DELETE = 'This supplier is archived, so nothing can be removed from its catalogue.';
+
+    /** The one statement `DeleteSupplierProduct` issues; the pair predicate is what keeps another supplier's entry out. */
+    public const DELETE = 'DELETE FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid';
 
     public const ITEM_LISTED = 'This supplier already lists this item. Change its terms instead.';
 
@@ -214,6 +220,56 @@ final readonly class SupplierProductWriter
 
             return SupplierProductReader::readInside($em, $supplierId, $productId)
                 ?? throw new \LogicException('The catalogue entry just updated is not readable.');
+        });
+    }
+
+    /**
+     * **`DeleteSupplierProduct`** (suppliers slice 1 C4; design §6, FINAL F-5). `supplier_product` is class `hard`, so this is
+     * a real `DELETE` — the third table `erp_app` may delete from (`Version20261012000600`, after `user_role` and
+     * `role_permission`). In one tenant transaction: the parent (absent or another workspace's → 404) → the pair
+     * `(supplier, product)` (another supplier's entry under this path is the same 404, ST-5) → archived parent 409
+     * `supplier.is_archived` (ST-9: an archived supplier's catalogue is read-only) → `DELETE … WHERE id = ? AND
+     * supplier_id = ?` ({@see self::DELETE}). A delete that removes nothing (a concurrent removal won) is the same 404.
+     *
+     * **The parent read is NOT {@see self::PARENT_LOCK}.** That lock exists so an ADD and a currency change serialise
+     * (final RED M-B). A removal can only shrink the count `UpdateSupplier` takes under its own row lock, so a currency
+     * change racing a removal is at worst refused on a count that was true when it was taken — never a price left in the
+     * wrong currency. Whether catalogue children lock their parent against a future `DeleteSupplier` is decided with it
+     * (FINAL F-6, final RED L-9; C5).
+     *
+     * **Consequences, stated (design §6):** a later purchase-order line for the item is refused
+     * `purchase_order_line.supplier_lists_the_item` (existing behaviour, now reachable by API); placed lines keep their
+     * snapshots; `supplier_product_unique` is total but the row is gone, so re-adding the item is a fresh create — there is
+     * no key to replay. Once a supplier has no entries its currency may change again (Q-S4 (ii)). **Race with
+     * `CreatePurchaseOrderLine`, recorded, not guarded:** its lead-time read is unlocked, so a delete committing between that
+     * read and the line's INSERT yields a line snapshotting terms that no longer exist — harmless, snapshot semantics.
+     * **No audit row** (G-41 covers removal as well as change).
+     */
+    public function delete(string $supplierId, string $productId): void
+    {
+        if (!Uuid::isValid($supplierId) || !Uuid::isValid($productId)) {
+            throw ApiProblem::notFound();
+        }
+        $supplierId = Uuid::fromString($supplierId)->toRfc4122();
+        $productId = Uuid::fromString($productId)->toRfc4122();
+
+        $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId): void {
+            $connection = $em->getConnection();
+
+            $parent = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid', [$supplierId]);
+            if (false === $parent) {
+                throw ApiProblem::notFound();
+            }
+            if (false === $connection->fetchOne('SELECT 1 FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid', [$productId, $supplierId])) {
+                throw ApiProblem::notFound();
+            }
+            if (true === $parent['archived']) {
+                throw ApiProblem::businessRuleViolated('supplier.is_archived', self::ARCHIVED_ON_DELETE);
+            }
+
+            if (0 === (int) $connection->executeStatement(self::DELETE, [$productId, $supplierId])) {
+                throw ApiProblem::notFound();
+            }
         });
     }
 

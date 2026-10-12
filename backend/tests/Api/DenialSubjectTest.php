@@ -47,7 +47,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     // Sales step 7 C1b: `IssueAdjustmentCreditNote`, nested under the invoice exactly as `IssueCreditNote` is.
     // Suppliers slice 1 C3 (design §5.5, RED L-5): the three catalogue operations — gated `supplier_product.*`, their
     // recorded `{id}` a `supplier` row.
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateSupplierProduct'];
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateSupplierProduct', 'DeleteSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateSupplierProduct'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -196,6 +196,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'ListSupplierProducts' => ['GET', '/suppliers/'.$supplier.'/products', 'supplier_product.view', $supplier],
             'CreateSupplierProduct' => ['POST', '/suppliers/'.$supplier.'/products', 'supplier_product.edit', $supplier],
             'UpdateSupplierProduct' => ['PATCH', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
+            'DeleteSupplierProduct' => ['DELETE', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 
