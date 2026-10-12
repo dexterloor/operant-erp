@@ -770,6 +770,23 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the workspace\'s suppliers'];
             }],
+            // Suppliers slice 1, C2: a create with a letter-bearing code (CD-3) and every field sent; an update that changes
+            // the name and the terms of a seeded supplier, so the success path writes its `supplier.updated` row. Names and
+            // codes carry a random suffix: both are live-unique (design RED L-11).
+            'CreateSupplier' => [$none, function () use ($key): array {
+                $tag = strtoupper(bin2hex(random_bytes(3)));
+                $this->send('POST', '/suppliers', [
+                    'code' => 'S-RECIPE-'.$tag, 'name' => 'Recipe New Supplier '.$tag, 'country_code' => 'GB', 'currency_code' => 'GBP',
+                    'payment_terms_days' => 45,
+                ], $key());
+
+                return [201, 'create a supplier'];
+            }],
+            'UpdateSupplier' => [fn (): array => ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Updated Supplier '.bin2hex(random_bytes(3)))], function (array $c): array {
+                $this->send('PATCH', '/suppliers/'.$c['supplier'], ['name' => 'Recipe Renamed Supplier '.bin2hex(random_bytes(3)), 'payment_terms_days' => 60]);
+
+                return [200, 'update a supplier'];
+            }],
             // Customers slice 1, C2: a create with a letter-bearing code (CD-3: `WireScaleTest` must never read an all-digit
             // code as a decimal) and every field sent; an update that changes the name and the terms of a seeded customer,
             // so the success path writes its `customer.updated` row.

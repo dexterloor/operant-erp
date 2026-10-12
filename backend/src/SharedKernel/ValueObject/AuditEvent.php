@@ -115,7 +115,8 @@ namespace App\SharedKernel\ValueObject;
  * draft-line operations, sales and purchasing, and `UpdateItem`) record no actor — `updated_at` records when, not who.
  * That is owner-accepted residual **`RESIDUAL_GAPS.md` G-19** (roles slice 2, Q-B, 2026-09-29), whose closing work is
  * one event design covering both modules. And `*.restored` is filed but unminted until a restore ships (G-8).
- * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only).
+ * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only), and supplier edits
+ * since suppliers slice 1 C2 (`supplier.updated`, the same shape).
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -161,7 +162,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Five entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Six entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -232,6 +233,14 @@ namespace App\SharedKernel\ValueObject;
  *     `Version20261009000400`, whose literal list is the live constraint's thirty-one members (read off
  *     `pg_constraint`, not generated) plus these two. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with
  *     two literals. `RESIDUAL_GAPS.md` G-35.
+ *
+ *   - **`SUPPLIER_CREATED` and `SUPPLIER_UPDATED`**, 2026-10-12, suppliers slice 1 C2 — filed **`BUSINESS`** on the
+ *     `customer.*` filing's terms (owner Q-S5, `docs/session13/suppliers-s1-ruling.md`; `SEC`'s stated view in
+ *     `owed-roles-recs.md` S2; `SEC` to confirm the supplier block), before the code; steps 3–5 done **each with its
+ *     writer in the same commit** (`SupplierAuditWriter`). **Only these two**: `supplier.deleted` / `.restored` are minted
+ *     with their writers in the later archived-view slice (final RED M-A). Step 5 is `Version20261012000300`, whose
+ *     literal list is the live constraint's thirty-three members (read off `pg_constraint`, not generated) plus these
+ *     two. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -758,6 +767,26 @@ final class AuditEvent
     public const CUSTOMER_UPDATED = 'customer.updated';
 
     /**
+     * **A supplier created** — `CreateSupplier` (suppliers slice 1 C2, 2026-10-12; owner Q-S5). Subject
+     * `('supplier', id)`. **Business** under PC-11 (4a): about the supplier row's own state; (4c) does not reach it
+     * (subject `supplier`). No IP, no permission code, `metadata` `{}`. `customer.created`'s twin: `CreateSupplier`
+     * accepts `payment_terms_days`, so a supplier can be opened at any terms without an update. Written by
+     * `SupplierAuditWriter::recordCreated()` in `SupplierWriter`'s transaction, after the INSERT. **Step 6 does not
+     * apply.**
+     */
+    public const SUPPLIER_CREATED = 'supplier.created';
+
+    /**
+     * **A supplier changed** — `UpdateSupplier` (suppliers slice 1 C2, 2026-10-12; owner Q-S5). Subject
+     * `('supplier', id)`. **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{"fields": [...]}` — the
+     * wire names of the changed fields among `code`, `name`, `country_code`, `currency_code`, `payment_terms_days`,
+     * sorted, **never values**; **no row when nothing changed**. The diff is taken under a row lock (`FOR NO KEY UPDATE`
+     * on `SupplierWriter`'s first read). Written by `SupplierAuditWriter::recordUpdated()` in `SupplierWriter`'s
+     * transaction, after the UPDATE. **Step 6 does not apply.**
+     */
+    public const SUPPLIER_UPDATED = 'supplier.updated';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -807,6 +836,8 @@ final class AuditEvent
         self::CREDIT_NOTE_RETURN_DECIDED,
         self::CUSTOMER_CREATED,
         self::CUSTOMER_UPDATED,
+        self::SUPPLIER_CREATED,
+        self::SUPPLIER_UPDATED,
     ];
 
     /**
@@ -881,6 +912,8 @@ final class AuditEvent
         self::CREDIT_NOTE_RETURN_DECIDED,
         self::CUSTOMER_CREATED,
         self::CUSTOMER_UPDATED,
+        self::SUPPLIER_CREATED,
+        self::SUPPLIER_UPDATED,
     ];
 
     // ---------------------------------------------------------------------
@@ -944,6 +977,9 @@ final class AuditEvent
         // Customers slice 1 C2: the customer row whose own state changed (G-35).
         self::CUSTOMER_CREATED => 'customer',
         self::CUSTOMER_UPDATED => 'customer',
+        // Suppliers slice 1 C2: the supplier row whose own state changed (owner Q-S5).
+        self::SUPPLIER_CREATED => 'supplier',
+        self::SUPPLIER_UPDATED => 'supplier',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

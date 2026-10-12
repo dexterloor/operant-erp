@@ -128,6 +128,10 @@ services:
             # Suppliers slice 1 C1 (2026-10-12): the read models and parsed criteria `SupplierReader` builds — data, not
             # services (customers C1's line, for the same reason).
             - '../src/Modules/Suppliers/Application/{SupplierView.php,SupplierPage.php,SupplierListCriteria.php}'
+            # Suppliers slice 1 C2 (2026-10-12): the two request bodies (the serializer builds them) and `SupplierPaymentTerms`,
+            # a constants-only class with a private constructor the container would otherwise try to instantiate.
+            - '../src/Modules/Suppliers/ApiResource/{CreateSupplierInput.php,UpdateSupplierInput.php}'
+            - '../src/Modules/Suppliers/Application/Contract/SupplierPaymentTerms.php'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

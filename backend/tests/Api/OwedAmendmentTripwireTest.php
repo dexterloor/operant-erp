@@ -352,10 +352,23 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * `UpdateSupplier` accepts the same five fields as `UpdateCustomer`; G-19's asymmetry rule says the two edits must not
      * diverge silently. Keyed by `operationId`.
      *
-     * @var array<string, string>
+     * ⚖ **CONVERTED 2026-10-12 (suppliers slice 1 C2) from a pin into an IMPLICATION — not emptied** (the
+     * {@see self::OPERATIONS_OWING_THE_RETURNED_DEDUCTION} precedent). It read `'UpdateSupplier' => 'mint supplier.updated
+     * … or record a twin gap'` and went red the moment `UpdateSupplier` was built; that commit took the first branch (owner
+     * Q-S5: `supplier.created` / `supplier.updated`, field names only, row-locked diff — and ONLY those two, final RED
+     * M-A). Now: `UpdateSupplier` is never in the spec without the tests that carry the trail.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
      */
     private const OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION = [
-        'UpdateSupplier' => 'mint `supplier.updated` on `customer.updated`\'s precedent, or record a twin gap.',
+        'UpdateSupplier' => [
+            [SupplierWriteTest::class, 'aCreatedSupplierWritesExactlyOneSupplierCreatedRow'],
+            [SupplierWriteTest::class, 'anUpdateWritesOneRowNamingOnlyTheChangedFields'],
+            [SupplierWriteTest::class, 'aNoOpUpdateWritesNoRowAndNoStatement'],
+            [SupplierWriteTest::class, 'theUpdatedRowCarriesNamesNeverValues'],
+            [SupplierWriteTest::class, 'aTermsResetRacingATermsChangeIsAttributedToTheResetter'],
+            [SupplierWriteTest::class, 'onlyTheCreateAndUpdateSupplierEventsAreMinted'],
+        ],
     ];
 
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
@@ -1054,9 +1067,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **The supplier trail decision** (customers slice 1 C2; judge FINAL item 10, C-5/C-7). Red the moment `UpdateSupplier`
-     * is in the generated spec. **Controls, same test:** the positive control; a non-empty map; a planted built-key
-     * intersection (`ListCustomers`). Mutation M-10: plant `ListCustomers` as a key → red naming it.
+     * **The supplier trail decision** (customers slice 1 C2; judge FINAL item 10, C-5/C-7) — **an implication since
+     * 2026-10-12** (suppliers slice 1 C2): while `UpdateSupplier` is in the spec, every test named in
+     * {@see self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION} must exist. Until that commit it was a pin that went red
+     * the moment `UpdateSupplier` was built. It detects a removed or renamed carrier, not a weakened one. **Controls, same
+     * test:** the positive control; a non-empty antecedent; and the antecedent must be BUILT (else the implication holds
+     * over nothing). Mutation: rename a carrier → red naming it.
      */
     #[Test]
     public function noSupplierEditShipsWithoutDecidingItsTrail(): void
@@ -1066,19 +1082,27 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
         self::assertNotSame([], self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION,
-            'The supplier-trail map is empty, so it holds over nothing. Its entry leaves only with the decision its message asks for.');
-        self::assertSame(['ListCustomers' => 'x'],
-            array_intersect_key(['ListCustomers' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
+            'The supplier-trail implication has no antecedent, so it asserts nothing.');
+        self::assertSame(array_keys(self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION),
+            array_keys(array_intersect_key(self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION, $built)),
+            'The supplier-trail antecedent is not in the spec, so the implication holds over nothing: was UpdateSupplier removed?');
 
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION, $built);
+        $missing = [];
+        foreach (self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION as $operation => $carriers) {
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
 
-        self::assertSame([], $arrived, \sprintf(
-            '%s has been built. It accepts the same five fields as UpdateCustomer, which writes `customer.updated` `{fields}` '
-            .'(G-35). In THIS COMMIT either mint `supplier.updated` on that precedent (`SEC` files it, names only, row-locked '
-            .'diff) or record a twin gap in RESIDUAL_GAPS.md — G-19\'s asymmetry rule. Do not hand-edit this pin to green. (%s)',
-            implode(', ', array_keys($arrived)),
-            implode(' ', $arrived),
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nUpdateSupplier accepts the same five fields as UpdateCustomer, and the supplier trail is carried by these tests\n"
+            ."(owner Q-S5, 2026-10-12): `supplier.created` `{}` per create and `supplier.updated` `{fields}` per CHANGING update,\n"
+            ."names never values, diffed under `FOR NO KEY UPDATE`, no row on a no-op or a refusal; ONLY those two supplier events\n"
+            ."are minted (`.deleted`/`.restored` with their writers, final RED M-A). Restore the test, or move its obligation to\n"
+            ."another named test here, before removing it. Record: docs/session13/suppliers-s1-build-progress.md C2.",
+            implode("\n", $missing),
         ));
     }
 

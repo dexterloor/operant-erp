@@ -16,6 +16,7 @@ use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesReturnAuditWriter;
+use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -195,6 +196,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Added 2026-10-09 with CreateCustomer/UpdateCustomer (customers slice 1 C2): customer.created and customer.updated,
         // BUSINESS, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/CustomerAuditWriter.php',
+        // Added 2026-10-12 with CreateSupplier/UpdateSupplier (suppliers slice 1 C2): supplier.created and supplier.updated,
+        // BUSINESS, so no parameter could send an address. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/SupplierAuditWriter.php',
         // Added 2026-09-29 with `RevokeRole` (roles slice 2, C2): `role.revoked`, a SECURITY event, so it carries the
         // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below — and
         // `role.assigned` (C3, `AssignRole`) through the same writer, also driven.
@@ -381,6 +385,11 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($customerWriter instanceof CustomerAuditWriter);
         $customerWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122());
         $customerWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122(), fields: ['name']);
+        // Suppliers slice 1 C2: `supplier.created` / `supplier.updated`, BUSINESS (listed AND driven).
+        $supplierWriter = self::getContainer()->get(SupplierAuditWriter::class);
+        \assert($supplierWriter instanceof SupplierAuditWriter);
+        $supplierWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122());
+        $supplierWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122(), fields: ['name']);
         $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
         \assert($salesWriter instanceof SalesOrderAuditWriter);
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());

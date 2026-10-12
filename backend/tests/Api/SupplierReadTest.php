@@ -34,6 +34,9 @@ final class SupplierReadTest extends PurchaseOrderTestCase
     public const PINNED_SUPPLIER_OPERATIONS = [
         'GetSupplier' => ['method' => 'GET', 'path' => '/suppliers/{id}', 'idem' => false],
         'ListSuppliers' => ['method' => 'GET', 'path' => '/suppliers', 'idem' => false],
+        // C2 (2026-10-12): the create demands the header (`unique:supplier_tenant_code_live`); the PATCH does not.
+        'CreateSupplier' => ['method' => 'POST', 'path' => '/suppliers', 'idem' => true],
+        'UpdateSupplier' => ['method' => 'PATCH', 'path' => '/suppliers/{id}', 'idem' => false],
     ];
 
     /** `SupplierResource`'s serialized members — §4.4.3's derivation (design §2.3 item 4). */

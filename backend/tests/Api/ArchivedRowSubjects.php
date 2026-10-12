@@ -368,7 +368,8 @@ trait ArchivedRowSubjects
                 return ['id' => $customer, 'row' => $customer];
             },
             // Added 2026-10-12 with `GetSupplier` (suppliers slice 1, C1): `supplier` is class `soft` and has a built direct-hit
-            // `Get`, and `ListSuppliers` is its live list. No write on the resource is built yet (C2 adds `UpdateSupplier`).
+            // `Get`, and `ListSuppliers` is its live list. Its write is `UpdateSupplier` (C2, 2026-10-12; body in
+            // `archivedRowWriteBodies()`).
             // `name` and `code` (an md5 of the name) are both live-unique, so the name carries a random suffix.
             'supplier' => function (string $tag): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Archived Subject '.$tag.' '.bin2hex(random_bytes(3)));
@@ -424,6 +425,9 @@ trait ArchivedRowSubjects
             // Customers slice 1 C2 (final RED L-2 of the first attack): the live twin renames; the archived twin's 409 is
             // `customer.is_archived`'s alone.
             'UpdateCustomer' => ['name' => 'Renamed'],
+            // Suppliers slice 1 C2: the live twin renames (random-suffixed: `supplier.name` is live-unique); the archived
+            // twin's 409 is `supplier.is_archived`'s alone.
+            'UpdateSupplier' => ['name' => 'Renamed '.bin2hex(random_bytes(3))],
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
             // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
             // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are

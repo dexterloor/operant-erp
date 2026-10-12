@@ -115,6 +115,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Suppliers slice 1 C1 (2026-10-12): `buyer`, `purchasing_manager`, `viewer`, `admin` and owner hold it (`SECURITY_MODEL.md` §4).
         'GetSupplier' => 'supplier.view',
         'ListSuppliers' => 'supplier.view',
+        // Suppliers slice 1 C2 (2026-10-12): `buyer`, `purchasing_manager`, `admin` and owner hold both; `viewer` neither.
+        'CreateSupplier' => 'supplier.create',
+        'UpdateSupplier' => 'supplier.edit',
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',

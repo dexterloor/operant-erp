@@ -467,6 +467,17 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'ADR-007: a supplier holding purchase orders cannot be hard-deleted. country_code laid at suppliers slice 1 C0 (NOT NULL, no default, FK country).',
+            // Suppliers slice 1 C2 (2026-10-12, Version20261012000200): SupplierWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
+            // erp_app archive a supplier (deleted_at) or set email/phone/is_active, which no operation writes (owner Q-S6,
+            // RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateSupplier's first-read FOR NO KEY UPDATE legal (A4.3
+            // constraint 1). No deleted_at and no DELETE: DeleteSupplier is not built (Q-S1 (d)). Declared explicitly so
+            // erp_ai keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code', 'payment_terms_days'],
+                'UPDATE' => ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days', 'updated_at'],
+            ]],
         ],
         'supplier_product' => [
             'module' => 'Modules\\Suppliers',

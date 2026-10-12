@@ -159,6 +159,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // customer row's own state; its subject is `customer`, so (4c) does not reach either. `RESIDUAL_GAPS.md` G-35.
         'customer.created',
         'customer.updated',
+        // Edited by hand 2026-10-12 (suppliers slice 1 C2) on owner Q-S5 (`docs/session13/suppliers-s1-ruling.md`) and the
+        // `customer.*` filing's terms (`SEC`'s stated view, `owed-roles-recs.md` S2; `SEC` to confirm the supplier block):
+        // BUSINESS, subject the supplier, `{}` and `{"fields"}` — names, never values — no IP. Its subject is `supplier`, so
+        // (4c) does not reach either. ONLY these two: `.deleted`/`.restored` come with their writers (final RED M-A).
+        'supplier.created',
+        'supplier.updated',
     ];
 
     /**

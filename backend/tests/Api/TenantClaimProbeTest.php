@@ -131,6 +131,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // would 404 here (B's supplier is another id), and the list would return B's suppliers.
         'GetSupplier' => ['vars' => ['id' => 'supplier']],
         'ListSuppliers' => [],
+        // Suppliers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
+        // and an update of the remembered supplier (B's supplier is another id, so a moved update would 404).
+        'CreateSupplier' => ['body' => ['code' => 'S-NEW', 'name' => 'New Supplier', 'country_code' => 'GB', 'currency_code' => 'GBP']],
+        'UpdateSupplier' => ['vars' => ['id' => 'supplier'], 'body' => ['name' => 'Renamed Supplier']],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

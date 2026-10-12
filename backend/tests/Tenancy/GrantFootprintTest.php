@@ -1134,6 +1134,97 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The columns `SupplierWriter` names, per privilege (suppliers slice 1 C2, `Version20261012000200`). **Typed by hand from
+     * its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration must still
+     * fail here). No DELETE.
+     *
+     * @var array<string, list<string>> privilege => columns
+     */
+    private const SUPPLIER_COLUMN_WRITES = [
+        'INSERT' => ['code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days', 'tenant_id'],
+        'UPDATE' => ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days', 'updated_at'],
+    ];
+
+    /**
+     * **Suppliers slice 1 C2: `erp_app` can write exactly the columns `CreateSupplier` and `UpdateSupplier` name on `supplier`,
+     * and delete nothing — proved by running the statements as `erp_app`** (design §4.5; ADR-002 A4.4's *"exactly"*). The
+     * customer method's shape. **Positive controls:** `supplier.name` INSERT and UPDATE accepted. **Anti-vacuity:**
+     * `supplier.deleted_at` UPDATE (archiving by SQL; `DeleteSupplier` is not built), `supplier.email` UPDATE and
+     * `supplier.is_active` UPDATE (owner Q-S6, G-36) and `supplier` DELETE refused. **Planted control, committed then
+     * undone:** `GRANT UPDATE (deleted_at) ON supplier` must produce exactly one violation. The UPDATE columns also make
+     * `UpdateSupplier`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheSupplierColumnsTheSupplierWriterNames(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(
+            "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = 'supplier'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum");
+        self::assertContains('country_code', $columns, 'The column domain was not read from the server.');
+
+        $run = function (string $key, string $sql) use (&$outcomes): void {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement($sql);
+                $outcomes[$key] = 'accepted';
+            } catch (DriverException $e) {
+                $outcomes[$key] = '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table supplier')
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        $probe = function () use ($columns, $run, &$outcomes): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                foreach (['INSERT' => 'INSERT INTO supplier (%1$s) SELECT %1$s FROM supplier WHERE false', 'UPDATE' => 'UPDATE supplier SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
+                    $run($column.' '.$privilege, sprintf($sql, '"'.$column.'"'));
+                }
+            }
+            $run('* DELETE', 'DELETE FROM supplier WHERE false');
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$column, $privilege] = explode(' ', $key);
+                $granted = 'DELETE' !== $privilege && \in_array($column, self::SUPPLIER_COLUMN_WRITES[$privilege], true);
+                if ($granted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('supplier.%s: SupplierWriter issues it, but erp_app got "%s"', $key, $outcome);
+                } elseif (!$granted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('supplier.%s: SupplierWriter does not issue it, but erp_app got "%s"', $key, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+        self::assertSame(['accepted', 'accepted'], [$outcomes['name INSERT'] ?? null, $outcomes['name UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update supplier.name.');
+        self::assertSame(['refused', 'refused', 'refused', 'refused'],
+            [$outcomes['deleted_at UPDATE'] ?? null, $outcomes['email UPDATE'] ?? null, $outcomes['is_active UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not archive a supplier, set its email or is_active, or delete it, and the probe did not see them refused.');
+        self::assertSame([], $violations($outcomes),
+            "erp_app's writes on supplier are not exactly SupplierWriter's:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON supplier TO %s', DatabaseRoles::APP));
+            self::assertSame(['supplier.deleted_at UPDATE: SupplierWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON supplier FROM %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The planted supplier deleted_at grant survived its REVOKE.');
+    }
+
+    /**
      * **`DATA` D-10.1's backstop CHECKs refuse, as `erp_app`, what the application refuses** (roles slice 4 C1): a zero-width
      * space, a trailing space, a bidi override, an empty name and a 101-character name → `23514 role_name_shape`; a control
      * character in the description → `role_description_shape`. **Positive control:** a plain name (and a description with a

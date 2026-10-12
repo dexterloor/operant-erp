@@ -178,7 +178,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **17 -> 18 on 2026-10-05** (G-29 / G-30 part 3, C1): `CreditNoteAuditWriter::recordReturnDecided()`'s INSERT.
         // **18 -> 19 on 2026-10-09** (customers slice 1 C2): `CustomerAuditWriter::record()`'s ONE `INSERT INTO audit_log`,
         // shared by `customer.created` and `customer.updated` (metadata a bound `?::jsonb`), read off this test's run.
-        'Modules\\AuditLog' => 19,
+        // **19 -> 20 on 2026-10-12** (suppliers slice 1 C2): `SupplierAuditWriter::record()`'s ONE `INSERT INTO audit_log`,
+        // shared by `supplier.created` and `supplier.updated`, read off this test's run.
+        'Modules\\AuditLog' => 20,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -247,6 +249,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // 12, the `distinct` row a named pending return gets), a second writer of the table beside `AdjustmentDecisionWriter`
         // — same module, same column list as the grant (read off the failure, never typed).
         'Modules\\Sales' => 20,
+        // **New key 2026-10-12** (suppliers slice 1 C2), read off this test's run: `SupplierWriter`'s one `INSERT INTO
+        // supplier` (column list built from the sent fields) and one `UPDATE supplier` (SET built from the changed fields).
+        // The row lock is a `FOR NO KEY UPDATE` this scan excludes.
+        'Modules\\Suppliers' => 2,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).
