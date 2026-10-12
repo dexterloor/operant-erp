@@ -184,7 +184,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // audit_log`, shared by `customer_address.created` and `.updated`, read off this test's run. `Modules\\Customers` is
         // unmoved at 4: `CustomerAddressWriter` still issues one INSERT and one UPDATE; its new row lock is a `FOR NO KEY
         // UPDATE` this scan excludes.
-        'Modules\\AuditLog' => 21,
+        // **21 -> 22 on 2026-10-13** (warehouses slice 1 C2): `WarehouseAuditWriter::record()`'s ONE `INSERT INTO audit_log`,
+        // shared by `warehouse.created` and `warehouse.updated`, read off this test's run.
+        'Modules\\AuditLog' => 22,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -282,6 +284,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // **13 -> 14 on 2026-10-07** (roles slice 4, C3): `RoleDeletion`'s `UPDATE role SET deleted_at, updated_at` (the soft
         // delete), read off this test's failure. `Modules\\AuditLog` does NOT move: `role.deleted` goes through `RoleAuditWriter::record()`.
         'Modules\\UserManagement' => 14,
+        // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
+        // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
+        // this scan excludes.
+        'Modules\\Warehouses' => 2,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

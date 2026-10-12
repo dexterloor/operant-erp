@@ -848,6 +848,20 @@ trait OperationSuccessRecipes
 
                 return [200, 'list a warehouse\'s storage locations'];
             }],
+            // Warehouses slice 1, C2: a create with a letter-bearing code (CD-3) and every field sent; an update that changes
+            // the name and the code of a seeded warehouse, so the success path writes its `warehouse.updated` row. Codes carry
+            // a random suffix: `warehouse.code` is live-unique.
+            'CreateWarehouse' => [$none, function () use ($key): array {
+                $tag = strtoupper(bin2hex(random_bytes(3)));
+                $this->send('POST', '/warehouses', ['code' => 'W-RECIPE-'.$tag, 'name' => 'Recipe New Warehouse', 'country_code' => 'GB'], $key());
+
+                return [201, 'create a warehouse'];
+            }],
+            'UpdateWarehouse' => [fn (): array => ['warehouse' => $this->seedWarehouse(self::TENANT_A, 'Recipe Updated Warehouse')], function (array $c): array {
+                $this->send('PATCH', '/warehouses/'.$c['warehouse'], ['name' => 'Recipe Renamed Warehouse', 'code' => 'W-RENAMED-'.strtoupper(bin2hex(random_bytes(3)))]);
+
+                return [200, 'update a warehouse'];
+            }],
             'ListSupplierProducts' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
                 $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));

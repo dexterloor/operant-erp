@@ -422,6 +422,17 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'Purchase orders and fulfilments name a warehouse and must keep naming it after the site closes.',
+            // Warehouses slice 1 C2 (2026-10-13, Version20261013000100): WarehouseWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
+            // erp_app archive a warehouse (deleted_at) or set address_line/city/postal_code/is_active, which no operation
+            // writes (Q-W4, RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateWarehouse's first-read FOR NO KEY UPDATE
+            // and C3's parent FOR SHARE legal (A4.3 constraint 1). No deleted_at and no DELETE: DeleteWarehouse is out of
+            // slice 1 (API-O-34, G-7). Declared explicitly so erp_ai keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code'],
+                'UPDATE' => ['code', 'name', 'country_code', 'updated_at'],
+            ]],
         ],
         'storage_location' => [
             'module' => 'Modules\\Warehouses',

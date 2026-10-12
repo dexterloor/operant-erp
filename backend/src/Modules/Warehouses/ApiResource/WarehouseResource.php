@@ -6,9 +6,14 @@ namespace App\Modules\Warehouses\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Warehouses\ApiResource\State\CreateWarehouseProcessor;
+use App\Modules\Warehouses\ApiResource\State\UpdateWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\WarehouseProvider;
 use App\Modules\Warehouses\Application\WarehouseView;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -26,6 +31,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *
  * **Shipped first in the slice on purpose:** `DenialSubjectTest`'s path-first derivation resolves `/warehouses/{}` to
  * `warehouse` from this built item-`GET`, so every operation nested under it can declare its denial subject.
+ *
+ * **`CreateWarehouse` / `UpdateWarehouse`** (warehouses slice 1 C2): `WarehouseWriter` behind both, `SupplierResource`'s
+ * operation shape. Each writes one audit row in its transaction (`warehouse.created` `{values}` / `warehouse.updated`
+ * `{fields, from, to}`; owner Q-W2 (a)). One live unique (code), refused, never replayed; the name is not unique.
  */
 #[ApiResource(
     shortName: 'Warehouse',
@@ -37,6 +46,44 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: WarehouseProvider::class,
             // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, before the provider loads anything.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.view'],
+        ),
+        new Post(
+            uriTemplate: '/warehouses',
+            name: 'CreateWarehouse',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateWarehouse'),
+            input: CreateWarehouseInput::class,
+            denormalizationContext: [
+                // API-9: unknown fields are refused and named back (`address_line`, `city`, `postal_code`, `is_active`
+                // included, Q-W4 / G-36). A client `id` is refused by the layers `ItemResource` records (B-3);
+                // `WarehouseWriter::create()` mints the id regardless.
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            processor: CreateWarehouseProcessor::class,
+            // §4.2: `unique:warehouse_tenant_code_live`. API-14 demands the header; a repeat is refused by the code's live
+            // unique, never replayed (`CreateSupplier`'s precedent).
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'warehouse.create',
+            ],
+        ),
+        new Patch(
+            uriTemplate: '/warehouses/{id}',
+            name: 'UpdateWarehouse',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateWarehouse'),
+            input: UpdateWarehouseInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                // A body `id` is an undeclared field, never an IRI to resolve (`UpdateItem`'s reason).
+                'api_allow_update' => false,
+            ],
+            // The row is read first, so a PATCH at an id no row answers is `GetWarehouse`'s 404 (§5.3 clause 2).
+            provider: WarehouseProvider::class,
+            processor: UpdateWarehouseProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.edit'],
         ),
     ],
 )]

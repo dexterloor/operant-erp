@@ -344,7 +344,8 @@ trait ArchivedRowSubjects
                 return ['id' => $order, 'lineId' => $line, 'row' => $line];
             },
             // Added 2026-10-13 with `GetWarehouse` (warehouses slice 1, C1): `warehouse` is class `soft`, has a built direct-hit
-            // `Get` and `ListWarehouses` is its list. No write on the resource is built yet (C2 adds `UpdateWarehouse`).
+            // `Get` and `ListWarehouses` is its list. Its write is `UpdateWarehouse` (C2, 2026-10-13; body in
+            // `archivedRowWriteBodies()`).
             'warehouse' => function (string $tag): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'Archived Subject '.$tag);
 
@@ -446,6 +447,9 @@ trait ArchivedRowSubjects
             // Suppliers slice 1 C2: the live twin renames (random-suffixed: `supplier.name` is live-unique); the archived
             // twin's 409 is `supplier.is_archived`'s alone.
             'UpdateSupplier' => ['name' => 'Renamed '.bin2hex(random_bytes(3))],
+            // Warehouses slice 1 C2: the live twin renames (the name is not unique); the archived twin's 409 is
+            // `warehouse.is_archived`'s alone.
+            'UpdateWarehouse' => ['name' => 'Renamed'],
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
             // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
             // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are

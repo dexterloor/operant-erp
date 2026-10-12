@@ -131,6 +131,10 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'GetWarehouse' => 'warehouse.view',
         'ListWarehouses' => 'warehouse.view',
         'ListStorageLocations' => 'storage_location.view',
+        // Warehouses slice 1 C2 (2026-10-13): `warehouse.create` — owner and `admin`; `warehouse.edit` — owner, `admin` and
+        // `warehouse_operator` (`SECURITY_MODEL.md` §4). `viewer` holds neither.
+        'CreateWarehouse' => 'warehouse.create',
+        'UpdateWarehouse' => 'warehouse.edit',
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',

@@ -171,6 +171,13 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // IP. Its subject is `customer_address`, so (4c) does not reach either.
         'customer_address.created',
         'customer_address.updated',
+        // Edited by hand 2026-10-13 (warehouses slice 1 C2) on owner Q-W2 (a) (adopted under delegation,
+        // `docs/session13/warehouses-s1-design.md` §3.2) and the `supplier.*` filing's terms (`SEC` to confirm the warehouse
+        // block): BUSINESS, subject the warehouse, `{values}` and `{fields, from, to}` — operational values over an explicit
+        // allowlist — no IP. Its subject is `warehouse`, so (4c) does not reach either. ONLY these two: `.deleted`/`.restored`
+        // come with their writers.
+        'warehouse.created',
+        'warehouse.updated',
     ];
 
     /**

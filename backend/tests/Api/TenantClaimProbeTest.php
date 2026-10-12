@@ -149,6 +149,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetWarehouse' => ['vars' => ['id' => 'warehouse']],
         'ListWarehouses' => [],
         'ListStorageLocations' => ['vars' => ['id' => 'warehouse']],
+        // Warehouses slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
+        // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
+        'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
+        'UpdateWarehouse' => ['vars' => ['id' => 'warehouse'], 'body' => ['name' => 'Renamed Warehouse']],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

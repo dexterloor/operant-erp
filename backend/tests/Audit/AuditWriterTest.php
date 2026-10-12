@@ -18,6 +18,7 @@ use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesReturnAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
+use App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -200,6 +201,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Added 2026-10-12 with CreateSupplier/UpdateSupplier (suppliers slice 1 C2): supplier.created and supplier.updated,
         // BUSINESS, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/SupplierAuditWriter.php',
+        // Added 2026-10-13 with CreateWarehouse/UpdateWarehouse (warehouses slice 1 C2): warehouse.created and
+        // warehouse.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/WarehouseAuditWriter.php',
         // Added 2026-10-12 with the customer address trail (suppliers slice 1 C2b): customer_address.created and
         // customer_address.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/CustomerAddressAuditWriter.php',
@@ -394,6 +398,13 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($supplierWriter instanceof SupplierAuditWriter);
         $supplierWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122());
         $supplierWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122(), fields: ['name']);
+        // Warehouses slice 1 C2: `warehouse.created` / `warehouse.updated`, BUSINESS (listed AND driven).
+        $warehouseWriter = self::getContainer()->get(WarehouseAuditWriter::class);
+        \assert($warehouseWriter instanceof WarehouseAuditWriter);
+        $warehouseWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', warehouseId: Uuid::v4()->toRfc4122(),
+            values: ['code' => 'W-PROBE', 'name' => 'Probe', 'country_code' => 'GB']);
+        $warehouseWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', warehouseId: Uuid::v4()->toRfc4122(),
+            from: ['name' => 'Probe'], to: ['name' => 'Probe Renamed']);
         // Suppliers slice 1 C2b: `customer_address.created` / `customer_address.updated`, BUSINESS (listed AND driven).
         $addressWriter = self::getContainer()->get(CustomerAddressAuditWriter::class);
         \assert($addressWriter instanceof CustomerAddressAuditWriter);

@@ -140,6 +140,8 @@ services:
             # C3 declares its writes) — data, not services.
             - '../src/Modules/Warehouses/Application/{WarehouseView.php,StorageLocationView.php}'
             - '../src/Modules/Warehouses/ApiResource/StorageLocationResource.php'
+            # Warehouses slice 1 C2 (2026-10-13): the two request bodies (the serializer builds them).
+            - '../src/Modules/Warehouses/ApiResource/{CreateWarehouseInput.php,UpdateWarehouseInput.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

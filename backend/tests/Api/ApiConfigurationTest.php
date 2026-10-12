@@ -244,7 +244,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `WarehouseResource`, `ListWarehouses` (GET `/warehouses`, `warehouse.view`, bounded) on `WarehouseCollection`, and
         // `ListStorageLocations` (GET `/warehouses/{id}/locations`, `storage_location.view`, bounded) on
         // `StorageLocationCollection`. No migration, no grant.
-        self::assertCount(88, $checked, 'The route set changed. This slice declares eighty-eight operations: '.implode(', ', array_keys($checked)));
+        // **And two more (warehouses slice 1 C2, 2026-10-13):** `CreateWarehouse`, a POST at `/warehouses` (`warehouse.create`),
+        // and `UpdateWarehouse`, a PATCH at `/warehouses/{id}` (`warehouse.edit`), both on `WarehouseResource`. Its migration
+        // grants `erp_app` a column INSERT and a column UPDATE on `warehouse`.
+        self::assertCount(90, $checked, 'The route set changed. This slice declares ninety operations: '.implode(', ', array_keys($checked)));
     }
 
     /**
