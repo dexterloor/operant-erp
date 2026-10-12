@@ -240,7 +240,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (suppliers slice 1 C4, 2026-10-12):** `DeleteSupplierProduct` (DELETE
         // `/suppliers/{id}/products/{productId}`, `supplier_product.edit`; branch 3, 204) on `SupplierProductResource`. Its
         // migration grants `erp_app` table DELETE on `supplier_product`, the third DELETE grant.
-        self::assertCount(85, $checked, 'The route set changed. This slice declares eighty-five operations: '.implode(', ', array_keys($checked)));
+        // **And three more (warehouses slice 1 C1, 2026-10-13):** `GetWarehouse` (GET `/warehouses/{id}`, `warehouse.view`) on
+        // `WarehouseResource`, `ListWarehouses` (GET `/warehouses`, `warehouse.view`, bounded) on `WarehouseCollection`, and
+        // `ListStorageLocations` (GET `/warehouses/{id}/locations`, `storage_location.view`, bounded) on
+        // `StorageLocationCollection`. No migration, no grant.
+        self::assertCount(88, $checked, 'The route set changed. This slice declares eighty-eight operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

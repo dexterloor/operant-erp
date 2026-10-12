@@ -71,14 +71,21 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         return \sprintf('%s-%06d', $prefix, self::$lastFreshNumber);
     }
 
-    /** @return string the new row's id */
+    /**
+     * The code is `W-` + eight hex digits of `md5(name.id)` — **letter-prefixed since warehouses slice 1 C1 (2026-10-13)**.
+     * It was the bare eight hex digits until then, and the id is random, so about one run in forty-three minted an all-digit
+     * code; from C1 `code` is on the wire (`GetWarehouse`, `ListWarehouses`) and `WireScaleTest` would read such a code as
+     * a decimal (CD-3) — a flaky red. `seedSupplier()`'s `S-` is the precedent.
+     *
+     * @return string the new row's id
+     */
     protected function seedWarehouse(string $tenantId, string $name = 'Main'): string
     {
         $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO warehouse (id, tenant_id, code, name, country_code)
             VALUES (?::uuid, ?::uuid, ?, ?, 'DE')
-            SQL, [$id, $tenantId, strtoupper(substr(md5($name.$id), 0, 8)), $name]);
+            SQL, [$id, $tenantId, 'W-'.strtoupper(substr(md5($name.$id), 0, 8)), $name]);
 
         return $id;
     }

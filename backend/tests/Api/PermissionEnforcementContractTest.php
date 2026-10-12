@@ -125,6 +125,12 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'UpdateSupplierProduct' => 'supplier_product.edit',
         // C4: removing an entry is a catalogue edit (§4.2).
         'DeleteSupplierProduct' => 'supplier_product.edit',
+        // Warehouses slice 1 C1 (2026-10-13): `warehouse.view` — owner, `admin`, `buyer`, `purchasing_manager`,
+        // `warehouse_operator`, `sales_rep`, `viewer`; `storage_location.view` — owner, `admin`, `warehouse_operator`, `viewer`
+        // (`SECURITY_MODEL.md` §4). The location list is gated on its own code alone (PC-9's surface exception).
+        'GetWarehouse' => 'warehouse.view',
+        'ListWarehouses' => 'warehouse.view',
+        'ListStorageLocations' => 'storage_location.view',
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',

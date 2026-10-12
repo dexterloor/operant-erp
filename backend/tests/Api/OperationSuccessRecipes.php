@@ -823,6 +823,31 @@ trait OperationSuccessRecipes
 
                 return [204, 'remove an item from a supplier\'s catalogue'];
             }],
+            // Warehouses slice 1, C1: a seeded warehouse (its code `W-`-prefixed by `seedWarehouse()`, CD-3), read back; both
+            // lists are driven over seeded rows (a letter-bearing bin code), so `ResponseShapeTest` and `WireScaleTest` walk a
+            // real item. `warehouse.code` is live-unique and derived from name+id, so a fixed name is safe.
+            'GetWarehouse' => [fn (): array => ['warehouse' => $this->seedWarehouse(self::TENANT_A, 'Recipe Warehouse')], function (array $c): array {
+                $this->send('GET', '/warehouses/'.$c['warehouse']);
+
+                return [200, 'read a warehouse'];
+            }],
+            'ListWarehouses' => [fn (): array => ['warehouse' => $this->seedWarehouse(self::TENANT_A, 'Recipe Listed Warehouse')], function (): array {
+                $this->send('GET', '/warehouses');
+
+                return [200, 'list the workspace\'s warehouses'];
+            }],
+            'ListStorageLocations' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Located Warehouse');
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                    [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $warehouse, 'A-01-RECIPE']);
+
+                return ['warehouse' => $warehouse];
+            }, function (array $c): array {
+                $this->send('GET', '/warehouses/'.$c['warehouse'].'/locations');
+
+                return [200, 'list a warehouse\'s storage locations'];
+            }],
             'ListSupplierProducts' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
                 $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));

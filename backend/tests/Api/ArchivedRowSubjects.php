@@ -343,6 +343,24 @@ trait ArchivedRowSubjects
 
                 return ['id' => $order, 'lineId' => $line, 'row' => $line];
             },
+            // Added 2026-10-13 with `GetWarehouse` (warehouses slice 1, C1): `warehouse` is class `soft`, has a built direct-hit
+            // `Get` and `ListWarehouses` is its list. No write on the resource is built yet (C2 adds `UpdateWarehouse`).
+            'warehouse' => function (string $tag): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Archived Subject '.$tag);
+
+                return ['id' => $warehouse, 'row' => $warehouse];
+            },
+            // Added 2026-10-13 with `ListStorageLocations` (warehouses slice 1, C1): class `soft`, list clause only (no direct
+            // hit and no write is built until C3). The path's `{id}` is the warehouse; the row is the location.
+            'storage_location' => function (string $tag): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Archived Locations '.$tag);
+                $location = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                    [$location, self::TENANT_A, $warehouse, 'ARC-'.$tag]);
+
+                return ['id' => $warehouse, 'row' => $location];
+            },
             // Added 2026-09-23 with `GetRole` (roles slice 1, C3): `role` is class `soft` and has a built direct-hit
             // `Get`. No write on the resource is built, so the write clause does not select it.
             'role' => function (string $tag): array {

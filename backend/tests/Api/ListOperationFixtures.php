@@ -396,6 +396,34 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListWarehouses' => function (): array {
+                // Warehouses slice 1 C1, `ListRoles`' entry. Bounded (TB-1c): no filter; TB-5 names `warehouse.code`, so `q` is
+                // probed with the seeded code prefix (letter-bearing, CD-3); one view (§10.2 exclusion 2).
+                return ['/warehouses', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, ?, ?, 'DE')",
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, 'WH-ENV-'.$i, 'Envelope Warehouse '.$i]);
+                    }
+
+                    return ['filter' => [], 'search' => 'WH-ENV', 'views' => ['']];
+                }];
+            },
+            'ListStorageLocations' => function (): array {
+                // Warehouses slice 1 C1. One warehouse; the seed step gives it N letter-bearing bins (CD-3). Bounded, no `q`
+                // (TB-5 names no `storage_location` column); `archived` only (API-19c limb 2), one view.
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Envelope Locations');
+
+                return ['/warehouses/'.$warehouse.'/locations', function (int $rows) use ($warehouse): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $warehouse, 'LOC-ENV-'.$i]);
+                    }
+
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListCustomerAddresses' => function (): array {
                 // Customers slice 1 C3. One customer; the seed step gives it N addresses with LETTER-bearing postal codes
                 // (CD-3), each its own row (distinct random keys, `seedCustomerAddress()`).

@@ -144,6 +144,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'UpdateSupplierProduct' => ['vars' => ['id' => 'supplier', 'productId' => 'supplier_product'], 'body' => ['lead_time_days' => 4]],
         // C4: a moved delete would 404 on the pair (B's supplier and entry are other ids).
         'DeleteSupplierProduct' => ['vars' => ['id' => 'supplier', 'productId' => 'supplier_product']],
+        // Warehouses slice 1 C1: the warehouse every tenant remembers (`seedMirror()`, with its `A-01` bin). A moved read
+        // would 404 (B's warehouse is another id), and the list would return B's warehouses.
+        'GetWarehouse' => ['vars' => ['id' => 'warehouse']],
+        'ListWarehouses' => [],
+        'ListStorageLocations' => ['vars' => ['id' => 'warehouse']],
         // Customers slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],

@@ -136,6 +136,10 @@ services:
             # bodies — data, not services.
             - '../src/Modules/Suppliers/Application/SupplierProductView.php'
             - '../src/Modules/Suppliers/ApiResource/{SupplierItemReference.php,CreateSupplierProductInput.php,UpdateSupplierProductInput.php}'
+            # Warehouses slice 1 C1 (2026-10-13): the two read models and the location item DTO (not an `ApiResource` until
+            # C3 declares its writes) — data, not services.
+            - '../src/Modules/Warehouses/Application/{WarehouseView.php,StorageLocationView.php}'
+            - '../src/Modules/Warehouses/ApiResource/StorageLocationResource.php'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

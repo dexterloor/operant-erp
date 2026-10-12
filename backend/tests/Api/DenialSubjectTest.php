@@ -47,7 +47,8 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     // Sales step 7 C1b: `IssueAdjustmentCreditNote`, nested under the invoice exactly as `IssueCreditNote` is.
     // Suppliers slice 1 C3 (design §5.5, RED L-5): the three catalogue operations — gated `supplier_product.*`, their
     // recorded `{id}` a `supplier` row.
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateSupplierProduct', 'DeleteSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateSupplierProduct'];
+    // Warehouses slice 1 C1: `ListStorageLocations` — gated `storage_location.view`, its recorded `{id}` a `warehouse` row.
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateSupplierProduct', 'DeleteSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListStorageLocations', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateSupplierProduct'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -181,6 +182,8 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         // — the declared subject is the supplier (`OPERATION_DENIAL_SUBJECT`).
         $supplier = $this->seedSupplier(self::TENANT_A, 'Acme F1 Catalogue');
         $product = $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-F1-CAT'));
+        // Warehouses slice 1 C1: a REAL warehouse (the location list's recorded `{id}`).
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH F1 Locations');
 
         $cases = [
             'CreateGoodsReceipt' => ['POST', '/purchase-orders/'.$po.'/goods-receipts', 'goods_receipt.create', $po],
@@ -197,6 +200,8 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'CreateSupplierProduct' => ['POST', '/suppliers/'.$supplier.'/products', 'supplier_product.edit', $supplier],
             'UpdateSupplierProduct' => ['PATCH', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             'DeleteSupplierProduct' => ['DELETE', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
+            // Warehouses slice 1 C1: the location list names the warehouse its path addresses.
+            'ListStorageLocations' => ['GET', '/warehouses/'.$warehouse.'/locations', 'storage_location.view', $warehouse],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 
