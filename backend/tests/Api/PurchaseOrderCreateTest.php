@@ -286,7 +286,7 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         $warehouse = '5a1e5a1e-0000-4000-8000-000000000002';
 
         $this->insertAsOwnerForTenant(self::TENANT_A,
-            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, 'Pinned', 'PINNED', 'EUR')",
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, 'Pinned', 'PINNED', 'GB', 'EUR')",
             [$supplier, self::TENANT_A]);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, 'PINNED', 'Pinned', 'DE')",
@@ -991,7 +991,7 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         $second = '5a1e5a1e-0000-4000-8000-000000000004';
 
         $this->insertAsOwnerForTenant(self::TENANT_A,
-            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, 'Pinned', 'PINNED', 'EUR')",
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, 'Pinned', 'PINNED', 'GB', 'EUR')",
             [$supplier, self::TENANT_A]);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, 'PINNED', 'Pinned', 'DE')",

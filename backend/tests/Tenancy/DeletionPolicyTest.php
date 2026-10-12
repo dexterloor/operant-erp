@@ -31,8 +31,8 @@ final class DeletionPolicyTest extends TenancyTestCase
     {
         $this->insertAsOwnerForTenant(
             $tenantId,
-            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
-            [$id, $tenantId, $name, $code],
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, ?, 'EUR')",
+            [$id, $tenantId, $name, $code, 'GB'],
         );
     }
 

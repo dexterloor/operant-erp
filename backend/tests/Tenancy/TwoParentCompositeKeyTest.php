@@ -56,8 +56,8 @@ final class TwoParentCompositeKeyTest extends TenancyTestCase
         $warehouseId = Uuid::v4()->toRfc4122();
 
         $this->insertAsOwnerForTenant($tenantId,
-            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
-            [$supplierId, $tenantId, 'Parent Supplier'.$suffix, 'SUP'.$suffix]);
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, ?, 'EUR')",
+            [$supplierId, $tenantId, 'Parent Supplier'.$suffix, 'SUP'.$suffix, 'GB']);
         $this->insertAsOwnerForTenant($tenantId,
             "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, ?, ?, 'DE')",
             [$warehouseId, $tenantId, 'WH'.$suffix, 'Parent Warehouse'.$suffix]);

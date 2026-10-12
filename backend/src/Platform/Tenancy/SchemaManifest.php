@@ -288,7 +288,7 @@ final class SchemaManifest
             'module' => 'SharedKernel\\Reference',
             'tenant' => false,
             'deletion' => self::NONE,
-            'why' => 'ADR-002 §6 shared reference data. ISO 3166-1 alpha-2, referenced by warehouse and customer_address.',
+            'why' => 'ADR-002 §6 shared reference data. ISO 3166-1 alpha-2, referenced by warehouse, customer, customer_address, sales_order (ship_to_country_code) and supplier.',
             'grants' => self::READ_ONLY_REFERENCE,
         ],
         'unit_of_measure' => [
@@ -466,7 +466,7 @@ final class SchemaManifest
             'module' => 'Modules\\Suppliers',
             'tenant' => true,
             'deletion' => self::SOFT,
-            'why' => 'ADR-007: a supplier holding purchase orders cannot be hard-deleted.',
+            'why' => 'ADR-007: a supplier holding purchase orders cannot be hard-deleted. country_code laid at suppliers slice 1 C0 (NOT NULL, no default, FK country).',
         ],
         'supplier_product' => [
             'module' => 'Modules\\Suppliers',

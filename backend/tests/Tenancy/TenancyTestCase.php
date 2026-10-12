@@ -313,16 +313,23 @@ abstract class TenancyTestCase extends KernelTestCase
      *
      * @return string the new row's id
      */
-    protected function seedSupplier(string $tenantId, string $name): string
+    protected function seedSupplier(string $tenantId, string $name, string $countryCode = 'GB'): string
     {
         $id = Uuid::v4()->toRfc4122();
         // `code` and `currency_code` are NOT NULL with no usable default:
         // a supplier without a currency cannot be priced, and Output 2
-        // declines to invent one.
+        // declines to invent one. `country_code` likewise (suppliers slice 1
+        // C0): no default, so the fixture states one.
+        //
+        // The code carries a letter prefix (CD-3, customers C0's `C-` twin):
+        // an md5 slice is all-digit for ~2.3% of names, and once `code` is on
+        // the wire (suppliers slice 1 C1) an all-digit code reads as a number to
+        // WireScaleTest. It stays NAME-derived, so TenantClaimProbeTest's
+        // baseline and probe bodies (same name, two seedings) agree.
         $this->insertAsOwnerForTenant(
             $tenantId,
-            "INSERT INTO supplier (id, tenant_id, name, code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, 'EUR')",
-            [$id, $tenantId, $name, strtoupper(substr(md5($name), 0, 8))],
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, ?, ?, 'EUR')",
+            [$id, $tenantId, $name, 'S-'.strtoupper(substr(md5($name), 0, 8)), $countryCode],
         );
 
         return $id;
