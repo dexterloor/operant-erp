@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\Test;
  * **Suppliers slice 1 C1 — `ListSuppliers`** (`docs/session13/suppliers-s1-design.md` FINAL F-2; TB-5a's `supplier.name`
  * sentence, signed by `UX` 2026-10-12; `CustomerListTest`'s shape).
  *
- * Live rows only; `sort` `name` (default) or `code`; keyset cursor `(sort key, id)`; `q` a prefix of the name ignoring
+ * Live rows only (the Archived view is `SupplierArchivedViewTest`'s, C5 C2a); `sort` `name` (default) or `code`; keyset cursor `(sort key, id)`; `q` a prefix of the name ignoring
  * case, or of the code as stored. The registry-wide list checks drive it through `ListOperationFixtures` with one probe;
  * this class pins what they cannot see — a prefix against an infix (mutation C1-2), the name leaf's case rule (C1-7), and
  * the code leaf staying as stored (C1-4b, final RED C1-4).
@@ -44,7 +44,10 @@ final class SupplierListTest extends PurchaseOrderTestCase
         }
     }
 
-    /** Mutation C1-1: an archived supplier is not in the list (the Archived view is `⛔ D-a`; `archived` is not offered). */
+    /**
+     * Mutation C1-1: an archived supplier is not in the live list. Since C5 C2a `archived=true` serves them instead (the
+     * Archived view, `SupplierArchivedViewTest`).
+     */
     #[Test]
     public function theListHoldsLiveSuppliersOnly(): void
     {
@@ -53,9 +56,7 @@ final class SupplierListTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
         self::assertSame(['Live Supplier'], $this->names(''));
-
-        $this->send('GET', '/suppliers?archived=true');
-        self::assertSame(422, $this->httpStatus(), 'archived is not offered on /suppliers (API-19c limb 1), so it must be refused.');
+        self::assertSame(['Archived Supplier'], $this->names('?archived=true'));
     }
 
     /** `sort=code` orders by the code as stored; an unknown order is refused. */

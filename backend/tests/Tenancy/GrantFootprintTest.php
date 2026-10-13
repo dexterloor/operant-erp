@@ -1134,24 +1134,25 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
-     * The columns `SupplierWriter` names, per privilege (suppliers slice 1 C2, `Version20261012000200`). **Typed by hand from
-     * its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration must still
-     * fail here). No DELETE.
+     * The columns `SupplierWriter` names, per privilege (suppliers slice 1 C2, `Version20261012000200`; `deleted_at` C5 C2a,
+     * `Version20261013000500`, `restore()`). **Typed by hand from its INSERT and UPDATEs, never read from `SchemaManifest`**
+     * (a joint widening of the manifest and a migration must still fail here). No DELETE.
      *
      * @var array<string, list<string>> privilege => columns
      */
     private const SUPPLIER_COLUMN_WRITES = [
         'INSERT' => ['code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days', 'tenant_id'],
-        'UPDATE' => ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days', 'updated_at'],
+        'UPDATE' => ['code', 'country_code', 'currency_code', 'deleted_at', 'name', 'payment_terms_days', 'updated_at'],
     ];
 
     /**
-     * **Suppliers slice 1 C2: `erp_app` can write exactly the columns `CreateSupplier` and `UpdateSupplier` name on `supplier`,
+     * **Suppliers slice 1 C2: `erp_app` can write exactly the columns `CreateSupplier`, `UpdateSupplier` and (C5 C2a)
+     * `RestoreSupplier` name on `supplier`,
      * and delete nothing — proved by running the statements as `erp_app`** (design §4.5; ADR-002 A4.4's *"exactly"*). The
-     * customer method's shape. **Positive controls:** `supplier.name` INSERT and UPDATE accepted. **Anti-vacuity:**
-     * `supplier.deleted_at` UPDATE (archiving by SQL; `DeleteSupplier` is not built), `supplier.email` UPDATE and
-     * `supplier.is_active` UPDATE (owner Q-S6, G-36) and `supplier` DELETE refused. **Planted control, committed then
-     * undone:** `GRANT UPDATE (deleted_at) ON supplier` must produce exactly one violation. The UPDATE columns also make
+     * customer method's shape. **Positive controls:** `supplier.name` INSERT and UPDATE, and (C5 C2a) `supplier.deleted_at`
+     * UPDATE, accepted. **Anti-vacuity:** `supplier.deleted_at` INSERT, `supplier.email` UPDATE and `supplier.is_active` UPDATE
+     * (owner Q-S6, G-36) and `supplier` DELETE refused. **Planted control, committed then undone:** `GRANT UPDATE (is_active)
+     * ON supplier` (moved off `deleted_at` at C5 C2a, which is now written) must produce exactly one violation. The UPDATE columns also make
      * `UpdateSupplier`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
      */
     #[Test]
@@ -1206,22 +1207,22 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame(['accepted', 'accepted'], [$outcomes['name INSERT'] ?? null, $outcomes['name UPDATE'] ?? null],
-            'The positive controls failed: erp_app could not insert or update supplier.name.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['name INSERT'] ?? null, $outcomes['name UPDATE'] ?? null, $outcomes['deleted_at UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update supplier.name, or restore (deleted_at) a supplier.');
         self::assertSame(['refused', 'refused', 'refused', 'refused'],
-            [$outcomes['deleted_at UPDATE'] ?? null, $outcomes['email UPDATE'] ?? null, $outcomes['is_active UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
-            'erp_app must not archive a supplier, set its email or is_active, or delete it, and the probe did not see them refused.');
+            [$outcomes['deleted_at INSERT'] ?? null, $outcomes['email UPDATE'] ?? null, $outcomes['is_active UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not insert an archived supplier, set its email or is_active, or delete it, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on supplier are not exactly SupplierWriter's:\n  ".implode("\n  ", $violations($outcomes)));
 
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON supplier TO %s', DatabaseRoles::APP));
-            self::assertSame(['supplier.deleted_at UPDATE: SupplierWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
-                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (is_active) ON supplier TO %s', DatabaseRoles::APP));
+            self::assertSame(['supplier.is_active UPDATE: SupplierWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (is_active) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
-            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON supplier FROM %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_active) ON supplier FROM %s', DatabaseRoles::APP));
         }
-        self::assertSame([], $violations($probe()), 'The planted supplier deleted_at grant survived its REVOKE.');
+        self::assertSame([], $violations($probe()), 'The planted supplier is_active grant survived its REVOKE.');
     }
 
     /**

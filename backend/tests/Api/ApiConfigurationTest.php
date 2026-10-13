@@ -255,7 +255,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // `storage_location.create`; branch 4) and `UpdateStorageLocation` (PATCH `/warehouses/{id}/locations/{locationId}`,
         // `storage_location.edit`) on `StorageLocationResource`. Its migration grants `erp_app` a column INSERT and a column
         // UPDATE on `storage_location`; the not-exposed fallback route above is not counted.
-        self::assertCount(92, $checked, 'The route set changed. This slice declares ninety-two operations: '.implode(', ', array_keys($checked)));
+        // **And one more (C5 C2a, 2026-10-13):** `RestoreSupplier` (POST `/suppliers/{id}/restoration`, `supplier.delete`;
+        // branch 5, 200) on `SupplierResource`. Its migration grants `erp_app` column UPDATE (`deleted_at`) on `supplier`.
+        self::assertCount(93, $checked, 'The route set changed. This slice declares ninety-three operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

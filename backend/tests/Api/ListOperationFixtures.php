@@ -293,12 +293,18 @@ trait ListOperationFixtures
                 // prefix-vs-infix probes are `SupplierListTest`'s); views decode exactly the declared `sort` enum
                 // (`PaginationContractTest`). `seedSupplier()`'s codes are letter-prefixed (CD-3) and name-derived, and the
                 // names here are distinct, so the live name and code uniques hold.
+                // C5 C2a: as many ARCHIVED suppliers again, each archived at a distinct instant (owner SQL until
+                // `DeleteSupplier` ships), so the Archived view (`archived=true&sort=archived_at`) pages too; they never
+                // appear in the live views.
                 return ['/suppliers', function (int $rows): array {
                     for ($i = 1; $i <= $rows; ++$i) {
                         $this->seedSupplier(self::TENANT_A, 'SUP-ENV-'.$i);
+                        $archived = $this->seedSupplier(self::TENANT_A, 'SUP-ENV-ARCHIVED-'.$i);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE supplier SET deleted_at = ?::timestamptz WHERE id = ?::uuid',
+                            [\sprintf('2026-10-%02d 12:00:00.123456+00', $i), $archived]);
                     }
 
-                    return ['filter' => [], 'search' => 'SUP-ENV', 'views' => ['', 'sort=name', 'sort=code']];
+                    return ['filter' => [], 'search' => 'SUP-ENV', 'views' => ['', 'sort=name', 'sort=code', 'archived=true&sort=archived_at']];
                 }];
             },
             'ListOfferedRoles' => function (): array {

@@ -15,7 +15,8 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`CreateSupplier` and `UpdateSupplier`** (suppliers slice 1 C2; `docs/session13/suppliers-s1-design.md` FINAL F-3 and
+ * **`CreateSupplier`, `UpdateSupplier` and `RestoreSupplier`** (suppliers slice 1 C2; `RestoreSupplier` C5 C2a, see
+ * {@see self::restore()}; `docs/session13/suppliers-s1-design.md` FINAL F-3 and
  * §4; `CustomerWriter`'s shape, file for file, for its reasons). Takes wire-named scalars, returns a {@see SupplierView};
  * never an `ApiResource` class (A-7) and never a `Doctrine\DBAL\Connection` (A-10: an unbound autowired `Connection` is
  * the schema owner).
@@ -23,8 +24,8 @@ use Symfony\Component\Uid\Uuid;
  * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['supplier']`,
  * `Version20261012000200`): the INSERT names `id, tenant_id, code, name, country_code, currency_code` and
  * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy); the UPDATE sets only
- * the **changed** columns plus `updated_at`. `email`, `phone`, `is_active` and `deleted_at` are in neither (owner Q-S6,
- * `RESIDUAL_GAPS.md` G-36). A 42501 from either is fixed by removing the column from the statement, never by widening the
+ * the **changed** columns plus `updated_at`. `email`, `phone` and `is_active` are in neither (owner Q-S6,
+ * `RESIDUAL_GAPS.md` G-36); `deleted_at` is written only by `restore()` (C5 C2a, `Version20261013000500`). A 42501 from either is fixed by removing the column from the statement, never by widening the
  * grant.
  *
  * **Refusals, in order** (placeholder copy on the customer sentences; `UX` owes the supplier copy):
@@ -36,7 +37,7 @@ use Symfony\Component\Uid\Uuid;
  *     equal to `CustomerWriter`'s by `SupplierWriteTest`; `RESIDUAL_GAPS.md` G-37);
  *  4. (update) `currency_code` CHANGED while the supplier has catalogue entries → 409
  *     `supplier.currency_is_fixed_while_terms_exist` (C3, owner Q-S4 (ii); counted under the row lock, final RED M-B);
- *  5. **two live uniques, each refused, never replayed**, translated **by constraint name** from the 23505 **outside**
+ *  5. **two live uniques, each refused, never replayed** (and, on `restore()`, each refused with a restore sentence), translated **by constraint name** from the 23505 **outside**
  *     `TenantContext::run()` (the failed statement aborted the transaction): `supplier_tenant_code_live` → 409
  *     `supplier.code_is_unique_per_workspace` (the §4.2 `Idem` mechanism; the `Idempotency-Key` header is demanded and
  *     unused) and `supplier_tenant_name_live` → 409 `supplier.name_is_unique_per_workspace`. **The name unique compares
@@ -68,6 +69,15 @@ final readonly class SupplierWriter
     public const NAME_TAKEN_ON_UPDATE = 'Another supplier already uses this name. Keep the current name or choose a different one.';
 
     public const ARCHIVED = 'This supplier is archived, so it can\'t be changed.';
+
+    /** C5 C2a, placeholder (`UX` owes it; `ItemWriter::restore()`'s wording). */
+    public const NOT_ARCHIVED = 'This supplier is not archived, so there is nothing to restore.';
+
+    /** C5 C2a, placeholder (design §2.5): a live supplier took the archived one's code while it was archived. */
+    public const CODE_TAKEN_ON_RESTORE = 'A live supplier now uses this supplier\'s code. Change that supplier\'s code, then restore this one.';
+
+    /** C5 C2a, placeholder: a live supplier took the archived one's name while it was archived. */
+    public const NAME_TAKEN_ON_RESTORE = 'A live supplier now uses this supplier\'s name. Rename that supplier, then restore this one.';
 
     public const CURRENCY_FIXED = 'This supplier\'s catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.';
 
@@ -207,8 +217,10 @@ final readonly class SupplierWriter
     }
 
     /**
-     * ST-9: an archived supplier is read-only. Reachable only by SQL until `DeleteSupplier` ships (Q-S1 (d)). No
-     * "Restore it": `RestoreSupplier` is blocked (E9-3).
+     * ST-9: an archived supplier is read-only. Reachable only by SQL until `DeleteSupplier` ships (C5 C2b). The sentence
+     * does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreSupplier` ships at C5 C2a, so the reason is no
+     * longer that restore is blocked, but a caller holding `supplier.edit` may lack `supplier.delete`, which restoring
+     * needs — `UX` rules whether the refusal names the remedy.
      *
      * @param array<string, mixed> $row
      */
@@ -216,6 +228,61 @@ final readonly class SupplierWriter
     {
         if (true === $row['archived']) {
             throw ApiProblem::businessRuleViolated('supplier.is_archived', self::ARCHIVED);
+        }
+    }
+
+    /**
+     * **`RestoreSupplier`** (C5 C2a; `docs/session13/c5-design.md` §2.5; `RestoreItem`'s shape, API-21 branch 5: 200 with the
+     * supplier in its new state). In one `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404 (ST-5);
+     *  2. the row read `FOR NO KEY UPDATE` — the update lock is enough: a restore must not wait on Purchasing's
+     *     `FOR KEY SHARE` readers, and it conflicts with `DeleteSupplier`'s `FOR UPDATE` and with `UpdateSupplier`'s lock;
+     *  3. live → 409 `supplier.is_not_archived` — the §4.2 `guard:supplier.deleted_at` mechanism: a replayed restore is
+     *     told the first one committed (no `Idempotency-Key` demanded, `RestoreItem`'s reason);
+     *  4. `UPDATE supplier SET deleted_at = NULL, updated_at = now()` — the column grant `Version20261013000500` adds;
+     *  5. `supplier.restored`, `{}`, after the UPDATE, in its transaction;
+     *  6. the row read back.
+     *
+     * **The restore collision** (design §2.5): `supplier_tenant_code_live` and `supplier_tenant_name_live` are partial on
+     * `deleted_at IS NULL`, so a live supplier may have taken the archived one's code or name while it was archived. The
+     * 23505 is translated **outside** `run()` by constraint name to the existing rule codes with restore sentences; the
+     * failed UPDATE aborted the transaction, so no audit row is written. **No open-work check**: restoring creates no
+     * work. Children (`supplier_product`, `hard`) were never touched by archiving, so nothing is resurrected.
+     */
+    public function restore(string $id): SupplierView
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        try {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): SupplierView {
+                $connection = $em->getConnection();
+                // fetchAssociative, never fetchOne: a live row's  would read as "no row".
+                $row = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid FOR NO KEY UPDATE', [$id]);
+                if (false === $row) {
+                    throw ApiProblem::notFound();
+                }
+                if (true !== $row['archived']) {
+                    throw ApiProblem::businessRuleViolated('supplier.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection->executeStatement('UPDATE supplier SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$id]);
+
+                // After the UPDATE, in its transaction: a 23505 above leaves no row.
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    supplierId: $id,
+                );
+
+                return SupplierReader::readInside($em, $id) ?? throw new \LogicException('The supplier just restored is not readable.');
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            throw self::translated($e, self::CODE_TAKEN_ON_RESTORE, self::NAME_TAKEN_ON_RESTORE);
         }
     }
 

@@ -28,8 +28,9 @@ use Symfony\Component\Uid\Uuid;
  * notice in the ruling): a case variant is accepted, and the refusal copy never claims otherwise.
  *
  * **The trail** (`supplier.created` / `supplier.updated`): one row per create and per CHANGING update, read back cell by
- * cell, no row on any refusal or no-op; the race test is a real second connection holding the row. **Only these two
- * supplier events exist** (final RED M-A): `.deleted`/`.restored` are minted with their writers later.
+ * cell, no row on any refusal or no-op; the race test is a real second connection holding the row. A supplier event is
+ * minted only with its writer (final RED M-A): `.restored` with `RestoreSupplier` (C5 C2a, `SupplierRestoreTest`),
+ * `.deleted` with `DeleteSupplier` (C5 C2b).
  */
 final class SupplierWriteTest extends PurchaseOrderTestCase
 {
@@ -302,7 +303,10 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
         self::assertSame('Renamer', $this->stored($id)['name']);
     }
 
-    /** ST-9: an archived supplier is read-only (reachable only by SQL until `DeleteSupplier` ships). No "Restore it". */
+    /**
+     * ST-9: an archived supplier is read-only (reachable only by SQL until `DeleteSupplier` ships, C5 C2b). The sentence
+     * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C2a, but an `.edit` holder may lack `.delete`.
+     */
     #[Test]
     public function anArchivedSupplierCannotBeChanged(): void
     {
@@ -367,11 +371,12 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Final RED M-A: of the four supplier events only `.created` and `.updated` are minted — in the code catalogue AND in
-     * the live CHECK. `.deleted`/`.restored` arrive with their writers (the later archived-view slice), never ahead of them.
+     * Final RED M-A: a supplier event is minted only with its writer — in the code catalogue AND in the live CHECK. `.created`
+     * and `.updated` (C2), `.restored` (C5 C2a, `RestoreSupplier`); `.deleted` arrives with `DeleteSupplier` (C5 C2b), never
+     * ahead of it.
      */
     #[Test]
-    public function onlyTheCreateAndUpdateSupplierEventsAreMinted(): void
+    public function onlyTheSupplierEventsWithAWriterAreMinted(): void
     {
         $definition = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'audit_log_event_type_values'")[0]['d'];
@@ -383,8 +388,8 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['supplier.created', 'supplier.updated'], $code, 'AuditEvent mints a supplier event without its writer (M-A).');
-        self::assertSame(['supplier.created', 'supplier.updated'], $liveMembers, 'The live CHECK admits a supplier event without its writer (M-A).');
+        self::assertSame(['supplier.created', 'supplier.restored', 'supplier.updated'], $code, 'AuditEvent mints a supplier event without its writer (M-A).');
+        self::assertSame(['supplier.created', 'supplier.restored', 'supplier.updated'], $liveMembers, 'The live CHECK admits a supplier event without its writer (M-A).');
     }
 
     /** One `supplier.created`, `{}`, naming the creator; the subject is the new supplier. */

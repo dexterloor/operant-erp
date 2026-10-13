@@ -13,10 +13,10 @@ use PHPUnit\Framework\Attributes\Test;
  * `::archivedIsOfferedOnTheBoundedSubListAndNotOnTheDocumentList`.
  *
  * The owner ruled 2026-10-12 (Q-S1 (d)) that `DeleteSupplier` and `RestoreSupplier` ship later, together with
- * `DeleteCustomer`/`RestoreCustomer`, in ONE archived-view slice. Until that slice lands `ListSuppliers` offers no
- * `archived` parameter, so no caller who does not already hold an archived supplier's id can obtain one — and a restore
- * nobody can reach is not a shipped operation. These two methods tie the three facts together (restore declared ⇔
- * `archived` offered ⇔ the archived-ordering index migrated), so the joint slice turns them red unless it moves all three.
+ * `DeleteCustomer`/`RestoreCustomer`, in ONE archived-view slice (C5). These two methods tie the three facts together
+ * (restore declared ⇔ `archived` offered ⇔ the archived-ordering index migrated). **C5 C2a moved all three together**
+ * (`RestoreSupplier`, `ListSuppliers?archived`, `supplier_tenant_archived_idx` in `Version20261013000500`), so both ties now
+ * hold on the TRUE side; moving any one back alone is red here.
  */
 final class SupplierOperationContractTest extends PurchaseOrderTestCase
 {

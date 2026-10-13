@@ -135,6 +135,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered supplier (B's supplier is another id, so a moved update would 404).
         'CreateSupplier' => ['body' => ['code' => 'S-NEW', 'name' => 'New Supplier', 'country_code' => 'GB', 'currency_code' => 'GBP']],
         'UpdateSupplier' => ['vars' => ['id' => 'supplier'], 'body' => ['name' => 'Renamed Supplier']],
+        'RestoreSupplier' => ['vars' => ['id' => 'archived_supplier']],
         // Suppliers slice 1 C3: the remembered supplier and its remembered catalogue entry (`seedMirror()`). A moved read
         // would 404 or list B's catalogue; a moved create would 404 (B's supplier is another id) — the item is the
         // remembered uncatalogued one; a moved update would 404 on the pair.
@@ -691,6 +692,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->remember($letter, 'loose_item', $this->seedItem($tenantId, 'SKU-LOOSE'));
         $archived = $this->remember($letter, 'archived_item', $this->seedItem($tenantId, 'SKU-ARCHIVED'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
+        // C5 C2a: an archived supplier, so `RestoreSupplier`'s baseline drive succeeds.
+        $archivedSupplier = $this->remember($letter, 'archived_supplier', $this->seedSupplier($tenantId, 'Archived Acme'));
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$archivedSupplier]);
 
         $draft = $this->remember($letter, 'draft', $this->seedOrder($tenantId, 'PO-000001', $supplier, $warehouse));
         $this->remember($letter, 'draft_line', $this->seedLine($tenantId, $draft, $item));

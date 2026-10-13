@@ -271,6 +271,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'status, which is why §4.2 spells it guard:<table>.deleted_at -- and the order TOTAL is part of the '
                 .'check here, because a restore raises it and a second one would raise it twice.',
         ],
+        'RestoreSupplier' => [
+            'method' => 'replayRestoreSupplier',
+            'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
+                .'its own repeat and writes nothing (no second supplier.restored row).',
+        ],
         'RestoreItem' => [
             'method' => 'replayRestoreItem',
             'why' => 'A second restoration of a live row. Its mechanism is the soft-delete predicate rather than a '
@@ -1085,6 +1090,25 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame($after, $this->rowOf($draft['order']), $why);
         self::assertSame(PurchaseOrder::STATUS_CANCELLED, $after[0]['status']);
+    }
+
+    private function replayRestoreSupplier(string $why): void
+    {
+        $id = $this->seedSupplier(self::TENANT_A, 'Replayed Restore');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/suppliers/'.$id.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at, updated_at FROM supplier WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/suppliers/'.$id.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('supplier.is_not_archived', $this->json()['rule']);
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT deleted_at, updated_at FROM supplier WHERE id = ?::uuid', [$id]), $why);
+        self::assertNull($after[0]['deleted_at'], 'The first restoration did not restore the row, so the second proves nothing.');
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_RESTORED), $why);
     }
 
     private function replayRestoreItem(string $why): void

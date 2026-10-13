@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Suppliers\ApiResource\State\CreateSupplierProcessor;
+use App\Modules\Suppliers\ApiResource\State\RestoreSupplierProcessor;
 use App\Modules\Suppliers\ApiResource\State\SupplierProvider;
 use App\Modules\Suppliers\ApiResource\State\UpdateSupplierProcessor;
 use App\Modules\Suppliers\Application\SupplierView;
@@ -34,6 +35,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * **`CreateSupplier` / `UpdateSupplier`** (suppliers slice 1 C2): `SupplierWriter` behind both, `CustomerResource`'s
  * operation shape. Each writes one audit row in its transaction (`supplier.created` / `supplier.updated` with field names
  * only; owner Q-S5). Two live uniques (code, name), each refused, never replayed.
+ *
+ * **`RestoreSupplier`** (C5 C2a): `SupplierWriter::restore()`, `supplier.restored` in its transaction.
  */
 #[ApiResource(
     shortName: 'Supplier',
@@ -82,6 +85,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: SupplierProvider::class,
             processor: UpdateSupplierProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'supplier.edit'],
+        ),
+        // C5 C2a — `RestoreSupplier`, API-21 branch 5: a POST that creates no row this contract addresses, so 200 with the
+        // supplier in its new state and no `Location` (`RestoreItem`'s shape). It ships with `ListSuppliers?archived` (E9-3:
+        // an archived supplier's id is obtainable) — `SupplierOperationContractTest` ties the two.
+        new Post(
+            uriTemplate: '/suppliers/{id}/restoration',
+            name: 'RestoreSupplier',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreSupplier'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreSupplierProcessor::class,
+            // §4.2: `supplier.delete` (undoing an archive is the same authority as making one; `RestoreItem`'s reason).
+            // **No `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:supplier.deleted_at` — a replayed restore
+            // hits a live row and is refused `supplier.is_not_archived` (`RestoreItem`'s reason; `IdempotencyContractTest`).
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'supplier.delete'],
         ),
     ],
 )]

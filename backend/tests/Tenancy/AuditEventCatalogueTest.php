@@ -184,6 +184,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // their writers.
         'storage_location.created',
         'storage_location.updated',
+        // Edited by hand 2026-10-13 (C5 C2a) on `SEC`'s supplier filing (`supplier.deleted` / `.restored`, business, subject
+        // the supplier, `{}`, no IP; design §6.1): ONLY `.restored` — `.deleted` comes with `DeleteSupplier` (C2b).
+        'supplier.restored',
     ];
 
     /**

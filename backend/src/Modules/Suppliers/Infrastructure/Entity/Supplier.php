@@ -33,6 +33,8 @@ use Symfony\Component\Uid\Uuid;
 // with a row the caller cannot see. UNIQUE (tenant_id, id) above stays total.
 #[ORM\UniqueConstraint(name: 'supplier_tenant_name_live', columns: ['tenant_id', 'name'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\UniqueConstraint(name: 'supplier_tenant_code_live', columns: ['tenant_id', 'code'], options: ['where' => '(deleted_at IS NULL)'])]
+// C5 C2a (Version20261013000500): the /suppliers Archived view's index, IA §5.7 D-a, with `id` for the keyset tie.
+#[ORM\Index(name: 'supplier_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
 class Supplier
 {
     #[ORM\Id]

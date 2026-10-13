@@ -267,7 +267,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **4 -> 5 on 2026-10-12** (suppliers slice 1 C4), read off this test's run: `SupplierProductWriter::DELETE`, the one
         // `DELETE FROM supplier_product` `DeleteSupplierProduct` issues (the table is Suppliers'; no statement on
         // `purchase_order*`).
-        'Modules\\Suppliers' => 5,
+        // **5 -> 6 on 2026-10-13** (C5 C2a), read off this test's run: `SupplierWriter::restore()`'s
+        // `UPDATE supplier SET deleted_at = NULL` (`RestoreSupplier`; the table is Suppliers').
+        'Modules\\Suppliers' => 6,
         // **5 -> 6 on 2026-09-29** (roles slice 2, C2): `RoleRevocation`'s `DELETE FROM user_role`, the project's first
         // DELETE, under the role-administration lock. `user_role` is `Modules\\UserManagement`'s own table.
         // **6 -> 7 on 2026-09-30** (roles slice 2, C3): `RoleAssignment`'s `INSERT INTO user_role` (four columns, H1).

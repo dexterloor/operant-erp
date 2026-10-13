@@ -352,6 +352,34 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             'supplier_tenant_name_live');
     }
 
+    /**
+     * Suppliers, the Archived view (C5 C2a; `IA.md` §5.6 / D-a): "what was archived, most recently first" — the statement
+     * `ListSuppliers?archived=true` issues, from {@see SupplierReader::listStatement()}, on its second page, with and without
+     * `q` (design to-measure 5). Mutation M6: drop `supplier_tenant_archived_idx` → red here and in
+     * `SupplierOperationContractTest`'s D-a tie.
+     */
+    #[Test]
+    public function theSupplierArchivedViewUsesTheArchivedIndex(): void
+    {
+        foreach ([null, 'Acme'] as $search) {
+            [$sql, $parameters] = SupplierReader::listStatement(new SupplierListCriteria(
+                limit: SupplierListCriteria::DEFAULT_LIMIT,
+                sort: SupplierListCriteria::SORT_ARCHIVED_AT,
+                search: $search,
+                after: new Cursor('2026-10-13 02:38:16.744164+00', '00000000-0000-4000-8000-000000000000'),
+                archived: true,
+            ));
+            self::assertStringContainsString('s.deleted_at IS NOT NULL', $sql, 'The statement explained is not the Archived view.');
+            self::assertStringContainsString('(s.deleted_at, s.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
+            self::assertStringContainsString('ORDER BY s.deleted_at DESC, s.id DESC', $sql);
+
+            $this->assertPlan(
+                'Suppliers — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
+                $this->plan($sql, $parameters),
+                'supplier_tenant_archived_idx');
+        }
+    }
+
     /** AuditLog: "what happened in this tenant, newest first". */
     #[Test]
     public function theAuditTrailScreenUsesTheOccurredAtIndex(): void

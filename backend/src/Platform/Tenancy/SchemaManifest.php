@@ -494,15 +494,15 @@ final class SchemaManifest
             // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
             // erp_app archive a supplier (deleted_at) or set email/phone/is_active, which no operation writes (owner Q-S6,
             // RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateSupplier's first-read FOR NO KEY UPDATE legal (A4.3
-            // constraint 1). No deleted_at and no DELETE: DeleteSupplier is not built (Q-S1 (d)). Declared explicitly so
-            // erp_ai keeps exactly its inherited SELECT.
+            // constraint 1). C5 C2a (Version20261013000500): UPDATE (deleted_at) for RestoreSupplier (DeleteSupplier, C2b,
+            // reuses it). No DELETE: the table is soft. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
             // C5 C1 (owner Q-S2): Purchasing's supplier liveness read (PurchaseOrderWriter) takes FOR KEY SHARE, which is
             // legal only while erp_app holds UPDATE on at least one supplier column — narrowing this UPDATE grant to no
             // column 42501s every purchase-order create (GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnSupplier).
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code', 'payment_terms_days'],
-                'UPDATE' => ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days', 'updated_at'],
+                'UPDATE' => ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days', 'updated_at', 'deleted_at'],
             ]],
         ],
         'supplier_product' => [

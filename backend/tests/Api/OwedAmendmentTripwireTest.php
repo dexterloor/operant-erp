@@ -367,7 +367,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             [SupplierWriteTest::class, 'aNoOpUpdateWritesNoRowAndNoStatement'],
             [SupplierWriteTest::class, 'theUpdatedRowCarriesNamesNeverValues'],
             [SupplierWriteTest::class, 'aTermsResetRacingATermsChangeIsAttributedToTheResetter'],
-            [SupplierWriteTest::class, 'onlyTheCreateAndUpdateSupplierEventsAreMinted'],
+            [SupplierWriteTest::class, 'onlyTheSupplierEventsWithAWriterAreMinted'],
         ],
     ];
 
