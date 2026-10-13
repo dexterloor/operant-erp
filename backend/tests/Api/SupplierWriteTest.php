@@ -304,7 +304,7 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * ST-9: an archived supplier is read-only (reachable only by SQL until `DeleteSupplier` ships, C5 C2b). The sentence
+     * ST-9: an archived supplier is read-only (archived by `DeleteSupplier` since C5 C2b; seeded here by owner SQL). The sentence
      * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C2a, but an `.edit` holder may lack `.delete`.
      */
     #[Test]
@@ -372,8 +372,8 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
 
     /**
      * Final RED M-A: a supplier event is minted only with its writer — in the code catalogue AND in the live CHECK. `.created`
-     * and `.updated` (C2), `.restored` (C5 C2a, `RestoreSupplier`); `.deleted` arrives with `DeleteSupplier` (C5 C2b), never
-     * ahead of it.
+     * and `.updated` (C2), `.restored` (C5 C2a, `RestoreSupplier`), `.deleted` (C5 C2b, `DeleteSupplier`) — the whole supplier
+     * filing, each with its writer.
      */
     #[Test]
     public function onlyTheSupplierEventsWithAWriterAreMinted(): void
@@ -388,8 +388,8 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['supplier.created', 'supplier.restored', 'supplier.updated'], $code, 'AuditEvent mints a supplier event without its writer (M-A).');
-        self::assertSame(['supplier.created', 'supplier.restored', 'supplier.updated'], $liveMembers, 'The live CHECK admits a supplier event without its writer (M-A).');
+        self::assertSame(['supplier.created', 'supplier.deleted', 'supplier.restored', 'supplier.updated'], $code, 'AuditEvent mints a supplier event without its writer (M-A).');
+        self::assertSame(['supplier.created', 'supplier.deleted', 'supplier.restored', 'supplier.updated'], $liveMembers, 'The live CHECK admits a supplier event without its writer (M-A).');
     }
 
     /** One `supplier.created`, `{}`, naming the creator; the subject is the new supplier. */

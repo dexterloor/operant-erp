@@ -782,7 +782,8 @@ trait OperationSuccessRecipes
 
                 return [201, 'create a supplier'];
             }],
-            // C5 C2a: a supplier archived by owner SQL (`DeleteSupplier` ships at C2b), restored; random-suffixed (live-unique).
+            // C5 C2a: a supplier archived by owner SQL (a fixture; `DeleteSupplier`, C2b, has its own recipe), restored;
+            // random-suffixed (live-unique).
             'RestoreSupplier' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Restored Supplier '.bin2hex(random_bytes(3)));
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$supplier]);
@@ -792,6 +793,12 @@ trait OperationSuccessRecipes
                 $this->send('POST', '/suppliers/'.$c['supplier'].'/restoration');
 
                 return [200, 'restore a supplier'];
+            }],
+            // C5 C2b: a supplier no order names, archived; 204, no body. Random-suffixed (live-unique).
+            'DeleteSupplier' => [fn (): array => ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Archived Supplier '.bin2hex(random_bytes(3)))], function (array $c): array {
+                $this->send('DELETE', '/suppliers/'.$c['supplier']);
+
+                return [204, 'archive a supplier'];
             }],
             'UpdateSupplier' => [fn (): array => ['supplier' => $this->seedSupplier(self::TENANT_A, 'Recipe Updated Supplier '.bin2hex(random_bytes(3)))], function (array $c): array {
                 $this->send('PATCH', '/suppliers/'.$c['supplier'], ['name' => 'Recipe Renamed Supplier '.bin2hex(random_bytes(3)), 'payment_terms_days' => 60]);

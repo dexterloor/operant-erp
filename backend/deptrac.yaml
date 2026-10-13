@@ -393,6 +393,9 @@ deptrac:
       - App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderInput   # A-7
       - App\Modules\Purchasing\ApiResource\UpdatePurchaseOrderLineInput   # A-7
       - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
+    App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders:
+      # C5 C2b, 2026-10-14: the open statuses are the entity's own constants (API-15), `PurchaseOrderViews`' A-7 shape.
+      - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
     App\Modules\Purchasing\Infrastructure\Entity\GoodsReceipt:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
@@ -860,6 +863,14 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Modules\\Suppliers\\Application\\Contract\\#'
+    # C5 C2b (2026-10-14; `docs/session13/c5-design.md` R1.6, RED round 2 F-3): Suppliers' inbound PORT — not a Contract.
+    # `Application\Port` is a module's port for ONE named consumer (`SupplierOpenWork`, answered by Purchasing); unlike a
+    # Contract it is never the AI's door (A-4): no `Ai*` or `Analytics*` ruleset entry lists a `*Port` layer
+    # (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). `ARCH` co-sign owed (design §9 A-1).
+    - name: SuppliersPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Suppliers\\Application\\Port\\#'
     - name: SuppliersApplication
       collectors:
         - type: bool
@@ -869,6 +880,10 @@ deptrac:
           must_not:
             - type: classNameRegex
               value: '#^App\\Modules\\Suppliers\\Application\\Contract\\#'
+            # C5 C2b: the port is collected by `SuppliersPort` ONLY (F-3 (a)), or Purchasing's edge would be into
+            # `SuppliersApplication` too.
+            - type: classNameRegex
+              value: '#^App\\Modules\\Suppliers\\Application\\Port\\#'
     - name: SuppliersInfrastructure
       collectors:
         - type: classNameRegex
@@ -1224,6 +1239,8 @@ deptrac:
       - PurchasingDomain
       - SharedKernel
       - SuppliersContract
+      # C5 C2b: Purchasing answers `SupplierOpenWork` (R1.6) — the one consumer `SuppliersPort` names.
+      - SuppliersPort
       - UserManagementContract
       - WarehousesContract
     PurchasingApiResource:
@@ -1317,6 +1334,11 @@ deptrac:
       - PlatformTenancy
       - SharedKernel
       - SuppliersDomain
+    # C5 C2b: the port may use Doctrine, SharedKernel and PlatformTenancy only (F-3).
+    SuppliersPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
     SuppliersApplication:
       - Doctrine
       - PlatformConsole
@@ -1328,6 +1350,7 @@ deptrac:
       - SharedKernel
       - SuppliersContract
       - SuppliersDomain
+      - SuppliersPort
     SuppliersApiResource:
       - Doctrine
       - HttpFoundation

@@ -293,8 +293,8 @@ trait ListOperationFixtures
                 // prefix-vs-infix probes are `SupplierListTest`'s); views decode exactly the declared `sort` enum
                 // (`PaginationContractTest`). `seedSupplier()`'s codes are letter-prefixed (CD-3) and name-derived, and the
                 // names here are distinct, so the live name and code uniques hold.
-                // C5 C2a: as many ARCHIVED suppliers again, each archived at a distinct instant (owner SQL until
-                // `DeleteSupplier` ships), so the Archived view (`archived=true&sort=archived_at`) pages too; they never
+                // C5 C2a: as many ARCHIVED suppliers again, each archived at a distinct instant (owner SQL: a fixture needs
+                // distinct instants; `DeleteSupplier`, C5 C2b, archives at `now()`), so the Archived view (`archived=true&sort=archived_at`) pages too; they never
                 // appear in the live views.
                 return ['/suppliers', function (int $rows): array {
                     for ($i = 1; $i <= $rows; ++$i) {

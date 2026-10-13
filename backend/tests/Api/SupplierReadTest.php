@@ -46,6 +46,8 @@ final class SupplierReadTest extends PurchaseOrderTestCase
         'DeleteSupplierProduct' => ['method' => 'DELETE', 'path' => '/suppliers/{id}/products/{productId}', 'idem' => false],
         // C5 C2a: `guard:supplier.deleted_at` — no header (a repeat is refused by the guard, `RestoreItem`'s reason).
         'RestoreSupplier' => ['method' => 'POST', 'path' => '/suppliers/{id}/restoration', 'idem' => false],
+        // C5 C2b: `Idem` `no` — a repeated delete is refused `supplier.is_archived`, never replayed.
+        'DeleteSupplier' => ['method' => 'DELETE', 'path' => '/suppliers/{id}', 'idem' => false],
     ];
 
     /** `SupplierResource`'s serialized members — §4.4.3's derivation (design §2.3 item 4). */

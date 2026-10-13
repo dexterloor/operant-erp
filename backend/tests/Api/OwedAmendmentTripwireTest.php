@@ -402,7 +402,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_CATALOGUE_TRAIL = [
-        'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion.',
+        'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion; '
+            .'and (C5 C2b, design §6.3) an item\'s preferred supplier may be archived (`DeleteSupplier` keeps the reference and '
+            .'the catalogue): do not suggest ordering from an archived supplier.',
     ];
 
     /**
@@ -873,7 +875,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."§4.1, so no new ruling is owed). `<table>.deleted` shipped with B-4a (roles slice 2 C1); a restore without\n"
             ."its event re-opens G-9's asymmetry. Both restores mint together if both ship together;\n"
             ."`RequestContractTest::archiveTheRowARestoreBinds()` must know the order's collection; and §8.3a --\n"
-            ."under `sales_order_archived_only_while_draft` a restore needs no draft guard (the CHECK is the guard).\n\n"
+            ."under `sales_order_archived_only_while_draft` a restore needs no draft guard (the CHECK is the guard).\n"
+            ."AND (C5 C2b, `c5-design.md` §6.3): refuse restoring a draft onto an archived supplier (purchase) -- C5's invariant\n"
+            ."is that an archived party holds no open document, and `DeleteSupplier` (C2b) refuses one with an open order; the\n"
+            ."customer half joins at C5 C4b.\n\n"
             ."Then clear this entry deliberately. Record: `docs/session12/output9-sales-5-design.md` §5.",
             implode(', ', array_keys($arrived)),
         ));

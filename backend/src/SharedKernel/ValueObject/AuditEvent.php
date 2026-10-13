@@ -278,6 +278,12 @@ namespace App\SharedKernel\ValueObject;
  *     forty-one members (read off `pg_constraint`, not generated) plus this one. **Step 6 does not apply.**
  *     `PINNED_ALLOWLIST` edited by hand with one literal.
  *
+ *   - **`SUPPLIER_DELETED`**, 2026-10-14, C5 C2b — filed **`BUSINESS`** by `SEC` with `supplier.restored`
+ *     (`SECURITY_MODEL.md` supplier block; `docs/session13/c5-design.md` §6.1), before the code; steps 3–5 done **with its
+ *     writer in the same commit** (`SupplierAuditWriter::recordDeleted()`). Step 5 is `Version20261014000100`, whose
+ *     literal list is the live constraint's forty-two members (read off `pg_constraint`, not generated) plus this one.
+ *     **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with one literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -832,6 +838,15 @@ final class AuditEvent
     public const SUPPLIER_RESTORED = 'supplier.restored';
 
     /**
+     * **A supplier archived** — `DeleteSupplier` (C5 C2b, 2026-10-14; `docs/session13/c5-design.md` §2.4, §6.1; filed by
+     * `SEC` with `supplier.restored`, `SECURITY_MODEL.md` supplier block). Subject `('supplier', id)`. **Business** under
+     * PC-11 (4a). No IP, no permission code, `metadata` `{}` (G-9's closure shape). Written by
+     * `SupplierAuditWriter::recordDeleted()` in `SupplierWriter::delete()`'s transaction, after the UPDATE; a refused delete
+     * (already archived, or open purchase orders) writes none. **Step 6 does not apply.**
+     */
+    public const SUPPLIER_DELETED = 'supplier.deleted';
+
+    /**
      * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
      * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
      * customer is derivable from it, not the reverse (`SEC` to confirm; `owed-roles-recs.md` S4 leaned `customer`).
@@ -949,6 +964,7 @@ final class AuditEvent
         self::SUPPLIER_CREATED,
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
+        self::SUPPLIER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
@@ -1032,6 +1048,7 @@ final class AuditEvent
         self::SUPPLIER_CREATED,
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
+        self::SUPPLIER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
@@ -1106,6 +1123,8 @@ final class AuditEvent
         self::SUPPLIER_UPDATED => 'supplier',
         // C5 C2a: the supplier row whose own state changed.
         self::SUPPLIER_RESTORED => 'supplier',
+        // C5 C2b: the supplier row whose own state changed.
+        self::SUPPLIER_DELETED => 'supplier',
         // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` to confirm the subject).
         self::CUSTOMER_ADDRESS_CREATED => 'customer_address',
         self::CUSTOMER_ADDRESS_UPDATED => 'customer_address',

@@ -119,6 +119,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateSupplier' => 'supplier.create',
         'UpdateSupplier' => 'supplier.edit',
         'RestoreSupplier' => 'supplier.delete',
+        // C5 C2b (2026-10-14): archiving is the same authority restoring needs (§4.2) — `buyer`, `purchasing_manager`, `admin`, owner.
+        'DeleteSupplier' => 'supplier.delete',
         // Suppliers slice 1 C3 (2026-10-12): PC-9's first deliberate exception — the catalogue keeps its own codes, `.edit`
         // covering create and change (`buyer`, `purchasing_manager`, `admin`, owner hold both; `viewer` neither, PC-12).
         'ListSupplierProducts' => 'supplier_product.view',

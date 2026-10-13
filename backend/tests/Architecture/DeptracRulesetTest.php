@@ -204,6 +204,106 @@ final class DeptracRulesetTest extends TestCase
         }
     }
 
+    /**
+     * **C5 C2b — an `Application\Port` is not a Contract** (`docs/session13/c5-design.md` R1.6; `c5-red.md` RED round 2 F-3,
+     * mutation M23). `SupplierOpenWork` returns a count of documents with no `.view` gate, so it lives in `SuppliersPort`,
+     * which only `SuppliersApplication` and its one named consumer, `PurchasingApplication`, may use — never `Ai` or
+     * `Analytics` (A-4 / A-6). Proven the way {@see self::aDeliberateViolationIsRejected()} proves the Contract edge: the real
+     * `deptrac.yaml`, untouched but for paths and an empty skip register, run over probe classes, one constructor edge each.
+     *
+     * Three things must be true and each probe holds one (F-3): (a) the port is collected by `SuppliersPort` ONLY — were
+     * `SuppliersApplication`'s collector still to take it, the Purchasing probe would be a violation (Purchasing may not use
+     * `SuppliersApplication`); (b) `Ai` and `Analytics` reach it through nothing — both probes are violations; (c) the
+     * ruleset itself, read as data: no `Ai*`/`Analytics*` entry lists a `*Port` layer.
+     *
+     * **Mutation M23, run:** move `SupplierOpenWork` under `Application\Contract` (or add `SuppliersPort` to `AiApplication`'s
+     * allowed list) → red here.
+     */
+    #[Test]
+    public function noAiOrAnalyticsClassCanReachAPort(): void
+    {
+        /** @var array{deptrac: array{ruleset: array<string, list<string>|null>}} $ruleset */
+        $ruleset = Yaml::parseFile(self::backendDir().'/deptrac.yaml');
+        $leaks = [];
+        foreach ($ruleset['deptrac']['ruleset'] as $layer => $allowed) {
+            if (1 === preg_match('/^(Ai|Analytics)/', $layer)) {
+                foreach ($allowed ?? [] as $target) {
+                    if (str_ends_with($target, 'Port')) {
+                        $leaks[] = $layer.' -> '.$target;
+                    }
+                }
+            }
+        }
+        self::assertSame([], $leaks, 'An Ai/Analytics layer lists a Port layer: an inbound port is not the AI\'s door (A-4, A-6).');
+        self::assertContains('SuppliersPort', $ruleset['deptrac']['ruleset']['PurchasingApplication'] ?? [],
+            'Control: the one named consumer no longer lists the port, so the probes below would prove nothing about it.');
+
+        $dir = sys_get_temp_dir().'/deptrac-port-probe-'.bin2hex(random_bytes(6));
+        mkdir($dir.'/src', 0o777, true);
+        $files = ['src/AiProbe.php', 'src/AnalyticsProbe.php', 'src/PurchasingProbe.php', 'src/SuppliersProbe.php', 'deptrac.yaml', 'report.json', 'deptrac.cache'];
+
+        try {
+            file_put_contents($dir.'/src/AiProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Ai\Application;
+                final class ProbeIntoThePort { public function __construct(public \App\Modules\Suppliers\Application\Port\SupplierOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/AnalyticsProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Analytics\Application;
+                final class ProbeIntoThePortFromAnalytics { public function __construct(public \App\Modules\Suppliers\Application\Port\SupplierOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/PurchasingProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Purchasing\Application;
+                final class AllowedThroughThePort { public function __construct(public \App\Modules\Suppliers\Application\Port\SupplierOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/SuppliersProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Suppliers\Application;
+                final class AllowedFromItsOwnModule { public function __construct(public \App\Modules\Suppliers\Application\Port\SupplierOpenWork $port) {} }
+                PHP);
+
+            /** @var array{deptrac: array<string, mixed>} $config */
+            $config = Yaml::parseFile(self::backendDir().'/deptrac.yaml');
+            $config['deptrac']['paths'] = [$dir.'/src'];
+            unset($config['deptrac']['skip_violations']);
+            file_put_contents($dir.'/deptrac.yaml', Yaml::dump($config, 8, 2));
+
+            [, $text] = self::deptrac([
+                'analyse', '--no-progress', '--formatter=json', '--output='.$dir.'/report.json',
+                '--cache-file='.$dir.'/deptrac.cache',
+            ], $dir.'/deptrac.yaml');
+
+            self::assertFileExists($dir.'/report.json', "deptrac produced no report:\n".$text);
+            /** @var array{Report: array<string, int>, files?: array<string, array{messages: list<array{message: string}>}>} $json */
+            $json = json_decode((string) file_get_contents($dir.'/report.json'), true, 512, JSON_THROW_ON_ERROR);
+
+            $messages = [];
+            foreach ($json['files'] ?? [] as $file) {
+                foreach ($file['messages'] as $message) {
+                    $messages[] = $message['message'];
+                }
+            }
+            $violators = array_map(static fn (string $m): string => (string) preg_replace('/^\S*\\\\(\w+) .*$/s', '$1', $m), $messages);
+            sort($violators);
+
+            self::assertSame(['ProbeIntoThePort', 'ProbeIntoThePortFromAnalytics'], $violators,
+                "Exactly the Ai and Analytics probes break a rule; Purchasing (the port's named consumer) and Suppliers' own "
+                ."application do not:\n".implode("\n", $messages));
+            self::assertSame(2, $json['Report']['Violations']);
+            self::assertSame(2, $json['Report']['Allowed'],
+                'The two allowed edges are Purchasing\Application and Suppliers\Application into Suppliers\Application\Port '
+                .'(F-3 (a): were the port also collected by SuppliersApplication, the Purchasing edge would be a violation).');
+        } finally {
+            foreach ($files as $f) {
+                @unlink($dir.'/'.$f);
+            }
+            @rmdir($dir.'/src');
+            @rmdir($dir);
+        }
+    }
+
     #[Test]
     public function everyClassInSrcBelongsToALayer(): void
     {

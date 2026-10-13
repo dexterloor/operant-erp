@@ -24,12 +24,13 @@ use Symfony\Component\Uid\Uuid;
  * terms; `SEC` to confirm the supplier block), so there is **no `$ipAddress`** and no `permission_code`.
  * `recordCreated()` takes no metadata (`{}`). `recordUpdated()` takes only the **names** of the changed fields, builds
  * `{"fields": [...]}` itself, sorted and de-duplicated, and refuses an empty list and any name outside the five accepted
- * fields. **Never values.** `recordRestored()` (C5 C2a) takes no metadata (`{}`). `supplier.deleted` is **not** written
- * here yet: it is minted with `DeleteSupplier` (C5 C2b), never ahead of its writer (final RED M-A).
+ * fields. **Never values.** `recordRestored()` (C5 C2a) and `recordDeleted()` (C5 C2b, `DeleteSupplier`) take no metadata
+ * (`{}`).
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_UPDATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_RESTORED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_DELETED
  */
 final readonly class SupplierAuditWriter
 {
@@ -73,6 +74,12 @@ final readonly class SupplierAuditWriter
     public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $supplierId): void
     {
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_RESTORED, $supplierId, '{}');
+    }
+
+    /** `supplier.deleted` — `DeleteSupplier` (C5 C2b), after its UPDATE, in its transaction. `metadata` `{}`. */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $supplierId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_DELETED, $supplierId, '{}');
     }
 
     private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $supplierId, string $metadata): void

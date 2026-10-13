@@ -18,7 +18,8 @@ use Symfony\Component\Uid\Uuid;
  * a replay safe); a foreign, absent or malformed id → the same 404; a live supplier that took the archived one's code or
  * name meanwhile → 409 on the existing unique rules with restore sentences (the 23505 translated outside the
  * transaction); one `supplier.restored` row, `{}`, on success and none on any refusal. Archived suppliers are seeded by
- * owner SQL until `DeleteSupplier` ships (C2b). Copy is placeholder (`UX` owes it, design §9 U-1).
+ * owner SQL (a fixture; `DeleteSupplier`, C5 C2b, archives through the API — the round trip is
+ * `SupplierDeleteTest::anArchivedSupplierIsRestoredByTheOperationThatPairsWithIt`). Copy is placeholder (`UX` owes it, design §9 U-1).
  */
 final class SupplierRestoreTest extends PurchaseOrderTestCase
 {

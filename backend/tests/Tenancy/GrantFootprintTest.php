@@ -1146,8 +1146,8 @@ final class GrantFootprintTest extends TenancyTestCase
     ];
 
     /**
-     * **Suppliers slice 1 C2: `erp_app` can write exactly the columns `CreateSupplier`, `UpdateSupplier` and (C5 C2a)
-     * `RestoreSupplier` name on `supplier`,
+     * **Suppliers slice 1 C2: `erp_app` can write exactly the columns `CreateSupplier`, `UpdateSupplier`, (C5 C2a)
+     * `RestoreSupplier` and (C5 C2b) `DeleteSupplier` name on `supplier`,
      * and delete nothing — proved by running the statements as `erp_app`** (design §4.5; ADR-002 A4.4's *"exactly"*). The
      * customer method's shape. **Positive controls:** `supplier.name` INSERT and UPDATE, and (C5 C2a) `supplier.deleted_at`
      * UPDATE, accepted. **Anti-vacuity:** `supplier.deleted_at` INSERT, `supplier.email` UPDATE and `supplier.is_active` UPDATE
@@ -1227,7 +1227,8 @@ final class GrantFootprintTest extends TenancyTestCase
 
     /**
      * **C5 C1 (owner Q-S2): the row locks Purchasing and the party writers take on `supplier` are legal for `erp_app`.**
-     * `PurchaseOrderWriter` reads the supplier `FOR KEY SHARE`; `DeleteSupplier` (C5 C2b) will take `FOR UPDATE`. Postgres
+     * `PurchaseOrderWriter` and (C5 C2b) the catalogue writers read the supplier `FOR KEY SHARE`; `DeleteSupplier` (C5 C2b)
+     * takes `FOR UPDATE` (`SupplierWriter::DELETE_LOCK`). Postgres
      * allows either only to a role holding UPDATE on at least one column (ADR-002 A4.3 constraint 1), so narrowing
      * `supplier`'s column UPDATE grant to none would 42501 every purchase-order create — this is the probe that says so,
      * run as `erp_app` under the tenant. **Negative control, same test:** the same two locks on `currency` (reference data,

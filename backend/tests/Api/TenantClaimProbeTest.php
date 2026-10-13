@@ -136,6 +136,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'CreateSupplier' => ['body' => ['code' => 'S-NEW', 'name' => 'New Supplier', 'country_code' => 'GB', 'currency_code' => 'GBP']],
         'UpdateSupplier' => ['vars' => ['id' => 'supplier'], 'body' => ['name' => 'Renamed Supplier']],
         'RestoreSupplier' => ['vars' => ['id' => 'archived_supplier']],
+        // C5 C2b: a supplier with no order (the remembered `supplier` holds the draft, so its delete is refused); a moved
+        // delete would 404 (B's idle supplier is another id) or archive B's.
+        'DeleteSupplier' => ['vars' => ['id' => 'idle_supplier']],
         // Suppliers slice 1 C3: the remembered supplier and its remembered catalogue entry (`seedMirror()`). A moved read
         // would 404 or list B's catalogue; a moved create would 404 (B's supplier is another id) — the item is the
         // remembered uncatalogued one; a moved update would 404 on the pair.
@@ -695,6 +698,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // C5 C2a: an archived supplier, so `RestoreSupplier`'s baseline drive succeeds.
         $archivedSupplier = $this->remember($letter, 'archived_supplier', $this->seedSupplier($tenantId, 'Archived Acme'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$archivedSupplier]);
+        // C5 C2b: a live supplier no order names, so `DeleteSupplier`'s baseline drive succeeds.
+        $this->remember($letter, 'idle_supplier', $this->seedSupplier($tenantId, 'Idle Acme'));
 
         $draft = $this->remember($letter, 'draft', $this->seedOrder($tenantId, 'PO-000001', $supplier, $warehouse));
         $this->remember($letter, 'draft_line', $this->seedLine($tenantId, $draft, $item));

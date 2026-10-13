@@ -448,6 +448,9 @@ trait ArchivedRowSubjects
             // Suppliers slice 1 C2: the live twin renames (random-suffixed: `supplier.name` is live-unique); the archived
             // twin's 409 is `supplier.is_archived`'s alone.
             'UpdateSupplier' => ['name' => 'Renamed '.bin2hex(random_bytes(3))],
+            // C5 C2b: the live twin (no order names the fixture supplier) is archived, 204; the archived twin's 409 is
+            // `supplier.is_archived`'s alone (a repeated delete, ST-9).
+            'DeleteSupplier' => null,
             // Warehouses slice 1 C2: the live twin renames (the name is not unique); the archived twin's 409 is
             // `warehouse.is_archived`'s alone.
             'UpdateWarehouse' => ['name' => 'Renamed'],

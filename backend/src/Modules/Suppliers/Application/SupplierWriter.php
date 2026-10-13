@@ -6,6 +6,7 @@ namespace App\Modules\Suppliers\Application;
 
 use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Modules\Suppliers\Application\Contract\SupplierPaymentTerms;
+use App\Modules\Suppliers\Application\Port\SupplierOpenWork;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
@@ -15,8 +16,9 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`CreateSupplier`, `UpdateSupplier` and `RestoreSupplier`** (suppliers slice 1 C2; `RestoreSupplier` C5 C2a, see
- * {@see self::restore()}; `docs/session13/suppliers-s1-design.md` FINAL F-3 and
+ * **`CreateSupplier`, `UpdateSupplier`, `RestoreSupplier` and `DeleteSupplier`** (suppliers slice 1 C2; `RestoreSupplier`
+ * C5 C2a, see {@see self::restore()}; `DeleteSupplier` C5 C2b, see {@see self::delete()};
+ * `docs/session13/suppliers-s1-design.md` FINAL F-3 and
  * §4; `CustomerWriter`'s shape, file for file, for its reasons). Takes wire-named scalars, returns a {@see SupplierView};
  * never an `ApiResource` class (A-7) and never a `Doctrine\DBAL\Connection` (A-10: an unbound autowired `Connection` is
  * the schema owner).
@@ -25,7 +27,8 @@ use Symfony\Component\Uid\Uuid;
  * `Version20261012000200`): the INSERT names `id, tenant_id, code, name, country_code, currency_code` and
  * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy); the UPDATE sets only
  * the **changed** columns plus `updated_at`. `email`, `phone` and `is_active` are in neither (owner Q-S6,
- * `RESIDUAL_GAPS.md` G-36); `deleted_at` is written only by `restore()` (C5 C2a, `Version20261013000500`). A 42501 from either is fixed by removing the column from the statement, never by widening the
+ * `RESIDUAL_GAPS.md` G-36); `deleted_at` is written only by `restore()` and `delete()` (C5 C2a / C2b, the column grant
+ * `Version20261013000500`). A 42501 from either is fixed by removing the column from the statement, never by widening the
  * grant.
  *
  * **Refusals, in order** (placeholder copy on the customer sentences; `UX` owes the supplier copy):
@@ -70,6 +73,26 @@ final readonly class SupplierWriter
 
     public const ARCHIVED = 'This supplier is archived, so it can\'t be changed.';
 
+    /** C5 C2b, placeholder (`UX` owes it): a repeated delete (§4.2 `Idem` `no`; ST-9). */
+    public const ALREADY_ARCHIVED = 'This supplier is already archived.';
+
+    /**
+     * C5 C2b, placeholder (`UX` owes the copy; `SEC` owes whether the count is shown, design §9 S-2 — the caller holds
+     * `supplier.delete` and may lack `purchase_order.view`). `%d` is the count of open purchase orders.
+     */
+    public const HAS_OPEN_PURCHASE_ORDERS = 'This supplier has %d open purchase order(s). Receive, cancel or delete them before archiving this supplier.';
+
+    /**
+     * **`DeleteSupplier`'s row lock** — public so the two-connection race tests hold THIS statement, never a transcription.
+     * **`FOR UPDATE`, never `FOR NO KEY UPDATE`** (final RED L-B; mutation M12): only `FOR UPDATE` conflicts with the
+     * `FOR KEY SHARE` Purchasing takes on the supplier (`PurchaseOrderWriter`'s liveness read, C5 C1) and with an FK
+     * check's; a soft delete is an UPDATE of a non-key column and would otherwise take a lock both readers pass.
+     */
+    public const DELETE_LOCK = 'SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid FOR UPDATE';
+
+    /** The one write `DeleteSupplier` issues (public for the race tests' holder). */
+    public const ARCHIVE = 'UPDATE supplier SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
+
     /** C5 C2a, placeholder (`UX` owes it; `ItemWriter::restore()`'s wording). */
     public const NOT_ARCHIVED = 'This supplier is not archived, so there is nothing to restore.';
 
@@ -106,6 +129,7 @@ final readonly class SupplierWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private SupplierAuditWriter $audit,
+        private SupplierOpenWork $openWork,
     ) {
     }
 
@@ -217,7 +241,7 @@ final readonly class SupplierWriter
     }
 
     /**
-     * ST-9: an archived supplier is read-only. Reachable only by SQL until `DeleteSupplier` ships (C5 C2b). The sentence
+     * ST-9: an archived supplier is read-only (archived by `DeleteSupplier`, C5 C2b). The sentence
      * does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreSupplier` ships at C5 C2a, so the reason is no
      * longer that restore is blocked, but a caller holding `supplier.edit` may lack `supplier.delete`, which restoring
      * needs — `UX` rules whether the refusal names the remedy.
@@ -284,6 +308,66 @@ final readonly class SupplierWriter
         } catch (UniqueConstraintViolationException $e) {
             throw self::translated($e, self::CODE_TAKEN_ON_RESTORE, self::NAME_TAKEN_ON_RESTORE);
         }
+    }
+
+    /**
+     * **`DeleteSupplier`** (C5 C2b; `docs/session13/c5-design.md` §2.4, Revision 1 R1.6; owner ruling Q-S2). A soft delete:
+     * `supplier` is `SchemaManifest::SOFT`, so this sets `deleted_at` — an UPDATE under the column grant `RestoreSupplier`
+     * brought (`Version20261013000500`); `erp_app` holds no DELETE on the table. In one `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404 (ST-5);
+     *  2. the row read {@see self::DELETE_LOCK} (`FOR UPDATE`) — archived → 409 `supplier.is_archived` (ST-9; a repeated
+     *     delete, §4.2 `Idem` `no`: no `Idempotency-Key`);
+     *  3. open purchase orders ({@see SupplierOpenWork}, answered by Purchasing; counted AFTER the lock) → 409
+     *     `supplier.has_open_purchase_orders`, naming the count;
+     *  4. {@see self::ARCHIVE};
+     *  5. `supplier.deleted`, `{}`, after the UPDATE, in its transaction — a refusal writes none;
+     *  6. 204, no body (API-21 branch 3).
+     *
+     * **The race, closed by the lock and RUN in both orders** (`SupplierDeleteTest`): an order first — its supplier
+     * `FOR KEY SHARE` (or its FK check's) makes this `FOR UPDATE` wait, and the count, a later statement under READ
+     * COMMITTED, sees the order → refused. The delete first — the order's locking liveness read waits, re-checks
+     * `deleted_at IS NULL` on the committed row (EvalPlanQual) and finds none → `unknown_reference`. The same for
+     * `UpdatePurchaseOrder` moving a draft onto this supplier. Catalogue writes read the parent `FOR KEY SHARE`/`FOR SHARE`
+     * (`SupplierProductWriter`), so none lands on a supplier this archives. **No cycle:** this takes one lock, on the
+     * supplier row, and never a document row.
+     *
+     * **Not refused** (Q-S2's notice): items naming the supplier as their preferred supplier keep naming it; its catalogue
+     * entries are kept, read-only while it is archived, and come back unchanged with `RestoreSupplier`.
+     */
+    public function delete(string $id): void
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
+            $connection = $em->getConnection();
+            // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+            $row = $connection->fetchAssociative(self::DELETE_LOCK, [$id]);
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
+            if (true === $row['archived']) {
+                throw ApiProblem::businessRuleViolated('supplier.is_archived', self::ALREADY_ARCHIVED);
+            }
+
+            $open = $this->openWork->openPurchaseOrderCountInside($em, $id);
+            if ($open > 0) {
+                throw ApiProblem::businessRuleViolated('supplier.has_open_purchase_orders', \sprintf(self::HAS_OPEN_PURCHASE_ORDERS, $open));
+            }
+
+            $connection->executeStatement(self::ARCHIVE, [$id]);
+
+            // After the UPDATE, in its transaction: a refusal above leaves no row.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                supplierId: $id,
+            );
+        });
     }
 
     /**

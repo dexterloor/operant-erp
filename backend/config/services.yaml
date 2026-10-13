@@ -302,6 +302,11 @@ services:
     # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.
     App\Modules\Inventory\Application\Contract\PickableStock: '@App\Modules\Inventory\Application\PickableStockReader'
 
+    # C5 C2b — `DeleteSupplier` asks Purchasing whether a supplier has open purchase orders (owner ruling Q-S2). An inbound
+    # PORT of Suppliers implemented by its one named consumer (`docs/session13/c5-design.md` R1.6; `ARCH` co-sign owed),
+    # never a Contract: `Ai`/`Analytics` may not use `SuppliersPort` (deptrac). Explicit for the reason the bindings above give.
+    App\Modules\Suppliers\Application\Port\SupplierOpenWork: '@App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

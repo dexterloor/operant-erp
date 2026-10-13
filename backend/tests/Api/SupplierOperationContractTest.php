@@ -16,7 +16,8 @@ use PHPUnit\Framework\Attributes\Test;
  * `DeleteCustomer`/`RestoreCustomer`, in ONE archived-view slice (C5). These two methods tie the three facts together
  * (restore declared ⇔ `archived` offered ⇔ the archived-ordering index migrated). **C5 C2a moved all three together**
  * (`RestoreSupplier`, `ListSuppliers?archived`, `supplier_tenant_archived_idx` in `Version20261013000500`), so both ties now
- * hold on the TRUE side; moving any one back alone is red here.
+ * hold on the TRUE side; moving any one back alone is red here. `DeleteSupplier` followed at C5 C2b (restore before delete,
+ * so no window existed in which a supplier could be archived by the API and not restored).
  */
 final class SupplierOperationContractTest extends PurchaseOrderTestCase
 {

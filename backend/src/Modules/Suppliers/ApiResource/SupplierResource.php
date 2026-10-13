@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Suppliers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Suppliers\ApiResource\State\CreateSupplierProcessor;
+use App\Modules\Suppliers\ApiResource\State\DeleteSupplierProcessor;
 use App\Modules\Suppliers\ApiResource\State\RestoreSupplierProcessor;
 use App\Modules\Suppliers\ApiResource\State\SupplierProvider;
 use App\Modules\Suppliers\ApiResource\State\UpdateSupplierProcessor;
@@ -37,6 +39,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * only; owner Q-S5). Two live uniques (code, name), each refused, never replayed.
  *
  * **`RestoreSupplier`** (C5 C2a): `SupplierWriter::restore()`, `supplier.restored` in its transaction.
+ *
+ * **`DeleteSupplier`** (C5 C2b): `SupplierWriter::delete()` — a soft delete refused while the supplier has open purchase
+ * orders (owner ruling Q-S2), `supplier.deleted` in its transaction, 204.
  */
 #[ApiResource(
     shortName: 'Supplier',
@@ -85,6 +90,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: SupplierProvider::class,
             processor: UpdateSupplierProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'supplier.edit'],
+        ),
+        // C5 C2b — `DeleteSupplier`, API-21 branch 3: 204, no body (`DeleteItem`'s shape). The row is read first, so a
+        // DELETE at an id no row answers is `GetSupplier`'s 404 before any body is looked at (`BodylessWriteRefusal`).
+        // §4.2: `supplier.delete`, `Idem` `no` — a repeated delete is refused `supplier.is_archived`, never replayed.
+        new Delete(
+            uriTemplate: '/suppliers/{id}',
+            name: 'DeleteSupplier',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteSupplier'),
+            provider: SupplierProvider::class,
+            processor: DeleteSupplierProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'supplier.delete'],
         ),
         // C5 C2a — `RestoreSupplier`, API-21 branch 5: a POST that creates no row this contract addresses, so 200 with the
         // supplier in its new state and no `Location` (`RestoreItem`'s shape). It ships with `ListSuppliers?archived` (E9-3:

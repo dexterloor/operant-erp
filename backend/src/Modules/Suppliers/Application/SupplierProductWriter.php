@@ -44,7 +44,7 @@ use Symfony\Component\Uid\Uuid;
  *     by constraint name **outside** `TenantContext::run()` (the failed statement aborted the transaction). The
  *     `Idempotency-Key` header is demanded (API-14) and unused, `CreateSupplier`'s precedent. Any other 23505 is rethrown.
  *
- * **Update:** the parent (404) → the pair `(supplier, product)` (404 for another supplier's entry, ST-5) → archived 409 →
+ * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C2b; 404) → the pair `(supplier, product)` (404 for another supplier's entry, ST-5) → archived 409 →
  * shape (`null` on any field refused, all four are NOT NULL) → `UPDATE … SET <submitted>, updated_at WHERE id = ? AND
  * supplier_id = ?`. An empty PATCH issues no statement.
  *
@@ -62,6 +62,16 @@ final readonly class SupplierProductWriter
      * a transcription of it (final RED M-B; mutation: drop `FOR SHARE` → `SupplierProductWriteTest`'s race tests red).
      */
     public const PARENT_LOCK = 'SELECT deleted_at IS NOT NULL AS archived, currency_code FROM supplier WHERE id = ?::uuid FOR SHARE';
+
+    /**
+     * The parent read `UpdateSupplierProduct` and `DeleteSupplierProduct` take (C5 C2b; `docs/session13/c5-design.md` §4.1,
+     * closing suppliers final RED L-9). `FOR KEY SHARE` conflicts with `DeleteSupplier`'s `FOR UPDATE`
+     * ({@see SupplierWriter::DELETE_LOCK}), so a catalogue change cannot land on a supplier that is being archived: it waits,
+     * re-reads the committed row and is refused `supplier.is_archived`. It does NOT conflict with `UpdateSupplier`'s
+     * `FOR NO KEY UPDATE`, so C4's reasoning for not taking {@see self::PARENT_LOCK} on these two survives unchanged.
+     * Public so the race tests name this statement (mutation M15: drop the lock → `SupplierDeleteTest`'s catalogue races red).
+     */
+    public const PARENT_KEY_SHARE = 'SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid FOR KEY SHARE';
 
     public const ARCHIVED_ON_CREATE = 'This supplier is archived, so nothing can be added to its catalogue.';
 
@@ -185,8 +195,9 @@ final readonly class SupplierProductWriter
         return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId, $submitted): SupplierProductView {
             $connection = $em->getConnection();
 
-            // `fetchAssociative`, not `fetchOne`: a live supplier's `false` would be indistinguishable from "no row".
-            $parent = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid', [$supplierId]);
+            // `fetchAssociative`, not `fetchOne`: a live supplier's `false` would be indistinguishable from "no row". Locked
+            // `FOR KEY SHARE` against `DeleteSupplier` (C5 C2b, {@see self::PARENT_KEY_SHARE}).
+            $parent = $connection->fetchAssociative(self::PARENT_KEY_SHARE, [$supplierId]);
             if (false === $parent) {
                 throw ApiProblem::notFound();
             }
@@ -234,8 +245,8 @@ final readonly class SupplierProductWriter
      * **The parent read is NOT {@see self::PARENT_LOCK}.** That lock exists so an ADD and a currency change serialise
      * (final RED M-B). A removal can only shrink the count `UpdateSupplier` takes under its own row lock, so a currency
      * change racing a removal is at worst refused on a count that was true when it was taken — never a price left in the
-     * wrong currency. Whether catalogue children lock their parent against a future `DeleteSupplier` is decided with it
-     * (FINAL F-6, final RED L-9; C5).
+     * wrong currency. It is {@see self::PARENT_KEY_SHARE} since C5 C2b (FINAL F-6, final RED L-9 decided with
+     * `DeleteSupplier`): a removal cannot land on a supplier being archived.
      *
      * **Consequences, stated (design §6):** a later purchase-order line for the item is refused
      * `purchase_order_line.supplier_lists_the_item` (existing behaviour, now reachable by API); placed lines keep their
@@ -256,7 +267,8 @@ final readonly class SupplierProductWriter
         $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId): void {
             $connection = $em->getConnection();
 
-            $parent = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid', [$supplierId]);
+            // Locked `FOR KEY SHARE` against `DeleteSupplier` (C5 C2b, {@see self::PARENT_KEY_SHARE}).
+            $parent = $connection->fetchAssociative(self::PARENT_KEY_SHARE, [$supplierId]);
             if (false === $parent) {
                 throw ApiProblem::notFound();
             }
