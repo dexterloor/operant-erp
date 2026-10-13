@@ -1222,7 +1222,8 @@ final readonly class SalesOrderWriter
 
     /**
      * ST-5's oracle for whichever parents this edit names, and the update-side twin of
-     * {@see self::refuseUnresolvableCreateReferences()}.
+     * {@see self::refuseUnresolvableCreateReferences()} — the same two statements, so a submitted
+     * `customer_id` is read `FOR KEY SHARE` here too (C5 C3), after the order's row lock.
      *
      * The address is **not** checked here — {@see self::shipToInside()} owns it, because its refusal
      * depends on a `customer_id` and would otherwise be a second copy of that rule.
@@ -1234,12 +1235,12 @@ final readonly class SalesOrderWriter
         $connection = $em->getConnection();
         $errors = [];
 
-        foreach (['customerId' => 'customer', 'warehouseId' => 'warehouse'] as $property => $table) {
+        foreach (self::PARENT_LIVENESS_READS as $property => [$table, $sql]) {
             if (!\array_key_exists($property, $values)) {
                 continue;
             }
 
-            if (false === $connection->fetchOne("SELECT 1 FROM $table WHERE id = ?::uuid AND deleted_at IS NULL", [$values[$property]])) {
+            if (false === $connection->fetchOne($sql, [$values[$property]])) {
                 $errors[] = self::error($property, 'unknown_reference', 'No live '.$table.' in this workspace has this id.');
             }
         }
@@ -1581,6 +1582,20 @@ final readonly class SalesOrderWriter
      * `currency` is **reference data** (ADR-002 §6) and is not tenant-scoped, so its lookup is an existence
      * check and discloses nothing.
      *
+     * **The customer read takes `FOR KEY SHARE`; the warehouse read takes no lock** (C5 C3, owner ruling Q-2 of
+     * 2026-10-13, `docs/session13/session29-c5-ruling.md` — the sales twin of Q-S2's *"supplier-only lock"*).
+     * `DeleteCustomer` (C5 C4b) will archive a customer under `FOR UPDATE` and refuse one with an open sales
+     * order; KEY SHARE is the one lock that conflicts with that `FOR UPDATE` and with nothing `UpdateCustomer`
+     * takes (`FOR NO KEY UPDATE`), so a create or an edit naming the customer either commits first and is
+     * counted by the delete, or waits and then re-reads `deleted_at IS NULL` and is refused. Legal because
+     * `erp_app` holds column UPDATE on `customer` (`Version20261009000300`; ADR-002 A4.3 constraint 1) —
+     * narrowing that grant to no column makes this read 42501
+     * (`GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnCustomer`). On the edit the order's
+     * `SalesOrderRowLock` is taken first ({@see self::update()}), then this KEY SHARE; the customer writers
+     * lock only the customer row, so no cycle. The warehouse branch stays unlocked by the same ruling —
+     * locking it is `DeleteWarehouse`'s to order (API-O-34, G-7; carried by
+     * `OwedAmendmentTripwireTest::OPERATIONS_OWING_THE_ARCHIVE_RULES`).
+     *
      * @param array<string, string|null> $values
      */
     private function refuseUnresolvableCreateReferences(EntityManagerInterface $em, array $values): void
@@ -1588,8 +1603,8 @@ final readonly class SalesOrderWriter
         $connection = $em->getConnection();
         $errors = [];
 
-        foreach (['customerId' => 'customer', 'warehouseId' => 'warehouse'] as $property => $table) {
-            if (false === $connection->fetchOne("SELECT 1 FROM $table WHERE id = ?::uuid AND deleted_at IS NULL", [$values[$property]])) {
+        foreach (self::PARENT_LIVENESS_READS as $property => [$table, $sql]) {
+            if (false === $connection->fetchOne($sql, [$values[$property]])) {
                 $errors[] = self::error($property, 'unknown_reference', 'No live '.$table.' in this workspace has this id.');
             }
         }
@@ -1604,6 +1619,18 @@ final readonly class SalesOrderWriter
             throw ApiProblem::validationFailed($errors);
         }
     }
+
+    /**
+     * The two parent liveness reads both create and edit make, one statement each (see
+     * {@see self::refuseUnresolvableCreateReferences()}): the customer's locks `FOR KEY SHARE` (C5 C3, owner
+     * Q-2), the warehouse's locks nothing.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const PARENT_LIVENESS_READS = [
+        'customerId' => ['customer', 'SELECT 1 FROM customer WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
+        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL'],
+    ];
 
     /**
      * **§4.2's `lines[]` sub-fields, as the client spells them.**

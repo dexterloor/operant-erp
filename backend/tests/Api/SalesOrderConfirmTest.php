@@ -172,6 +172,53 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **C5 C3 (owner ruling Q-2, 2026-10-13; `SalesOrderConfirmation` step 5b): confirmation re-checks the customer.**
+     * The twin of `PurchaseOrderApprovalTest::anOrderWhoseSupplierWasArchivedAfterItWasRaisedCannotBeApproved`.
+     * `DeleteCustomer` (C5 C4b) will refuse a customer with an open order, so this state is reachable only by owner SQL
+     * (used here), a future `RestoreSalesOrder`, or a lock regression — the guard is the backstop. Also shows an
+     * archived customer hidden by `SoftDeleteFilter` does not 500 the confirmation (nothing reads `getCustomer()`).
+     *
+     * **Mutation:** drop `c.deleted_at IS NULL` from the confirmation's customer read; red here (200).
+     */
+    #[Test]
+    public function anOrderWhoseCustomerWasArchivedAfterItWasRaisedCannotBeConfirmed(): void
+    {
+        $order = $this->raiseWithALine();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE customer SET deleted_at = now() WHERE id = (SELECT customer_id FROM sales_order WHERE id = ?::uuid)', [$order]);
+
+        $this->send('POST', '/sales-orders/'.$order.'/confirmation');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $body = $this->json();
+        self::assertSame('urn:erp:problem:business-rule-violated', $body['type']);
+        self::assertSame('sales_order.customer_is_live', $body['rule']);
+        self::assertArrayNotHasKey('pointer', $body, 'A refusal of a request with no fields named a field of it.');
+        $this->assertStatus($order, SalesOrder::STATUS_DRAFT);
+        self::assertSame([], $this->auditRowsOf(AuditEvent::SALES_ORDER_CONFIRMED), 'A refused confirmation wrote a trail row.');
+    }
+
+    /**
+     * Step 5b after step 5, over HTTP: an empty draft whose customer is archived is told to add a line.
+     */
+    #[Test]
+    public function anEmptyOrderWhoseCustomerIsArchivedIsToldAboutTheLines(): void
+    {
+        $c = $this->workspace();
+        $this->send('POST', '/sales-orders', $this->body($c, null), [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $order = (string) $this->json()['id'];
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE customer SET deleted_at = now() WHERE id = (SELECT customer_id FROM sales_order WHERE id = ?::uuid)', [$order]);
+
+        $this->send('POST', '/sales-orders/'.$order.'/confirmation');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.has_a_live_line', $this->json()['rule']);
+        $this->assertStatus($order, SalesOrder::STATUS_DRAFT);
+    }
+
+    /**
      * §5.3 clause 2: another tenant's id, a uuid no row answers and a string that is not a uuid at all
      * take the same path, so "another tenant's", "never existed" and "malformed" are indistinguishable.
      * A 403 on a cross-tenant id would confirm the id exists somewhere.

@@ -31,6 +31,13 @@ use Symfony\Component\Uid\Uuid;
  *   4. **status guard** — `draft` only (§8.3's matrix row, on the entity).
  *   5. **line guard** — refuse when the order has no live line
  *      (`sales_order.has_a_live_line`; V2-R-22 Half 1, which is D-C copied to the selling side).
+ *   5b. **customer guard** — refuse when the order's customer is archived
+ *      (`sales_order.customer_is_live`; C5 C3, owner ruling Q-2 of 2026-10-13, the sales twin of
+ *      `API.md` §8.1 step 6b). Read here by statement, after the row lock, unlocked: it is the
+ *      backstop, not the control — `CreateSalesOrder`/`UpdateSalesOrder` read the customer
+ *      `FOR KEY SHARE` and `DeleteCustomer` refuses a customer with an open order, so an archived
+ *      customer under a draft is reachable only by owner SQL, a future `RestoreSalesOrder`, or a lock
+ *      regression. After the line guard, so an empty draft is still told to add a line.
  *   6. `confirm()`'s state change.
  *
  * Steps 4 to 6 are one call: `SalesOrder::confirm()` opens with its status guard and then refuses a
@@ -154,9 +161,18 @@ final readonly class SalesOrderConfirmation
                     [$id],
                 );
 
-                // Steps 4 to 6: both guards live inside `confirm()`, and their `IllegalTransition` is
+                // The fact step 5b decides on (C5 C3, owner Q-2): whether this order's customer is still
+                // live — by statement, for step 3's reason (`SoftDeleteFilter` would hide an archived
+                // customer behind the ORM association). Not locked: it is the backstop (see step 5b).
+                $customerIsLive = false !== $em->getConnection()->fetchOne(
+                    'SELECT 1 FROM customer c JOIN sales_order so ON so.customer_id = c.id '
+                    .'WHERE so.id = ?::uuid AND c.deleted_at IS NULL',
+                    [$id],
+                );
+
+                // Steps 4 to 6: all three guards live inside `confirm()`, and their `IllegalTransition` is
                 // turned into §5.2's `business-rule-violated` by `FrameworkProblemTranslator`.
-                $order->confirm(new \DateTimeImmutable(), $liveLineCount);
+                $order->confirm(new \DateTimeImmutable(), $liveLineCount, $customerIsLive);
 
                 $em->flush();
 

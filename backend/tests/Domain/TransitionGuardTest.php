@@ -330,6 +330,15 @@ final class TransitionGuardTest extends TestCase
                 .'is reachable — CreateSalesOrder accepts an absent or null lines[] as a legal empty draft. '
                 .'`SalesOrderConfirmTest` owns what the 0 case says over HTTP.',
         ],
+        SalesOrder::class.'::confirm($customerIsLive)' => [
+            'satisfying' => true,
+            'refusing' => false,
+            'rule' => 'customer_is_live',
+            'why' => 'C5 C3 (owner Q-2, 2026-10-13; SalesOrderConfirmation step 5b): an order is not confirmed to an archived '
+                .'customer. true satisfies it, so no other cell is refused by a rule it is not about; false fails it, so the '
+                .'status guard\'s precedence over this guard is checked too. The order between this guard and the line guard is '
+                .'`DomainRefusalTest::theLineGuardRunsBeforeTheCustomerGuard`\'s — this register refuses one precondition at a time.',
+        ],
         SalesOrder::class.'::recordFulfilment($allLinesFulfilled)' => [
             'satisfying' => true,
             'refusing' => null,

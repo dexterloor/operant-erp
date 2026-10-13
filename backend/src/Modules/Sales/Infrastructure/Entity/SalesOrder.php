@@ -298,8 +298,23 @@ class SalesOrder
      * V2-R-22 Half 2 adopted model A: `stock_level.qty_reserved` stays unwritten,
      * confirming is a document transition and nothing else. See
      * `SchemaManifest`'s `stock_level` entry and `docs/RESIDUAL_GAPS.md` G-7.
+     *
+     * -----------------------------------------------------------------------
+     * `$customerIsLive` — C5 C3 (owner ruling Q-2, 2026-10-13)
+     * -----------------------------------------------------------------------
+     * **An order is not confirmed to a customer that has been archived.** The
+     * sales twin of `PurchaseOrder::place()`'s `$supplierIsLive`: required, with
+     * no default, for `$liveLineCount`'s reason, and trusted as stated — the
+     * caller reads it inside its transaction by statement, never through
+     * `$this->customer` (`SoftDeleteFilter` would hide an archived customer).
+     * It runs **after** the line guard, so an empty draft is still told to add a
+     * line and no response the line guard shipped changes. It is the backstop,
+     * not the control: `CreateSalesOrder`/`UpdateSalesOrder` read the customer
+     * `FOR KEY SHARE`, and `DeleteCustomer` (C5 C4b) refuses a customer with an
+     * open order (a draft is open), so this fires only on an order reached by
+     * owner SQL, a future `RestoreSalesOrder`, or a lock regression.
      */
-    public function confirm(\DateTimeImmutable $orderedAt, int $liveLineCount): void
+    public function confirm(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $customerIsLive): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
 
@@ -310,6 +325,16 @@ class SalesOrder
                 $this->status,
                 'has_a_live_line',
                 'This sales order has no lines. Add at least one line before confirming it.',
+            );
+        }
+
+        if (!$customerIsLive) {
+            throw IllegalTransition::unmetPrecondition(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                'customer_is_live',
+                'This sales order\'s customer has been archived. Restore the customer, or cancel this order.',
             );
         }
 

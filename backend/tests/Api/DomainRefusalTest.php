@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Domain\IllegalTransition;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Tests\Support\StatusMachines;
@@ -308,6 +309,67 @@ final class DomainRefusalTest extends KernelTestCase
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.warehouse_is_live', $e->rule());
         }
+    }
+
+    /**
+     * **C5 C3 (owner Q-2; `SalesOrderConfirmation` step 5b): an order is not confirmed to an archived customer**, with
+     * its own rule code, dispatched through the real listener so the code that reaches the wire is asserted. The sales
+     * twin of `placingAnOrderWithAnArchivedSupplierIsRefusedWithItsOwnRule`.
+     *
+     * **Mutation:** make `confirm()` ignore `$customerIsLive`; red here and in
+     * `SalesOrderConfirmTest::anOrderWhoseCustomerWasArchivedAfterItWasRaisedCannotBeConfirmed`.
+     */
+    #[Test]
+    public function confirmingAnOrderWithAnArchivedCustomerIsRefusedWithItsOwnRule(): void
+    {
+        $subject = self::salesOrderIn(SalesOrder::STATUS_DRAFT);
+
+        $refusal = null;
+        try {
+            $subject->confirm(orderedAt: new \DateTimeImmutable(), liveLineCount: 1, customerIsLive: false);
+        } catch (IllegalTransition $e) {
+            $refusal = $e;
+        }
+
+        self::assertInstanceOf(IllegalTransition::class, $refusal, 'confirm() accepted an order whose customer is archived.');
+        self::assertSame(SalesOrder::STATUS_DRAFT, $subject->getStatus(), 'The refusal ran after the status was written.');
+        self::assertNull((new \ReflectionProperty(SalesOrder::class, 'orderedAt'))->getValue($subject),
+            'The refusal ran after ordered_at was written.');
+
+        $problem = $this->dispatch($refusal, '/api/v1/sales-orders/x/confirmation');
+
+        self::assertInstanceOf(ApiProblem::class, $problem);
+        self::assertSame(409, $problem->getStatusCode());
+        self::assertSame('urn:erp:problem:business-rule-violated', $problem->getType());
+        self::assertSame('sales_order.customer_is_live', $problem->getRule());
+        self::assertStringNotContainsString('SalesOrder', (string) $problem->getDetail());
+    }
+
+    /**
+     * **Step 5b runs after step 5** (C5 C3): an empty draft whose customer is archived is still told to add a line, as
+     * it was before the customer guard existed, so no response the line guard shipped changes.
+     *
+     * **Mutation:** move the customer guard above the line guard; red — the rule is `customer_is_live`.
+     */
+    #[Test]
+    public function theLineGuardRunsBeforeTheCustomerGuard(): void
+    {
+        $subject = self::salesOrderIn(SalesOrder::STATUS_DRAFT);
+
+        try {
+            $subject->confirm(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, customerIsLive: false);
+            self::fail('confirm() accepted an empty draft whose customer is archived.');
+        } catch (IllegalTransition $e) {
+            self::assertSame('sales_order.has_a_live_line', $e->rule());
+        }
+    }
+
+    private static function salesOrderIn(string $status): SalesOrder
+    {
+        $subject = (new \ReflectionClass(SalesOrder::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(SalesOrder::class, 'status'))->setValue($subject, $status);
+
+        return $subject;
     }
 
     private static function purchaseOrderIn(string $status): PurchaseOrder

@@ -583,6 +583,9 @@ final class SchemaManifest
             // legal (A4.3 constraint 1, SalesOrderRowLock's precedent). Narrowing it to no columns turns that lock into a
             // 42501. No DELETE: DeleteCustomer is not built, and its delete would be soft. Declared explicitly so erp_ai
             // keeps exactly its inherited SELECT.
+            // C5 C3 (owner Q-2): Sales' customer liveness read (SalesOrderWriter::PARENT_LIVENESS_READS) takes FOR KEY SHARE,
+            // which is legal only while erp_app holds UPDATE on at least one customer column — narrowing this UPDATE grant to
+            // no column 42501s every sales-order create (GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnCustomer).
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code', 'payment_terms_days'],
