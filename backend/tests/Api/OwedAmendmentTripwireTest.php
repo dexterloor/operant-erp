@@ -405,6 +405,47 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion.',
     ];
 
+    /**
+     * **What warehouses slice 1 leaves owed to the archive operations, mechanised** (C3, 2026-10-13;
+     * `docs/session13/warehouses-s1-design.md` §4.7). Slice 1 ships no archive: `DeleteWarehouse` waits on API-O-34 and
+     * G-7, `DeleteStorageLocation` on G-27. Keyed by `operationId` (the pick-read precedent, `1076ba3`). A PIN, red on
+     * arrival; an entry leaves only in the commit that does its work.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_ARCHIVE_RULES = [
+        'DeleteWarehouse' => 'API-O-34 (refuse archiving with open work); G-7 revisit; take FOR UPDATE on the warehouse so '
+            .'CreateStorageLocation/UpdateStorageLocation\'s FOR SHARE parent read (StorageLocationWriter::PARENT_LOCK) serialises '
+            .'with it; decide what happens to the warehouse\'s live locations (they are not archived with it — '
+            .'StockReceiver refuses a receipt into an archived warehouse\'s live bin); mint warehouse.deleted with its writer.',
+        'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
+            .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer.',
+    ];
+
+    /**
+     * **`RESIDUAL_GAPS.md` G-44's bypass, mechanised** (warehouses slice 1 C3, 2026-10-13; final RED H-1). Owner Q-W1 (d)
+     * makes releasing a stocked `quarantine` location the owner's alone — but `warehouse_operator` holds
+     * `stock_movement.adjust`, which gates two unbuilt operations that could move or count held stock out of quarantine
+     * without touching the location's kind: `CreateStockTransfer` (source → destination location, one call) and
+     * `CreateStockAdjustment` (count a quarantine location to zero, after which any editor may release it; or count stock
+     * up in a pickable one, G-21). The day either is built, the owner gate protects only the honest path unless that
+     * operation applies the same rule. **And a qty-only `stock_level` UPDATE takes no lock on the location (measured, final
+     * RED T-8k)**, so such a writer would not serialise with the release guard either. Keyed by `operationId`. A PIN, red on
+     * arrival. The key set is pinned by literal as well (mutation M14: rename a key → red), so a key cannot drift to a name
+     * that is never built and silently stop guarding.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK = [
+        'CreateStockAdjustment' => 'counts a location up or down: counting a quarantine location to zero empties it for any editor to release, '
+            .'and counting stock up in a pickable location creates pickable stock with no release.',
+        'CreateStockTransfer' => 'moves stock from `source_storage_location_id` to `destination_storage_location_id` in one call: '
+            .'quarantine → pickable is a release.',
+    ];
+
+    /** The sentence both entries owe (final RED H-1), carried verbatim into the failure message. */
+    private const THE_RELEASE_RULE = 'Q-W1 (d): moving or counting stock out of a `quarantine` bin into, or creating stock in, a pickable bin is a release — it must refuse a non-owner (`OwnerPredicate`) or be ruled; and the writer must take `FOR KEY SHARE` on every bin it touches before reading `kind` (a qty-only `stock_level` UPDATE locks no location — measured).';
+
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -1132,6 +1173,69 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
+     * **What warehouses slice 1 owes the archive operations** (C3; design §4.7). Red the moment `DeleteWarehouse` or
+     * `DeleteStorageLocation` is in the generated spec. **Controls, same test:** the positive control every sibling uses;
+     * a non-empty map; and the intersection over a literal map naming a BUILT operation (`UpdateStorageLocation`) must
+     * report it. Mutation M9: rename the positive control → red.
+     */
+    #[Test]
+    public function noArchiveOfAWarehouseOrLocationShipsWithoutItsRules(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_ARCHIVE_RULES,
+            'The archive-rules map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
+        self::assertSame(['UpdateStorageLocation' => 'x'],
+            array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_ARCHIVE_RULES, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built. Warehouses slice 1 left these owed (docs/session13/warehouses-s1-design.md §4.7), IN THIS COMMIT:\n  %s\n"
+            .'Do not hand-edit this pin to green.',
+            implode(', ', array_keys($arrived)),
+            implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
+        ));
+    }
+
+    /**
+     * **G-44's bypass** (warehouses slice 1 C3; final RED H-1). Red the moment `CreateStockTransfer` or
+     * `CreateStockAdjustment` is in the generated spec, carrying the rule they owe. **Controls, same test:** the positive
+     * control; the key set pinned by literal (M14: rename a key → red here, though the positive control stays green); and
+     * the intersection over a literal map naming a BUILT operation (`UpdateStorageLocation`) must report it.
+     */
+    #[Test]
+    public function noStockMoveOutOfQuarantineShipsWithoutTheReleaseRule(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        $keys = array_keys(self::OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK);
+        sort($keys);
+        self::assertSame(['CreateStockAdjustment', 'CreateStockTransfer'], $keys,
+            'The G-44 bypass pin no longer names exactly the two `stock_movement.adjust` operations of API.md §4.2 that take a '
+            .'storage location. A renamed key is never built and guards nothing; an entry leaves only with its work done.');
+        self::assertSame(['UpdateStorageLocation' => 'x'],
+            array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK, $built);
+
+        self::assertSame([], $arrived, \sprintf(
+            "%s has been built, and it can take held stock out of quarantine without the owner (RESIDUAL_GAPS.md G-44).\n  %s\n\n"
+            ."%s\n\nApply the rule in THIS COMMIT (StorageLocationWriter's release guard is the precedent), or bring G-44 to the "
+            .'owner first. Do not hand-edit this pin to green.',
+            implode(', ', array_keys($arrived)),
+            implode("\n  ", array_map(static fn (string $op, string $why): string => $op.' '.$why, array_keys($arrived), $arrived)),
+            self::THE_RELEASE_RULE,
+        ));
+    }
+
+    /**
      * **The supplier trail decision** (customers slice 1 C2; judge FINAL item 10, C-5/C-7) — **an implication since
      * 2026-10-12** (suppliers slice 1 C2): while `UpdateSupplier` is in the spec, every test named in
      * {@see self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION} must exist. Until that commit it was a pin that went red
@@ -1260,7 +1364,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
                 ."  G-21's phantom stock: every mistaken return posts stock that no built operation corrects (G-21 says\n"
                 ."    `CreateStockAdjustment` is unbuilt, E-25) -- that sentence becomes false in this commit; re-word it. G-21's\n"
                 ."    closing work is ruled reversal documents (SEC + BE-LEAD + PO); a count correction does not close it.\n"
-                ."  Also owed here: WriteOwnershipTest's E-25 (a) pin (the first 'adjustment' writer).";
+                ."  Also owed here: WriteOwnershipTest's E-25 (a) pin (the first 'adjustment' writer).\n"
+                // Warehouses slice 1 C3 (final RED H-1): the quarantine-release rule, which
+                // `noStockMoveOutOfQuarantineShipsWithoutTheReleaseRule` also carries.
+                ."  And RESIDUAL_GAPS.md G-44 (quarantine release): ".self::THE_RELEASE_RULE;
         }
 
         return \sprintf("%s has been built, and it widens the double credit an adjustment allows (RESIDUAL_GAPS.md G-32, G-28).\n\n%s\n\n"

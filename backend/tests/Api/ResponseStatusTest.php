@@ -169,6 +169,9 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // C4's `DeleteSupplierProduct`) at that URI and no `Get`, so `CreatedRowLocation` fills `{productId}` from the body's
         // `id`. Never branch 5 (200): the operation creates an addressable row.
         'CreateSupplierProduct' => '/suppliers/{id}/products/{productId}',
+        // Added 2026-10-13 (warehouses slice 1 C3), the same case: §4.2 declares `UpdateStorageLocation` at that URI and no
+        // `Get`, so `CreatedRowLocation` fills `{locationId}` from the body's `id`.
+        'CreateStorageLocation' => '/warehouses/{id}/locations/{locationId}',
     ];
 
     /**

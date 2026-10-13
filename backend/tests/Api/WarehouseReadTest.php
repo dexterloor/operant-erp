@@ -38,6 +38,10 @@ final class WarehouseReadTest extends PurchaseOrderTestCase
         // C2 (2026-10-13): the create demands the header (`unique:warehouse_tenant_code_live`); the PATCH does not.
         'CreateWarehouse' => ['method' => 'POST', 'path' => '/warehouses', 'idem' => true],
         'UpdateWarehouse' => ['method' => 'PATCH', 'path' => '/warehouses/{id}', 'idem' => false],
+        // C3 (2026-10-13): the location create demands the header (`unique:storage_location_tenant_warehouse_code_live`); the
+        // PATCH does not.
+        'CreateStorageLocation' => ['method' => 'POST', 'path' => '/warehouses/{id}/locations', 'idem' => true],
+        'UpdateStorageLocation' => ['method' => 'PATCH', 'path' => '/warehouses/{id}/locations/{locationId}', 'idem' => false],
     ];
 
     /** `WarehouseResource`'s serialized members — §4.4.3's derivation (design §1.4). */

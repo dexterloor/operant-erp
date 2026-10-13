@@ -48,6 +48,11 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *   - `RoleUpdate` — **roles slice 4 C2, Q-A** (`roles-s4-c2-decisions.md` FINAL): only a marker holder (lock-time codes)
  *     may change a role whose stored or resulting codes confer the marker; the predicate is also applied to a ROLE's
  *     codes there (the stored set, the resulting set, and the removed codes for API-20's floor);
+ *   - `StorageLocationWriter` — **warehouses slice 1 C3, owner Q-W1 (d)** (`warehouses-s1-design.md` §4.3, adopted under
+ *     delegation 2026-10-13): taking a storage location OUT of `quarantine` while it holds stock (a release of held goods
+ *     to picking). The refusal it exempts from is UNCONDITIONAL — `storage_location.release_needs_owner` — so no holder
+ *     of `storage_location.edit` without the marker (`admin`, `warehouse_operator`) can release stocked held goods at all
+ *     (`SEC` S-2; `RESIDUAL_GAPS.md` G-44, whose closing work is a dedicated release code). A hold is never gated;
  *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
  *     role" — not to the caller's exemption.)*
  *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no

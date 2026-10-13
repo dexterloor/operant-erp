@@ -1316,6 +1316,103 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The columns `StorageLocationWriter` names, per privilege (warehouses slice 1 C3, `Version20261013000300`). **Typed by hand from
+     * its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration must still
+     * fail here). No DELETE.
+     *
+     * @var array<string, list<string>> privilege => columns
+     */
+    private const STORAGE_LOCATION_COLUMN_WRITES = [
+        'INSERT' => ['code', 'id', 'kind', 'tenant_id', 'warehouse_id'],
+        'UPDATE' => ['code', 'kind', 'updated_at'],
+    ];
+
+    /**
+     * **Warehouses slice 1 C3: `erp_app` can write exactly the columns `CreateStorageLocation` and `UpdateStorageLocation`
+     * name on `storage_location`, and delete nothing — proved by running the statements as `erp_app`** (design §4.6;
+     * ADR-002 A4.4's *"exactly"*). The warehouse method's shape. **Positive controls:** `code` INSERT and UPDATE accepted,
+     * and the row locks the grant makes legal (A4.3 constraint 1; 42501 before it, measured): `FOR KEY SHARE`
+     * (`StockDepleter`) and `FOR UPDATE` (`UpdateStorageLocation`). **Anti-vacuity:** `warehouse_id` UPDATE (moving a
+     * location's stock between warehouses with no movement), `deleted_at` UPDATE (archiving by SQL; `DeleteStorageLocation`
+     * is not built) and DELETE refused. **Planted control, committed then undone:** `GRANT UPDATE (deleted_at) ON
+     * storage_location` must produce exactly one violation.
+     */
+    #[Test]
+    public function theApplicationCanWriteOnlyTheStorageLocationColumnsTheStorageLocationWriterNames(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(
+            "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = 'storage_location'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum");
+        self::assertContains('warehouse_id', $columns, 'The column domain was not read from the server.');
+
+        $run = function (string $key, string $sql) use (&$outcomes): void {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeStatement($sql);
+                $outcomes[$key] = 'accepted';
+            } catch (DriverException $e) {
+                $outcomes[$key] = '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table storage_location')
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        $probe = function () use ($columns, $run, &$outcomes): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                foreach (['INSERT' => 'INSERT INTO storage_location (%1$s) SELECT %1$s FROM storage_location WHERE false', 'UPDATE' => 'UPDATE storage_location SET %1$s = %1$s WHERE false'] as $privilege => $sql) {
+                    $run($column.' '.$privilege, sprintf($sql, '"'.$column.'"'));
+                }
+            }
+            $run('* DELETE', 'DELETE FROM storage_location WHERE false');
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $key => $outcome) {
+                [$column, $privilege] = explode(' ', $key);
+                $granted = 'DELETE' !== $privilege && \in_array($column, self::STORAGE_LOCATION_COLUMN_WRITES[$privilege], true);
+                if ($granted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('storage_location.%s: StorageLocationWriter issues it, but erp_app got "%s"', $key, $outcome);
+                } elseif (!$granted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('storage_location.%s: StorageLocationWriter does not issue it, but erp_app got "%s"', $key, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+        self::assertSame(['accepted', 'accepted'], [$outcomes['code INSERT'] ?? null, $outcomes['code UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update storage_location.code.');
+        self::assertSame(['refused', 'refused', 'refused'],
+            [$outcomes['warehouse_id UPDATE'] ?? null, $outcomes['deleted_at UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not move a location to another warehouse, archive it, or delete it, and the probe did not see them refused.');
+        self::assertSame([], $violations($outcomes),
+            "erp_app's writes on storage_location are not exactly StorageLocationWriter's:\n  ".implode("\n  ", $violations($outcomes)));
+        $outcomes = [];
+        $run('lock KEY SHARE', 'SELECT 1 FROM storage_location WHERE false FOR KEY SHARE');
+        $run('lock UPDATE', 'SELECT 1 FROM storage_location WHERE false FOR UPDATE');
+        self::assertSame(['lock KEY SHARE' => 'accepted', 'lock UPDATE' => 'accepted'], $outcomes,
+            'erp_app cannot take the row locks StockDepleter and UpdateStorageLocation take: the column UPDATE grant is what makes them legal.');
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON storage_location TO %s', DatabaseRoles::APP));
+            self::assertSame(['storage_location.deleted_at UPDATE: StorageLocationWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON storage_location FROM %s', DatabaseRoles::APP));
+        }
+        self::assertSame([], $violations($probe()), 'The planted storage_location deleted_at grant survived its REVOKE.');
+    }
+
+    /**
      * The columns `SupplierProductWriter` names, per privilege (suppliers slice 1 C3, `Version20261012000500`). **Typed by
      * hand from its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration
      * must still fail here). DELETE is table-level and separate: {@see self::SUPPLIER_PRODUCT_DELETES}.

@@ -115,6 +115,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second warehouse with the same code. Its mechanism is the live-row unique on (tenant, code), refused, never '
                 .'replayed (warehouses slice 1 C2), and a refused replay writes no second warehouse.created row.',
         ],
+        'CreateStorageLocation' => [
+            'method' => 'replayCreateStorageLocation',
+            'why' => 'A second storage location with the same code in the same warehouse. Its mechanism is the live-row unique on '
+                .'(tenant, warehouse, code), refused, never replayed (warehouses slice 1 C3), and a refused replay writes no second '
+                .'storage_location.created row.',
+        ],
         'CreateSupplier' => [
             'method' => 'replayCreateSupplier',
             'why' => 'A second supplier with the same code. Its mechanism is the live-row unique on (tenant, code), refused, never '
@@ -405,6 +411,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
         self::assertCount($before + 1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM warehouse'), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM audit_log WHERE event_type = 'warehouse.created'"), $why);
+    }
+
+    private function replayCreateStorageLocation(string $why): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Replayed Location Warehouse');
+        $body = ['code' => 'L-REPLAY', 'kind' => 'bin'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/warehouses/'.$warehouse.'/locations', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/warehouses/'.$warehouse.'/locations', $body, $key);
+        self::assertSame(409, $this->httpStatus(), 'A repeated CreateStorageLocation was replayed, not refused.');
+        self::assertSame('storage_location.code_is_unique_per_warehouse', $this->json()['rule'] ?? null, $why);
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM storage_location WHERE warehouse_id = ?::uuid', [$warehouse]), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM audit_log WHERE event_type = 'storage_location.created'"), $why);
     }
 
     private function replayCreateSupplier(string $why): void

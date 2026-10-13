@@ -90,6 +90,10 @@ final class ApiConfigurationTest extends ApiTestCase
             // `debug:router` before the test ran (the vendor's route order puts it after `sales_order_lines`).
             '_api_/supplier_products/{id}{._format}_get' => \App\Modules\Suppliers\ApiResource\SupplierProductResource::class,
             '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
+            // **2026-10-13, warehouses slice 1 C3**, the same case and permanent: `StorageLocation` has built writes at
+            // `/warehouses/{id}/locations[/{locationId}]` and §4.2 declares no `GetStorageLocation` (a bounded sub-list).
+            // Read off the failing run: the vendor's route order puts it after `.well-known/genid`.
+            '_api_/storage_locations/{id}{._format}_get' => \App\Modules\Warehouses\ApiResource\StorageLocationResource::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
 
@@ -247,7 +251,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And two more (warehouses slice 1 C2, 2026-10-13):** `CreateWarehouse`, a POST at `/warehouses` (`warehouse.create`),
         // and `UpdateWarehouse`, a PATCH at `/warehouses/{id}` (`warehouse.edit`), both on `WarehouseResource`. Its migration
         // grants `erp_app` a column INSERT and a column UPDATE on `warehouse`.
-        self::assertCount(90, $checked, 'The route set changed. This slice declares ninety operations: '.implode(', ', array_keys($checked)));
+        // **And two more (warehouses slice 1 C3, 2026-10-13):** `CreateStorageLocation` (POST `/warehouses/{id}/locations`,
+        // `storage_location.create`; branch 4) and `UpdateStorageLocation` (PATCH `/warehouses/{id}/locations/{locationId}`,
+        // `storage_location.edit`) on `StorageLocationResource`. Its migration grants `erp_app` a column INSERT and a column
+        // UPDATE on `storage_location`; the not-exposed fallback route above is not counted.
+        self::assertCount(92, $checked, 'The route set changed. This slice declares ninety-two operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

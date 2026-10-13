@@ -171,19 +171,9 @@ final class StorageLocationListTest extends PurchaseOrderTestCase
         self::assertSame(self::PINNED_STORAGE_LOCATION_FIELDS, self::serializedMembers(StorageLocationResource::class));
     }
 
-    /**
-     * **The second spelling of that field list, held to the first** — `StorageLocationCollection.items` publishes
-     * `StorageLocationResource::WIRE_SCHEMA` inline because no `StorageLocation` operation is built until C3, so a `$ref`
-     * would dangle (`ListSalesOrderLines`' precedent). When C3 ships the first write, delete the constant and use a `$ref`.
-     */
-    #[Test]
-    public function theWireSchemaIsTheResourcesOwnMembers(): void
-    {
-        self::assertSame(self::serializedMembers(StorageLocationResource::class), array_keys(StorageLocationResource::WIRE_SCHEMA['properties']),
-            'StorageLocationCollection publishes a member list the resource does not have, or omits one it does.');
-        self::assertContains('kind', self::serializedMembers(StorageLocationResource::class),
-            'The reflection helper returned nothing recognisable, so the assertion above would compare two empty lists.');
-    }
+    // `theWireSchemaIsTheResourcesOwnMembers` was DELETED at C3 (2026-10-13), as its docblock asked: C3 builds the first
+    // `StorageLocation` write, so the component exists and `StorageLocationCollection.items` is a `$ref`
+    // (`OpenApiContractTest::everyReferenceInTheSpecResolves` holds it resolving).
 
     /** @return list<string> a DTO's serialized member names, in declaration order */
     private static function serializedMembers(string $class): array

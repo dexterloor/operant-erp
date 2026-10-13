@@ -862,6 +862,24 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a warehouse'];
             }],
+            // Warehouses slice 1, C3: a create with a letter-bearing code (CD-3) and an explicit kind; an update that re-labels
+            // and holds an EMPTY bin (bin → quarantine; a hold is never gated), so the success path writes its
+            // `storage_location.updated` row with `held_stock`.
+            'CreateStorageLocation' => [fn (): array => ['warehouse' => $this->seedWarehouse(self::TENANT_A, 'Recipe Location Warehouse')],
+                function (array $c) use ($key): array {
+                    $this->send('POST', '/warehouses/'.$c['warehouse'].'/locations', ['code' => 'R-NEW-01', 'kind' => 'shelf'], $key());
+
+                    return [201, 'add a storage location to a warehouse'];
+                }],
+            'UpdateStorageLocation' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Relabel Warehouse');
+
+                return ['warehouse' => $warehouse, 'location' => $this->seedStorageLocation(self::TENANT_A, $warehouse, 'R-OLD-01')];
+            }, function (array $c): array {
+                $this->send('PATCH', '/warehouses/'.$c['warehouse'].'/locations/'.$c['location'], ['code' => 'R-RELABELLED-01', 'kind' => 'quarantine']);
+
+                return [200, 'change a storage location'];
+            }],
             'ListSupplierProducts' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
                 $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));

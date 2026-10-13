@@ -178,6 +178,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // come with their writers.
         'warehouse.created',
         'warehouse.updated',
+        // Edited by hand 2026-10-13 (warehouses slice 1 C3) on owner Q-W2 (a) / Q-W1 (d) (adopted under delegation, design
+        // §4.5) and the `warehouse.*` filing's terms (`SEC` to confirm the storage-location block): BUSINESS, subject the
+        // location, `{values}` and `{fields, from, to[, held_stock]}`, no IP. ONLY these two: `.deleted`/`.restored` come with
+        // their writers.
+        'storage_location.created',
+        'storage_location.updated',
     ];
 
     /**

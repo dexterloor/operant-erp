@@ -30,7 +30,14 @@ interface PickableStock
     /**
      * `storage_location.kind`'s one value that is never pickable (R2). The
      * Warehouses module's CHECK value, held here once for both halves of the
-     * rule — this read and `DepleteStock`'s refusal.
+     * rule — this read and `DepleteStock`'s refusal. **Since warehouses slice 1
+     * C3 the Warehouses module carries the same value as
+     * `LocationKinds::NEVER_PICKABLE`** (it guards changes into and out of this
+     * kind): `InventoryContract` may not reach `WarehousesContract`, so the two
+     * copies are held equal by `StorageLocationWriteTest`, never imported. A
+     * location's kind changes only through `UpdateStorageLocation`: a hold is
+     * always allowed, a release of a stocked location is the owner's alone
+     * (`RESIDUAL_GAPS.md` G-44). This read takes no lock — a display.
      */
     public const NEVER_PICKABLE_KIND = 'quarantine';
 

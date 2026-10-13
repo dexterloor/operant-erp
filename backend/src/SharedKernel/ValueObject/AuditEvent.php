@@ -119,7 +119,8 @@ namespace App\SharedKernel\ValueObject;
  * since suppliers slice 1 C2 (`supplier.updated`, the same shape), and customer address edits since suppliers slice 1
  * C2b (`customer_address.created` / `.updated`, the same shape). Warehouse edits are on it since warehouses slice 1 C2
  * (`warehouse.created` / `.updated`) — and those carry **values** (old and new, over an explicit allowlist), a deliberate
- * departure from the names-only shape (owner Q-W2 (a); `SEC` to confirm).
+ * departure from the names-only shape (owner Q-W2 (a); `SEC` to confirm). Storage-location edits since warehouses slice 1
+ * C3 (`storage_location.created` / `.updated`, the same values shape, plus `held_stock` on a kind change).
  *
  * **Process for extending it** — every step, or the suite fails:
  *   1. add the constant here;
@@ -165,7 +166,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Eight entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Nine entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -261,6 +262,14 @@ namespace App\SharedKernel\ValueObject;
  *     `RestoreWarehouse` (API-O-34, G-7). Step 5 is `Version20261013000200`, whose literal list is the live constraint's
  *     thirty-seven members (read off `pg_constraint`, not generated) plus these two. **Step 6 does not apply.**
  *     `PINNED_ALLOWLIST` edited by hand with two literals.
+ *
+ *   - **`STORAGE_LOCATION_CREATED` and `STORAGE_LOCATION_UPDATED`**, 2026-10-13, warehouses slice 1 C3 — owner Q-W2 (a)
+ *     and Q-W1 (d), adopted under delegation (design §4.5; final RED M-1, M-4), filed **`BUSINESS`** on the `warehouse.*`
+ *     filing's terms (`SEC` to confirm the storage-location block, incl. values and `held_stock`), before the code; steps
+ *     3–5 done **each with its writer in the same commit** (`StorageLocationAuditWriter`). **Only these two**:
+ *     `.deleted` / `.restored` come with `DeleteStorageLocation` / `RestoreStorageLocation` (G-27). Step 5 is
+ *     `Version20261013000400`, whose literal list is the live constraint's thirty-nine members (read off `pg_constraint`,
+ *     not generated) plus these two. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -849,6 +858,29 @@ final class AuditEvent
     public const WAREHOUSE_UPDATED = 'warehouse.updated';
 
     /**
+     * **A storage location created** — `CreateStorageLocation` (warehouses slice 1 C3, 2026-10-13; owner Q-W2 (a)).
+     * Subject `('storage_location', id)`. **Business** under PC-11 (4a). No IP, no permission code. `metadata`
+     * `{"values": {"code", "kind"}}` — the values as stored (the kind the database defaulted, when none was sent), the
+     * anchor the first `storage_location.updated`'s `from` is checked against. Operational fields; the allowlist is
+     * `StorageLocationAuditWriter::VALUE_FIELDS`. Written by `StorageLocationAuditWriter::recordCreated()` in
+     * `StorageLocationWriter`'s transaction, after the INSERT. **Step 6 does not apply.**
+     */
+    public const STORAGE_LOCATION_CREATED = 'storage_location.created';
+
+    /**
+     * **A storage location changed** — `UpdateStorageLocation` (warehouses slice 1 C3, 2026-10-13; owner Q-W2 (a), Q-W1
+     * (d)). Subject `('storage_location', id)`. **Business** under PC-11 (4a). No IP, no permission code. `metadata`
+     * `{"fields": [...], "from": {...}, "to": {...}[, "held_stock": bool]}` — the changed fields among `code`, `kind`,
+     * sorted, their old and new values, and **`held_stock` exactly when `kind` changed**: whether the location held stock
+     * (`stock_level.qty_on_hand > 0`), read under the row lock in a statement after it (final RED M-1), so the trail tells a
+     * hold or release of a stocked location from an empty relabel. A release of a stocked quarantine location is the
+     * owner's alone (`storage_location.release_needs_owner`; `RESIDUAL_GAPS.md` G-44). **No row when nothing changed.**
+     * Written by `StorageLocationAuditWriter::recordUpdated()` in `StorageLocationWriter`'s transaction, after the UPDATE.
+     * **Step 6 does not apply.**
+     */
+    public const STORAGE_LOCATION_UPDATED = 'storage_location.updated';
+
+    /**
      * Every legal value of `audit_log.event_type`.
      *
      * **Declared independently of `SECURITY` and `BUSINESS`, deliberately.**
@@ -904,6 +936,8 @@ final class AuditEvent
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
+        self::STORAGE_LOCATION_CREATED,
+        self::STORAGE_LOCATION_UPDATED,
     ];
 
     /**
@@ -984,6 +1018,8 @@ final class AuditEvent
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
+        self::STORAGE_LOCATION_CREATED,
+        self::STORAGE_LOCATION_UPDATED,
     ];
 
     // ---------------------------------------------------------------------
@@ -1056,6 +1092,9 @@ final class AuditEvent
         // Warehouses slice 1 C2: the warehouse row whose own state changed (owner Q-W2 (a)).
         self::WAREHOUSE_CREATED => 'warehouse',
         self::WAREHOUSE_UPDATED => 'warehouse',
+        // Warehouses slice 1 C3: the location row whose own state changed (owner Q-W2 (a)).
+        self::STORAGE_LOCATION_CREATED => 'storage_location',
+        self::STORAGE_LOCATION_UPDATED => 'storage_location',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

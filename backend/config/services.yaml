@@ -136,12 +136,16 @@ services:
             # bodies — data, not services.
             - '../src/Modules/Suppliers/Application/SupplierProductView.php'
             - '../src/Modules/Suppliers/ApiResource/{SupplierItemReference.php,CreateSupplierProductInput.php,UpdateSupplierProductInput.php}'
-            # Warehouses slice 1 C1 (2026-10-13): the two read models and the location item DTO (not an `ApiResource` until
-            # C3 declares its writes) — data, not services.
+            # Warehouses slice 1 C1 (2026-10-13): the two read models — data, not services. (C1 also excluded the location
+            # item DTO, `StorageLocationResource`; C3 made it an `ApiResource` with its writes, so it is no longer excluded,
+            # for `ItemResource`'s reason.)
             - '../src/Modules/Warehouses/Application/{WarehouseView.php,StorageLocationView.php}'
-            - '../src/Modules/Warehouses/ApiResource/StorageLocationResource.php'
             # Warehouses slice 1 C2 (2026-10-13): the two request bodies (the serializer builds them).
             - '../src/Modules/Warehouses/ApiResource/{CreateWarehouseInput.php,UpdateWarehouseInput.php}'
+            # Warehouses slice 1 C3 (2026-10-13): the two location request bodies, and `LocationKinds`, a constants-only class
+            # with a private constructor the container would otherwise try to instantiate.
+            - '../src/Modules/Warehouses/ApiResource/{CreateStorageLocationInput.php,UpdateStorageLocationInput.php}'
+            - '../src/Modules/Warehouses/Application/Contract/LocationKinds.php'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

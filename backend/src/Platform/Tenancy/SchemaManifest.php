@@ -439,6 +439,18 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::SOFT,
             'why' => 'stock_movement records where stock physically moved; the bin can be retired but the history cannot.',
+            // Warehouses slice 1 C3 (2026-10-13, Version20261013000300): StorageLocationWriter's one INSERT and one UPDATE, both
+            // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
+            // erp_app move a location to another warehouse (warehouse_id -- its stock would move with no movement) or archive
+            // it (deleted_at), which no operation writes. No DELETE: DeleteStorageLocation is not built (G-27). The UPDATE
+            // grant also makes UpdateStorageLocation's FOR UPDATE / FOR NO KEY UPDATE and StockDepleter's FOR KEY SHARE on the
+            // locations it picks from legal (A4.3 constraint 1; 42501 without it, measured). Declared explicitly so erp_ai
+            // keeps exactly its inherited SELECT.
+            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => [
+                'INSERT' => ['id', 'tenant_id', 'warehouse_id', 'code', 'kind'],
+                'UPDATE' => ['code', 'kind', 'updated_at'],
+            ]],
         ],
 
         // ------------------------------------------------------------------

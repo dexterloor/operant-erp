@@ -64,6 +64,12 @@ namespace App\Modules\Inventory\Application\Contract;
  * that is archived or of `kind = 'quarantine'` is `storage_location.is_pickable`.
  * What counts as *promisable* (a future ATP) is not ruled here.
  *
+ * **The kind is read under `FOR KEY SHARE`** (warehouses slice 1 C3, 2026-10-13), so a location's kind cannot change
+ * between this read and the depletion's commit: `UpdateStorageLocation` takes `FOR UPDATE` before changing a kind, which
+ * waits for this lock, and a kind change already in flight makes this read wait and then see it. The contract therefore
+ * holds by itself, for any caller — a caller need not insert a location-referencing row first (today's caller does).
+ * Releasing a location out of `quarantine` while it holds stock is the owner's alone (`RESIDUAL_GAPS.md` G-44).
+ *
  * ---------------------------------------------------------------------------
  * The caller's side of the contract — `ReceiveStock`'s, verbatim in substance
  * ---------------------------------------------------------------------------

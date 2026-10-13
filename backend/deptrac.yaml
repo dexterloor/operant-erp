@@ -79,6 +79,10 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (Re-derived 2026-10-13 with `CreateStorageLocation` / `UpdateStorageLocation` in the tree (warehouses slice 1, C3): the
+  # three commands return **145 / 85 / 33** -- ONE edge line added: `StorageLocationWriter -> StorageLocationAuditWriter`
+  # (A-5, `storage_location.created` / `.updated`). Plus one LAYER edge, not an edge line: `WarehousesApplication ->
+  # UserManagementContract` (the owner check). `make deptrac`: see the progress note's C3 gate (re-derive, never restate).)
   # (Re-derived 2026-10-13 with `CreateWarehouse` / `UpdateWarehouse` in the tree (warehouses slice 1, C2): the three
   # commands return **144 / 85 / 32** -- ONE edge line added: `WarehouseWriter -> WarehouseAuditWriter` (A-5,
   # `warehouse.created` / `warehouse.updated`). `make deptrac`: see the progress note's C2 gate (re-derive, never restate).)
@@ -601,6 +605,10 @@ deptrac:
       # Warehouses slice 1 C2, 2026-10-13: `warehouse.created` / `warehouse.updated` written synchronously in the writing
       # transaction (owner Q-W2 (a); `SupplierWriter`'s shape). Raw SQL for the writes, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter   # A-5
+    App\Modules\Warehouses\Application\StorageLocationWriter:
+      # Warehouses slice 1 C3, 2026-10-13: `storage_location.created` / `storage_location.updated` written synchronously in
+      # the writing transaction (owner Q-W2 (a); `WarehouseWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\StorageLocationAuditWriter   # A-5
     App\Modules\UserManagement\Application\RoleGrantProposalCancellation:
       # Roles slice 3 C3, 2026-10-05: `role.assignment_cancelled`; `cancel()` and the proposer's reference under the lock.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
@@ -1416,6 +1424,10 @@ deptrac:
       - PlatformSecurity
       - PlatformTenancy
       - SharedKernel
+      # Warehouses slice 1 C3 (2026-10-13), the first Warehouses -> UserManagement edge: `StorageLocationWriter` asks
+      # `OwnerPredicate::holdsMarker()` whether the caller may release a stocked location from quarantine (owner Q-W1 (d)).
+      # No cycle: UserManagement names Warehouses only as a string (`PermissionCatalogue`). `InventoryApplication`'s edge.
+      - UserManagementContract
       - WarehousesContract
       - WarehousesDomain
     WarehousesApiResource:

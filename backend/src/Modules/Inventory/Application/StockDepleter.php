@@ -168,6 +168,19 @@ final readonly class StockDepleter implements DepleteStock
      * nothing to undo. A bin this workspace cannot see (RLS) or of another
      * warehouse is not a location of this one; a bin of this warehouse that is
      * archived or quarantine is one, and is refused as not pickable.
+     *
+     * **The read takes `FOR KEY SHARE` on every location it reads** (warehouses slice 1 C3, 2026-10-13; design §4.4, final
+     * RED H-2) — defence in depth, no current behaviour change. `UpdateStorageLocation` takes `FOR UPDATE` on a location
+     * before changing its kind, and `FOR KEY SHARE` conflicts with exactly that lock: a kind change in flight makes this
+     * read WAIT, and then read the committed kind (a hold to `quarantine` is refused here, `storage_location.is_pickable`);
+     * a kind change arriving second waits for this transaction. Today's one caller (`FulfilmentWriter`) already inserts
+     * its `fulfilment_line` — whose foreign-key check holds the same `KEY SHARE` — before calling, so the line insert is
+     * the control in force; this clause makes `DepleteStock`'s contract hold by itself for a future caller (a transfer, a
+     * count) that writes no location-referencing row first. **Measured (final RED §1, race-b):** without the clause, a hold
+     * committed while this read ran unlocked was read as `bin`, the movement insert then waited for the hold, and the
+     * depletion went through from a location by then in quarantine. Legal for `erp_app` only because it holds a column
+     * UPDATE on `storage_location` (`Version20261013000300`, A4.3 constraint 1). `StorageLocationWriteTest`'s race (b)
+     * fails without it.
      */
     private function refuseBinsThatAreNotPickable(EntityManagerInterface $em, StockDepletion $depletion): void
     {
@@ -178,7 +191,7 @@ final readonly class StockDepleter implements DepleteStock
 
         $found = [];
         foreach ($em->getConnection()->fetchAllAssociative(
-            'SELECT id::text AS id, deleted_at IS NOT NULL AS archived, kind FROM storage_location WHERE warehouse_id = ?::uuid AND id IN (?)',
+            'SELECT id::text AS id, deleted_at IS NOT NULL AS archived, kind FROM storage_location WHERE warehouse_id = ?::uuid AND id IN (?) FOR KEY SHARE',
             [$depletion->warehouseId, $asked],
             [ParameterType::STRING, ArrayParameterType::STRING],
         ) as $row) {

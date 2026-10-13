@@ -21,6 +21,8 @@ use Symfony\Component\Uid\Uuid;
  * direct-hit case); an unknown or another workspace's warehouse is null, the caller's 404. The `warehouse_id` predicate is
  * the ONE place a location is tied to its path's warehouse: another warehouse's locations never appear under this path.
  * Every statement runs under `TenantContext::run()` on the entity manager's own connection (`erp_app`, under RLS) (A-10).
+ *
+ * C3 adds {@see self::get()} (`UpdateStorageLocation`'s row load) and {@see self::readInside()} (the writer's read-back).
  */
 final readonly class StorageLocationReader
 {
@@ -62,6 +64,34 @@ final readonly class StorageLocationReader
 
             return ['items' => array_map(self::view(...), $rows), 'tenantHasRows' => $tenantHasRows];
         });
+    }
+
+    /**
+     * **`UpdateStorageLocation`'s row load** (warehouses slice 1 C3): the location `$locationId` **of warehouse
+     * `$warehouseId`**, archived rows included (the writer answers those 409). Another warehouse's location, an unknown id
+     * or another workspace's is null — the same 404 (ST-5).
+     */
+    public function get(string $warehouseId, string $locationId): ?StorageLocationView
+    {
+        if (!Uuid::isValid($warehouseId) || !Uuid::isValid($locationId)) {
+            return null;
+        }
+        $warehouseId = Uuid::fromString($warehouseId)->toRfc4122();
+        $locationId = Uuid::fromString($locationId)->toRfc4122();
+
+        return $this->tenants->run($this->tenant->tenantId(),
+            static fn (EntityManagerInterface $em): ?StorageLocationView => self::readInside($em, $warehouseId, $locationId));
+    }
+
+    /**
+     * One location of one warehouse, read on the caller's transaction (`StorageLocationWriter`'s read-back). The
+     * `warehouse_id` predicate is what keeps another warehouse's location out.
+     */
+    public static function readInside(EntityManagerInterface $em, string $warehouseId, string $locationId): ?StorageLocationView
+    {
+        $row = $em->getConnection()->fetchAssociative(self::SELECT.' WHERE l.id = ?::uuid AND l.warehouse_id = ?::uuid', [$locationId, $warehouseId]);
+
+        return false === $row ? null : self::view($row);
     }
 
     /** @param array<string, mixed> $row */

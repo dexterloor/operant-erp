@@ -91,6 +91,22 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
+     * One storage location of a warehouse, as the owner (warehouses slice 1 C3: the registry recipes and the location write
+     * tests). The code is the caller's, letter-bearing by convention (CD-3: from C1 `code` is on the wire).
+     *
+     * @return string the new row's id
+     */
+    protected function seedStorageLocation(string $tenantId, string $warehouseId, string $code, string $kind = 'bin'): string
+    {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant($tenantId,
+            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code, kind) VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?)',
+            [$id, $tenantId, $warehouseId, $code, $kind]);
+
+        return $id;
+    }
+
+    /**
      * ⚠ **THREE SALES fixtures on the purchase-order rig, and the reason is a pin rather than a taxonomy.**
      * *(Two until `GetSalesOrder` shipped on 2026-09-19 and added `seedSalesOrder` below; the count is
      * written here rather than left at "two" because the paragraph is the one that explains why they are

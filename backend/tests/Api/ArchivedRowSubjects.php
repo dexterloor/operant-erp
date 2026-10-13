@@ -351,8 +351,9 @@ trait ArchivedRowSubjects
 
                 return ['id' => $warehouse, 'row' => $warehouse];
             },
-            // Added 2026-10-13 with `ListStorageLocations` (warehouses slice 1, C1): class `soft`, list clause only (no direct
-            // hit and no write is built until C3). The path's `{id}` is the warehouse; the row is the location.
+            // Added 2026-10-13 with `ListStorageLocations` (warehouses slice 1, C1): class `soft`. The path's `{id}` is the
+            // warehouse; the row is the location. Its write is `UpdateStorageLocation` (C3, 2026-10-13), whose path takes
+            // `{locationId}` as well (body in `archivedRowWriteBodies()`).
             'storage_location' => function (string $tag): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'Archived Locations '.$tag);
                 $location = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
@@ -360,7 +361,7 @@ trait ArchivedRowSubjects
                     'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
                     [$location, self::TENANT_A, $warehouse, 'ARC-'.$tag]);
 
-                return ['id' => $warehouse, 'row' => $location];
+                return ['id' => $warehouse, 'locationId' => $location, 'row' => $location];
             },
             // Added 2026-09-23 with `GetRole` (roles slice 1, C3): `role` is class `soft` and has a built direct-hit
             // `Get`. No write on the resource is built, so the write clause does not select it.
@@ -450,6 +451,9 @@ trait ArchivedRowSubjects
             // Warehouses slice 1 C2: the live twin renames (the name is not unique); the archived twin's 409 is
             // `warehouse.is_archived`'s alone.
             'UpdateWarehouse' => ['name' => 'Renamed'],
+            // Warehouses slice 1 C3: the live twin re-labels its location (each twin has its own warehouse, so the code is
+            // free); the archived twin's 409 is `storage_location.is_archived`'s alone (its warehouse is live).
+            'UpdateStorageLocation' => ['code' => 'RELABELLED'],
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
             // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
             // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are

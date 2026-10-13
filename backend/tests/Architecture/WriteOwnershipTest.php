@@ -186,7 +186,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // UPDATE` this scan excludes.
         // **21 -> 22 on 2026-10-13** (warehouses slice 1 C2): `WarehouseAuditWriter::record()`'s ONE `INSERT INTO audit_log`,
         // shared by `warehouse.created` and `warehouse.updated`, read off this test's run.
-        'Modules\\AuditLog' => 22,
+        // **22 -> 23 on 2026-10-13** (warehouses slice 1 C3): `StorageLocationAuditWriter::record()`'s ONE `INSERT INTO
+        // audit_log`, shared by `storage_location.created` and `.updated` (PREDICTED; confirmed off this test's run).
+        'Modules\\AuditLog' => 23,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -287,7 +289,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.
-        'Modules\\Warehouses' => 2,
+        // **2 -> 4 on 2026-10-13** (warehouses slice 1 C3): `StorageLocationWriter`'s one `INSERT INTO storage_location` and
+        // one `UPDATE storage_location` (PREDICTED; confirmed off this test's run). Its row locks are excluded.
+        'Modules\\Warehouses' => 4,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

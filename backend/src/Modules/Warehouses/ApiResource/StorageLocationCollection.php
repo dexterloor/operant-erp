@@ -62,8 +62,9 @@ final class StorageLocationCollection
      * @param list<StorageLocationResource> $items
      */
     public function __construct(
-        // Inline, not a `$ref`: no `StorageLocation` operation is built until C3 (`StorageLocationResource::WIRE_SCHEMA`).
-        #[ApiProperty(schema: ['type' => 'array', 'items' => StorageLocationResource::WIRE_SCHEMA])]
+        // A `$ref` since C3 (2026-10-13): `CreateStorageLocation` outputs `StorageLocationResource`, so the component exists.
+        // (C1 published an inline `WIRE_SCHEMA` here while no `StorageLocation` operation was built.)
+        #[ApiProperty(schema: ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/StorageLocation']])]
         public array $items,
         /** Always null on a bounded list (§4.4.2). */
         #[SerializedName('next_cursor')]

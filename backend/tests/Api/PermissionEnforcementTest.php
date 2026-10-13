@@ -84,6 +84,9 @@ final class PermissionEnforcementTest extends ApiTestCase
         // Added 2026-10-12 with `CreateSupplierProduct` (suppliers slice 1 C3), `customer_addresses`' entry exactly and
         // permanent: `SupplierProduct` has built writes and §4.2 declares no `GetSupplierProduct` (a bounded sub-list).
         '_api_/supplier_products/{id}{._format}_get',
+        // Added 2026-10-13 with `CreateStorageLocation` (warehouses slice 1 C3), `supplier_products`' entry exactly and
+        // permanent: `StorageLocation` has built writes and §4.2 declares no `GetStorageLocation` (a bounded sub-list).
+        '_api_/storage_locations/{id}{._format}_get',
     ];
 
     /**
