@@ -1134,6 +1134,22 @@ final readonly class PurchaseOrderWriter
      * present in `$values` are checked; RLS makes another tenant's id and a
      * missing one the same answer (ST-5).
      *
+     * **The supplier read takes `FOR KEY SHARE`; the warehouse read takes no
+     * lock** (C5 C1, owner ruling Q-S2 of 2026-10-12: *"supplier-only lock"*).
+     * `DeleteSupplier` archives a supplier under `FOR UPDATE` and refuses one
+     * with an open purchase order; KEY SHARE is the one lock that conflicts with
+     * that `FOR UPDATE` and with nothing `UpdateSupplier` takes
+     * (`FOR NO KEY UPDATE`), so a create or an edit naming the supplier either
+     * commits first and is counted by the delete, or waits and then re-reads
+     * `deleted_at IS NULL` and is refused. Legal because `erp_app` holds column
+     * UPDATE on `supplier` (`Version20261012000200`; ADR-002 A4.3 constraint 1)
+     * — narrowing that grant to no column makes this read 42501.
+     * Lock order on the edit: `PurchaseOrderRowLock` first (the caller's first
+     * statement), then this KEY SHARE; the supplier writers lock only the
+     * supplier row, so no cycle. The warehouse branch stays unlocked by the same
+     * ruling — locking it is `DeleteWarehouse`'s to order (API-O-34, G-7;
+     * carried by `OwedAmendmentTripwireTest::OPERATIONS_OWING_THE_ARCHIVE_RULES`).
+     *
      * @param array<string, string|null> $values
      *
      * @return list<array{pointer: string, code: string, message: string}>
@@ -1142,18 +1158,29 @@ final readonly class PurchaseOrderWriter
     {
         $errors = [];
 
-        foreach (['supplierId' => 'supplier', 'warehouseId' => 'warehouse'] as $property => $table) {
+        foreach (self::PARENT_LIVENESS_READS as $property => [$table, $sql]) {
             if (!\array_key_exists($property, $values)) {
                 continue;
             }
 
-            if (false === $em->getConnection()->fetchOne("SELECT 1 FROM $table WHERE id = ?::uuid AND deleted_at IS NULL", [$values[$property]])) {
+            if (false === $em->getConnection()->fetchOne($sql, [$values[$property]])) {
                 $errors[] = self::error($property, 'unknown_reference', 'No live '.$table.' in this workspace has this id.');
             }
         }
 
         return $errors;
     }
+
+    /**
+     * The two liveness reads, one statement each (see `notLiveParentErrors()`):
+     * the supplier's locks `FOR KEY SHARE`, the warehouse's locks nothing.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const PARENT_LIVENESS_READS = [
+        'supplierId' => ['supplier', 'SELECT 1 FROM supplier WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
+        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL'],
+    ];
 
     /**
      * The next free document number for this workspace.

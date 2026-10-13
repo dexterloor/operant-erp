@@ -496,6 +496,9 @@ final class SchemaManifest
             // RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateSupplier's first-read FOR NO KEY UPDATE legal (A4.3
             // constraint 1). No deleted_at and no DELETE: DeleteSupplier is not built (Q-S1 (d)). Declared explicitly so
             // erp_ai keeps exactly its inherited SELECT.
+            // C5 C1 (owner Q-S2): Purchasing's supplier liveness read (PurchaseOrderWriter) takes FOR KEY SHARE, which is
+            // legal only while erp_app holds UPDATE on at least one supplier column — narrowing this UPDATE grant to no
+            // column 42501s every purchase-order create (GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnSupplier).
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code', 'payment_terms_days'],

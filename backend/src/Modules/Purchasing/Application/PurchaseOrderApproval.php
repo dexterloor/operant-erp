@@ -268,7 +268,19 @@ final readonly class PurchaseOrderApproval
                     [$id],
                 );
 
-                // ---- steps 4 to 7: all three guards live inside `place()`
+                // The fact step 6b decides on (C5 C1, owner Q-S2): whether this
+                // order's supplier is still live — by statement, for the
+                // warehouse read's reason. Not locked: `DeleteSupplier` refuses
+                // a supplier with an open order (a draft is open), so an
+                // archived supplier under a draft is reachable only by owner
+                // SQL or a lock regression; this is the backstop.
+                $supplierIsLive = false !== $em->getConnection()->fetchOne(
+                    'SELECT 1 FROM supplier s JOIN purchase_order po ON po.supplier_id = s.id '
+                    .'WHERE po.id = ?::uuid AND s.deleted_at IS NULL',
+                    [$id],
+                );
+
+                // ---- steps 4 to 7: all four guards live inside `place()`
                 // (the status guard is §8.3's matrix row), and their
                 // `IllegalTransition` is turned into §5.2's
                 // `business-rule-violated` by `FrameworkProblemTranslator`.
@@ -280,6 +292,7 @@ final readonly class PurchaseOrderApproval
                     new \DateTimeImmutable(),
                     $liveLineCount,
                     $warehouseIsLive,
+                    $supplierIsLive,
                     $expectedAtSubmitted
                         ? $expectedAt
                         : (null === $row['expected_at'] ? null : new \DateTimeImmutable((string) $row['expected_at'])),

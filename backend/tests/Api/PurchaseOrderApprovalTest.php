@@ -443,6 +443,57 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **C5 C1 (owner ruling Q-S2, 2026-10-12; `API.md` §8.1 step 6b): approval re-checks the supplier.** The twin of
+     * the warehouse test above. `DeleteSupplier` will refuse a supplier with an open order, so this state is reachable
+     * only by owner SQL (used here), a future `RestorePurchaseOrder`, or a lock regression — the guard is the backstop.
+     * Also answers the design's to-measure 6: an archived supplier hidden by `SoftDeleteFilter` does not 500 the approval
+     * (nothing reads `$order->getSupplier()`).
+     *
+     * **Mutation:** drop `s.deleted_at IS NULL` from the approval's supplier read; red here (200).
+     */
+    #[Test]
+    public function anOrderWhoseSupplierWasArchivedAfterItWasRaisedCannotBeApproved(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$draft['supplier']]);
+
+        $this->approve($draft['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
+        self::assertSame('purchase_order.supplier_is_live', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
+     * Step 6b after step 6, over HTTP: both parents archived → the warehouse is named (design rev 0 §2.3 item 2).
+     */
+    #[Test]
+    public function anOrderWhoseWarehouseAndSupplierAreBothArchivedIsToldAboutTheWarehouse(): void
+    {
+        $buyer = $this->seedPrincipal(self::TENANT_A, []);
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $buyer);
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$draft['supplier']]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$draft['warehouse']]);
+
+        $this->approve($draft['order']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.warehouse_is_live', $this->json()['rule']);
+
+        $this->assertStillAnUnplacedDraft($draft['order']);
+    }
+
+    /**
      * **F-2 step 8 — *"writes an `audit_log` row naming the approver"*.**
      *
      * §9.2's row for `PURCHASE_ORDER_PLACED`: written by `ApprovePurchaseOrder`,

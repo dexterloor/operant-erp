@@ -417,7 +417,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'DeleteWarehouse' => 'API-O-34 (refuse archiving with open work); G-7 revisit; take FOR UPDATE on the warehouse so '
             .'CreateStorageLocation/UpdateStorageLocation\'s FOR SHARE parent read (StorageLocationWriter::PARENT_LOCK) serialises '
             .'with it; decide what happens to the warehouse\'s live locations (they are not archived with it — '
-            .'StockReceiver refuses a receipt into an archived warehouse\'s live bin); mint warehouse.deleted with its writer.',
+            .'StockReceiver refuses a receipt into an archived warehouse\'s live bin); mint warehouse.deleted with its writer; '
+            .'and (C5 R1.1/R1.5) the purchase/sales order warehouse liveness reads (PurchaseOrderWriter::notLiveParentErrors\'s '
+            .'warehouse branch, SalesOrderWriter::refuseUnresolvable*References) are unlocked — add FOR KEY SHARE on the warehouse '
+            .'branch (legal since warehouses C2), as C5 C1 did for the supplier.',
         'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
             .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer.',
     ];

@@ -290,8 +290,20 @@ class PurchaseOrder
      * be stale. It runs third — after the status guard, which must still answer a
      * replay, and after the line guard, so every response 6a shipped is
      * unchanged and an empty draft is told to add a line whatever its site.
+     *
+     * **C5 C1 (owner Q-S2, 2026-10-12; `API.md` §8.1 step 6b): an order is not
+     * placed with a supplier that has been archived.** `$supplierIsLive` is
+     * required for the warehouse parameter's reason and checked the same way —
+     * trusted as stated, read by the caller inside its transaction by statement,
+     * not through `$this->supplier` (`SoftDeleteFilter`). It runs **after** the
+     * warehouse guard, so a draft whose supplier and warehouse are both archived
+     * is told about the warehouse, as it was before this guard existed, and no
+     * response step 6 shipped changes. It is the backstop, not the control:
+     * `DeleteSupplier` refuses a supplier with an open order, so this fires only
+     * on an order reached by owner SQL, a future `RestorePurchaseOrder`, or a
+     * lock regression.
      */
-    public function place(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $warehouseIsLive, ?\DateTimeImmutable $expectedAt = null): void
+    public function place(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $warehouseIsLive, bool $supplierIsLive, ?\DateTimeImmutable $expectedAt = null): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_DRAFT]);
 
@@ -312,6 +324,16 @@ class PurchaseOrder
                 $this->status,
                 'warehouse_is_live',
                 'This purchase order\'s warehouse has been archived. Move this order to a live warehouse, or restore this one.',
+            );
+        }
+
+        if (!$supplierIsLive) {
+            throw IllegalTransition::unmetPrecondition(
+                self::class,
+                __FUNCTION__,
+                $this->status,
+                'supplier_is_live',
+                'This purchase order\'s supplier has been archived. Restore the supplier, or cancel this order.',
             );
         }
 

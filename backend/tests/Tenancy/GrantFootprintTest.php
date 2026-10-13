@@ -1225,6 +1225,47 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * **C5 C1 (owner Q-S2): the row locks Purchasing and the party writers take on `supplier` are legal for `erp_app`.**
+     * `PurchaseOrderWriter` reads the supplier `FOR KEY SHARE`; `DeleteSupplier` (C5 C2b) will take `FOR UPDATE`. Postgres
+     * allows either only to a role holding UPDATE on at least one column (ADR-002 A4.3 constraint 1), so narrowing
+     * `supplier`'s column UPDATE grant to none would 42501 every purchase-order create — this is the probe that says so,
+     * run as `erp_app` under the tenant. **Negative control, same test:** the same two locks on `currency` (reference data,
+     * SELECT only) are refused, so a probe that cannot see a refusal fails here.
+     *
+     * **Mutation:** revoke every `supplier` column UPDATE from `erp_app` → red here (and every PO create 500s).
+     */
+    #[Test]
+    public function theApplicationMayTakeThePartyRowLocksOnSupplier(): void
+    {
+        $outcome = function (string $sql): string {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeQuery($sql)->fetchAllAssociative();
+
+                return 'accepted';
+            } catch (DriverException $e) {
+                return '42501' === $e->getSQLState() ? 'refused' : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        self::assertSame(
+            ['FOR KEY SHARE' => 'accepted', 'FOR UPDATE' => 'accepted'],
+            ['FOR KEY SHARE' => $outcome('SELECT id FROM supplier WHERE false FOR KEY SHARE'), 'FOR UPDATE' => $outcome('SELECT id FROM supplier WHERE false FOR UPDATE')],
+            'erp_app cannot take the supplier row locks PurchaseOrderWriter and the supplier writers rely on.',
+        );
+        self::assertSame(
+            ['FOR KEY SHARE' => 'refused', 'FOR UPDATE' => 'refused'],
+            ['FOR KEY SHARE' => $outcome('SELECT code FROM currency WHERE false FOR KEY SHARE'), 'FOR UPDATE' => $outcome('SELECT code FROM currency WHERE false FOR UPDATE')],
+            'The negative control failed: a row lock on a table erp_app may only read was not refused, so this probe cannot see a refusal.',
+        );
+    }
+
+    /**
      * The columns `WarehouseWriter` names, per privilege (warehouses slice 1 C2, `Version20261013000100`). **Typed by hand from
      * its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration must still
      * fail here). No DELETE.

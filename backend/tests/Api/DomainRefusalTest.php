@@ -163,7 +163,7 @@ final class DomainRefusalTest extends KernelTestCase
         self::assertSame([], $reflection->getAttributes(\Doctrine\ORM\Mapping\Table::class), 'The subclass inherited the attribute, so this test proves nothing.');
 
         try {
-            $subject->place(new \DateTimeImmutable(), 1, true);
+            $subject->place(new \DateTimeImmutable(), 1, true, true);
             self::fail('The guard did not refuse from "received".');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
@@ -189,7 +189,7 @@ final class DomainRefusalTest extends KernelTestCase
 
         $refusal = null;
         try {
-            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true);
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true, supplierIsLive: true);
         } catch (IllegalTransition $e) {
             $refusal = $e;
         }
@@ -224,7 +224,7 @@ final class DomainRefusalTest extends KernelTestCase
         $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_ORDERED);
 
         try {
-            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true);
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: true, supplierIsLive: true);
             self::fail('place() accepted an order that is not a draft.');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.'.IllegalTransition::RULE, $e->rule());
@@ -250,10 +250,63 @@ final class DomainRefusalTest extends KernelTestCase
         $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_DRAFT);
 
         try {
-            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: false);
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 0, warehouseIsLive: false, supplierIsLive: true);
             self::fail('place() accepted an empty draft against an archived warehouse.');
         } catch (IllegalTransition $e) {
             self::assertSame('purchase_order.has_a_live_line', $e->rule());
+        }
+    }
+
+    /**
+     * **C5 C1 (owner Q-S2; `API.md` §8.1 step 6b): an order is not placed with an archived supplier**, with its own
+     * rule code, dispatched through the real listener so the code that reaches the wire is asserted.
+     *
+     * **Mutation:** make `place()` ignore `$supplierIsLive`; red here and in
+     * `PurchaseOrderApprovalTest::anOrderWhoseSupplierWasArchivedAfterItWasRaisedCannotBeApproved`.
+     */
+    #[Test]
+    public function placingAnOrderWithAnArchivedSupplierIsRefusedWithItsOwnRule(): void
+    {
+        $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_DRAFT);
+
+        $refusal = null;
+        try {
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 1, warehouseIsLive: true, supplierIsLive: false);
+        } catch (IllegalTransition $e) {
+            $refusal = $e;
+        }
+
+        self::assertInstanceOf(IllegalTransition::class, $refusal, 'place() accepted an order whose supplier is archived.');
+        self::assertSame(PurchaseOrder::STATUS_DRAFT, $subject->getStatus(), 'The refusal ran after the status was written.');
+        self::assertNull((new \ReflectionProperty(PurchaseOrder::class, 'orderedAt'))->getValue($subject),
+            'The refusal ran after ordered_at was written.');
+
+        $problem = $this->dispatch($refusal, '/api/v1/purchase-orders/x/approval');
+
+        self::assertInstanceOf(ApiProblem::class, $problem);
+        self::assertSame(409, $problem->getStatusCode());
+        self::assertSame('urn:erp:problem:business-rule-violated', $problem->getType());
+        self::assertSame('purchase_order.supplier_is_live', $problem->getRule());
+        self::assertStringNotContainsString('PurchaseOrder', (string) $problem->getDetail());
+    }
+
+    /**
+     * **Step 6b runs after step 6** (C5 C1; design rev 0 §2.3 item 2, "warehouse wins when both are archived"): a draft
+     * whose warehouse and supplier are both archived is told about the warehouse, as it was before the supplier guard
+     * existed, so no response step 6 shipped changes and §8.1's list grows at its end.
+     *
+     * **Mutation:** move the supplier guard above the warehouse guard; red — the rule is `supplier_is_live`.
+     */
+    #[Test]
+    public function theWarehouseGuardRunsBeforeTheSupplierGuard(): void
+    {
+        $subject = self::purchaseOrderIn(PurchaseOrder::STATUS_DRAFT);
+
+        try {
+            $subject->place(orderedAt: new \DateTimeImmutable(), liveLineCount: 1, warehouseIsLive: false, supplierIsLive: false);
+            self::fail('place() accepted a draft whose warehouse and supplier are both archived.');
+        } catch (IllegalTransition $e) {
+            self::assertSame('purchase_order.warehouse_is_live', $e->rule());
         }
     }
 

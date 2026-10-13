@@ -311,6 +311,15 @@ final class TransitionGuardTest extends TestCase
                 .'the line guard is `DomainRefusalTest::theLineGuardRunsBeforeTheWarehouseGuard`\'s — this register '
                 .'refuses one precondition at a time.',
         ],
+        PurchaseOrder::class.'::place($supplierIsLive)' => [
+            'satisfying' => true,
+            'refusing' => false,
+            'rule' => 'supplier_is_live',
+            'why' => 'C5 C1 (owner Q-S2, 2026-10-12; API.md §8.1 step 6b): an order is not placed with an archived supplier. '
+                .'true satisfies it, so no other cell is refused by a rule it is not about; false fails it, so the status '
+                .'guard\'s precedence over this guard is checked too. The order between this guard and the warehouse guard is '
+                .'`DomainRefusalTest::theWarehouseGuardRunsBeforeTheSupplierGuard`\'s — this register refuses one precondition at a time.',
+        ],
         SalesOrder::class.'::confirm($liveLineCount)' => [
             'satisfying' => 1,
             'refusing' => 0,
