@@ -262,7 +262,7 @@ final readonly class GoodsReceiptWriter
         if (null !== $order['deleted_at']) {
             throw ApiProblem::businessRuleViolated(
                 'purchase_order.is_archived',
-                'This purchase order is archived. Restore it before changing it.',
+                'This purchase order is archived, so nothing can be received against it.',
             );
         }
 

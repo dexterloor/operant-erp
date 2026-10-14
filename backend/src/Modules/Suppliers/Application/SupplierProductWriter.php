@@ -53,7 +53,7 @@ use Symfony\Component\Uid\Uuid;
  *
  * **No audit row** (owner Q-S5, 2026-10-12): who changed a catalogue cost is a recorded gap, `RESIDUAL_GAPS.md` G-41, keyed
  * by `OwedAmendmentTripwireTest` on the first operation that copies a catalogue cost into a suggestion or document
- * (`ListReorderSuggestions`). Copy for the three new refusals is a **placeholder** (`UX` owes it).
+ * (`ListReorderSuggestions`). Copy for the three archived refusals is `UX`'s final (`owed-ux-c5.md` FINAL (a2), "until it's restored").
  */
 final readonly class SupplierProductWriter
 {
@@ -73,11 +73,11 @@ final readonly class SupplierProductWriter
      */
     public const PARENT_KEY_SHARE = 'SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid FOR KEY SHARE';
 
-    public const ARCHIVED_ON_CREATE = 'This supplier is archived, so nothing can be added to its catalogue.';
+    public const ARCHIVED_ON_CREATE = 'This supplier is archived, so nothing can be added to its catalogue until it\'s restored.';
 
-    public const ARCHIVED_ON_UPDATE = 'This supplier is archived, so its catalogue can\'t be changed.';
+    public const ARCHIVED_ON_UPDATE = 'This supplier is archived, so its catalogue can\'t be changed until it\'s restored.';
 
-    public const ARCHIVED_ON_DELETE = 'This supplier is archived, so nothing can be removed from its catalogue.';
+    public const ARCHIVED_ON_DELETE = 'This supplier is archived, so nothing can be removed from its catalogue until it\'s restored.';
 
     /** The one statement `DeleteSupplierProduct` issues; the pair predicate is what keeps another supplier's entry out. */
     public const DELETE = 'DELETE FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid';

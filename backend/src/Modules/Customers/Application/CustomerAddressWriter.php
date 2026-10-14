@@ -78,9 +78,9 @@ final readonly class CustomerAddressWriter
      */
     public const PARENT_KEY_SHARE = 'SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid FOR KEY SHARE';
 
-    public const ARCHIVED_ON_CREATE = 'This customer is archived, so no address can be added to it.';
+    public const ARCHIVED_ON_CREATE = 'This customer is archived, so no address can be added to it until it\'s restored.';
 
-    public const ARCHIVED_ON_UPDATE = 'This customer is archived, so its addresses can\'t be changed.';
+    public const ARCHIVED_ON_UPDATE = 'This customer is archived, so its addresses can\'t be changed until it\'s restored.';
 
     public const KIND_UNKNOWN = 'An address is either a shipping address or a billing address.';
 

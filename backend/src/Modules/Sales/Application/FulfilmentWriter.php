@@ -222,7 +222,7 @@ final readonly class FulfilmentWriter
         if (null !== $order['deleted_at']) {
             throw ApiProblem::businessRuleViolated(
                 'sales_order.is_archived',
-                'This sales order is archived. Restore it before changing it.',
+                'This sales order is archived, so nothing can be shipped against it.',
             );
         }
 

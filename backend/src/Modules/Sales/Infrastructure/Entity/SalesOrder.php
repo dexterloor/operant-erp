@@ -334,7 +334,7 @@ class SalesOrder
                 __FUNCTION__,
                 $this->status,
                 'customer_is_live',
-                'This sales order\'s customer has been archived. Restore the customer, or cancel this order.',
+                'This order\'s customer has been archived, so the order can\'t be confirmed. It can be confirmed once the customer is restored, or the order can be cancelled.',
             );
         }
 

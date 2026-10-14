@@ -11,6 +11,7 @@ use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\Display\Counted;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -58,23 +59,25 @@ final readonly class CustomerWriter
 
     public const CODE_TAKEN_ON_UPDATE = 'Another customer already uses this code. Keep the current code or choose a different one.';
 
-    public const ARCHIVED = 'This customer is archived, so it can\'t be changed.';
+    /** M-3 decided (`owed-ux-c5.md` Response to RED (a2)): a passive "until it's restored", never "Restore it" (R-3). */
+    public const ARCHIVED = 'This customer is archived, so it can\'t be changed until it\'s restored.';
 
-    /** C5 C4b, placeholder (`UX` owes it): a repeated delete (§4.2 `Idem` `no`; ST-9). `SupplierWriter`'s wording. */
-    public const ALREADY_ARCHIVED = 'This customer is already archived.';
+    /** A repeated delete (§4.2 `Idem` `no`; ST-9). `UX` final copy, `owed-ux-c5.md` FINAL (a1); `SupplierWriter`'s twin. */
+    public const ALREADY_ARCHIVED = 'This customer is already archived. It\'s in the archived customers.';
 
     /*
-     * C5 C4b — the four (b′) refusals (`c5-design.md` R1.2; ruling Q-1), in the order `delete()` applies them; `%d` is the
-     * count. Placeholders: `UX` owes the copy; `SEC` owes whether a count is shown to a `customer.delete` holder who may
-     * lack `sales_order.view` / `invoice.view` / `sales_return.view` (design §9 S-2).
+     * C5 C4b — the four (b′) refusals (`c5-design.md` R1.2; ruling Q-1), in the order `delete()` applies them. `UX` final
+     * copy (`owed-ux-c5.md` FINAL (a1)); `SEC` S-2 kept the count (`owed-sec-c5.md` §2.3). Each `%s` is its noun function
+     * below, never a bare `%d` (R-2: singular or plural, never `(s)`); each remedy is count-neutral and passive (R-3:
+     * `customer.delete` does not imply `invoice.pay` or `credit_note.issue`).
      */
-    public const HAS_OPEN_SALES_ORDERS = 'This customer has %d open sales order(s). Ship, cancel or delete them before archiving this customer.';
+    public const HAS_OPEN_SALES_ORDERS = 'This customer still has %s, so it can\'t be deleted until each open order is shipped in full or cancelled. A draft can simply be deleted.';
 
-    public const HAS_UNBILLED_SHIPMENTS = 'This customer has %d shipment(s) not yet invoiced. Invoice them before archiving this customer.';
+    public const HAS_UNBILLED_SHIPMENTS = 'This customer has %s waiting to be invoiced, so it can\'t be deleted until every shipment is invoiced.';
 
-    public const HAS_UNPAID_INVOICES = 'This customer has %d unpaid invoice(s). Record the payment or credit them before archiving this customer.';
+    public const HAS_UNPAID_INVOICES = 'This customer has %s, so it can\'t be deleted until every invoice is paid or fully credited.';
 
-    public const IS_OWED_A_CREDIT = 'This customer is owed a credit on %d return(s). Issue the credit before archiving this customer.';
+    public const IS_OWED_A_CREDIT = 'This customer is still owed a credit for %s, so it can\'t be deleted until each return is credited. A return on a paid invoice can be credited only after that payment is reversed.';
 
     /**
      * **`DeleteCustomer`'s row lock** — public so the two-connection race tests hold THIS statement, never a transcription.
@@ -87,15 +90,15 @@ final readonly class CustomerWriter
     /** The one write `DeleteCustomer` issues (public for the race tests' holder). */
     public const ARCHIVE = 'UPDATE customer SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
 
-    /** C5 C4a, placeholder (`UX` owes it; `SupplierWriter::NOT_ARCHIVED`'s wording). */
+    /** `SupplierWriter::NOT_ARCHIVED`'s wording; kept as is by `UX` (`owed-ux-c5.md` FINAL (a1)). */
     public const NOT_ARCHIVED = 'This customer is not archived, so there is nothing to restore.';
 
     /**
-     * C5 C4a, placeholder (design §3.4): a live customer took the archived one's code while it was archived. **No name
+     * C5 C4a, `UX` final copy (`owed-ux-c5.md` FINAL (a1)): a live customer took the archived one's code while it was archived. **No name
      * twin:** `customer_tenant_name_live` is a plain index, not a unique (measured C4a T-3) — customer names have no
      * uniqueness rule, so a restore may leave two live customers of one name, as create already can.
      */
-    public const CODE_TAKEN_ON_RESTORE = 'A live customer now uses this customer\'s code. Change that customer\'s code, then restore this one.';
+    public const CODE_TAKEN_ON_RESTORE = 'Another customer now uses this customer\'s code, so it can\'t be restored. It can be restored once that customer\'s code is changed.';
 
     public const TERMS_OUT_OF_RANGE = 'Payment terms must be a whole number of days from 0 to %d.';
 
@@ -112,6 +115,30 @@ final readonly class CustomerWriter
 
     /** Required on create; `payment_terms_days` is optional (the column default applies). */
     private const REQUIRED_ON_CREATE = ['code', 'name', 'country_code', 'currency_code'];
+
+    /*
+     * The nouns of the four refusals above (R-2): this module's vocabulary; the counting rule is {@see Counted::of()}
+     * (`ARCH` F-10). Each returns only a noun phrase, no verb, so nothing has to agree with the count (`UX` M-3).
+     */
+    public static function openSalesOrders(int $count): string
+    {
+        return Counted::of($count, 'open sales order', 'open sales orders');
+    }
+
+    public static function shipments(int $count): string
+    {
+        return Counted::of($count, 'shipment', 'shipments');
+    }
+
+    public static function unpaidInvoices(int $count): string
+    {
+        return Counted::of($count, 'unpaid invoice', 'unpaid invoices');
+    }
+
+    public static function returns(int $count): string
+    {
+        return Counted::of($count, 'return', 'returns');
+    }
 
     public function __construct(
         private TenantContext $tenants,
@@ -188,9 +215,9 @@ final readonly class CustomerWriter
                     throw ApiProblem::notFound();
                 }
                 // ST-9: an archived row is read-only (archived by `DeleteCustomer` since C5 C4b). The
-                // sentence does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreCustomer` ships at C5 C4a, so
-                // the reason is no longer that restore is blocked, but a caller holding `customer.edit` may lack
-                // `customer.delete`, which restoring needs — `UX` rules whether the refusal names the remedy.
+                // sentence does not say "Restore it" — **decided** (`owed-ux-c5.md` Response to RED, M-3): `RestoreCustomer`
+                // ships at C5 C4a, so the reason is no longer that restore is blocked, but a caller holding `customer.edit`
+                // may lack `customer.delete`, which restoring needs; "until it's restored" is true for every reader (R-3).
                 if (true === $row['archived']) {
                     throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED);
                 }
@@ -334,13 +361,13 @@ final readonly class CustomerWriter
 
             $open = $this->openWork->openWorkInside($em, $id);
             foreach ([
-                ['customer.has_open_sales_orders', self::HAS_OPEN_SALES_ORDERS, $open->openSalesOrders],
-                ['customer.has_unbilled_shipments', self::HAS_UNBILLED_SHIPMENTS, $open->unbilledShipments],
-                ['customer.has_unpaid_invoices', self::HAS_UNPAID_INVOICES, $open->unpaidInvoices],
-                ['customer.is_owed_a_credit', self::IS_OWED_A_CREDIT, $open->owedCredits],
-            ] as [$rule, $sentence, $count]) {
+                ['customer.has_open_sales_orders', self::HAS_OPEN_SALES_ORDERS, $open->openSalesOrders, self::openSalesOrders(...)],
+                ['customer.has_unbilled_shipments', self::HAS_UNBILLED_SHIPMENTS, $open->unbilledShipments, self::shipments(...)],
+                ['customer.has_unpaid_invoices', self::HAS_UNPAID_INVOICES, $open->unpaidInvoices, self::unpaidInvoices(...)],
+                ['customer.is_owed_a_credit', self::IS_OWED_A_CREDIT, $open->owedCredits, self::returns(...)],
+            ] as [$rule, $sentence, $count, $noun]) {
                 if ($count > 0) {
-                    throw ApiProblem::businessRuleViolated($rule, \sprintf($sentence, $count));
+                    throw ApiProblem::businessRuleViolated($rule, \sprintf($sentence, $noun($count)));
                 }
             }
 

@@ -1724,7 +1724,7 @@ final readonly class PurchaseOrderWriter
         if (null !== $order->archivedAt) {
             throw ApiProblem::businessRuleViolated(
                 'purchase_order.is_archived',
-                'This purchase order is archived. Restore it before changing it.',
+                'This purchase order is archived, so it can\'t be changed.',
             );
         }
     }
@@ -1750,7 +1750,7 @@ final readonly class PurchaseOrderWriter
     {
         return ApiProblem::businessRuleViolated(
             'purchase_order_line.is_archived',
-            'This line is archived, and a line is restored with the order it belongs to.',
+            'This line is archived, so it can\'t be changed.',
         );
     }
 

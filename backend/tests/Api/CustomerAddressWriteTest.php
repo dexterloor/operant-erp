@@ -107,8 +107,8 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * ST-9: an archived customer gets no new address (C-4). The sentence carries no "Restore it" pending `UX` (C5 R1.1
-     * M-3): `RestoreCustomer` ships at C5 C4a, so the reason is no longer that restore is blocked (R-3), but a
+     * ST-9: an archived customer gets no new address (C-4). The sentence carries no "Restore it" — decided (`owed-ux-c5.md`
+     * Response to RED, M-3): `RestoreCustomer` ships at C5 C4a, so the reason is no longer that restore is blocked (R-3), but a
      * `customer.edit` holder may lack `customer.delete`, which restoring needs.
      */
     #[Test]
@@ -120,7 +120,7 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('customer.is_archived', $this->json()['rule']);
-        self::assertSame('This customer is archived, so no address can be added to it.', $this->json()['detail']);
+        self::assertSame('This customer is archived, so no address can be added to it until it\'s restored.', $this->json()['detail']);
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM customer_address WHERE customer_id = ?::uuid', [$customer]));
     }
 
@@ -273,7 +273,7 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('customer.is_archived', $this->json()['rule']);
-        self::assertSame('This customer is archived, so its addresses can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This customer is archived, so its addresses can\'t be changed until it\'s restored.', $this->json()['detail']);
         self::assertSame('London', $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT city FROM customer_address WHERE id = ?::uuid', [$address])[0]['city']);
     }
 

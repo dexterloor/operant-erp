@@ -330,6 +330,7 @@ final class ItemWriteTest extends ApiTestCase
             self::assertSame(409, $this->httpStatus(), $method.' on an archived row was not refused.');
             self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
             self::assertSame('inventory_item.is_archived', $this->json()['rule']);
+            self::assertSame('This item is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
         }
     }
 

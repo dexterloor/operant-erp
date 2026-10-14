@@ -11,6 +11,7 @@ use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\Display\Counted;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -71,16 +72,19 @@ final readonly class SupplierWriter
 
     public const NAME_TAKEN_ON_UPDATE = 'Another supplier already uses this name. Keep the current name or choose a different one.';
 
-    public const ARCHIVED = 'This supplier is archived, so it can\'t be changed.';
+    /** M-3 decided (`owed-ux-c5.md` Response to RED (a2)): a passive "until it's restored", never "Restore it" (R-3). */
+    public const ARCHIVED = 'This supplier is archived, so it can\'t be changed until it\'s restored.';
 
-    /** C5 C2b, placeholder (`UX` owes it): a repeated delete (§4.2 `Idem` `no`; ST-9). */
-    public const ALREADY_ARCHIVED = 'This supplier is already archived.';
+    /** A repeated delete (§4.2 `Idem` `no`; ST-9). `UX` final copy, `owed-ux-c5.md` FINAL (a1). */
+    public const ALREADY_ARCHIVED = 'This supplier is already archived. It\'s in the archived suppliers.';
 
     /**
-     * C5 C2b, placeholder (`UX` owes the copy; `SEC` owes whether the count is shown, design §9 S-2 — the caller holds
-     * `supplier.delete` and may lack `purchase_order.view`). `%d` is the count of open purchase orders.
+     * `UX` final copy (`owed-ux-c5.md` FINAL (a1)); `SEC` S-2 kept the count (`owed-sec-c5.md` §2.3 — the caller holds
+     * `supplier.delete` and may lack `purchase_order.view`). `%s` is {@see self::openPurchaseOrders()}, never a bare `%d`
+     * (R-2: a count is singular or plural, never `(s)`). The remedy is passive (R-3): `supplier.delete` does not imply
+     * `purchase_order.cancel`.
      */
-    public const HAS_OPEN_PURCHASE_ORDERS = 'This supplier has %d open purchase order(s). Receive, cancel or delete them before archiving this supplier.';
+    public const HAS_OPEN_PURCHASE_ORDERS = 'This supplier still has %s, so it can\'t be deleted until each open order is received in full or cancelled. A draft can simply be deleted.';
 
     /**
      * **`DeleteSupplier`'s row lock** — public so the two-connection race tests hold THIS statement, never a transcription.
@@ -93,14 +97,14 @@ final readonly class SupplierWriter
     /** The one write `DeleteSupplier` issues (public for the race tests' holder). */
     public const ARCHIVE = 'UPDATE supplier SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
 
-    /** C5 C2a, placeholder (`UX` owes it; `ItemWriter::restore()`'s wording). */
+    /** `ItemWriter::restore()`'s shape; kept as is by `UX` (`owed-ux-c5.md` FINAL (a1)). */
     public const NOT_ARCHIVED = 'This supplier is not archived, so there is nothing to restore.';
 
-    /** C5 C2a, placeholder (design §2.5): a live supplier took the archived one's code while it was archived. */
-    public const CODE_TAKEN_ON_RESTORE = 'A live supplier now uses this supplier\'s code. Change that supplier\'s code, then restore this one.';
+    /** A live supplier took the archived one's code while it was archived (`UX` final copy, `owed-ux-c5.md` FINAL (a1)). */
+    public const CODE_TAKEN_ON_RESTORE = 'Another supplier now uses this supplier\'s code, so it can\'t be restored. It can be restored once that supplier\'s code is changed.';
 
-    /** C5 C2a, placeholder: a live supplier took the archived one's name while it was archived. */
-    public const NAME_TAKEN_ON_RESTORE = 'A live supplier now uses this supplier\'s name. Rename that supplier, then restore this one.';
+    /** A live supplier took the archived one's name while it was archived (`UX` final copy, `owed-ux-c5.md` FINAL (a1)). */
+    public const NAME_TAKEN_ON_RESTORE = 'Another supplier now uses this supplier\'s name, so it can\'t be restored. It can be restored once that supplier is renamed.';
 
     public const CURRENCY_FIXED = 'This supplier\'s catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.';
 
@@ -123,6 +127,15 @@ final readonly class SupplierWriter
 
     /** Required on create; `payment_terms_days` is optional (the column default applies). */
     private const REQUIRED_ON_CREATE = ['code', 'name', 'country_code', 'currency_code'];
+
+    /**
+     * The noun of {@see self::HAS_OPEN_PURCHASE_ORDERS}: `1 open purchase order` / `N open purchase orders` (R-2). This
+     * module's vocabulary; the counting rule is {@see Counted::of()} (`ARCH` F-10).
+     */
+    public static function openPurchaseOrders(int $count): string
+    {
+        return Counted::of($count, 'open purchase order', 'open purchase orders');
+    }
 
     public function __construct(
         private TenantContext $tenants,
@@ -242,9 +255,9 @@ final readonly class SupplierWriter
 
     /**
      * ST-9: an archived supplier is read-only (archived by `DeleteSupplier`, C5 C2b). The sentence
-     * does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreSupplier` ships at C5 C2a, so the reason is no
-     * longer that restore is blocked, but a caller holding `supplier.edit` may lack `supplier.delete`, which restoring
-     * needs — `UX` rules whether the refusal names the remedy.
+     * does not say "Restore it" — **decided** (`owed-ux-c5.md` Response to RED, M-3): `RestoreSupplier` ships at C5 C2a, so
+     * the reason is no longer that restore is blocked, but a caller holding `supplier.edit` may lack `supplier.delete`,
+     * which restoring needs; the sentence says passively "until it's restored", true for every reader (R-3).
      *
      * @param array<string, mixed> $row
      */
@@ -355,7 +368,7 @@ final readonly class SupplierWriter
 
             $open = $this->openWork->openPurchaseOrderCountInside($em, $id);
             if ($open > 0) {
-                throw ApiProblem::businessRuleViolated('supplier.has_open_purchase_orders', \sprintf(self::HAS_OPEN_PURCHASE_ORDERS, $open));
+                throw ApiProblem::businessRuleViolated('supplier.has_open_purchase_orders', \sprintf(self::HAS_OPEN_PURCHASE_ORDERS, self::openPurchaseOrders($open)));
             }
 
             $connection->executeStatement(self::ARCHIVE, [$id]);

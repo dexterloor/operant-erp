@@ -306,6 +306,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so it can\'t be placed.', $this->json()['detail']);
     }
 
     /**
@@ -466,6 +467,7 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
         self::assertSame('purchase_order.supplier_is_live', $this->json()['rule']);
+        self::assertSame('This order\'s supplier has been archived, so the order can\'t be placed. It can be placed once the supplier is restored, or the order can be cancelled.', $this->json()['detail']);
 
         $this->assertStillAnUnplacedDraft($draft['order']);
     }

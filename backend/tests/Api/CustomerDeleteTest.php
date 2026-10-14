@@ -26,8 +26,8 @@ use Symfony\Component\Uid\Uuid;
  * `confirmed` or `partially_fulfilled` → `customer.has_open_sales_orders`; a shipment with something to bill and no live
  * invoice → `customer.has_unbilled_shipments`; an `issued`/`overdue` invoice not credited in full →
  * `customer.has_unpaid_invoices`; a return owed a credit, paid invoice or not → `customer.is_owed_a_credit` — each naming
- * its count. One `customer.deleted` row, `{}`, on success and none on any refusal. Copy is placeholder (`UX` owes it; `SEC`
- * owes whether the count is shown, design §9 S-2).
+ * its count. One `customer.deleted` row, `{}`, on success and none on any refusal. Copy is `UX`'s final (`owed-ux-c5.md` FINAL (a1)); `SEC`
+ * S-2 kept the count (`owed-sec-c5.md` §2.3).
  *
  * **G-45** (ruling Q-3 (i)): (b′) is a check at the moment of archiving. Afterwards `ReverseInvoicePayment`, an owner's
  * `VoidInvoice`, a new `IssueInvoice` and `CreateSalesReturn` all succeed on the archived customer — pinned here so a later
@@ -106,7 +106,7 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus());
         self::assertSame('customer.is_archived', $this->json()['rule']);
         self::assertSame(CustomerWriter::ALREADY_ARCHIVED, $this->json()['detail']);
-        self::assertSame('This customer is already archived.', $this->json()['detail']);
+        self::assertSame('This customer is already archived. It\'s in the archived customers.', $this->json()['detail']);
         self::assertSame($before, $this->stored($id), 'A refused delete wrote the row.');
         self::assertCount(1, $this->auditRowsOf(AuditEvent::CUSTOMER_DELETED), 'A refused delete wrote a trail row.');
     }
@@ -173,7 +173,7 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
 
             self::assertSame(409, $this->httpStatus(), $status.': '.$this->client()->getResponse()->getContent());
             self::assertSame('customer.has_open_sales_orders', $this->json()['rule'], $status);
-            self::assertSame('This customer has 1 open sales order(s). Ship, cancel or delete them before archiving this customer.', $this->json()['detail'], $status);
+            self::assertSame('This customer still has 1 open sales order, so it can\'t be deleted until each open order is shipped in full or cancelled. A draft can simply be deleted.', $this->json()['detail'], $status);
             self::assertNull($this->stored($customer)['deleted_at'], $status);
         }
 
@@ -185,7 +185,7 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
 
         $this->delete($many);
         self::assertSame(409, $this->httpStatus());
-        self::assertSame(\sprintf(CustomerWriter::HAS_OPEN_SALES_ORDERS, 2), $this->json()['detail']);
+        self::assertSame(\sprintf(CustomerWriter::HAS_OPEN_SALES_ORDERS, CustomerWriter::openSalesOrders(2)), $this->json()['detail']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_DELETED), 'A refused delete wrote a trail row.');
     }
 
@@ -217,8 +217,8 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('customer.has_unbilled_shipments', $this->json()['rule']);
-        self::assertSame(\sprintf(CustomerWriter::HAS_UNBILLED_SHIPMENTS, 1), $this->json()['detail']);
-        self::assertSame('This customer has 1 shipment(s) not yet invoiced. Invoice them before archiving this customer.', $this->json()['detail']);
+        self::assertSame(\sprintf(CustomerWriter::HAS_UNBILLED_SHIPMENTS, CustomerWriter::shipments(1)), $this->json()['detail']);
+        self::assertSame('This customer has 1 shipment waiting to be invoiced, so it can\'t be deleted until every shipment is invoiced.', $this->json()['detail']);
     }
 
     /**
@@ -250,7 +250,9 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('customer.has_unpaid_invoices', $this->json()['rule']);
-        self::assertSame(\sprintf(CustomerWriter::HAS_UNPAID_INVOICES, 1), $this->json()['detail']);
+        self::assertSame(\sprintf(CustomerWriter::HAS_UNPAID_INVOICES, CustomerWriter::unpaidInvoices(1)), $this->json()['detail']);
+        // The literal beside the constant (`owed-ux-c5.md` FINAL (a1) `+`): a wording change shows up as an edit here.
+        self::assertSame('This customer has 1 unpaid invoice, so it can\'t be deleted until every invoice is paid or fully credited.', $this->json()['detail']);
     }
 
     /** Leg 3 spelled as `InvoiceCredit` spells unpaid (mutation M18′): a STORED `overdue` invoice blocks too. */
@@ -302,8 +304,8 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('customer.is_owed_a_credit', $this->json()['rule']);
-        self::assertSame(\sprintf(CustomerWriter::IS_OWED_A_CREDIT, 1), $this->json()['detail']);
-        self::assertSame('This customer is owed a credit on 1 return(s). Issue the credit before archiving this customer.', $this->json()['detail']);
+        self::assertSame(\sprintf(CustomerWriter::IS_OWED_A_CREDIT, CustomerWriter::returns(1)), $this->json()['detail']);
+        self::assertSame('This customer is still owed a credit for 1 return, so it can\'t be deleted until each return is credited. A return on a paid invoice can be credited only after that payment is reversed.', $this->json()['detail']);
     }
 
     /**
@@ -612,7 +614,7 @@ final class CustomerDeleteTest extends PurchaseOrderTestCase
         self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('customer.has_open_sales_orders', $this->json()['rule']);
-        self::assertSame(\sprintf(CustomerWriter::HAS_OPEN_SALES_ORDERS, 1), $this->json()['detail']);
+        self::assertSame(\sprintf(CustomerWriter::HAS_OPEN_SALES_ORDERS, CustomerWriter::openSalesOrders(1)), $this->json()['detail']);
         self::assertNull($this->stored($customer)['deleted_at']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_DELETED));
     }

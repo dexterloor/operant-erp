@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
  * name meanwhile → 409 on the existing unique rules with restore sentences (the 23505 translated outside the
  * transaction); one `supplier.restored` row, `{}`, on success and none on any refusal. Archived suppliers are seeded by
  * owner SQL (a fixture; `DeleteSupplier`, C5 C2b, archives through the API — the round trip is
- * `SupplierDeleteTest::anArchivedSupplierIsRestoredByTheOperationThatPairsWithIt`). Copy is placeholder (`UX` owes it, design §9 U-1).
+ * `SupplierDeleteTest::anArchivedSupplierIsRestoredByTheOperationThatPairsWithIt`). Copy is `UX`'s final (`owed-ux-c5.md` FINAL (a1)).
  */
 final class SupplierRestoreTest extends PurchaseOrderTestCase
 {
@@ -94,7 +94,7 @@ final class SupplierRestoreTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('supplier.code_is_unique_per_workspace', $this->json()['rule']);
         self::assertSame(SupplierWriter::CODE_TAKEN_ON_RESTORE, $this->json()['detail']);
-        self::assertSame('A live supplier now uses this supplier\'s code. Change that supplier\'s code, then restore this one.', $this->json()['detail']);
+        self::assertSame('Another supplier now uses this supplier\'s code, so it can\'t be restored. It can be restored once that supplier\'s code is changed.', $this->json()['detail']);
         self::assertNotNull($this->stored($byCode)['deleted_at']);
 
         $byName = $this->archived('Shared Name');
@@ -105,7 +105,7 @@ final class SupplierRestoreTest extends PurchaseOrderTestCase
         $this->restore($byName);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('supplier.name_is_unique_per_workspace', $this->json()['rule']);
-        self::assertSame('A live supplier now uses this supplier\'s name. Rename that supplier, then restore this one.', $this->json()['detail']);
+        self::assertSame('Another supplier now uses this supplier\'s name, so it can\'t be restored. It can be restored once that supplier is renamed.', $this->json()['detail']);
         self::assertNotNull($this->stored($byName)['deleted_at']);
 
         self::assertSame([], $this->auditRowsOf(AuditEvent::SUPPLIER_RESTORED), 'A refused restore wrote a trail row.');

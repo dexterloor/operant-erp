@@ -217,8 +217,8 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
 
     /**
      * ST-9: an archived customer is read-only (archived by `DeleteCustomer` since C5 C4b; seeded here by owner SQL). The sentence
-     * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C4a, but a `customer.edit` holder may lack
-     * `customer.delete`, which restoring needs.
+     * carries no "Restore it" — decided (`owed-ux-c5.md` Response to RED, M-3): restore ships at C4a, but a `customer.edit` holder may lack
+     * `customer.delete`, which restoring needs, so it says passively "until it's restored".
      */
     #[Test]
     public function anArchivedCustomerCannotBeChanged(): void
@@ -230,7 +230,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('customer.is_archived', $this->json()['rule']);
-        self::assertSame('This customer is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This customer is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
         self::assertSame('Closed', $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT name FROM customer WHERE id = ?::uuid', [$id])[0]['name']);
     }
 

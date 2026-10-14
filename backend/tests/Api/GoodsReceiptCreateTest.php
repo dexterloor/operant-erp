@@ -788,6 +788,27 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
     }
 
+    /**
+     * **A new receipt against an archived order is refused, and the refusal promises no restore** (`owed-ux-c5.md` FINAL
+     * (a3)): it read *"Restore it before changing it"*, pointing at `RestorePurchaseOrder`, which is unbuilt (G-8). Reachable
+     * only by owner SQL today (an ordered order cannot be deleted through the API), used here, as in the retry test above.
+     * **Mutation:** put the old sentence back in `GoodsReceiptWriter`; red here on the `detail` literal.
+     */
+    #[Test]
+    public function aNewReceiptAgainstAnArchivedOrderIsRefusedWithoutPromisingARestore(): void
+    {
+        $po = $this->orderedOrderWithLines(['10']);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE purchase_order SET deleted_at = now() WHERE id = ?::uuid', [$po['order']]);
+
+        $this->receive($po['order'], [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so nothing can be received against it.', $this->json()['detail']);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
+    }
+
     /** SoD-2: `goods_receipt.create` is the operator's code; a caller without it is refused before anything is read. */
     #[Test]
     public function aCallerWithoutTheReceiptCodeIsRefused(): void

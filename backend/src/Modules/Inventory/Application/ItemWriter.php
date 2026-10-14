@@ -378,7 +378,7 @@ final readonly class ItemWriter
     {
         return ApiProblem::businessRuleViolated(
             'inventory_item.is_archived',
-            'This item is archived. Restore it before changing it.',
+            'This item is archived, so it can\'t be changed until it\'s restored.',
         );
     }
 

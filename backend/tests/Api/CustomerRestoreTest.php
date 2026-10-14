@@ -20,7 +20,7 @@ use Symfony\Component\Uid\Uuid;
  * name collision exists** — `customer_tenant_name_live` is not unique (measured C4a T-3), so a restore may leave two live
  * customers of one name, as create already can (design §3.4 notice). One `customer.restored` row, `{}`, on success and
  * none on any refusal. Archived customers are seeded by owner SQL (a fixture; `DeleteCustomer`, C5 C4b, archives through
- * the API — the round trip is `CustomerDeleteTest::anArchivedCustomerIsRestoredByTheOperationThatPairsWithIt`). Copy is placeholder (`UX` owes it, design §9 U-1).
+ * the API — the round trip is `CustomerDeleteTest::anArchivedCustomerIsRestoredByTheOperationThatPairsWithIt`). Copy is `UX`'s final (`owed-ux-c5.md` FINAL (a1)).
  */
 final class CustomerRestoreTest extends PurchaseOrderTestCase
 {
@@ -95,7 +95,7 @@ final class CustomerRestoreTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('customer.code_is_unique_per_workspace', $this->json()['rule']);
         self::assertSame(CustomerWriter::CODE_TAKEN_ON_RESTORE, $this->json()['detail']);
-        self::assertSame('A live customer now uses this customer\'s code. Change that customer\'s code, then restore this one.', $this->json()['detail']);
+        self::assertSame('Another customer now uses this customer\'s code, so it can\'t be restored. It can be restored once that customer\'s code is changed.', $this->json()['detail']);
         self::assertNotNull($this->stored($id)['deleted_at']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_RESTORED), 'A refused restore wrote a trail row.');
     }

@@ -178,6 +178,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so it can\'t be changed.', $this->json()['detail']);
     }
 
     /** API-9 / B-3 — an undeclared field is refused, and `status` is the tempting one. */
@@ -265,6 +266,7 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
         $this->send('DELETE', '/purchase-orders/'.$draft['order']);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so it can\'t be changed.', $this->json()['detail']);
     }
 
     // -----------------------------------------------------------------------
@@ -603,6 +605,28 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
         $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_editable_only_while_draft', $this->json()['rule']);
+    }
+
+    /**
+     * **An individually deleted line is read-only, and the refusal no longer says it "is restored with the order"**
+     * (`owed-ux-c5.md` FINAL (a3)): it never is — `RestorePurchaseOrder` is unbuilt (G-8), and the cascade's restore skips
+     * an individually deleted line (V2-R-12b). Both line writes reach `lineArchived()`.
+     * **Mutation:** put the old sentence back in `PurchaseOrderWriter::lineArchived()`; red here on the `detail` literal.
+     */
+    #[Test]
+    public function aDeletedLineIsReadOnlyAndNoRestoreIsPromised(): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $line = $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+        $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        foreach ([['PATCH', ['quantity' => '7']], ['DELETE', null]] as [$method, $body]) {
+            $this->send($method, '/purchase-orders/'.$draft['order'].'/lines/'.$line, $body);
+            self::assertSame(409, $this->httpStatus(), $method.': '.(string) $this->client()->getResponse()->getContent());
+            self::assertSame('purchase_order_line.is_archived', $this->json()['rule']);
+            self::assertSame('This line is archived, so it can\'t be changed.', $this->json()['detail']);
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -322,6 +322,31 @@ final class FulfilmentCreateTest extends PurchaseOrderTestCase
         $this->assertNothingMoved($f, [$bin => '9.000000']);
     }
 
+    /**
+     * **An archived order ships nothing, and the refusal promises no restore** (`owed-ux-c5.md` FINAL (a3)): step 3a read
+     * *"Restore it before changing it"*, pointing at `RestoreSalesOrder`, which is unbuilt (G-8). Only a draft may be
+     * archived (`sales_order_archived_only_while_draft`), so the order here is a draft archived by owner SQL — the 3a guard
+     * runs before any status or line check, which is what makes it reachable at all.
+     * **Mutation:** put the old sentence back in `FulfilmentWriter`; red here on the `detail` literal.
+     */
+    #[Test]
+    public function anArchivedOrderShipsNothingAndPromisesNoRestore(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH SO-216000');
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-216000', null, $warehouse);
+        $item = $this->seedItem(self::TENANT_A, 'SKU-SO-216000');
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $order, $item, lineNumber: 1, quantity: '5');
+        $bin = $this->stockedBin($warehouse, 'A-01', $item, '9');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$order]);
+
+        $this->fulfil($order, [['sales_order_line_id' => $line, 'quantity' => '1', 'storage_location_id' => $bin]]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.is_archived', $this->json()['rule']);
+        self::assertSame('This sales order is archived, so nothing can be shipped against it.', $this->json()['detail']);
+        self::assertSame('9.000000', $this->onHand($bin));
+    }
+
     /** An archived warehouse is a closed site: refused, `warehouse.is_live`. */
     #[Test]
     public function anArchivedWarehouseIsRefused(): void

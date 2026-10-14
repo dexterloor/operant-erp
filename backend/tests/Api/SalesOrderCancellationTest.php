@@ -272,6 +272,26 @@ final class SalesOrderCancellationTest extends PurchaseOrderTestCase
         self::assertSame(404, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
     }
 
+    /**
+     * **An archived order cannot be cancelled, and the refusal promises no restore** (`owed-ux-c5.md` FINAL (a3)): it read
+     * *"Restore it before changing it"*, pointing at `RestoreSalesOrder`, which is unbuilt (G-8). Archived by owner SQL
+     * (a draft, the only state `sales_order_archived_only_while_draft` allows).
+     * **Mutation:** put the old sentence back in `SalesOrderCancellation`; red here on the `detail` literal.
+     */
+    #[Test]
+    public function anArchivedOrderCannotBeCancelledAndNoRestoreIsPromised(): void
+    {
+        $order = $this->raiseADraft('SO-140000');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$order]);
+
+        $this->send('POST', '/sales-orders/'.$order.'/cancellation', ['reason' => 'x']);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order.is_archived', $this->json()['rule']);
+        self::assertSame('This sales order is archived, so it can\'t be cancelled.', $this->json()['detail']);
+        $this->assertStillDraft($order);
+    }
+
     /** An order raised through the shipped create, with no lines — a legal empty draft. */
     private function raiseADraft(string $sku = 'SO-138000'): string
     {

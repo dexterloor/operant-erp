@@ -90,7 +90,7 @@ final class SupplierProductDeleteTest extends PurchaseOrderTestCase
 
         $this->delete($supplier, $entry);
 
-        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so nothing can be removed from its catalogue.'],
+        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so nothing can be removed from its catalogue until it\'s restored.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM supplier_product WHERE id = ?::uuid', [$entry]));
     }

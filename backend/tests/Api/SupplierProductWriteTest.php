@@ -155,11 +155,11 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$supplier]);
 
         $this->create($supplier, ['inventory_item_id' => $this->seedItem(self::TENANT_A, 'SKU-AR-2'), 'supplier_sku' => 'SP-AR', 'unit_cost' => '1', 'lead_time_days' => 1]);
-        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so nothing can be added to its catalogue.'],
+        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so nothing can be added to its catalogue until it\'s restored.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
 
         $this->update($supplier, $entry, ['unit_cost' => '9']);
-        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so its catalogue can\'t be changed.'],
+        self::assertSame([409, 'supplier.is_archived', 'This supplier is archived, so its catalogue can\'t be changed until it\'s restored.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
 
         self::assertSame([['id' => $entry, 'unit_cost' => '1.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id::text AS id, unit_cost FROM supplier_product'));

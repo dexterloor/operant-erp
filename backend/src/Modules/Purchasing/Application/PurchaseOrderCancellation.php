@@ -134,7 +134,7 @@ final readonly class PurchaseOrderCancellation
                 if (null !== $row['deleted_at']) {
                     throw ApiProblem::businessRuleViolated(
                         'purchase_order.is_archived',
-                        'This purchase order is archived. Restore it before changing it.',
+                        'This purchase order is archived, so it can\'t be cancelled.',
                     );
                 }
 

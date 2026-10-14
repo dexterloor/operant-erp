@@ -200,6 +200,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so it can\'t be changed.', $this->json()['detail']);
 
         // The line was archived by the cascade, with its order, at the order's
         // instant, and not by the refused request.
@@ -1174,6 +1175,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('sales_order.is_archived', $this->json()['rule']);
+        self::assertSame('This sales order is archived, so it can\'t be changed.', $this->json()['detail']);
     }
 
     /**
@@ -1206,6 +1208,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('sales_order.is_archived', $this->json()['rule']);
+        self::assertSame('This sales order is archived, so it can\'t be changed.', $this->json()['detail']);
 
         // The line was archived by the cascade, with its order, at the order's instant -- not by the refused request.
         self::assertSame([['same_instant' => true]], $this->fetchAsOwnerForTenant(self::TENANT_A, <<<'SQL'

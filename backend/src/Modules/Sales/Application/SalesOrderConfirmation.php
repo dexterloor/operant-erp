@@ -131,7 +131,7 @@ final readonly class SalesOrderConfirmation
                 if (null !== $row['deleted_at']) {
                     throw ApiProblem::businessRuleViolated(
                         'sales_order.is_archived',
-                        'This sales order is archived. Restore it before changing it.',
+                        'This sales order is archived, so it can\'t be confirmed.',
                     );
                 }
 

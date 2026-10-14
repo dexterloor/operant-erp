@@ -1255,7 +1255,7 @@ final readonly class SalesOrderWriter
         if (null !== $order->archivedAt) {
             throw ApiProblem::businessRuleViolated(
                 'sales_order.is_archived',
-                'This sales order is archived. Restore it before changing it.',
+                'This sales order is archived, so it can\'t be changed.',
             );
         }
     }

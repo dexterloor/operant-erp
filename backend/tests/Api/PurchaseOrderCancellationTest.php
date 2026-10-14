@@ -553,6 +553,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('purchase_order.is_archived', $this->json()['rule']);
+        self::assertSame('This purchase order is archived, so it can\'t be cancelled.', $this->json()['detail']);
     }
 
     /** §5.3 clause 2 — another tenant's row and an id that never existed are the same refusal. */

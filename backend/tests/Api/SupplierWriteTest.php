@@ -305,7 +305,8 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
 
     /**
      * ST-9: an archived supplier is read-only (archived by `DeleteSupplier` since C5 C2b; seeded here by owner SQL). The sentence
-     * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C2a, but an `.edit` holder may lack `.delete`.
+     * carries no "Restore it" — decided (`owed-ux-c5.md` Response to RED, M-3): restore ships at C2a, but an `.edit` holder may lack
+     * `.delete`, so it says passively "until it's restored".
      */
     #[Test]
     public function anArchivedSupplierCannotBeChanged(): void
@@ -317,7 +318,7 @@ final class SupplierWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('supplier.is_archived', $this->json()['rule']);
-        self::assertSame('This supplier is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This supplier is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
         self::assertSame('Closed', $this->stored($id)['name']);
     }
 
