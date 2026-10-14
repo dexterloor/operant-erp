@@ -1584,7 +1584,7 @@ final readonly class SalesOrderWriter
      *
      * **The customer read takes `FOR KEY SHARE`; the warehouse read takes no lock** (C5 C3, owner ruling Q-2 of
      * 2026-10-13, `docs/session13/session29-c5-ruling.md` — the sales twin of Q-S2's *"supplier-only lock"*).
-     * `DeleteCustomer` (C5 C4b) will archive a customer under `FOR UPDATE` and refuse one with an open sales
+     * `DeleteCustomer` (C5 C4b) archives a customer under `FOR UPDATE` and refuses one with an open sales
      * order; KEY SHARE is the one lock that conflicts with that `FOR UPDATE` and with nothing `UpdateCustomer`
      * takes (`FOR NO KEY UPDATE`), so a create or an edit naming the customer either commits first and is
      * counted by the delete, or waits and then re-reads `deleted_at IS NULL` and is refused. Legal because

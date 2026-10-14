@@ -237,10 +237,14 @@ final class DeptracRulesetTest extends TestCase
         self::assertSame([], $leaks, 'An Ai/Analytics layer lists a Port layer: an inbound port is not the AI\'s door (A-4, A-6).');
         self::assertContains('SuppliersPort', $ruleset['deptrac']['ruleset']['PurchasingApplication'] ?? [],
             'Control: the one named consumer no longer lists the port, so the probes below would prove nothing about it.');
+        self::assertContains('CustomersPort', $ruleset['deptrac']['ruleset']['SalesApplication'] ?? [],
+            'Control (C5 C4b): Sales no longer lists the customers port, so the probes below would prove nothing about it.');
 
         $dir = sys_get_temp_dir().'/deptrac-port-probe-'.bin2hex(random_bytes(6));
         mkdir($dir.'/src', 0o777, true);
-        $files = ['src/AiProbe.php', 'src/AnalyticsProbe.php', 'src/PurchasingProbe.php', 'src/SuppliersProbe.php', 'deptrac.yaml', 'report.json', 'deptrac.cache'];
+        $files = ['src/AiProbe.php', 'src/AnalyticsProbe.php', 'src/PurchasingProbe.php', 'src/SuppliersProbe.php',
+            'src/AiCustomersProbe.php', 'src/AnalyticsCustomersProbe.php', 'src/SalesProbe.php', 'src/CustomersProbe.php',
+            'deptrac.yaml', 'report.json', 'deptrac.cache'];
 
         try {
             file_put_contents($dir.'/src/AiProbe.php', <<<'PHP'
@@ -262,6 +266,27 @@ final class DeptracRulesetTest extends TestCase
                 <?php
                 namespace App\Modules\Suppliers\Application;
                 final class AllowedFromItsOwnModule { public function __construct(public \App\Modules\Suppliers\Application\Port\SupplierOpenWork $port) {} }
+                PHP);
+            // C5 C4b: the customers port, the same four probes.
+            file_put_contents($dir.'/src/AiCustomersProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Ai\Application;
+                final class ProbeIntoTheCustomersPort { public function __construct(public \App\Modules\Customers\Application\Port\CustomerOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/AnalyticsCustomersProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Analytics\Application;
+                final class ProbeIntoTheCustomersPortFromAnalytics { public function __construct(public \App\Modules\Customers\Application\Port\CustomerOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/SalesProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Sales\Application;
+                final class AllowedThroughTheCustomersPort { public function __construct(public \App\Modules\Customers\Application\Port\CustomerOpenWork $port) {} }
+                PHP);
+            file_put_contents($dir.'/src/CustomersProbe.php', <<<'PHP'
+                <?php
+                namespace App\Modules\Customers\Application;
+                final class AllowedFromTheCustomersModule { public function __construct(public \App\Modules\Customers\Application\Port\CustomerOpenWork $port) {} }
                 PHP);
 
             /** @var array{deptrac: array<string, mixed>} $config */
@@ -288,13 +313,14 @@ final class DeptracRulesetTest extends TestCase
             $violators = array_map(static fn (string $m): string => (string) preg_replace('/^\S*\\\\(\w+) .*$/s', '$1', $m), $messages);
             sort($violators);
 
-            self::assertSame(['ProbeIntoThePort', 'ProbeIntoThePortFromAnalytics'], $violators,
-                "Exactly the Ai and Analytics probes break a rule; Purchasing (the port's named consumer) and Suppliers' own "
-                ."application do not:\n".implode("\n", $messages));
-            self::assertSame(2, $json['Report']['Violations']);
-            self::assertSame(2, $json['Report']['Allowed'],
-                'The two allowed edges are Purchasing\Application and Suppliers\Application into Suppliers\Application\Port '
-                .'(F-3 (a): were the port also collected by SuppliersApplication, the Purchasing edge would be a violation).');
+            self::assertSame(['ProbeIntoTheCustomersPort', 'ProbeIntoTheCustomersPortFromAnalytics', 'ProbeIntoThePort', 'ProbeIntoThePortFromAnalytics'], $violators,
+                "Exactly the Ai and Analytics probes break a rule; Purchasing / Sales (each port's named consumer) and the "
+                ."port's own module's application do not:\n".implode("\n", $messages));
+            self::assertSame(4, $json['Report']['Violations']);
+            self::assertSame(4, $json['Report']['Allowed'],
+                'The four allowed edges are Purchasing\Application and Suppliers\Application into Suppliers\Application\Port, '
+                .'and (C5 C4b) Sales\Application and Customers\Application into Customers\Application\Port (F-3 (a): were a '
+                .'port also collected by its module\'s Application layer, the consumer\'s edge would be a violation).');
         } finally {
             foreach ($files as $f) {
                 @unlink($dir.'/'.$f);

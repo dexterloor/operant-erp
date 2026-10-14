@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Customers\ApiResource\State\CreateCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerProvider;
+use App\Modules\Customers\ApiResource\State\DeleteCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\RestoreCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerProcessor;
 use App\Modules\Customers\Application\CustomerView;
@@ -35,6 +37,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `RESIDUAL_GAPS.md` G-35).
  *
  * **`RestoreCustomer`** (C5 C4a): `CustomerWriter::restore()`, `customer.restored` in its transaction.
+ *
+ * **`DeleteCustomer`** (C5 C4b): `CustomerWriter::delete()` — a soft delete refused while the customer has open work
+ * (ruling Q-1 (b′): open sales orders, uninvoiced shipments, unpaid invoices, credits owed), `customer.deleted` in its
+ * transaction, 204.
  */
 #[ApiResource(
     shortName: 'Customer',
@@ -83,6 +89,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CustomerProvider::class,
             processor: UpdateCustomerProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
+        ),
+        // C5 C4b — `DeleteCustomer`, API-21 branch 3: 204, no body (`DeleteSupplier`'s shape). The row is read first, so a
+        // DELETE at an id no row answers is `GetCustomer`'s 404 before any body is looked at (`BodylessWriteRefusal`).
+        // §4.2: `customer.delete`, `Idem` `no` — a repeated delete is refused `customer.is_archived`, never replayed.
+        new Delete(
+            uriTemplate: '/customers/{id}',
+            name: 'DeleteCustomer',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteCustomer'),
+            provider: CustomerProvider::class,
+            processor: DeleteCustomerProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.delete'],
         ),
         // C5 C4a — `RestoreCustomer`, API-21 branch 5: a POST that creates no row this contract addresses, so 200 with the
         // customer in its new state and no `Location` (`RestoreSupplier`'s shape). It ships with `ListCustomers?archived`

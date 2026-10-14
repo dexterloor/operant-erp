@@ -169,16 +169,18 @@ final readonly class InvoiceIssuer
             );
         }
 
-        // 5.
+        // 5. `billed(fl)` is `SalesReturnReader::billed()` — ONE copy of the issuer's formula (C5 C4b, `c5-red.md` RED round 2
+        // F-1): `DeleteCustomer`'s unbilled-shipment count (`CustomerOpenSalesWork`), the credit writer and the decision writer
+        // read the same term, so "billable" cannot mean one thing here and another there (`AdjustmentDecisionTermsTest`).
         $amount = $connection->fetchAssociative(\sprintf(<<<'SQL'
             SELECT count(*) AS joined,
-                   count(*) FILTER (WHERE fl.quantity - %1$s > 0) AS billable,
-                   COALESCE(SUM(round((fl.quantity - %1$s) * sol.unit_price, 4)), 0)::text AS total,
+                   count(*) FILTER (WHERE %1$s > 0) AS billable,
+                   COALESCE(SUM(round(%1$s * sol.unit_price, 4)), 0)::text AS total,
                    (SELECT count(*) FROM fulfilment_line x WHERE x.tenant_id = ?::uuid AND x.fulfilment_id = ?::uuid) AS lines
               FROM fulfilment_line fl
               JOIN sales_order_line sol ON sol.tenant_id = fl.tenant_id AND sol.id = fl.sales_order_line_id
              WHERE fl.tenant_id = ?::uuid AND fl.fulfilment_id = ?::uuid
-            SQL, SalesReturnReader::returnedBeforeIssue('fl')), [$identity->tenantId, $fulfilmentId, $identity->tenantId, $fulfilmentId]);
+            SQL, SalesReturnReader::billed('fl')), [$identity->tenantId, $fulfilmentId, $identity->tenantId, $fulfilmentId]);
         if (false === $amount || (int) $amount['joined'] !== (int) $amount['lines']) {
             throw new \LogicException('A fulfilment line did not join its order line, so the invoice total would omit it.');
         }

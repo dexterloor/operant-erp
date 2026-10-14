@@ -6,6 +6,7 @@ namespace App\Modules\Customers\Application;
 
 use App\Modules\AuditLog\Infrastructure\CustomerAuditWriter;
 use App\Modules\Customers\Application\Contract\PaymentTerms;
+use App\Modules\Customers\Application\Port\CustomerOpenWork;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
@@ -15,8 +16,9 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`CreateCustomer`, `UpdateCustomer` and `RestoreCustomer`** (customers slice 1 C2; `RestoreCustomer` C5 C4a, see
- * {@see self::restore()}; `docs/session13/customers-s1-design.md` §4, final RED
+ * **`CreateCustomer`, `UpdateCustomer`, `RestoreCustomer` and `DeleteCustomer`** (customers slice 1 C2; `RestoreCustomer`
+ * C5 C4a, see {@see self::restore()}; `DeleteCustomer` C5 C4b, see {@see self::delete()};
+ * `docs/session13/customers-s1-design.md` §4, final RED
  * M-4's View shape, `customers-s1-g35-judge.md` FINAL item 4). Takes wire-named scalars, returns a {@see CustomerView};
  * never an `ApiResource` class (A-7) and never a `Doctrine\DBAL\Connection` (A-10: an unbound autowired `Connection` is
  * the schema owner).
@@ -24,8 +26,8 @@ use Symfony\Component\Uid\Uuid;
  * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['customer']`,
  * `Version20261009000300`): the INSERT names `id, tenant_id, code, name, country_code, currency_code` and
  * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy); the UPDATE sets only
- * the **changed** columns plus `updated_at`. `deleted_at` is written only by `restore()` (C5 C4a,
- * `Version20261014000200`). A 42501 from any of them is fixed by removing the column from the statement, never by
+ * the **changed** columns plus `updated_at`. `deleted_at` is written only by `restore()` and `delete()` (C5 C4a / C4b,
+ * the column grant `Version20261014000200`). A 42501 from any of them is fixed by removing the column from the statement, never by
  * widening the grant.
  *
  * **Refusals, in order** (copy: `customers-s1-ux.md` §2 as amended by final RED L-1):
@@ -58,6 +60,33 @@ final readonly class CustomerWriter
 
     public const ARCHIVED = 'This customer is archived, so it can\'t be changed.';
 
+    /** C5 C4b, placeholder (`UX` owes it): a repeated delete (§4.2 `Idem` `no`; ST-9). `SupplierWriter`'s wording. */
+    public const ALREADY_ARCHIVED = 'This customer is already archived.';
+
+    /*
+     * C5 C4b — the four (b′) refusals (`c5-design.md` R1.2; ruling Q-1), in the order `delete()` applies them; `%d` is the
+     * count. Placeholders: `UX` owes the copy; `SEC` owes whether a count is shown to a `customer.delete` holder who may
+     * lack `sales_order.view` / `invoice.view` / `sales_return.view` (design §9 S-2).
+     */
+    public const HAS_OPEN_SALES_ORDERS = 'This customer has %d open sales order(s). Ship, cancel or delete them before archiving this customer.';
+
+    public const HAS_UNBILLED_SHIPMENTS = 'This customer has %d shipment(s) not yet invoiced. Invoice them before archiving this customer.';
+
+    public const HAS_UNPAID_INVOICES = 'This customer has %d unpaid invoice(s). Record the payment or credit them before archiving this customer.';
+
+    public const IS_OWED_A_CREDIT = 'This customer is owed a credit on %d return(s). Issue the credit before archiving this customer.';
+
+    /**
+     * **`DeleteCustomer`'s row lock** — public so the two-connection race tests hold THIS statement, never a transcription.
+     * **`FOR UPDATE`, never `FOR NO KEY UPDATE`** (`SupplierWriter::DELETE_LOCK`'s reason, final RED L-B; mutation M12):
+     * only `FOR UPDATE` conflicts with the `FOR KEY SHARE` Sales takes on the customer (`SalesOrderWriter`'s liveness read,
+     * C5 C3), the one the address writers take (C4b), and an FK check's (`IssueInvoice`'s `invoice_customer_fk`).
+     */
+    public const DELETE_LOCK = 'SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid FOR UPDATE';
+
+    /** The one write `DeleteCustomer` issues (public for the race tests' holder). */
+    public const ARCHIVE = 'UPDATE customer SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
+
     /** C5 C4a, placeholder (`UX` owes it; `SupplierWriter::NOT_ARCHIVED`'s wording). */
     public const NOT_ARCHIVED = 'This customer is not archived, so there is nothing to restore.';
 
@@ -89,6 +118,7 @@ final readonly class CustomerWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private CustomerAuditWriter $audit,
+        private CustomerOpenWork $openWork,
     ) {
     }
 
@@ -157,7 +187,7 @@ final readonly class CustomerWriter
                 if (false === $row) {
                     throw ApiProblem::notFound();
                 }
-                // ST-9: an archived row is read-only. Reachable only by SQL until `DeleteCustomer` ships (C5 C4b). The
+                // ST-9: an archived row is read-only (archived by `DeleteCustomer` since C5 C4b). The
                 // sentence does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreCustomer` ships at C5 C4a, so
                 // the reason is no longer that restore is blocked, but a caller holding `customer.edit` may lack
                 // `customer.delete`, which restoring needs — `UX` rules whether the refusal names the remedy.
@@ -251,6 +281,79 @@ final readonly class CustomerWriter
             // Outside `run()`: the failed UPDATE aborted the transaction. `customer_tenant_code_live` is the only unique.
             throw ApiProblem::businessRuleViolated('customer.code_is_unique_per_workspace', self::CODE_TAKEN_ON_RESTORE);
         }
+    }
+
+    /**
+     * **`DeleteCustomer`** (C5 C4b; `docs/session13/c5-design.md` §3.4 and Revision 1 R1.2 / R1.6; ruling Q-1 = (b′),
+     * Q-3 = (i) + G-45). A soft delete: `customer` is `SchemaManifest::SOFT`, so this sets `deleted_at` — an UPDATE under
+     * the column grant `RestoreCustomer` brought (`Version20261014000200`); `erp_app` holds no DELETE on the table. In one
+     * `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404 (ST-5);
+     *  2. the row read {@see self::DELETE_LOCK} (`FOR UPDATE`) — archived → 409 `customer.is_archived` (ST-9; a repeated
+     *     delete, §4.2 `Idem` `no`: no `Idempotency-Key`);
+     *  3. open work ({@see CustomerOpenWork}, answered by Sales in ONE statement, counted AFTER the lock); the first
+     *     non-zero leg refuses, naming its count: `customer.has_open_sales_orders` → `customer.has_unbilled_shipments` →
+     *     `customer.has_unpaid_invoices` → `customer.is_owed_a_credit`;
+     *  4. {@see self::ARCHIVE};
+     *  5. `customer.deleted`, `{}`, after the UPDATE, in its transaction — a refusal writes none;
+     *  6. 204, no body (API-21 branch 3).
+     *
+     * **The race, closed by the lock and RUN in both orders** (`CustomerDeleteTest`): a sales order first — its customer
+     * `FOR KEY SHARE` (`SalesOrderWriter`, C5 C3) or its FK check makes this `FOR UPDATE` wait, and the count, a later
+     * statement under READ COMMITTED, sees the order → refused. The delete first — the order's locking liveness read waits,
+     * re-checks `deleted_at IS NULL` on the committed row and finds none → `unknown_reference`. The same for
+     * `UpdateSalesOrder` moving a draft onto this customer, and the address writers read the parent `FOR KEY SHARE`
+     * (`CustomerAddressWriter::PARENT_KEY_SHARE`), so no address lands on a customer this archives. `IssueInvoice`'s
+     * INSERT takes `FOR KEY SHARE` through `invoice_customer_fk` and so waits too. **No cycle:** this takes one lock, on
+     * the customer row, and never a document row.
+     *
+     * **A check at the moment of archiving, not an invariant afterwards** (ruling Q-3 (i), `RESIDUAL_GAPS.md` G-45):
+     * `CreateSalesReturn`, `ReverseInvoicePayment` and an owner's adjustment-decision reversal can reopen work on an
+     * archived customer, and none of the settling writes reads customer liveness — pinned by
+     * `CustomerDeleteTest::workCanReopenOnAnArchivedCustomerAndIsNotRefused`. No lock is taken on those paths (R1.3).
+     * Addresses are kept, read-only while archived, and come back unchanged with `RestoreCustomer`.
+     */
+    public function delete(string $id): void
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
+            $connection = $em->getConnection();
+            // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+            $row = $connection->fetchAssociative(self::DELETE_LOCK, [$id]);
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
+            if (true === $row['archived']) {
+                throw ApiProblem::businessRuleViolated('customer.is_archived', self::ALREADY_ARCHIVED);
+            }
+
+            $open = $this->openWork->openWorkInside($em, $id);
+            foreach ([
+                ['customer.has_open_sales_orders', self::HAS_OPEN_SALES_ORDERS, $open->openSalesOrders],
+                ['customer.has_unbilled_shipments', self::HAS_UNBILLED_SHIPMENTS, $open->unbilledShipments],
+                ['customer.has_unpaid_invoices', self::HAS_UNPAID_INVOICES, $open->unpaidInvoices],
+                ['customer.is_owed_a_credit', self::IS_OWED_A_CREDIT, $open->owedCredits],
+            ] as [$rule, $sentence, $count]) {
+                if ($count > 0) {
+                    throw ApiProblem::businessRuleViolated($rule, \sprintf($sentence, $count));
+                }
+            }
+
+            $connection->executeStatement(self::ARCHIVE, [$id]);
+
+            // After the UPDATE, in its transaction: a refusal above leaves no row.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                customerId: $id,
+            );
+        });
     }
 
     /**

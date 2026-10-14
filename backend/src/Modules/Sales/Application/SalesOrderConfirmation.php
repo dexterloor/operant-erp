@@ -35,7 +35,7 @@ use Symfony\Component\Uid\Uuid;
  *      (`sales_order.customer_is_live`; C5 C3, owner ruling Q-2 of 2026-10-13, the sales twin of
  *      `API.md` §8.1 step 6b). Read here by statement, after the row lock, unlocked: it is the
  *      backstop, not the control — `CreateSalesOrder`/`UpdateSalesOrder` read the customer
- *      `FOR KEY SHARE` and `DeleteCustomer` refuses a customer with an open order, so an archived
+ *      `FOR KEY SHARE` and `DeleteCustomer` (C5 C4b) refuses a customer with an open order, so an archived
  *      customer under a draft is reachable only by owner SQL, a future `RestoreSalesOrder`, or a lock
  *      regression. After the line guard, so an empty draft is still told to add a line.
  *   6. `confirm()`'s state change.

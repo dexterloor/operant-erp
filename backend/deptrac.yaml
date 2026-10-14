@@ -455,6 +455,11 @@ deptrac:
     App\Modules\Sales\Application\InvoiceCredit:
       # Sales step 7 C0: "credited in full", the one predicate, interpolates `Invoice::STATUS_*` (`SalesReturnReader`'s shape).
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+    App\Modules\Sales\Application\CustomerOpenSalesWork:
+      # C5 C4b, 2026-10-14: the open order statuses and the invoice statuses are the entities' own constants (API-15),
+      # `SalesOrderViews`' / `InvoiceCredit`'s A-7 shape.
+      - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\InvoiceReader:
       # `GetInvoice`'s derived status binds `Invoice::STATUS_*` (`SalesOrderLineRow`'s shape).
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
@@ -763,6 +768,13 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Modules\\Customers\\Application\\Contract\\#'
+    # C5 C4b (2026-10-14; `docs/session13/c5-design.md` R1.6, RED round 2 F-3): Customers' inbound PORT — not a Contract.
+    # `SuppliersPort`'s shape: `CustomerOpenWork`, answered by Sales; no `Ai*` or `Analytics*` ruleset entry lists a
+    # `*Port` layer (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). `ARCH` co-sign owed (design §9 A-1).
+    - name: CustomersPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Customers\\Application\\Port\\#'
     - name: CustomersApplication
       collectors:
         - type: bool
@@ -772,6 +784,10 @@ deptrac:
           must_not:
             - type: classNameRegex
               value: '#^App\\Modules\\Customers\\Application\\Contract\\#'
+            # C5 C4b: the port is collected by `CustomersPort` ONLY (F-3 (a)), or Sales' edge would be into
+            # `CustomersApplication` too.
+            - type: classNameRegex
+              value: '#^App\\Modules\\Customers\\Application\\Port\\#'
     - name: CustomersInfrastructure
       collectors:
         - type: classNameRegex
@@ -1126,9 +1142,15 @@ deptrac:
       - PlatformSecurity
       - PlatformTenancy
       - SharedKernel
+    # C5 C4b: the port may use Doctrine, SharedKernel and PlatformTenancy only (F-3).
+    CustomersPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
     CustomersApplication:
       - CustomersContract
       - CustomersDomain
+      - CustomersPort
       - Doctrine
       - PlatformConsole
       - PlatformDomain
@@ -1283,6 +1305,8 @@ deptrac:
       - SharedKernel
     SalesApplication:
       - CustomersContract
+      # C5 C4b: Sales answers `CustomerOpenWork` (R1.6) — the one consumer `CustomersPort` names.
+      - CustomersPort
       - Doctrine
       - InventoryContract
       - PlatformConsole

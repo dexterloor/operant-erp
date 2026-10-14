@@ -174,7 +174,7 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
     /**
      * **C5 C3 (owner ruling Q-2, 2026-10-13; `SalesOrderConfirmation` step 5b): confirmation re-checks the customer.**
      * The twin of `PurchaseOrderApprovalTest::anOrderWhoseSupplierWasArchivedAfterItWasRaisedCannotBeApproved`.
-     * `DeleteCustomer` (C5 C4b) will refuse a customer with an open order, so this state is reachable only by owner SQL
+     * `DeleteCustomer` (C5 C4b) refuses a customer with an open order, so this state is reachable only by owner SQL
      * (used here), a future `RestoreSalesOrder`, or a lock regression — the guard is the backstop. Also shows an
      * archived customer hidden by `SoftDeleteFilter` does not 500 the confirmation (nothing reads `getCustomer()`).
      *

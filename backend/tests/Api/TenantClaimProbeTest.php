@@ -167,6 +167,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'UpdateCustomer' => ['vars' => ['id' => 'customer'], 'body' => ['name' => 'Renamed']],
         // C5 C4a: a restore of the remembered archived customer (B's is another id, so a moved restore would 404).
         'RestoreCustomer' => ['vars' => ['id' => 'archived_customer']],
+        // C5 C4b: a customer with no sales document (the remembered `customer` may carry the mirror's orders); a moved delete
+        // would 404 (B's idle customer is another id) or archive B's.
+        'DeleteCustomer' => ['vars' => ['id' => 'idle_customer']],
         // Customers slice 1 C3: the remembered customer and its remembered address. A moved read would 404 or list B's
         // addresses; a moved create would 404 (B's customer is another id); a moved update would 404 on the pair.
         'ListCustomerAddresses' => ['vars' => ['id' => 'customer']],
@@ -704,6 +707,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $archivedCustomer = $this->remember($letter, 'archived_customer', $this->seedCustomer($tenantId, 'Archived Retail'));
         // The code pinned as the live customer's is above (`seedCustomer()`'s is random per seeding and is on the wire).
         $this->insertAsOwnerForTenant($tenantId, "UPDATE customer SET code = 'C-ARCHIVED', deleted_at = now() WHERE id = ?::uuid", [$archivedCustomer]);
+        // C5 C4b: a live customer no sales document names, so `DeleteCustomer`'s baseline drive succeeds.
+        $idleCustomer = $this->remember($letter, 'idle_customer', $this->seedCustomer($tenantId, 'Idle Retail'));
+        // Its code pinned, as the archived one's (`seedCustomer()`'s is random per seeding and `ListCustomers` serves it).
+        $this->insertAsOwnerForTenant($tenantId, "UPDATE customer SET code = 'C-IDLE' WHERE id = ?::uuid", [$idleCustomer]);
         // C5 C2b: a live supplier no order names, so `DeleteSupplier`'s baseline drive succeeds.
         $this->remember($letter, 'idle_supplier', $this->seedSupplier($tenantId, 'Idle Acme'));
 

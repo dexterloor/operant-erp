@@ -924,8 +924,8 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a customer'];
             }],
-            // C5 C4a: a customer archived by owner SQL (`DeleteCustomer` ships at C4b), restored; random-suffixed (seedCustomer's
-            // code is name-and-id derived, so the live code unique holds).
+            // C5 C4a: a customer archived by owner SQL (a fixture; `DeleteCustomer`, C4b, has its own recipe), restored;
+            // random-suffixed (seedCustomer's code is name-and-id derived, so the live code unique holds).
             'RestoreCustomer' => [function (): array {
                 $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Restored Customer '.bin2hex(random_bytes(3)));
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = now() WHERE id = ?::uuid', [$customer]);
@@ -935,6 +935,12 @@ trait OperationSuccessRecipes
                 $this->send('POST', '/customers/'.$c['customer'].'/restoration');
 
                 return [200, 'restore a customer'];
+            }],
+            // C5 C4b: a customer with no sales document, archived; 204, no body.
+            'DeleteCustomer' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Archived Customer '.bin2hex(random_bytes(3)))], function (array $c): array {
+                $this->send('DELETE', '/customers/'.$c['customer']);
+
+                return [204, 'archive a customer'];
             }],
             // Customers slice 1, C3: every recipe carries LETTER-bearing postal codes (CD-3: `WireScaleTest` reads an all-digit
             // text value as a decimal; design §5.4). The list seeds one address so `ResponseShapeTest` has an item to walk.

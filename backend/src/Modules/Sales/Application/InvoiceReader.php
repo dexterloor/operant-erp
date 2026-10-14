@@ -150,8 +150,8 @@ final readonly class InvoiceReader
      * **`ListInvoiceLines`** (sales step 7 C0) — every shipped line of the invoice's fulfilment, with what was billed
      * and what this invoice's credit notes have credited on it; null when the invoice is not visible (404).
      *
-     * `quantity_billed` is `IssueInvoice`'s own formula, shipped − {@see SalesReturnReader::returnedBeforeIssue()} (one
-     * copy), and `amount_billed` its per-line rounding. **Disclosed limit:** for a VOID invoice whose shipment later
+     * `quantity_billed` is `IssueInvoice`'s own formula, {@see SalesReturnReader::billed()} = shipped − returned before
+     * issue (one copy; read through `billed()` since C5 C4b, RED round 2 F-1), and `amount_billed` its per-line rounding. **Disclosed limit:** for a VOID invoice whose shipment later
      * took a deducting return (recorded while no live invoice existed), the derivation reads today's deductions, not
      * the ones that invoice priced — design §4.4 step 7a's equality assertion (C1) is the check on the live invoice.
      * Credited sums are line sums (`credit_note_line.quantity` / `.amount`), never the invoice-level total
@@ -177,9 +177,9 @@ final readonly class InvoiceReader
                 SELECT fl.id, fl.quantity AS shipped_quantity,
                        sol.id AS sales_order_line_id, sol.line_number,
                        i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
-                       (fl.quantity - %1$s)::numeric(19,6) AS quantity_billed,
+                       %1$s::numeric(19,6) AS quantity_billed,
                        sol.unit_price,
-                       round((fl.quantity - %1$s) * sol.unit_price, 4)::numeric(19,4) AS amount_billed,
+                       round(%1$s * sol.unit_price, 4)::numeric(19,4) AS amount_billed,
                        COALESCE((SELECT SUM(cl.quantity) FROM credit_note_line cl
                                    JOIN credit_note c ON c.tenant_id = cl.tenant_id AND c.id = cl.credit_note_id
                                   WHERE cl.tenant_id = fl.tenant_id AND cl.fulfilment_line_id = fl.id
@@ -194,7 +194,7 @@ final readonly class InvoiceReader
                   JOIN inventory_item i ON i.tenant_id = sol.tenant_id AND i.id = sol.inventory_item_id
                  WHERE inv.id = ?::uuid
                  ORDER BY sol.line_number, fl.storage_location_id, fl.id
-                SQL, SalesReturnReader::returnedBeforeIssue('fl')), [$id]);
+                SQL, SalesReturnReader::billed('fl')), [$id]);
 
             return array_map(static function (array $row): InvoiceLineView {
                 $item = new SalesItemRef((string) $row['inventory_item_id'], (string) $row['inventory_item_sku'], (string) $row['inventory_item_name']);

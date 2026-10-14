@@ -27,8 +27,8 @@ use Symfony\Component\Uid\Uuid;
  * **The parameter lists are the control.** Both events are **business** under PC-11 (4a) — a delegated filing by the G-35
  * judge in the `SEC` role (`customers-s1-g35-judge.md` C-4; `SEC` to confirm) — so there is **no `$ipAddress`**
  * (`audit_log_ip_address_scope` refuses one on a business event) and no `permission_code`. `recordCreated()` takes no
- * metadata at all (`{}`), nor does `recordRestored()` (C5 C4a). `customer.deleted` is **not** written here yet: it is
- * minted with `DeleteCustomer` (C5 C4b), never ahead of its writer (final RED M-A). `recordUpdated()` takes only the **names** of the changed fields: it builds
+ * metadata at all (`{}`), nor do `recordRestored()` (C5 C4a) and `recordDeleted()` (C5 C4b, `DeleteCustomer`).
+ * `recordUpdated()` takes only the **names** of the changed fields: it builds
  * `{"fields": [...]}` itself, sorted and de-duplicated, and refuses an empty list, because "no field changed" writes no
  * row (judge FINAL item 2). **Never values**: a list of column names is sourced from no table, so PC-11's metadata clause
  * and PC-15 condition 6 are met by construction; an old or new name, or a term, cannot reach `metadata` through this
@@ -40,6 +40,7 @@ use Symfony\Component\Uid\Uuid;
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_UPDATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_RESTORED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_DELETED
  */
 final readonly class CustomerAuditWriter
 {
@@ -83,6 +84,12 @@ final readonly class CustomerAuditWriter
     public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $customerId): void
     {
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_RESTORED, $customerId, '{}');
+    }
+
+    /** `customer.deleted` — `DeleteCustomer` (C5 C4b), after its UPDATE, in its transaction. `metadata` `{}`. */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $customerId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_DELETED, $customerId, '{}');
     }
 
     private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $customerId, string $metadata): void

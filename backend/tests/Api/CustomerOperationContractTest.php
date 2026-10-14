@@ -16,8 +16,8 @@ use PHPUnit\Framework\Attributes\Test;
  * the tie is born green on a true state and is not written to fit the slice that flips it (RED M-4: a twin born in the
  * commit that moves both sides proves nothing about the commit before). **C5 C4a moved all three together**
  * (`RestoreCustomer`, `ListCustomers?archived`, `customer_tenant_archived_idx` in `Version20261014000200`), so both ties now
- * hold on the TRUE side; moving any one back alone is red here. `DeleteCustomer` follows at C5 C4b (restore before delete,
- * so no window exists in which a customer can be archived by the API and not restored).
+ * hold on the TRUE side; moving any one back alone is red here. `DeleteCustomer` followed at C5 C4b (restore before delete,
+ * so no window existed in which a customer could be archived by the API and not restored).
  */
 final class CustomerOperationContractTest extends PurchaseOrderTestCase
 {

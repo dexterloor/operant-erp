@@ -581,8 +581,9 @@ final class SchemaManifest
             // erp_app set credit_limit/is_active/email/phone, which no operation writes
             // (owner Q-C2, RESIDUAL_GAPS.md G-36). The UPDATE grant also makes UpdateCustomer's first-read FOR NO KEY UPDATE
             // legal (A4.3 constraint 1, SalesOrderRowLock's precedent). Narrowing it to no columns turns that lock into a
-            // 42501. C5 C4a (Version20261014000200): UPDATE (deleted_at) for RestoreCustomer (DeleteCustomer, C4b, reuses
-            // it). No DELETE: the table is soft. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
+            // 42501. C5 C4a (Version20261014000200): UPDATE (deleted_at) for RestoreCustomer; DeleteCustomer (C5 C4b) reuses
+            // it — archiving is an UPDATE of deleted_at, and its FOR UPDATE row lock (and the address writers' FOR KEY SHARE,
+            // C4b) rests on the same column UPDATE grant. No DELETE: the table is soft. Declared explicitly so erp_ai keeps exactly its inherited SELECT.
             // C5 C3 (owner Q-2): Sales' customer liveness read (SalesOrderWriter::PARENT_LIVENESS_READS) takes FOR KEY SHARE,
             // which is legal only while erp_app holds UPDATE on at least one customer column — narrowing this UPDATE grant to
             // no column 42501s every sales-order create (GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnCustomer).

@@ -445,6 +445,9 @@ trait ArchivedRowSubjects
             // Customers slice 1 C2 (final RED L-2 of the first attack): the live twin renames; the archived twin's 409 is
             // `customer.is_archived`'s alone.
             'UpdateCustomer' => ['name' => 'Renamed'],
+            // C5 C4b: the live twin (the fixture customer has no sales document) is archived, 204; the archived twin's 409
+            // is `customer.is_archived`'s alone (a repeated delete, ST-9).
+            'DeleteCustomer' => null,
             // Suppliers slice 1 C2: the live twin renames (random-suffixed: `supplier.name` is live-unique); the archived
             // twin's 409 is `supplier.is_archived`'s alone.
             'UpdateSupplier' => ['name' => 'Renamed '.bin2hex(random_bytes(3))],

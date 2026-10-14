@@ -147,6 +147,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'UpdateCustomer' => 'customer.edit',
         // C5 C4a (2026-10-14): `customer.delete` — `sales_rep`, `admin` and owner (`SECURITY_MODEL.md` §4); `viewer` not.
         'RestoreCustomer' => 'customer.delete',
+        // C5 C4b (2026-10-14): archiving is the same authority restoring needs (§4.2) — `sales_rep`, `admin`, owner.
+        'DeleteCustomer' => 'customer.delete',
         // Customers slice 1 C3 (2026-10-09): the address writes are `customer.edit` (NOT `.create`, §4.2), the list `.view`.
         'CreateCustomerAddress' => 'customer.edit',
         'UpdateCustomerAddress' => 'customer.edit',

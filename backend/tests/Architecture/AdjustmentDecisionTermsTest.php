@@ -18,9 +18,12 @@ use PHPUnit\Framework\TestCase;
  *  - SQL that reads or writes `adjustment_decision` (`FROM|JOIN|INTO|UPDATE adjustment_decision`) appears in `src/` only in
  *    `SalesReturnReader` (the named terms, the served members), `AdjustmentDecisionWriter` (the decision operation) and
  *    `CreditNoteWriter` (the adjust path's step-12 `distinct` INSERT, C2). Everything else goes through the reader's terms.
- *  - `returnedBeforeIssue(` is called outside `SalesReturnReader` only by `InvoiceIssuer` and `InvoiceReader`, the two
- *    sites that ARE the issuer's formula and its read-back (shipped, pinned by name); a credit-side consumer forms the
- *    billed quantity through `SalesReturnReader::billed()` — `CreditNoteWriter`'s inlined copy was replaced by it in C2 (J-13).
+ *  - `returnedBeforeIssue(` is called **only inside `SalesReturnReader`** (since C5 C4b, 2026-10-14; `c5-red.md` RED round
+ *    2 F-1, mutation M22): every consumer forms the billed quantity through `SalesReturnReader::billed()` —
+ *    `CreditNoteWriter`'s inlined copy was replaced by it in C2 (J-13), and C4b rewrote the last two inline spellings
+ *    (`InvoiceIssuer`'s `billable` count and total, `InvoiceReader`'s `quantity_billed`/`amount_billed`, both
+ *    `fl.quantity - returnedBeforeIssue(…)`) so that the issuer, the credit and decision writers, the invoice read-back
+ *    and `DeleteCustomer`'s unbilled-shipment count (`CustomerOpenSalesWork`) read ONE expression.
  *
  * **Controls, same test:** the patterns match planted copies in a string this test builds, under any alias, and none of the
  * allowed shapes; and the owning classes ARE found, so an empty result cannot be a blind scan.
@@ -33,7 +36,7 @@ final class AdjustmentDecisionTermsTest extends TestCase
 
     private const OWNERS_OF_THE_TABLE = ['AdjustmentDecisionWriter.php', 'CreditNoteWriter.php', 'SalesReturnReader.php'];
 
-    private const CALLERS_OF_THE_FORMULA = ['InvoiceIssuer.php', 'InvoiceReader.php', 'SalesReturnReader.php'];
+    private const CALLERS_OF_THE_FORMULA = ['SalesReturnReader.php'];
 
     #[Test]
     public function theDecisionTableAndTheBilledQuantityHaveOneCopyEach(): void
@@ -65,7 +68,8 @@ final class AdjustmentDecisionTermsTest extends TestCase
             .'second copy (undecidedPair, sameOnReturnLine, openOnReturnLine…) passes every behaviour test the day it is written '
             .'and drifts after. Use the reader\'s terms; a new WRITER of the table needs a grant review (ADR-002 A4.1) and a place here.');
         self::assertSame(self::CALLERS_OF_THE_FORMULA, $formulaHolders,
-            'returnedBeforeIssue( is called outside the issuer\'s formula and its read-back. A credit-side consumer forms the billed '
-            .'quantity through SalesReturnReader::billed() (J-13).');
+            'returnedBeforeIssue( is called outside SalesReturnReader: a second spelling of the billed quantity (`fl.quantity - '
+            .'returnedBeforeIssue(…)`). Every consumer — the issuer, its read-back, the credit and decision writers, the customer '
+            .'open-work count — forms it through SalesReturnReader::billed() (J-13; C5 RED round 2 F-1).');
     }
 }

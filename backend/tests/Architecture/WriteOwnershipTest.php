@@ -197,7 +197,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // `sales_order`: an order holds a snapshot of the address (design §5.2).
         // **4 -> 5 on 2026-10-14** (C5 C4a), PREDICTED, confirmed off this test's run: `CustomerWriter::restore()`'s
         // `UPDATE customer SET deleted_at = NULL` (`RestoreCustomer`; the table is Customers').
-        'Modules\\Customers' => 5,
+        // **5 -> 6 on 2026-10-14** (C5 C4b), PREDICTED, confirmed off this test's run: `CustomerWriter::ARCHIVE`,
+        // `UPDATE customer SET deleted_at = now()` (`DeleteCustomer`; the table is Customers'). Its `FOR UPDATE` row lock and
+        // the address writers' `FOR KEY SHARE` are locks this scan excludes; `CustomerOpenSalesWork` (Sales) only reads.
+        'Modules\\Customers' => 6,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

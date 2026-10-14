@@ -216,7 +216,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * ST-9: an archived customer is read-only (reachable only by SQL until `DeleteCustomer` ships, C5 C4b). The sentence
+     * ST-9: an archived customer is read-only (archived by `DeleteCustomer` since C5 C4b; seeded here by owner SQL). The sentence
      * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C4a, but a `customer.edit` holder may lack
      * `customer.delete`, which restoring needs.
      */

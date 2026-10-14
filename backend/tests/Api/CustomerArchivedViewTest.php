@@ -16,8 +16,8 @@ use PHPUnit\Framework\Attributes\Test;
  * most recently archived first (`deleted_at DESC, id DESC`); the cursor key is the column's text with microseconds.
  * `sort` is per view: `name`/`code` on the live view only, `archived_at` on the Archived view only (422 `unserved_sort`);
  * a live-view cursor sent to the Archived view is `malformed_cursor`, never a 500. Archived rows are seeded by owner SQL
- * (a fixture: the distinct archive instants the paging tests need cannot be produced through the API, and
- * `DeleteCustomer` ships only at C5 C4b).
+ * (a fixture: the distinct archive instants the paging tests need cannot be produced through the API);
+ * `DeleteCustomer` (C5 C4b) archives through the API and is tested in `CustomerDeleteTest`.
  */
 final class CustomerArchivedViewTest extends PurchaseOrderTestCase
 {

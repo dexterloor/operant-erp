@@ -31,8 +31,8 @@ use Symfony\Component\Uid\Uuid;
  * **Create, in order** (design §5.1 as revised per RED L-1 — the purchase-order-line order):
  *  1. shape, before any transaction (all five fields required; blank after trimming → `blank`, stored as sent otherwise —
  *     no trim, final RED L-2; `kind` ∈ {billing, shipping}; country code shape);
- *  2. the parent: absent or another workspace's → 404. **An archived customer is found here** (final RED L-4 (a)), so its
- *     refusal is step 4's 409, not a 404;
+ *  2. the parent, read {@see self::PARENT_KEY_SHARE} (C5 C4b): absent or another workspace's → 404. **An archived
+ *     customer is found here** (final RED L-4 (a)), so its refusal is step 4's 409, not a 404;
  *  3. **the key** (`unique:customer_address_idem_unique`, header-sourced, NOT NULL, TOTAL — the table is `hard`): the same
  *     key with the same digest replays the stored row (201), with another digest → 409 `idempotency-key-conflict`. The
  *     digest covers the **path's customer id** plus the shape-checked values (`SalesOrderWriter::lineDigest()`'s rule,
@@ -47,7 +47,7 @@ use Symfony\Component\Uid\Uuid;
  *     **outside** `TenantContext::run()`, because the failed statement aborted the transaction, by re-reading the key: the
  *     winner's row with the same digest replays, any other is the 409 conflict.
  *
- * **Update:** the pair `(customer, address)`, the address read `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
+ * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C4b), then the pair `(customer, address)`, the address read `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
  * one, or another customer's address — ST-5) → archived customer 409 → shape → country support → the **changed** fields
  * only: `UPDATE … SET <changed>, updated_at WHERE id = ? AND customer_id = ?`. An update that changes nothing — an empty
  * PATCH, or every submitted value equal to the stored one — issues no statement, writes no audit row and answers the row
@@ -66,6 +66,17 @@ use Symfony\Component\Uid\Uuid;
 final readonly class CustomerAddressWriter
 {
     public const CREATE_OPERATION = 'CreateCustomerAddress';
+
+    /**
+     * The parent read both address writes take (C5 C4b; `docs/session13/c5-design.md` §4.1, closing customers C3
+     * deviation D-4). `FOR KEY SHARE` conflicts with `DeleteCustomer`'s `FOR UPDATE` ({@see CustomerWriter::DELETE_LOCK}),
+     * so an address cannot be added to, or changed on, a customer that is being archived: it waits, re-reads the
+     * committed row and is refused `customer.is_archived`. It does NOT conflict with `UpdateCustomer`'s / `RestoreCustomer`'s
+     * `FOR NO KEY UPDATE`, so an address write and a customer edit still run side by side. Lock order: customer (KEY
+     * SHARE) → address row (`FOR NO KEY UPDATE`, update only); `DeleteCustomer` takes no address lock, so no cycle.
+     * Public so the race tests name this statement (mutation: drop the lock → `CustomerDeleteTest`'s address races red).
+     */
+    public const PARENT_KEY_SHARE = 'SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid FOR KEY SHARE';
 
     public const ARCHIVED_ON_CREATE = 'This customer is archived, so no address can be added to it.';
 
@@ -234,11 +245,14 @@ final readonly class CustomerAddressWriter
         return $changed;
     }
 
-    /** The customer's archived flag, or null when no customer of this workspace has the id. Archived customers ARE found. */
+    /**
+     * The customer's archived flag, or null when no customer of this workspace has the id. Archived customers ARE found.
+     * Locked {@see self::PARENT_KEY_SHARE} against `DeleteCustomer` (C5 C4b).
+     */
     private static function parentArchivedInside(EntityManagerInterface $em, string $customerId): ?bool
     {
         // `fetchAssociative`, not `fetchOne`: a live customer's `false` would be indistinguishable from "no row".
-        $row = $em->getConnection()->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid', [$customerId]);
+        $row = $em->getConnection()->fetchAssociative(self::PARENT_KEY_SHARE, [$customerId]);
 
         return false === $row ? null : (true === $row['archived']);
     }

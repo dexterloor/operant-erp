@@ -1273,7 +1273,8 @@ final class GrantFootprintTest extends TenancyTestCase
     /**
      * **C5 C3 (owner Q-2): the row locks Sales and the customer writers take on `customer` are legal for `erp_app`.**
      * The twin of `theApplicationMayTakeThePartyRowLocksOnSupplier`. `SalesOrderWriter` reads the customer
-     * `FOR KEY SHARE` (`PARENT_LIVENESS_READS`); `DeleteCustomer` (C5 C4b) will take `FOR UPDATE`. Postgres allows
+     * `FOR KEY SHARE` (`PARENT_LIVENESS_READS`), and so (C5 C4b) do the address writers (`CustomerAddressWriter::PARENT_KEY_SHARE`);
+     * `DeleteCustomer` (C5 C4b) takes `FOR UPDATE` (`CustomerWriter::DELETE_LOCK`). Postgres allows
      * either only to a role holding UPDATE on at least one column (ADR-002 A4.3 constraint 1), so narrowing `customer`'s
      * column UPDATE grant to none would 42501 every sales-order create. **Negative control, same test:** the same two
      * locks on `currency` (SELECT only) are refused.

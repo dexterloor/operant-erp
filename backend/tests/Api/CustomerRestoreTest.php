@@ -19,8 +19,8 @@ use Symfony\Component\Uid\Uuid;
  * meanwhile → 409 on the existing unique rule with a restore sentence (the 23505 translated outside the transaction). **No
  * name collision exists** — `customer_tenant_name_live` is not unique (measured C4a T-3), so a restore may leave two live
  * customers of one name, as create already can (design §3.4 notice). One `customer.restored` row, `{}`, on success and
- * none on any refusal. Archived customers are seeded by owner SQL until `DeleteCustomer` (C5 C4b) archives through the
- * API. Copy is placeholder (`UX` owes it, design §9 U-1).
+ * none on any refusal. Archived customers are seeded by owner SQL (a fixture; `DeleteCustomer`, C5 C4b, archives through
+ * the API — the round trip is `CustomerDeleteTest::anArchivedCustomerIsRestoredByTheOperationThatPairsWithIt`). Copy is placeholder (`UX` owes it, design §9 U-1).
  */
 final class CustomerRestoreTest extends PurchaseOrderTestCase
 {
