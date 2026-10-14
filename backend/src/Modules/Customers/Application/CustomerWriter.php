@@ -15,7 +15,8 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **`CreateCustomer` and `UpdateCustomer`** (customers slice 1 C2; `docs/session13/customers-s1-design.md` §4, final RED
+ * **`CreateCustomer`, `UpdateCustomer` and `RestoreCustomer`** (customers slice 1 C2; `RestoreCustomer` C5 C4a, see
+ * {@see self::restore()}; `docs/session13/customers-s1-design.md` §4, final RED
  * M-4's View shape, `customers-s1-g35-judge.md` FINAL item 4). Takes wire-named scalars, returns a {@see CustomerView};
  * never an `ApiResource` class (A-7) and never a `Doctrine\DBAL\Connection` (A-10: an unbound autowired `Connection` is
  * the schema owner).
@@ -23,8 +24,9 @@ use Symfony\Component\Uid\Uuid;
  * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['customer']`,
  * `Version20261009000300`): the INSERT names `id, tenant_id, code, name, country_code, currency_code` and
  * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy); the UPDATE sets only
- * the **changed** columns plus `updated_at`. A 42501 from either is fixed by removing the column from the statement,
- * never by widening the grant.
+ * the **changed** columns plus `updated_at`. `deleted_at` is written only by `restore()` (C5 C4a,
+ * `Version20261014000200`). A 42501 from any of them is fixed by removing the column from the statement, never by
+ * widening the grant.
  *
  * **Refusals, in order** (copy: `customers-s1-ux.md` §2 as amended by final RED L-1):
  *  1. shape, before any transaction: required/null, blank (empty after trimming — the value is stored as sent, no trim,
@@ -55,6 +57,16 @@ final readonly class CustomerWriter
     public const CODE_TAKEN_ON_UPDATE = 'Another customer already uses this code. Keep the current code or choose a different one.';
 
     public const ARCHIVED = 'This customer is archived, so it can\'t be changed.';
+
+    /** C5 C4a, placeholder (`UX` owes it; `SupplierWriter::NOT_ARCHIVED`'s wording). */
+    public const NOT_ARCHIVED = 'This customer is not archived, so there is nothing to restore.';
+
+    /**
+     * C5 C4a, placeholder (design §3.4): a live customer took the archived one's code while it was archived. **No name
+     * twin:** `customer_tenant_name_live` is a plain index, not a unique (measured C4a T-3) — customer names have no
+     * uniqueness rule, so a restore may leave two live customers of one name, as create already can.
+     */
+    public const CODE_TAKEN_ON_RESTORE = 'A live customer now uses this customer\'s code. Change that customer\'s code, then restore this one.';
 
     public const TERMS_OUT_OF_RANGE = 'Payment terms must be a whole number of days from 0 to %d.';
 
@@ -145,7 +157,10 @@ final readonly class CustomerWriter
                 if (false === $row) {
                     throw ApiProblem::notFound();
                 }
-                // ST-9: an archived row is read-only. Reachable only by SQL until `DeleteCustomer` ships.
+                // ST-9: an archived row is read-only. Reachable only by SQL until `DeleteCustomer` ships (C5 C4b). The
+                // sentence does not say "Restore it" **pending `UX`** (C5 R1.1 M-3): `RestoreCustomer` ships at C5 C4a, so
+                // the reason is no longer that restore is blocked, but a caller holding `customer.edit` may lack
+                // `customer.delete`, which restoring needs — `UX` rules whether the refusal names the remedy.
                 if (true === $row['archived']) {
                     throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED);
                 }
@@ -178,6 +193,63 @@ final readonly class CustomerWriter
             });
         } catch (UniqueConstraintViolationException) {
             throw ApiProblem::businessRuleViolated('customer.code_is_unique_per_workspace', self::CODE_TAKEN_ON_UPDATE);
+        }
+    }
+
+    /**
+     * **`RestoreCustomer`** (C5 C4a; `docs/session13/c5-design.md` §3.4 / §2.5; `RestoreSupplier`'s shape, API-21 branch 5:
+     * 200 with the customer in its new state). In one `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404 (ST-5);
+     *  2. the row read `FOR NO KEY UPDATE` — the update lock is enough: a restore must not wait on Sales' `FOR KEY SHARE`
+     *     readers (C5 C3), and it conflicts with `DeleteCustomer`'s `FOR UPDATE` (C4b) and with `UpdateCustomer`'s lock;
+     *  3. live → 409 `customer.is_not_archived` — the §4.2 `guard:customer.deleted_at` mechanism: a replayed restore is
+     *     told the first one committed (no `Idempotency-Key` demanded, `RestoreItem`'s reason);
+     *  4. `UPDATE customer SET deleted_at = NULL, updated_at = now()` — the column grant `Version20261014000200` adds;
+     *  5. `customer.restored`, `{}`, after the UPDATE, in its transaction;
+     *  6. the row read back.
+     *
+     * **The restore collision** (design §3.4): `customer_tenant_code_live` is partial on `deleted_at IS NULL`, so a live
+     * customer may have taken the archived one's code while it was archived. The 23505 is translated **outside** `run()`
+     * to the existing rule code with a restore sentence; the failed UPDATE aborted the transaction, so no audit row is
+     * written. It is the table's only unique a restore can hit (the name index is not unique, measured C4a T-3), the same
+     * reasoning as `create()`'s catch. **No open-work check**: restoring creates no work. Children (`customer_address`,
+     * `customer_contact`, `hard`) were never touched by archiving, so nothing is resurrected.
+     */
+    public function restore(string $id): CustomerView
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        try {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): CustomerView {
+                $connection = $em->getConnection();
+                // fetchAssociative, never fetchOne: a live row's `false` would read as "no row" (C2a deviation 5).
+                $row = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid FOR NO KEY UPDATE', [$id]);
+                if (false === $row) {
+                    throw ApiProblem::notFound();
+                }
+                if (true !== $row['archived']) {
+                    throw ApiProblem::businessRuleViolated('customer.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection->executeStatement('UPDATE customer SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$id]);
+
+                // After the UPDATE, in its transaction: a 23505 above leaves no row.
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    customerId: $id,
+                );
+
+                return CustomerReader::readInside($em, $id) ?? throw new \LogicException('The customer just restored is not readable.');
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Outside `run()`: the failed UPDATE aborted the transaction. `customer_tenant_code_live` is the only unique.
+            throw ApiProblem::businessRuleViolated('customer.code_is_unique_per_workspace', self::CODE_TAKEN_ON_RESTORE);
         }
     }
 

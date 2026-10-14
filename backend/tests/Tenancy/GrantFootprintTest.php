@@ -1025,7 +1025,8 @@ final class GrantFootprintTest extends TenancyTestCase
 
     /**
      * The columns the customer writers name, per privilege (customers slice 1: C2 `Version20261009000300`, C3
-     * `Version20261009000500`). **Typed by hand from `CustomerWriter`'s and `CustomerAddressWriter`'s INSERT and UPDATE,
+     * `Version20261009000500`; `customer.deleted_at` C5 C4a, `Version20261014000200`, `CustomerWriter::restore()`).
+     * **Typed by hand from `CustomerWriter`'s and `CustomerAddressWriter`'s INSERT and UPDATEs,
      * never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
      * reason: a joint widening of the manifest and a migration must still fail here). No DELETE on either table.
      *
@@ -1038,21 +1039,23 @@ final class GrantFootprintTest extends TenancyTestCase
                 'request_digest', 'tenant_id'],
         ],
         'UPDATE' => [
-            'customer' => ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days', 'updated_at'],
+            'customer' => ['code', 'country_code', 'currency_code', 'deleted_at', 'name', 'payment_terms_days', 'updated_at'],
             'customer_address' => ['address_line', 'city', 'country_code', 'kind', 'postal_code', 'updated_at'],
         ],
     ];
 
     /**
-     * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer` and `UpdateCustomer` name on `customer`,
+     * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer`, `UpdateCustomer` and (C5 C4a)
+     * `RestoreCustomer` name on `customer`,
      * and delete nothing — proved by running the statements as `erp_app`** (design §4.4; ADR-002 A4.4's *"exactly"*).
      * `theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName`' shape: domain from `pg_attribute`, one
      * connection and one rolled-back transaction per (table, column, privilege), zero-row probes. **Positive controls:**
-     * `customer.name` INSERT and UPDATE accepted. **Anti-vacuity:** `customer.deleted_at` UPDATE (archiving by SQL),
-     * `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **C3 (`customer_address`):**
+     * `customer.name` INSERT and UPDATE, and (C5 C4a) `customer.deleted_at` UPDATE, accepted. **Anti-vacuity:**
+     * `customer.deleted_at` INSERT, `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **C3 (`customer_address`):**
      * `address_line` INSERT and UPDATE accepted; `region` INSERT (not accepted, defaulted), `idempotency_key` UPDATE
      * (a stored key re-pointed by SQL) and `customer_address` DELETE refused. **Planted control, committed then undone:**
-     * `GRANT UPDATE (deleted_at) ON customer` must produce exactly one violation (design mutation C2-6's twin). The UPDATE
+     * `GRANT UPDATE (is_active) ON customer` (moved off `deleted_at` at C5 C4a, which is now written; design mutation C2-6's
+     * twin) must produce exactly one violation. The UPDATE
      * columns also make `UpdateCustomer`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
      */
     #[Test]
@@ -1112,10 +1115,10 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame(['accepted', 'accepted'], [$outcomes['customer.name INSERT'] ?? null, $outcomes['customer.name UPDATE'] ?? null],
-            'The positive controls failed: erp_app could not insert or update customer.name.');
-        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer.deleted_at UPDATE'] ?? null, $outcomes['customer.credit_limit UPDATE'] ?? null, $outcomes['customer.* DELETE'] ?? null],
-            'erp_app must not archive a customer, set its credit limit or delete it, and the probe did not see them refused.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['customer.name INSERT'] ?? null, $outcomes['customer.name UPDATE'] ?? null, $outcomes['customer.deleted_at UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update customer.name, or restore (deleted_at) a customer.');
+        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer.deleted_at INSERT'] ?? null, $outcomes['customer.credit_limit UPDATE'] ?? null, $outcomes['customer.* DELETE'] ?? null],
+            'erp_app must not insert an archived customer, set its credit limit or delete it, and the probe did not see them refused.');
         self::assertSame(['accepted', 'accepted'], [$outcomes['customer_address.address_line INSERT'] ?? null, $outcomes['customer_address.address_line UPDATE'] ?? null],
             'The positive controls failed: erp_app could not insert or update customer_address.address_line.');
         self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_address.region INSERT'] ?? null, $outcomes['customer_address.idempotency_key UPDATE'] ?? null, $outcomes['customer_address.* DELETE'] ?? null],
@@ -1124,13 +1127,13 @@ final class GrantFootprintTest extends TenancyTestCase
             "erp_app's writes on the customer tables are not exactly the customer writers':\n  ".implode("\n  ", $violations($outcomes)));
 
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON customer TO %s', DatabaseRoles::APP));
-            self::assertSame(['customer.deleted_at UPDATE: no customer writer issues it, but erp_app got "accepted"'], $violations($probe()),
-                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (is_active) ON customer TO %s', DatabaseRoles::APP));
+            self::assertSame(['customer.is_active UPDATE: no customer writer issues it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (is_active) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
-            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON customer FROM %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_active) ON customer FROM %s', DatabaseRoles::APP));
         }
-        self::assertSame([], $violations($probe()), 'The planted deleted_at grant survived its REVOKE.');
+        self::assertSame([], $violations($probe()), 'The planted customer is_active grant survived its REVOKE.');
     }
 
     /**

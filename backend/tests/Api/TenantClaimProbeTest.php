@@ -165,6 +165,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered customer (B's customer is another id, so a moved update would 404).
         'CreateCustomer' => ['body' => ['code' => 'C-NEW', 'name' => 'New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP']],
         'UpdateCustomer' => ['vars' => ['id' => 'customer'], 'body' => ['name' => 'Renamed']],
+        // C5 C4a: a restore of the remembered archived customer (B's is another id, so a moved restore would 404).
+        'RestoreCustomer' => ['vars' => ['id' => 'archived_customer']],
         // Customers slice 1 C3: the remembered customer and its remembered address. A moved read would 404 or list B's
         // addresses; a moved create would 404 (B's customer is another id); a moved update would 404 on the pair.
         'ListCustomerAddresses' => ['vars' => ['id' => 'customer']],
@@ -698,6 +700,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // C5 C2a: an archived supplier, so `RestoreSupplier`'s baseline drive succeeds.
         $archivedSupplier = $this->remember($letter, 'archived_supplier', $this->seedSupplier($tenantId, 'Archived Acme'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$archivedSupplier]);
+        // C5 C4a: an archived customer, so `RestoreCustomer`'s baseline drive succeeds.
+        $archivedCustomer = $this->remember($letter, 'archived_customer', $this->seedCustomer($tenantId, 'Archived Retail'));
+        // The code pinned as the live customer's is above (`seedCustomer()`'s is random per seeding and is on the wire).
+        $this->insertAsOwnerForTenant($tenantId, "UPDATE customer SET code = 'C-ARCHIVED', deleted_at = now() WHERE id = ?::uuid", [$archivedCustomer]);
         // C5 C2b: a live supplier no order names, so `DeleteSupplier`'s baseline drive succeeds.
         $this->remember($letter, 'idle_supplier', $this->seedSupplier($tenantId, 'Idle Acme'));
 

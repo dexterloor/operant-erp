@@ -397,6 +397,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($customerWriter instanceof CustomerAuditWriter);
         $customerWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122());
         $customerWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122(), fields: ['name']);
+        // C5 C4a: `customer.restored`, BUSINESS (listed AND driven).
+        $customerWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122());
         // Suppliers slice 1 C2: `supplier.created` / `supplier.updated`, BUSINESS (listed AND driven).
         $supplierWriter = self::getContainer()->get(SupplierAuditWriter::class);
         \assert($supplierWriter instanceof SupplierAuditWriter);

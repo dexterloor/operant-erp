@@ -279,12 +279,18 @@ trait ListOperationFixtures
                 // `CustomerListTest`'s — this driver takes one); the default view and both manifest orders by name (`PaginationContractTest` decodes exactly the declared enum from
                 // the views). `seedCustomer()`'s codes are
                 // letter-prefixed (CD-3), so no all-digit code reaches `WireScaleTest`.
+                // C5 C4a: as many ARCHIVED customers again, each archived at a distinct microsecond instant (owner SQL: a
+                // fixture needs distinct instants; `DeleteCustomer`, C5 C4b, archives at `now()`), so the Archived view
+                // (`archived=true&sort=archived_at`) pages too; they never appear in the live views.
                 return ['/customers', function (int $rows): array {
                     for ($i = 1; $i <= $rows; ++$i) {
                         $this->seedCustomer(self::TENANT_A, 'CUS-ENV-'.$i);
+                        $archived = $this->seedCustomer(self::TENANT_A, 'CUS-ENV-ARCHIVED-'.$i);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = ?::timestamptz WHERE id = ?::uuid',
+                            [\sprintf('2026-10-%02d 12:00:00.123456+00', $i), $archived]);
                     }
 
-                    return ['filter' => [], 'search' => 'CUS-ENV', 'views' => ['', 'sort=name', 'sort=code']];
+                    return ['filter' => [], 'search' => 'CUS-ENV', 'views' => ['', 'sort=name', 'sort=code', 'archived=true&sort=archived_at']];
                 }];
             },
             'ListSuppliers' => function (): array {

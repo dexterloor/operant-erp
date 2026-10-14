@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\Test;
 /**
  * **Customers slice 1 C1 — `ListCustomers`** (`docs/session13/customers-s1-design.md` §3; `customers-s1-ux.md` §1, TB-5a).
  *
- * Live rows only; `sort` `name` (default) or `code`; keyset cursor `(sort key, id)`; `q` a prefix of the name ignoring
+ * Live rows only (the Archived view is `CustomerArchivedViewTest`'s, C5 C4a); `sort` `name` (default) or `code`; keyset cursor `(sort key, id)`; `q` a prefix of the name ignoring
  * case, or of the code as stored. The registry-wide list checks (`ListEnvelopeTest`, `PaginationContractTest`,
  * `QueryParameterContractTest`, `SortManifestTest`, `SearchContractTest`) drive it through `ListOperationFixtures` with one
  * probe; this class pins what they cannot see — a prefix against an infix (mutation C1-2), the case rule in both
@@ -36,7 +36,10 @@ final class CustomerListTest extends PurchaseOrderTestCase
         }
     }
 
-    /** Mutation C1-1: an archived customer is not in the list (the Archived view is `⛔ D-a`; `archived` is not offered). */
+    /**
+     * Mutation C1-1: an archived customer is not in the live list. Since C5 C4a `archived=true` serves them instead (the
+     * Archived view, `CustomerArchivedViewTest`).
+     */
     #[Test]
     public function theListHoldsLiveCustomersOnly(): void
     {
@@ -45,9 +48,7 @@ final class CustomerListTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
         self::assertSame(['Live Customer'], $this->names(''));
-
-        $this->send('GET', '/customers?archived=true');
-        self::assertSame(422, $this->httpStatus(), 'archived is not offered on /customers (API-19c limb 1), so it must be refused.');
+        self::assertSame(['Archived Customer'], $this->names('?archived=true'));
     }
 
     /** `sort=code` orders by the code as stored; an unknown order is refused. */

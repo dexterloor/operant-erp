@@ -11,6 +11,7 @@ use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Customers\ApiResource\State\CreateCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerProvider;
+use App\Modules\Customers\ApiResource\State\RestoreCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerProcessor;
 use App\Modules\Customers\Application\CustomerView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -32,6 +33,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * **`CreateCustomer` / `UpdateCustomer`** (customers slice 1 C2): `CustomerWriter` behind both, `ItemResource`'s operation
  * shape. Each writes one audit row in its transaction (`customer.created` / `customer.updated` with field names only;
  * `RESIDUAL_GAPS.md` G-35).
+ *
+ * **`RestoreCustomer`** (C5 C4a): `CustomerWriter::restore()`, `customer.restored` in its transaction.
  */
 #[ApiResource(
     shortName: 'Customer',
@@ -80,6 +83,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CustomerProvider::class,
             processor: UpdateCustomerProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
+        ),
+        // C5 C4a — `RestoreCustomer`, API-21 branch 5: a POST that creates no row this contract addresses, so 200 with the
+        // customer in its new state and no `Location` (`RestoreSupplier`'s shape). It ships with `ListCustomers?archived`
+        // (E9-3: an archived customer's id is obtainable) — `CustomerOperationContractTest` ties the two.
+        new Post(
+            uriTemplate: '/customers/{id}/restoration',
+            name: 'RestoreCustomer',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreCustomer'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreCustomerProcessor::class,
+            // §4.2: `customer.delete` (undoing an archive is the same authority as making one; `RestoreItem`'s reason).
+            // **No `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:customer.deleted_at` — a replayed restore
+            // hits a live row and is refused `customer.is_not_archived` (`RestoreItem`'s reason; `IdempotencyContractTest`).
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.delete'],
         ),
     ],
 )]

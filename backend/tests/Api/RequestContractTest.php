@@ -350,6 +350,8 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'sales-orders/lines' => 'sales_order_line',
             // C5 C2a.
             'suppliers' => 'supplier',
+            // C5 C4a.
+            'customers' => 'customer',
         ];
 
         self::assertNotNull($bound, $uriTemplate.': a Restore operation binds no row, so there is nothing to archive.');

@@ -215,7 +215,11 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame('Another customer already uses this code. Keep the current code or choose a different one.', $this->json()['detail']);
     }
 
-    /** ST-9: an archived customer is read-only (reachable only by SQL until `DeleteCustomer` ships). No "Restore it" (R-3). */
+    /**
+     * ST-9: an archived customer is read-only (reachable only by SQL until `DeleteCustomer` ships, C5 C4b). The sentence
+     * carries no "Restore it" pending `UX` (C5 R1.1 M-3): restore ships at C4a, but a `customer.edit` holder may lack
+     * `customer.delete`, which restoring needs.
+     */
     #[Test]
     public function anArchivedCustomerCannotBeChanged(): void
     {

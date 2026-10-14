@@ -40,6 +40,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'customer_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'customer_tenant_code_live', columns: ['tenant_id', 'code'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\Index(name: 'customer_tenant_name_live', columns: ['tenant_id', 'name'], options: ['where' => '(deleted_at IS NULL)'])]
+// C5 C4a (Version20261014000200): the /customers Archived view's index, IA §5.7 D-a, with `id` for the keyset tie.
+#[ORM\Index(name: 'customer_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
 class Customer
 {
     #[ORM\Id]

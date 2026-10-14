@@ -190,6 +190,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // Edited by hand 2026-10-14 (C5 C2b) on the same `SEC` filing: `supplier.deleted`, with its writer
         // (`SupplierWriter::delete()`), business, subject the supplier, `{}`, no IP.
         'supplier.deleted',
+        // Edited by hand 2026-10-14 (C5 C4a), filed by the builder on `SEC`'s supplier terms (design §6.1 / §9 S-1; `SEC`
+        // to confirm): ONLY `customer.restored` — `customer.deleted` comes with `DeleteCustomer` (C4b).
+        'customer.restored',
     ];
 
     /**

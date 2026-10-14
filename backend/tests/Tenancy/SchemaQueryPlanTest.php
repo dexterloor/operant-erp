@@ -333,6 +333,34 @@ final class SchemaQueryPlanTest extends TenancyTestCase
     }
 
     /**
+     * Customers, the Archived view (C5 C4a; `IA.md` §5.6 / D-a): "what was archived, most recently first" — the statement
+     * `ListCustomers?archived=true` issues, from {@see CustomerReader::listStatement()}, on its second page, with and without
+     * `q` (design to-measure 5; `theSupplierArchivedViewUsesTheArchivedIndex`' twin). Mutation C4a-M6: drop
+     * `customer_tenant_archived_idx` → red here and in `CustomerOperationContractTest`'s D-a tie.
+     */
+    #[Test]
+    public function theCustomerArchivedViewUsesTheArchivedIndex(): void
+    {
+        foreach ([null, 'Acme'] as $search) {
+            [$sql, $parameters] = CustomerReader::listStatement(new CustomerListCriteria(
+                limit: CustomerListCriteria::DEFAULT_LIMIT,
+                sort: CustomerListCriteria::SORT_ARCHIVED_AT,
+                search: $search,
+                after: new Cursor('2026-10-13 02:38:16.744164+00', '00000000-0000-4000-8000-000000000000'),
+                archived: true,
+            ));
+            self::assertStringContainsString('c.deleted_at IS NOT NULL', $sql, 'The statement explained is not the Archived view.');
+            self::assertStringContainsString('(c.deleted_at, c.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
+            self::assertStringContainsString('ORDER BY c.deleted_at DESC, c.id DESC', $sql);
+
+            $this->assertPlan(
+                'Customers — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
+                $this->plan($sql, $parameters),
+                'customer_tenant_archived_idx');
+        }
+    }
+
+    /**
      * Suppliers: "the supplier list, alphabetical" (suppliers slice 1 C1, design FINAL F-2) — the statement `ListSuppliers`
      * issues, taken from {@see SupplierReader::listStatement()} (customers' L-4 rule), on its harder second page.
      */

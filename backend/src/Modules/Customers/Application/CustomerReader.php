@@ -58,9 +58,13 @@ final readonly class CustomerReader
     }
 
     /**
-     * **`ListCustomers`** — one keyset page (API-17/API-18) of the **live** customers only (`deleted_at IS NULL`; the
-     * `/customers` Archived view is `⛔ D-a`, so `archived` is not offered — API-19c limb 1), in the requested order,
-     * the cursor always `(sort key, id)`.
+     * **`ListCustomers`** — one keyset page (API-17/API-18) of the **live** customers (`deleted_at IS NULL`), or, with
+     * `archived=true`, of the **archived** ones instead (`deleted_at IS NOT NULL`, TB-3; C5 C4a — the `/customers` Archived
+     * view, `IA.md` §5.6, served by `customer_tenant_archived_idx`), in the requested order, the cursor always
+     * `(sort key, id)`. The Archived view's one order is `archived_at` = `deleted_at DESC, id DESC`, most recently
+     * archived first (D-a); its cursor key is the column's text **as Postgres returns it** (microseconds and offset,
+     * `2026-10-13 02:38:16.744164+00`), never the millisecond `archived_at` the wire shows — a millisecond key would skip
+     * or repeat customers archived within one millisecond (design §4.2 trap 1).
      *
      * `q` (API-19d / TB-5 / TB-5a, decided 2026-10-09): a **prefix** on `customer.name`, **case-insensitive**, OR on
      * `customer.code`, **as stored** — two separate leaves, so the search folds case on one column, never two (TB-5).
@@ -105,9 +109,9 @@ final readonly class CustomerReader
      */
     public static function listStatement(CustomerListCriteria $criteria): array
     {
-        // TB-3: a live list never returns a soft-deleted row; the predicate is also what lets the `_live` partial indexes
-        // be chosen.
-        $where = ['c.deleted_at IS NULL'];
+        // TB-3: a live list never returns a soft-deleted row, and the Archived view returns only those — instead of the
+        // live set, never beside it. Each predicate is also what lets its partial index (`_live` / `_archived_idx`) be chosen.
+        $where = [$criteria->archived ? 'c.deleted_at IS NOT NULL' : 'c.deleted_at IS NULL'];
         $parameters = [];
 
         if (null !== $criteria->search) {
@@ -118,11 +122,29 @@ final readonly class CustomerReader
             $parameters[] = $prefix;
         }
 
+        $cursor = $criteria->after ?? $criteria->before;
+
+        if (CustomerListCriteria::SORT_ARCHIVED_AT === $criteria->sort) {
+            // The Archived view: newest first, so forward is DESC and the keyset comparison is `<`. The provider has
+            // already refused a cursor whose key is not a timestamp (a live-view cursor sent here), so the cast cannot 500.
+            $descending = !$criteria->isBackwards();
+            if (null !== $cursor) {
+                $where[] = \sprintf('(c.deleted_at, c.id) %s (?::timestamptz, ?::uuid)', $descending ? '<' : '>');
+                $parameters[] = $cursor->sortKey;
+                $parameters[] = $cursor->id;
+            }
+            $direction = $descending ? 'DESC' : 'ASC';
+            $sql = self::SELECT.' WHERE '.implode(' AND ', $where)
+                .\sprintf(' ORDER BY c.deleted_at %s, c.id %s LIMIT ?', $direction, $direction);
+            $parameters[] = $criteria->limit + 1;
+
+            return [$sql, $parameters];
+        }
+
         // Never interpolated from the request: the column is chosen from the criteria's own constant set.
         $column = CustomerListCriteria::SORT_CODE === $criteria->sort ? 'c.code' : 'c.name';
         $ascending = !$criteria->isBackwards();
 
-        $cursor = $criteria->after ?? $criteria->before;
         if (null !== $cursor) {
             // API-18: the pair, never the key alone — names repeat.
             $where[] = \sprintf('(%s, c.id) %s (?, ?::uuid)', $column, $ascending ? '>' : '<');
@@ -149,10 +171,13 @@ final readonly class CustomerReader
             return [null, null];
         }
 
-        // Both sort keys are NOT NULL text, so `6fe8b7d`'s empty-key cursor cannot arise here.
-        $first = new Cursor((string) $rows[0][$criteria->sort], (string) $rows[0]['id']);
+        // The live keys are NOT NULL text, and the Archived view's key is `deleted_at`, NOT NULL by its own predicate, so
+        // `6fe8b7d`'s empty-key cursor cannot arise here. `archived_at` reads the raw column text (microseconds), never
+        // the view's millisecond rendering.
+        $key = CustomerListCriteria::SORT_ARCHIVED_AT === $criteria->sort ? 'deleted_at' : $criteria->sort;
+        $first = new Cursor((string) $rows[0][$key], (string) $rows[0]['id']);
         $lastRow = $rows[array_key_last($rows)];
-        $last = new Cursor((string) $lastRow[$criteria->sort], (string) $lastRow['id']);
+        $last = new Cursor((string) $lastRow[$key], (string) $lastRow['id']);
 
         if ($criteria->isBackwards()) {
             return [$last->encode(), $hasMore ? $first->encode() : null];

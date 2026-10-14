@@ -106,7 +106,11 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM customer_address'));
     }
 
-    /** ST-9: an archived customer gets no new address (C-4: no "Restore it" while `RestoreCustomer` is blocked, R-3). */
+    /**
+     * ST-9: an archived customer gets no new address (C-4). The sentence carries no "Restore it" pending `UX` (C5 R1.1
+     * M-3): `RestoreCustomer` ships at C5 C4a, so the reason is no longer that restore is blocked (R-3), but a
+     * `customer.edit` holder may lack `customer.delete`, which restoring needs.
+     */
     #[Test]
     public function anArchivedCustomerGetsNoNewAddress(): void
     {

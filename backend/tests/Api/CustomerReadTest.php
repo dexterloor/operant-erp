@@ -36,6 +36,8 @@ final class CustomerReadTest extends PurchaseOrderTestCase
         // C2 (2026-10-09): the create demands the header (`unique:customer_tenant_code_live`); the PATCH does not.
         'CreateCustomer' => ['method' => 'POST', 'path' => '/customers', 'idem' => true],
         'UpdateCustomer' => ['method' => 'PATCH', 'path' => '/customers/{id}', 'idem' => false],
+        // C5 C4a: `guard:customer.deleted_at` — no header (a repeat is refused by the guard, `RestoreItem`'s reason).
+        'RestoreCustomer' => ['method' => 'POST', 'path' => '/customers/{id}/restoration', 'idem' => false],
         // C3 (2026-10-09): the address create demands the header (`unique:customer_address_idem_unique`); the PATCH and the
         // bounded list do not.
         'CreateCustomerAddress' => ['method' => 'POST', 'path' => '/customers/{id}/addresses', 'idem' => true],

@@ -259,7 +259,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // branch 5, 200) on `SupplierResource`. Its migration grants `erp_app` column UPDATE (`deleted_at`) on `supplier`.
         // **And one more (C5 C2b, 2026-10-14):** `DeleteSupplier` (DELETE `/suppliers/{id}`, `supplier.delete`; branch 3, 204)
         // on `SupplierResource`. No grant: it reuses C2a's column UPDATE (`deleted_at`); `erp_app` holds no DELETE on `supplier`.
-        self::assertCount(94, $checked, 'The route set changed. This slice declares ninety-four operations: '.implode(', ', array_keys($checked)));
+        // **And one more (C5 C4a, 2026-10-14):** `RestoreCustomer` (POST `/customers/{id}/restoration`, `customer.delete`;
+        // branch 5, 200) on `CustomerResource`. Its migration grants `erp_app` column UPDATE (`deleted_at`) on `customer`.
+        self::assertCount(95, $checked, 'The route set changed. This slice declares ninety-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

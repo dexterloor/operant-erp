@@ -284,6 +284,13 @@ namespace App\SharedKernel\ValueObject;
  *     literal list is the live constraint's forty-two members (read off `pg_constraint`, not generated) plus this one.
  *     **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with one literal.
  *
+ *   - **`CUSTOMER_RESTORED`**, 2026-10-14, C5 C4a — **filed `BUSINESS` by the builder on the supplier filing's terms**
+ *     (`docs/session13/c5-design.md` §6.1 / §9 S-1: `SEC` filed the supplier pair only; `SEC` to confirm the customer
+ *     pair), steps 3–5 done **with its writer in the same commit** (`CustomerAuditWriter::recordRestored()`). **Only this
+ *     one**: `customer.deleted` comes with `DeleteCustomer` (C5 C4b). Step 5 is `Version20261014000300`, whose literal
+ *     list is the live constraint's forty-three members (read off `pg_constraint`, not generated) plus this one. **Step 6
+ *     does not apply.** `PINNED_ALLOWLIST` edited by hand with one literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -809,6 +816,15 @@ final class AuditEvent
     public const CUSTOMER_UPDATED = 'customer.updated';
 
     /**
+     * **An archived customer restored** — `RestoreCustomer` (C5 C4a, 2026-10-14; `docs/session13/c5-design.md` §6.1;
+     * filed by the builder on `SEC`'s supplier-pair terms, `SEC` to confirm). Subject `('customer', id)`. **Business**
+     * under PC-11 (4a). No IP, no permission code, `metadata` `{}`. Written by `CustomerAuditWriter::recordRestored()` in
+     * `CustomerWriter::restore()`'s transaction, after the UPDATE; a refused restore (not archived, or a live customer
+     * took its code) writes none. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_RESTORED = 'customer.restored';
+
+    /**
      * **A supplier created** — `CreateSupplier` (suppliers slice 1 C2, 2026-10-12; owner Q-S5). Subject
      * `('supplier', id)`. **Business** under PC-11 (4a): about the supplier row's own state; (4c) does not reach it
      * (subject `supplier`). No IP, no permission code, `metadata` `{}`. `customer.created`'s twin: `CreateSupplier`
@@ -965,6 +981,7 @@ final class AuditEvent
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
         self::SUPPLIER_DELETED,
+        self::CUSTOMER_RESTORED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
@@ -1049,6 +1066,7 @@ final class AuditEvent
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
         self::SUPPLIER_DELETED,
+        self::CUSTOMER_RESTORED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
         self::WAREHOUSE_CREATED,
@@ -1125,6 +1143,8 @@ final class AuditEvent
         self::SUPPLIER_RESTORED => 'supplier',
         // C5 C2b: the supplier row whose own state changed.
         self::SUPPLIER_DELETED => 'supplier',
+        // C5 C4a: the customer row whose own state changed.
+        self::CUSTOMER_RESTORED => 'customer',
         // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` to confirm the subject).
         self::CUSTOMER_ADDRESS_CREATED => 'customer_address',
         self::CUSTOMER_ADDRESS_UPDATED => 'customer_address',

@@ -145,6 +145,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Customers slice 1 C2 (2026-10-09): `sales_rep`, `admin` and owner hold both (`SECURITY_MODEL.md` §4); `viewer` neither.
         'CreateCustomer' => 'customer.create',
         'UpdateCustomer' => 'customer.edit',
+        // C5 C4a (2026-10-14): `customer.delete` — `sales_rep`, `admin` and owner (`SECURITY_MODEL.md` §4); `viewer` not.
+        'RestoreCustomer' => 'customer.delete',
         // Customers slice 1 C3 (2026-10-09): the address writes are `customer.edit` (NOT `.create`, §4.2), the list `.view`.
         'CreateCustomerAddress' => 'customer.edit',
         'UpdateCustomerAddress' => 'customer.edit',
