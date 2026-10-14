@@ -28,6 +28,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'credit_note_line_once_per_line', columns: ['tenant_id', 'credit_note_id', 'fulfilment_line_id'])]
 // "Everything credited against this shipped line" — the credited quantity and the bounds.
 #[ORM\Index(name: 'credit_note_line_tenant_fulfilment_line_idx', columns: ['tenant_id', 'fulfilment_line_id'])]
+// "What has already been credited against this return line" (`SalesReturnReader::creditedOnReturnLine()`), so RLS is an
+// `Index Cond`; partial, because adjustment lines carry NULL (`Version20261015120000`).
+#[ORM\Index(name: 'credit_note_line_tenant_return_line_idx', columns: ['tenant_id', 'sales_return_line_id'], options: ['where' => '(sales_return_line_id IS NOT NULL)'])]
 class CreditNoteLine
 {
     #[ORM\Id]

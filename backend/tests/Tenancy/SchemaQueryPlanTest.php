@@ -9,6 +9,7 @@ use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
+use App\Modules\Sales\Application\SalesReturnReader;
 use App\Modules\Suppliers\Application\SupplierListCriteria;
 use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
@@ -277,6 +278,45 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             "\n", $this->app()->fetchFirstColumn('EXPLAIN (ANALYZE, COSTS OFF) '.$sql, $params)));
     }
 
+    /**
+     * {@see self::plan()} with planner settings applied `SET LOCAL`, inside the same tenant transaction, so they end with it.
+     * **A planner-size accommodation, never the thing under test:** this seeded world is small, and on a small table the
+     * planner may prefer a plan that real volume would not (a bitmap scan plus a sort, or a sequential scan of an empty
+     * table). Every caller says which setting it uses and why.
+     *
+     * @param array<string, 'off'> $settings
+     */
+    private function planWith(array $settings, string $sql, array $params = []): string
+    {
+        $this->seedWorld();
+
+        return $this->tenantContext()->run(self::TENANT_A, function () use ($settings, $sql, $params): string {
+            foreach ($settings as $name => $value) {
+                self::assertMatchesRegularExpression('/^enable_[a-z]+$/', $name);
+                $this->app()->executeStatement(\sprintf('SET LOCAL %s = %s', $name, $value));
+            }
+
+            return implode("\n", $this->app()->fetchFirstColumn('EXPLAIN (ANALYZE, COSTS OFF) '.$sql, $params));
+        });
+    }
+
+    /**
+     * **The archived page is served in index order, with no sort** (`docs/session13/owed-data-c5.md` follow-up 3, RED H-1):
+     * `assertPlan()` alone passes a bitmap scan plus a sort, and a regression to `IA.md` D-a's two-column
+     * `(tenant_id, deleted_at)` shape with the ORM attribute moved to match. Only a three-column index ending in `id` can
+     * serve `ORDER BY deleted_at DESC, id DESC` with `(deleted_at, id) < (…)` as an index condition, read backward.
+     */
+    private function assertServedInIndexOrder(string $plan, string $index): void
+    {
+        self::assertStringContainsString('Index Scan Backward using '.$index, $plan,
+            "The archived page is not read backward along $index, newest first:\n$plan");
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*ROW\((?:\w+\.)?deleted_at, (?:\w+\.)?id\) < ROW\(/', $plan,
+            "The keyset (deleted_at, id) < (…) is not an index condition, so the page is filtered, not sought:\n$plan");
+        self::assertStringNotContainsString('Sort', $plan,
+            "The archived page is sorted after it is read (this also catches an Incremental Sort, which a two-column "
+            ."(tenant_id, deleted_at) index forces):\n$plan");
+    }
+
     private function assertPlan(string $label, string $plan, string $expectedIndex): void
     {
         fwrite(STDERR, "\n  [EXPLAIN] $label\n    ".str_replace("\n", "\n    ", $plan)."\n");
@@ -393,10 +433,17 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertStringContainsString('(c.deleted_at, c.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
             self::assertStringContainsString('ORDER BY c.deleted_at DESC, c.id DESC', $sql);
 
+            // The plain page also carries the plan-shape pin (follow-up 3). `enable_bitmapscan = off` is the planner-size
+            // accommodation `planWith()` describes: the seeded world holds few archived rows, and a bitmap scan plus a
+            // sort would be a fact about this world's size, not about the index.
+            $plan = null === $search ? $this->planWith(['enable_bitmapscan' => 'off'], $sql, $parameters) : $this->plan($sql, $parameters);
             $this->assertPlan(
                 'Customers — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
-                $this->plan($sql, $parameters),
+                $plan,
                 'customer_tenant_archived_idx');
+            if (null === $search) {
+                $this->assertServedInIndexOrder($plan, 'customer_tenant_archived_idx');
+            }
         }
     }
 
@@ -441,11 +488,47 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertStringContainsString('(s.deleted_at, s.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
             self::assertStringContainsString('ORDER BY s.deleted_at DESC, s.id DESC', $sql);
 
+            // The plain page also carries the plan-shape pin (follow-up 3). `enable_bitmapscan = off` is the planner-size
+            // accommodation `planWith()` describes: the seeded world holds few archived rows, and a bitmap scan plus a
+            // sort would be a fact about this world's size, not about the index.
+            $plan = null === $search ? $this->planWith(['enable_bitmapscan' => 'off'], $sql, $parameters) : $this->plan($sql, $parameters);
             $this->assertPlan(
                 'Suppliers — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
-                $this->plan($sql, $parameters),
+                $plan,
                 'supplier_tenant_archived_idx');
+            if (null === $search) {
+                $this->assertServedInIndexOrder($plan, 'supplier_tenant_archived_idx');
+            }
         }
+    }
+
+    /**
+     * Sales: "what has already been credited against this return line" — `SalesReturnReader::creditedOnReturnLine()`, the
+     * term `owesACredit()`, the return-line reads and `CreditNoteWriter` all embed (`docs/session13/owed-data-c5.md`
+     * follow-up 2, `Version20261015120000`). Measured by `DATA` before the index: every evaluation read every workspace's
+     * `credit_note_line` rows and applied RLS as a **Filter**; `assertPlan()`'s third assertion is that failure's refusal.
+     *
+     * The term is taken from the source, never transcribed, and correlated to a one-row derived table carrying this
+     * tenant's id, so no outer table scan enters the plan. **`enable_seqscan = off`** is the planner-size accommodation
+     * `planWith()` describes: this world seeds no credit notes, and on an empty table a sequential scan is the cheapest
+     * plan whatever indexes exist. With it off, the planner still chooses between this index and the shipped
+     * `credit_note_line_tenant_fulfilment_line_idx` / `(tenant_id, id)` unique, which can only take `tenant_id` as an
+     * index condition — so **mutation: drop the index from the migration (and the ORM attribute) → red** on the index
+     * name, and the plan shows `sales_return_line_id` as a Filter.
+     */
+    #[Test]
+    public function theCreditedOnReturnLineSubqueryUsesTheReturnLineIndex(): void
+    {
+        $term = SalesReturnReader::creditedOnReturnLine('rl');
+        self::assertStringContainsString('cnl.sales_return_line_id = rl.id', $term, 'The term explained is not the credited-on-return-line term.');
+
+        $plan = $this->planWith(['enable_seqscan' => 'off'], 'SELECT '.$term.' AS credited FROM '
+            ."(SELECT ?::uuid AS id, NULLIF(current_setting('app.tenant_id', true), '')::uuid AS tenant_id) rl",
+            ['00000000-0000-4000-8000-000000000000']);
+
+        $this->assertPlan('Sales — credited so far against one return line', $plan, 'credit_note_line_tenant_return_line_idx');
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*sales_return_line_id/', $plan,
+            "The return line is not an index condition, so every credit-note line of the workspace is read:\n$plan");
     }
 
     /** AuditLog: "what happened in this tenant, newest first". */

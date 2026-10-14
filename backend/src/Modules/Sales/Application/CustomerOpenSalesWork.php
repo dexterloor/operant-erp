@@ -33,7 +33,13 @@ use Doctrine\ORM\EntityManagerInterface;
  *  4. **credits owed to the customer** — returns with {@see SalesReturnReader::owesACredit()}, joined to the fulfilment's
  *     live invoice as `live` exactly as `SalesReturnReader::headerSql()` joins it: `creditable` OR `blockedByPayment`, so
  *     a return owed a credit on a PAID invoice (G-23's queue) blocks too (RED H-2; mutation M21 — `creditable()` instead
- *     → the blocked-by-payment test is red).
+ *     → the blocked-by-payment test is red). The order's `deleted_at IS NULL` is there for `sales_order_tenant_customer_idx`
+ *     (partial on live rows), as in leg 2; it removes nothing: only a draft may be archived
+ *     (`sales_order_archived_only_while_draft`), and a draft has no shipment, hence no return. That second half is an
+ *     application invariant, not a constraint; an owner-seeded fulfilment on a draft (G-7's shape) is the one way to break
+ *     it. A performance predicate only (`docs/session13/owed-data-c5.md` follow-up 1: a typical customer's leg 4 went from
+ *     tenant-sized to customer-sized, 20–22 ms → 3–4 ms, identical counts); no behaviour test can see it, so
+ *     `CustomerOpenWorkStatementTest::everyLegFilteringSalesOrdersByCustomerAlsoNamesTheLiveRowPredicate` pins the text.
  *
  * Reads only Sales' tables (A-2); RLS bounds every subquery to the workspace. Writes nothing.
  */
@@ -88,7 +94,7 @@ final readonly class CustomerOpenSalesWork implements CustomerOpenWork
                  JOIN fulfilment rf ON rf.tenant_id = r.tenant_id AND rf.id = r.fulfilment_id
                  JOIN sales_order rso ON rso.tenant_id = rf.tenant_id AND rso.id = rf.sales_order_id
                  LEFT JOIN invoice live ON live.tenant_id = r.tenant_id AND live.fulfilment_id = r.fulfilment_id AND live.status <> '%2$s'
-                WHERE rso.customer_id = ?::uuid AND live.id IS NOT NULL AND %7$s) AS owed_credits
+                WHERE rso.customer_id = ?::uuid AND rso.deleted_at IS NULL AND live.id IS NOT NULL AND %7$s) AS owed_credits
             SQL,
             "'".implode("', '", self::OPEN_ORDER_STATUSES)."'",
             Invoice::STATUS_VOID,
