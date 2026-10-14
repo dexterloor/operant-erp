@@ -330,6 +330,74 @@ final class DeptracRulesetTest extends TestCase
         }
     }
 
+    /**
+     * **Each `*Port` layer has exactly two users — its own module's Application and ONE named consumer — and that consumer
+     * already holds a §5.2 edge to the declaring module** (`docs/session13/owed-arch-c5.md` follow-up A, condition A; RED
+     * M-1). Deptrac is allow-by-list, so it enforces whoever is listed: a third module adding `SuppliersPort` to its allowed
+     * list stays green there, and {@see self::noAiOrAnalyticsClassCanReachAPort()} checks only the `Ai`/`Analytics`
+     * prefixes. This reads the ruleset as data and closes both gaps.
+     *
+     * `PORT_CONSUMERS` is the one place a Port's consumer is named: a new Port must add its row here, which is the
+     * deliberate act. `SECTION_5_2_READ_EDGES` is a HAND-LISTED copy of `ARCHITECTURE.md` §5.2's whitelist (its mermaid
+     * block is not parsed by any test), so a Port can never add a module pair: when §5.2 changes, this list changes with it,
+     * in the same commit. `*` → `UserManagement` is §5.2's "actor display name" family.
+     *
+     * **Mutations:** add `SuppliersPort` to `WarehousesApplication`'s allowed list → red (three users); map `SuppliersPort`
+     * to `WarehousesApplication` here (and list it there) → red on the §5.2 check (`WHS → SUP` is no edge).
+     */
+    #[Test]
+    public function eachPortHasOneNamedConsumerOnASection52Edge(): void
+    {
+        /** @var array{deptrac: array{layers: list<array{name: string}>, ruleset: array<string, list<string>|null>}} $config */
+        $config = Yaml::parseFile(self::backendDir().'/deptrac.yaml');
+        $ports = array_values(array_filter(array_column($config['deptrac']['layers'], 'name'),
+            static fn (string $layer): bool => str_ends_with($layer, 'Port')));
+        sort($ports);
+        $expected = array_keys(self::PORT_CONSUMERS);
+        sort($expected);
+        self::assertSame($expected, $ports,
+            'The declared *Port layers are not exactly the ones this test names a consumer for. A new Port adds its row to '
+            .'PORT_CONSUMERS, with a consumer that already holds a §5.2 edge to it (A-2, amended 2026-10-14).');
+
+        foreach (self::PORT_CONSUMERS as $port => $consumer) {
+            $users = [];
+            foreach ($config['deptrac']['ruleset'] as $layer => $allowed) {
+                if (\in_array($port, $allowed ?? [], true)) {
+                    $users[] = $layer;
+                }
+            }
+            sort($users);
+            $owner = substr($port, 0, -\strlen('Port')).'Application';
+            $want = [$owner, $consumer];
+            sort($want);
+            self::assertSame($want, $users,
+                $port.' is listed by layers other than its own module\'s Application and its one named consumer ('.$consumer.'). '
+                .'A Port answers ONE question for ONE consumer; another module that needs the answer needs its own design (A-2).');
+
+            $pair = substr($consumer, 0, -\strlen('Application')).' -> '.substr($port, 0, -\strlen('Port'));
+            self::assertTrue(\in_array($pair, self::SECTION_5_2_READ_EDGES, true) || str_ends_with($pair, ' -> UserManagement'),
+                $port.'\'s consumer is '.$consumer.', but '.$pair.' is not an edge in ARCHITECTURE.md §5.2. A Port never adds a '
+                .'module pair (A-2, amended 2026-10-14): the consumer must already hold the edge.');
+        }
+    }
+
+    /** The one named consumer of each `*Port` layer (A-2, amended 2026-10-14; `owed-arch-c5.md` F-1). */
+    private const PORT_CONSUMERS = [
+        'SuppliersPort' => 'PurchasingApplication',
+        'CustomersPort' => 'SalesApplication',
+    ];
+
+    /** `ARCHITECTURE.md` §5.2's read edges, hand-copied (mermaid is not parsed); `*` → `UserManagement` is allowed separately. */
+    private const SECTION_5_2_READ_EDGES = [
+        'Purchasing -> Suppliers',
+        'Purchasing -> Inventory',
+        'Purchasing -> Warehouses',
+        'Sales -> Customers',
+        'Sales -> Inventory',
+        'Sales -> Warehouses',
+        'Inventory -> Warehouses',
+    ];
+
     #[Test]
     public function everyClassInSrcBelongsToALayer(): void
     {

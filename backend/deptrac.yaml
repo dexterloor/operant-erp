@@ -79,6 +79,17 @@ deptrac:
   #   grep -- "- App" deptrac.yaml | grep -c "A-7"       ->  65 A-7
   #   grep -- "- App" deptrac.yaml | grep -c "A-5"       ->   6 A-5
   #
+  # (RECOUNTED 2026-10-15, `owed-arch-c5.md` follow-up item D / RED L-7, after C5 and the follow-up copy, speed and
+  # safeguards commits: the three commands above, run verbatim, return **148 / 88 / 33**. ⚠ They match FOUR lines of this
+  # header (the three command lines and the `git show` line above them), one of which holds "A-7" and one "A-5", so the
+  # register itself holds 144 edge lines naming an App class, 87 A-7 and 32 lines naming A-5 (this note avoids
+  # spelling the grep pattern, so that it does not match itself and move the figures it records: the trap noted above). Counted by TAG instead -- every
+  # `skip_violations` line between `skip_violations:` and `layers:`, by its trailing `# A-n` -- the register holds
+  # **154 edge lines: A-1 1, A-5 31, A-7 87, A-10 10, A-12 25, untagged 0** (the A-10 lines name `Doctrine\DBAL\Connection`,
+  # not `App`, which is why the two methods differ). The per-rule figures in the list below are those tag counts. No edge
+  # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
+  # not a `Connection` (A-10). Re-derive; never restate, including this.)
+  #
   # (Re-derived 2026-10-13 with `CreateStorageLocation` / `UpdateStorageLocation` in the tree (warehouses slice 1, C3): the
   # three commands return **145 / 85 / 33** -- ONE edge line added: `StorageLocationWriter -> StorageLocationAuditWriter`
   # (A-5, `storage_location.created` / `.updated`). Plus one LAYER edge, not an edge line: `WarehousesApplication ->
@@ -302,24 +313,24 @@ deptrac:
   #                   `Platform\Security\AccessTokenVerifier` and
   #                   `UserManagement\Infrastructure\AccessTokenIssuer` — and
   #                   the edge is gone rather than registered.
-  #   A-5  (4 edges)  Something depends on `AuditLog`. A-5's stated mechanism is
+  #   A-5  (4 edges at Output 5; 31 at 2026-10-15, recount below)  Something depends on `AuditLog`. A-5's stated mechanism is
   #                   dispatching `Platform\Messaging\Event\AuditableAction`,
   #                   and symfony/messenger is not installed, so the audit path
   #                   is a direct synchronous call by necessity. One of them
   #                   is also A-1 (`PermissionGate` is Platform).
-  #   A-7  (47 edges) A module's `Application` layer depends "up" — on its own
+  #   A-7  (47 edges when written; 87 at 2026-10-15, recount below) A module's `Application` layer depends "up" — on its own
   #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
   #                   `CurrentUserResource` are declared there and returned from
   #                   Application) or on its own `Infrastructure` (entities and
   #                   concrete adapters). Both are Output 4 slice shapes.
-  #   A-10 (10 edges) Module code and `Platform\Security` take
+  #   A-10 (10 edges; still 10 at 2026-10-15) Module code and `Platform\Security` take
   #                   `Doctrine\DBAL\Connection` directly. This one is not an
   #                   oversight and should not be "fixed" without reading
   #                   ADR-006 first: the explicit per-principal connection
   #                   binding in config/services.yaml IS the security control
   #                   that keeps the pre-auth path off `erp_app`. A-10 and
   #                   ADR-006's principal separation want different things.
-  #   A-12 (19 edges) Cross-module Doctrine associations. Already recorded in
+  #   A-12 (19 edges when written; 25 at 2026-10-15, recount below) Cross-module Doctrine associations. Already recorded in
   #                   §5.3 as a known deviation with an owner. This register is
   #                   the first time its size has been counted: 19 edges.
   #                   (20 from 2026-09-22: `Fulfilment -> AppUser`, forced by
@@ -770,7 +781,8 @@ deptrac:
           value: '#^App\\Modules\\Customers\\Application\\Contract\\#'
     # C5 C4b (2026-10-14; `docs/session13/c5-design.md` R1.6, RED round 2 F-3): Customers' inbound PORT — not a Contract.
     # `SuppliersPort`'s shape: `CustomerOpenWork`, answered by Sales; no `Ai*` or `Analytics*` ruleset entry lists a
-    # `*Port` layer (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). `ARCH` co-sign owed (design §9 A-1).
+    # `*Port` layer (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). Co-signed by `ARCH` 2026-10-14 (`docs/session13/owed-arch-c5.md`);
+    # one consumer per Port, on a §5.2 edge: `DeptracRulesetTest::eachPortHasOneNamedConsumerOnASection52Edge`.
     - name: CustomersPort
       collectors:
         - type: classNameRegex
@@ -882,7 +894,8 @@ deptrac:
     # C5 C2b (2026-10-14; `docs/session13/c5-design.md` R1.6, RED round 2 F-3): Suppliers' inbound PORT — not a Contract.
     # `Application\Port` is a module's port for ONE named consumer (`SupplierOpenWork`, answered by Purchasing); unlike a
     # Contract it is never the AI's door (A-4): no `Ai*` or `Analytics*` ruleset entry lists a `*Port` layer
-    # (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). `ARCH` co-sign owed (design §9 A-1).
+    # (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`). Co-signed by `ARCH` 2026-10-14 (`docs/session13/owed-arch-c5.md`);
+    # one consumer per Port, on a §5.2 edge: `DeptracRulesetTest::eachPortHasOneNamedConsumerOnASection52Edge`.
     - name: SuppliersPort
       collectors:
         - type: classNameRegex

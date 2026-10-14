@@ -307,13 +307,13 @@ services:
     App\Modules\Inventory\Application\Contract\PickableStock: '@App\Modules\Inventory\Application\PickableStockReader'
 
     # C5 C2b — `DeleteSupplier` asks Purchasing whether a supplier has open purchase orders (owner ruling Q-S2). An inbound
-    # PORT of Suppliers implemented by its one named consumer (`docs/session13/c5-design.md` R1.6; `ARCH` co-sign owed),
+    # PORT of Suppliers implemented by its one named consumer (`docs/session13/c5-design.md` R1.6; co-signed by `ARCH` 2026-10-14),
     # never a Contract: `Ai`/`Analytics` may not use `SuppliersPort` (deptrac). Explicit for the reason the bindings above give.
     App\Modules\Suppliers\Application\Port\SupplierOpenWork: '@App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders'
 
     # C5 C4b — `DeleteCustomer` asks Sales what a customer still has open (ruling Q-1 (b′): open orders, uninvoiced shipments,
     # unpaid invoices, credits owed). `SupplierOpenWork`'s shape: an inbound PORT of Customers implemented by its one named
-    # consumer (`c5-design.md` R1.6; `ARCH` co-sign owed), never a Contract — `Ai`/`Analytics` may not use `CustomersPort`.
+    # consumer (`c5-design.md` R1.6; co-signed by `ARCH` 2026-10-14), never a Contract — `Ai`/`Analytics` may not use `CustomersPort`.
     App\Modules\Customers\Application\Port\CustomerOpenWork: '@App\Modules\Sales\Application\CustomerOpenSalesWork'
 
 when@test:

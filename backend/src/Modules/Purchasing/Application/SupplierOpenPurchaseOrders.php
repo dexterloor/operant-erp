@@ -29,6 +29,31 @@ final readonly class SupplierOpenPurchaseOrders implements SupplierOpenWork
 
     public function openPurchaseOrderCountInside(EntityManagerInterface $em, string $supplierId): int
     {
-        return (int) $em->getConnection()->fetchOne(self::COUNT, [$supplierId, '{'.implode(',', self::OPEN_STATUSES).'}']);
+        $connection = $em->getConnection();
+        self::refuseOutsideATenancyTransaction($em, 'SupplierOpenWork');
+
+        return (int) $connection->fetchOne(self::COUNT, [$supplierId, '{'.implode(',', self::OPEN_STATUSES).'}']);
+    }
+
+    /**
+     * **The port refuses to answer outside a tenancy transaction** (`docs/session13/owed-arch-c5.md` follow-up B, condition
+     * B; RED L-5). Its answer FAILS OPEN: called outside `TenantContext::run()`, or inside a transaction that set no tenant,
+     * RLS's `NULLIF(current_setting('app.tenant_id', true), '')::uuid` is NULL, every row is invisible, the count is 0, and
+     * the archive goes through. So both conditions are checked, not stated: nesting level 0 (`SalesOrderRowLock`'s shape),
+     * then an empty tenant setting (the read `TenantContext` makes). Public so the refusal tests name it.
+     */
+    public const TENANT_GUC = "SELECT NULLIF(current_setting('app.tenant_id', true), '')";
+
+    private static function refuseOutsideATenancyTransaction(EntityManagerInterface $em, string $port): void
+    {
+        // Through the EntityManager, never a typed `Connection` (A-10; the caller's own connection, S-7(b)).
+        $connection = $em->getConnection();
+        if (0 === $connection->getTransactionNestingLevel()) {
+            throw new \LogicException($port.' needs the caller\'s open tenancy transaction: outside one, RLS hides every row and the answer is 0, which lets the archive through.');
+        }
+        $tenant = $connection->fetchOne(self::TENANT_GUC);
+        if (null === $tenant || false === $tenant) {
+            throw new \LogicException($port.' was called in a transaction with no tenant set: RLS would hide every row and the answer would be 0, which lets the archive through.');
+        }
     }
 }

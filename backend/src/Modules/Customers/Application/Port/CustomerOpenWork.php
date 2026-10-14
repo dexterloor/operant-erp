@@ -16,14 +16,15 @@ use Doctrine\ORM\EntityManagerInterface;
  * **Not a Contract** (R1.6, RED round 2 F-3): `Application\Contract` is the AI's door into a module (A-4), and this port
  * returns counts of documents with no `.view` gate. It lives in its own deptrac layer, `CustomersPort`, which only
  * `CustomersApplication` and `SalesApplication` may use — never `Ai*` or `Analytics*` (`DeptracRulesetTest` probes it).
- * `ARCH` co-signs the layer kind (design §9 A-1; owed).
+ * Co-signed by `ARCH` 2026-10-14 (`docs/session13/owed-arch-c5.md` §1.5).
  *
  * **(b′), four legs, counted in ONE statement** (one READ COMMITTED snapshot: separate counts could each miss a row a
  * concurrent `VoidInvoice` moves between "billed" and "unbilled"): open sales orders, billable shipments with no live
  * invoice, invoices owed by the customer, returns owed a credit — see {@see CustomerOpenWorkCount}. **A check at the
  * moment of archiving, not an invariant afterwards** (`RESIDUAL_GAPS.md` G-45).
  *
- * Call it inside your own tenancy transaction, AFTER taking the customer `FOR UPDATE` (W-2's shape for a read; it issues
+ * Call it inside your own tenancy transaction (the implementation refuses at nesting level 0 or with no tenant set,
+ * `PartyPortTenancyGuardTest`), AFTER taking the customer `FOR UPDATE` (W-2's shape for a read; it issues
  * one statement on `$em`'s connection and writes nothing).
  */
 interface CustomerOpenWork
