@@ -176,15 +176,21 @@ final class SortManifestTest extends PurchaseOrderTestCase
 
             foreach (array_diff($every, $enum) as $unlisted) {
                 ++$unlistedSent;
-                $this->send('GET', $concrete.'?sort='.$unlisted);
+                $this->send('GET', self::withQuery($concrete, 'sort='.$unlisted));
                 if (200 === $this->httpStatus()) {
                     $defects[] = \sprintf('%s answered 200 to the unlisted sort=%s', $name, $unlisted);
+                }
+                // Stock reads C1 (design R-M5, mutation M-F1): a scoped list must refuse the SORT, not trip over a malformed
+                // path. "Not 200" alone was satisfied by `/stock?…?sort=x`'s malformed scope uuid — the vacuity RED found.
+                if (self::isScoped($concrete) && !$declares && !$this->namesUndeclared('sort')) {
+                    $defects[] = \sprintf('%s refused sort=%s without naming ?sort as undeclared_parameter: %d %s', $name, $unlisted,
+                        $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 200));
                 }
             }
             foreach ($context['views'] as $view) {
                 parse_str($view, $q);
                 if (isset($q['sort']) && \in_array($q['sort'], $enum, true)) {
-                    $this->send('GET', $concrete.'?'.$view);
+                    $this->send('GET', self::withQuery($concrete, $view));
                     if (200 !== $this->httpStatus()) {
                         $defects[] = \sprintf('%s refused its declared %s: %d', $name, $view, $this->httpStatus());
                     }
@@ -195,5 +201,20 @@ final class SortManifestTest extends PurchaseOrderTestCase
         self::assertCount(2, $offers, 'The built lists do not include both a list offering sort and one that does not.');
         self::assertGreaterThan(0, $unlistedSent, 'No unlisted sort value was sent.');
         self::assertSame([], $defects, 'API-19: an accepted sort has no manifest row, or a manifest order is not accepted.');
+    }
+
+    /** Whether the last response is a 422 naming `?$parameter` as `undeclared_parameter`. */
+    private function namesUndeclared(string $parameter): bool
+    {
+        if (422 !== $this->httpStatus()) {
+            return false;
+        }
+        foreach ((array) ($this->json()['errors'] ?? []) as $error) {
+            if (\is_array($error) && '?'.$parameter === ($error['pointer'] ?? null) && 'undeclared_parameter' === ($error['code'] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

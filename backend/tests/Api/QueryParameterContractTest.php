@@ -343,14 +343,14 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
             $declared = self::declaredParameters($operation);
 
             foreach (array_diff($universe, $declared) as $other) {
-                $this->send('GET', $path.'?'.$other.'=1');
+                $this->send('GET', self::withQuery($path, $other.'=1'));
                 $defect = $this->refusalDefect($other);
                 if (null !== $defect) {
                     $defects[] = \sprintf('%s accepted `?%s`, which another §4.2 row declares and this one does not: %s', $name, $other, $defect);
                 }
             }
 
-            $this->send('GET', $path.'?limit=1');
+            $this->send('GET', self::withQuery($path, 'limit=1'));
             $cursor = 200 === $this->httpStatus() ? ($this->json()['next_cursor'] ?? null) : null;
             $values = [
                 'limit' => '1',
@@ -378,7 +378,11 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                 $companion = self::COMPANIONS[$parameter] ?? null;
                 self::assertTrue(null === $companion || \in_array(explode('=', $companion)[0], $declared, true),
                     $name.' declares `'.$parameter.'` whose companion `'.(string) $companion.'` it does not declare.');
-                $this->send('GET', $path.'?'.(null === $companion ? '' : $companion.'&').$parameter.'='.urlencode((string) $value));
+                // A scoped list (`/stock`, stock reads C1): its declared parameters are its mutually exclusive scopes, so
+                // each is sent alone against the route — beside the fixture's own scope it would be "both", which tests
+                // API-19b's exactly-one rule, not acceptance.
+                $base = self::isScoped($path) ? self::routeOf($path) : $path;
+                $this->send('GET', self::withQuery($base, (null === $companion ? '' : $companion.'&').$parameter.'='.urlencode((string) $value)));
                 if (200 !== $this->httpStatus()) {
                     $defects[] = \sprintf('%s refused its declared `%s=%s`: %d %s', $name, $parameter, $value, $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 200));
                 }

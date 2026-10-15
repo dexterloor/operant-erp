@@ -6,6 +6,7 @@ namespace App\Tests\Tenancy;
 
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
+use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Suppliers\Application\SupplierListCriteria;
 use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
@@ -268,6 +269,23 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             ."every tenant-scoped read of this table scans other tenants' rows and discards them:\n$plan");
     }
 
+    /**
+     * {@see self::assertPlan()} with its "no `Seq Scan`" narrowed to ONE table — for the stock reads' joined statements only
+     * (stock reads C1/C2; final RED M-3: *"never to `assertPlan()` globally"*), each caller recording why: the display joins
+     * read seeded reference tables small enough that a sequential scan of them is the right plan. Everything else is
+     * `assertPlan()`'s: the intended index, and the RLS predicate an `Index Cond`.
+     */
+    private function assertPlanOn(string $table, string $label, string $plan, string $expectedIndex): void
+    {
+        fwrite(STDERR, "\n  [EXPLAIN] $label\n    ".str_replace("\n", "\n    ", $plan)."\n");
+
+        self::assertStringContainsString($expectedIndex, $plan,
+            "The index this query exists for was not used, so it is cost without benefit:\n$plan");
+        self::assertDoesNotMatchRegularExpression('/Seq Scan on '.$table.'\\b/', $plan, "$table is read by a sequential scan:\n$plan");
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*tenant_id/', $plan,
+            "The RLS predicate is not an index condition:\n$plan");
+    }
+
     /** Purchasing: "the purchase orders still waiting on a delivery, oldest first". */
     #[Test]
     public function theBuyersWorkQueueUsesThePartialOpenOrderIndex(): void
@@ -465,5 +483,37 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 LIMIT 100
                 SQL, [$locationId]),
             'stock_level_tenant_location_idx');
+    }
+
+    /**
+     * Inventory, `/stock` (stock reads C1, 2026-10-14; design §4.2, T-13; `DATA` §1.4 "C1 (optional, recommended)"): the
+     * statements `ListStockLevels` actually issues, from {@see StockLevelReader::listStatement()}, one per scope — a bin's
+     * stock on `stock_level_tenant_location_idx`, an item's on `stock_level_unique` (`tenant_id, inventory_item_id, …`).
+     * Both scopes are bounded (TB-1c), so a Sort above the scan is allowed here and not asserted against.
+     *
+     * **T-13, measured 2026-10-15:** the plan seq-scans `storage_location` (8 rows) and `warehouse` (4 rows) for the
+     * display joins and reaches `stock_level` through the intended index, so {@see self::assertPlan()}'s blanket "no
+     * `Seq Scan`" cannot hold for a joined read of two tiny reference tables. This test alone uses
+     * {@see self::assertPlanOn()} — `Seq Scan on stock_level` refused — and `assertPlan()` itself is untouched.
+     */
+    #[Test]
+    public function theStockLevelListUsesItsScopeIndexes(): void
+    {
+        $this->seedWorld();
+
+        [$locationId, $itemId] = $this->tenantContext()->run(self::TENANT_A, fn (): array => [
+            (string) $this->app()->fetchOne("SELECT id FROM storage_location WHERE code = 'BIN1' LIMIT 1"),
+            (string) $this->app()->fetchOne("SELECT id FROM inventory_item WHERE sku = 'SKU-42'"),
+        ]);
+
+        foreach ([
+            [StockLevelReader::SCOPE_LOCATION, $locationId, 'stock_level_tenant_location_idx', 'one bin\'s stock'],
+            [StockLevelReader::SCOPE_ITEM, $itemId, 'stock_level_unique', 'one item\'s stock'],
+        ] as [$scope, $id, $index, $label]) {
+            $sql = StockLevelReader::listStatement($scope);
+            self::assertStringContainsString('WHERE sl.'.$scope.' = ?::uuid', $sql, 'The statement explained is not the '.$scope.' scope.');
+
+            $this->assertPlanOn('stock_level', 'Inventory — /stock, '.$label.' (the reader\'s statement)', $this->plan($sql, [$id]), $index);
+        }
     }
 }

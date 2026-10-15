@@ -241,7 +241,7 @@ final class SearchContractTest extends PurchaseOrderTestCase
                 self::assertMatchesRegularExpression('/^[A-Za-z0-9-]+$/', $probe, $name.'\'s search probe carries a LIKE metacharacter, so a bound value may not contain it verbatim.');
 
                 $this->recorder()->start();
-                $this->send('GET', $path.'?q='.urlencode($probe));
+                $this->send('GET', self::withQuery($path, 'q='.urlencode($probe)));
                 $this->recorder()->stop();
                 self::assertSame(200, $this->httpStatus(), $name.' did not answer its search.');
                 self::assertNotSame([], $this->json()['items'] ?? [], $name.'\'s search matched no seeded row, so the search path may not have run.');

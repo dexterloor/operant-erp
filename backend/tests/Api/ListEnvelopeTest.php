@@ -131,13 +131,13 @@ final class ListEnvelopeTest extends PurchaseOrderTestCase
             self::assertGreaterThanOrEqual(self::ROWS, $whole, $name.'\'s default view does not hold the seeded rows.');
 
             $pages = self::pages($operation);
-            $query = $pages ? '?limit='.self::PAGE : '';
+            $query = $pages ? 'limit='.self::PAGE : '';
             $seen = 0;
             $cursor = null;
             $count = 0;
 
             do {
-                $this->send('GET', $path.$query.(null === $cursor ? '' : '&after='.urlencode($cursor)));
+                $this->send('GET', self::withQuery($path, $query.(null === $cursor ? '' : '&after='.urlencode($cursor))));
                 self::assertSame(200, $this->httpStatus(), $name.' did not answer page '.($count + 1).'.');
                 $body = $this->json();
                 ++$count;

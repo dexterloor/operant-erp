@@ -70,8 +70,9 @@ use Symfony\Component\Uid\Uuid;
  * No reservation is written, and that is model A, ruled
  * ===========================================================================
  * V2-R-22 Half 2: `ConfirmSalesOrder` writes `status`, `ordered_at` and `updated_at` and nothing else.
- * `stock_level.qty_reserved` stays structurally zero; overselling is **accepted for now** and is
- * unreachable until `CreateFulfilment` and `ListStockLevels` ship. The declaration lives in
+ * `stock_level.qty_reserved` stays structurally zero; overselling is reachable since `CreateFulfilment`
+ * (2026-09-22) and accepted on the premise renewed by owner rulings R1 (2026-09-22) and Q1 (2026-10-14,
+ * stock visible per bin as on-hand only). The declaration lives in
  * `SchemaManifest`'s `stock_level` entry and the work is carried on event triggers as
  * `docs/RESIDUAL_GAPS.md` **G-7**, whose first trigger is `CreateFulfilment` — the operation that makes
  * the failure reachable. `WriteOwnershipTest::noWriteStatementUnderSrcNamesQtyReserved` is the control

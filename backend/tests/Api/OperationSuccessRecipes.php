@@ -866,6 +866,23 @@ trait OperationSuccessRecipes
 
                 return [200, 'list a warehouse\'s storage locations'];
             }],
+            // Stock reads C1 (2026-10-14): a letter-bearing bin code (CD-3: `WireScaleTest` reads an all-digit code as a decimal),
+            // two `SKU-` items, two rows by owner INSERT — one at 0, which is served — driven scoped to the bin (API-19b).
+            'ListStockLevels' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Stocked Warehouse');
+                $bin = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'A-01-STOCK');
+                foreach (['SKU-RECIPE-STOCK-1' => '5', 'SKU-RECIPE-STOCK-2' => '0'] as $sku => $onHand) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A,
+                        'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)',
+                        [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $this->seedItem(self::TENANT_A, $sku), $bin, $onHand]);
+                }
+
+                return ['bin' => $bin];
+            }, function (array $c): array {
+                $this->send('GET', '/stock?storage_location_id='.$c['bin']);
+
+                return [200, 'list a bin\'s stock'];
+            }],
             // Warehouses slice 1, C2: a create with a letter-bearing code (CD-3) and every field sent; an update that changes
             // the name and the code of a seeded warehouse, so the success path writes its `warehouse.updated` row. Codes carry
             // a random suffix: `warehouse.code` is live-unique.

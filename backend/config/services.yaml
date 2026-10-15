@@ -77,6 +77,8 @@ services:
             - '../src/Platform/Security/Identity.php'
             - '../src/Modules/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
             - '../src/Modules/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
+            # Stock reads C1 (2026-10-14): the stock row's read model and its three references — data, not services.
+            - '../src/Modules/Inventory/Application/{StockLevelView.php,StockItemRef.php,StockLocationRef.php,StockWarehouseRef.php}'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would

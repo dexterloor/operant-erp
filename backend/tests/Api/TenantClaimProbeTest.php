@@ -84,7 +84,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
      * template's variables and supplies the body. `@name` is replaced by the
      * acting tenant's fixture id of that name.
      *
-     * @var array<string, array{vars?: array<string, string>, body?: array<string, mixed>|null, setup?: string, authenticated?: bool}>
+     * @var array<string, array{vars?: array<string, string>, query?: array<string, string>, body?: array<string, mixed>|null, setup?: string, authenticated?: bool}>
      */
     private const RECIPES = [
         'IssueToken' => [
@@ -153,6 +153,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetWarehouse' => ['vars' => ['id' => 'warehouse']],
         'ListWarehouses' => [],
         'ListStorageLocations' => ['vars' => ['id' => 'warehouse']],
+        // Stock reads C1 (design R-H4): `/stock` answers 422 bare (API-19b), so its baseline is scoped by a QUERY parameter,
+        // `query` => [param => fixture name], filled with the acting tenant's id like `vars`. `seedMirror` puts a stock row
+        // in each tenant's `bin`, so A's baseline returns a row and B's must never appear.
+        'ListStockLevels' => ['query' => ['storage_location_id' => 'bin']],
         // Warehouses slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
@@ -546,6 +550,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $path = str_replace('{'.$variable.'}', $this->id('A', $fixtureName), $path);
         }
         self::assertStringNotContainsString('{', $path, $name.'\'s recipe leaves a path variable unfilled.');
+        if ([] !== ($recipe['query'] ?? [])) {
+            $path .= '?'.http_build_query(array_map(fn (string $fixtureName): string => $this->id('A', $fixtureName), $recipe['query']));
+        }
 
         $body = \array_key_exists('body', $recipe) ? $this->resolve('A', $recipe['body']) : null;
         $headers = [];
@@ -564,7 +571,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
 
             match ($channel) {
                 'header' => $headers[$where] = self::TENANT_B,
-                'query' => $path .= '?'.http_build_query([$placed => self::TENANT_B]),
+                'query' => $path .= (str_contains($path, '?') ? '&' : '?').http_build_query([$placed => self::TENANT_B]),
                 'body' => $body = [...($body ?? []), $placed => self::TENANT_B],
             };
         }

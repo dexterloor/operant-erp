@@ -61,6 +61,43 @@ trait ListOperationFixtures
         return str_replace(self::BASE, '', (string) $operation->getUriTemplate());
     }
 
+    /**
+     * **A fixture path plus more query parameters, merged by key — the later value wins** (stock reads C1, 2026-10-14).
+     * Until `ListStockLevels` every fixture path was bare, so the consumers wrote `$path.'?'…`; `/stock` carries its required
+     * scope in the path (`/stock?storage_location_id=…`), and a second `?` would make every such request malformed. Empty
+     * segments are dropped, so `withQuery($p, '')` is `$p`. The raw text of each segment is kept (a cursor is not re-encoded).
+     */
+    protected static function withQuery(string $path, string $query): string
+    {
+        [$route, $existing] = array_pad(explode('?', $path, 2), 2, '');
+
+        $merged = [];
+        foreach ([$existing, $query] as $part) {
+            foreach (explode('&', $part) as $segment) {
+                if ('' !== $segment) {
+                    $merged[explode('=', $segment, 2)[0]] = $segment;
+                }
+            }
+        }
+
+        return [] === $merged ? $route : $route.'?'.implode('&', $merged);
+    }
+
+    /**
+     * A fixture path without its query. A fixture path that carries one carries a **required, mutually exclusive scope**
+     * (API-19b; `ListStockLevels` only), so a consumer that sends a scope parameter of its own sends it here, alone.
+     */
+    protected static function routeOf(string $path): string
+    {
+        return explode('?', $path, 2)[0];
+    }
+
+    /** Whether a fixture path carries a required scope in its query (see {@see self::routeOf()}). */
+    protected static function isScoped(string $path): bool
+    {
+        return str_contains($path, '?');
+    }
+
     /** @return list<string> the parameter names the operation declares */
     protected static function declaredParameters(HttpOperation $operation): array
     {
@@ -434,6 +471,29 @@ trait ListOperationFixtures
                     }
 
                     return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
+            'ListStockLevels' => function (): array {
+                // Stock reads C1 (2026-10-14). **The first list whose bare path is a 422** (API-19b: exactly one scope), so
+                // the fixture path CARRIES its scope — `/stock?storage_location_id=<bin>` — and the consumers merge their own
+                // parameters into it with {@see self::withQuery()}. The seed step gives the bin N items (`SKU-` codes; a
+                // letter-bearing bin code, CD-3). `filter` supplies both scopes, each seeded to return rows alone; a consumer
+                // sends a scope against {@see self::routeOf()}, never beside the fixture's own (that would be "both", 422).
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Envelope Stock');
+                $bin = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'STK-ENV');
+
+                return ['/stock?storage_location_id='.$bin, function (int $rows) use ($bin): array {
+                    $first = null;
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $item = $this->seedItem(self::TENANT_A, 'SKU-STK-ENV-'.$i);
+                        $first ??= $item;
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)',
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin, (string) $i]);
+                    }
+
+                    // Bounded (TB-1c): no `limit`, `after`, `before`, `sort` or `q` (TB-5 names no `stock_level` column).
+                    return ['filter' => ['storage_location_id' => $bin, 'inventory_item_id' => (string) $first], 'search' => null, 'views' => ['']];
                 }];
             },
             'ListCustomerAddresses' => function (): array {

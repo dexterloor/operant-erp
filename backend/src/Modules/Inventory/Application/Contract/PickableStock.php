@@ -18,9 +18,10 @@ namespace App\Modules\Inventory\Application\Contract;
  * `PickListReadTest`. Only bins with `qty_on_hand > 0` are listed.
  *
  * **On-hand only, never an available figure** (owner ruling R1 with Q6(a)):
- * `qty_reserved` and `qty_available` are G-7's wire question and stay with
- * `ListStockLevels`. A read is not refused by G-7's tripwire, which is about
- * *writing* `qty_reserved`.
+ * `qty_reserved` and `qty_available` were G-7's wire question at
+ * `ListStockLevels`, answered 2026-10-14 (owner ruling Q1): neither is served
+ * anywhere. A read is not refused by G-7's write tripwire; the read-side
+ * tripwire is `OwedAmendmentTripwireTest::noResponseServesAnAvailableOrReservedStockFigure`.
  *
  * Call it inside your own tenancy transaction (W-2's shape; it joins yours). It
  * writes nothing.

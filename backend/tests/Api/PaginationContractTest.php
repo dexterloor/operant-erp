@@ -107,7 +107,7 @@ final class PaginationContractTest extends PurchaseOrderTestCase
                 $cursor = null;
                 $page = 0;
                 do {
-                    $this->send('GET', $path.'?limit=1'.(null === $cursor ? '' : '&after='.urlencode($cursor)));
+                    $this->send('GET', self::withQuery($path, 'limit=1'.(null === $cursor ? '' : '&after='.urlencode($cursor))));
                     $body = $this->json();
                     $bodies['page '.++$page] = [$this->httpStatus(), $this->contentType(), $body];
                     $cursor = $body['next_cursor'] ?? null;
@@ -221,12 +221,12 @@ final class PaginationContractTest extends PurchaseOrderTestCase
                 $page = 0;
                 do {
                     $query = array_filter([$view, $pages ? 'limit=1' : '', null === $cursor ? '' : 'after='.urlencode($cursor)]);
-                    $this->send('GET', $path.([] === $query ? '' : '?'.implode('&', $query)));
+                    $this->send('GET', self::withQuery($path, implode('&', $query)));
                     self::assertSame(200, $this->httpStatus(), $name.' did not answer '.implode('&', $query));
                     $body = $this->json();
                     ++$page;
                     if (2 === $page && \is_string($body['previous_cursor'] ?? null)) {
-                        $this->send('GET', $path.'?'.implode('&', array_filter([$view, 'limit=1', 'before='.urlencode($body['previous_cursor'])])));
+                        $this->send('GET', self::withQuery($path, implode('&', array_filter([$view, 'limit=1', 'before='.urlencode($body['previous_cursor'])]))));
                         self::assertSame(200, $this->httpStatus(), $name.' did not answer its before step.');
                     }
                     $cursor = $body['next_cursor'] ?? null;
@@ -244,12 +244,19 @@ final class PaginationContractTest extends PurchaseOrderTestCase
                     $filters[] = $parameter.'='.$value;
                 }
             }
-            if ([] !== $filters) {
-                $this->send('GET', $path.'?'.implode('&', $filters));
+            if ([] !== $filters && self::isScoped($path)) {
+                // A scoped list (`/stock`): its filters ARE its mutually exclusive scopes, so each is sent alone against the
+                // route — together they are API-19b's "both", a 422 by contract (stock reads C1).
+                foreach ($filters as $filter) {
+                    $this->send('GET', self::routeOf($path).'?'.$filter);
+                    self::assertSame(200, $this->httpStatus(), $name.' did not answer its filter '.$filter.'.');
+                }
+            } elseif ([] !== $filters) {
+                $this->send('GET', self::withQuery($path, implode('&', $filters)));
                 self::assertSame(200, $this->httpStatus(), $name.' did not answer its filters.');
             }
             if (\in_array('archived', $declared, true)) {
-                $this->send('GET', $path.'?archived=true');
+                $this->send('GET', self::withQuery($path, 'archived=true'));
                 self::assertSame(200, $this->httpStatus(), $name.' did not answer archived=true.');
             }
 
@@ -347,9 +354,9 @@ final class PaginationContractTest extends PurchaseOrderTestCase
             foreach ($context['views'] as $view) {
                 parse_str($view, $q);
                 $sort = isset($q['sort']) ? (string) $q['sort'] : null;
-                $prefix = '' === $view ? '?' : '?'.$view.'&';
+                $prefix = '' === $view ? '' : $view.'&';
 
-                $this->send('GET', $path.$prefix.'limit=1');
+                $this->send('GET', self::withQuery($path, $prefix.'limit=1'));
                 self::assertSame(200, $this->httpStatus(), $name.' did not answer '.$view);
                 $first = $this->json();
                 self::assertIsString($first['next_cursor'] ?? null, $name.' ['.$view.'] page one carried no next_cursor, so nothing was decoded.');
@@ -361,7 +368,7 @@ final class PaginationContractTest extends PurchaseOrderTestCase
 
                 // A cursor the server itself refuses is a defect of the cursor,
                 // recorded by name rather than asserted away before the report.
-                $this->send('GET', $path.$prefix.'limit=1&after='.urlencode($first['next_cursor']));
+                $this->send('GET', self::withQuery($path, $prefix.'limit=1&after='.urlencode($first['next_cursor'])));
                 $second = $this->json();
                 if (200 !== $this->httpStatus() || !\is_string($second['previous_cursor'] ?? null)) {
                     $defects[] = \sprintf('%s [%s] page two answered %d with no previous_cursor', $name, $view, $this->httpStatus());

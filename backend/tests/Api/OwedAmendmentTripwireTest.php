@@ -468,6 +468,36 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     /** The sentence both entries owe (final RED H-1), carried verbatim into the failure message. */
     private const THE_RELEASE_RULE = 'Q-W1 (d): moving or counting stock out of a `quarantine` bin into, or creating stock in, a pickable bin is a release — it must refuse a non-owner (`OwnerPredicate`) or be ruled; and the writer must take `FOR KEY SHARE` on every bin it touches before reading `kind` (a qty-only `stock_level` UPDATE locks no location — measured).';
 
+    /**
+     * **G-7's renewed premise, as data** (stock reads C1, 2026-10-14; design §4.6 + R-M1): owner ruling Q1 renewed model A
+     * on *"stock visible, on-hand only"* — so no response may serve either name. A differently named field (`available`,
+     * `atp`) is NOT seen: that residual is stated in the method's docblock, not hidden.
+     *
+     * @var list<string>
+     */
+    private const STOCK_FIGURES_NEVER_SERVED = ['qty_available', 'qty_reserved'];
+
+    /**
+     * The anchors that prove the walk reaches a real stock row: `operationId` => members that MUST be reachable from its
+     * 200 response. `ListStockLevels`' item schema is published INLINE under its envelope's component, so a walker that
+     * stops at a `$ref` or skips `items` misses it (mutation M10b). C2 adds `ListStockMovements`.
+     *
+     * @var array<string, list<string>>
+     */
+    private const STOCK_FIGURE_ANCHORS = [
+        'ListStockLevels' => ['qty_on_hand', 'version'],
+    ];
+
+    /** G-7's closing work, carried verbatim into the failure message (design §4.6). */
+    private const G7_CLOSING_WORK = 'Owner ruling Q1 of 2026-10-14 (docs/session13/stock-reads-ruling.md) renewed model A (RESIDUAL_GAPS.md G-7) on the '
+        .'premise "stock is visible per bin as on-hand; no available-to-promise or reserved figure is shown anywhere", and that '
+        .'renewal ENDS when this goes red. stock_level.qty_reserved is written by nothing, so an available figure equals on-hand '
+        .'and presents stock confirmed orders may already have claimed as promisable. The figure the owner chose is model D at '
+        .'WAREHOUSE grain (owner ruling R4 of 2026-09-22), on its own read with its own §4.4.3 row; promisable = live, '
+        .'non-quarantine stock only (R2, confirmed 2026-10-14). Nobody may relax or drop stock_level_reserved_sane: it is the '
+        .'only rule refusing negative stock. Bring it to the owner, or build model D with its rule, in THIS commit. Do not hand-edit '
+        .'this pin to green.';
+
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -1288,6 +1318,113 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             implode("\n  ", array_map(static fn (string $op, string $why): string => $op.' '.$why, array_keys($arrived), $arrived)),
             self::THE_RELEASE_RULE,
         ));
+    }
+
+    /**
+     * **G-7's renewed premise gets a mechanism** (stock reads C1, 2026-10-14; design §4.6, R-M1). Owner ruling Q1 renewed the
+     * overselling acceptance on *"stock visible, on-hand only"*; a prose sentence could not stop the next read — model D's own,
+     * a report, an export — from serving an available or reserved figure with nothing going red. This walks EVERY response
+     * schema the generated spec declares (each operation's responses, `$ref`s resolved, `items` and nested objects followed,
+     * and every component besides) and refuses either name anywhere.
+     *
+     * **Controls, same test:** a planted schema carrying `qty_available` behind a `$ref` is flagged; each anchor's members
+     * (`ListStockLevels` → `qty_on_hand`, `version`) are reachable from its own 200 response, found by `operationId` — so a
+     * walker that stops at `$ref` or `items` is red here, naming the anchor (mutation M10b); and more than 50 responses were
+     * walked. **Residual, stated:** a differently named field (`available`, `atp`, `free_stock`) is not seen.
+     */
+    #[Test]
+    public function noResponseServesAnAvailableOrReservedStockFigure(): void
+    {
+        $planted = ['components' => ['schemas' => [
+            'PlantedEnvelope' => ['type' => 'object', 'properties' => ['items' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/PlantedRow']]]],
+            'PlantedRow' => ['type' => 'object', 'properties' => ['qty_on_hand' => ['type' => 'string'], 'qty_available' => ['type' => 'string']]],
+        ]]];
+        self::assertSame(['qty_available'], array_values(array_intersect(self::STOCK_FIGURES_NEVER_SERVED,
+            self::reachableProperties($planted, ['$ref' => '#/components/schemas/PlantedEnvelope']))),
+            'Positive control: a planted response carrying `qty_available` behind a `$ref` and an `items` was not flagged, so the walk is blind.');
+
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+
+        $found = [];
+        $walked = 0;
+        $anchors = [];
+        foreach (GeneratedSpec::operations($spec) as $key => $data) {
+            $operationId = (string) ($data['operation']['operationId'] ?? $key);
+            foreach ($data['operation']['responses'] ?? [] as $status => $response) {
+                foreach ((\is_array($response) ? $response['content'] ?? [] : []) as $content) {
+                    ++$walked;
+                    $names = self::reachableProperties($spec, $content['schema'] ?? []);
+                    foreach (array_intersect(self::STOCK_FIGURES_NEVER_SERVED, $names) as $name) {
+                        $found[] = $operationId.' '.$status.' serves `'.$name.'`';
+                    }
+                    if ('200' === (string) $status && isset(self::STOCK_FIGURE_ANCHORS[$operationId])) {
+                        $anchors[$operationId] = array_values(array_intersect(self::STOCK_FIGURE_ANCHORS[$operationId], $names));
+                    }
+                }
+            }
+        }
+        foreach ($spec['components']['schemas'] ?? [] as $component => $schema) {
+            foreach (array_intersect(self::STOCK_FIGURES_NEVER_SERVED, self::reachableProperties($spec, \is_array($schema) ? $schema : [])) as $name) {
+                $found[] = 'component '.$component.' declares `'.$name.'`';
+            }
+        }
+
+        self::assertGreaterThan(50, $walked, 'Fewer than fifty responses were walked, so the spec this reads is not the built surface.');
+        foreach (self::STOCK_FIGURE_ANCHORS as $operationId => $members) {
+            self::assertSame($members, $anchors[$operationId] ?? null, \sprintf(
+                'Anti-vacuity: %s\'s own 200 response does not reach %s through the walk, so the walk cannot see a stock row.',
+                $operationId, implode(', ', $members)));
+        }
+
+        self::assertSame([], array_values(array_unique($found)), "A response serves an available or reserved stock figure.\n  "
+            .implode("\n  ", array_unique($found))."\n\n".self::G7_CLOSING_WORK);
+    }
+
+    /**
+     * Every property name reachable from a schema: `$ref`s resolved within the document, `properties`, `items`,
+     * `allOf`/`anyOf`/`oneOf` and `additionalProperties` followed, each component visited once.
+     *
+     * @param array<string, mixed> $document
+     * @param array<string, mixed> $schema
+     * @param array<string, true>  $visited
+     *
+     * @return list<string>
+     */
+    private static function reachableProperties(array $document, array $schema, array &$visited = []): array
+    {
+        $names = [];
+        if (isset($schema['$ref']) && \is_string($schema['$ref'])) {
+            if (isset($visited[$schema['$ref']])) {
+                return [];
+            }
+            $visited[$schema['$ref']] = true;
+            $target = $document;
+            foreach (\array_slice(explode('/', $schema['$ref']), 1) as $segment) {
+                $target = \is_array($target) ? ($target[$segment] ?? []) : [];
+            }
+
+            return \is_array($target) ? self::reachableProperties($document, $target, $visited) : [];
+        }
+        foreach ((array) ($schema['properties'] ?? []) as $name => $property) {
+            $names[] = (string) $name;
+            if (\is_array($property)) {
+                $names = [...$names, ...self::reachableProperties($document, $property, $visited)];
+            }
+        }
+        foreach (['items', 'additionalProperties'] as $key) {
+            if (isset($schema[$key]) && \is_array($schema[$key])) {
+                $names = [...$names, ...self::reachableProperties($document, $schema[$key], $visited)];
+            }
+        }
+        foreach (['allOf', 'anyOf', 'oneOf'] as $key) {
+            foreach ((array) ($schema[$key] ?? []) as $part) {
+                if (\is_array($part)) {
+                    $names = [...$names, ...self::reachableProperties($document, $part, $visited)];
+                }
+            }
+        }
+
+        return $names;
     }
 
     /**
