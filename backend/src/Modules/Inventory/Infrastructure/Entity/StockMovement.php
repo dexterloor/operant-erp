@@ -46,10 +46,13 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Entity]
 #[ORM\Table(name: 'stock_movement')]
 #[ORM\UniqueConstraint(name: 'stock_movement_tenant_id_id_key', columns: ['tenant_id', 'id'])]
-// "The tenant's movement history, newest first" — kept from W0-a.
-#[ORM\Index(name: 'stock_movement_tenant_occurred_idx', columns: ['tenant_id', 'occurred_at'])]
-// "The movement history of this SKU" — ADR-004's forecasting input.
-#[ORM\Index(name: 'stock_movement_tenant_item_idx', columns: ['tenant_id', 'inventory_item_id', 'occurred_at'])]
+// "The tenant's movement history, newest first" — kept from W0-a; ends `(occurred_at, id)` since stock reads C2
+// (`Version20261015000100`, `DATA`): `occurred_at` is whole-second business time, so a tie group is unbounded and the
+// list's keyset `(occurred_at, id)` must be an index condition.
+#[ORM\Index(name: 'stock_movement_tenant_occurred_id_idx', columns: ['tenant_id', 'occurred_at', 'id'])]
+// "The movement history of this SKU" — `ListStockMovements?inventory_item_id=`, and ADR-004's forecasting input on its
+// `(tenant_id, inventory_item_id, occurred_at)` prefix.
+#[ORM\Index(name: 'stock_movement_tenant_item_occurred_id_idx', columns: ['tenant_id', 'inventory_item_id', 'occurred_at', 'id'])]
 // "Did this document already post its movements" — ARCHITECTURE O-6.
 #[ORM\Index(name: 'stock_movement_tenant_source_idx', columns: ['tenant_id', 'source_type', 'source_id'], options: ['where' => '(source_id IS NOT NULL)'])]
 class StockMovement

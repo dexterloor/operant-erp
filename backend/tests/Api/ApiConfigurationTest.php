@@ -265,7 +265,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // on `CustomerResource`. No grant: it reuses C4a's column UPDATE (`deleted_at`); `erp_app` holds no DELETE on `customer`.
         // **And one more (stock reads C1, 2026-10-14):** `ListStockLevels` (GET `/stock`, `stock_level.view`, bounded, exactly
         // one of `storage_location_id` / `inventory_item_id`) on `StockLevelCollection`. No migration, no grant.
-        self::assertCount(97, $checked, 'The route set changed. This slice declares ninety-seven operations: '.implode(', ', array_keys($checked)));
+        // **And two more (stock reads C2, 2026-10-14):** `ListStockMovements` (GET `/stock-movements`, `stock_movement.view`) on
+        // `StockMovementCollection` and `GetStockMovement` (GET `/stock-movements/{id}`) on `StockMovementResource`. Its migration
+        // rebuilds two indexes with a trailing `id`; no grant.
+        self::assertCount(99, $checked, 'The route set changed. This slice declares ninety-nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

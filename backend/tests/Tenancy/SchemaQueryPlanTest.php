@@ -7,6 +7,8 @@ namespace App\Tests\Tenancy;
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\StockLevelReader;
+use App\Modules\Inventory\Application\StockMovementListCriteria;
+use App\Modules\Inventory\Application\StockMovementReader;
 use App\Modules\Suppliers\Application\SupplierListCriteria;
 use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
@@ -39,6 +41,14 @@ final class SchemaQueryPlanTest extends TenancyTestCase
     private const ITEMS = 500;
     private const ORDERS = 1000;
     private const EVENTS = 5000;
+
+    /**
+     * Stock reads C2 (`DATA` §1.4): a TIE GROUP of movements for one item at one instant, per tenant — what every document
+     * back-dated to the same whole second produces, unbounded in size. The movement-ledger tests page inside it.
+     */
+    private const TIE = 5000;
+    private const TIE_SKU = 'SKU-7';
+    private const TIE_INSTANT = '2025-06-01 00:00:00+00';
 
     private bool $seeded = false;
 
@@ -199,6 +209,16 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ITEMS, self::EVENTS]);
 
+                // Stock reads C2: the tie group — one item, one instant, TIE rows (`DATA` §1.4 item 1).
+                $c->executeStatement(<<<'SQL'
+                    INSERT INTO stock_movement (id, tenant_id, inventory_item_id, storage_location_id, quantity, reason, occurred_at)
+                    SELECT gen_random_uuid(), ?::uuid,
+                           (SELECT id FROM inventory_item WHERE sku = ?),
+                           (SELECT id FROM storage_location ORDER BY code LIMIT 1),
+                           1, 'adjustment', ?::timestamptz
+                    FROM generate_series(1, ?) g
+                    SQL, [$tenant, self::TIE_SKU, self::TIE_INSTANT, self::TIE]);
+
                 $c->executeStatement(<<<'SQL'
                     INSERT INTO audit_log (id, tenant_id, event_type, actor_label, occurred_at)
                     SELECT gen_random_uuid(), ?::uuid,
@@ -235,7 +255,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertSame(
                 ['inventory_item' => self::ITEMS, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
                     'fulfilment' => self::ORDERS, 'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
-                    'stock_movement' => self::EVENTS, 'audit_log' => self::EVENTS],
+                    'stock_movement' => self::EVENTS + self::TIE, 'audit_log' => self::EVENTS],
                 $counts,
                 'The seed did not produce the world these plans are measured against.');
         }
@@ -322,7 +342,9 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 ORDER BY occurred_at DESC
                 LIMIT 100
                 SQL, [$itemId]),
-            'stock_movement_tenant_item_idx');
+            // Stock reads C2 (`Version20261015000100`): the extended index, read on its `(tenant_id, inventory_item_id,
+            // occurred_at)` prefix. Not a substring of the old name, so this pin cannot pass by accident.
+            'stock_movement_tenant_item_occurred_id_idx');
     }
 
     /**
@@ -515,5 +537,66 @@ final class SchemaQueryPlanTest extends TenancyTestCase
 
             $this->assertPlanOn('stock_level', 'Inventory — /stock, '.$label.' (the reader\'s statement)', $this->plan($sql, [$id]), $index);
         }
+    }
+
+    /**
+     * Inventory, `/stock-movements` — **the movement ledger pages inside a 5,000-row tie group without a sort** (stock reads
+     * C2; `DATA` §1.4; `Version20261015000100`). The statement is {@see StockMovementReader::listStatement()}'s, the cursor
+     * sits in the middle of the group (its 2,500th row in `id DESC` order), and on top of the index and RLS checks:
+     * (a) no `Sort` node of any kind (`Sort`, `Incremental Sort`, top-N); (b) a backward index scan on the new index — a
+     * bitmap scan is unordered; (c) the WHOLE row comparison `ROW(occurred_at, id) < ROW(…)` is an index condition, not a
+     * `Filter`; (d) the scan returns at most `limit + 1` rows, so `LIMIT` stops it inside the group.
+     *
+     * `assertPlan()`'s blanket "no `Seq Scan`" is narrowed to `stock_movement` for these two tests only, with this recorded
+     * reason (final RED M-3; `DATA` §1.4 item 6): the display joins seq-scan the seeded `storage_location` (8 rows) —
+     * measured on the first run of this test, plan in the build log. **Positive control, run (not predicted):** with the two
+     * old indexes restored in place of the new ones, both tests go red on (a) and (d) (build log, C2 mutation DATA-1).
+     */
+    #[Test]
+    public function theMovementLedgerPagesInsideATieGroupWithoutASort(): void
+    {
+        $this->assertTieGroupPage(null, 'stock_movement_tenant_occurred_id_idx', 'Inventory — the movement ledger, page inside a tie group');
+    }
+
+    /** As above, for one item's movements — `ListStockMovements?inventory_item_id=` on the item index. */
+    #[Test]
+    public function theMovementLedgerForOneItemPagesInsideATieGroupWithoutASort(): void
+    {
+        $this->assertTieGroupPage(true, 'stock_movement_tenant_item_occurred_id_idx', 'Inventory — one item\'s movements, page inside a tie group');
+    }
+
+    private function assertTieGroupPage(?bool $byItem, string $index, string $label): void
+    {
+        $this->seedWorld();
+
+        [$itemId, $key, $id] = $this->tenantContext()->run(self::TENANT_A, function (): array {
+            $item = (string) $this->app()->fetchOne('SELECT id FROM inventory_item WHERE sku = ?', [self::TIE_SKU]);
+
+            return [
+                $item,
+                (string) $this->app()->fetchOne('SELECT DISTINCT occurred_at::text FROM stock_movement WHERE inventory_item_id = ?::uuid AND occurred_at = ?::timestamptz', [$item, self::TIE_INSTANT]),
+                (string) $this->app()->fetchOne('SELECT id FROM stock_movement WHERE inventory_item_id = ?::uuid AND occurred_at = ?::timestamptz ORDER BY id DESC OFFSET 2499 LIMIT 1', [$item, self::TIE_INSTANT]),
+            ];
+        });
+
+        $criteria = new StockMovementListCriteria(
+            limit: StockMovementListCriteria::DEFAULT_LIMIT,
+            inventoryItemId: null === $byItem ? null : $itemId,
+            after: new Cursor($key, $id),
+        );
+        [$sql, $parameters] = StockMovementReader::listStatement($criteria);
+        self::assertStringContainsString('(m.occurred_at, m.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the ledger keyset page.');
+        self::assertStringContainsString('ORDER BY m.occurred_at DESC, m.id DESC', $sql);
+
+        $plan = $this->plan($sql, $parameters);
+        $this->assertPlanOn('stock_movement', $label, $plan, $index);
+
+        self::assertStringNotContainsString('Sort', $plan, "(a) The page sorts — the index does not supply `id` order inside the tie group:\n$plan");
+        self::assertStringContainsString('Index Scan Backward using '.$index, $plan, "(b) Not an ordered backward scan of the new index:\n$plan");
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*ROW\((m\.)?occurred_at, (m\.)?id\) < ROW\(/', $plan,
+            "(c) The row comparison is not an index condition:\n$plan");
+        self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan);
+        preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
+        self::assertLessThanOrEqual($criteria->limit + 1, (int) $m[1], "(d) The scan read past LIMIT inside the tie group:\n$plan");
     }
 }

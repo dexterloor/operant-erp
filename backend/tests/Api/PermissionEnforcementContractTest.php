@@ -137,6 +137,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Stock reads C1 (2026-10-14): `stock_level.view` — owner, `admin`, `buyer`, `purchasing_manager`, `warehouse_operator`,
         // `sales_rep`, `viewer`; not `finance` (`SECURITY_MODEL.md` §4; `SEC` §1.1 derived from `DefaultRoles::codesFor()`).
         'ListStockLevels' => 'stock_level.view',
+        // Stock reads C2: `stock_movement.view` — owner, `admin`, `warehouse_operator`, `viewer` (`SECURITY_MODEL.md` §4).
+        'ListStockMovements' => 'stock_movement.view',
+        'GetStockMovement' => 'stock_movement.view',
         // Warehouses slice 1 C2 (2026-10-13): `warehouse.create` — owner and `admin`; `warehouse.edit` — owner, `admin` and
         // `warehouse_operator` (`SECURITY_MODEL.md` §4). `viewer` holds neither.
         'CreateWarehouse' => 'warehouse.create',

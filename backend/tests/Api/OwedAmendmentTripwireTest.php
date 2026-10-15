@@ -480,12 +480,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     /**
      * The anchors that prove the walk reaches a real stock row: `operationId` => members that MUST be reachable from its
      * 200 response. `ListStockLevels`' item schema is published INLINE under its envelope's component, so a walker that
-     * stops at a `$ref` or skips `items` misses it (mutation M10b). C2 adds `ListStockMovements`.
+     * stops at a `$ref` or skips `items` misses it (mutation M10b). `ListStockMovements` (C2) reaches its row through a `$ref`.
      *
      * @var array<string, list<string>>
      */
     private const STOCK_FIGURE_ANCHORS = [
         'ListStockLevels' => ['qty_on_hand', 'version'],
+        // Stock reads C2 (design R-M1): the movement list's items are a `$ref` to the `StockMovement` component.
+        'ListStockMovements' => ['quantity'],
     ];
 
     /** G-7's closing work, carried verbatim into the failure message (design §4.6). */

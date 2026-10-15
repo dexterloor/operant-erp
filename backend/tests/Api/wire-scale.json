@@ -146,6 +146,9 @@
     "GetSalesReturn $.lines[].quantity_credited": [
         6
     ],
+    "GetStockMovement $.quantity": [
+        6
+    ],
     "IssueAdjustmentCreditNote $.lines[].amount": [
         4
     ],
@@ -273,6 +276,9 @@
         6
     ],
     "ListStockLevels $.items[].qty_on_hand": [
+        6
+    ],
+    "ListStockMovements $.items[].quantity": [
         6
     ],
     "ListSupplierProducts $.items[].minimum_order_quantity": [

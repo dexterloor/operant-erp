@@ -496,6 +496,23 @@ trait ListOperationFixtures
                     return ['filter' => ['storage_location_id' => $bin, 'inventory_item_id' => (string) $first], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListStockMovements' => function (): array {
+                // Stock reads C2. N movements of ONE item, each at its own whole second, by owner INSERT; both views (the
+                // ledger and the item's) hold every row. One order per view, newest first (no `sort`, §14.2 item 29).
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Envelope Movements');
+                $bin = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'MOV-ENV');
+                $item = $this->seedItem(self::TENANT_A, 'SKU-MOV-ENV');
+
+                return ['/stock-movements', function (int $rows) use ($bin, $item): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            "INSERT INTO stock_movement (id, tenant_id, inventory_item_id, storage_location_id, quantity, reason, occurred_at) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 1, 'receipt', ?::timestamptz)",
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin, \sprintf('2026-01-%02dT00:00:00+00:00', $i)]);
+                    }
+
+                    return ['filter' => ['inventory_item_id' => $item], 'search' => null, 'views' => ['', 'inventory_item_id='.$item]];
+                }];
+            },
             'ListCustomerAddresses' => function (): array {
                 // Customers slice 1 C3. One customer; the seed step gives it N addresses with LETTER-bearing postal codes
                 // (CD-3), each its own row (distinct random keys, `seedCustomerAddress()`).

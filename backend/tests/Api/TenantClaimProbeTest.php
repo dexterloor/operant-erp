@@ -157,6 +157,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // `query` => [param => fixture name], filled with the acting tenant's id like `vars`. `seedMirror` puts a stock row
         // in each tenant's `bin`, so A's baseline returns a row and B's must never appear.
         'ListStockLevels' => ['query' => ['storage_location_id' => 'bin']],
+        // Stock reads C2 (design R-H4; T-2′ measured: `seedMirror` registered no movement, so it now seeds one per tenant).
+        'ListStockMovements' => [],
+        'GetStockMovement' => ['vars' => ['id' => 'movement']],
         // Warehouses slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
@@ -750,6 +753,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 50)',
             [Uuid::v4()->toRfc4122(), $tenantId, $item, $this->id($letter, 'bin')]);
+        // Stock reads C2 (T-2′): a movement of that stock, so `GetStockMovement` has a subject and `ListStockMovements` a row.
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO stock_movement (id, tenant_id, inventory_item_id, storage_location_id, quantity, reason) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 50, 'receipt')",
+            [$this->remember($letter, 'movement', Uuid::v4()->toRfc4122()), $tenantId, $item, $this->id($letter, 'bin')]);
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);

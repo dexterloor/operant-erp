@@ -883,6 +883,18 @@ trait OperationSuccessRecipes
 
                 return [200, 'list a bin\'s stock'];
             }],
+            // Stock reads C2: one receipt's two lines at ONE instant (a tie group) and one shipment, by owner INSERT, so the
+            // list crosses a tie group and `ResponseShapeTest` / `WireScaleTest` walk real rows (letter-bearing bin, CD-3).
+            'ListStockMovements' => [fn (): array => $this->seedRecipeMovements('Recipe Movement Warehouse'), function (): array {
+                $this->send('GET', '/stock-movements');
+
+                return [200, 'list stock movements, newest first'];
+            }],
+            'GetStockMovement' => [fn (): array => $this->seedRecipeMovements('Recipe Read Movement Warehouse'), function (array $c): array {
+                $this->send('GET', '/stock-movements/'.$c['movement']);
+
+                return [200, 'read a stock movement'];
+            }],
             // Warehouses slice 1, C2: a create with a letter-bearing code (CD-3) and every field sent; an update that changes
             // the name and the code of a seeded warehouse, so the success path writes its `warehouse.updated` row. Codes carry
             // a random suffix: `warehouse.code` is live-unique.
@@ -1111,5 +1123,30 @@ trait OperationSuccessRecipes
                 return [200, 'sign in with the changed password'];
             }],
         ];
+    }
+
+    /**
+     * Stock reads C2: a receipt's two lines sharing one instant and one shipment line, as the owner (no `src/` path inserts a
+     * movement but the three stock writers). @return array{movement: string} the shipment's movement id
+     */
+    private function seedRecipeMovements(string $warehouseName): array
+    {
+        $bin = $this->seedStorageLocation(self::TENANT_A, $this->seedWarehouse(self::TENANT_A, $warehouseName), 'A-01-MOVE');
+        $receipt = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+        $rows = [
+            ['5', 'receipt', '2026-02-01 09:00:00+00', 'goods_receipt', $receipt],
+            ['3', 'receipt', '2026-02-01 09:00:00+00', 'goods_receipt', $receipt],
+            ['-2', 'fulfilment', '2026-02-02 09:00:00+00', 'fulfilment', \Symfony\Component\Uid\Uuid::v4()->toRfc4122()],
+        ];
+        $id = '';
+        foreach ($rows as $i => [$quantity, $reason, $at, $type, $source]) {
+            $id = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO stock_movement (id, tenant_id, inventory_item_id, storage_location_id, quantity, reason, occurred_at, source_type, source_id)
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric, ?, ?::timestamptz, ?, ?::uuid)
+                SQL, [$id, self::TENANT_A, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-MOVE-'.strtoupper(substr(md5($warehouseName), 0, 4)).'-'.$i), $bin, $quantity, $reason, $at, $type, $source]);
+        }
+
+        return ['movement' => $id];
     }
 }
