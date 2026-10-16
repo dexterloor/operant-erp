@@ -22,8 +22,8 @@ namespace App\Modules\Purchasing\ApiResource;
  * own docblock: *"The cancellation's written reason lands in
  * `audit_log.metadata`, and this is recorded here so the operation's author
  * inherits it rather than deciding it."* The precedent it cites is
- * `STOCK_MOVEMENT_ADJUSTED`, where `stock_movement` has nine columns and none is
- * free text, so F-6a's operator reason lives in `metadata` under the key `note`
+ * `STOCK_MOVEMENT_ADJUSTED`, where `stock_movement` has no free-text column
+ * (nine columns then, eleven since stock count C0 added the retry-key hashes), so F-6a's operator reason lives in `metadata` under the key `note`
  * and surfaces through L-7's History section.
  *
  * **So the field is accepted, and accepting it is the whole point.** Dropping it

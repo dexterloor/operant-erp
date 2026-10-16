@@ -538,7 +538,8 @@ final class AuditEvent
     /**
      * `FLOWS.md` **F-6 — Correct or move stock**, the "where that written reason
      * goes" paragraph: a stock adjustment's written reason. `stock_movement`
-     * has nine columns and none is free text — `reason` is a six-value `CHECK`
+     * has eleven columns (nine until stock count C0, 2026-10-16, added the two
+     * retry-key hashes) and none is free text — `reason` is a six-value `CHECK`
      * of which exactly one applies — so the operator's words live in
      * `audit_log.metadata` (`jsonb`) with `subject_type = 'stock_movement'`, and
      * surface on `/stock-movements/[id]` through L-7.

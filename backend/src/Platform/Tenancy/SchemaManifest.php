@@ -478,7 +478,7 @@ final class SchemaManifest
             'module' => 'Modules\\Inventory',
             'tenant' => true,
             'deletion' => self::NONE,
-            'why' => 'An immutable fact: stock moved. UPDATE is revoked as well as DELETE — a corrected movement is a compensating movement, not an edit.',
+            'why' => 'An immutable fact: stock moved. UPDATE is revoked as well as DELETE — a corrected movement is a compensating movement, not an edit. The stock count\'s retry key (idempotency_key, request_digest; stock count C0) is NULLABLE because the table already holds receipt, shipment and return rows (85c08fb\'s warning) — the new columns inherit the table-level grants, so no grant changed.',
             'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AI => ['SELECT']],
         ],
 

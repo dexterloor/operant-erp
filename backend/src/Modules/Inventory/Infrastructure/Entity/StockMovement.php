@@ -29,10 +29,13 @@ use Symfony\Component\Uid\Uuid;
  * worth recording.
  *
  * ---------------------------------------------------------------------------
- * source_type / source_id is the idempotency key
+ * source_type / source_id is the "did this document already post?" key
  * ---------------------------------------------------------------------------
  * The pair names the document that produced the movement -- a goods receipt, a
- * fulfilment, an adjustment. ARCHITECTURE O-6: a message that is retried after a
+ * fulfilment, a sales return. (Corrected 2026-10-16, stock count C0: this read
+ * "is the idempotency key" and listed "an adjustment" as a document. A stock
+ * count has no originating document and carries neither half; its RETRY key is
+ * `idempotency_key` / `request_digest` below.) ARCHITECTURE O-6: a message that is retried after a
  * partial failure asks "did this goods receipt already post its movements?" and
  * `stock_movement_tenant_source_idx` is the index that answers it. Without the
  * pair a redelivery doubles the stock; with it the second attempt is a no-op.
@@ -55,6 +58,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'stock_movement_tenant_item_occurred_id_idx', columns: ['tenant_id', 'inventory_item_id', 'occurred_at', 'id'])]
 // "Did this document already post its movements" — ARCHITECTURE O-6.
 #[ORM\Index(name: 'stock_movement_tenant_source_idx', columns: ['tenant_id', 'source_type', 'source_id'], options: ['where' => '(source_id IS NOT NULL)'])]
+// `CreateStockAdjustment`'s retry key (stock count C0, `Version20261016000100`): TOTAL, the table is class `none`; NULL keys
+// (every receipt, shipment and return) never collide.
+#[ORM\UniqueConstraint(name: 'stock_movement_idem_unique', columns: ['tenant_id', 'idempotency_key'])]
 class StockMovement
 {
     public const REASON_RECEIPT = 'receipt';
@@ -104,6 +110,19 @@ class StockMovement
 
     #[ORM\Column(name: 'occurred_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $occurredAt;
+
+    /**
+     * The hex SHA-256 of the `Idempotency-Key` header (D-B), never the header — set only by the stock count's writer, in
+     * its raw `INSERT` (stock count C0, `Version20261016000100`). **Nullable**: the receipt, shipment and return writers
+     * name neither column, and rows predating it exist on any database that has moved stock. No mutator, as for every
+     * column of this append-only table; never read into the domain.
+     */
+    #[ORM\Column(name: 'idempotency_key', type: Types::TEXT, nullable: true)]
+    private ?string $idempotencyKey = null;
+
+    /** `RequestDigest::of()` of the count that wrote the row; set and NULL together with the key (`stock_movement_key_both_or_neither`). */
+    #[ORM\Column(name: 'request_digest', type: Types::TEXT, nullable: true)]
+    private ?string $requestDigest = null;
 
     public function __construct(
         Uuid $id,
