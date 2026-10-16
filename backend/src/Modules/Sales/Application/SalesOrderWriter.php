@@ -763,8 +763,9 @@ final readonly class SalesOrderWriter
 
             $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
 
+            // A repeat delete is told the plain fact; `lineArchived()` serves the edit path only.
             if (null !== $line->archivedAt) {
-                throw self::lineArchived();
+                throw self::lineAlreadyArchived();
             }
 
             $em->getConnection()->executeStatement(
@@ -809,7 +810,14 @@ final readonly class SalesOrderWriter
             SalesOrderRowLock::holdInside($em, $id);
             $order = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
-            $this->refuseIfArchived($order);
+            // A repeat `DELETE` is told the order is already archived. Thrown here, not from the shared
+            // `refuseIfArchived()`, whose "can't be changed" reply the edit paths keep (s34 D-1, RED N-2).
+            if (null !== $order->archivedAt) {
+                throw ApiProblem::businessRuleViolated(
+                    'sales_order.is_archived',
+                    'This sales order is already archived.',
+                );
+            }
             $this->refuseUnlessDraft($order, \in_array($order->status, [SalesOrder::STATUS_CONFIRMED, SalesOrder::STATUS_PARTIALLY_FULFILLED], true)
                 ? ' Cancel it instead: only a draft can be deleted.'
                 : ' Only a draft can be deleted.');
@@ -820,7 +828,7 @@ final readonly class SalesOrderWriter
             );
 
             // In this transaction: the archive and the row naming who did it commit together or not at all. A repeat
-            // is refused by `refuseIfArchived()` above, so its rollback writes nothing.
+            // is refused by the already-archived check above, so its rollback writes nothing.
             $this->audit->recordDeleted(
                 tenantId: $identity->tenantId,
                 actorUserId: $identity->userId,
@@ -951,7 +959,16 @@ final readonly class SalesOrderWriter
     {
         return ApiProblem::businessRuleViolated(
             'sales_order_line.is_archived',
-            'This line is archived. Restore it before changing it.',
+            'This line is archived, so it can\'t be changed until it\'s restored.',
+        );
+    }
+
+    /** A repeat `DeleteSalesOrderLine`: the line is already where the caller asked it to be. */
+    private static function lineAlreadyArchived(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated(
+            'sales_order_line.is_archived',
+            'This line is already archived.',
         );
     }
 

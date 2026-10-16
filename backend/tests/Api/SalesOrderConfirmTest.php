@@ -194,7 +194,7 @@ final class SalesOrderConfirmTest extends PurchaseOrderTestCase
         $body = $this->json();
         self::assertSame('urn:erp:problem:business-rule-violated', $body['type']);
         self::assertSame('sales_order.customer_is_live', $body['rule']);
-        self::assertSame('This order\'s customer has been archived, so the order can\'t be confirmed. It can be confirmed once the customer is restored, or the order can be cancelled.', $body['detail']);
+        self::assertSame('This order\'s customer has been archived, so the order can\'t be confirmed. It can be confirmed once the customer is restored or another customer is chosen for it, or the order can be deleted.', $body['detail']);
         self::assertArrayNotHasKey('pointer', $body, 'A refusal of a request with no fields named a field of it.');
         $this->assertStatus($order, SalesOrder::STATUS_DRAFT);
         self::assertSame([], $this->auditRowsOf(AuditEvent::SALES_ORDER_CONFIRMED), 'A refused confirmation wrote a trail row.');

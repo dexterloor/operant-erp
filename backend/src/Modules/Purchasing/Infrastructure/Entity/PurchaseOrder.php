@@ -333,7 +333,7 @@ class PurchaseOrder
                 __FUNCTION__,
                 $this->status,
                 'supplier_is_live',
-                'This order\'s supplier has been archived, so the order can\'t be placed. It can be placed once the supplier is restored, or the order can be cancelled.',
+                'This order\'s supplier has been archived, so the order can\'t be placed. It can be placed once the supplier is restored or another supplier is chosen for it, or the order can be deleted.',
             );
         }
 

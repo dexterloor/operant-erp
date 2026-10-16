@@ -128,7 +128,7 @@ final class SalesOrderDeleteTest extends PurchaseOrderTestCase
         $this->send('DELETE', '/sales-orders/'.$o['order']);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('sales_order.is_archived', $this->json()['rule']);
-        self::assertSame('This sales order is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This sales order is already archived.', $this->json()['detail']);
     }
 
     /** §5.3 clause 2: an id this tenant cannot see and an id that never existed answer identically. */

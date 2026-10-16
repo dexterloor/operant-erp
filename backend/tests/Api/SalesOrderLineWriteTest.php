@@ -363,6 +363,13 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
         $this->send('DELETE', '/sales-orders/'.$order.'/lines/'.$line);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('sales_order_line.is_archived', $this->json()['rule'] ?? null);
+        self::assertSame('This line is already archived.', $this->json()['detail'] ?? null, 'A repeat delete (s34 D-1 item 4).');
+
+        // The edit path keeps its own sentence, and points at a restore that exists (`RestoreSalesOrderLine`).
+        $this->send('PATCH', '/sales-orders/'.$order.'/lines/'.$line, ['quantity' => '1']);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_order_line.is_archived', $this->json()['rule'] ?? null);
+        self::assertSame('This line is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail'] ?? null);
     }
 
     /**

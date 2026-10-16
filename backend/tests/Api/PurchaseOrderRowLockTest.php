@@ -1175,7 +1175,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('sales_order.is_archived', $this->json()['rule']);
-        self::assertSame('This sales order is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This sales order is already archived.', $this->json()['detail']);
     }
 
     /**

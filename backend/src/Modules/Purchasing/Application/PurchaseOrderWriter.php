@@ -518,7 +518,14 @@ final readonly class PurchaseOrderWriter
             PurchaseOrderRowLock::holdInside($em, $id);
             $current = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
 
-            $this->refuseIfArchived($current);
+            // A repeat `DELETE` is told the order is already archived. Thrown here, not from the shared
+            // `refuseIfArchived()`, whose "can't be changed" reply the edit paths keep (s34 D-1, RED N-2).
+            if (null !== $current->archivedAt) {
+                throw ApiProblem::businessRuleViolated(
+                    'purchase_order.is_archived',
+                    'This purchase order is already archived.',
+                );
+            }
             // L-8, and it is the whole of the difference between this operation
             // and `CancelPurchaseOrder`.
             $this->refuseUnlessDraft($current);
@@ -804,8 +811,9 @@ final readonly class PurchaseOrderWriter
 
             $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
 
+            // A repeat delete is told the plain fact; `lineArchived()` serves the PATCH path only (s34 RED N-1).
             if (null !== $line->archivedAt) {
-                throw self::lineArchived();
+                throw self::lineAlreadyArchived();
             }
 
             $em->getConnection()->executeStatement(
@@ -1751,6 +1759,15 @@ final readonly class PurchaseOrderWriter
         return ApiProblem::businessRuleViolated(
             'purchase_order_line.is_archived',
             'This line is archived, so it can\'t be changed.',
+        );
+    }
+
+    /** A repeat `DeletePurchaseOrderLine`: the line is already where the caller asked it to be. */
+    private static function lineAlreadyArchived(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated(
+            'purchase_order_line.is_archived',
+            'This line is already archived.',
         );
     }
 

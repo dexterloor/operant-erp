@@ -439,7 +439,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'StockReceiver refuses a receipt into an archived warehouse\'s live bin); mint warehouse.deleted with its writer; '
             .'and (C5 R1.1/R1.5) the purchase/sales order warehouse liveness reads (PurchaseOrderWriter::notLiveParentErrors\'s '
             .'warehouse branch, SalesOrderWriter::refuseUnresolvable*References) are unlocked — add FOR KEY SHARE on the warehouse '
-            .'branch (legal since warehouses C2), as C5 C1 did for the supplier.',
+            .'branch (legal since warehouses C2), as C5 C1 did for the supplier; '
+            .'and reword `PurchaseOrder::place()`\'s `warehouse_is_live` sentence (\'…or restore this one.\') and pin it literally, '
+            .'unless `RestoreWarehouse` ships in the same commit (s34 D-1 item 5).',
         'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
             .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer.',
     ];

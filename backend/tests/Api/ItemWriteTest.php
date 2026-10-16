@@ -325,12 +325,16 @@ final class ItemWriteTest extends ApiTestCase
         $id = $this->json()['id'];
         $this->send('DELETE', '/items/'.$id);
 
-        foreach ([['PATCH', ['name' => 'x'], []], ['DELETE', null, []]] as [$method, $body, $headers]) {
-            $this->send($method, '/items/'.$id, $body, $headers);
+        foreach ([
+            ['PATCH', ['name' => 'x'], 'This item is archived, so it can\'t be changed until it\'s restored.'],
+            // A repeat delete is told the plain fact (s34 D-1 item 1).
+            ['DELETE', null, 'This item is already archived.'],
+        ] as [$method, $body, $detail]) {
+            $this->send($method, '/items/'.$id, $body);
             self::assertSame(409, $this->httpStatus(), $method.' on an archived row was not refused.');
             self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
             self::assertSame('inventory_item.is_archived', $this->json()['rule']);
-            self::assertSame('This item is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
+            self::assertSame($detail, $this->json()['detail'], $method.' on an archived row.');
         }
     }
 

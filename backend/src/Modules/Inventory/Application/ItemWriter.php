@@ -176,8 +176,10 @@ final readonly class ItemWriter
             $connection = $em->getConnection();
             $current = $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
 
+            // A repeat delete is told the item is already archived; the
+            // update path keeps "can't be changed until it's restored".
             if (null !== $current->archivedAt) {
-                throw self::archived();
+                throw self::alreadyArchived();
             }
 
             $connection->executeStatement(
@@ -379,6 +381,14 @@ final readonly class ItemWriter
         return ApiProblem::businessRuleViolated(
             'inventory_item.is_archived',
             'This item is archived, so it can\'t be changed until it\'s restored.',
+        );
+    }
+
+    private static function alreadyArchived(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated(
+            'inventory_item.is_archived',
+            'This item is already archived.',
         );
     }
 
