@@ -321,7 +321,7 @@ final readonly class SalesReturnWriter
                 ), $lines, array_keys($lines)),
             ));
         } catch (StockReturnRefused $e) {
-            throw self::translated($e);
+            throw self::translated($e, $lines, $shipped);
         }
 
         // 13.
@@ -370,8 +370,13 @@ final readonly class SalesReturnWriter
         return $codes;
     }
 
-    /** `ReturnStock`'s refusals, pointed at this request's own fields. */
-    private static function translated(StockReturnRefused $e): \Throwable
+    /**
+     * `ReturnStock`'s refusals, pointed at this request's own fields.
+     *
+     * @param list<array{fulfilmentLine: string, quantity: string, bin: ?string}> $lines
+     * @param array<string, array<string, mixed>>                                 $shipped fulfilment line id => its row
+     */
+    private static function translated(StockReturnRefused $e, array $lines, array $shipped): \Throwable
     {
         if ('warehouse.is_live' === $e->rule()) {
             return ApiProblem::businessRuleViolated($e->rule(),
@@ -387,6 +392,16 @@ final readonly class SalesReturnWriter
         if (null !== $index && 'stock_level.returned_quantity_fits' === $e->rule()) {
             return ApiProblem::validationFailed([self::error($index, 'quantity', $e->rule(),
                 'The quantity returned into this location, summed over this return, is larger than a stock level can hold.')]);
+        }
+
+        // A fact about the bin, not the request: a 409 (`StockReturnRefused::returnedQuantityWouldOverfillTheLevel`).
+        // Sentence: `UX` O-2 (`stock-adjustment-ux.md` §2.4), "Line %d" as V2-C-19's order-line number; code SEC TO CONFIRM.
+        if (null !== $index && 'stock_level.on_hand_fits' === $e->rule()) {
+            // Named by the order line's `line_number` (V2-C-19), never a 0-based index.
+            return ApiProblem::businessRuleViolated($e->rule(), \sprintf(
+                'Order line %d: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back.',
+                (int) $shipped[$lines[$index]['fulfilmentLine']]['line_number'],
+            ));
         }
 
         // posted-once, no-lines and quantity cannot arrive from here: the id is minted above, the list is non-empty

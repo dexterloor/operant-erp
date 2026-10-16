@@ -39,6 +39,8 @@ namespace App\Modules\Inventory\Application\Contract;
  *   warehouse.is_live                                  `warehouseId` (the SHIPPING warehouse) is archived
  *   storage_location.belongs_to_returning_warehouse    a bin that is not a live bin of `warehouseId`
  *   stock_level.returned_quantity_fits                 one (item, bin)'s summed lines exceed numeric(19,6)
+ *   stock_level.on_hand_fits                           the bin's EXISTING level plus the lines would exceed numeric(19,6)
+ *                                                      (refused since 2026-10-16; before, a 22003 and an HTTP 500)
  *
  * Quarantine bins are accepted: a return is not a pick (owner ruling Q-M). The item is the caller's to derive from
  * its own rows (the shipped line's order line's item), never a request field.

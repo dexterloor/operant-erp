@@ -60,6 +60,22 @@ final class StockReturnRefused extends \DomainException
         );
     }
 
+    /**
+     * The line fits, the return's sums fit, but the bin ALREADY holds so much of the item
+     * that adding them would take `qty_on_hand` past numeric(19,6). A fact about the bin's state, so
+     * the caller answers it as a business rule (409), like a depletion the bin cannot cover. Until
+     * 2026-10-16 this was a 22003 and an HTTP 500 (shipped defect, flagged the same day).
+     */
+    public static function returnedQuantityWouldOverfillTheLevel(int $lineIndex, string $itemId, string $locationId): self
+    {
+        return new self(
+            'stock_level.on_hand_fits',
+            $lineIndex,
+            \sprintf('Line %d: location %s already holds so much of item %s that the quantity returned '
+                .'would exceed 13 digits before the decimal point.', $lineIndex, $locationId, $itemId),
+        );
+    }
+
     public static function warehouseIsArchived(string $warehouseId): self
     {
         return new self(

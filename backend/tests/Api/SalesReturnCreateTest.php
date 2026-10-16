@@ -406,6 +406,49 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         self::assertSame(201, $this->httpStatus(), 'The bound is inclusive: the last unit may come back.');
     }
 
+    /**
+     * **A return into a bin whose level it would push past numeric(19,6) is refused as a business rule, not a 500.**
+     *
+     * Shipped defect, fixed 2026-10-16 (owner told the same day): `StockReturner`'s level upsert added the returned
+     * quantity to an EXISTING level with no bound, so a level within one unit of the column's maximum turned a
+     * one-unit return into `SQLSTATE[22003]` → HTTP 500. The per-return sum bound (`returned_quantity_fits`) cannot see
+     * it — the return's own figure is 1. The level is placed near the maximum as the owner, standing for what a stock
+     * count (`CreateStockAdjustment`) can now do in one request.
+     *
+     * **Mutation:** drop the upsert's `WHERE` (or the refusal after it) → red, HTTP 500 with 22003.
+     */
+    #[Test]
+    public function aReturnThatWouldOverfillTheBinsLevelIsRefusedAndWritesNothing(): void
+    {
+        $s = $this->shipment('RET-OVF', [['5', '10.0000', '4']]);
+        $item = $s['items'][0]['id'];
+        $this->executeAsOwnerForTenant(self::TENANT_A,
+            "UPDATE stock_level SET qty_on_hand = 9999999999999.000000 WHERE inventory_item_id = ?::uuid AND storage_location_id = ?::uuid",
+            [$item, $s['bin']]);
+        $before = $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q, version FROM stock_level WHERE inventory_item_id = ?::uuid AND storage_location_id = ?::uuid',
+            [$item, $s['bin']]);
+        $this->actAsRole(DefaultRoles::OWNER);
+
+        $this->recordReturn($s['fulfilment'], 'other', [
+            ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1', 'storage_location_id' => $s['bin']],
+        ]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('stock_level.on_hand_fits', $this->json()['rule']);
+        self::assertSame('Order line 1: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back.', $this->json()['detail']);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM sales_return'), 'A refused return left its document.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM stock_movement WHERE reason = 'return'"), 'A refused return moved stock.');
+        self::assertSame($before, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q, version FROM stock_level WHERE inventory_item_id = ?::uuid AND storage_location_id = ?::uuid',
+            [$item, $s['bin']]), 'A refused return moved the level or its version.');
+
+        $this->recordReturn($s['fulfilment'], 'other', [
+            ['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '0.999999', 'storage_location_id' => $s['bin']],
+        ]);
+        self::assertSame(201, $this->httpStatus(), 'The bound is inclusive: a return that lands the level exactly on the maximum fits. '.(string) $this->client()->getResponse()->getContent());
+    }
+
     /** **V2-S-9's first half: a line of ANOTHER shipment is an unknown reference**, as is a bin of another warehouse. */
     #[Test]
     public function aLineOfAnotherShipmentOrABinOfAnotherWarehouseIsRefusedAtTheLine(): void

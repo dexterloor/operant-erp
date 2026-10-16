@@ -365,7 +365,7 @@ final readonly class GoodsReceiptWriter
                 ), $lines),
             ));
         } catch (StockReceiptRefused $e) {
-            throw self::translated($e);
+            throw self::translated($e, $lines, $live);
         }
 
         // 8.
@@ -412,8 +412,13 @@ final readonly class GoodsReceiptWriter
         }
     }
 
-    /** `ReceiveStock`'s refusals, pointed at this request's own fields. */
-    private static function translated(StockReceiptRefused $e): \Throwable
+    /**
+     * `ReceiveStock`'s refusals, pointed at this request's own fields.
+     *
+     * @param list<array{orderLine: string, quantity: string, bin: string}> $lines
+     * @param array<string, array<string, mixed>>                           $live  order line id => its row
+     */
+    private static function translated(StockReceiptRefused $e, array $lines, array $live): \Throwable
     {
         $index = $e->lineIndex();
 
@@ -423,6 +428,19 @@ final readonly class GoodsReceiptWriter
                 // posted-once and no-lines cannot arrive from here: the id is
                 // minted above and the list is non-empty. A caller bug, a 500.
                 : $e;
+        }
+
+        // A fact about the bin, not the request (`StockReceiptRefused::receivedQuantityWouldOverfillTheLevel`): a 409,
+        // as a depletion the bin cannot cover is. Sentence: `UX` O-1 (`docs/session13/stock-adjustment-ux.md` §2.4), with
+        // "Line %d" read as V2-C-19's ordered-line number (a 409 carries no pointer). Code `stock_level.on_hand_fits`:
+        // UX's suggestion, SEC TO CONFIRM. C1 appends O-1's count sentence once the count exists (ST-3).
+        if ('stock_level.on_hand_fits' === $e->rule()) {
+            // Named by the ordered line's `line_number`, the number the receive page shows (V2-C-19's rule for a
+            // `business-rule-violated` message), never the request's 0-based index.
+            return ApiProblem::businessRuleViolated($e->rule(), \sprintf(
+                'Order line %d: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received.',
+                (int) $live[$lines[$index]['orderLine']]['line_number'],
+            ));
         }
 
         $field = str_starts_with($e->rule(), 'storage_location.') ? 'storage_location_id' : 'quantity';

@@ -494,6 +494,52 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Two receipts from two orders into one bin, whose sum no single receipt can see, are refused as a business rule
+     * when the second would push the level past numeric(19,6) — not a 500.**
+     *
+     * Shipped defect, fixed 2026-10-16 (owner told the same day): `StockReceiver` bounded only the per-receipt sum
+     * (`received_quantity_fits`); the upsert into an EXISTING level was `qty_on_hand + EXCLUDED.qty_on_hand` with no
+     * bound, so the second receipt failed with `SQLSTATE[22003]` → HTTP 500. Each order line's quantity fits its own
+     * column, so nothing upstream could refuse it. The refusal names the ordered line by its `line_number` (V2-C-19).
+     *
+     * **Mutation:** drop the upsert's `WHERE` (or the refusal after it) → red, HTTP 500 with 22003.
+     */
+    #[Test]
+    public function aSecondOrdersReceiptThatWouldOverfillTheBinsLevelIsRefusedAndWritesNothing(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme OVF');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH OVF');
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-OVF');
+        $first = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $firstLine = $this->seedLine(self::TENANT_A, $first, $item, quantity: '9999999999999.000000', unitCost: '0.0000');
+        $second = $this->seedOrder(self::TENANT_A, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $secondLine = $this->seedLine(self::TENANT_A, $second, $item, lineNumber: 3, quantity: '2.000000', unitCost: '0.0000');
+
+        $this->receive($first, [['purchase_order_line_id' => $firstLine, 'quantity' => '9999999999999', 'storage_location_id' => $bin]]);
+        self::assertSame(201, $this->httpStatus(), 'Fixture: the first receipt. '.(string) $this->client()->getResponse()->getContent());
+
+        $this->receive($second, [['purchase_order_line_id' => $secondLine, 'quantity' => '1', 'storage_location_id' => $bin]]);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('stock_level.on_hand_fits', $this->json()['rule']);
+        self::assertSame('Order line 3: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received.', $this->json()['detail']);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM goods_receipt WHERE purchase_order_id = ?::uuid', [$second]), 'A refused receipt left a goods_receipt row.');
+        self::assertSame([['q' => '0.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity_received::text AS q FROM purchase_order_line WHERE id = ?::uuid', [$secondLine]), 'A refused receipt moved its order line.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM stock_movement WHERE storage_location_id = ?::uuid', [$bin]), 'A refused receipt moved stock.');
+        self::assertSame([['q' => '9999999999999.000000', 'version' => 1]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q, version FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), 'A refused receipt moved the level.');
+
+        $this->receive($second, [['purchase_order_line_id' => $secondLine, 'quantity' => '0.999999', 'storage_location_id' => $bin]]);
+        self::assertSame(201, $this->httpStatus(), 'The bound is inclusive: a receipt that lands the level exactly on the maximum fits. '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame([['q' => '9999999999999.999999', 'version' => 2]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT qty_on_hand::text AS q, version FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]));
+    }
+
+    /**
      * P-5: a retried timeout is the same receipt, not a second delivery — and
      * still is after that receipt completed the order, which a status check
      * run before the replay read would refuse.

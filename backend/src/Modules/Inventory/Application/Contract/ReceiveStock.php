@@ -72,6 +72,7 @@ namespace App\Modules\Inventory\Application\Contract;
  *   warehouse.is_live                              `warehouseId` is archived
  *   storage_location.belongs_to_receiving_warehouse  a bin that is not a live bin of `warehouseId`
  *   stock_level.received_quantity_fits             one (item, bin)'s summed lines exceed numeric(19,6)
+ *   stock_level.on_hand_fits                       the bin's EXISTING level plus the lines would exceed numeric(19,6)
  *
  * An id that is not an RFC 4122 UUID (braces, no hyphens, not a UUID) is
  * refused at construction with `\InvalidArgumentException` — the ids come from
@@ -112,10 +113,15 @@ namespace App\Modules\Inventory\Application\Contract;
  *     refuses a second receipt with the same id, and two transactions posting
  *     one id queue on that key instead of both passing this read.
  *   - A receipt that fits but pushes an EXISTING level past numeric(19,6)
- *     (`qty_on_hand + delta` over 13 integer digits) is not refused here: the
- *     upsert fails with 22003 and aborts your transaction. Loud, nothing
- *     half-written, and ten trillion units in one bin is not a stock level
- *     anyone holds; refusing it would need a read of every level first.
+ *     (`qty_on_hand + delta` over 13 integer digits) IS refused, as
+ *     `stock_level.on_hand_fits`, by the level upsert's own `WHERE` on the
+ *     locked row — no read of every level first, and no race between a check
+ *     and the write. **Corrected 2026-10-16:** this said the receipt was not
+ *     refused and the upsert failed with 22003, *"loud, nothing half-written"*.
+ *     That acceptance was a builder's docblock, never ruled, and the loudness
+ *     was an HTTP 500: two receipts from two orders into one bin reached it,
+ *     and a stock count (`CreateStockAdjustment`) makes such a level one request
+ *     away. Fixed as a shipped defect, flagged to the owner the same day.
  *
  * ---------------------------------------------------------------------------
  * Deliberately accepted: an archived item. Refused: an archived warehouse.

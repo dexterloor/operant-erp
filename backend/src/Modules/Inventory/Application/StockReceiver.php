@@ -123,7 +123,16 @@ final readonly class StockReceiver implements ReceiveStock
             foreach ($deltas as $key => $quantity) {
                 [$itemId, $locationId] = explode("\0", (string) $key);
 
-                $connection->executeStatement(
+                // The level is RAISED only while the sum still fits numeric(19,6). The
+                // comparison is evaluated on the locked, current row, in unconstrained
+                // numeric, so it cannot itself overflow and no concurrent receipt can slip
+                // between a check and the write. Without it an existing level pushed past
+                // 13 integer digits failed with 22003 — an untranslated 500 (shipped
+                // defect, fixed 2026-10-16 with the stock count, which makes such a level
+                // one request away). 0 rows = refused; no SQL error was raised, so the
+                // caller's transaction is alive and its rollback clean (StockDepleter's
+                // conditional-write precedent).
+                $changed = $connection->executeStatement(
                     <<<'SQL'
                     INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand)
                     VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::numeric)
@@ -131,9 +140,14 @@ final readonly class StockReceiver implements ReceiveStock
                         SET qty_on_hand = stock_level.qty_on_hand + EXCLUDED.qty_on_hand,
                             version     = stock_level.version + 1,
                             updated_at  = now()
+                        WHERE stock_level.qty_on_hand + EXCLUDED.qty_on_hand <= ?::numeric
                     SQL,
-                    [Uuid::v4()->toRfc4122(), $tenantId, $itemId, $locationId, $quantity],
+                    [Uuid::v4()->toRfc4122(), $tenantId, $itemId, $locationId, $quantity, self::LARGEST_QUANTITY],
                 );
+
+                if (1 !== $changed) {
+                    throw StockReceiptRefused::receivedQuantityWouldOverfillTheLevel(self::firstLineOf($receipt->lines, $itemId, $locationId), $itemId, $locationId);
+                }
             }
         });
     }
@@ -197,5 +211,22 @@ final readonly class StockReceiver implements ReceiveStock
                 throw StockReceiptRefused::binIsNotALiveBinOfTheReceivingWarehouse($index, $line->storageLocationId, $receipt->warehouseId);
             }
         }
+    }
+
+    /**
+     * The index of the first line booking this item into this bin — the line a
+     * level refusal names (several lines for one pair are one write).
+     *
+     * @param array<int, StockReceiptLine> $lines
+     */
+    private static function firstLineOf(array $lines, string $itemId, string $locationId): int
+    {
+        foreach ($lines as $index => $line) {
+            if ($line->inventoryItemId === $itemId && $line->storageLocationId === $locationId) {
+                return $index;
+            }
+        }
+
+        throw new \LogicException('A level was written for an (item, bin) pair no line names.');
     }
 }

@@ -543,6 +543,38 @@ final class ReceiveStockTest extends ApiTestCase
     }
 
     /**
+     * The receipt's own sum fits, but the bin ALREADY holds so much that adding it would overflow the level. Until
+     * 2026-10-16 the upsert raised 22003 (an HTTP 500 at the caller); now the conditional upsert refuses it on the
+     * locked row, naming the first line booking that (item, bin), and leaves the level and its version untouched.
+     */
+    #[Test]
+    public function aReceiptThatWouldOverfillAnExistingLevelIsRefusedAndNamesItsLine(): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+        $bolts = $this->seedItem(self::TENANT_A, 'BOLT');
+        $nuts = $this->seedItem(self::TENANT_A, 'NUT');
+
+        $this->receiveAs(self::TENANT_A, $warehouse, [new StockReceiptLine($bolts, $bin, '9999999999999')]);
+
+        try {
+            $this->receiveAs(self::TENANT_A, $warehouse, [
+                new StockReceiptLine($nuts, $bin, '1'),
+                new StockReceiptLine($bolts, $bin, '0.5'),
+                new StockReceiptLine($bolts, $bin, '0.5'),
+            ]);
+            self::fail('A receipt that overfills an existing level was accepted.');
+        } catch (StockReceiptRefused $refused) {
+            self::assertSame('stock_level.on_hand_fits', $refused->rule());
+            self::assertSame(1, $refused->lineIndex());
+        }
+
+        self::assertSame([
+            ['inventory_item_id' => $bolts, 'qty_on_hand' => '9999999999999.000000', 'qty_reserved' => '0.000000', 'version' => 1],
+        ], array_values(array_filter($this->levels(self::TENANT_A, $bin), static fn (array $l): bool => $l['inventory_item_id'] === $bolts)));
+    }
+
+    /**
      * One bin is one bin however its id is spelled. The DTOs hold the canonical
      * lower-case RFC 4122 form, so the W-5 sort key, the per-bin sum and the
      * bin check all compare like with like — and a receipt that spells one bin
