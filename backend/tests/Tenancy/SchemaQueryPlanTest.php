@@ -634,6 +634,24 @@ final class SchemaQueryPlanTest extends TenancyTestCase
      * reason (final RED M-3; `DATA` §1.4 item 6): the display joins seq-scan the seeded `storage_location` (8 rows) —
      * measured on the first run of this test, plan in the build log. **Positive control, run (not predicted):** with the two
      * old indexes restored in place of the new ones, both tests go red on (a) and (d) (build log, C2 mutation DATA-1).
+     *
+     * **Every join strategy, not the one the planner happens to pick** (shipped-defect fix, 2026-10-16,
+     * `docs/session13/ledger-plan-fix-progress.md`). The scan is estimated at ONE row inside a tie group (Postgres costs a
+     * row comparison from its first column), so the planner's choice between a nested loop and a merge join with
+     * `storage_location` was a coin toss decided by where the seed's random uuids fell: the per-item test failed 1 run in
+     * 10 at `6339297`, the merge join reading and sorting all 2,500 cursor-matching rows. The statement now cuts the page
+     * from `stock_movement` alone, so each test explains it three times — as planned, with a merge join forced
+     * (`enable_nestloop` and `enable_hashjoin` off) and with a hash join forced (`enable_nestloop` and `enable_mergejoin` off). `planWith()`'s settings here force the
+     * thing under test, a join strategy; they are not a size accommodation. **(a) is restated, not loosened:** the page's
+     * `Limit` must be the index scan's DIRECT parent — no `Sort` of any kind between the scan and the `LIMIT` that stops it
+     * — and with (d) bounding the scan to `limit + 1` rows, every node above that `Limit` handles at most one page of
+     * movements: the only sorts a forced join may add are the re-ordering of that page and, for a merge join, of the parent
+     * table it merges against (measured: the forced merge join sorts `inventory_item`), never of the tie group. The statement
+     * must also carry the order TWICE (inside the page and outside the joins): without the outer `ORDER BY`, the page's
+     * order would again rest on the join the planner chose. **Mutations, run (progress note):** with the old statement
+     * restored, the order-twice assertion goes red; with that assertion also disabled, the as-planned pass goes red on (a)
+     * on 5 runs of 5 (its scan's parent is a join, not the `LIMIT`), and the old statement under a forced merge or hash join
+     * reads and sorts all 2,500 cursor-matching rows (probe) — the defect itself.
      */
     #[Test]
     public function theMovementLedgerPagesInsideATieGroupWithoutASort(): void
@@ -669,17 +687,25 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         );
         [$sql, $parameters] = StockMovementReader::listStatement($criteria);
         self::assertStringContainsString('(m.occurred_at, m.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the ledger keyset page.');
-        self::assertStringContainsString('ORDER BY m.occurred_at DESC, m.id DESC', $sql);
+        self::assertSame(2, substr_count($sql, 'ORDER BY m.occurred_at DESC, m.id DESC'),
+            'The order must be applied inside the page AND after the joins, or the page order rests on the join strategy.');
 
-        $plan = $this->plan($sql, $parameters);
-        $this->assertPlanOn('stock_movement', $label, $plan, $index);
+        foreach ([
+            'as planned' => [],
+            'merge join forced' => ['enable_nestloop' => 'off', 'enable_hashjoin' => 'off'],
+            'hash join forced' => ['enable_nestloop' => 'off', 'enable_mergejoin' => 'off'],
+        ] as $strategy => $settings) {
+            $plan = $this->planWith($settings, $sql, $parameters);
+            $this->assertPlanOn('stock_movement', $label.' ('.$strategy.')', $plan, $index);
 
-        self::assertStringNotContainsString('Sort', $plan, "(a) The page sorts — the index does not supply `id` order inside the tie group:\n$plan");
-        self::assertStringContainsString('Index Scan Backward using '.$index, $plan, "(b) Not an ordered backward scan of the new index:\n$plan");
-        self::assertMatchesRegularExpression('/Index Cond:[^\n]*ROW\((m\.)?occurred_at, (m\.)?id\) < ROW\(/', $plan,
-            "(c) The row comparison is not an index condition:\n$plan");
-        self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan);
-        preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
-        self::assertLessThanOrEqual($criteria->limit + 1, (int) $m[1], "(d) The scan read past LIMIT inside the tie group:\n$plan");
+            self::assertMatchesRegularExpression('/(^|->)\s*Limit \(actual[^\n]*\n\s*->\s+Index Scan Backward using '.$index.' /m', $plan,
+                "(a) [$strategy] Something sits between the index scan and the LIMIT that stops it — the page is sorted, not read in index order inside the tie group:\n$plan");
+            self::assertStringContainsString('Index Scan Backward using '.$index, $plan, "(b) [$strategy] Not an ordered backward scan of the new index:\n$plan");
+            self::assertMatchesRegularExpression('/Index Cond:[^\n]*ROW\((m\.)?occurred_at, (m\.)?id\) < ROW\(/', $plan,
+                "(c) [$strategy] The row comparison is not an index condition:\n$plan");
+            self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan);
+            preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
+            self::assertLessThanOrEqual($criteria->limit + 1, (int) $m[1], "(d) [$strategy] The scan read past LIMIT inside the tie group:\n$plan");
+        }
     }
 }
