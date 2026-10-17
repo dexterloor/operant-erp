@@ -11,7 +11,6 @@ use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
-use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
@@ -43,9 +42,17 @@ use Symfony\Component\Uid\Uuid;
  *  4. archived customer → 409 `customer.is_archived` (ST-9: an archived row is read-only, children included). Inlined,
  *     never a `refuseUnless…` method (`EditWindowGuardTest` clause (b) would read one as an edit window, RED L-3);
  *  5. country not in the reference table → 422 `unknown_reference` (four rows, `RESIDUAL_GAPS.md` G-37);
- *  6. the INSERT. A 23505 on `customer_address_idem_unique` (two requests with one key racing past step 3) is translated
- *     **outside** `TenantContext::run()`, because the failed statement aborted the transaction, by re-reading the key: the
- *     winner's row with the same digest replays, any other is the 409 conflict.
+ *  6. the INSERT, `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING` — exactly `customer_address_idem_unique`'s columns
+ *     (a total, non-partial unique). Two requests with one key can both pass step 3 (the parent's `FOR KEY SHARE` does not
+ *     serialise them); the second waits at the unique until the first commits, then inserts nothing. Its 0 rows are
+ *     answered by step 3's key read again, in the SAME transaction (READ COMMITTED: the next statement sees the winner):
+ *     the same digest replays the winner's row (201), any other is the 409 conflict. No audit row on that branch. The id
+ *     is minted here, so the only 23505 left is a minted-UUID collision, which is a 500.
+ *     *(2026-10-17, shipped-defect fix: until then the INSERT was plain, its 23505 was caught OUTSIDE `run()` and the key
+ *     re-read in a SECOND `run()`. The first `run()` had closed the EntityManager on the way out, so that re-read died at
+ *     its `flush()` — an identical retry that lost the race got HTTP 500 "The EntityManager is closed." instead of the
+ *     replay; the conflict branch was right only because its 409 escaped before the `flush()`. Found by the stock count
+ *     build's D-1 measurement; `docs/session13/reread-defect-progress.md`. `NoRunAfterAFailedRunTest` now refuses the shape.)*
  *
  * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C4b), then the pair `(customer, address)`, the address read `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
  * one, or another customer's address — ST-5) → archived customer 409 → shape → country support → the **changed** fields
@@ -119,46 +126,48 @@ final readonly class CustomerAddressWriter
         $tenantId = $this->tenant->tenantId();
         $identity = $this->identities->authenticated();
 
-        try {
-            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($customerId, $values, $keyHash, $digest, $tenantId, $identity): CustomerAddressView {
-                $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
+        return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($customerId, $values, $keyHash, $digest, $tenantId, $identity): CustomerAddressView {
+            $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
 
-                $replay = self::createdByKeyInside($em, $customerId, $keyHash, $digest);
-                if (null !== $replay) {
-                    return $replay;
-                }
+            $replay = self::createdByKeyInside($em, $customerId, $keyHash, $digest);
+            if (null !== $replay) {
+                return $replay;
+            }
 
-                // ST-9, after the key on purpose (see the class docblock, step 3).
-                if ($archived) {
-                    throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_CREATE);
-                }
+            // ST-9, after the key on purpose (see the class docblock, step 3).
+            if ($archived) {
+                throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_CREATE);
+            }
 
-                self::refuseUnsupportedCountry($em, $values);
+            self::refuseUnsupportedCountry($em, $values);
 
-                $id = Uuid::v4()->toRfc4122();
-                $em->getConnection()->executeStatement(
-                    'INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)'
-                    .' VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)',
-                    [$id, $tenantId, $customerId, $values['kind'], $values['line'], $values['city'], $values['postal_code'], $values['country_code'], $keyHash, $digest],
-                );
+            // Step 6: the conflict target is `customer_address_idem_unique`'s columns exactly. A same-key request that
+            // committed while this one waited at the unique makes this insert nothing — no 23505, so no exception leaves
+            // `run()` and the manager stays open (the class docblock's 2026-10-17 marker).
+            $id = Uuid::v4()->toRfc4122();
+            $inserted = $em->getConnection()->executeStatement(
+                'INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)'
+                .' VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)'
+                .' ON CONFLICT (tenant_id, idempotency_key) DO NOTHING',
+                [$id, $tenantId, $customerId, $values['kind'], $values['line'], $values['city'], $values['postal_code'], $values['country_code'], $keyHash, $digest],
+            );
+            if (1 !== $inserted) {
+                // The race's loser, in this transaction: the winner's row is visible to this statement. Same digest →
+                // its address (201); another → 409. No audit row: this request inserted nothing.
+                return self::createdByKeyInside($em, $customerId, $keyHash, $digest) ?? throw ApiProblem::idempotencyKeyConflict();
+            }
 
-                // After the INSERT, in its transaction: a 23505 above leaves no row, and a replay never reaches here.
-                $this->audit->recordCreated(
-                    tenantId: $identity->tenantId,
-                    actorUserId: $identity->userId,
-                    actorLabel: $identity->actorLabel,
-                    addressId: $id,
-                );
+            // After the INSERT, in its transaction: a replay or a lost race never reaches here.
+            $this->audit->recordCreated(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                addressId: $id,
+            );
 
-                return CustomerAddressReader::readInside($em, $customerId, $id)
-                    ?? throw new \LogicException('The address just inserted is not readable.');
-            });
-        } catch (UniqueConstraintViolationException) {
-            // Outside `run()`: the failed INSERT aborted the transaction. The table's only unique a write can hit is
-            // `customer_address_idem_unique` (the id is minted here): another request with this key won the race.
-            return $this->tenants->run($tenantId, static fn (EntityManagerInterface $em): CustomerAddressView => self::createdByKeyInside($em, $customerId, $keyHash, $digest)
-                ?? throw ApiProblem::idempotencyKeyConflict());
-        }
+            return CustomerAddressReader::readInside($em, $customerId, $id)
+                ?? throw new \LogicException('The address just inserted is not readable.');
+        });
     }
 
     /** @param array<string, mixed> $submitted wire name => value, exactly the fields the body carried */

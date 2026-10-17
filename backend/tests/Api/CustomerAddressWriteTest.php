@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\Customers\Application\CustomerAddressWriter;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
+use App\Platform\Http\Idempotency\RequestDigest;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -497,6 +500,64 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
             'The request\'s customer_address.updated row does not name the city it changed back.');
     }
 
+    /**
+     * **The identical retry that loses the INSERT race** (shipped-defect fix, 2026-10-17; `docs/session13/reread-fix-recommendation.md`
+     * Revision 1, RED M-4). A holder inserts the SAME request's address — same key hash, same digest — uncommitted, before
+     * the request starts; the request passes its key read (it sees nothing), waits at `customer_address_idem_unique`, and
+     * meets the twin only once the holder commits. Until this fix that path answered **HTTP 500 "The EntityManager is
+     * closed."**: the 23505 left `run()`, which closed the manager, and the re-read in a second `run()` died at its
+     * `flush()`. Now the INSERT is `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING` and its 0 rows are answered by the
+     * key read in the same transaction: the winner's address, 201, its `Location`, one row, and NO `customer_address.created`
+     * row (the holder writes none, so any row would be the loser's). Mutations (a) drop the `ON CONFLICT` and (d) restore
+     * the old catch + second `run()` turn this red with a 500; (b) an unconditional audit row turns it red on the trail.
+     */
+    #[Test]
+    public function anIdenticalRetryThatLosesTheInsertRaceIsHandedTheWinnersAddress(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Raced Create');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+        $key = Uuid::v4()->toRfc4122();
+        $winner = Uuid::v4()->toRfc4122();
+
+        $holder = $this->raceAgainstAHolder(
+            $this->twinInserted($winner, $customer, self::BODY, $key),
+            fn () => $this->create($customer, self::BODY, $key),
+        );
+
+        $this->assertWaitedAndCommitted($holder);
+        self::assertSame(201, $this->httpStatus(), 'An identical retry that lost the race was not answered as the replay: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame(['id' => $winner] + self::BODY, $this->json(), 'The loser was not handed the winner\'s address.');
+        self::assertSame('/api/v1/customers/'.$customer.'/addresses/'.$winner, $this->client()->getResponse()->headers->get('Location'));
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM customer_address WHERE idempotency_key = ?', [IdempotencyKeyHash::of($key)]));
+        self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_CREATED), 'The loser wrote a customer_address.created row for an address it did not insert.');
+    }
+
+    /**
+     * The same race with ANOTHER body under the key: 409 `idempotency-key-conflict`, the holder's row alone, no trail row.
+     * Before the fix this branch was right only by accident (the conflict escaped the second `run()` before its `flush()`).
+     * Mutation (c) — replay without comparing the digest — turns it into a 201 handing back the wrong body → red.
+     */
+    #[Test]
+    public function anotherBodyThatLosesTheInsertRaceUnderTheKeyConflicts(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Raced Conflict');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+        $key = Uuid::v4()->toRfc4122();
+        $winner = Uuid::v4()->toRfc4122();
+
+        $holder = $this->raceAgainstAHolder(
+            $this->twinInserted($winner, $customer, self::BODY, $key),
+            fn () => $this->create($customer, ['city' => 'Bath'] + self::BODY, $key),
+        );
+
+        $this->assertWaitedAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), 'Another body under a raced key was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('urn:erp:problem:idempotency-key-conflict', $this->json()['type']);
+        self::assertSame([['id' => $winner, 'city' => 'London']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id, city FROM customer_address WHERE idempotency_key = ?', [IdempotencyKeyHash::of($key)]));
+        self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_CREATED), 'A refused raced create wrote a customer_address.created row.');
+    }
+
     // -----------------------------------------------------------------------
 
     /**
@@ -568,6 +629,33 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
             'metadata' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m',
                 [json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR)])[0]['m'],
         ]);
+    }
+
+    /**
+     * What the first of two identical requests writes, as `CustomerAddressWriter::create()` writes it: the row with the
+     * key's hash and the request's digest (`RequestDigest::of(CreateCustomerAddress, …)` over the path's customer id and the
+     * five fields, the writer's own rule). The holder writes no audit row.
+     *
+     * @param array<string, string> $body
+     *
+     * @return list<array{0: string, 1: list<string>}>
+     */
+    private function twinInserted(string $id, string $customer, array $body, string $key): array
+    {
+        $digest = RequestDigest::of(CustomerAddressWriter::CREATE_OPERATION, ['customer_id' => RequestDigest::uuid($customer)] + $body);
+
+        return [[
+            'INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest)'
+            .' VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)',
+            [$id, self::TENANT_A, $customer, $body['kind'], $body['line'], $body['city'], $body['postal_code'], $body['country_code'], IdempotencyKeyHash::of($key), $digest],
+        ]];
+    }
+
+    /** @param array{waiter_seen: bool, committed: bool, sqlstate: ?string, error: ?string} $holder */
+    private function assertWaitedAndCommitted(array $holder): void
+    {
+        self::assertTrue($holder['waiter_seen'], 'The create never waited on the holder, so nothing here was a race: '.json_encode($holder));
+        self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
     }
 
     /**
