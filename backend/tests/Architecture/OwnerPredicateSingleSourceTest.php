@@ -65,6 +65,8 @@ final class OwnerPredicateSingleSourceTest extends TestCase
         // Roles slice 4 C2 (2026-10-07): Q-A — only an owner changes a role that makes its holders owners.
         'RoleUpdate',
         'SalesReturnWriter',
+        // Stock count C1 (2026-10-16): owner Q1 (C′) — only an owner counts a quarantine bin down or counts up a held item.
+        'StockAdjuster',
         // Warehouses slice 1 C3 (2026-10-13): Q-W1 (d) — only an owner releases a stocked location from quarantine.
         'StorageLocationWriter',
     ];

@@ -286,44 +286,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     ];
 
     /**
-     * **`operationId` => the obligation group it fires: the operations that WIDEN the double credit an adjustment allows**
-     * (`RESIDUAL_GAPS.md` G-29 and G-30, ruled 2026-10-02; part 1 of their sequencing, owner: *"Go ahead with part 1"*;
-     * **moved at G-29 / G-30 part 3 C2, 2026-10-06: G-29 is CLOSED and G-30 closed except path (iii)'s paperwork half, and
-     * what remains is `RESIDUAL_GAPS.md` G-32 — this pin now carries G-28 and G-32**).
-     *
-     * Among the default roles `credit_note.adjust` is held by the owner alone, and
-     * `CreditNoteAdjustTest::aRoleWithoutCreditNoteAdjustIsRefused` goes red if a default role gains it. What that test
-     * cannot see is a role a TENANT composes — so `CreateRole` / `UpdateRole` (G-28's trigger, the same event, and G-32's)
-     * WERE pinned here, until roles slice 4 C1 / C2 built them with the work their block listed (G-32 re-rated MEDIUM at C1;
-     * Q-A and R-1 at C2). `CreateStockAdjustment` is pinned because G-32 carries G-30 path (iii)'s paperwork
-     * half and names this build commit as a hard trigger that must test path (iii), and G-21's phantom-stock sentence
-     * names it as unbuilt.
-     *
-     * Keyed by `operationId`, never a path (`1076ba3`). **The remaining entry is not built** (`CreateRole` was cleared at roles
-     * slice 4 C1 and `UpdateRole` at C2, each with its work done) — this is a PIN that goes red on
-     * arrival, not an implication. Clearing an entry is a deliberate edit made in the commit that does what the failure
-     * message lists; the residual every sibling method carries applies (clearing without doing it defeats the pin).
-     * **Disclosed limit (G-32's own text):** a grant written by SQL (G-10's shape) composes a role with no operation,
-     * and nothing here sees it.
-     *
-     * @var array<string, 'stock count'>
-     */
-    private const OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT = [
-        // `CreateRole` LEFT 2026-10-07 (roles slice 4 C1), in the commit that did its block's work: G-28 narrowed (C0's
-        // derived check, C1a's `margin_exposure`), PC-17 re-put (owner D-5b), G-32's over-credit part re-rated MEDIUM by
-        // `SEC` (`roles-s4-sec-data.md` D-7.7 as corrected by `-red.md` item 2), and the composed-role cases in
-        // `CreditNoteAdjustTest` / `AdjustmentDecisionTest`.
-        // `UpdateRole` LEFT 2026-10-07 (roles slice 4 C2), in the commit that did the rest of the block's work: `SEC`'s RED N-3
-        // question answered by Q-A (`roles-s4-c2-decisions.md` FINAL — a role whose stored or resulting codes confer the
-        // marker is changed only by an owner, `role.marker_needs_owner`); companions run on the RESULT and PC-4
-        // unconditionally (`RoleUpdateTest`); G-32's over-credit bullet REPLACED with `roles-s4-c2-decisions-red.md` §6 (e)
-        // (R-1: a non-owner can still complete the Medium seat across a holder's roles — pinned by
-        // `RoleUpdateTest::aNonOwnerCanStillTakeAdjustmentPowerOffAMarkerHoldersOtherRole`) and its parenthesis with §6 (f).
-        // The 'role composition' group left the `@var` with it; its message block is gone (a dead branch is not left).
-        'CreateStockAdjustment' => 'stock count',
-    ];
-
-    /**
      * **What roles slice 3 hands forward, mechanised** (`docs/session13/roles-s3-design.md` §11; C1, 2026-10-04). E-15e's
      * proposals now exist, and five operations (unbuilt then) owed something to them — `UpdateRole` (C2) and `DeleteRole` (C3)
      * have left, three remain. Each key is an `operationId` (the pick-read
@@ -441,9 +403,16 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'warehouse branch, SalesOrderWriter::refuseUnresolvable*References) are unlocked — add FOR KEY SHARE on the warehouse '
             .'branch (legal since warehouses C2), as C5 C1 did for the supplier; '
             .'and reword `PurchaseOrder::place()`\'s `warehouse_is_live` sentence (\'…or restore this one.\') and pin it literally, '
-            .'unless `RestoreWarehouse` ships in the same commit (s34 D-1 item 5).',
+            .'unless `RestoreWarehouse` ships in the same commit (s34 D-1 item 5). '
+            .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
+            .'cannot be counted off (the count refuses archived bins). An archived warehouse\'s quarantine stock would hold its item '
+            .'for good (L-4 (ii)). `SEC` leans to refusing the delete of a stocked location or warehouse; rule it with the delete '
+            .'(stock-adjustment-sec.md §6); and re-read the count\'s `warehouse.is_archived` sentence (UX S-2).',
         'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
-            .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer.',
+            .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer. '
+            .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
+            .'cannot be counted off (the count refuses archived bins). `SEC` leans to refusing the delete of a stocked location; rule '
+            .'it with the delete (stock-adjustment-sec.md §6); and re-read the count\'s `storage_location.is_archived` sentence (UX S-3).',
     ];
 
     /**
@@ -461,10 +430,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK = [
-        'CreateStockAdjustment' => 'counts a location up or down: counting a quarantine location to zero empties it for any editor to release, '
-            .'and counting stock up in a pickable location creates pickable stock with no release.',
+        // `CreateStockAdjustment` LEFT 2026-10-16 (stock count C1), its work done: owner Q1 (C′) — a non-owner may not count a
+        // quarantine bin down (`stock_level.count_down_needs_owner`) nor count up an item held in quarantine anywhere in the
+        // workspace (`stock_level.held_item_needs_owner`); the bin is read `FOR KEY SHARE` before its kind
+        // (`StockAdjustmentReleaseTest`, `StockAdjustmentRaceTest` R-2′ / R-2″; `RESIDUAL_GAPS.md` G-44).
         'CreateStockTransfer' => 'moves stock from `source_storage_location_id` to `destination_storage_location_id` in one call: '
-            .'quarantine → pickable is a release.',
+            .'quarantine → pickable is a release. The count\'s held-item read (`StockAdjuster`, G-44) takes no lock because only an '
+            .'owner can empty quarantine; a transfer that lets a non-owner move stock out of quarantine must lock or re-check it.',
     ];
 
     /** The sentence both entries owe (final RED H-1), carried verbatim into the failure message. */
@@ -502,6 +474,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         .'only rule refusing negative stock. Bring it to the owner, or build model D with its rule, in THIS commit. Do not hand-edit '
         .'this pin to green.';
 
+    // The double-credit pin (G-28 / G-32) was DELETED at the stock count's C1 (2026-10-16, `SEC`
+    // `docs/session13/stock-adjustment-sec.md` §1): its last entry, `CreateStockAdjustment`, left with path (iii) tested, and
+    // no unbuilt operation composes a role through the API (`RestoreRole` revives no grant: E-15h refuses deleting a held role,
+    // and an archived role cannot be granted). Bulk's AssignRole parity is carried below, on its own entry.
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
@@ -513,7 +489,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
             .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
         'CreateBulkRoleAssignment' => 'Bulk never proposes (refused wholesale before any member id is read, keeping E-14\'s '
-            .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).',
+            .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).'
+            .' And AssignRole parity, per member: GrantRules\' phase verdicts (E-15b marker owner-only, PC-13 SoD, V2-R-6 archived '
+            .'role), one `role.assigned` row per (actor, subject, role), and the role\'s `margin_exposure` on the response (G-28: '
+            .'a change to this response contract is its trigger). G-32\'s Medium seat is composed across a holder\'s roles (R-1); bulk '
+            .'must add no seat a single AssignRole cannot (SEC, stock-adjustment-sec.md §1).',
         // `DeleteRole` LEFT 2026-10-07 (roles slice 4 C3), its work done: E-15h's pending refusal counts every `pending` row on
         // the role, stale ones included (`LiveGrantReader::pendingProposalCount`, a `status = 'pending'` partial index), and names
         // the count — `RoleDeleteTest::aRoleWithOpenRequestsIsRefusedCountingExpiredOnes`. The OPEN SEC question is answered by
@@ -1143,34 +1123,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **G-28's and G-32's composition trigger, and G-32's (G-30 path (iii)'s) stock-count trigger, carried by a mechanism**
-     * (2026-10-02; repointed from G-29 / G-30 to G-32 at G-29 / G-30 part 3 C2, 2026-10-06). Red the moment any key of
-     * {@see self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT} is in the generated spec, printing what that commit owes.
-     *
-     * **Controls, same test:** the positive control every sibling uses; a non-empty map; and the intersection over a
-     * literal map naming a BUILT operation must report it. **Mutations (run 2026-10-02, pasted in
-     * `docs/session13/g29-g30-part1-progress.md`):** each of the three keys planted into the built set in turn → red
-     * naming it with its own group's text; restored byte-identical.
-     */
-    #[Test]
-    public function noOperationThatWidensTheDoubleCreditHasBeenBuilt(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT,
-            'The double-credit pin is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
-        self::assertSame(['IssueAdjustmentCreditNote' => 'x'],
-            array_intersect_key(['IssueAdjustmentCreditNote' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_THAT_WIDEN_THE_DOUBLE_CREDIT, $built);
-
-        self::assertSame([], $arrived, self::doubleCreditPointer($arrived));
-    }
-
-    /**
      * **`RESIDUAL_GAPS.md` G-35's hard trigger** (customers slice 1 C2; judge FINAL item 10). Red the moment either key of
      * {@see self::OPERATIONS_OWING_THE_G35_RERATING} is in the generated spec. **Controls, same test:** the positive control
      * every sibling uses; a non-empty map; and the intersection over a literal map naming a BUILT operation (`ListCustomers`)
@@ -1291,8 +1243,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **G-44's bypass** (warehouses slice 1 C3; final RED H-1). Red the moment `CreateStockTransfer` or
-     * `CreateStockAdjustment` is in the generated spec, carrying the rule they owe. **Controls, same test:** the positive
+     * **G-44's bypass** (warehouses slice 1 C3; final RED H-1). Red the moment `CreateStockTransfer` is in the generated
+     * spec, carrying the rule it owes (`CreateStockAdjustment` left at the stock count C1, 2026-10-16, with the rule applied). **Controls, same test:** the positive
      * control; the key set pinned by literal (M14: rename a key → red here, though the positive control stays green); and
      * the intersection over a literal map naming a BUILT operation (`UpdateStorageLocation`) must report it.
      */
@@ -1305,9 +1257,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
         $keys = array_keys(self::OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK);
         sort($keys);
-        self::assertSame(['CreateStockAdjustment', 'CreateStockTransfer'], $keys,
-            'The G-44 bypass pin no longer names exactly the two `stock_movement.adjust` operations of API.md §4.2 that take a '
-            .'storage location. A renamed key is never built and guards nothing; an entry leaves only with its work done.');
+        self::assertSame(['CreateStockTransfer'], $keys,
+            'The G-44 bypass pin no longer names exactly the unbuilt `stock_movement.adjust` operation of API.md §4.2 that takes '
+            .'storage locations (`CreateStockAdjustment` left at the stock count C1, its rule applied). A renamed key is never built '
+            .'and guards nothing; an entry leaves only with its work done.');
         self::assertSame(['UpdateStorageLocation' => 'x'],
             array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
             'A planted owing operation that IS built was not reported: the intersection is blind.');
@@ -1538,39 +1491,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             implode(', ', array_keys($arrived)),
             implode("\n\n", array_map(static fn (string $id, string $owed): string => $id.': '.$owed, array_keys($arrived), $arrived)),
         ));
-    }
-
-    /**
-     * The failure message: one block per obligation group that arrived. The text is `RESIDUAL_GAPS.md` G-28's, G-32's
-     * (and G-21's), condensed; the register is the authority.
-     *
-     * @param array<string, string> $arrived
-     */
-    private static function doubleCreditPointer(array $arrived): string
-    {
-        $blocks = [];
-        if (\in_array('stock count', $arrived, true)) {
-            $blocks[] = "STOCK COUNT (CreateStockAdjustment) -- a hard trigger of G-32 (G-30 path (iii)'s paperwork half), and the operation G-21 names as unbuilt.\n"
-                ."  G-30 path (iii): `short_shipped` units that were never packed and are found on the shelf. Today no count\n"
-                ."    operation exists and, after invoicing, `recorded_in_error` is refused, so the only built sales document\n"
-                ."    that puts them back in stock is a return under another reason. Since part 3 the MONEY is right once the\n"
-                ."    return is decided `same`; what remains is a return document describing no real return. G-32's closing\n"
-                ."    work: found units come back through F-6a's count adjustment, without a return.\n"
-                ."    THIS BUILD COMMIT MUST TEST PATH (iii).\n"
-                ."  G-21's phantom stock: every mistaken return posts stock that no built operation corrects (G-21 says\n"
-                ."    `CreateStockAdjustment` is unbuilt, E-25) -- that sentence becomes false in this commit; re-word it. G-21's\n"
-                ."    closing work is ruled reversal documents (SEC + BE-LEAD + PO); a count correction does not close it.\n"
-                ."  Also owed here: WriteOwnershipTest's E-25 (a) pin (the first 'adjustment' writer).\n"
-                // Warehouses slice 1 C3 (final RED H-1): the quarantine-release rule, which
-                // `noStockMoveOutOfQuarantineShipsWithoutTheReleaseRule` also carries.
-                ."  And RESIDUAL_GAPS.md G-44 (quarantine release): ".self::THE_RELEASE_RULE;
-        }
-
-        return \sprintf("%s has been built, and it widens the double credit an adjustment allows (RESIDUAL_GAPS.md G-32, G-28).\n\n%s\n\n"
-            ."DO THE WORK ABOVE IN THIS COMMIT (or bring the trigger to the owner first), then clear the entry deliberately.\n"
-            ."Do not hand-edit this pin to green. Record: docs/RESIDUAL_GAPS.md G-32 (closed G-29, G-30), G-28, G-21;\n"
-            ."docs/session13/g29-g30-identity-design.md §10, g29-g30-sec.md §1.3.",
-            implode(', ', array_keys($arrived)), implode("\n\n", $blocks));
     }
 
     /**

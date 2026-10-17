@@ -6,11 +6,14 @@ namespace App\Modules\Inventory\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\Inventory\ApiResource\State\CreateStockAdjustmentProcessor;
 use App\Modules\Inventory\ApiResource\State\StockMovementProvider;
 use App\Modules\Inventory\Application\StockItemRef;
 use App\Modules\Inventory\Application\StockLocationRef;
 use App\Modules\Inventory\Application\StockMovementView;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -22,12 +25,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *
  * The shape is §4.4.3's StockMovement row exactly: `quantity` (signed delta, numeric(19,6) as a string), `occurred_at`,
  * `reason`, `source_type`, `source_id`, `inventory_item = {id, sku, name}`, `storage_location = {id, code}`, plus `id`.
- * `source_type` ∈ {`goods_receipt`, `fulfilment`, `sales_return`} today, no CHECK; `source_id` is **bare**, never expanded
- * (`SEC` CONFIRMED 2026-10-14, Low). No actor (the table has none) and no `warehouse` (V2-C-12 is `StockLevel`'s). It does
+ * `source_type` ∈ {`goods_receipt`, `fulfilment`, `sales_return`} today, no CHECK — **or null, with `source_id`, for an
+ * adjustment** (the stock count has no originating document; `SEC` re-rated Low unchanged, `stock-adjustment-sec.md` §2);
+ * `source_id` is **bare**, never expanded (`SEC` CONFIRMED 2026-10-14, Low). No actor (the table has none) and no `warehouse` (V2-C-12 is `StockLevel`'s). It does
  * not show an adjustment's written reason (L-7 → `ListAuditRecords`, unbuilt).
  *
  * The gate refuses before the provider loads anything (E-1). An unknown, malformed or another workspace's id is the same
- * 404 — including `/stock-movements/adjustments`, a `POST`-only path segment of the unbuilt `CreateStockAdjustment`.
+ * 404 — including `GET /stock-movements/adjustments`, the path of the `POST`-only `CreateStockAdjustment`.
+ *
+ * **`CreateStockAdjustment` — `POST /api/v1/stock-movements/adjustments`, `stock_movement.adjust`** (stock count C1,
+ * 2026-10-16). Its read shape IS this resource (API-23a: `Create / StockAdjustment` answers a `StockMovement`), so it is
+ * declared here and `GetStockMovement` above is the item operation its `Location` names. The processor and the writer
+ * (`StockAdjuster`, through `AdjustStock`) carry the rules.
  */
 #[ApiResource(
     shortName: 'StockMovement',
@@ -39,6 +48,24 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: StockMovementProvider::class,
             // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, before the provider loads anything.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'stock_movement.view'],
+        ),
+        new Post(
+            uriTemplate: '/stock-movements/adjustments',
+            name: 'CreateStockAdjustment',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateStockAdjustment'),
+            input: CreateStockAdjustmentInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            processor: CreateStockAdjustmentProcessor::class,
+            // §4.2: `unique:stock_movement_idem_unique` (stock count C0). The header's hash IS the indexed value, so API-14
+            // demands it (428 without one); a same-body retry replays the first movement.
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'stock_movement.adjust',
+            ],
         ),
     ],
 )]

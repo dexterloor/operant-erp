@@ -81,6 +81,8 @@ services:
             - '../src/Modules/Inventory/Application/{StockLevelView.php,StockItemRef.php,StockLocationRef.php,StockWarehouseRef.php}'
             # Stock reads C2: the movement read model, its page and its criteria.
             - '../src/Modules/Inventory/Application/{StockMovementView.php,StockMovementPage.php,StockMovementListCriteria.php}'
+            # Stock count C1: the count's request body — data, not a service.
+            - '../src/Modules/Inventory/ApiResource/CreateStockAdjustmentInput.php'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would
@@ -301,6 +303,11 @@ services:
     # amendment of 2026-09-30, owner ruling Q-J; sales step 7 R2). Explicit for the same reason. Its one consumer is
     # `SalesReturnWriter` (`CreateSalesReturn`); the test env reaches it through a public alias of THIS id.
     App\Modules\Inventory\Application\Contract\ReturnStock: '@App\Modules\Inventory\Application\StockReturner'
+
+    # The stock count (stock count C1, 2026-10-16): NOT a cross-module edge — its one consumer is Inventory's own
+    # `CreateStockAdjustmentProcessor` — but E-26 binds the `adjustment` reason to one writer behind one contract
+    # (`SEC` stock-adjustment-sec.md §7, mechanism (a)), so it is wired explicitly like its three siblings.
+    App\Modules\Inventory\Application\Contract\AdjustStock: '@App\Modules\Inventory\Application\StockAdjuster'
 
     # The pick read's candidate bins (sales step 5, commit 3): a read contract, so the rule for what is
     # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.

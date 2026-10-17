@@ -26,6 +26,11 @@ namespace App\Modules\UserManagement\Domain;
  *    see users would read a person's held roles, removed/inactive state and SoD position in one silent request. The
  *    picker lives on the user page, which already needs `app_user.view`, so the row strands nobody. Affects no default
  *    role (only `owner` and `admin` hold `role.assign`, and both hold `app_user.view`).
+ *  - **SA-1** `stock_movement.adjust` → `stock_level.view` (`SEC`, 2026-10-16, `docs/session13/stock-adjustment-sec.md` §4):
+ *    a count quotes a `version` only `ListStockLevels` serves. Without the view, the seat could learn on-hand only from
+ *    `stale-record`'s `current` and the matching-count refusal. Affects no default role (`owner`, `admin` and
+ *    `warehouse_operator` hold both). `stock_movement.adjust` → `stock_movement.view` is REFUSED (PC-17 serves the 201 body
+ *    to the write's holder) and → `storage_location.view` DECLINED (`kind` disclosure accepted, Low), both `SEC` §4.
  *  - `role.assign` → `role.view` is deliberately NOT a row: §5.2.11 records that exposure as accepted (design §4.4, F-7).
  *
  * **Per role, not per union** (R-3): the same blind seat is reachable by granting two clean roles and revoking the one with
@@ -47,6 +52,7 @@ final class RoleCompanions
         ['holding' => 'role.delete', 'requires' => 'role.view', 'ruling' => 'D-5b'],
         ['holding' => 'role.delete', 'requires' => 'role.assign', 'ruling' => 'D-6'],
         ['holding' => 'role.assign', 'requires' => 'app_user.view', 'ruling' => 'Q-U3'],
+        ['holding' => 'stock_movement.adjust', 'requires' => 'stock_level.view', 'ruling' => 'SA-1'],
     ];
 
     /** Not instantiable: a table, not a service. */

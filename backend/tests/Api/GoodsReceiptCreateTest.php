@@ -523,7 +523,7 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('stock_level.on_hand_fits', $this->json()['rule']);
-        self::assertSame('Order line 3: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received.', $this->json()['detail']);
+        self::assertSame('Order line 3: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong; it can be corrected by a stock count.', $this->json()['detail']);
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM goods_receipt WHERE purchase_order_id = ?::uuid', [$second]), 'A refused receipt left a goods_receipt row.');
         self::assertSame([['q' => '0.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,

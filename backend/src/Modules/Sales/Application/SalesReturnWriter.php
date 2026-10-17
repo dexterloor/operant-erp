@@ -399,7 +399,7 @@ final readonly class SalesReturnWriter
         if (null !== $index && 'stock_level.on_hand_fits' === $e->rule()) {
             // Named by the order line's `line_number` (V2-C-19), never a 0-based index.
             return ApiProblem::businessRuleViolated($e->rule(), \sprintf(
-                'Order line %d: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back.',
+                'Order line %d: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back. The figure on record there may be wrong; it can be corrected by a stock count.',
                 (int) $shipped[$lines[$index]['fulfilmentLine']]['line_number'],
             ));
         }

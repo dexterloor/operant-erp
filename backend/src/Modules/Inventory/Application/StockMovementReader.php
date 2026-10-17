@@ -20,8 +20,9 @@ use Symfony\Component\Uid\Uuid;
  * document (`SEC` §2, Low; a composed role without the document's `.view` sees the kind and the id, never the document).
  *
  * **Order: newest first by BUSINESS time** (`UX` §6), `occurred_at DESC, id DESC`, in both views. `occurred_at` is the
- * document's own, caller-supplied instant at whole-second precision — every writer binds `->format(\DATE_ATOM)`
- * (`StockReceiver`, `StockDepleter`, `StockReturner`) — so a document back-dated to one second shares a TIE GROUP with
+ * document's own, caller-supplied instant at whole-second precision — every document writer binds `->format(\DATE_ATOM)`
+ * (`StockReceiver`, `StockDepleter`, `StockReturner`), and `StockAdjuster` (the count, 2026-10-16) takes the database clock
+ * truncated to the second, `date_trunc('second', now())` — so a document back-dated to one second shares a TIE GROUP with
  * every other movement of that second, and nothing bounds its size. The keyset is therefore the pair, as ONE row
  * comparison, `(m.occurred_at, m.id) < (?::timestamptz, ?::uuid)` forward, `>` backward (reversed in PHP), served by
  * `stock_movement_tenant_occurred_id_idx` / `stock_movement_tenant_item_occurred_id_idx`, which end `(occurred_at, id)`

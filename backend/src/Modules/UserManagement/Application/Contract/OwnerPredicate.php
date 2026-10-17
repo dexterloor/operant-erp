@@ -53,6 +53,10 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *     to picking). The refusal it exempts from is UNCONDITIONAL — `storage_location.release_needs_owner` — so no holder
  *     of `storage_location.edit` without the marker (`admin`, `warehouse_operator`) can release stocked held goods at all
  *     (`SEC` S-2; `RESIDUAL_GAPS.md` G-44, whose closing work is a dedicated release code). A hold is never gated;
+ *   - `StockAdjuster` — **stock count C1, owner Q1 (C′)** (2026-10-16, `docs/session13/stock-adjustment-ruling.md`): counting
+ *     a quarantine location DOWN (`stock_level.count_down_needs_owner`) and counting UP, in a non-quarantine bin, an item
+ *     held in quarantine anywhere in the workspace (`stock_level.held_item_needs_owner`). Both UNCONDITIONAL for every
+ *     non-owner — the same capability as the release (`SEC` stock-adjustment-sec.md §7; G-44's future code covers all three);
  *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
  *     role" — not to the caller's exemption.)*
  *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no

@@ -433,12 +433,12 @@ final readonly class GoodsReceiptWriter
         // A fact about the bin, not the request (`StockReceiptRefused::receivedQuantityWouldOverfillTheLevel`): a 409,
         // as a depletion the bin cannot cover is. Sentence: `UX` O-1 (`docs/session13/stock-adjustment-ux.md` §2.4), with
         // "Line %d" read as V2-C-19's ordered-line number (a 409 carries no pointer). Code `stock_level.on_hand_fits`:
-        // UX's suggestion, SEC TO CONFIRM. C1 appends O-1's count sentence once the count exists (ST-3).
+        // UX's suggestion, SEC TO CONFIRM. C1 (2026-10-16) appended O-1's count sentence, the count now existing (ST-3).
         if ('stock_level.on_hand_fits' === $e->rule()) {
             // Named by the ordered line's `line_number`, the number the receive page shows (V2-C-19's rule for a
             // `business-rule-violated` message), never the request's 0-based index.
             return ApiProblem::businessRuleViolated($e->rule(), \sprintf(
-                'Order line %d: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received.',
+                'Order line %d: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong; it can be corrected by a stock count.',
                 (int) $live[$lines[$index]['orderLine']]['line_number'],
             ));
         }

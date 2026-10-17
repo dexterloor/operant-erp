@@ -140,6 +140,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Stock reads C2: `stock_movement.view` — owner, `admin`, `warehouse_operator`, `viewer` (`SECURITY_MODEL.md` §4).
         'ListStockMovements' => 'stock_movement.view',
         'GetStockMovement' => 'stock_movement.view',
+        // Stock count C1 (2026-10-16): `stock_movement.adjust` — owner, `admin`, `warehouse_operator` (`SECURITY_MODEL.md` §4).
+        'CreateStockAdjustment' => 'stock_movement.adjust',
         // Warehouses slice 1 C2 (2026-10-13): `warehouse.create` — owner and `admin`; `warehouse.edit` — owner, `admin` and
         // `warehouse_operator` (`SECURITY_MODEL.md` §4). `viewer` holds neither.
         'CreateWarehouse' => 'warehouse.create',

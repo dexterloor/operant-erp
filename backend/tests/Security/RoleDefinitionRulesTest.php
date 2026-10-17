@@ -96,6 +96,8 @@ final class RoleDefinitionRulesTest extends TestCase
             'role.delete -> role.assign (D-6)',
             // Users slice 1 C3: owner ruling Q-U3 (2026-10-08).
             'role.assign -> app_user.view (Q-U3)',
+            // Stock count C1: `SEC` SA-1 (2026-10-16).
+            'stock_movement.adjust -> stock_level.view (SA-1)',
         ], $pairs);
         foreach (RoleCompanions::rows() as $row) {
             self::assertTrue(PermissionCatalogue::has($row['holding']), $row['holding'].' is not in the catalogue.');
@@ -116,6 +118,9 @@ final class RoleDefinitionRulesTest extends TestCase
         self::assertSame(['app_user.view'], array_column(RoleCompanions::missingFrom(['role.assign']), 'requires'),
             'role.assign without role.view is the stated exception (§5.2.11), not a row; its one companion is app_user.view (Q-U3).');
         self::assertSame([], RoleCompanions::missingFrom(['role.assign', 'app_user.view']));
+        // Stock count C1 (`SEC` SA-1): a count needs the level read, and NOT the movement history (PC-17) nor the locations.
+        self::assertSame(['stock_level.view'], array_column(RoleCompanions::missingFrom(['stock_movement.adjust']), 'requires'));
+        self::assertSame([], RoleCompanions::missingFrom(['stock_movement.adjust', 'stock_level.view']));
     }
 
     #[Test]

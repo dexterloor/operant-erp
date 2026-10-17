@@ -72,9 +72,11 @@ use Symfony\Component\Uid\Uuid;
  * depleter that writes no location row first); the grant this class needs is what makes that legal.
  *
  * **What the rule does NOT stop (disclosed):** a return may be put straight into a pickable location (`ReturnStock`
- * accepts any live location); and `CreateStockTransfer` / `CreateStockAdjustment` (unbuilt, `stock_movement.adjust`, held
- * by `warehouse_operator`) could move or count stock out of a quarantine location without this rule —
- * `OwedAmendmentTripwireTest` reddens when either is built (G-44).
+ * accepts any live location); and `CreateStockTransfer` (unbuilt, `stock_movement.adjust`, held by `warehouse_operator`)
+ * could move stock out of a quarantine location without this rule — `OwedAmendmentTripwireTest` reddens when it is built
+ * (G-44). `CreateStockAdjustment` applies the same capability since 2026-10-16 (`StockAdjuster`, owner Q1 (C′)): a
+ * non-owner's quarantine count-down and count-up of an item held in quarantine anywhere are refused; its held read takes no
+ * lock because only an owner can empty quarantine (final RED L-3).
  */
 final readonly class StorageLocationWriter
 {

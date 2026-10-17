@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Architecture;
 
+use App\Modules\Inventory\ApiResource\State\CreateStockAdjustmentProcessor;
+use App\Modules\Inventory\Application\Contract\AdjustStock;
 use App\Modules\Inventory\Application\Contract\DepleteStock;
 use App\Modules\Inventory\Application\Contract\ReceiveStock;
 use App\Modules\Inventory\Application\Contract\ReturnStock;
+use App\Modules\Inventory\Application\StockAdjuster;
 use App\Modules\Inventory\Application\StockDepleter;
 use App\Modules\Inventory\Application\StockReceiver;
 use App\Modules\Inventory\Application\StockReturner;
@@ -188,7 +191,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // shared by `warehouse.created` and `warehouse.updated`, read off this test's run.
         // **22 -> 23 on 2026-10-13** (warehouses slice 1 C3): `StorageLocationAuditWriter::record()`'s ONE `INSERT INTO
         // audit_log`, shared by `storage_location.created` and `.updated` (PREDICTED; confirmed off this test's run).
-        'Modules\\AuditLog' => 23,
+        // **23 -> 24 on 2026-10-16** (stock count C1): `StockMovementAuditWriter::recordAdjusted()`'s ONE `INSERT INTO
+        // audit_log` (`stock_movement.adjusted`, E-25 (a)) (PREDICTED; confirmed off this test's run).
+        'Modules\\AuditLog' => 24,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -208,7 +213,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // **8 -> 10 on 2026-10-01** (sales step 7 R2), read off this test's own failure: `StockReturner`'s one `INSERT INTO
         // stock_movement` (reason 'return') and one `stock_level` upsert -- `StockReceiver`'s two statements, with its own
         // literals (E-26: a reason is bound to one writer class).
-        'Modules\\Inventory' => 10,
+        // **10 -> 13 on 2026-10-16** (stock count C1), PREDICTED, confirmed off this test's run: `StockAdjuster`'s one
+        // `INSERT INTO stock_movement` (reason 'adjustment'), one `UPDATE stock_level` (the locked row, SET to the count) and
+        // one `INSERT INTO stock_level … ON CONFLICT DO NOTHING` (a bin with no row). Its savepoint statements write nothing.
+        'Modules\\Inventory' => 13,
         'Modules\\Purchasing' => 10,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
@@ -813,6 +821,14 @@ final class WriteOwnershipTest extends KernelTestCase
             'implementation' => StockReturner::class,
             'callers' => [SalesReturnWriter::class],
         ],
+        // The stock count (stock count C1, 2026-10-16; `SEC` stock-adjustment-sec.md §7, E-26 mechanism (a)): NOT a
+        // cross-module edge -- its one consumer is Inventory's own `CreateStockAdjustment` processor -- but the `adjustment`
+        // reason is bound to one writer behind one contract like the others, so a second caller (say, a Purchasing class
+        // posting a "correction") is red here.
+        AdjustStock::class => [
+            'implementation' => StockAdjuster::class,
+            'callers' => [CreateStockAdjustmentProcessor::class],
+        ],
     ];
 
     /**
@@ -834,13 +850,14 @@ final class WriteOwnershipTest extends KernelTestCase
             'rule' => "SECURITY_MODEL.md E-26: 'fulfilment' is posted by StockDepleter alone, reached through DepleteStock "
                 ."by CreateFulfilment (fulfilment.create). A second writer of it is a concealment shape, not a refactor.",
         ],
+        // Registered 2026-10-16 (stock count C1), in the commit that built it, with its audit half pinned by
+        // `StockAdjustmentTest::anAdjustmentWritesAnAuditRowNamingItsActor` (E-25 (a)).
         'adjustment' => [
-            'writers' => [],
+            'writers' => [StockAdjuster::class],
             'permission' => 'stock_movement.adjust',
-            'rule' => "SECURITY_MODEL.md E-25 (a): 'adjustment' has NO registered writer. The first is CreateStockAdjustment's "
-                ."(stock_movement.adjust); register it in the commit that builds it, as its own class posting 'adjustment' "
-                ."and no other reason, with an audit_log entry naming its actor (stock_movement has no actor column) -- "
-                ."that audit half is owed as a test in the same commit. Pre-registering it silences this trigger.",
+            'rule' => "SECURITY_MODEL.md E-25 (a) / E-26: 'adjustment' is posted by StockAdjuster alone, reached through AdjustStock "
+                ."by CreateStockAdjustment (stock_movement.adjust), with one stock_movement.adjusted audit row naming its actor "
+                ."per movement (stock_movement has no actor column). A second writer of it is a concealment shape, not a refactor.",
         ],
         'transfer_out' => [
             'writers' => [],

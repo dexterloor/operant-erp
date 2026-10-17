@@ -895,6 +895,22 @@ trait OperationSuccessRecipes
 
                 return [200, 'read a stock movement'];
             }],
+            // Stock count C1 (2026-10-16): a count DOWN of a seeded level, sending the version it seeded (design §9), so the
+            // body's `quantity` is a negative scale-6 decimal (`wire-scale.json`) and the success path writes its audit row.
+            'CreateStockAdjustment' => [function (): array {
+                $bin = $this->seedStorageLocation(self::TENANT_A, $this->seedWarehouse(self::TENANT_A, 'Recipe Count Warehouse'), 'A-01-COUNT');
+                $item = $this->seedItem(self::TENANT_A, 'SKU-RECIPE-COUNT');
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand, version) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 10, 2)',
+                    [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin]);
+
+                return ['bin' => $bin, 'item' => $item];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/stock-movements/adjustments', ['inventory_item_id' => $c['item'], 'storage_location_id' => $c['bin'],
+                    'counted_quantity' => '7.5', 'version' => 2, 'note' => 'Recipe recount'], $key());
+
+                return [201, 'record a stock count'];
+            }],
             // Warehouses slice 1, C2: a create with a letter-bearing code (CD-3) and every field sent; an update that changes
             // the name and the code of a seeded warehouse, so the success path writes its `warehouse.updated` row. Codes carry
             // a random suffix: `warehouse.code` is live-unique.

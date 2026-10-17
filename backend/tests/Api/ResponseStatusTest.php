@@ -196,6 +196,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      */
     private const ROWS_ADDRESSED_BY_ANOTHER_RESOURCE = [
         'IssueAdjustmentCreditNote' => '/credit-notes/{id}',
+        // Added 2026-10-16 (stock count C1), the same case: `POST /stock-movements/adjustments` inserts a `stock_movement` row,
+        // which `GetStockMovement` serves at `/stock-movements/{id}` (API-23a: the count's read shape is a StockMovement).
+        // Reading (1) re-roots to `/adjustments/{}`, which nothing serves.
+        'CreateStockAdjustment' => '/stock-movements/{id}',
     ];
 
     /**

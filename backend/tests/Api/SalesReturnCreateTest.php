@@ -436,7 +436,7 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('stock_level.on_hand_fits', $this->json()['rule']);
-        self::assertSame('Order line 1: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back.', $this->json()['detail']);
+        self::assertSame('Order line 1: taking this back would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was taken back. The figure on record there may be wrong; it can be corrected by a stock count.', $this->json()['detail']);
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM sales_return'), 'A refused return left its document.');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM stock_movement WHERE reason = 'return'"), 'A refused return moved stock.');
         self::assertSame($before, $this->fetchAsOwnerForTenant(self::TENANT_A,

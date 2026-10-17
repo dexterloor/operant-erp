@@ -160,6 +160,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Stock reads C2 (design R-H4; T-2′ measured: `seedMirror` registered no movement, so it now seeds one per tenant).
         'ListStockMovements' => [],
         'GetStockMovement' => ['vars' => ['id' => 'movement']],
+        // Stock count C1: a count INTO the tenant's own bin of an item it never held there (`version: null`), on fresh state per
+        // request. A moved write would land in B (B's counts change) or answer an unknown reference for A's ids.
+        'CreateStockAdjustment' => ['body' => ['inventory_item_id' => '@loose_item', 'storage_location_id' => '@bin',
+            'counted_quantity' => '5', 'version' => null, 'note' => 'Probe count']],
         // Warehouses slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],

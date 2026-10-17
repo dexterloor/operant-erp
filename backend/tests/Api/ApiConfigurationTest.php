@@ -268,7 +268,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And two more (stock reads C2, 2026-10-14):** `ListStockMovements` (GET `/stock-movements`, `stock_movement.view`) on
         // `StockMovementCollection` and `GetStockMovement` (GET `/stock-movements/{id}`) on `StockMovementResource`. Its migration
         // rebuilds two indexes with a trailing `id`; no grant.
-        self::assertCount(99, $checked, 'The route set changed. This slice declares ninety-nine operations: '.implode(', ', array_keys($checked)));
+        // **And one more (stock count C1, 2026-10-16):** `CreateStockAdjustment` (POST `/stock-movements/adjustments`,
+        // `stock_movement.adjust`; branch 4, 201) on `StockMovementResource`. No grant (C0's columns inherit the table grants).
+        self::assertCount(100, $checked, 'The route set changed. This slice declares one hundred operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

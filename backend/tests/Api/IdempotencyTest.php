@@ -131,6 +131,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'A second supplier_product for the same (supplier, item). Its mechanism is the TOTAL unique on (tenant, '
                 .'supplier, item) — the table is hard — refused, never replayed (suppliers slice 1 C3): one row.',
         ],
+        'CreateStockAdjustment' => [
+            'method' => 'replayCreateStockAdjustment',
+            'why' => 'A second adjustment movement for the same count (stock count C1). Its mechanism is the header-sourced retry '
+                .'key on stock_movement\'s TOTAL unique (C0): the repeat replays the first movement — never stale-record, although the '
+                .'version it quotes has moved — same id, one row, the level moved once.',
+        ],
         'CreateCustomerAddress' => [
             'method' => 'replayCreateCustomerAddress',
             'why' => 'A second customer_address for the same request (customers slice 1 C3). Its mechanism is the header-sourced '
@@ -828,6 +834,28 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame('sales_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
         self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
+    }
+
+    private function replayCreateStockAdjustment(string $why): void
+    {
+        $bin = $this->seedStorageLocation(self::TENANT_A, $this->seedWarehouse(self::TENANT_A, 'Replayed Count Warehouse'), 'A-01');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-REPLAY-COUNT');
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand, version) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 10, 3)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $bin]);
+        $body = ['inventory_item_id' => $item, 'storage_location_id' => $bin, 'counted_quantity' => '7', 'version' => 3, 'note' => 'Replay'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/stock-movements/adjustments', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+
+        $this->send('POST', '/stock-movements/adjustments', $body, $key);
+        self::assertSame(201, $this->httpStatus(), 'A replayed CreateStockAdjustment was not answered with the first movement.');
+        self::assertSame($first, $this->json(), $why);
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM stock_movement WHERE storage_location_id = ?::uuid', [$bin]), $why);
+        self::assertSame([['v' => 4]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT version AS v FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
     }
 
     private function replayCreateCustomerAddress(string $why): void

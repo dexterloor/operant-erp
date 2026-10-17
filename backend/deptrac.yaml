@@ -90,6 +90,10 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-10-16 with `CreateStockAdjustment` in the tree (stock count, C1): the three commands return
+  # **149 / 88 / 34** -- ONE edge line added: `StockAdjuster -> StockMovementAuditWriter` (A-5, `stock_movement.adjusted`).
+  # By TAG the register now holds 155 edge lines, A-5 32 (the other tags unchanged). No LAYER edge: `InventoryApplication ->
+  # UserManagementContract` (the owner check) was already allowed. `make deptrac`: see the progress note's C1 gate.)
   # (Re-derived 2026-10-13 with `CreateStorageLocation` / `UpdateStorageLocation` in the tree (warehouses slice 1, C3): the
   # three commands return **145 / 85 / 33** -- ONE edge line added: `StorageLocationWriter -> StorageLocationAuditWriter`
   # (A-5, `storage_location.created` / `.updated`). Plus one LAYER edge, not an edge line: `WarehousesApplication ->
@@ -624,6 +628,11 @@ deptrac:
       # Warehouses slice 1 C2, 2026-10-13: `warehouse.created` / `warehouse.updated` written synchronously in the writing
       # transaction (owner Q-W2 (a); `SupplierWriter`'s shape). Raw SQL for the writes, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter   # A-5
+    App\Modules\Inventory\Application\StockAdjuster:
+      # Stock count C1, 2026-10-16: `stock_movement.adjusted` written synchronously in the counting transaction (E-25 (a):
+      # the movement has no actor column, so this row names who counted; `StorageLocationWriter`'s shape). Raw SQL for the
+      # writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\StockMovementAuditWriter   # A-5
     App\Modules\Warehouses\Application\StorageLocationWriter:
       # Warehouses slice 1 C3, 2026-10-13: `storage_location.created` / `storage_location.updated` written synchronously in
       # the writing transaction (owner Q-W2 (a); `WarehouseWriter`'s shape). Raw SQL for the writes, so no entity edge.

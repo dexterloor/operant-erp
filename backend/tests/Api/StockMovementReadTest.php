@@ -39,6 +39,8 @@ final class StockMovementReadTest extends PurchaseOrderTestCase
     public const PINNED_STOCK_MOVEMENT_OPERATIONS = [
         'ListStockMovements' => ['method' => 'GET', 'path' => '/stock-movements', 'idem' => false],
         'GetStockMovement' => ['method' => 'GET', 'path' => '/stock-movements/{id}', 'idem' => false],
+        // Stock count C1 (2026-10-16): the count's POST, on the same resource (API-23a: its read shape is a StockMovement).
+        'CreateStockAdjustment' => ['method' => 'POST', 'path' => '/stock-movements/adjustments', 'idem' => true],
     ];
 
     /** `StockMovementResource`'s serialized members — §4.4.3's StockMovement row, plus `id`. */

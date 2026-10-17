@@ -77,6 +77,9 @@
     "CreateSalesReturn $.lines[].quantity_credited": [
         6
     ],
+    "CreateStockAdjustment $.quantity": [
+        6
+    ],
     "CreateSupplierProduct $.minimum_order_quantity": [
         6
     ],
