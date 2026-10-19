@@ -7,6 +7,7 @@ namespace App\Tests\Audit;
 use App\Modules\AuditLog\Infrastructure\CreditNoteAuditWriter;
 use App\Modules\AuditLog\Infrastructure\CustomerAddressAuditWriter;
 use App\Modules\AuditLog\Infrastructure\CustomerAuditWriter;
+use App\Modules\AuditLog\Infrastructure\CustomerContactAuditWriter;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\FulfilmentAuditWriter;
@@ -214,6 +215,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Added 2026-10-12 with the customer address trail (suppliers slice 1 C2b): customer_address.created and
         // customer_address.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/CustomerAddressAuditWriter.php',
+        // Added 2026-10-19 with the customer contact trail (customers slice 2 C1): customer_contact.created and
+        // customer_contact.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/CustomerContactAuditWriter.php',
         // Added 2026-09-29 with `RevokeRole` (roles slice 2, C2): `role.revoked`, a SECURITY event, so it carries the
         // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below — and
         // `role.assigned` (C3, `AssignRole`) through the same writer, also driven.
@@ -433,6 +437,11 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($addressWriter instanceof CustomerAddressAuditWriter);
         $addressWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', addressId: Uuid::v4()->toRfc4122());
         $addressWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', addressId: Uuid::v4()->toRfc4122(), fields: ['city']);
+        // Customers slice 2 C1: `customer_contact.created` / `customer_contact.updated`, BUSINESS (listed AND driven).
+        $contactWriter = self::getContainer()->get(CustomerContactAuditWriter::class);
+        \assert($contactWriter instanceof CustomerContactAuditWriter);
+        $contactWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', contactId: Uuid::v4()->toRfc4122());
+        $contactWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', contactId: Uuid::v4()->toRfc4122(), fields: ['email']);
         $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
         \assert($salesWriter instanceof SalesOrderAuditWriter);
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());

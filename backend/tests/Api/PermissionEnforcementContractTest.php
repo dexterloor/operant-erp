@@ -161,6 +161,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateCustomerAddress' => 'customer.edit',
         'UpdateCustomerAddress' => 'customer.edit',
         'ListCustomerAddresses' => 'customer.view',
+        // Customers slice 2 C1 (2026-10-19): the contact writes are `customer.edit` (§4.2), the list `.view` (owner Q-3:
+        // `viewer` reads contacts; PC-9 as written).
+        'CreateCustomerContact' => 'customer.edit',
+        'UpdateCustomerContact' => 'customer.edit',
+        'ListCustomerContacts' => 'customer.view',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

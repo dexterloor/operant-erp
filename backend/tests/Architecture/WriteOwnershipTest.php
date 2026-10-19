@@ -193,7 +193,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // audit_log`, shared by `storage_location.created` and `.updated` (PREDICTED; confirmed off this test's run).
         // **23 -> 24 on 2026-10-16** (stock count C1): `StockMovementAuditWriter::recordAdjusted()`'s ONE `INSERT INTO
         // audit_log` (`stock_movement.adjusted`, E-25 (a)) (PREDICTED; confirmed off this test's run).
-        'Modules\\AuditLog' => 24,
+        // **24 -> 25 on 2026-10-19** (customers slice 2 C1): `CustomerContactAuditWriter::record()`'s ONE `INSERT INTO
+        // audit_log`, shared by `customer_contact.created` and `.updated` (PREDICTED; confirmed off this test's run).
+        'Modules\\AuditLog' => 25,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -205,7 +207,11 @@ final class WriteOwnershipTest extends KernelTestCase
         // **5 -> 6 on 2026-10-14** (C5 C4b), PREDICTED, confirmed off this test's run: `CustomerWriter::ARCHIVE`,
         // `UPDATE customer SET deleted_at = now()` (`DeleteCustomer`; the table is Customers'). Its `FOR UPDATE` row lock and
         // the address writers' `FOR KEY SHARE` are locks this scan excludes; `CustomerOpenSalesWork` (Sales) only reads.
-        'Modules\\Customers' => 6,
+        // **6 -> 10 on 2026-10-19** (customers slice 2 C1), PREDICTED by the design under owner Q-1 (a) (R2.4: INSERT, field
+        // UPDATE, demote UPDATE, set UPDATE), confirmed off this test's run: `CustomerContactWriter::INSERT`, its field
+        // `UPDATE customer_contact` (SET built from the changed fields), `::DEMOTE` and `::SET_PRIMARY`. Its parent
+        // `FOR NO KEY UPDATE`, its key read `FOR KEY SHARE` and its row `FOR NO KEY UPDATE` are locks this scan excludes.
+        'Modules\\Customers' => 10,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

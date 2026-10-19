@@ -137,6 +137,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'key on stock_movement\'s TOTAL unique (C0): the repeat replays the first movement — never stale-record, although the '
                 .'version it quotes has moved — same id, one row, the level moved once.',
         ],
+        'CreateCustomerContact' => [
+            'method' => 'replayCreateCustomerContact',
+            'why' => 'A second customer_contact for the same request (customers slice 2 C1). Its mechanism is the header-sourced '
+                .'retry key on a TOTAL unique (the table is hard): the repeat replays the stored contact, same id, one row.',
+        ],
         'CreateCustomerAddress' => [
             'method' => 'replayCreateCustomerAddress',
             'why' => 'A second customer_address for the same request (customers slice 1 C3). Its mechanism is the header-sourced '
@@ -856,6 +861,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM stock_movement WHERE storage_location_id = ?::uuid', [$bin]), $why);
         self::assertSame([['v' => 4]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT version AS v FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
+    }
+
+    private function replayCreateCustomerContact(string $why): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Replayed Contact Customer');
+        $body = ['name' => 'Grace Hopper', 'email' => 'grace@example.test', 'is_primary' => true];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/customers/'.$customer.'/contacts', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+
+        $this->send('POST', '/customers/'.$customer.'/contacts', $body, $key);
+        self::assertSame(201, $this->httpStatus(), 'A replayed CreateCustomerContact was not answered with the stored contact.');
+        self::assertSame($first, $this->json(), $why);
+
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM customer_contact WHERE customer_id = ?::uuid', [$customer]), $why);
     }
 
     private function replayCreateCustomerAddress(string $why): void

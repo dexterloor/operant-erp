@@ -1015,6 +1015,34 @@ trait OperationSuccessRecipes
 
                 return [200, 'list a customer\'s addresses'];
             }],
+            // Customers slice 2, C1: phones carry letters or punctuation (CD-3: `WireScaleTest` reads an all-digit text value as
+            // a decimal). The list seeds one contact so `ResponseShapeTest` and `WireScaleTest` have an item to walk.
+            'CreateCustomerContact' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Contact Customer')], function (array $c) use ($key): array {
+                $this->send('POST', '/customers/'.$c['customer'].'/contacts', [
+                    'name' => 'Katherine Johnson', 'email' => 'katherine@example.test', 'phone' => '+44 20 7946 0001', 'is_primary' => true,
+                ], $key());
+
+                return [201, 'add a contact to a customer'];
+            }],
+            'UpdateCustomerContact' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Recontacted Customer');
+
+                return ['customer' => $customer, 'contact' => $this->seedCustomerContact(self::TENANT_A, $customer)];
+            }, function (array $c): array {
+                $this->send('PATCH', '/customers/'.$c['customer'].'/contacts/'.$c['contact'], ['phone' => '+44 161 496 0000', 'is_primary' => true]);
+
+                return [200, 'change a customer contact'];
+            }],
+            'ListCustomerContacts' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Contacted Customer');
+                $this->seedCustomerContact(self::TENANT_A, $customer);
+
+                return ['customer' => $customer];
+            }, function (array $c): array {
+                $this->send('GET', '/customers/'.$c['customer'].'/contacts');
+
+                return [200, 'list a customer\'s contacts'];
+            }],
             // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
             // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
             // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at

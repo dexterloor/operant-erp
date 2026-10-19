@@ -527,6 +527,20 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListCustomerContacts' => function (): array {
+                // Customers slice 2 C1. One customer; the seed step gives it N contacts, each its own row (distinct random
+                // keys, `seedCustomerContact()`), none primary (the one-primary index), phones letter- or punctuation-bearing (CD-3).
+                $customer = $this->seedCustomer(self::TENANT_A, 'Acme Contacts');
+
+                return ['/customers/'.$customer.'/contacts', function (int $rows) use ($customer): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedCustomerContact(self::TENANT_A, $customer, 'Contact '.$i, 'contact'.$i.'@example.test', '+44 20 7946 '.$i);
+                    }
+
+                    // Bounded (TB-1c), no query parameter at all (the table is `hard`, so not even `archived`).
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListSalesOrderLines' => function (): array {
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-156000');
 

@@ -83,6 +83,9 @@ final class ApiConfigurationTest extends ApiTestCase
             // Predicted from the line twins' shape, then read off `debug:router` before the test ran
             // (the vendor's route order puts it first).
             '_api_/customer_addresses/{id}{._format}_get' => \App\Modules\Customers\ApiResource\CustomerAddressResource::class,
+            // **2026-10-19, customers slice 2 C1**, the same case and permanent: `CustomerContact` has built writes at
+            // `/customers/{id}/contacts[/{contactId}]` and §4.2 declares no `GetCustomerContact` (TB-1c). Read off this test.
+            '_api_/customer_contacts/{id}{._format}_get' => \App\Modules\Customers\ApiResource\CustomerContactResource::class,
             '_api_/purchase_order_lines/{id}{._format}_get' => \App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource::class,
             '_api_/sales_order_lines/{id}{._format}_get' => \App\Modules\Sales\ApiResource\SalesOrderLineResource::class,
             // **2026-10-12, suppliers slice 1 C3**, the same case and permanent: `SupplierProduct` has built writes at
@@ -270,7 +273,12 @@ final class ApiConfigurationTest extends ApiTestCase
         // rebuilds two indexes with a trailing `id`; no grant.
         // **And one more (stock count C1, 2026-10-16):** `CreateStockAdjustment` (POST `/stock-movements/adjustments`,
         // `stock_movement.adjust`; branch 4, 201) on `StockMovementResource`. No grant (C0's columns inherit the table grants).
-        self::assertCount(100, $checked, 'The route set changed. This slice declares one hundred operations: '.implode(', ', array_keys($checked)));
+        // **And three more (customers slice 2 C1, 2026-10-19):** `CreateCustomerContact` (POST `/customers/{id}/contacts`,
+        // `customer.edit`; branch 4) and `UpdateCustomerContact` (PATCH `/customers/{id}/contacts/{contactId}`, `customer.edit`)
+        // on `CustomerContactResource`, and `ListCustomerContacts` (GET `/customers/{id}/contacts`, `customer.view`, bounded)
+        // on `CustomerContactCollection`. Its migration grants `erp_app` a column INSERT and a column UPDATE on
+        // `customer_contact`; the not-exposed fallback route above is not counted.
+        self::assertCount(103, $checked, 'The route set changed. This slice declares one hundred and three operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

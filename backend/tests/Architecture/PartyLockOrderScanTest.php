@@ -25,7 +25,8 @@ use PHPUnit\Framework\TestCase;
  * the first party lock in a method's text, the scan fails on:
  *   - any `*RowLock::holdInside()` / `*Lock::holdInside()` call (the house's document and role locks);
  *   - any locking statement (`FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE`) on `purchase_order`,
- *     `sales_order`, `invoice`, `supplier_product`, `customer_address`, or a party table again.
+ *     `sales_order`, `invoice`, `supplier_product`, `customer_address`, `customer_contact` (customers slice 2 C1, `ARCH`
+ *     A-2), or a party table again.
  * Keyed on the statement's TEXT, not on the constant's name, so renaming `DELETE_LOCK` cannot blind it.
  *
  * **Anti-vacuity, same test:** the derived set of party-lock holders is exactly `CustomerWriter::delete` and
@@ -44,7 +45,9 @@ final class PartyLockOrderScanTest extends TestCase
 {
     private const PARTY_TABLES = 'supplier|customer';
 
-    private const LOCKED_TABLES = 'purchase_order|sales_order|invoice|supplier_product|customer_address|supplier|customer';
+    // `customer_contact` joined 2026-10-19 (customers slice 2 C1, `ARCH` A-2): `\b` falls between no two word characters,
+    // so `customer` never matched `customer_contact`, and a Delete locking contacts after its FOR UPDATE would have passed.
+    private const LOCKED_TABLES = 'purchase_order|sales_order|invoice|supplier_product|customer_address|customer_contact|supplier|customer';
 
     #[Test]
     public function noPartyArchiverTakesARowLockAfterThePartyLock(): void

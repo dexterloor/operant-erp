@@ -171,6 +171,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // IP. Its subject is `customer_address`, so (4c) does not reach either.
         'customer_address.created',
         'customer_address.updated',
+        // Edited by hand 2026-10-19 (customers slice 2 C1) on owner Q-2 "yes, record contact changes"
+        // (`docs/session13/s35-ruling.md`) and `SEC`'s filing (`customers-s2-sec-arch.md` S-4): BUSINESS, subject the contact
+        // row, `{}` and `{"fields"}` — names, never values (a contact is personal data) — no IP. Its subject is
+        // `customer_contact`, so (4c) does not reach either. ONLY these two: `.deleted` comes with its writer (C2).
+        'customer_contact.created',
+        'customer_contact.updated',
         // Edited by hand 2026-10-13 (warehouses slice 1 C2) on owner Q-W2 (a) (adopted under delegation,
         // `docs/session13/warehouses-s1-design.md` §3.2) and the `supplier.*` filing's terms (`SEC` to confirm the warehouse
         // block): BUSINESS, subject the warehouse, `{values}` and `{fields, from, to}` — operational values over an explicit

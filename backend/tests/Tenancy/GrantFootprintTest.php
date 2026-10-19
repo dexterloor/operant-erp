@@ -1028,7 +1028,9 @@ final class GrantFootprintTest extends TenancyTestCase
      * `Version20261009000500`; `customer.deleted_at` C5 C4a, `Version20261014000200`, `CustomerWriter::restore()`).
      * **Typed by hand from `CustomerWriter`'s and `CustomerAddressWriter`'s INSERT and UPDATEs,
      * never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
-     * reason: a joint widening of the manifest and a migration must still fail here). No DELETE on either table.
+     * reason: a joint widening of the manifest and a migration must still fail here). Customers slice 2 C1
+     * (`Version20261019000300`): `CustomerContactWriter`'s INSERT and UPDATEs on `customer_contact`. **DELETE is granted on
+     * exactly the tables {@see self::CUSTOMER_TABLE_DELETES} lists** (none at C1) — never on `customer`.
      *
      * @var array<string, array<string, list<string>>> privilege => table => columns
      */
@@ -1037,12 +1039,23 @@ final class GrantFootprintTest extends TenancyTestCase
             'customer' => ['code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days', 'tenant_id'],
             'customer_address' => ['address_line', 'city', 'country_code', 'customer_id', 'id', 'idempotency_key', 'kind', 'postal_code',
                 'request_digest', 'tenant_id'],
+            'customer_contact' => ['customer_id', 'email', 'id', 'idempotency_key', 'is_primary', 'name', 'phone', 'request_digest', 'tenant_id'],
         ],
         'UPDATE' => [
             'customer' => ['code', 'country_code', 'currency_code', 'deleted_at', 'name', 'payment_terms_days', 'updated_at'],
             'customer_address' => ['address_line', 'city', 'country_code', 'kind', 'postal_code', 'updated_at'],
+            'customer_contact' => ['email', 'is_primary', 'name', 'phone', 'updated_at'],
         ],
     ];
+
+    /**
+     * The customer tables `erp_app` may DELETE from, typed by hand (customers slice 2, design R1.12 / Revision 2 R2.4 C1):
+     * empty at C1; `customer_contact` joins with `DeleteCustomerContact` (C2), `customer_address` with
+     * `DeleteCustomerAddress` (C3). `customer` never joins — archiving is an UPDATE of `deleted_at`.
+     *
+     * @var list<string>
+     */
+    private const CUSTOMER_TABLE_DELETES = [];
 
     /**
      * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer`, `UpdateCustomer` and (C5 C4a)
@@ -1103,7 +1116,9 @@ final class GrantFootprintTest extends TenancyTestCase
             foreach ($outcomes as $key => $outcome) {
                 [$tableColumn, $privilege] = explode(' ', $key);
                 [$table, $column] = explode('.', $tableColumn);
-                $granted = 'DELETE' !== $privilege && \in_array($column, self::CUSTOMER_COLUMN_WRITES[$privilege][$table], true);
+                $granted = 'DELETE' === $privilege
+                    ? \in_array($table, self::CUSTOMER_TABLE_DELETES, true)
+                    : \in_array($column, self::CUSTOMER_COLUMN_WRITES[$privilege][$table], true);
                 if ($granted && 'accepted' !== $outcome) {
                     $wrong[] = sprintf('%s: a customer writer issues it, but erp_app got "%s"', $key, $outcome);
                 } elseif (!$granted && 'refused' !== $outcome) {
@@ -1123,6 +1138,11 @@ final class GrantFootprintTest extends TenancyTestCase
             'The positive controls failed: erp_app could not insert or update customer_address.address_line.');
         self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_address.region INSERT'] ?? null, $outcomes['customer_address.idempotency_key UPDATE'] ?? null, $outcomes['customer_address.* DELETE'] ?? null],
             'erp_app must not write an address region, re-point a stored retry key or delete an address, and the probe did not see them refused.');
+        // Customers slice 2 C1: the contact table.
+        self::assertSame(['accepted', 'accepted'], [$outcomes['customer_contact.name INSERT'] ?? null, $outcomes['customer_contact.name UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update customer_contact.name.');
+        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_contact.idempotency_key UPDATE'] ?? null, $outcomes['customer_contact.created_at INSERT'] ?? null, $outcomes['customer_contact.* DELETE'] ?? null],
+            'erp_app must not re-point a stored contact retry key, write created_at or (until C2) delete a contact, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on the customer tables are not exactly the customer writers':\n  ".implode("\n  ", $violations($outcomes)));
 

@@ -90,6 +90,10 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-10-19 with the customer contact writes in the tree (customers slice 2, C1): the three commands return
+  # **150 / 88 / 35** -- ONE edge line added: `CustomerContactWriter -> CustomerContactAuditWriter` (A-5,
+  # `customer_contact.created` / `.updated`). By TAG the register now holds 156 edge lines, A-5 33 (the other tags
+  # unchanged). No LAYER edge. `make deptrac`: see the progress note's C1 gate.)
   # (Re-derived 2026-10-16 with `CreateStockAdjustment` in the tree (stock count, C1): the three commands return
   # **149 / 88 / 34** -- ONE edge line added: `StockAdjuster -> StockMovementAuditWriter` (A-5, `stock_movement.adjusted`).
   # By TAG the register now holds 155 edge lines, A-5 32 (the other tags unchanged). No LAYER edge: `InventoryApplication ->
@@ -612,6 +616,10 @@ deptrac:
       # Roles slice 4 C3, 2026-10-07: `role.deleted` written synchronously in the deleting transaction (`RoleUpdate`'s
       # shape). Raw SQL for the write, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\Customers\Application\CustomerContactWriter:
+      # Customers slice 2 C1, 2026-10-19: `customer_contact.created` / `customer_contact.updated` written synchronously in
+      # the writing transaction (owner Q-2; `CustomerAddressWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\CustomerContactAuditWriter   # A-5
     App\Modules\Customers\Application\CustomerAddressWriter:
       # Suppliers slice 1 C2b, 2026-10-12: `customer_address.created` / `customer_address.updated` written synchronously in
       # the writing transaction (owner ruling F-12 / S4; `CustomerWriter`'s shape). Raw SQL for the writes, so no entity edge.

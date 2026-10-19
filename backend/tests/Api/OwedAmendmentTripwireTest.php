@@ -378,12 +378,70 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      *
      * @var array<string, string>
      */
+    // Customers slice 2 C1 (2026-10-19): `CreateCustomerContact` and `UpdateCustomerContact` LEFT with their work — they read
+    // the parent `CustomerContactWriter::PARENT_LOCK`, which is `FOR NO KEY UPDATE`, STRONGER than the `FOR KEY SHARE` these
+    // entries asked for (owner Q-1 (a): the one-primary rule needs contact writes serialised; `ARCHITECTURE.md` W-5,
+    // co-signed by `ARCH` A-1). Their carriers are now named in {@see self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK}.
     private const OPERATIONS_OWING_THE_PARENT_LOCK = [
-        'CreateCustomerContact' => 'read the parent customer FOR KEY SHARE and refuse an archived one (customer.is_archived).',
-        'UpdateCustomerContact' => 'read the parent customer FOR KEY SHARE and refuse an archived one (customer.is_archived).',
-        'DeleteCustomerContact' => 'read the parent customer FOR KEY SHARE and refuse an archived one (customer.is_archived).',
+        'DeleteCustomerContact' => 'read the parent customer with CustomerContactWriter::PARENT_LOCK (FOR NO KEY UPDATE, owner Q-1 (a) -- '
+            .'the contact writes\' lock, stronger than FOR KEY SHARE) and refuse an archived one (customer.is_archived); and the first '
+            .'DELETE grant on customer_contact ships with it (SchemaManifest + GrantFootprintTest::CUSTOMER_TABLE_DELETES); and add '
+            .'its carriers to CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK.',
         'DeleteCustomerAddress' => 'read the parent customer FOR KEY SHARE (CustomerAddressWriter::PARENT_KEY_SHARE) and refuse an archived one '
             .'(customer.is_archived); and the first DELETE grant on customer_address ships with it (SchemaManifest + GrantFootprintTest).',
+    ];
+
+    /**
+     * **Every BUILT customer child write names the tests that prove its parent lock** (customers slice 2 C1, 2026-10-19;
+     * `docs/session13/customers-s2-design.md` Revision 2 R2.4, final RED F-M2, `ARCH` A-2). operationId ⇒ its carriers
+     * (`[testClass, method]`): the archive race for every child write and, for the contact writes (owner Q-1 (a)), the
+     * two-primaries race — an archive race passes with `FOR KEY SHARE` too, so it cannot evidence the stronger lock (A-2
+     * condition 2). **The map proves the carriers exist; the races prove the locks; removing a lock is caught by the race,
+     * removing a race by the map; a child write under another prefix is not seen** (A-2 condition 3). Completeness is
+     * DERIVED: every built non-GET operation at `/api/v1/customers/{id}/<segment>…` (segment not in
+     * {@see self::PARTY_ACTION_SEGMENTS}) must be a key.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
+     */
+    private const CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK = [
+        'CreateCustomerAddress' => [
+            [CustomerDeleteTest::class, 'anAddressAddedWhileTheCustomerIsBeingArchivedIsRefused'],
+        ],
+        'UpdateCustomerAddress' => [
+            [CustomerDeleteTest::class, 'anAddressChangedWhileTheCustomerIsBeingArchivedIsRefused'],
+        ],
+        'CreateCustomerContact' => [
+            [CustomerContactWriteTest::class, 'aContactAddedWhileTheCustomerIsBeingArchivedIsRefused'],
+            [CustomerContactWriteTest::class, 'twoRequestsMakingContactsPrimaryAtOnceLeaveExactlyOne'],
+        ],
+        'UpdateCustomerContact' => [
+            [CustomerContactWriteTest::class, 'aContactChangedWhileTheCustomerIsBeingArchivedIsRefused'],
+            [CustomerContactWriteTest::class, 'aContactMarkedPrimaryWhileAnotherIsBeingAddedAsPrimaryWaitsThenMovesTheMark'],
+        ],
+    ];
+
+    /** The `/customers/{id}/<segment>` actions on the PARTY itself, not a child (`RestoreCustomer`); excluded from completeness. */
+    private const PARTY_ACTION_SEGMENTS = ['restoration'];
+
+    /**
+     * **The customer contact trail** (customers slice 2 C1, 2026-10-19; owner Q-2 "yes, record contact changes",
+     * `docs/session13/s35-ruling.md`) — {@see self::OPERATIONS_OWING_THE_ADDRESS_TRAIL}'s shape: while either contact write is
+     * in the spec, the tests that carry its trail must exist.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
+     */
+    private const OPERATIONS_OWING_THE_CONTACT_TRAIL = [
+        'CreateCustomerContact' => [
+            [CustomerContactWriteTest::class, 'aCreatedContactWritesExactlyOneCustomerContactCreatedRow'],
+            [CustomerContactWriteTest::class, 'aReplayedOrRefusedContactCreateWritesNoRow'],
+            [CustomerContactWriteTest::class, 'aDemotedContactGetsItsOwnUpdatedRow'],
+        ],
+        'UpdateCustomerContact' => [
+            [CustomerContactWriteTest::class, 'aContactUpdateWritesOneRowNamingOnlyTheChangedFields'],
+            [CustomerContactWriteTest::class, 'aNoOpContactUpdateWritesNoRowAndNoStatement'],
+            [CustomerContactWriteTest::class, 'theContactUpdatedRowCarriesNamesNeverValues'],
+            [CustomerContactWriteTest::class, 'aDemotedContactGetsItsOwnUpdatedRow'],
+        ],
     ];
 
     /**
@@ -1239,6 +1297,143 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'Without the lock a child write can land on a customer `DeleteCustomer` is archiving. Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)),
             implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
+        ));
+    }
+
+    /**
+     * **Every built customer child write names its parent-lock carriers** (customers slice 2 C1; see
+     * {@see self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK}). Asserts: the map is non-empty; every key is built; every
+     * carrier exists; and — DERIVED from the generated spec — every built non-GET operation whose path is
+     * `/api/v1/customers/{id}/<segment>…` with `<segment>` not a party action is a key. **Controls, same test:** the positive
+     * control every sibling uses; the two shipped address writes are derived as child writes; `RestoreCustomer` exists at
+     * `…/restoration` (else the exclusion is stale and must go); and the pure check reports a planted key whose carrier is
+     * missing and a planted child path absent from the map (mutations M1-17, M1-18 at unit level).
+     */
+    #[Test]
+    public function everyBuiltCustomerChildWriteNamesItsParentLockCarriers(): void
+    {
+        $built = $this->builtOperationIds();
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK, 'The child-write map is empty, so it holds over nothing.');
+
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+        $operations = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            $operations[] = ['method' => strtoupper($data['method']), 'path' => $data['path'], 'id' => (string) ($data['operation']['operationId'] ?? '')];
+        }
+
+        $derived = self::customerChildWrites($operations);
+        self::assertContains('CreateCustomerAddress', $derived, 'Control: the shipped address create is not derived as a customer child write.');
+        self::assertContains('UpdateCustomerAddress', $derived, 'Control: the shipped address update is not derived as a customer child write.');
+        self::assertContains(['method' => 'POST', 'path' => '/api/v1/customers/{id}/restoration', 'id' => 'RestoreCustomer'], $operations,
+            'RestoreCustomer is no longer at /customers/{id}/restoration, so PARTY_ACTION_SEGMENTS\' exclusion is stale: remove it.');
+
+        // Planted controls on the pure check: a key whose carrier is missing (M1-17's shape), a child path absent from the map
+        // (M1-18's shape).
+        $plantedMap = ['CreateCustomerAddress' => [[CustomerDeleteTest::class, 'noSuchCarrier']]];
+        self::assertSame(['CreateCustomerAddress: '.CustomerDeleteTest::class.'::noSuchCarrier does not exist'],
+            self::parentLockDefects($plantedMap, ['CreateCustomerAddress'], ['CreateCustomerAddress' => true]),
+            'Control: a key whose carrier is missing was not reported.');
+        $plantedOperations = [['method' => 'DELETE', 'path' => '/api/v1/customers/{id}/x/{xId}', 'id' => 'PlantedChildWrite']];
+        self::assertSame(['PlantedChildWrite (DELETE /api/v1/customers/{id}/x/{xId}) is a customer child write with no carriers named'],
+            self::parentLockDefects([], self::customerChildWrites($plantedOperations), ['PlantedChildWrite' => true], $plantedOperations),
+            'Control: a child write absent from the map was not reported.');
+
+        self::assertSame([], self::parentLockDefects(self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK, $derived, $built, $operations), \sprintf(
+            "A customer child write is built without the tests that prove its parent lock, or a named carrier is gone.\n"
+            ."Every write under /customers/{id}/<child> must read the customer first (address writes FOR KEY SHARE; contact writes\n"
+            ."CustomerContactWriter::PARENT_LOCK, FOR NO KEY UPDATE, owner Q-1 (a)) and name its archive race (and, for contacts,\n"
+            ."its two-primaries race) here. Record: docs/session13/customers-s2-design.md Revision 2 R2.4; ARCHITECTURE.md W-5.",
+        ));
+    }
+
+    /**
+     * The operationIds of every non-GET operation at `/api/v1/customers/{id}/<segment>…`, `<segment>` not a party action.
+     *
+     * @param list<array{method: string, path: string, id: string}> $operations
+     *
+     * @return list<string>
+     */
+    private static function customerChildWrites(array $operations): array
+    {
+        $writes = [];
+        foreach ($operations as $o) {
+            if ('GET' !== $o['method'] && 1 === preg_match('#^/api/v1/customers/\{id\}/([^/{]+)#', $o['path'], $m)
+                && !\in_array($m[1], self::PARTY_ACTION_SEGMENTS, true)) {
+                $writes[] = $o['id'];
+            }
+        }
+        sort($writes);
+
+        return $writes;
+    }
+
+    /**
+     * @param array<string, list<array{0: class-string, 1: string}>> $map
+     * @param list<string>                                         $derived
+     * @param array<string, true>                                  $built
+     * @param list<array{method: string, path: string, id: string}> $operations
+     *
+     * @return list<string>
+     */
+    private static function parentLockDefects(array $map, array $derived, array $built, array $operations = []): array
+    {
+        $defects = [];
+        foreach ($map as $operation => $carriers) {
+            if (!isset($built[$operation])) {
+                $defects[] = $operation.' is in the map but not built: the map names a write that does not exist';
+            }
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $defects[] = $operation.': '.$class.'::'.$method.' does not exist';
+                }
+            }
+        }
+        $paths = [];
+        foreach ($operations as $o) {
+            $paths[$o['id']] = $o['method'].' '.$o['path'];
+        }
+        foreach ($derived as $operation) {
+            if (!\array_key_exists($operation, $map)) {
+                $defects[] = $operation.' ('.($paths[$operation] ?? '?').') is a customer child write with no carriers named';
+            }
+        }
+
+        return $defects;
+    }
+
+    /**
+     * **The customer contact trail** (customers slice 2 C1) — {@see self::noCustomerAddressWriteShipsWithoutItsTrail()}'s
+     * shape over {@see self::OPERATIONS_OWING_THE_CONTACT_TRAIL}. Mutation: rename a carrier → red naming it.
+     */
+    #[Test]
+    public function noCustomerContactWriteShipsWithoutItsTrail(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_CONTACT_TRAIL, 'The contact-trail implication has no antecedent, so it asserts nothing.');
+        self::assertSame(array_keys(self::OPERATIONS_OWING_THE_CONTACT_TRAIL),
+            array_keys(array_intersect_key(self::OPERATIONS_OWING_THE_CONTACT_TRAIL, $built)),
+            'A contact-trail antecedent is not in the spec, so the implication holds over nothing: was a contact write removed?');
+
+        $missing = [];
+        foreach (self::OPERATIONS_OWING_THE_CONTACT_TRAIL as $operation => $carriers) {
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
+
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nThe owner ruled \"record contact changes\" (2026-10-19, Q-2): `customer_contact.created` `{}` per INSERT (never on\n"
+            ."a replay or a lost race) and `customer_contact.updated` `{fields}` per CHANGING update and per demoted sibling, names\n"
+            ."never values, no row on a no-op or a refusal. Restore the test, or move its obligation to another named test here,\n"
+            ."before removing it. Record: docs/session13/customers-s2-build-progress.md C1.",
+            implode("\n", $missing),
         ));
     }
 

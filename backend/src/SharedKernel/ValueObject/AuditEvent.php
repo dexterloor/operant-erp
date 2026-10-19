@@ -166,7 +166,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Nine entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Ten entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -296,6 +296,14 @@ namespace App\SharedKernel\ValueObject;
  *     the same commit** (`CustomerAuditWriter::recordDeleted()`). Step 5 is `Version20261014000400`, whose literal list
  *     is the live constraint's forty-four members (read off `pg_constraint`, not generated) plus this one. **Step 6 does
  *     not apply.** `PINNED_ALLOWLIST` edited by hand with one literal.
+ *
+ *   - **`CUSTOMER_CONTACT_CREATED` and `CUSTOMER_CONTACT_UPDATED`**, 2026-10-19, customers slice 2 C1 — owner ruling
+ *     Q-2 "yes, record contact changes" (`docs/session13/s35-ruling.md`), filed **`BUSINESS`** by `SEC`
+ *     (`customers-s2-sec-arch.md` S-4) on the address events' terms: subject the contact row, `{}` and `{"fields"}` —
+ *     names, never values (a contact is personal data). Steps 3–5 done **with their writer in the same commit**
+ *     (`CustomerContactAuditWriter`). Step 5 is `Version20261019000200`, whose literal list is the live constraint's
+ *     forty-five members (read off `pg_constraint`, not generated, immediately before writing) plus these two; it
+ *     supersedes `Version20261014000400`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -899,6 +907,27 @@ final class AuditEvent
     public const CUSTOMER_ADDRESS_UPDATED = 'customer_address.updated';
 
     /**
+     * **A customer contact added** — `CreateCustomerContact` (customers slice 2 C1, 2026-10-19; owner Q-2 "yes",
+     * `docs/session13/s35-ruling.md`; filed by `SEC`, `customers-s2-sec-arch.md` S-4). Subject `('customer_contact', id)` —
+     * the row whose own state changed. **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{}` — a
+     * contact is personal data, so no value is ever carried. Written by `CustomerContactAuditWriter::recordCreated()` in
+     * `CustomerContactWriter`'s transaction, after the INSERT (and, when the request asked for primary, after the
+     * set-primary UPDATE); a replayed create or a lost race writes none. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_CONTACT_CREATED = 'customer_contact.created';
+
+    /**
+     * **A customer contact changed** — `UpdateCustomerContact`, and every contact DEMOTED because another was marked
+     * primary (`CreateCustomerContact` or `UpdateCustomerContact`; owner Q-1 (a)) (customers slice 2 C1, 2026-10-19).
+     * Subject `('customer_contact', id)`. **Business** under PC-11 (4a). No IP, no permission code, `metadata`
+     * `{"fields": [...]}` — the wire names of the changed fields among `name`, `email`, `phone`, `is_primary`, sorted,
+     * **never values**; a demoted sibling's row names `["is_primary"]`; **no row when nothing changed**. Written by
+     * `CustomerContactAuditWriter::recordUpdated()` in `CustomerContactWriter`'s transaction, after the statement.
+     * **Step 6 does not apply.**
+     */
+    public const CUSTOMER_CONTACT_UPDATED = 'customer_contact.updated';
+
+    /**
      * **A warehouse created** — `CreateWarehouse` (warehouses slice 1 C2, 2026-10-13; owner Q-W2 (a)). Subject
      * `('warehouse', id)`. **Business** under PC-11 (4a): about the warehouse row's own state; (4c) does not reach it. No
      * IP, no permission code. `metadata` `{"values": {"code", "country_code", "name"}}` — the values as stored, the anchor
@@ -1001,6 +1030,8 @@ final class AuditEvent
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
+        self::CUSTOMER_CONTACT_CREATED,
+        self::CUSTOMER_CONTACT_UPDATED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::STORAGE_LOCATION_CREATED,
@@ -1087,6 +1118,8 @@ final class AuditEvent
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
+        self::CUSTOMER_CONTACT_CREATED,
+        self::CUSTOMER_CONTACT_UPDATED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::STORAGE_LOCATION_CREATED,
@@ -1168,6 +1201,9 @@ final class AuditEvent
         // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` to confirm the subject).
         self::CUSTOMER_ADDRESS_CREATED => 'customer_address',
         self::CUSTOMER_ADDRESS_UPDATED => 'customer_address',
+        // Customers slice 2 C1: the contact row whose own state changed (owner Q-2; `SEC` S-4 confirmed the child subject).
+        self::CUSTOMER_CONTACT_CREATED => 'customer_contact',
+        self::CUSTOMER_CONTACT_UPDATED => 'customer_contact',
         // Warehouses slice 1 C2: the warehouse row whose own state changed (owner Q-W2 (a)).
         self::WAREHOUSE_CREATED => 'warehouse',
         self::WAREHOUSE_UPDATED => 'warehouse',

@@ -187,6 +187,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'CreateCustomerAddress' => ['vars' => ['id' => 'customer'], 'body' => ['kind' => 'shipping', 'line' => '1 Probe Street',
             'city' => 'Leeds', 'postal_code' => 'LS1 1AA', 'country_code' => 'GB']],
         'UpdateCustomerAddress' => ['vars' => ['id' => 'customer', 'addressId' => 'customer_address'], 'body' => ['city' => 'York']],
+        // Customers slice 2 C1: the remembered customer and its remembered contact. A moved read would 404 or list B's
+        // contacts; a moved create would 404 (B's customer is another id); a moved update would 404 on the pair.
+        'ListCustomerContacts' => ['vars' => ['id' => 'customer']],
+        'CreateCustomerContact' => ['vars' => ['id' => 'customer'], 'body' => ['name' => 'Probe Contact', 'email' => 'probe@example.test']],
+        'UpdateCustomerContact' => ['vars' => ['id' => 'customer', 'contactId' => 'customer_contact'], 'body' => ['phone' => '+44 113 496 0000']],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.
@@ -695,6 +700,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // one letter-bearing value per tenant, as role names are normalised to 'Fixture Role'.
         $this->insertAsOwnerForTenant($tenantId, "UPDATE customer SET code = 'C-ACME' WHERE id = ?::uuid", [$customer]);
         $this->remember($letter, 'customer_address', $this->seedCustomerAddress($tenantId, $customer));
+        $this->remember($letter, 'customer_contact', $this->seedCustomerContact($tenantId, $customer));
 
         $warehouse = $this->remember($letter, 'warehouse', Uuid::v4()->toRfc4122());
         $this->insertAsOwnerForTenant($tenantId,

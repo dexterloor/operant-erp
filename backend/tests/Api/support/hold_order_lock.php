@@ -21,6 +21,16 @@
 //   5. Print one JSON line: whether a waiter was seen, whether the commit
 //      happened, and the SQLSTATE of anything that failed.
 //
+// Since customers slice 2 C1 (2026-10-19, final RED F-H1) the report also says
+// WHERE the waiter waited, read off `pg_locks` at the moment it was seen:
+// `waiter_locks` lists its `tuple` and `transactionid` locks (relation name,
+// mode, granted, and the xid it waits on), and `holder_xid` is this
+// transaction's id. A row-lock waiter holds a `tuple` lock on the relation of
+// the row and waits, ungranted, on the holder's `transactionid`; a waiter at a
+// unique index holds no tuple lock. So a race test can assert the request
+// queued at the lock the code meant, not merely somewhere. Additive: callers
+// that read only `waiter_seen` / `committed` are unaffected.
+//
 // The deadline in step 3 exists only for the failing case -- a B that never
 // touches the order row -- so the parent is never left hanging. It is not a
 // timing assumption: no passing run depends on how long anything takes.
@@ -32,7 +42,7 @@ use Doctrine\DBAL\Exception\DriverException;
 use Doctrine\DBAL\Tools\DsnParser;
 
 $readyFile = (string) getenv('HOLD_READY_FILE');
-$result = ['waiter_seen' => false, 'committed' => false, 'sqlstate' => null, 'error' => null];
+$result = ['waiter_seen' => false, 'committed' => false, 'sqlstate' => null, 'error' => null, 'waiter_locks' => [], 'holder_xid' => null];
 $conn = null;
 
 try {
@@ -91,6 +101,15 @@ try {
             [$pid],
         )) {
             $result['waiter_seen'] = true;
+            $result['holder_xid'] = (string) $conn->fetchOne('SELECT pg_current_xact_id()::text');
+            $result['waiter_locks'] = $conn->fetchAllAssociative(<<<'SQL'
+                SELECT l.locktype, c.relname AS relation, l.mode, l.granted, l.transactionid::text AS xid
+                  FROM pg_locks l
+                  LEFT JOIN pg_class c ON c.oid = l.relation
+                 WHERE l.pid IN (SELECT a.pid FROM pg_stat_activity a WHERE ?::int = ANY (pg_blocking_pids(a.pid)))
+                   AND l.locktype IN ('tuple', 'transactionid')
+                 ORDER BY l.locktype, c.relname, l.granted
+                SQL, [$pid]);
             break;
         }
         usleep(2000);

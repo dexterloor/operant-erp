@@ -45,6 +45,11 @@ final class CustomerReadTest extends PurchaseOrderTestCase
         'CreateCustomerAddress' => ['method' => 'POST', 'path' => '/customers/{id}/addresses', 'idem' => true],
         'UpdateCustomerAddress' => ['method' => 'PATCH', 'path' => '/customers/{id}/addresses/{addressId}', 'idem' => false],
         'ListCustomerAddresses' => ['method' => 'GET', 'path' => '/customers/{id}/addresses', 'idem' => false],
+        // Customers slice 2 C1 (2026-10-19): the contact create demands the header (`unique:customer_contact_idem_unique`);
+        // the PATCH and the bounded list do not.
+        'CreateCustomerContact' => ['method' => 'POST', 'path' => '/customers/{id}/contacts', 'idem' => true],
+        'UpdateCustomerContact' => ['method' => 'PATCH', 'path' => '/customers/{id}/contacts/{contactId}', 'idem' => false],
+        'ListCustomerContacts' => ['method' => 'GET', 'path' => '/customers/{id}/contacts', 'idem' => false],
     ];
 
     /** `CustomerResource`'s serialized members — §4.4.3's derivation (design §2.3 item 8). */
