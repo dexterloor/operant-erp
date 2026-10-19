@@ -232,6 +232,11 @@ final class SchemaManifestTest extends TenancyTestCase
      *
      * **A third, on the same terms** (G-29 / G-30 part 3, C1, 2026-10-05): `adjustment_decision_one_distinct_per_round`,
      * predicate `(kind = 'distinct'::text)` — the database backstop for "one live `distinct` per pair" (design §2.4).
+     *
+     * **A fourth, on the same terms** (customers slice 2 C0, 2026-10-19; owner ruling Q-1 (a), `s35-ruling.md`):
+     * `customer_contact_one_primary`, predicate `is_primary` (measured off the catalogue: a bare boolean column prints
+     * without parentheses) — at most one primary contact per customer on the class-`hard` `customer_contact`. A business
+     * rule, not a live-row filter: the table has no `deleted_at`.
      */
     #[Test]
     public function businessUniquenessIsPartialOnSoftDeletedTablesAndTotalElsewhere(): void
@@ -260,6 +265,8 @@ final class SchemaManifestTest extends TenancyTestCase
             // G-29 / G-30 part 3 C1 (design §2.4, RED d1d4's D2 note): one `distinct` per pair per decision round on the
             // class-`none`, append-only `adjustment_decision`; a reversed `distinct` keeps its round, so the next is round + 1.
             'adjustment_decision_one_distinct_per_round' => "(kind = 'distinct'::text)",
+            // Customers slice 2 C0 (owner Q-1 (a)): one primary contact per customer on the class-`hard` customer_contact.
+            'customer_contact_one_primary' => 'is_primary',
         ];
 
         foreach ($rows as $r) {

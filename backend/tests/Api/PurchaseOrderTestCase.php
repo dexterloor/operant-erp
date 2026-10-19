@@ -278,6 +278,31 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
+     * A customer contact, written as the owner (nothing in the API writes one before customers slice 2 C1).
+     * `idempotency_key` and `request_digest` are NOT NULL on a TOTAL tenant-wide unique (customers slice 2 C0,
+     * Version20261019000100), so each row mints a DISTINCT random 64-hex value for both, as `seedCustomerAddress` does.
+     * At most one `is_primary` contact per customer (`customer_contact_one_primary`).
+     */
+    protected function seedCustomerContact(
+        string $tenantId,
+        string $customerId,
+        string $name = 'Ada Lovelace',
+        ?string $email = 'ada@example.test',
+        ?string $phone = '+44 20 7946 0000',
+        bool $isPrimary = false,
+    ): string {
+        $id = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO customer_contact
+                (id, tenant_id, customer_id, name, email, phone, is_primary, idempotency_key, request_digest)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::boolean, ?, ?)
+            SQL, [$id, $tenantId, $customerId, $name, $email, $phone, $isPrimary ? 'true' : 'false',
+                hash('sha256', 'key:'.Uuid::v4()->toRfc4122()), hash('sha256', 'digest:'.Uuid::v4()->toRfc4122())]);
+
+        return $id;
+    }
+
+    /**
      * A purchase order in whatever state a test needs.
      *
      * `ordered_at` follows `purchase_order_ordered_at_set` — as of

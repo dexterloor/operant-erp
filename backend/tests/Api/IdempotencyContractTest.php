@@ -255,6 +255,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         // both-or-neither CHECK — the table already holds every receipt, shipment and return, none of which carries a key —
         // on a TOTAL unique (class `none`; NULLs never collide). `Version20261016000100` laid it; C1 ships the writer.
         'CreateStockAdjustment' => 'unique:stock_movement_idem_unique',
+        // ⚠ **Customers slice 2 C0, 2026-10-19.** Was `⛔ none` since 2026-09-11: `customer_contact` carried no unique
+        // beyond its surrogate. `customer_address`'s shape exactly: a header-sourced key, `NOT NULL` (nothing has ever
+        // written a contact; one row per request), on a TOTAL unique (class `hard`, no `deleted_at`).
+        // `Version20261019000100` laid it; C1 ships the writer.
+        'CreateCustomerContact' => 'unique:customer_contact_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -328,8 +333,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         // C0, when `customer_address_idem_unique` was laid) --
         // and **`CreateStockAdjustment` left on 2026-10-16** (stock count C0,
         // when `stock_movement_idem_unique` was laid) --
+        // and **`CreateCustomerContact` left on 2026-10-19** (customers slice 2
+        // C0, when `customer_contact_idem_unique` was laid) --
         // count the entries below; do not read a number here.
-        'CreateCustomerContact' => '⛔ none',
         'CreateStockTransfer' => '⛔ none',
     ];
 
@@ -378,6 +384,9 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-16 (stock count C0):** `CreateStockAdjustment` `⛔ none` → `unique:stock_movement_idem_unique` — marked to
      * marked, so neither count moves.
+     *
+     * **2026-10-19 (customers slice 2 C0):** `CreateCustomerContact` `⛔ none` → `unique:customer_contact_idem_unique` —
+     * marked to marked, so neither count moves.
      */
     private const PINNED_ROW_COUNT = 130;
 
@@ -433,6 +442,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateAdjustmentDecision' => [IdempotencyKeyGuard::COLUMN],
         'CreateCustomerAddress' => [IdempotencyKeyGuard::COLUMN],
         'CreateStockAdjustment' => [IdempotencyKeyGuard::COLUMN],
+        'CreateCustomerContact' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -518,6 +528,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         // Stock count C0, 2026-10-16. `CreateGoodsReceipt`'s ground: the table's only other key is the surrogate; one
         // movement per request.
         'CreateStockAdjustment',
+        // Customers slice 2 C0, 2026-10-19. `CreateCustomerAddress`'s ground: the table's only other key is the
+        // surrogate; one row per request.
+        'CreateCustomerContact',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];
