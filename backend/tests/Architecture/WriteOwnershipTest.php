@@ -5,20 +5,26 @@ declare(strict_types=1);
 namespace App\Tests\Architecture;
 
 use App\Modules\Inventory\ApiResource\State\CreateStockAdjustmentProcessor;
+use App\Modules\Inventory\ApiResource\State\CreateStockTransferProcessor;
 use App\Modules\Inventory\Application\Contract\AdjustStock;
 use App\Modules\Inventory\Application\Contract\DepleteStock;
 use App\Modules\Inventory\Application\Contract\ReceiveStock;
 use App\Modules\Inventory\Application\Contract\ReturnStock;
+use App\Modules\Inventory\Application\Contract\TransferStock;
 use App\Modules\Inventory\Application\StockAdjuster;
 use App\Modules\Inventory\Application\StockDepleter;
 use App\Modules\Inventory\Application\StockReceiver;
 use App\Modules\Inventory\Application\StockReturner;
+use App\Modules\Inventory\Application\StockTransferrer;
 use App\Modules\Inventory\Infrastructure\Entity\StockMovement;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Sales\Application\FulfilmentWriter;
 use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\SchemaManifest;
+use App\Tests\Api\StockAdjustmentReleaseTest;
+use App\Tests\Api\StockTransferReleaseTest;
+use App\Tests\Inventory\DepleteStockTest;
 use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -195,7 +201,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // audit_log` (`stock_movement.adjusted`, E-25 (a)) (PREDICTED; confirmed off this test's run).
         // **24 -> 25 on 2026-10-19** (customers slice 2 C1): `CustomerContactAuditWriter::record()`'s ONE `INSERT INTO
         // audit_log`, shared by `customer_contact.created` and `.updated` (PREDICTED; confirmed off this test's run).
-        'Modules\\AuditLog' => 25,
+        // **25 -> 26 on 2026-10-20** (stock transfer C1): `StockMovementAuditWriter::recordTransferred()`'s ONE single-row
+        // `INSERT INTO audit_log` literal, executed once per leg (final RED H-1) (PREDICTED; confirmed off this test's run).
+        'Modules\\AuditLog' => 26,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -227,7 +235,11 @@ final class WriteOwnershipTest extends KernelTestCase
         // **10 -> 13 on 2026-10-16** (stock count C1), PREDICTED, confirmed off this test's run: `StockAdjuster`'s one
         // `INSERT INTO stock_movement` (reason 'adjustment'), one `UPDATE stock_level` (the locked row, SET to the count) and
         // one `INSERT INTO stock_level … ON CONFLICT DO NOTHING` (a bin with no row). Its savepoint statements write nothing.
-        'Modules\\Inventory' => 13,
+        // **13 -> 16 on 2026-10-20** (stock transfer C1), PREDICTED, confirmed off this test's run: `StockTransferrer`'s one
+        // two-tuple `INSERT INTO stock_movement` (both legs), `LEVEL_DECREMENT` (`UPDATE stock_level`, the source) and
+        // `LEVEL_BOUNDED_UPSERT` (`INSERT INTO stock_level … ON CONFLICT DO UPDATE`, the destination). Its savepoint
+        // statements write nothing; its `FOR KEY SHARE` reads are locks this scan excludes.
+        'Modules\\Inventory' => 16,
         'Modules\\Purchasing' => 10,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
@@ -740,8 +752,220 @@ final class WriteOwnershipTest extends KernelTestCase
             ."only if SECURITY_MODEL.md already binds that reason to that writer -- if it does not, the binding is a SEC "
             ."decision, not an edit here. Do NOT register a class to a reason another writer already posts to make this "
             ."green: that is the concealment E-26 exists to make visible.\n"
+            .self::G44_RELEASE_RULE
             .implode("\n", $violations));
     }
+
+    /** G-44's release rule as one sentence (SEC stock-transfer-sec-2.md §1); printed by both stock-writer assertions. */
+    private const G44_RELEASE_RULE = "And G-44's release rule (RESIDUAL_GAPS.md G-44; SEC stock-transfer-sec-2.md §1): a stock writer is a release "
+        ."if it lowers an item's stock in live quarantine bins other than by moving it to another quarantine bin (a count "
+        ."down, a move or a shipment out of quarantine), or if it records, in a non-quarantine bin, stock no document "
+        ."evidences (an upward count) of an item that has stock in a live quarantine bin. A release must refuse a "
+        ."non-owner (OwnerPredicate::holdsMarker) unless the owner has ruled otherwise, and must take FOR KEY SHARE on "
+        ."every bin before reading its kind (a qty-only stock_level write locks no location -- measured). Holds (into "
+        ."quarantine) are never gated. Receipts and returns are not releases even into a pickable bin: a document "
+        ."evidences their stock (G-44 \"Not stopped\"). Record the writer's answer in STOCK_LEVEL_RELEASE_DECISIONS "
+        ."(everyStockLevelWriterHasARecordedReleaseDecision); StockAdjuster and StockTransferrer are the precedents.\n";
+
+    /**
+     * G-44 (RESIDUAL_GAPS.md; SEC stock-transfer-sec-2.md §2): every src/ class that writes stock_level, and how the release
+     * rule ({@see self::G44_RELEASE_RULE}) is met by it. `ruling` is always present. `tests` names the tests that pin the
+     * writer's release refusals: each must exist and carry #[Test]. It may be empty ONLY when the ruling begins "not a
+     * release:". A new stock_level writer, by statement, DBAL convenience call or ORM entity, is red here until someone
+     * records its answer. Changing an answer is a SEC decision.
+     *
+     * @var array<class-string, array{ruling: string, tests: list<array{0: class-string, 1: string}>}>
+     */
+    private const STOCK_LEVEL_RELEASE_DECISIONS = [
+        StockAdjuster::class => [
+            'ruling' => 'a release when it counts a quarantine bin down, or counts up, in a non-quarantine bin, an item held '
+                .'in quarantine: both refuse a non-owner (owner Q1 (C′), 2026-10-16)',
+            'tests' => [
+                [StockAdjustmentReleaseTest::class, 'aNonOwnerCannotCountDownAQuarantineBin'],
+                [StockAdjustmentReleaseTest::class, 'aNonOwnerCannotCountUpAnItemHeldInTheSameWarehouse'],
+                [StockAdjustmentReleaseTest::class, 'aNonOwnerCannotCountUpWhenTheHeldStockIsInAnotherWarehouse'],
+            ],
+        ],
+        StockDepleter::class => [
+            'ruling' => 'would be a release if it shipped from a quarantine bin; it refuses a quarantine (or archived) bin for '
+                .'every caller, owner included (storage_location.is_pickable, owner R2, 2026-09-22)',
+            'tests' => [
+                [DepleteStockTest::class, 'aLineFromALocationThatIsNotPickableIsRefusedAndNamed'],
+            ],
+        ],
+        StockReceiver::class => [
+            'ruling' => 'not a release: a goods receipt evidences the stock, into any live bin (G-44 "Not stopped")',
+            'tests' => [],
+        ],
+        StockReturner::class => [
+            'ruling' => 'not a release: a sales return evidences the stock, into any live bin (G-44 "Not stopped", R-3′)',
+            'tests' => [],
+        ],
+        StockTransferrer::class => [
+            'ruling' => 'a release when it moves stock out of a quarantine bin into a non-quarantine one: refuses a non-owner, '
+                .'stock_level.release_needs_owner (owner Q-T2, 2026-10-19); into quarantine and quarantine to quarantine are open',
+            'tests' => [
+                [StockTransferReleaseTest::class, 'aNonOwnerCannotMoveStockOutOfQuarantineIntoAPickableBin'],
+            ],
+        ],
+    ];
+
+    /**
+     * G-44's release rule, made unforgettable (SEC stock-transfer-sec-2.md §2; it replaced the deleted
+     * OwedAmendmentTripwireTest release pin). Derives every src/ class that can write stock_level, by a raw statement
+     * (statementsIn), by the bare table name a DBAL convenience writer takes, or by naming the StockLevel entity (an ORM
+     * write), and requires the set to equal STOCK_LEVEL_RELEASE_DECISIONS' keys, both ways. It tests the DECISION, not
+     * the behaviour: the named release tests do that, and each must exist.
+     *
+     * **Scope disclosed:** all of `src/`, not only `src/Modules`. An *unresolved* write statement (an interpolated table
+     * name) is NOT attributed to stock_level here; inside `src/Modules`,
+     * {@see self::everyRawWriteInAModuleTargetsATableThatModuleOwns()} already fails closed on it, and outside it is a
+     * residual this test does not close.
+     */
+    #[Test]
+    public function everyStockLevelWriterHasARecordedReleaseDecision(): void
+    {
+        // Positive control first: the three routes must each be seen in a planted probe.
+        self::assertSame(self::STOCK_LEVEL_PROBE_EXPECTED, self::stockLevelWritersIn(self::STOCK_LEVEL_PROBE, 'probe'),
+            'The stock_level writer scan misreads its probe: a raw UPDATE, a DBAL convenience insert and an ORM entity '
+            .'reference must each be found. If this is red, every decision below holds over the wrong set.');
+
+        $src = \dirname(__DIR__, 2).'/src';
+        $found = [];
+        foreach (PhpSourceScan::phpFilesUnder($src) as $path) {
+            $at = substr($path, \strlen(\dirname(__DIR__, 2)) + 1);
+            if (str_ends_with($at, 'Inventory/Infrastructure/Entity/StockLevel.php') || str_ends_with($at, 'Platform/Tenancy/SchemaManifest.php')) {
+                continue; // the entity itself, and the manifest's key: neither writes
+            }
+            foreach (self::stockLevelWritersIn((string) file_get_contents($path), $at) as [$class, $how]) {
+                $found[$class][] = $how;
+            }
+        }
+        self::assertArrayHasKey(StockReceiver::class, $found,
+            'The scan no longer finds StockReceiver writing stock_level, so it has gone blind.');
+
+        $violations = [];
+        foreach ($found as $class => $hows) {
+            if (!isset(self::STOCK_LEVEL_RELEASE_DECISIONS[$class])) {
+                $violations[] = '  '.$class.' writes stock_level ('.implode('; ', array_unique($hows)).') and has no recorded '
+                    .'release decision.';
+            }
+        }
+        foreach (self::STOCK_LEVEL_RELEASE_DECISIONS as $class => $decision) {
+            if (!isset($found[$class])) {
+                $violations[] = '  STALE: '.$class.' has a release decision and the scan does not find it writing stock_level. '
+                    .'Remove the entry, so it cannot excuse a different writer later.';
+            }
+            if ('' === trim($decision['ruling'])) {
+                $violations[] = '  '.$class.' has an empty ruling.';
+            }
+            if ([] === $decision['tests'] && !str_starts_with($decision['ruling'], 'not a release:')) {
+                $violations[] = '  '.$class.' is ruled a release (or a refusal) but names no test that pins it.';
+            }
+            foreach ($decision['tests'] as [$testClass, $method]) {
+                if (!method_exists($testClass, $method)
+                    || [] === (new \ReflectionMethod($testClass, $method))->getAttributes(Test::class)) {
+                    $violations[] = '  '.$class.' names '.$testClass.'::'.$method.', which does not exist or is not a #[Test].';
+                }
+            }
+        }
+
+        self::assertSame([], $violations, "A stock_level writer's G-44 release decision is missing, stale or unpinned.\n\n"
+            .self::G44_RELEASE_RULE
+            ."Add the writer to STOCK_LEVEL_RELEASE_DECISIONS in the commit that builds it. If it is a release, name the test "
+            ."that refuses a non-owner; if it is not, say why in a ruling beginning \"not a release:\". Whether a writer is a "
+            ."release is a SEC decision, not an edit here.\n".implode("\n", $violations));
+    }
+
+    /**
+     * The classes in `$source` that can write stock_level, each with how: a raw write statement whose table resolves to
+     * stock_level (the same parser as everyRawWriteInAModuleTargetsATableThatModuleOwns); a literal that is exactly the
+     * table name (`$connection->insert('stock_level', …)` spells no INSERT INTO; the F-2 shape of the stock_movement scan);
+     * or a code reference to the StockLevel entity (`new StockLevel`, `StockLevel::class`, a `use`, a type). The ORM route
+     * is attributed to the file's first declared class. Order: statements, then literals, then tokens (deterministic, so
+     * the probe comparison is exact).
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    private static function stockLevelWritersIn(string $source, string $at): array
+    {
+        $out = [];
+        foreach (self::statementsIn($source, $at) as $s) {
+            if ('stock_level' === $s['table']) {
+                $out[] = [$s['class'], 'statement at '.$s['at']];
+            }
+        }
+
+        $scan = PhpSourceScan::scan($source);
+        $namespace = $scan['namespace'];
+        $literals = [];
+        foreach ($scan['outside'] as $literal) {
+            $literals[] = [(string) $literal['class'], $literal];
+        }
+        foreach ($scan['methods'] as $method) {
+            foreach ($method['literals'] as $literal) {
+                $literals[] = [$method['class'], $literal];
+            }
+        }
+        foreach ($literals as [$class, $literal]) {
+            if (1 === preg_match('/\A\s*(?:"?public"?\.)?"?stock_level"?\s*\z/i', self::blankDollarQuoteTags($literal['value']))) {
+                $out[] = [ltrim($namespace.'\\'.$class, '\\'), 'bare table name at '.$at.':'.$literal['line']];
+            }
+        }
+
+        $first = null;
+        $tokens = token_get_all($source);
+        foreach ($tokens as $i => $token) {
+            if (\is_array($token) && \in_array($token[0], [\T_CLASS, \T_INTERFACE, \T_TRAIT, \T_ENUM], true)) {
+                for ($j = $i + 1; isset($tokens[$j]); ++$j) {
+                    if (\is_array($tokens[$j]) && \T_STRING === $tokens[$j][0]) {
+                        $first = $tokens[$j][1];
+                        break 2;
+                    }
+                    if (!\is_array($tokens[$j]) || \T_WHITESPACE !== $tokens[$j][0]) {
+                        break; // `Foo::class`, an anonymous class: not a declaration
+                    }
+                }
+            }
+        }
+        foreach ($tokens as $token) {
+            if (\is_array($token)
+                && ((\T_STRING === $token[0] && 'StockLevel' === $token[1])
+                    || (\in_array($token[0], [\T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED, \T_NAME_RELATIVE], true)
+                        && 1 === preg_match('/(?:^|\\\\)StockLevel$/', $token[1])))) {
+                $out[] = [ltrim($namespace.'\\'.($first ?? '(file)'), '\\'), 'StockLevel entity named at '.$at.':'.$token[2]];
+            }
+        }
+
+        return $out;
+    }
+
+    private const STOCK_LEVEL_PROBE = <<<'PHP'
+        <?php
+        namespace App\Modules\Inventory\Application;
+
+        use App\Modules\Inventory\Infrastructure\Entity\StockLevel;
+
+        final class LevelProbe
+        {
+            public function raw(): void { $this->c->executeStatement('UPDATE stock_level SET qty_on_hand = 0 WHERE id = ?'); }
+            public function convenience(): void { $this->c->insert('stock_level', ['id' => 'x']); }
+            public function orm(): void { $this->em->persist(new StockLevel()); }
+            public function reads(): void { $this->c->fetchOne('SELECT qty_on_hand FROM stock_level WHERE id = ?'); }
+        }
+        PHP;
+
+    /**
+     * Read off the first run (2026-10-20) and pinned (SEC stock-transfer-sec-2.md §2.3): the raw UPDATE in `raw()`, the bare
+     * `'stock_level'` in `convenience()`, and the StockLevel token on the `use` line and the `new` line. Nothing for
+     * `reads()` -- the negative control: a read is not a write.
+     */
+    private const STOCK_LEVEL_PROBE_EXPECTED = [
+        ['App\\Modules\\Inventory\\Application\\LevelProbe', 'statement at probe:8'],
+        ['App\\Modules\\Inventory\\Application\\LevelProbe', 'bare table name at probe:9'],
+        ['App\\Modules\\Inventory\\Application\\LevelProbe', 'StockLevel entity named at probe:4'],
+        ['App\\Modules\\Inventory\\Application\\LevelProbe', 'StockLevel entity named at probe:10'],
+    ];
 
     /**
      * **The class → permission half of E-26, derived rather than declared (`-sec-red.md` F-1, High).**
@@ -840,6 +1064,13 @@ final class WriteOwnershipTest extends KernelTestCase
             'implementation' => StockAdjuster::class,
             'callers' => [CreateStockAdjustmentProcessor::class],
         ],
+        // The stock transfer (stock transfer C1, 2026-10-20; `SEC` stock-transfer-sec.md §1.4, E-26): the same shape as the
+        // count -- Inventory's own `CreateStockTransfer` processor is the one consumer, and `transfer_out` / `transfer_in`
+        // are bound to one writer behind one contract.
+        TransferStock::class => [
+            'implementation' => StockTransferrer::class,
+            'callers' => [CreateStockTransferProcessor::class],
+        ],
     ];
 
     /**
@@ -870,19 +1101,24 @@ final class WriteOwnershipTest extends KernelTestCase
                 ."by CreateStockAdjustment (stock_movement.adjust), with one stock_movement.adjusted audit row naming its actor "
                 ."per movement (stock_movement has no actor column). A second writer of it is a concealment shape, not a refactor.",
         ],
+        // Registered 2026-10-20 (stock transfer C1), in the commit that built it; net zero pinned by
+        // `StockTransferTest::aTransferNetsToZeroForTheItem`, each leg's actor by
+        // `StockTransferTest::aTransferWritesOneAuditRowPerLegNamingItsActor` (E-25 (b)).
         'transfer_out' => [
-            'writers' => [],
+            'writers' => [StockTransferrer::class],
             'permission' => 'stock_movement.adjust',
-            'rule' => "SECURITY_MODEL.md E-25 (b): 'transfer_out' has NO registered writer. The first is CreateStockTransfer's "
-                ."(stock_movement.adjust): one class posting transfer_out AND transfer_in only, as pairs of one item, equal "
-                ."and opposite, between two distinct locations. The net-zero property is behaviour, not shape: it is OWED "
-                ."AS A TEST in the commit that builds CreateStockTransfer.",
+            'rule' => "E-25 (b) / E-26: posted by StockTransferrer alone, reached through TransferStock by CreateStockTransfer "
+                ."(stock_movement.adjust), as one two-tuple INSERT of an equal-and-opposite pair of one item between two distinct "
+                ."bins, each leg naming the other (source_type 'stock_movement'; stock_movement_transfer_source). A second writer "
+                ."is a concealment shape.",
         ],
         'transfer_in' => [
-            'writers' => [],
+            'writers' => [StockTransferrer::class],
             'permission' => 'stock_movement.adjust',
-            'rule' => "SECURITY_MODEL.md E-25 (b): 'transfer_in' has NO registered writer -- see transfer_out. A lone "
-                ."transfer_in is stock from nowhere: an adjustment wearing a transfer's name.",
+            'rule' => "E-25 (b) / E-26: posted by StockTransferrer alone, reached through TransferStock by CreateStockTransfer "
+                ."(stock_movement.adjust), as one two-tuple INSERT of an equal-and-opposite pair of one item between two distinct "
+                ."bins, each leg naming the other (source_type 'stock_movement'; stock_movement_transfer_source). A second writer "
+                ."is a concealment shape. A lone transfer_in is stock from nowhere: an adjustment wearing a transfer's name.",
         ],
         // E-27's refusal LIFTED 2026-10-01 (sales step 7 R2), in the one commit E-27 named: the one that built
         // CreateSalesReturn, shipped sales_return.create in §3, landed V2-R-15 (W-3's third edge) and lifted

@@ -38,7 +38,8 @@ use Symfony\Component\Uid\Uuid;
  *     racing a count serialises as "count, then archive", a legal order; `FOR SHARE` would buy nothing a test could see);
  *  4. the bin's `warehouse_id`, unlocked (frozen: `UpdateStorageLocation` refuses it) — unknown → 422; the warehouse
  *     `FOR KEY SHARE` → archived 409; then, **in its own statement**, the bin `FOR KEY SHARE` reading `kind` and
- *     `deleted_at` → archived 409. The bin lock is `THE_RELEASE_RULE`'s lock clause: it conflicts with
+ *     `deleted_at` → archived 409. The bin lock is G-44's release-rule lock clause (`RESIDUAL_GAPS.md` G-44; tested as a decision by
+ *     `WriteOwnershipTest::everyStockLevelWriterHasARecordedReleaseDecision`): it conflicts with
  *     `UpdateStorageLocation`'s `FOR UPDATE`, so a concurrent hold or release serialises with the count and the count reads
  *     the committed kind (R-2′, R-2″; a qty-only `stock_level` write locks no location);
  *  5. the level, **its own statement**, `FOR UPDATE` — the last lock taken (W-5); absent → on-hand 0, no row;
@@ -51,9 +52,12 @@ use Symfony\Component\Uid\Uuid;
  *  9. **the release rule** (owner Q1 (C′); G-44): a non-owner may not count a `quarantine` bin DOWN
  *     (`stock_level.count_down_needs_owner`), nor count UP, in a non-quarantine bin, an item that has stock in any live
  *     quarantine location of the workspace (`stock_level.held_item_needs_owner`). Counting a quarantine bin up is a hold
- *     and free. **The held read takes no lock because only an owner can empty quarantine** (final RED L-3): a hold that
- *     commits after it is ordered after the count, a correct order; no non-owner path takes held stock to zero today. An
- *     operation that lets a non-owner move stock out of quarantine must lock or re-check it. It is a separate statement,
+ *     and free. **The held read takes no lock because only an owner can take an item's stock out of quarantine
+ *     altogether** (final RED L-3): a hold that commits after it is ordered after the count, a correct order; a
+ *     non-owner's move between quarantine bins (`StockTransferrer`, owner Q-T2) keeps the item's live-quarantine total,
+ *     both legs in one commit, so no non-owner path lowers it (`StockTransferRaceTest` T-R7). An operation that lets a
+ *     non-owner lower that total must lock or re-check it (G-44; `WriteOwnershipTest::STOCK_LEVEL_RELEASE_DECISIONS`).
+ *     It is a separate statement,
  *     after the level lock, never folded into a locking one (the T-13 lesson: a statement that waited reads other tables
  *     from its start snapshot);
  * 10. the writes, the siblings' statement order: the movement (literal `'adjustment'`, no `source_type`/`source_id` —

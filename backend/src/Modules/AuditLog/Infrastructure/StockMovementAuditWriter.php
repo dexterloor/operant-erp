@@ -25,12 +25,23 @@ use Symfony\Component\Uid\Uuid;
  * Written inside the count's transaction, after its statements: an audit failure rolls the count back, and a refusal or
  * a replay writes none — exactly one row per movement row.
  *
+ * **A transfer writes two, one per leg** (stock transfer C1, 2026-10-19; `SEC` `docs/session13/stock-transfer-sec.md` §1):
+ * {@see self::recordTransferred()} gives the out leg and the in leg each one `stock_movement.adjusted` row, so "exactly one
+ * row per movement row" holds for transfers too and either leg's History names who moved it. `metadata` is exactly
+ * `{"note": <string or null>}` on both ({@see self::TRANSFER_METADATA_KEYS}); never `counted_quantity`, the partner's id,
+ * a bin's kind or code, any on-hand figure or a release flag. It executes ONE single-row `INSERT` literal once per leg —
+ * never a two-tuple INSERT (final RED H-1: `AuditWriterTest` holds one statement to one row), and never `recordAdjusted`'s
+ * literal (the count's metadata is not the transfer's).
+ *
  * @see \App\SharedKernel\ValueObject\AuditEvent::STOCK_MOVEMENT_ADJUSTED
  */
 final readonly class StockMovementAuditWriter
 {
     /** The only `metadata` keys `stock_movement.adjusted` carries, sorted (`SEC` §3). */
     public const METADATA_KEYS = ['counted_quantity', 'note'];
+
+    /** The only `metadata` keys a transfer leg's `stock_movement.adjusted` row carries (`SEC` stock-transfer-sec.md §1.3). */
+    public const TRANSFER_METADATA_KEYS = ['note'];
 
     public function __construct(private TenantContext $tenants)
     {
@@ -58,6 +69,36 @@ final readonly class StockMovementAuditWriter
                     $movementId,
                     $metadata,
                 ]);
+        });
+    }
+
+    /**
+     * One row per leg of a transfer, both inside the transfer's transaction, same actor and the same `{"note": …}`.
+     * `$note` is the trimmed note, or null when none was sent (owner Q-T3).
+     */
+    public function recordTransferred(string $tenantId, string $actorUserId, string $actorLabel, string $outLegId, string $inLegId, ?string $note): void
+    {
+        $metadata = json_encode(['note' => $note], \JSON_THROW_ON_ERROR);
+
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $outLegId, $inLegId, $metadata): void {
+            foreach ([$outLegId, $inLegId] as $legId) {
+                $em->getConnection()->executeStatement(<<<'SQL'
+                    INSERT INTO audit_log
+                        (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                         subject_type, subject_id, ip_address, metadata)
+                    VALUES
+                        (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, ?::jsonb)
+                    SQL, [
+                        Uuid::v4()->toRfc4122(),
+                        $tenantId,
+                        AuditEvent::STOCK_MOVEMENT_ADJUSTED,
+                        $actorUserId,
+                        $actorLabel,
+                        AuditEvent::SUBJECT_TYPES[AuditEvent::STOCK_MOVEMENT_ADJUSTED],
+                        $legId,
+                        $metadata,
+                    ]);
+            }
         });
     }
 }

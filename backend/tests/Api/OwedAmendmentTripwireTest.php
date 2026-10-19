@@ -452,10 +452,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     ];
 
     /**
-     * **What warehouses slice 1 leaves owed to the archive operations, mechanised** (C3, 2026-10-13;
-     * `docs/session13/warehouses-s1-design.md` §4.7). Slice 1 ships no archive: `DeleteWarehouse` waits on API-O-34 and
-     * G-7, `DeleteStorageLocation` on G-27. Keyed by `operationId` (the pick-read precedent, `1076ba3`). A PIN, red on
-     * arrival; an entry leaves only in the commit that does its work.
+     * **What the archive operations owe, mechanised** (warehouses-s1 §4.7, C3 2026-10-13; bulk parity:
+     * `docs/session13/stock-transfer-sec.md` §5, 2026-10-20). Slice 1 ships no archive: `DeleteWarehouse` waits on API-O-34
+     * and G-7, `DeleteStorageLocation` on G-27; `CreateBulkArchival` / `CreateBulkRestoration` owe parity with each
+     * resource's single Delete / Restore (the bulk-parity gap in `RESIDUAL_GAPS.md`). Keyed by `operationId` (the pick-read
+     * precedent, `1076ba3`). A PIN, red on arrival; an entry leaves only in the commit that does its work. The key set is
+     * pinned by literal too (final RED L-5), so a key cannot drift to a name that is never built.
      *
      * @var array<string, string>
      */
@@ -472,40 +474,30 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
             .'cannot be counted off (the count refuses archived bins). An archived warehouse\'s quarantine stock would hold its item '
             .'for good (L-4 (ii)). `SEC` leans to refusing the delete of a stocked location or warehouse; rule it with the delete '
-            .'(stock-adjustment-sec.md §6); and re-read the count\'s `warehouse.is_archived` sentence (UX S-2).',
+            .'(stock-adjustment-sec.md §6); and re-read the count\'s `warehouse.is_archived` sentence (UX S-2); '
+            .'and a transfer refuses an archived source bin, so stock left in an archived bin cannot be moved out either — rule it with the delete.',
         'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
             .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer. '
             .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
             .'cannot be counted off (the count refuses archived bins). `SEC` leans to refusing the delete of a stocked location; rule '
-            .'it with the delete (stock-adjustment-sec.md §6); and re-read the count\'s `storage_location.is_archived` sentence (UX S-3).',
+            .'it with the delete (stock-adjustment-sec.md §6); and re-read the count\'s `storage_location.is_archived` sentence (UX S-3); '
+            .'and a transfer refuses an archived source bin, so stock left in an archived bin cannot be moved out either — rule it with the delete.',
+        'CreateBulkArchival' => 'Parity with each resource\'s single Delete, per member (new gap, stock-transfer-sec.md §5): a member '
+            .'the single Delete would refuse is NOT applied (counted out of `applied`, no per-id reason — E-14). For storage_location '
+            .'and warehouse: whatever DeleteStorageLocation/DeleteWarehouse rule (SEC leans: refuse a stocked bin/warehouse) — '
+            .'archiving stocked quarantine hides held stock from StockAdjuster\'s held read (G-44 bypass by `admin`, who holds '
+            .'.delete and stock_movement.adjust). For every other resource, its own Delete\'s refusals (open work, draft-only, '
+            .'E-15h held roles if `role` is admissible). Lock as the single Delete does; one `<table>.deleted` row per member.',
+        'CreateBulkRestoration' => 'Parity with each resource\'s single Restore, per member (stock-transfer-sec.md §5): its collision '
+            .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
+            .'Restore would refuse is not applied, with no per-id reason (E-14).',
     ];
 
-    /**
-     * **`RESIDUAL_GAPS.md` G-44's bypass, mechanised** (warehouses slice 1 C3, 2026-10-13; final RED H-1). Owner Q-W1 (d)
-     * makes releasing a stocked `quarantine` location the owner's alone — but `warehouse_operator` holds
-     * `stock_movement.adjust`, which gates two unbuilt operations that could move or count held stock out of quarantine
-     * without touching the location's kind: `CreateStockTransfer` (source → destination location, one call) and
-     * `CreateStockAdjustment` (count a quarantine location to zero, after which any editor may release it; or count stock
-     * up in a pickable one, G-21). The day either is built, the owner gate protects only the honest path unless that
-     * operation applies the same rule. **And a qty-only `stock_level` UPDATE takes no lock on the location (measured, final
-     * RED T-8k)**, so such a writer would not serialise with the release guard either. Keyed by `operationId`. A PIN, red on
-     * arrival. The key set is pinned by literal as well (mutation M14: rename a key → red), so a key cannot drift to a name
-     * that is never built and silently stop guarding.
-     *
-     * @var array<string, string>
-     */
-    private const OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK = [
-        // `CreateStockAdjustment` LEFT 2026-10-16 (stock count C1), its work done: owner Q1 (C′) — a non-owner may not count a
-        // quarantine bin down (`stock_level.count_down_needs_owner`) nor count up an item held in quarantine anywhere in the
-        // workspace (`stock_level.held_item_needs_owner`); the bin is read `FOR KEY SHARE` before its kind
-        // (`StockAdjustmentReleaseTest`, `StockAdjustmentRaceTest` R-2′ / R-2″; `RESIDUAL_GAPS.md` G-44).
-        'CreateStockTransfer' => 'moves stock from `source_storage_location_id` to `destination_storage_location_id` in one call: '
-            .'quarantine → pickable is a release. The count\'s held-item read (`StockAdjuster`, G-44) takes no lock because only an '
-            .'owner can empty quarantine; a transfer that lets a non-owner move stock out of quarantine must lock or re-check it.',
-    ];
-
-    /** The sentence both entries owe (final RED H-1), carried verbatim into the failure message. */
-    private const THE_RELEASE_RULE = 'Q-W1 (d): moving or counting stock out of a `quarantine` bin into, or creating stock in, a pickable bin is a release — it must refuse a non-owner (`OwnerPredicate`) or be ruled; and the writer must take `FOR KEY SHARE` on every bin it touches before reading `kind` (a qty-only `stock_level` UPDATE locks no location — measured).';
+    // The G-44 release pin (OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK / THE_RELEASE_RULE) was DELETED at CreateStockTransfer's C1
+    // (2026-10-20; SEC docs/session13/stock-transfer-sec.md §4): both stock_movement.adjust operations apply the rule
+    // (StockAdjustmentReleaseTest, StockTransferReleaseTest), no unbuilt operation moves stock, and the rule now rides on
+    // WriteOwnershipTest::everyStockLevelWriterHasARecordedReleaseDecision (SEC stock-transfer-sec-2.md §2) and on that
+    // file's stock-movement registry message.
 
     /**
      * **G-7's renewed premise, as data** (stock reads C1, 2026-10-14; design §4.6 + R-M1): owner ruling Q1 renewed model A
@@ -1250,10 +1242,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **What warehouses slice 1 owes the archive operations** (C3; design §4.7). Red the moment `DeleteWarehouse` or
-     * `DeleteStorageLocation` is in the generated spec. **Controls, same test:** the positive control every sibling uses;
-     * a non-empty map; and the intersection over a literal map naming a BUILT operation (`UpdateStorageLocation`) must
-     * report it. Mutation M9: rename the positive control → red.
+     * **What the archive operations owe** (warehouses-s1 §4.7; bulk parity: stock-transfer-sec.md §5). Red the moment
+     * `DeleteWarehouse`, `DeleteStorageLocation`, `CreateBulkArchival` or `CreateBulkRestoration` is in the generated spec.
+     * **Controls, same test:** the positive control every sibling uses; a non-empty map; the key set by literal (final RED
+     * L-5; mutation M-T1: rename a key → red); and the intersection over a literal map naming a BUILT operation
+     * (`UpdateStorageLocation`) must report it. Mutation M9: rename the positive control → red.
      */
     #[Test]
     public function noArchiveOfAWarehouseOrLocationShipsWithoutItsRules(): void
@@ -1264,6 +1257,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
         self::assertNotSame([], self::OPERATIONS_OWING_THE_ARCHIVE_RULES,
             'The archive-rules map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
+        $sortedKeys = array_keys(self::OPERATIONS_OWING_THE_ARCHIVE_RULES);
+        sort($sortedKeys);
+        self::assertSame(['CreateBulkArchival', 'CreateBulkRestoration', 'DeleteStorageLocation', 'DeleteWarehouse'], $sortedKeys,
+            'The archive-rules pin no longer names exactly the unbuilt archive operations of API.md §4.2 (final RED L-5). A '
+            .'renamed key is never built and guards nothing; an entry leaves only with its work done.');
         self::assertSame(['UpdateStorageLocation' => 'x'],
             array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
             'A planted owing operation that IS built was not reported: the intersection is blind.');
@@ -1271,7 +1269,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_ARCHIVE_RULES, $built);
 
         self::assertSame([], $arrived, \sprintf(
-            "%s has been built. Warehouses slice 1 left these owed (docs/session13/warehouses-s1-design.md §4.7), IN THIS COMMIT:\n  %s\n"
+            "%s has been built. The archive operations owe these (warehouses-s1 §4.7; bulk parity: stock-transfer-sec.md §5), IN THIS COMMIT:\n  %s\n"
             .'Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)),
             implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
@@ -1412,41 +1410,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."never values, no row on a no-op or a refusal. Restore the test, or move its obligation to another named test here,\n"
             ."before removing it. Record: docs/session13/customers-s2-build-progress.md C1.",
             implode("\n", $missing),
-        ));
-    }
-
-    /**
-     * **G-44's bypass** (warehouses slice 1 C3; final RED H-1). Red the moment `CreateStockTransfer` is in the generated
-     * spec, carrying the rule it owes (`CreateStockAdjustment` left at the stock count C1, 2026-10-16, with the rule applied). **Controls, same test:** the positive
-     * control; the key set pinned by literal (M14: rename a key → red here, though the positive control stays green); and
-     * the intersection over a literal map naming a BUILT operation (`UpdateStorageLocation`) must report it.
-     */
-    #[Test]
-    public function noStockMoveOutOfQuarantineShipsWithoutTheReleaseRule(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        $keys = array_keys(self::OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK);
-        sort($keys);
-        self::assertSame(['CreateStockTransfer'], $keys,
-            'The G-44 bypass pin no longer names exactly the unbuilt `stock_movement.adjust` operation of API.md §4.2 that takes '
-            .'storage locations (`CreateStockAdjustment` left at the stock count C1, its rule applied). A renamed key is never built '
-            .'and guards nothing; an entry leaves only with its work done.');
-        self::assertSame(['UpdateStorageLocation' => 'x'],
-            array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built, and it can take held stock out of quarantine without the owner (RESIDUAL_GAPS.md G-44).\n  %s\n\n"
-            ."%s\n\nApply the rule in THIS COMMIT (StorageLocationWriter's release guard is the precedent), or bring G-44 to the "
-            .'owner first. Do not hand-edit this pin to green.',
-            implode(', ', array_keys($arrived)),
-            implode("\n  ", array_map(static fn (string $op, string $why): string => $op.' '.$why, array_keys($arrived), $arrived)),
-            self::THE_RELEASE_RULE,
         ));
     }
 

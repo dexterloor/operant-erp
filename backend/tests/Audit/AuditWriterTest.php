@@ -210,7 +210,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // and storage_location.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
         'Modules/AuditLog/Infrastructure/StorageLocationAuditWriter.php',
         // Added 2026-10-16 with CreateStockAdjustment (stock count C1): stock_movement.adjusted, BUSINESS (E-25 (a)), so no
-        // parameter could send an address. Listed AND driven below.
+        // parameter could send an address. Listed AND driven below — and, since stock transfer C1 (2026-10-20), its
+        // `recordTransferred()` (one row per leg) through the same writer, also driven.
         'Modules/AuditLog/Infrastructure/StockMovementAuditWriter.php',
         // Added 2026-10-12 with the customer address trail (suppliers slice 1 C2b): customer_address.created and
         // customer_address.updated, BUSINESS, so no parameter could send an address. Listed AND driven below.
@@ -432,6 +433,12 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($movementWriter instanceof \App\Modules\AuditLog\Infrastructure\StockMovementAuditWriter);
         $movementWriter->recordAdjusted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', movementId: Uuid::v4()->toRfc4122(),
             countedQuantity: '1.000000', note: 'Probe');
+        // Stock transfer C1: `stock_movement.adjusted`, one row per leg (one literal, executed twice; final RED H-1), BUSINESS
+        // (listed AND driven) — with a note and without one.
+        $movementWriter->recordTransferred(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor',
+            outLegId: Uuid::v4()->toRfc4122(), inLegId: Uuid::v4()->toRfc4122(), note: 'Probe move');
+        $movementWriter->recordTransferred(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor',
+            outLegId: Uuid::v4()->toRfc4122(), inLegId: Uuid::v4()->toRfc4122(), note: null);
         // Suppliers slice 1 C2b: `customer_address.created` / `customer_address.updated`, BUSINESS (listed AND driven).
         $addressWriter = self::getContainer()->get(CustomerAddressAuditWriter::class);
         \assert($addressWriter instanceof CustomerAddressAuditWriter);

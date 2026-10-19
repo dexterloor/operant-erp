@@ -164,6 +164,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // request. A moved write would land in B (B's counts change) or answer an unknown reference for A's ids.
         'CreateStockAdjustment' => ['body' => ['inventory_item_id' => '@loose_item', 'storage_location_id' => '@bin',
             'counted_quantity' => '5', 'version' => null, 'note' => 'Probe count']],
+        // Stock transfer C1 (2026-10-20): one unit of the tenant's stocked `@item` out of its `@bin` into a second bin of the same
+        // warehouse (`second_bin` setup), on fresh state per request. A moved write would land in B (B's levels change) or
+        // answer an unknown reference for A's ids.
+        'CreateStockTransfer' => ['setup' => 'second_bin', 'body' => ['inventory_item_id' => '@item', 'source_storage_location_id' => '@bin',
+            'destination_storage_location_id' => '@second_bin', 'quantity' => '1', 'note' => 'Probe move']],
         // Warehouses slice 1 C2: a create with a letter-bearing code (a moved write would land in B: B's list would hold it),
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
@@ -552,6 +557,13 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('withdrawable_proposal' === ($recipe['setup'] ?? null)) {
             $this->seedWithdrawableProposal(self::TENANT_A, 'A');
             $this->seedWithdrawableProposal(self::TENANT_B, 'B');
+        }
+        if ('second_bin' === ($recipe['setup'] ?? null)) {
+            foreach (['A' => self::TENANT_A, 'B' => self::TENANT_B] as $letter => $tenantId) {
+                $this->insertAsOwnerForTenant($tenantId,
+                    "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-02')",
+                    [$this->remember($letter, 'second_bin', Uuid::v4()->toRfc4122()), $tenantId, $this->id($letter, 'warehouse')]);
+            }
         }
         if ('paid_invoice' === ($recipe['setup'] ?? null)) {
             $this->seedPaidInvoice('A', self::TENANT_A);

@@ -204,6 +204,9 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         // which `GetStockMovement` serves at `/stock-movements/{id}` (API-23a: the count's read shape is a StockMovement).
         // Reading (1) re-roots to `/adjustments/{}`, which nothing serves.
         'CreateStockAdjustment' => '/stock-movements/{id}',
+        // Added 2026-10-20 (stock transfer C1), the same case: `POST /stock-movements/transfers` inserts two `stock_movement`
+        // rows and answers the out leg, which `GetStockMovement` serves at `/stock-movements/{id}`.
+        'CreateStockTransfer' => '/stock-movements/{id}',
     ];
 
     /**

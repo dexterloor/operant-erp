@@ -57,6 +57,10 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *     a quarantine location DOWN (`stock_level.count_down_needs_owner`) and counting UP, in a non-quarantine bin, an item
  *     held in quarantine anywhere in the workspace (`stock_level.held_item_needs_owner`). Both UNCONDITIONAL for every
  *     non-owner — the same capability as the release (`SEC` stock-adjustment-sec.md §7; G-44's future code covers all three);
+ *   - `StockTransferrer` — **stock transfer C1, owner Q-T2** (2026-10-19, `docs/session13/s35-ruling.md`): moving stock out
+ *     of a `quarantine` bin into a non-quarantine one (`stock_level.release_needs_owner`), UNCONDITIONAL for every
+ *     non-owner; into quarantine and quarantine → quarantine stay open. One capability, four refusals now (`SEC`
+ *     stock-transfer-sec.md §7; G-44's future code covers all four);
  *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
  *     role" — not to the caller's exemption.)*
  *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no

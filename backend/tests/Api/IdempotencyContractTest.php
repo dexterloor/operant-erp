@@ -260,6 +260,10 @@ final class IdempotencyContractTest extends TenancyTestCase
         // written a contact; one row per request), on a TOTAL unique (class `hard`, no `deleted_at`).
         // `Version20261019000100` laid it; C1 ships the writer.
         'CreateCustomerContact' => 'unique:customer_contact_idem_unique',
+        // ⚠ **Stock transfer C1, 2026-10-20.** Was `⛔ none` since 2026-09-11 — the LAST operation so marked. The count's
+        // index (`stock_movement_idem_unique`, stock count C0): the OUT leg carries the header's hash and the digest, the in
+        // leg NULL/NULL (the both-or-neither CHECK holds on each); NULLs never collide. No migration: the index exists.
+        'CreateStockTransfer' => 'unique:stock_movement_idem_unique',
 
         // guard:<entity>.status — a repeat hits a §8.3 status guard.
         'ApprovePurchaseOrder' => 'guard:purchase_order.status',
@@ -335,8 +339,11 @@ final class IdempotencyContractTest extends TenancyTestCase
         // when `stock_movement_idem_unique` was laid) --
         // and **`CreateCustomerContact` left on 2026-10-19** (customers slice 2
         // C0, when `customer_contact_idem_unique` was laid) --
-        // count the entries below; do not read a number here.
-        'CreateStockTransfer' => '⛔ none',
+        // and **`CreateStockTransfer` left on 2026-10-20** (stock transfer C1,
+        // on the count's `stock_movement_idem_unique`), the last of them: the
+        // block is EMPTY today. The form stays declared (API-14) and is held
+        // to its vocabulary by a planted control in
+        // `everyMechanismUsesTheDeclaredVocabulary`, not by a live row.
     ];
 
     /**
@@ -387,6 +394,9 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **2026-10-19 (customers slice 2 C0):** `CreateCustomerContact` `⛔ none` → `unique:customer_contact_idem_unique` —
      * marked to marked, so neither count moves.
+     *
+     * **2026-10-20 (stock transfer C1):** `CreateStockTransfer` `⛔ none` → `unique:stock_movement_idem_unique` — marked to
+     * marked, so neither count moves.
      */
     private const PINNED_ROW_COUNT = 130;
 
@@ -443,6 +453,7 @@ final class IdempotencyContractTest extends TenancyTestCase
         'CreateCustomerAddress' => [IdempotencyKeyGuard::COLUMN],
         'CreateStockAdjustment' => [IdempotencyKeyGuard::COLUMN],
         'CreateCustomerContact' => [IdempotencyKeyGuard::COLUMN],
+        'CreateStockTransfer' => [IdempotencyKeyGuard::COLUMN],
         // Sales step 6 C2: bound by the PATH (`/fulfilments/{id}/invoices`), so
         // the client supplies it by addressing the shipment it bills.
         'IssueInvoice' => ['fulfilment_id'],
@@ -531,6 +542,9 @@ final class IdempotencyContractTest extends TenancyTestCase
         // Customers slice 2 C0, 2026-10-19. `CreateCustomerAddress`'s ground: the table's only other key is the
         // surrogate; one row per request.
         'CreateCustomerContact',
+        // Stock transfer C1, 2026-10-20. The count's ground: the table's only other key is the surrogate; one pair of
+        // movements per request, the key on the out leg alone.
+        'CreateStockTransfer',
         // NOT `IssueInvoice` (sales step 6 C2): its key is the path's fulfilment,
         // not the header, so it is not header-sourced.
     ];
@@ -646,7 +660,10 @@ final class IdempotencyContractTest extends TenancyTestCase
     /**
      * Every cell is one of the five declared forms, and **all five are in use** —
      * the second half being what stops this turning into a check over four
-     * vocabularies plus a dead one.
+     * vocabularies plus a dead one. **Since 2026-10-20 the `blocked` form is held by
+     * a planted control rather than a live row** — no cell is `⛔ none` any more
+     * (stock transfer C1 removed the last), which is the state the mark exists to
+     * reach.
      *
      * **Mutation, run:** `CreateItem`'s pinned mechanism set to a bare `unique:`
      * with no index named. Red. *(The pin was mutated rather than the document
@@ -677,6 +694,15 @@ final class IdempotencyContractTest extends TenancyTestCase
             self::assertNotNull($matched, $operationId.' has a mechanism outside API-14\'s vocabulary: '.$mechanism);
             $seen[$matched] = true;
         }
+
+        // ⚠ **2026-10-20 (stock transfer C1): `CreateStockTransfer` was the LAST `⛔ none` cell**, so the `blocked` form has no
+        // live row — the good state the mark exists to reach, not a dead vocabulary. It is held to its pattern by a PLANTED
+        // control instead (the cell text §4.2 uses, and two near-misses it must not accept), so a `blocked` regex that rots
+        // is still red here. Every other form must still be in use: a dead `unique:`, `guard:` or `store` is red as before.
+        self::assertSame(1, preg_match($forms['blocked'], '⛔ none'), 'The blocked form no longer matches the cell §4.2 writes.');
+        self::assertSame(0, preg_match($forms['blocked'], 'none'), 'The blocked form accepts a cell without the mark.');
+        self::assertSame(0, preg_match($forms['blocked'], '⛔ none yet'), 'The blocked form accepts a decorated cell.');
+        $seen['blocked'] = true;
 
         self::assertSame(array_keys($forms), array_keys($seen),
             'A declared form is unused, so this check covers a smaller vocabulary than the contract declares.');

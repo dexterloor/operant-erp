@@ -80,6 +80,9 @@
     "CreateStockAdjustment $.quantity": [
         6
     ],
+    "CreateStockTransfer $.quantity": [
+        6
+    ],
     "CreateSupplierProduct $.minimum_order_quantity": [
         6
     ],

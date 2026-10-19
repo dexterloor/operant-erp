@@ -142,6 +142,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'GetStockMovement' => 'stock_movement.view',
         // Stock count C1 (2026-10-16): `stock_movement.adjust` — owner, `admin`, `warehouse_operator` (`SECURITY_MODEL.md` §4).
         'CreateStockAdjustment' => 'stock_movement.adjust',
+        // Stock transfer C1 (2026-10-20): the same code — no new permission (SEC-O-13 no-split, E-25).
+        'CreateStockTransfer' => 'stock_movement.adjust',
         // Warehouses slice 1 C2 (2026-10-13): `warehouse.create` — owner and `admin`; `warehouse.edit` — owner, `admin` and
         // `warehouse_operator` (`SECURITY_MODEL.md` §4). `viewer` holds neither.
         'CreateWarehouse' => 'warehouse.create',

@@ -137,6 +137,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'key on stock_movement\'s TOTAL unique (C0): the repeat replays the first movement — never stale-record, although the '
                 .'version it quotes has moved — same id, one row, the level moved once.',
         ],
+        'CreateStockTransfer' => [
+            'method' => 'replayCreateStockTransfer',
+            'why' => 'A second pair of transfer movements for the same move (stock transfer C1). Its mechanism is the header-sourced '
+                .'retry key on stock_movement\'s TOTAL unique, carried by the out leg: the repeat replays the first out leg — same id, '
+                .'two rows, both levels moved once.',
+        ],
         'CreateCustomerContact' => [
             'method' => 'replayCreateCustomerContact',
             'why' => 'A second customer_contact for the same request (customers slice 2 C1). Its mechanism is the header-sourced '
@@ -861,6 +867,31 @@ final class IdempotencyTest extends PurchaseOrderTestCase
 
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM stock_movement WHERE storage_location_id = ?::uuid', [$bin]), $why);
         self::assertSame([['v' => 4]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT version AS v FROM stock_level WHERE storage_location_id = ?::uuid', [$bin]), $why);
+    }
+
+    private function replayCreateStockTransfer(string $why): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Replayed Transfer Warehouse');
+        $from = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'A-01');
+        $to = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'A-02');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-REPLAY-XFER');
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 10)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $from]);
+        $body = ['inventory_item_id' => $item, 'source_storage_location_id' => $from, 'destination_storage_location_id' => $to, 'quantity' => '4'];
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/stock-movements/transfers', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = $this->json();
+
+        $this->send('POST', '/stock-movements/transfers', $body, $key);
+        self::assertSame(201, $this->httpStatus(), 'A replayed CreateStockTransfer was not answered with the first out leg.');
+        self::assertSame($first, $this->json(), $why);
+
+        self::assertCount(2, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM stock_movement WHERE inventory_item_id = ?::uuid', [$item]), $why);
+        self::assertSame([['l' => $from, 'q' => '6.000000'], ['l' => $to, 'q' => '4.000000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT storage_location_id::text AS l, qty_on_hand::text AS q FROM stock_level WHERE inventory_item_id = ?::uuid ORDER BY qty_on_hand DESC', [$item]), $why);
     }
 
     private function replayCreateCustomerContact(string $why): void

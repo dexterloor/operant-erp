@@ -83,6 +83,8 @@ services:
             - '../src/Modules/Inventory/Application/{StockMovementView.php,StockMovementPage.php,StockMovementListCriteria.php}'
             # Stock count C1: the count's request body — data, not a service.
             - '../src/Modules/Inventory/ApiResource/CreateStockAdjustmentInput.php'
+            # Stock transfer C1: the transfer's request body — data, not a service.
+            - '../src/Modules/Inventory/ApiResource/CreateStockTransferInput.php'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would
@@ -311,6 +313,11 @@ services:
     # `CreateStockAdjustmentProcessor` — but E-26 binds the `adjustment` reason to one writer behind one contract
     # (`SEC` stock-adjustment-sec.md §7, mechanism (a)), so it is wired explicitly like its three siblings.
     App\Modules\Inventory\Application\Contract\AdjustStock: '@App\Modules\Inventory\Application\StockAdjuster'
+
+    # The stock transfer (stock transfer C1, 2026-10-20): NOT a cross-module edge either — its one consumer is Inventory's
+    # own `CreateStockTransferProcessor` — but E-26 binds `transfer_out` / `transfer_in` to one writer behind one contract
+    # (`SEC` stock-transfer-sec.md §1.4), so it is wired explicitly like the count.
+    App\Modules\Inventory\Application\Contract\TransferStock: '@App\Modules\Inventory\Application\StockTransferrer'
 
     # The pick read's candidate bins (sales step 5, commit 3): a read contract, so the rule for what is
     # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.

@@ -43,6 +43,13 @@ use Symfony\Component\Uid\Uuid;
  * document (a manual count), which is why the partial index carries
  * `(source_id IS NOT NULL)`.
  *
+ * **A transfer leg names its partner leg** (stock transfer C1, 2026-10-20): each
+ * of a `transfer_out` / `transfer_in` pair carries source_type `stock_movement`
+ * and the other leg's id (`StockTransferrer`, written only as SQL text;
+ * `SEC` stock-transfer-sec.md §2). C0's `stock_movement_transfer_source` CHECK
+ * ties that value to exactly those two reasons, and `stock_movement_source_paired`
+ * keeps the two halves set together.
+ *
  * Two tenant-scoped parents, both single-column associations (A1.6); their
  * composite keys are hand-written in the migration and not mapped.
  */

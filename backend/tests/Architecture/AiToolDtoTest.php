@@ -173,7 +173,7 @@ final class AiToolDtoTest extends TenancyTestCase
                     .'ALSO DUE: SECURITY_MODEL.md PC-8 "M-15" -- per tool, select an actor uuid only where the API serves it under the same code; '
                     .'never user_role.inserted_by; never role_grant_proposal. '
                     .'and M-15\'s customer clause: customer/customer_address columns only under customer.view, never idempotency_key/request_digest, never customer.email/phone/credit_limit/is_active while G-36 is open; never customer_contact -- erp_ai holds nothing on it (customers slice 2 S-2); '
-                    .'and the stock reads\' clause: never stock_level.qty_reserved; never resolve stock_movement.source_id to its document; warehouse only as id and name through a stock row\'s bin; '
+                    .'and the stock reads\' clause: never stock_level.qty_reserved; never resolve stock_movement.source_id to a document; warehouse only as id and name through a stock row\'s bin; '
                     .'ONLY once SEC has confirmed all five: set THE_AI_MODULE_IS_UNBUILT to '
                     .'false and make sure the scan covers the DTOs the tools return. Clearing this pin clears that carry -- '
                     .'the residual every sibling tripwire carries.'

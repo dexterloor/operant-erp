@@ -41,6 +41,8 @@ final class StockMovementReadTest extends PurchaseOrderTestCase
         'GetStockMovement' => ['method' => 'GET', 'path' => '/stock-movements/{id}', 'idem' => false],
         // Stock count C1 (2026-10-16): the count's POST, on the same resource (API-23a: its read shape is a StockMovement).
         'CreateStockAdjustment' => ['method' => 'POST', 'path' => '/stock-movements/adjustments', 'idem' => true],
+        // Stock transfer C1 (2026-10-20): the transfer's POST, the same resource (its 201 is the out leg).
+        'CreateStockTransfer' => ['method' => 'POST', 'path' => '/stock-movements/transfers', 'idem' => true],
     ];
 
     /** `StockMovementResource`'s serialized members — §4.4.3's StockMovement row, plus `id`. */
@@ -262,7 +264,7 @@ final class StockMovementReadTest extends PurchaseOrderTestCase
         self::assertSame(['items' => [], 'next_cursor' => null, 'previous_cursor' => null, 'tenant_has_rows' => true], $this->json());
     }
 
-    /** `GetStockMovement`: unknown, malformed, `adjustments` and another workspace's id are the same 404 (L-4). */
+    /** `GetStockMovement`: unknown, malformed, `adjustments`, `transfers` and another workspace's id are the same 404 (L-4). */
     #[Test]
     public function anUnknownAMalformedAndAForeignMovementAreTheSame404(): void
     {
@@ -273,12 +275,12 @@ final class StockMovementReadTest extends PurchaseOrderTestCase
             [$foreign, self::TENANT_B, $this->seedItem(self::TENANT_B, 'SKU-MOV-B'), $this->seedStorageLocation(self::TENANT_B, $foreignWarehouse, 'A-01')]);
 
         $bodies = [];
-        foreach ([$foreign, Uuid::v4()->toRfc4122(), 'not-a-uuid', 'adjustments'] as $id) {
+        foreach ([$foreign, Uuid::v4()->toRfc4122(), 'not-a-uuid', 'adjustments', 'transfers'] as $id) {
             $this->send('GET', '/stock-movements/'.$id);
             self::assertSame(404, $this->httpStatus(), $id.': '.$this->client()->getResponse()->getContent());
             $bodies[] = (string) $this->client()->getResponse()->getContent();
         }
-        self::assertCount(1, array_unique($bodies), 'The four 404s are not byte-equal.');
+        self::assertCount(1, array_unique($bodies), 'The five 404s are not byte-equal.');
     }
 
     /** E-1: a caller without `stock_movement.view` is 403 on both, the same for a real and a random id; holders read. */

@@ -71,12 +71,16 @@ use Symfony\Component\Uid\Uuid;
  * `stale-record`). `StockDepleter` takes `FOR KEY SHARE` on the locations it reads (defence in depth for a future
  * depleter that writes no location row first); the grant this class needs is what makes that legal.
  *
- * **What the rule does NOT stop (disclosed):** a return may be put straight into a pickable location (`ReturnStock`
- * accepts any live location); and `CreateStockTransfer` (unbuilt, `stock_movement.adjust`, held by `warehouse_operator`)
- * could move stock out of a quarantine location without this rule — `OwedAmendmentTripwireTest` reddens when it is built
- * (G-44). `CreateStockAdjustment` applies the same capability since 2026-10-16 (`StockAdjuster`, owner Q1 (C′)): a
- * non-owner's quarantine count-down and count-up of an item held in quarantine anywhere are refused; its held read takes no
- * lock because only an owner can empty quarantine (final RED L-3).
+ * **What the rule does NOT stop (disclosed):**
+ * a return may be put straight into a pickable location (`ReturnStock` accepts any live location). Two operations apply
+ * the same capability: `CreateStockAdjustment` since 2026-10-16 (`StockAdjuster`, owner Q1 (C′): a non-owner's quarantine
+ * count-down, and count-up of an item held in quarantine anywhere, are refused) and `CreateStockTransfer` since
+ * 2026-10-20 (`StockTransferrer`, owner Q-T2: a non-owner's move out of a quarantine bin into a non-quarantine one is
+ * refused; into quarantine and between quarantine bins stay open). The count's held read takes no lock because only an
+ * owner can take an item's stock out of quarantine altogether: a non-owner's move between quarantine bins can empty a
+ * bin but never lowers the item's total in live quarantine bins, its two legs committing together (final RED L-3;
+ * `StockTransferRaceTest` T-R7). Every `stock_level` writer's answer is recorded in `WriteOwnershipTest`'s
+ * `STOCK_LEVEL_RELEASE_DECISIONS` (G-44).
  */
 final readonly class StorageLocationWriter
 {
