@@ -166,7 +166,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Ten entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Eleven entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -304,6 +304,13 @@ namespace App\SharedKernel\ValueObject;
  *     (`CustomerContactAuditWriter`). Step 5 is `Version20261019000200`, whose literal list is the live constraint's
  *     forty-five members (read off `pg_constraint`, not generated, immediately before writing) plus these two; it
  *     supersedes `Version20261014000400`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
+ *
+ *   - **`CUSTOMER_CONTACT_DELETED`**, 2026-10-19, customers slice 2 C2 — owner Q-2, filed **`BUSINESS`** by `SEC`
+ *     (`customers-s2-sec-arch.md` S-4) with `{"customer_id"}` so the chain stays attributable once the row is gone. Steps
+ *     3–5 done **with its writer in the same commit** (`CustomerContactAuditWriter::recordDeleted()`). Step 5 is
+ *     `Version20261019000400`, whose literal list is the live constraint's forty-seven members (read off `pg_constraint`,
+ *     not generated) plus this one; it supersedes `Version20261019000200`. **Step 6 does not apply.** `PINNED_ALLOWLIST`
+ *     edited by hand with one literal.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -928,6 +935,16 @@ final class AuditEvent
     public const CUSTOMER_CONTACT_UPDATED = 'customer_contact.updated';
 
     /**
+     * **A customer contact removed** — `DeleteCustomerContact` (customers slice 2 C2, 2026-10-19; owner Q-2; filed by `SEC`,
+     * `customers-s2-sec-arch.md` S-4). Subject `('customer_contact', id)` — the row that is gone. **Business** under PC-11
+     * (4a). No IP, no permission code, `metadata` `{"customer_id": "<uuid>"}`: once the row is deleted, every earlier
+     * `customer_contact.*` row names an id that joins to nothing, so this row carries the link to the customer (a uuid, not
+     * personal data). Written by `CustomerContactAuditWriter::recordDeleted()` after a one-row DELETE, in its transaction;
+     * none on a 0-row DELETE or a refusal. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_CONTACT_DELETED = 'customer_contact.deleted';
+
+    /**
      * **A warehouse created** — `CreateWarehouse` (warehouses slice 1 C2, 2026-10-13; owner Q-W2 (a)). Subject
      * `('warehouse', id)`. **Business** under PC-11 (4a): about the warehouse row's own state; (4c) does not reach it. No
      * IP, no permission code. `metadata` `{"values": {"code", "country_code", "name"}}` — the values as stored, the anchor
@@ -1032,6 +1049,7 @@ final class AuditEvent
         self::CUSTOMER_ADDRESS_UPDATED,
         self::CUSTOMER_CONTACT_CREATED,
         self::CUSTOMER_CONTACT_UPDATED,
+        self::CUSTOMER_CONTACT_DELETED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::STORAGE_LOCATION_CREATED,
@@ -1120,6 +1138,7 @@ final class AuditEvent
         self::CUSTOMER_ADDRESS_UPDATED,
         self::CUSTOMER_CONTACT_CREATED,
         self::CUSTOMER_CONTACT_UPDATED,
+        self::CUSTOMER_CONTACT_DELETED,
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::STORAGE_LOCATION_CREATED,
@@ -1204,6 +1223,8 @@ final class AuditEvent
         // Customers slice 2 C1: the contact row whose own state changed (owner Q-2; `SEC` S-4 confirmed the child subject).
         self::CUSTOMER_CONTACT_CREATED => 'customer_contact',
         self::CUSTOMER_CONTACT_UPDATED => 'customer_contact',
+        // Customers slice 2 C2: the deleted contact row; `metadata.customer_id` keeps the chain attributable (SEC S-4).
+        self::CUSTOMER_CONTACT_DELETED => 'customer_contact',
         // Warehouses slice 1 C2: the warehouse row whose own state changed (owner Q-W2 (a)).
         self::WAREHOUSE_CREATED => 'warehouse',
         self::WAREHOUSE_UPDATED => 'warehouse',

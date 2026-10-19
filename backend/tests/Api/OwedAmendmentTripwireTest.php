@@ -382,11 +382,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     // the parent `CustomerContactWriter::PARENT_LOCK`, which is `FOR NO KEY UPDATE`, STRONGER than the `FOR KEY SHARE` these
     // entries asked for (owner Q-1 (a): the one-primary rule needs contact writes serialised; `ARCHITECTURE.md` W-5,
     // co-signed by `ARCH` A-1). Their carriers are now named in {@see self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK}.
+    // Customers slice 2 C2 (2026-10-19): `DeleteCustomerContact` LEFT with its work (CustomerContactWriter::PARENT_LOCK, the
+    // first DELETE grant on customer_contact with its isolation test, its carriers in CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK).
     private const OPERATIONS_OWING_THE_PARENT_LOCK = [
-        'DeleteCustomerContact' => 'read the parent customer with CustomerContactWriter::PARENT_LOCK (FOR NO KEY UPDATE, owner Q-1 (a) -- '
-            .'the contact writes\' lock, stronger than FOR KEY SHARE) and refuse an archived one (customer.is_archived); and the first '
-            .'DELETE grant on customer_contact ships with it (SchemaManifest + GrantFootprintTest::CUSTOMER_TABLE_DELETES); and add '
-            .'its carriers to CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK.',
         'DeleteCustomerAddress' => 'read the parent customer FOR KEY SHARE (CustomerAddressWriter::PARENT_KEY_SHARE) and refuse an archived one '
             .'(customer.is_archived); and the first DELETE grant on customer_address ships with it (SchemaManifest + GrantFootprintTest).',
     ];
@@ -418,6 +416,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             [CustomerContactWriteTest::class, 'aContactChangedWhileTheCustomerIsBeingArchivedIsRefused'],
             [CustomerContactWriteTest::class, 'aContactMarkedPrimaryWhileAnotherIsBeingAddedAsPrimaryWaitsThenMovesTheMark'],
         ],
+        // C2: the archive race, and the double delete (the second waits on the customer — the parent lock, Q-1 (a)).
+        'DeleteCustomerContact' => [
+            [CustomerContactDeleteTest::class, 'aContactRemovedWhileTheCustomerIsBeingArchivedIsRefused'],
+            [CustomerContactDeleteTest::class, 'aSecondConcurrentDeleteWaitsOnTheCustomerAndIsA404WritingNoSecondRow'],
+        ],
     ];
 
     /** The `/customers/{id}/<segment>` actions on the PARTY itself, not a child (`RestoreCustomer`); excluded from completeness. */
@@ -441,6 +444,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             [CustomerContactWriteTest::class, 'aNoOpContactUpdateWritesNoRowAndNoStatement'],
             [CustomerContactWriteTest::class, 'theContactUpdatedRowCarriesNamesNeverValues'],
             [CustomerContactWriteTest::class, 'aDemotedContactGetsItsOwnUpdatedRow'],
+        ],
+        // C2: one `.deleted {"customer_id"}` per removed row; none on a 404 or a refusal.
+        'DeleteCustomerContact' => [
+            [CustomerContactDeleteTest::class, 'aRemovedContactWritesExactlyOneDeletedRowNamingItsCustomer'],
+            [CustomerContactDeleteTest::class, 'aRefusedOrRepeatedDeleteWritesNoRow'],
         ],
     ];
 

@@ -192,6 +192,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'ListCustomerContacts' => ['vars' => ['id' => 'customer']],
         'CreateCustomerContact' => ['vars' => ['id' => 'customer'], 'body' => ['name' => 'Probe Contact', 'email' => 'probe@example.test']],
         'UpdateCustomerContact' => ['vars' => ['id' => 'customer', 'contactId' => 'customer_contact'], 'body' => ['phone' => '+44 113 496 0000']],
+        // Customers slice 2 C2: `DeleteSupplierProduct`'s shape — a moved delete would 404 on the pair, or remove B's contact.
+        'DeleteCustomerContact' => ['vars' => ['id' => 'customer', 'contactId' => 'customer_contact']],
         'CreateRoleGrantProposal' => ['vars' => ['id' => 'proposal_subject'], 'body' => ['role_id' => '@proposal_role']],
         // Roles slice 3, C2: the same seeded proposal, confirmed by the actor made an owner for this request (the marker on
         // its role, Q-6 (c′)) with a proposer who still manages roles (C9). A moved write would grant in B: the digest.

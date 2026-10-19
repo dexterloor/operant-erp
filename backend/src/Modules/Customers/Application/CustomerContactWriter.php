@@ -45,6 +45,13 @@ use Symfony\Component\Uid\Uuid;
  * {@see self::SET_PRIMARY} on the new row; 7. `customer_contact.created` for the new row (no separate `.updated` for it)
  * and one `customer_contact.updated {"fields":["is_primary"]}` per demoted sibling; read back; 201.
  *
+ * **Delete** (C2, R2.2's prescribed shape — no builder's choice, RED H-3): uuid shape 404 → the parent, locked → an
+ * **unlocked** pair read (404) → archived 409 → {@see self::DELETE} → **0 rows → 404, no audit row; 1 row →
+ * `customer_contact.deleted {"customer_id"}` → 204, no body.** A repeat is the same 404 as an unknown id (S-6.5). Under
+ * owner Q-1 (a) a second delete of the same contact waits at the parent lock and then finds no pair, so the rowcount check
+ * is a backstop for a future lock downgrade, not something a test can reach today (M2-6, `ARCH` A-3). Deleting the
+ * primary leaves the customer with no primary; nothing is promoted (notice N-4).
+ *
  * **Update:** the parent, locked → the pair `(customer, contact)` `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
  * one, or another customer's contact — ST-5) → archived 409 → shape → the **changed** fields only (exact compare, no trim;
  * `null` compared as null) → the changed non-primary fields (and `is_primary = false`, if that is the change) in one
@@ -89,6 +96,11 @@ final readonly class CustomerContactWriter
     public const ARCHIVED_ON_CREATE = 'This customer is archived, so no contact can be added to it until it\'s restored.';
 
     public const ARCHIVED_ON_UPDATE = 'This customer is archived, so its contacts can\'t be changed until it\'s restored.';
+
+    public const ARCHIVED_ON_DELETE = 'This customer is archived, so its contacts can\'t be removed until it\'s restored.';
+
+    /** The one DELETE (C2): the pair names the row, so another customer's contact under this path is never removed. */
+    public const DELETE = 'DELETE FROM customer_contact WHERE id = ?::uuid AND customer_id = ?::uuid';
 
     public const NOT_AN_EMAIL = 'Enter an email address like name@example.com.';
 
@@ -258,6 +270,42 @@ final readonly class CustomerContactWriter
 
             return CustomerContactReader::readInside($em, $customerId, $contactId)
                 ?? throw new \LogicException('The contact just updated is not readable.');
+        });
+    }
+
+    public function delete(string $customerId, string $contactId): void
+    {
+        if (!Uuid::isValid($customerId) || !Uuid::isValid($contactId)) {
+            throw ApiProblem::notFound();
+        }
+        $customerId = Uuid::fromString($customerId)->toRfc4122();
+        $contactId = Uuid::fromString($contactId)->toRfc4122();
+
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($customerId, $contactId, $identity): void {
+            $connection = $em->getConnection();
+            $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
+            // Unlocked: the DELETE below takes the row lock. Another customer's contact is the same 404 (ST-5, S-6.1).
+            if (false === $connection->fetchOne('SELECT 1 FROM customer_contact WHERE id = ?::uuid AND customer_id = ?::uuid', [$contactId, $customerId])) {
+                throw ApiProblem::notFound();
+            }
+            if ($archived) {
+                throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_DELETE);
+            }
+
+            // 0 rows: someone removed it between the pair read and here (unreachable under the parent lock; a backstop).
+            if (1 !== (int) $connection->executeStatement(self::DELETE, [$contactId, $customerId])) {
+                throw ApiProblem::notFound();
+            }
+
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                contactId: $contactId,
+                customerId: $customerId,
+            );
         });
     }
 

@@ -600,11 +600,13 @@ final class SchemaManifest
             'why' => 'A person at the account. Orders record the ordering user, not the contact row, so nothing references it. **Carries CreateCustomerContact\'s retry key (customers slice 2 C0, Version20261019000100), on customer_address\'s reasoning:** idempotency_key and request_digest are NOT NULL, CHECKed to 64 lower-case hex, and customer_contact_idem_unique (tenant_id, idempotency_key) is TOTAL because the table has no deleted_at. The partial unique customer_contact_one_primary (tenant_id, customer_id) WHERE is_primary holds the one-primary rule (owner Q-1 (a)). That migration grants erp_app nothing; the writer\'s column INSERT and UPDATE land with it (C1, Version20261019000300).',
             // Declared explicitly so erp_ai gets NOTHING (customers slice 2 S-2) -- TENANT_READ_DEFAULT would give it SELECT.
             // Version20261019000100 REVOKEs the SELECT the Output 2 migration granted; GrantFootprintTest holds the two together.
-            'grants' => [DatabaseRoles::APP => ['SELECT']],
+            // DELETE: customers slice 2 C2 (2026-10-19, Version20261019000500), DeleteCustomerContact's one hard DELETE (the
+            // table is HARD; Postgres has no column DELETE). Its RLS-DELETE test: TenantIsolationTest::erpAppCannotDeleteAnotherTenantsCustomerContact.
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'DELETE']],
             // Customers slice 2 C1 (2026-10-19, Version20261019000300): CustomerContactWriter's one INSERT and its UPDATEs, both
             // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). idempotency_key and request_digest are
             // INSERT-only, so SQL as erp_app cannot re-point a stored key. The UPDATE grant also makes the writer's FOR KEY SHARE
-            // key read and FOR NO KEY UPDATE row read legal. No DELETE: DeleteCustomerContact is C2.
+            // key read and FOR NO KEY UPDATE row read legal. (DELETE is table-level, in `grants` above, from C2.)
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'customer_id', 'name', 'email', 'phone', 'is_primary', 'idempotency_key', 'request_digest'],
                 'UPDATE' => ['name', 'email', 'phone', 'is_primary', 'updated_at'],

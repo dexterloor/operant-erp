@@ -272,6 +272,83 @@ final class TenantIsolationTest extends TenancyTestCase
     }
 
     /**
+     * **The fourth `DELETE` grant (`customer_contact`, customers slice 2 C2, `Version20261019000500`) brings its RLS-DELETE
+     * isolation test** (ADR-002 A4.4 duty 2, repeated for every grant). `erpAppCannotDeleteAnotherTenantsUserRole`'s shape:
+     * R3's precondition first, B's contact survives a delete by its id from A's context, and the same statement deletes A's
+     * own contact (the positive control).
+     */
+    #[Test]
+    public function erpAppCannotDeleteAnotherTenantsCustomerContact(): void
+    {
+        $this->assertApplicationRoleHolds('DELETE', 'customer_contact');
+        $contacts = [];
+        foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
+            [$customer, $contact] = [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \Symfony\Component\Uid\Uuid::v4()->toRfc4122()];
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, 'Isolated Customer', 'GB', 'EUR')",
+                [$customer, $tenant, 'C-ISO-'.bin2hex(random_bytes(3))]);
+            $this->insertAsOwnerForTenant($tenant, 'INSERT INTO customer_contact (id, tenant_id, customer_id, name, idempotency_key, request_digest) VALUES (?::uuid, ?::uuid, ?::uuid, \'Isolated\', ?, ?)',
+                [$contact, $tenant, $customer, hash('sha256', 'key:'.$contact), hash('sha256', 'digest:'.$contact)]);
+            $contacts[$tenant] = $contact;
+        }
+
+        $deleted = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM customer_contact WHERE id = ?::uuid', [$contacts[self::TENANT_B]]));
+        self::assertSame(0, $deleted, 'erp_app, in tenant A\'s context, deleted tenant B\'s customer contact.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM customer_contact WHERE id = ?::uuid', [$contacts[self::TENANT_B]]));
+
+        $own = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM customer_contact WHERE id = ?::uuid', [$contacts[self::TENANT_A]]));
+        self::assertSame(1, $own, 'Control: erp_app could not delete its own tenant\'s contact, so the zero above proves nothing.');
+    }
+
+    /**
+     * Every table the application may DELETE from, and the test that proves a DELETE cannot cross a workspace (customers slice
+     * 2 C2; design R1.11, final RED F-L4). Typed by hand: a new grant must name its test here, deliberately.
+     *
+     * @var array<string, string> table => method of this class, or `'no RLS — <reason>'`
+     */
+    private const DELETE_GRANT_ISOLATION_TESTS = [
+        'user_role' => 'erpAppCannotDeleteAnotherTenantsUserRole',
+        'role_permission' => 'erpAppCannotDeleteAnotherTenantsRolePermission',
+        'supplier_product' => 'erpAppCannotDeleteAnotherTenantsCatalogueEntry',
+        'customer_contact' => 'erpAppCannotDeleteAnotherTenantsCustomerContact',
+    ];
+
+    /**
+     * **Every DELETE grant has an RLS-DELETE isolation test** — the `role_permission` miss (its grant shipped without one,
+     * found 2026-10-13) made a check. The domain is DERIVED from the live server — every ordinary or partitioned table in
+     * `public` on which `has_table_privilege('erp_app', …, 'DELETE')` holds — never from `SchemaManifest`, so a grant made
+     * by a migration the manifest forgot is still seen. Held equal to {@see self::DELETE_GRANT_ISOLATION_TESTS} in **both**
+     * directions (a granted table missing from the map; a mapped table no longer granted), and every named method must
+     * exist. **Positive control:** `user_role` is in both. Mutation: delete a named method → red naming it.
+     */
+    #[Test]
+    public function everyTableTheApplicationMayDeleteHasAnIsolationTest(): void
+    {
+        $granted = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT c.relname
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND has_table_privilege('erp_app', c.oid, 'DELETE')
+             ORDER BY 1
+            SQL);
+        self::assertContains('user_role', $granted, 'Positive control: the derived domain no longer sees the first DELETE grant.');
+
+        $mapped = array_keys(self::DELETE_GRANT_ISOLATION_TESTS);
+        sort($mapped);
+        self::assertSame($mapped, $granted,
+            "The tables erp_app may DELETE from are not exactly the tables with a named RLS-DELETE isolation test.\n"
+            .'A new DELETE grant ships with its isolation test (ADR-002 A4.4 duty 2) and an entry here; a revoked grant leaves.');
+
+        foreach (self::DELETE_GRANT_ISOLATION_TESTS as $table => $method) {
+            if (str_starts_with($method, 'no RLS — ')) {
+                continue;
+            }
+            self::assertTrue(method_exists(self::class, $method), $table.'\'s isolation test '.self::class.'::'.$method.' does not exist.');
+        }
+    }
+
+    /**
      * R-15. ADR-002 §5: integrity checks always bypass row security, so a bare
      * UNIQUE (sku) would answer "that SKU is taken" for a row the caller may not
      * see. With UNIQUE (tenant_id, sku) the same SKU in two tenants is simply

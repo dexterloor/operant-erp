@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Customers\ApiResource\State\CreateCustomerContactProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerContactProvider;
+use App\Modules\Customers\ApiResource\State\DeleteCustomerContactProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerContactProcessor;
 use App\Modules\Customers\Application\CustomerContactView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -19,7 +21,7 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * **`CreateCustomerContact` and `UpdateCustomerContact`** (customers slice 2 C1; `docs/session13/customers-s2-design.md`
+ * **`CreateCustomerContact`, `UpdateCustomerContact` and (C2) `DeleteCustomerContact`** (customers slice 2 C1/C2; `docs/session13/customers-s2-design.md`
  * §2.2 and Revision 2). A DTO, never the entity. {@see CustomerAddressResource}'s shape.
  *
  * The shape is §4.4.3's derivation (API-23): the accepted fields `name`, `email`, `phone`, `is_primary` (minus
@@ -78,6 +80,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CustomerContactProvider::class,
             processor: UpdateCustomerContactProcessor::class,
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no` — a PATCH sets absolute values on a row that exists.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
+        ),
+        // C2: API-21 branch 3 — 204, no body. A real DELETE (the table is HARD), gated `customer.edit` like the other child
+        // writes (SEC S-3). `read: false`: the writer reads the parent, the pair and the archived state in its transaction.
+        new Delete(
+            uriTemplate: '/customers/{id}/contacts/{contactId}',
+            uriVariables: [
+                'id' => new Link(fromClass: CustomerResource::class, identifiers: ['id'], parameterName: 'id'),
+                'contactId' => new Link(fromClass: CustomerContactResource::class, identifiers: ['id'], parameterName: 'contactId'),
+            ],
+            name: 'DeleteCustomerContact',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteCustomerContact'),
+            read: false,
+            processor: DeleteCustomerContactProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
         ),
     ],

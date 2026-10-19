@@ -10,7 +10,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * **The writer of `customer_contact.created` and `customer_contact.updated`** — customers slice 2 C1, 2026-10-19 (owner
+ * **The writer of `customer_contact.created`, `.updated` and (C2) `.deleted`** — customers slice 2 C1, 2026-10-19 (owner
  * Q-2 "yes, record contact changes", `docs/session13/s35-ruling.md`; filed by `SEC`, `customers-s2-sec-arch.md` S-4).
  *
  * The rows name the person who added or changed a customer's contact: re-pointing a customer's e-mail through a contact is
@@ -27,12 +27,14 @@ use Symfony\Component\Uid\Uuid;
  * changed fields, builds `{"fields": [...]}` itself, sorted and de-duplicated, refuses an empty list ("no field changed"
  * writes no row) and refuses any name `UpdateCustomerContact` does not accept. **Never values**: a name, an e-mail or a
  * phone cannot reach `metadata` through this class. A contact demoted because another was marked primary (owner Q-1 (a))
- * gets its own `recordUpdated(…, ['is_primary'])`.
+ * gets its own `recordUpdated(…, ['is_primary'])`. `recordDeleted()` (C2) takes the customer id and nothing else — the one
+ * piece of metadata the deleted row's chain needs (`{"customer_id"}`, SEC S-4), a uuid, never a contact datum.
  *
  * The subject is the contact row, read off `AuditEvent::SUBJECT_TYPES` (`customer_contact`; `SEC` S-4 confirmed).
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_CONTACT_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_CONTACT_UPDATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_CONTACT_DELETED
  */
 final readonly class CustomerContactAuditWriter
 {
@@ -70,6 +72,20 @@ final readonly class CustomerContactAuditWriter
 
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_CONTACT_UPDATED, $contactId,
             json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `customer_contact.deleted` — `DeleteCustomerContact`, after a one-row DELETE, in its transaction:
+     * `{"customer_id": "<uuid>"}`, so the deleted row's chain stays attributable to its customer.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $contactId, string $customerId): void
+    {
+        if (!Uuid::isValid($customerId)) {
+            throw new \LogicException('customer_contact.deleted carries the customer\'s uuid and nothing else.');
+        }
+
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_CONTACT_DELETED, $contactId,
+            json_encode(['customer_id' => Uuid::fromString($customerId)->toRfc4122()], \JSON_THROW_ON_ERROR));
     }
 
     private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $contactId, string $metadata): void

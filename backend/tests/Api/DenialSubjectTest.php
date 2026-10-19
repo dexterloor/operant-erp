@@ -185,6 +185,10 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         $product = $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-F1-CAT'));
         // Warehouses slice 1 C1: a REAL warehouse (the location list's recorded `{id}`).
         $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH F1 Locations');
+        // Customers slice 2 C2: a REAL customer and a real contact of it. `{contactId}` is not the recorded variable — the
+        // path-first derivation names the customer, which the permission's resource half `customer` agrees with.
+        $contactCustomer = $this->seedCustomer(self::TENANT_A, 'Customer F1 Contacts');
+        $contact = $this->seedCustomerContact(self::TENANT_A, $contactCustomer);
 
         $cases = [
             'CreateGoodsReceipt' => ['POST', '/purchase-orders/'.$po.'/goods-receipts', 'goods_receipt.create', $po],
@@ -201,6 +205,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'CreateSupplierProduct' => ['POST', '/suppliers/'.$supplier.'/products', 'supplier_product.edit', $supplier],
             'UpdateSupplierProduct' => ['PATCH', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             'DeleteSupplierProduct' => ['DELETE', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
+            'DeleteCustomerContact' => ['DELETE', '/customers/'.$contactCustomer.'/contacts/'.$contact, 'customer.edit', $contactCustomer],
             // Warehouses slice 1 C1: the location list names the warehouse its path addresses.
             'ListStorageLocations' => ['GET', '/warehouses/'.$warehouse.'/locations', 'storage_location.view', $warehouse],
             // Warehouses slice 1 C3: the two location writes name the warehouse too; `{locationId}` is not the recorded variable.

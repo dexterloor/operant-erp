@@ -1055,7 +1055,10 @@ final class GrantFootprintTest extends TenancyTestCase
      *
      * @var list<string>
      */
-    private const CUSTOMER_TABLE_DELETES = [];
+    private const CUSTOMER_TABLE_DELETES = [
+        // Customers slice 2 C2 (2026-10-19, `Version20261019000500`): `DeleteCustomerContact`'s one hard DELETE.
+        'customer_contact',
+    ];
 
     /**
      * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer`, `UpdateCustomer` and (C5 C4a)
@@ -1141,8 +1144,11 @@ final class GrantFootprintTest extends TenancyTestCase
         // Customers slice 2 C1: the contact table.
         self::assertSame(['accepted', 'accepted'], [$outcomes['customer_contact.name INSERT'] ?? null, $outcomes['customer_contact.name UPDATE'] ?? null],
             'The positive controls failed: erp_app could not insert or update customer_contact.name.');
-        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_contact.idempotency_key UPDATE'] ?? null, $outcomes['customer_contact.created_at INSERT'] ?? null, $outcomes['customer_contact.* DELETE'] ?? null],
-            'erp_app must not re-point a stored contact retry key, write created_at or (until C2) delete a contact, and the probe did not see them refused.');
+        self::assertSame(['refused', 'refused'], [$outcomes['customer_contact.idempotency_key UPDATE'] ?? null, $outcomes['customer_contact.created_at INSERT'] ?? null],
+            'erp_app must not re-point a stored contact retry key or write created_at, and the probe did not see them refused.');
+        // Moved deliberately 2026-10-19 (customers slice 2 C2): `customer_contact` DELETE was refused at C1 and is ACCEPTED now
+        // (`DeleteCustomerContact`); `customer_address` DELETE stays refused until C3.
+        self::assertSame('accepted', $outcomes['customer_contact.* DELETE'] ?? null, 'erp_app cannot delete a contact, which DeleteCustomerContact needs.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on the customer tables are not exactly the customer writers':\n  ".implode("\n  ", $violations($outcomes)));
 

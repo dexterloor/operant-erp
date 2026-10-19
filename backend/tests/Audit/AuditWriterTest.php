@@ -442,6 +442,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($contactWriter instanceof CustomerContactAuditWriter);
         $contactWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', contactId: Uuid::v4()->toRfc4122());
         $contactWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', contactId: Uuid::v4()->toRfc4122(), fields: ['email']);
+        // Customers slice 2 C2: `customer_contact.deleted` `{"customer_id"}`, BUSINESS (driven).
+        $contactWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', contactId: Uuid::v4()->toRfc4122(), customerId: Uuid::v4()->toRfc4122());
         $salesWriter = self::getContainer()->get(SalesOrderAuditWriter::class);
         \assert($salesWriter instanceof SalesOrderAuditWriter);
         $salesWriter->recordConfirmed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', salesOrderId: Uuid::v4()->toRfc4122());

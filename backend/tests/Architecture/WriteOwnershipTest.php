@@ -211,7 +211,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // UPDATE, demote UPDATE, set UPDATE), confirmed off this test's run: `CustomerContactWriter::INSERT`, its field
         // `UPDATE customer_contact` (SET built from the changed fields), `::DEMOTE` and `::SET_PRIMARY`. Its parent
         // `FOR NO KEY UPDATE`, its key read `FOR KEY SHARE` and its row `FOR NO KEY UPDATE` are locks this scan excludes.
-        'Modules\\Customers' => 10,
+        // **10 -> 11 on 2026-10-19** (customers slice 2 C2), PREDICTED, confirmed off this test's run:
+        // `CustomerContactWriter::DELETE` (`DeleteCustomerContact`; the table is Customers').
+        'Modules\\Customers' => 11,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

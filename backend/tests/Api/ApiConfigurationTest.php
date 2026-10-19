@@ -278,7 +278,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // on `CustomerContactResource`, and `ListCustomerContacts` (GET `/customers/{id}/contacts`, `customer.view`, bounded)
         // on `CustomerContactCollection`. Its migration grants `erp_app` a column INSERT and a column UPDATE on
         // `customer_contact`; the not-exposed fallback route above is not counted.
-        self::assertCount(103, $checked, 'The route set changed. This slice declares one hundred and three operations: '.implode(', ', array_keys($checked)));
+        // **And one more (customers slice 2 C2, 2026-10-19):** `DeleteCustomerContact` (DELETE `/customers/{id}/contacts/{contactId}`,
+        // `customer.edit`; branch 3, 204) on `CustomerContactResource`. Its migration grants `erp_app` table DELETE on
+        // `customer_contact`.
+        self::assertCount(104, $checked, 'The route set changed. This slice declares one hundred and four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**
