@@ -52,6 +52,8 @@ final class CustomerReadTest extends PurchaseOrderTestCase
         'ListCustomerContacts' => ['method' => 'GET', 'path' => '/customers/{id}/contacts', 'idem' => false],
         // C2 (2026-10-19): `Idem` `no` — a repeated delete is a 404, never replayed.
         'DeleteCustomerContact' => ['method' => 'DELETE', 'path' => '/customers/{id}/contacts/{contactId}', 'idem' => false],
+        // C3 (2026-10-19): `Idem` `no` — a repeated delete is a 404, never replayed.
+        'DeleteCustomerAddress' => ['method' => 'DELETE', 'path' => '/customers/{id}/addresses/{addressId}', 'idem' => false],
     ];
 
     /** `CustomerResource`'s serialized members — §4.4.3's derivation (design §2.3 item 8). */

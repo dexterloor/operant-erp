@@ -302,6 +302,34 @@ final class TenantIsolationTest extends TenancyTestCase
     }
 
     /**
+     * **The fifth `DELETE` grant (`customer_address`, customers slice 2 C3, `Version20261019000700`) brings its RLS-DELETE
+     * isolation test** — `erpAppCannotDeleteAnotherTenantsCustomerContact`'s shape.
+     */
+    #[Test]
+    public function erpAppCannotDeleteAnotherTenantsCustomerAddress(): void
+    {
+        $this->assertApplicationRoleHolds('DELETE', 'customer_address');
+        $addresses = [];
+        foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
+            [$customer, $address] = [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), \Symfony\Component\Uid\Uuid::v4()->toRfc4122()];
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code) VALUES (?::uuid, ?::uuid, ?, 'Isolated Customer', 'GB', 'EUR')",
+                [$customer, $tenant, 'C-ISO-'.bin2hex(random_bytes(3))]);
+            $this->insertAsOwnerForTenant($tenant, "INSERT INTO customer_address (id, tenant_id, customer_id, kind, address_line, city, postal_code, country_code, idempotency_key, request_digest) VALUES (?::uuid, ?::uuid, ?::uuid, 'shipping', '1 Iso Street', 'London', 'EC1A 1BB', 'GB', ?, ?)",
+                [$address, $tenant, $customer, hash('sha256', 'key:'.$address), hash('sha256', 'digest:'.$address)]);
+            $addresses[$tenant] = $address;
+        }
+
+        $deleted = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM customer_address WHERE id = ?::uuid', [$addresses[self::TENANT_B]]));
+        self::assertSame(0, $deleted, 'erp_app, in tenant A\'s context, deleted tenant B\'s customer address.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM customer_address WHERE id = ?::uuid', [$addresses[self::TENANT_B]]));
+
+        $own = $this->tenantContext()->run(self::TENANT_A, fn (): int => (int) $this->app()->executeStatement(
+            'DELETE FROM customer_address WHERE id = ?::uuid', [$addresses[self::TENANT_A]]));
+        self::assertSame(1, $own, 'Control: erp_app could not delete its own tenant\'s address, so the zero above proves nothing.');
+    }
+
+    /**
      * Every table the application may DELETE from, and the test that proves a DELETE cannot cross a workspace (customers slice
      * 2 C2; design R1.11, final RED F-L4). Typed by hand: a new grant must name its test here, deliberately.
      *
@@ -312,6 +340,7 @@ final class TenantIsolationTest extends TenancyTestCase
         'role_permission' => 'erpAppCannotDeleteAnotherTenantsRolePermission',
         'supplier_product' => 'erpAppCannotDeleteAnotherTenantsCatalogueEntry',
         'customer_contact' => 'erpAppCannotDeleteAnotherTenantsCustomerContact',
+        'customer_address' => 'erpAppCannotDeleteAnotherTenantsCustomerAddress',
     ];
 
     /**

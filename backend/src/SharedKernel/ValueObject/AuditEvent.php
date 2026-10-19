@@ -166,7 +166,7 @@ namespace App\SharedKernel\ValueObject;
  *      fails, and it is red on the omission rather than quiet about it.
  *
  * **Extension log, so the process above can be checked against what was done
- * rather than only read.** Eleven entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
+ * rather than only read.** Twelve entries below — ⚠ **and the log is incomplete by four:** the `invoice.*`
  * extensions of 2026-09-28/29 were recorded on their own constants' docblocks and not here. *(This line read "Three"
  * until 2026-09-29, and before that "Two" until
  * 2026-09-19 — recount from the entries below, never restate this number.)*
@@ -311,6 +311,13 @@ namespace App\SharedKernel\ValueObject;
  *     `Version20261019000400`, whose literal list is the live constraint's forty-seven members (read off `pg_constraint`,
  *     not generated) plus this one; it supersedes `Version20261019000200`. **Step 6 does not apply.** `PINNED_ALLOWLIST`
  *     edited by hand with one literal.
+ *
+ *   - **`CUSTOMER_ADDRESS_DELETED`**, 2026-10-19, customers slice 2 C3 — inside owner ruling F-12 / S4 "Record address
+ *     changes" (`SEC`, `customers-s2-sec-arch.md` S-4: not a new owner question), filed **`BUSINESS`** with
+ *     `{"customer_id"}`. Steps 3–5 done **with its writer in the same commit** (`CustomerAddressAuditWriter::recordDeleted()`).
+ *     Step 5 is `Version20261019000600`, whose literal list is the live constraint's forty-eight members (read off
+ *     `pg_constraint`, not generated) plus this one; it supersedes `Version20261019000400`. **Step 6 does not apply.**
+ *     `PINNED_ALLOWLIST` edited by hand with one literal.
  *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
@@ -896,7 +903,10 @@ final class AuditEvent
     /**
      * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
      * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
-     * customer is derivable from it, not the reverse (`SEC` to confirm; `owed-roles-recs.md` S4 leaned `customer`).
+     * customer is derivable from it while the row lives; once `DeleteCustomerAddress` removes it, the
+     * `customer_address.deleted` row's `customer_id` carries the link (`SEC` confirmed the subject 2026-10-19, customers
+     * slice 2 S-4). *(Replaced 2026-10-19, customers slice 2 C3: this parenthesis read "the customer is derivable from it,
+     * not the reverse (`SEC` to confirm; `owed-roles-recs.md` S4 leaned `customer`)".)*
      * **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{}` — an address is personal data, so no
      * value is ever carried. Written by `CustomerAddressAuditWriter::recordCreated()` in `CustomerAddressWriter`'s
      * transaction, after the INSERT; a replayed create writes none. **Step 6 does not apply.**
@@ -912,6 +922,17 @@ final class AuditEvent
      * `CustomerAddressWriter`'s transaction, after the UPDATE. **Step 6 does not apply.**
      */
     public const CUSTOMER_ADDRESS_UPDATED = 'customer_address.updated';
+
+    /**
+     * **A customer address removed** — `DeleteCustomerAddress` (customers slice 2 C3, 2026-10-19; inside owner ruling F-12 /
+     * S4 "Record address changes", `SEC` `customers-s2-sec-arch.md` S-4). Subject `('customer_address', id)` — the row that
+     * is gone. **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{"customer_id": "<uuid>"}`: once the
+     * row is deleted every earlier `customer_address.*` row names an id that joins to nothing, so this row carries the link.
+     * The abuse it detects: a `customer.edit` seat deletes the legitimate shipping address so a colleague picks the
+     * remaining (attacker-edited) one. Written by `CustomerAddressAuditWriter::recordDeleted()` after a one-row DELETE;
+     * none on a 0-row DELETE or a refusal. **Step 6 does not apply.**
+     */
+    public const CUSTOMER_ADDRESS_DELETED = 'customer_address.deleted';
 
     /**
      * **A customer contact added** — `CreateCustomerContact` (customers slice 2 C1, 2026-10-19; owner Q-2 "yes",
@@ -1047,6 +1068,7 @@ final class AuditEvent
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
+        self::CUSTOMER_ADDRESS_DELETED,
         self::CUSTOMER_CONTACT_CREATED,
         self::CUSTOMER_CONTACT_UPDATED,
         self::CUSTOMER_CONTACT_DELETED,
@@ -1136,6 +1158,7 @@ final class AuditEvent
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
         self::CUSTOMER_ADDRESS_UPDATED,
+        self::CUSTOMER_ADDRESS_DELETED,
         self::CUSTOMER_CONTACT_CREATED,
         self::CUSTOMER_CONTACT_UPDATED,
         self::CUSTOMER_CONTACT_DELETED,
@@ -1217,9 +1240,11 @@ final class AuditEvent
         self::CUSTOMER_RESTORED => 'customer',
         // C5 C4b: the customer row whose own state changed.
         self::CUSTOMER_DELETED => 'customer',
-        // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` to confirm the subject).
+        // Suppliers slice 1 C2b: the address row whose own state changed (owner F-12 / S4; `SEC` confirmed 2026-10-19).
         self::CUSTOMER_ADDRESS_CREATED => 'customer_address',
         self::CUSTOMER_ADDRESS_UPDATED => 'customer_address',
+        // Customers slice 2 C3: the deleted address row; `metadata.customer_id` keeps the chain attributable (SEC S-4).
+        self::CUSTOMER_ADDRESS_DELETED => 'customer_address',
         // Customers slice 2 C1: the contact row whose own state changed (owner Q-2; `SEC` S-4 confirmed the child subject).
         self::CUSTOMER_CONTACT_CREATED => 'customer_contact',
         self::CUSTOMER_CONTACT_UPDATED => 'customer_contact',

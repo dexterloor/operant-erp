@@ -28,10 +28,14 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class CustomerAddressReader
 {
-    private const SELECT = <<<'SQL'
-        SELECT a.id, a.kind, a.address_line, a.city, a.postal_code, a.country_code
-          FROM customer_address a
-        SQL;
+    /**
+     * The served columns, unqualified (customers slice 2 C3, final RED F-L2): the list, the pair read and the writer's
+     * locked key read all select these and map them through {@see self::view()}, so a column added to the view appears on
+     * create, replay and list alike.
+     */
+    public const COLUMNS = 'id, kind, address_line, city, postal_code, country_code';
+
+    private const SELECT = 'SELECT '.self::COLUMNS.' FROM customer_address a';
 
     public function __construct(
         private TenantContext $tenants,
@@ -99,8 +103,8 @@ final readonly class CustomerAddressReader
         return false === $row ? null : self::view($row);
     }
 
-    /** @param array<string, mixed> $row */
-    private static function view(array $row): CustomerAddressView
+    /** @param array<string, mixed> $row a row carrying at least {@see self::COLUMNS} */
+    public static function view(array $row): CustomerAddressView
     {
         return new CustomerAddressView(
             id: (string) $row['id'],

@@ -206,6 +206,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'UpdateSupplierProduct' => ['PATCH', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             'DeleteSupplierProduct' => ['DELETE', '/suppliers/'.$supplier.'/products/'.$product, 'supplier_product.edit', $supplier],
             'DeleteCustomerContact' => ['DELETE', '/customers/'.$contactCustomer.'/contacts/'.$contact, 'customer.edit', $contactCustomer],
+            // Customers slice 2 C3: a real address of the same customer; the denial names the customer.
+            'DeleteCustomerAddress' => ['DELETE', '/customers/'.$contactCustomer.'/addresses/'.$this->seedCustomerAddress(self::TENANT_A, $contactCustomer),
+                'customer.edit', $contactCustomer],
             // Warehouses slice 1 C1: the location list names the warehouse its path addresses.
             'ListStorageLocations' => ['GET', '/warehouses/'.$warehouse.'/locations', 'storage_location.view', $warehouse],
             // Warehouses slice 1 C3: the two location writes name the warehouse too; `{locationId}` is not the recorded variable.

@@ -29,10 +29,13 @@ use Symfony\Component\Uid\Uuid;
  * ("no field changed" writes no row) and refuses any name `UpdateCustomerAddress` does not accept. **Never values**: an
  * address is personal data, and a line, a city or a postal code cannot reach `metadata` through this class.
  *
- * The subject is the address row, read off `AuditEvent::SUBJECT_TYPES` (`customer_address`; `SEC` to confirm).
+ * The subject is the address row, read off `AuditEvent::SUBJECT_TYPES` (`customer_address`; `SEC` confirmed 2026-10-19,
+ * customers slice 2 S-4). `recordDeleted()` (customers slice 2 C3) takes the customer id and nothing else — the one piece of
+ * metadata a deleted row's chain needs (`{"customer_id"}`), a uuid, never an address value.
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_ADDRESS_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_ADDRESS_UPDATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_ADDRESS_DELETED
  */
 final readonly class CustomerAddressAuditWriter
 {
@@ -70,6 +73,20 @@ final readonly class CustomerAddressAuditWriter
 
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_ADDRESS_UPDATED, $addressId,
             json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `customer_address.deleted` — `DeleteCustomerAddress`, after a one-row DELETE, in its transaction:
+     * `{"customer_id": "<uuid>"}`, so the deleted row's chain stays attributable to its customer.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $addressId, string $customerId): void
+    {
+        if (!Uuid::isValid($customerId)) {
+            throw new \LogicException('customer_address.deleted carries the customer\'s uuid and nothing else.');
+        }
+
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_ADDRESS_DELETED, $addressId,
+            json_encode(['customer_id' => Uuid::fromString($customerId)->toRfc4122()], \JSON_THROW_ON_ERROR));
     }
 
     private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $addressId, string $metadata): void

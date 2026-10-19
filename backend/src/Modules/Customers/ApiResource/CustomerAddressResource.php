@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Customers\ApiResource\State\CreateCustomerAddressProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerAddressProvider;
+use App\Modules\Customers\ApiResource\State\DeleteCustomerAddressProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerAddressProcessor;
 use App\Modules\Customers\Application\CustomerAddressView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -82,6 +84,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CustomerAddressProvider::class,
             processor: UpdateCustomerAddressProcessor::class,
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no` — a PATCH sets absolute values on a row that exists.
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
+        ),
+        // Customers slice 2 C3: API-21 branch 3 — 204, no body. A real DELETE (the table is HARD), gated `customer.edit` like
+        // the other child writes (SEC S-3). `read: false`: the writer reads the parent, the pair and the archived state.
+        new Delete(
+            uriTemplate: '/customers/{id}/addresses/{addressId}',
+            uriVariables: [
+                'id' => new Link(fromClass: CustomerResource::class, identifiers: ['id'], parameterName: 'id'),
+                'addressId' => new Link(fromClass: CustomerAddressResource::class, identifiers: ['id'], parameterName: 'addressId'),
+            ],
+            name: 'DeleteCustomerAddress',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteCustomerAddress'),
+            read: false,
+            processor: DeleteCustomerAddressProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
         ),
     ],

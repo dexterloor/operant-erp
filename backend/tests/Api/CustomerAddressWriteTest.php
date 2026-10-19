@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Customers\Application\CustomerAddressWriter;
+use App\Modules\Customers\Application\CustomerWriter;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
@@ -558,7 +559,270 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_CREATED), 'A refused raced create wrote a customer_address.created row.');
     }
 
+    /**
+     * **R1.3 / R2.3 — the address create's key read is ONE locked statement** (customers slice 2 C3, first change; RED H-2).
+     * An address is created with key K; a holder runs the address delete's own statements
+     * ({@see CustomerAddressWriter::PARENT_KEY_SHARE}, {@see CustomerAddressWriter::DELETE}) and holds; the identical retry of
+     * K's create is sent. The address writers' parent lock is `FOR KEY SHARE`, which does not conflict with itself, so
+     * nothing serialises the two at the customer: what makes the retry wait is the key read's `FOR KEY SHARE` on the
+     * `customer_address` row the delete holds. The retry must be seen waiting on **`customer_address`**, and when the holder
+     * commits it finds no key and creates afresh — 201 with a NEW id (owner Q-4 accepted the re-create, G-49).
+     * **Before the fix** (an unlocked key read, then a second read) the retry did not wait: it replayed the doomed row's id
+     * from its snapshot — a 201 naming an address that no longer exists. Mutation M3-8 (drop the lock) restores that.
+     */
+    #[Test]
+    public function anIdenticalRetryWaitsForAnUncommittedDeleteAndThenCreatesAfresh(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Raced Retry After Address Delete');
+        $key = Uuid::v4()->toRfc4122();
+        $this->create($customer, self::BODY, $key);
+        self::assertSame(201, $this->httpStatus(), 'Fixture: the create must succeed.');
+        $first = $this->json()['id'];
+
+        $holder = $this->raceAgainstAHolder(
+            [[CustomerAddressWriter::PARENT_KEY_SHARE, [$customer]], [CustomerAddressWriter::DELETE, [$first, $customer]]],
+            fn () => $this->create($customer, self::BODY, $key),
+        );
+
+        $this->assertWaitedOnTheRowOf('customer_address', $holder);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertNotSame($first, $this->json()['id'], 'The retry replayed an address the delete removed.');
+        self::assertSame([$this->json()['id']], array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM customer_address WHERE customer_id = ?::uuid', [$customer]), 'id'));
+    }
+
+    // ---- DeleteCustomerAddress (customers slice 2 C3; design R2.2's prescribed delete shape) ----------------------------
+
+    /** 204, no body; the row is gone; the customer's other addresses are untouched. */
+    #[Test]
+    public function aSalesRepRemovesAnAddress(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Address Remover');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
+        $kept = $this->seedCustomerAddress(self::TENANT_A, $customer, 'billing');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+
+        $this->remove($customer, $address);
+
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('', (string) $this->client()->getResponse()->getContent(), 'A 204 carries no body.');
+        self::assertSame([$kept], $this->addressesOf($customer));
+    }
+
+    /**
+     * ST-5 / SEC S-6.1 / S-6.5: a foreign, unknown or malformed customer, another customer's address under this path (which
+     * SURVIVES — M3-1), an unknown address and a repeat of a delete that succeeded all answer the SAME 404 body.
+     */
+    #[Test]
+    public function everyAddressDeleteNotFoundIsTheSameBodyAndAnotherCustomersAddressSurvives(): void
+    {
+        $mine = $this->seedCustomer(self::TENANT_A, 'Address Delete Mine');
+        $other = $this->seedCustomer(self::TENANT_A, 'Address Delete Other');
+        $othersAddress = $this->seedCustomerAddress(self::TENANT_A, $other);
+        $foreign = $this->seedCustomer(self::TENANT_B, 'Address Delete Foreign');
+        $foreignAddress = $this->seedCustomerAddress(self::TENANT_B, $foreign);
+        $gone = $this->seedCustomerAddress(self::TENANT_A, $mine);
+        $this->remove($mine, $gone);
+        self::assertSame(204, $this->httpStatus(), 'Fixture: the first delete must succeed.');
+
+        $bodies = [];
+        foreach ([[$foreign, $foreignAddress], [Uuid::v4()->toRfc4122(), $othersAddress], ['not-a-uuid', $othersAddress],
+            [$mine, $othersAddress], [$mine, Uuid::v4()->toRfc4122()], [$mine, 'not-a-uuid'], [$mine, $gone]] as [$customer, $address]) {
+            $this->remove($customer, $address);
+            self::assertSame(404, $this->httpStatus(), $customer.' / '.$address);
+            $bodies[] = (string) $this->client()->getResponse()->getContent();
+        }
+        self::assertCount(1, array_unique($bodies), 'The 404 bodies differ: '.implode(' | ', array_unique($bodies)));
+        self::assertSame([$othersAddress], $this->addressesOf($other), 'Another customer\'s address was removed through this path.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM customer_address WHERE id = ?::uuid', [$foreignAddress]));
+    }
+
+    /** ST-9: an archived customer's address cannot be removed; `viewer` (no `customer.edit`) cannot remove one either. */
+    #[Test]
+    public function anArchivedCustomersAddressCannotBeRemovedAndAViewerCannotRemoveOne(): void
+    {
+        $archived = $this->archivedCustomer('Archived Address Kept');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $archived);
+
+        $this->remove($archived, $address);
+        self::assertSame(409, $this->httpStatus());
+        self::assertSame('customer.is_archived', $this->json()['rule']);
+        self::assertSame('This customer is archived, so its addresses can\'t be removed until it\'s restored.', $this->json()['detail']);
+        self::assertSame([$address], $this->addressesOf($archived));
+
+        $live = $this->seedCustomer(self::TENANT_A, 'Viewer Address Delete');
+        $liveAddress = $this->seedCustomerAddress(self::TENANT_A, $live);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $this->remove($live, $liveAddress);
+        self::assertSame(403, $this->httpStatus());
+        self::assertSame([$liveAddress], $this->addressesOf($live));
+    }
+
+    /** One `customer_address.deleted`, subject the removed address, `metadata` exactly `{"customer_id": …}` (SEC S-4). */
+    #[Test]
+    public function aDeletedAddressWritesOneRowCarryingItsCustomer(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Audited Address Removal');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+
+        $this->remove($customer, $address);
+
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $rows = $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_DELETED);
+        self::assertSame([array_replace($this->businessRow(AuditEvent::CUSTOMER_ADDRESS_DELETED, 'customer_address', $address), [
+            'metadata' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m',
+                [json_encode(['customer_id' => $customer], \JSON_THROW_ON_ERROR)])[0]['m'],
+        ])], $rows);
+        self::assertSame(['customer_id'], array_keys(json_decode($rows[0]['metadata'], true, flags: \JSON_THROW_ON_ERROR)),
+            'customer_address.deleted carries a key other than customer_id.');
+    }
+
+    /** A 404 (unknown, another customer's, a repeat), a 409 (archived) and a 403 write no row. */
+    #[Test]
+    public function aRefusedOrEmptyDeleteWritesNoRow(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Refused Address Removal');
+        $other = $this->seedCustomer(self::TENANT_A, 'Refused Address Removal Other');
+        $othersAddress = $this->seedCustomerAddress(self::TENANT_A, $other);
+        $archived = $this->archivedCustomer('Refused Address Removal Archived');
+        $archivedAddress = $this->seedCustomerAddress(self::TENANT_A, $archived);
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
+
+        $this->remove($customer, $address);
+        self::assertSame(204, $this->httpStatus(), 'Fixture: the first delete must succeed.');
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_DELETED));
+
+        $this->remove($customer, $address);
+        self::assertSame(404, $this->httpStatus());
+        $this->remove($customer, $othersAddress);
+        self::assertSame(404, $this->httpStatus());
+        $this->remove($archived, $archivedAddress);
+        self::assertSame(409, $this->httpStatus());
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $this->remove($other, $othersAddress);
+        self::assertSame(403, $this->httpStatus());
+
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_DELETED), 'A refused or repeated delete wrote a row.');
+    }
+
+    /**
+     * **R1.4's double delete — real evidence for addresses (M3-7).** The address writers' parent lock is `FOR KEY SHARE`,
+     * which does not serialise two deletes, so the holder runs the delete's own statements and holds the row; the second
+     * delete passes the parent and the (unlocked) pair read, waits on the **`customer_address`** row at its DELETE, and when
+     * the holder commits deletes 0 rows → 404, writing no row. Drop the rowcount check and it answers 204 with a second
+     * `.deleted` row for a row it did not remove.
+     */
+    #[Test]
+    public function aSecondConcurrentAddressDeleteWaitsOnTheAddressAndIsA404WritingNoSecondRow(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Raced Address Delete');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
+
+        $holder = $this->raceAgainstAHolder(
+            [[CustomerAddressWriter::PARENT_KEY_SHARE, [$customer]], [CustomerAddressWriter::DELETE, [$address, $customer]]],
+            fn () => $this->remove($customer, $address),
+        );
+
+        $this->assertWaitedOnTheRowOf('customer_address', $holder);
+        self::assertSame(404, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([], $this->addressesOf($customer));
+        self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_DELETED), 'The second delete wrote a .deleted row for a row it did not remove.');
+    }
+
+    /** Archive first ∥ `DeleteCustomerAddress`: its `FOR KEY SHARE` parent read waits on `FOR UPDATE`, then 409 (M3-2). */
+    #[Test]
+    public function anAddressRemovedWhileTheCustomerIsBeingArchivedIsRefused(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Archiving Under Address Removal');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer);
+
+        $holder = $this->raceAgainstAHolder([[CustomerWriter::DELETE_LOCK, [$customer]], [CustomerWriter::ARCHIVE, [$customer]]],
+            fn () => $this->remove($customer, $address));
+
+        $this->assertWaitedOnTheRowOf('customer', $holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(CustomerAddressWriter::ARCHIVED_ON_DELETE, $this->json()['detail']);
+        self::assertSame([$address], $this->addressesOf($customer));
+    }
+
+    /**
+     * **G-49's address pin (owner Q-4 "accept").** An address is created with key K and deleted; a later retry of K's create
+     * is a FRESH create: 201, a NEW id, a second `customer_address.created` row. Building option T flips this to 409
+     * `customer_address.was_removed` — a decision that moves this pin.
+     */
+    #[Test]
+    public function aRetryOfTheOriginalCreateAfterADeleteCreatesTheAddressAgain(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Late Address Retry');
+        $key = Uuid::v4()->toRfc4122();
+        $this->create($customer, self::BODY, $key);
+        self::assertSame(201, $this->httpStatus());
+        $first = $this->json()['id'];
+        $this->remove($customer, $first);
+        self::assertSame(204, $this->httpStatus());
+
+        $this->create($customer, self::BODY, $key);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertNotSame($first, $this->json()['id']);
+        self::assertSame(['id' => $this->json()['id']] + self::BODY, $this->json());
+        self::assertCount(2, $this->auditRowsOf(AuditEvent::CUSTOMER_ADDRESS_CREATED), 'The re-create is not on the trail.');
+    }
+
+    /**
+     * **Design §4.1: deleting an address moves no order and reads no open work** (M3-4). A draft and a confirmed order ship
+     * to address A; A is deleted (204, no Sales refusal) → both orders' `ship_to_*` columns, `GetSalesOrder` bodies and the
+     * confirmed order's `GetPickList` are byte-identical; a later `UpdateSalesOrder` naming A is the shipped `unknown_reference`.
+     */
+    #[Test]
+    public function deletingAnAddressMovesNoOrder(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Snapshot Delete Customer');
+        $address = $this->seedCustomerAddress(self::TENANT_A, $customer, 'shipping', '1 Old Road', 'York', 'YO1 1AA', 'GB');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Snapshot Delete WH');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-SNAP-DEL-1');
+
+        $orders = [];
+        foreach (['draft', 'confirmed'] as $label) {
+            $this->send('POST', '/sales-orders', [
+                'customer_id' => $customer, 'warehouse_id' => $warehouse, 'ship_to_address_id' => $address,
+                'lines' => [['inventory_item_id' => $item, 'quantity' => '1', 'unit_price' => '5']],
+            ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+            self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+            $orders[$label] = $this->json()['id'];
+        }
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE sales_order SET status = 'confirmed', ordered_at = now() WHERE id = ?::uuid", [$orders['confirmed']]);
+
+        $before = $this->ordersAsSeen($orders);
+
+        $this->remove($customer, $address);
+        self::assertSame(204, $this->httpStatus(), 'An address an order shipped to could not be removed: '.(string) $this->client()->getResponse()->getContent());
+
+        self::assertSame($before, $this->ordersAsSeen($orders), 'Deleting an address changed an order that ships to it.');
+
+        $this->send('PATCH', '/sales-orders/'.$orders['draft'], ['ship_to_address_id' => $address]);
+        self::assertSame(422, $this->httpStatus(), 'A removed address was accepted as a ship-to.');
+        self::assertSame('unknown_reference', $this->json()['errors'][0]['code']);
+    }
+
     // -----------------------------------------------------------------------
+
+    /**
+     * F-H1: the request waited, and on a ROW of `$relation` — a `tuple` lock there and an ungranted `transactionid` on the
+     * holder's xid (`CustomerContactWriteTest`'s assertion; the holder reports `pg_locks` since customers slice 2 C1).
+     *
+     * @param array<string, mixed> $holder
+     */
+    private function assertWaitedOnTheRowOf(string $relation, array $holder): void
+    {
+        self::assertTrue($holder['waiter_seen'], 'The request never waited on the holder, so nothing here was a race: '.json_encode($holder));
+        self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
+        $tuples = array_values(array_unique(array_column(array_filter($holder['waiter_locks'], static fn (array $l): bool => 'tuple' === $l['locktype']), 'relation')));
+        self::assertSame([$relation], $tuples, 'The request did not wait on a row of '.$relation.': '.json_encode($holder));
+        self::assertContains(['locktype' => 'transactionid', 'relation' => null, 'mode' => 'ShareLock', 'granted' => false, 'xid' => $holder['holder_xid']],
+            $holder['waiter_locks'], 'The request did not wait on the holder\'s transaction: '.json_encode($holder));
+    }
 
     /**
      * @param array<string, string> $orders label => id
@@ -600,6 +864,18 @@ final class CustomerAddressWriteTest extends PurchaseOrderTestCase
     private function update(string $customer, string $address, array $body): void
     {
         $this->send('PATCH', '/customers/'.$customer.'/addresses/'.$address, $body);
+    }
+
+    private function remove(string $customer, string $address): void
+    {
+        $this->send('DELETE', '/customers/'.$customer.'/addresses/'.$address);
+    }
+
+    /** @return list<string> */
+    private function addressesOf(string $customer): array
+    {
+        return array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM customer_address WHERE customer_id = ?::uuid ORDER BY created_at, id', [$customer]), 'id');
     }
 
     /** @return list<array{pointer: string, code: string, message: string}> */

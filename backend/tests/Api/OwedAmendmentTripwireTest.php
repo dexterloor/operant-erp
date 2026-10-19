@@ -354,6 +354,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             [CustomerAddressWriteTest::class, 'theAddressUpdatedRowCarriesNamesNeverValues'],
             [CustomerAddressWriteTest::class, 'aDiversionRacingACorrectionIsAttributedToTheCorrector'],
         ],
+        // Customers slice 2 C3: one `.deleted {"customer_id"}` per removed row (the key pinned literally); none on a 404,
+        // a refusal or a lost double delete.
+        'DeleteCustomerAddress' => [
+            [CustomerAddressWriteTest::class, 'aDeletedAddressWritesOneRowCarryingItsCustomer'],
+            [CustomerAddressWriteTest::class, 'aRefusedOrEmptyDeleteWritesNoRow'],
+            [CustomerAddressWriteTest::class, 'aSecondConcurrentAddressDeleteWaitsOnTheAddressAndIsA404WritingNoSecondRow'],
+        ],
     ];
 
     /**
@@ -369,25 +376,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'the catalogue): do not suggest ordering from an archived supplier.',
     ];
 
-    /**
-     * **The customer's children owe the parent lock** (C5 C4b, 2026-10-14; `docs/session13/c5-design.md` §4.1 / §6.3).
-     * `DeleteCustomer` archives under `FOR UPDATE`; `CreateCustomerAddress` / `UpdateCustomerAddress` read the parent
-     * `FOR KEY SHARE` (`CustomerAddressWriter::PARENT_KEY_SHARE`), so no address lands on a customer being archived. The
-     * unbuilt children owe the same. Keyed by `operationId` (the pick-read precedent, `1076ba3`). A PIN, red on arrival; an
-     * entry leaves only in the commit that does its work.
-     *
-     * @var array<string, string>
-     */
-    // Customers slice 2 C1 (2026-10-19): `CreateCustomerContact` and `UpdateCustomerContact` LEFT with their work — they read
-    // the parent `CustomerContactWriter::PARENT_LOCK`, which is `FOR NO KEY UPDATE`, STRONGER than the `FOR KEY SHARE` these
-    // entries asked for (owner Q-1 (a): the one-primary rule needs contact writes serialised; `ARCHITECTURE.md` W-5,
-    // co-signed by `ARCH` A-1). Their carriers are now named in {@see self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK}.
-    // Customers slice 2 C2 (2026-10-19): `DeleteCustomerContact` LEFT with its work (CustomerContactWriter::PARENT_LOCK, the
-    // first DELETE grant on customer_contact with its isolation test, its carriers in CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK).
-    private const OPERATIONS_OWING_THE_PARENT_LOCK = [
-        'DeleteCustomerAddress' => 'read the parent customer FOR KEY SHARE (CustomerAddressWriter::PARENT_KEY_SHARE) and refuse an archived one '
-            .'(customer.is_archived); and the first DELETE grant on customer_address ships with it (SchemaManifest + GrantFootprintTest).',
-    ];
+    // **RETIRED 2026-10-19 (customers slice 2 C3): `OPERATIONS_OWING_THE_PARENT_LOCK` and its arrival pin
+    // `noCustomerChildWriteShipsWithoutTheParentLock`** (C5 C4b, 2026-10-14). The pin named the unbuilt customer child writes
+    // and went red the moment one arrived without the parent lock. Its last entry, `DeleteCustomerAddress`, left in this
+    // commit with its work, so the map is empty — and an empty arrival pin asserts nothing (its own anti-vacuity line said
+    // so). Its job passed to {@see self::CUSTOMER_CHILD_WRITES_CARRY_THE_PARENT_LOCK} (customers slice 2 C1), which names the
+    // race tests that PROVE each built child write's parent lock and derives its completeness from the spec. Deleted, not
+    // hand-edited green (design R1.10; `ARCH` A-2 condition 1).
 
     /**
      * **Every BUILT customer child write names the tests that prove its parent lock** (customers slice 2 C1, 2026-10-19;
@@ -420,6 +415,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'DeleteCustomerContact' => [
             [CustomerContactDeleteTest::class, 'aContactRemovedWhileTheCustomerIsBeingArchivedIsRefused'],
             [CustomerContactDeleteTest::class, 'aSecondConcurrentDeleteWaitsOnTheCustomerAndIsA404WritingNoSecondRow'],
+        ],
+        // C3: the archive race (the parent `FOR KEY SHARE` waits on `DeleteCustomer`'s `FOR UPDATE`).
+        'DeleteCustomerAddress' => [
+            [CustomerAddressWriteTest::class, 'anAddressRemovedWhileTheCustomerIsBeingArchivedIsRefused'],
         ],
     ];
 
@@ -1274,35 +1273,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertSame([], $arrived, \sprintf(
             "%s has been built. Warehouses slice 1 left these owed (docs/session13/warehouses-s1-design.md §4.7), IN THIS COMMIT:\n  %s\n"
             .'Do not hand-edit this pin to green.',
-            implode(', ', array_keys($arrived)),
-            implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
-        ));
-    }
-
-    /**
-     * **The customer's children owe the parent lock** (C5 C4b; design §4.1 / §6.3). Red the moment any key of
-     * {@see self::OPERATIONS_OWING_THE_PARENT_LOCK} is in the generated spec. **Controls, same test:** the positive control
-     * every sibling uses; a non-empty map; and the intersection over a literal map naming a BUILT operation
-     * (`UpdateCustomerAddress`) must report it. Mutation: plant `UpdateCustomerAddress` as a key → red naming it.
-     */
-    #[Test]
-    public function noCustomerChildWriteShipsWithoutTheParentLock(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_PARENT_LOCK,
-            'The parent-lock map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
-        self::assertSame(['UpdateCustomerAddress' => 'x'],
-            array_intersect_key(['UpdateCustomerAddress' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_PARENT_LOCK, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built. C5 C4b left these owed (docs/session13/c5-design.md §4.1), IN THIS COMMIT:\n  %s\n"
-            .'Without the lock a child write can land on a customer `DeleteCustomer` is archiving. Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)),
             implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
         ));

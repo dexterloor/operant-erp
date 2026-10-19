@@ -1030,7 +1030,8 @@ final class GrantFootprintTest extends TenancyTestCase
      * never read from `SchemaManifest`** (`USER_ROLE_COLUMNS_THE_GRANT_INSERTS`'
      * reason: a joint widening of the manifest and a migration must still fail here). Customers slice 2 C1
      * (`Version20261019000300`): `CustomerContactWriter`'s INSERT and UPDATEs on `customer_contact`. **DELETE is granted on
-     * exactly the tables {@see self::CUSTOMER_TABLE_DELETES} lists** (none at C1) — never on `customer`.
+     * exactly the tables {@see self::CUSTOMER_TABLE_DELETES} lists** (none at C1; `customer_contact` from C2; `customer_address`
+     * from C3) — never on `customer`.
      *
      * @var array<string, array<string, list<string>>> privilege => table => columns
      */
@@ -1058,18 +1059,22 @@ final class GrantFootprintTest extends TenancyTestCase
     private const CUSTOMER_TABLE_DELETES = [
         // Customers slice 2 C2 (2026-10-19, `Version20261019000500`): `DeleteCustomerContact`'s one hard DELETE.
         'customer_contact',
+        // Customers slice 2 C3 (2026-10-19, `Version20261019000700`): `DeleteCustomerAddress`'s one hard DELETE.
+        'customer_address',
     ];
 
     /**
      * **Customers slice 1: `erp_app` can write exactly the columns `CreateCustomer`, `UpdateCustomer` and (C5 C4a)
      * `RestoreCustomer` name on `customer`,
-     * and delete nothing — proved by running the statements as `erp_app`** (design §4.4; ADR-002 A4.4's *"exactly"*).
-     * `theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName`' shape: domain from `pg_attribute`, one
+     * and delete nothing on `customer` — proved by running the statements as `erp_app`** (design §4.4; ADR-002 A4.4's
+     * *"exactly"*). DELETE on the child tables is exactly {@see self::CUSTOMER_TABLE_DELETES} (customers slice 2: `customer_contact`
+     * from C2, `customer_address` from C3). `theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName`' shape: domain from `pg_attribute`, one
      * connection and one rolled-back transaction per (table, column, privilege), zero-row probes. **Positive controls:**
      * `customer.name` INSERT and UPDATE, and (C5 C4a) `customer.deleted_at` UPDATE, accepted. **Anti-vacuity:**
      * `customer.deleted_at` INSERT, `customer.credit_limit` UPDATE (owner Q-C2) and `customer` DELETE refused. **C3 (`customer_address`):**
      * `address_line` INSERT and UPDATE accepted; `region` INSERT (not accepted, defaulted), `idempotency_key` UPDATE
-     * (a stored key re-pointed by SQL) and `customer_address` DELETE refused. **Planted control, committed then undone:**
+     * (a stored key re-pointed by SQL) refused; `customer_address` DELETE refused until customers slice 2 C3 and accepted
+     * since (moved deliberately). **Planted control, committed then undone:**
      * `GRANT UPDATE (is_active) ON customer` (moved off `deleted_at` at C5 C4a, which is now written; design mutation C2-6's
      * twin) must produce exactly one violation. The UPDATE
      * columns also make `UpdateCustomer`'s `FOR NO KEY UPDATE` legal (A4.3 constraint 1).
@@ -1139,8 +1144,11 @@ final class GrantFootprintTest extends TenancyTestCase
             'erp_app must not insert an archived customer, set its credit limit or delete it, and the probe did not see them refused.');
         self::assertSame(['accepted', 'accepted'], [$outcomes['customer_address.address_line INSERT'] ?? null, $outcomes['customer_address.address_line UPDATE'] ?? null],
             'The positive controls failed: erp_app could not insert or update customer_address.address_line.');
-        self::assertSame(['refused', 'refused', 'refused'], [$outcomes['customer_address.region INSERT'] ?? null, $outcomes['customer_address.idempotency_key UPDATE'] ?? null, $outcomes['customer_address.* DELETE'] ?? null],
-            'erp_app must not write an address region, re-point a stored retry key or delete an address, and the probe did not see them refused.');
+        self::assertSame(['refused', 'refused'], [$outcomes['customer_address.region INSERT'] ?? null, $outcomes['customer_address.idempotency_key UPDATE'] ?? null],
+            'erp_app must not write an address region or re-point a stored retry key, and the probe did not see them refused.');
+        // Moved deliberately 2026-10-19 (customers slice 2 C3): `customer_address` DELETE was refused here since C3 of slice 1
+        // and is ACCEPTED now (`DeleteCustomerAddress`, `CUSTOMER_TABLE_DELETES`). `customer` DELETE stays refused above.
+        self::assertSame('accepted', $outcomes['customer_address.* DELETE'] ?? null, 'erp_app cannot delete an address, which DeleteCustomerAddress needs.');
         // Customers slice 2 C1: the contact table.
         self::assertSame(['accepted', 'accepted'], [$outcomes['customer_contact.name INSERT'] ?? null, $outcomes['customer_contact.name UPDATE'] ?? null],
             'The positive controls failed: erp_app could not insert or update customer_contact.name.');

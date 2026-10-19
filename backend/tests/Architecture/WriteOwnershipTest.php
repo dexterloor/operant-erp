@@ -213,7 +213,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // `FOR NO KEY UPDATE`, its key read `FOR KEY SHARE` and its row `FOR NO KEY UPDATE` are locks this scan excludes.
         // **10 -> 11 on 2026-10-19** (customers slice 2 C2), PREDICTED, confirmed off this test's run:
         // `CustomerContactWriter::DELETE` (`DeleteCustomerContact`; the table is Customers').
-        'Modules\\Customers' => 11,
+        // **11 -> 12 on 2026-10-19** (customers slice 2 C3), PREDICTED, confirmed off this test's run:
+        // `CustomerAddressWriter::DELETE` (`DeleteCustomerAddress`). The address key read's new `FOR KEY SHARE` is a lock this
+        // scan excludes.
+        'Modules\\Customers' => 12,
         // **6 -> 8 on 2026-09-22** with `DepleteStock` (sales step 5, commit 1), read off this test's own
         // failure: `StockDepleter`'s one `INSERT INTO stock_movement` and one conditional `UPDATE stock_level`.
         // The reason-to-writer binding that pin used to be credited with is NOT this count -- see

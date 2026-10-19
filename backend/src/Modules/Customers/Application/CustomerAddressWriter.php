@@ -32,7 +32,8 @@ use Symfony\Component\Uid\Uuid;
  *     no trim, final RED L-2; `kind` ∈ {billing, shipping}; country code shape);
  *  2. the parent, read {@see self::PARENT_KEY_SHARE} (C5 C4b): absent or another workspace's → 404. **An archived
  *     customer is found here** (final RED L-4 (a)), so its refusal is step 4's 409, not a 404;
- *  3. **the key** (`unique:customer_address_idem_unique`, header-sourced, NOT NULL, TOTAL — the table is `hard`): the same
+ *  3. **the key** — read by ONE locked statement since customers slice 2 C3 ({@see self::KEY_READ}, `FOR KEY SHARE`, so a
+ *     retry racing a delete waits and then creates afresh) — (`unique:customer_address_idem_unique`, header-sourced, NOT NULL, TOTAL — the table is `hard`): the same
  *     key with the same digest replays the stored row (201), with another digest → 409 `idempotency-key-conflict`. The
  *     digest covers the **path's customer id** plus the shape-checked values (`SalesOrderWriter::lineDigest()`'s rule,
  *     L-4 (b)), so the same key sent to another customer is a conflict, never a replay of that customer's address. The
@@ -53,6 +54,13 @@ use Symfony\Component\Uid\Uuid;
  *     its `flush()` — an identical retry that lost the race got HTTP 500 "The EntityManager is closed." instead of the
  *     replay; the conflict branch was right only because its 409 escaped before the `flush()`. Found by the stock count
  *     build's D-1 measurement; `docs/session13/reread-defect-progress.md`. `NoRunAfterAFailedRunTest` now refuses the shape.)*
+ *
+ * **Delete** (customers slice 2 C3, design R2.2's prescribed shape): uuid shape 404 → the parent, read
+ * {@see self::PARENT_KEY_SHARE} → an **unlocked** pair read (404) → archived 409 → {@see self::DELETE} → **0 rows → 404, no
+ * audit row; 1 row → `customer_address.deleted {"customer_id"}` → 204, no body.** The parent lock here is `FOR KEY SHARE`,
+ * which does not serialise two deletes of one address, so the second waits at the DELETE's row lock and finds 0 rows: the
+ * rowcount check is what keeps it to one trail row (mutation M3-7, real evidence for addresses). **No statement reads
+ * Sales' open work and no order is touched** (design §4.1): an order holds a snapshot of its ship-to.
  *
  * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C4b), then the pair `(customer, address)`, the address read `FOR NO KEY UPDATE` (404 for an absent parent, a foreign
  * one, or another customer's address — ST-5) → archived customer 409 → shape → country support → the **changed** fields
@@ -88,6 +96,20 @@ final readonly class CustomerAddressWriter
     public const ARCHIVED_ON_CREATE = 'This customer is archived, so no address can be added to it until it\'s restored.';
 
     public const ARCHIVED_ON_UPDATE = 'This customer is archived, so its addresses can\'t be changed until it\'s restored.';
+
+    public const ARCHIVED_ON_DELETE = 'This customer is archived, so its addresses can\'t be removed until it\'s restored.';
+
+    /**
+     * The locked key read (customers slice 2 C3, design R2.3; RED H-2): the served columns plus the two the replay decision
+     * needs, in ONE statement, `FOR KEY SHARE`. That lock conflicts with a DELETE's row lock, so an identical retry arriving
+     * while a delete of its address is uncommitted WAITS, then sees the row gone and creates afresh (owner Q-4, G-49), instead
+     * of replaying a doomed row from its snapshot. It does not conflict with `UpdateCustomerAddress`'s `FOR NO KEY UPDATE`.
+     * Legal because `erp_app` holds column UPDATE on the table (`Version20261009000500`).
+     */
+    public const KEY_READ = 'SELECT '.CustomerAddressReader::COLUMNS.', customer_id, request_digest FROM customer_address WHERE idempotency_key = ? FOR KEY SHARE';
+
+    /** `DeleteCustomerAddress`'s one DELETE (customers slice 2 C3): the pair names the row. */
+    public const DELETE = 'DELETE FROM customer_address WHERE id = ?::uuid AND customer_id = ?::uuid';
 
     public const KIND_UNKNOWN = 'An address is either a shipping address or a billing address.';
 
@@ -232,6 +254,42 @@ final readonly class CustomerAddressWriter
         });
     }
 
+    public function delete(string $customerId, string $addressId): void
+    {
+        if (!Uuid::isValid($customerId) || !Uuid::isValid($addressId)) {
+            throw ApiProblem::notFound();
+        }
+        $customerId = Uuid::fromString($customerId)->toRfc4122();
+        $addressId = Uuid::fromString($addressId)->toRfc4122();
+
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($customerId, $addressId, $identity): void {
+            $connection = $em->getConnection();
+            $archived = self::parentArchivedInside($em, $customerId) ?? throw ApiProblem::notFound();
+            // Unlocked: the DELETE below takes the row lock. Another customer's address is the same 404 (ST-5, S-6.1).
+            if (false === $connection->fetchOne('SELECT 1 FROM customer_address WHERE id = ?::uuid AND customer_id = ?::uuid', [$addressId, $customerId])) {
+                throw ApiProblem::notFound();
+            }
+            if ($archived) {
+                throw ApiProblem::businessRuleViolated('customer.is_archived', self::ARCHIVED_ON_DELETE);
+            }
+
+            // 0 rows: a concurrent delete of the same address won (it held the row; this one waited and found it gone).
+            if (1 !== (int) $connection->executeStatement(self::DELETE, [$addressId, $customerId])) {
+                throw ApiProblem::notFound();
+            }
+
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                addressId: $addressId,
+                customerId: $customerId,
+            );
+        });
+    }
+
     /**
      * The wire names whose submitted value differs from the locked row, sorted ascending: every field compared as an exact
      * string — no trim, no case folding (the stored-as-sent rule).
@@ -267,25 +325,27 @@ final readonly class CustomerAddressWriter
     }
 
     /**
-     * The address this key already created, or null. A digest mismatch — another body **or another customer**, since the
-     * path id is digested — is §6.2's 409, thrown before anything is written.
+     * The address this key already created, or null — ONE locked statement ({@see self::KEY_READ}), the view built from that
+     * row (customers slice 2 C3; until then this was an unlocked key read followed by a second read of the row, so a retry
+     * racing a delete could replay an address that was being removed). A digest mismatch — another body **or another
+     * customer**, since the path id is digested — is §6.2's 409, thrown before anything is written and carrying nothing of
+     * the stored row (SEC S-6.3).
      */
     private static function createdByKeyInside(EntityManagerInterface $em, string $customerId, string $keyHash, string $digest): ?CustomerAddressView
     {
-        $row = $em->getConnection()->fetchAssociative(
-            'SELECT id, request_digest FROM customer_address WHERE idempotency_key = ?',
-            [$keyHash],
-        );
+        $row = $em->getConnection()->fetchAssociative(self::KEY_READ, [$keyHash]);
         if (false === $row) {
             return null;
         }
         if (!hash_equals((string) $row['request_digest'], $digest)) {
             throw ApiProblem::idempotencyKeyConflict();
         }
+        // Unreachable while the digest carries the customer id; thrown before any view of another customer's row is built.
+        if ((string) $row['customer_id'] !== $customerId) {
+            throw new \LogicException('An address found by its key and digest belongs to another customer: the digest no longer carries the customer id.');
+        }
 
-        // The digest carries the customer id, so a match is an address of THIS customer.
-        return CustomerAddressReader::readInside($em, $customerId, (string) $row['id'])
-            ?? throw new \LogicException('An address found by its key is not readable in the same transaction.');
+        return CustomerAddressReader::view($row);
     }
 
     /**

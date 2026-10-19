@@ -620,9 +620,11 @@ final class SchemaManifest
             // Customers slice 1 C3 (2026-10-09, Version20261009000500): CustomerAddressWriter's one INSERT and one UPDATE, both
             // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). region is in neither (not accepted, not
             // served; defaulted). idempotency_key and request_digest are INSERT-only, so SQL as erp_app cannot re-point a stored
-            // key at another request. No DELETE: DeleteCustomerAddress is not built. Declared explicitly so erp_ai keeps exactly
+            // key at another request. DELETE: customers slice 2 C3 (2026-10-19, Version20261019000700), DeleteCustomerAddress's one
+            // hard DELETE (table-level; Postgres has no column DELETE), with its RLS-DELETE test
+            // TenantIsolationTest::erpAppCannotDeleteAnotherTenantsCustomerAddress. Declared explicitly so erp_ai keeps exactly
             // its inherited SELECT.
-            'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'DELETE'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'customer_id', 'kind', 'address_line', 'city', 'postal_code', 'country_code', 'idempotency_key', 'request_digest'],
                 'UPDATE' => ['kind', 'address_line', 'city', 'postal_code', 'country_code', 'updated_at'],

@@ -1053,6 +1053,16 @@ trait OperationSuccessRecipes
 
                 return [204, 'remove a customer contact'];
             }],
+            // Customers slice 2, C3: seeds an address, removes it; 204, no body.
+            'DeleteCustomerAddress' => [function (): array {
+                $customer = $this->seedCustomer(self::TENANT_A, 'Recipe Unaddressed Customer');
+
+                return ['customer' => $customer, 'address' => $this->seedCustomerAddress(self::TENANT_A, $customer)];
+            }, function (array $c): array {
+                $this->send('DELETE', '/customers/'.$c['customer'].'/addresses/'.$c['address']);
+
+                return [204, 'remove a customer address'];
+            }],
             // Users slice 1, C3 (RED M-1): a subject holding nothing, and a workspace seeded with two composed roles that
             // conflict pairwise (`purchase_order.create` / `goods_receipt.create`, SoD-2) and a margin pair
             // (`purchase_order.view` / `invoice.view`), so `ResponseShapeTest`'s walker examines an expansion at

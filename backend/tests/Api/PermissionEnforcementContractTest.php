@@ -168,6 +168,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'ListCustomerContacts' => 'customer.view',
         // Customers slice 2 C2 (2026-10-19): the child's delete is `customer.edit` too (SEC S-3; PC-9 clarification).
         'DeleteCustomerContact' => 'customer.edit',
+        // Customers slice 2 C3 (2026-10-19): the address delete is `customer.edit` too (SEC S-3).
+        'DeleteCustomerAddress' => 'customer.edit',
         'ListRoles' => 'role.view',
         'CreateItem' => 'inventory_item.create',
         'UpdateItem' => 'inventory_item.edit',

@@ -1405,8 +1405,8 @@ final readonly class SalesOrderWriter
      *
      * **It is an application check and a composite foreign key was rejected** (2026-09-19): this schema has
      * no three-column foreign key, `customer_address` carries no unique for one to reference, a `soft` row
-     * may not reference a `hard` one (`SchemaManifest.php:70-71`), and `DeleteCustomerAddress` is a declared
-     * operation the key would break forever.
+     * may not reference a `hard` one (`SchemaManifest.php:70-71`), and `DeleteCustomerAddress` is a built
+     * operation the key would break forever (*"declared"* until customers slice 2 C3, 2026-10-19, built it).
      *
      * ⚠ **The residual this leaves is `RESIDUAL_GAPS.md` F-10, and the OWNER accepted it on 2026-09-19**
      * (`docs/session11/output9-sales-1-ruling.md`, section *"⚖ OWNER RULING — O-1 and F-10, 2026-09-19"*):
@@ -1418,6 +1418,9 @@ final readonly class SalesOrderWriter
      * (whose only protection is a docblock — the promise-in-prose shape this session rejected twice — and
      * which proves identity, never content, so it would not catch this bug class anyway). **Do not add
      * either.**
+     *
+     * Unlocked on purpose: an order may snapshot an address whose delete commits in the same instant; the snapshot is
+     * then correct as of its read, which is the design (customers slice 2 §4.1). Do not add a lock.
      *
      * `region` is **not** snapshotted: `customer_address.region` exists and `sales_order` has no column for
      * it. Recorded as an accepted omission (O-5) rather than discovered later.

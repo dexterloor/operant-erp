@@ -281,7 +281,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (customers slice 2 C2, 2026-10-19):** `DeleteCustomerContact` (DELETE `/customers/{id}/contacts/{contactId}`,
         // `customer.edit`; branch 3, 204) on `CustomerContactResource`. Its migration grants `erp_app` table DELETE on
         // `customer_contact`.
-        self::assertCount(104, $checked, 'The route set changed. This slice declares one hundred and four operations: '.implode(', ', array_keys($checked)));
+        // **And one more (customers slice 2 C3, 2026-10-19):** `DeleteCustomerAddress` (DELETE `/customers/{id}/addresses/{addressId}`,
+        // `customer.edit`; branch 3, 204) on `CustomerAddressResource`. Its migration grants `erp_app` table DELETE on
+        // `customer_address`.
+        self::assertCount(105, $checked, 'The route set changed. This slice declares one hundred and five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**
