@@ -164,30 +164,6 @@ final class DenialCapStorageTest extends TenancyTestCase
 
         $this->tenantContext()->run(self::TENANT_A, function (): void {
 
-            // Today's denials, spread over the catalogue's worth of codes. The
-            // `g % CODES` distribution is what makes permission_code a real
-            // discriminator rather than a column with one value in it.
-            //
-            // `metadata` carries the same code as well as the column, on
-            // purpose: that is the rejected design -- `API.md` §9.4a's plan A --
-            // and `theSameReadBackOverMetadataIsUnbounded` cannot compare the
-            // two plans unless the rejected one can actually find its rows. It
-            // is a fixture reproducing a design this schema refuses, not a
-            // pattern for any writer: PC-11 reads `metadata` as
-            // colleague-visible content and E-3a's key does not live there.
-            $this->app()->executeStatement(<<<'SQL'
-                INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, permission_code, metadata)
-                SELECT gen_random_uuid(), ?::uuid,
-                       date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + (g || ' milliseconds')::interval,
-                       ?, ?::uuid, 'Probe',
-                       CASE WHEN g % ? = 0 THEN ? ELSE 'other.code.' || (g % ?) END,
-                       jsonb_build_object('permission_code',
-                           CASE WHEN g % ? = 0 THEN ? ELSE 'other.code.' || (g % ?) END)
-                FROM generate_series(1, ?) g
-                SQL, [self::TENANT_A, AuditEvent::AUTHZ_PERMISSION_DENIED, self::ACTOR,
-                    self::CODES, self::CODE, self::CODES,
-                    self::CODES, self::CODE, self::CODES, self::DENIALS_TODAY]);
-
             // The rows the partial predicate excludes. The project's own fixture
             // models audit_log as ~98% business events; without them here the
             // partial index would be doing nothing the total index could not.
@@ -216,6 +192,36 @@ final class DenialCapStorageTest extends TenancyTestCase
                        ?, ?::uuid, 'Other', ?
                 FROM generate_series(1, ?) g
                 SQL, [self::TENANT_A, AuditEvent::AUTHZ_PERMISSION_DENIED, self::OTHER_ACTOR, self::CODE, self::DENIALS_OTHER_ACTOR]);
+
+            // **Inserted LAST, so the heap holds the history before today's denials** (audit reads C1, 2026-10-21). Until
+            // then the matching rows sat at the head of the heap; that was invisible while the planner read the rejected plan
+            // through `audit_log_tenant_event_idx`, but C1 rebuilt that index four columns wide (`…, occurred_at, id`), the
+            // planner's cost for it rose, and it chose a Seq Scan — which met two matching rows within the first 120 tuples
+            // and read 4 buffers, below the bounded plan's 5. A heap where today's rows come after older traffic is the
+            // realistic one; the rejected plan's work is then what it really is, whichever scan the planner picks.
+            // Today's denials, spread over the catalogue's worth of codes. The
+            // `g % CODES` distribution is what makes permission_code a real
+            // discriminator rather than a column with one value in it.
+            //
+            // `metadata` carries the same code as well as the column, on
+            // purpose: that is the rejected design -- `API.md` §9.4a's plan A --
+            // and `theSameReadBackOverMetadataIsUnbounded` cannot compare the
+            // two plans unless the rejected one can actually find its rows. It
+            // is a fixture reproducing a design this schema refuses, not a
+            // pattern for any writer: PC-11 reads `metadata` as
+            // colleague-visible content and E-3a's key does not live there.
+            $this->app()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, permission_code, metadata)
+                SELECT gen_random_uuid(), ?::uuid,
+                       date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + (g || ' milliseconds')::interval,
+                       ?, ?::uuid, 'Probe',
+                       CASE WHEN g % ? = 0 THEN ? ELSE 'other.code.' || (g % ?) END,
+                       jsonb_build_object('permission_code',
+                           CASE WHEN g % ? = 0 THEN ? ELSE 'other.code.' || (g % ?) END)
+                FROM generate_series(1, ?) g
+                SQL, [self::TENANT_A, AuditEvent::AUTHZ_PERMISSION_DENIED, self::ACTOR,
+                    self::CODES, self::CODE, self::CODES,
+                    self::CODES, self::CODE, self::CODES, self::DENIALS_TODAY]);
         });
 
         // ANALYZE is an owner operation. Without it the planner works from

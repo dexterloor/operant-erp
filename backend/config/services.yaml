@@ -85,6 +85,10 @@ services:
             - '../src/Modules/Inventory/ApiResource/CreateStockAdjustmentInput.php'
             # Stock transfer C1: the transfer's request body — data, not a service.
             - '../src/Modules/Inventory/ApiResource/CreateStockTransferInput.php'
+            # Audit reads C1 (2026-10-21): the trail's read model, its page and its criteria, and the actor reference —
+            # data, not services. `AuditLogEntryCollection` is NOT excluded, for `ItemResource`'s reason.
+            - '../src/Modules/AuditLog/Application/{AuditLogEntryView.php,AuditLogPage.php,AuditLogListCriteria.php}'
+            - '../src/Modules/AuditLog/ApiResource/AuditActorReference.php'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would

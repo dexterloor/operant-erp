@@ -112,6 +112,14 @@ final class WireScaleTest extends PurchaseOrderTestCase
             'The walker does not find a decimal string at depth, or does not collapse list indices.');
         self::assertSame(['$.loose'], $numeric, 'The walker does not report a decimal that arrived as a JSON number.');
 
+        // Control 1b (audit reads C1, M-2) — an entry's opaque `metadata` is not recorded into the artefact, but a scale-4
+        // decimal there is caught; a `metadata_x` beside it is an ordinary field.
+        $planted = $numeric = $money = [];
+        self::walk(['items' => [['metadata' => ['counted_quantity' => '1.000000', 'nested' => ['cost' => '1.0000']], 'metadata_x' => '2.0000']]],
+            '$', $planted, $numeric, $money);
+        self::assertSame(['$.items[].metadata_x' => [4]], $planted, 'The walker recorded an opaque metadata decimal, or skipped a sibling.');
+        self::assertSame(['$.items[].metadata.nested.cost'], $money, 'The walker missed a planted money amount inside metadata.');
+
         $prepared = [];
         foreach ($recipes as $name => [$prepare]) {
             $prepared[$name] = $prepare();
@@ -119,6 +127,7 @@ final class WireScaleTest extends PurchaseOrderTestCase
 
         $observed = [];
         $floats = [];
+        $moneyInMetadata = [];
         $bodiesRead = 0;
 
         foreach ($recipes as $name => [, $drive]) {
@@ -130,8 +139,11 @@ final class WireScaleTest extends PurchaseOrderTestCase
             }
             ++$bodiesRead;
 
-            $fields = $numbers = [];
-            self::walk($body, '$', $fields, $numbers);
+            $fields = $numbers = $money = [];
+            self::walk($body, '$', $fields, $numbers, $money);
+            foreach ($money as $path) {
+                $moneyInMetadata[] = $name.' '.$path;
+            }
 
             foreach ($fields as $path => $scales) {
                 $observed[$name.' '.$path] = $scales;
@@ -150,6 +162,11 @@ final class WireScaleTest extends PurchaseOrderTestCase
         // a check over both.
         self::assertContains(6, array_merge(...array_values($observed)), 'No field emitted a quantity at numeric(19,6).');
         self::assertContains(4, array_merge(...array_values($observed)), 'No field emitted money at numeric(19,4).');
+
+        self::assertSame([], $moneyInMetadata,
+            'An audit entry\'s opaque metadata carries a scale-4 decimal — a money amount. §4.4.3 says the trail\'s metadata never '
+            .'carries one (PC-12; audit reads C1, final RED M-2): a cost or sale amount there makes ListAuditLogEntries a margin '
+            .'source no derivation sees. '.implode(', ', $moneyInMetadata));
 
         self::assertSame([], $floats,
             'A decimal is carried on the wire as a string (S-12). A field emitted it as a JSON number, which is the float '
@@ -223,14 +240,29 @@ final class WireScaleTest extends PurchaseOrderTestCase
      * @param array<array-key, mixed>    $body
      * @param array<string, list<int>>   $into
      * @param list<string>               $numbers
+     * @param list<string>               $moneyInMetadata scale-4 decimals found inside an audit entry's opaque `metadata`
      */
-    private static function walk(array $body, string $path, array &$into, array &$numbers): void
+    private static function walk(array $body, string $path, array &$into, array &$numbers, array &$moneyInMetadata = []): void
     {
         foreach ($body as $key => $value) {
             $here = \is_int($key) ? $path.'[]' : $path.'.'.$key;
 
             if (\is_array($value)) {
-                self::walk($value, $here, $into, $numbers);
+                self::walk($value, $here, $into, $numbers, $moneyInMetadata);
+                continue;
+            }
+
+            // §4.4.3 (audit reads C1, the M-3 ruling): an audit entry's `metadata` is OPAQUE — outside API-23c, so nothing
+            // under `$.items[].metadata` is recorded into the artefact (its decimals are the writers', at any scale). **But
+            // it never carries a money amount (PC-12; final RED M-2):** a scale-4 decimal there would make the trail a margin
+            // source `MarginSourcesDerivationTest` cannot see, so it is collected here and refused by the caller.
+            if (str_starts_with($here, '$.items[].metadata.') || '$.items[].metadata' === $here) {
+                if (\is_string($value) && 1 === preg_match(self::DECIMAL, $value, $parts) && 4 === \strlen($parts[1] ?? '')) {
+                    $moneyInMetadata[] = $here;
+                }
+                if (\is_float($value)) {
+                    $numbers[] = $here;
+                }
                 continue;
             }
 

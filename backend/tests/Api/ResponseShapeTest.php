@@ -159,6 +159,27 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * form of the `StockMovement` mutation item 11 names, which becomes runnable
      * when Output 9 builds `StockMovement`.
      */
+    /**
+     * **H-1's planted control (audit reads C1):** a `List` cell's plural resolves to its singular through ONE rule in both
+     * lookups — {@see self::resourceOf()} (which resource a read names) and {@see self::listsResource()} (which envelope
+     * {@see self::dtoClassOf()} reads the DTO beside). `-ies → -y` is the case the old `s?$` envelope match missed.
+     * Mutation M13 (revert `dtoClassOf()` to its own `s?$` match): `everyDeclaredFieldIsDerivedOrDeclaredAsAnAddition`
+     * goes red with *"AuditLogEntry is not serialized from exactly one DTO class: [] and no AuditLogEntryResource…"*.
+     */
+    #[Test]
+    public function theListSingularisationIsOneRuleForBothLookups(): void
+    {
+        self::assertSame('XEntry', self::resourceOf('List / XEntries', ['XEntry', 'Item']));
+        self::assertSame('Item', self::resourceOf('List / Items', ['XEntry', 'Item']));
+        self::assertTrue(self::listsResource('List / XEntries', 'XEntry'));
+        self::assertTrue(self::listsResource('List / Items', 'Item'));
+        self::assertTrue(self::listsResource('List / Addresses', 'Address'));
+        self::assertTrue(self::listsResource('List / Stock', 'Stock'), 'An uncountable list name names itself.');
+        self::assertFalse(self::listsResource('List / XEntries', 'XEntr'), 'A stem that is no singular candidate is not the singular.');
+        self::assertFalse(self::listsResource('Get / Item', 'Item'), 'Only a List cell is a list envelope.');
+        self::assertFalse(self::listsResource('List / Items', 'Ite'), 'A prefix of the singular is not the singular.');
+    }
+
     #[Test]
     public function everyReadResourceHasANonEmptyExpectation(): void
     {
@@ -498,6 +519,17 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'bare' === $p[0]), 'The walker missed a planted bare supplier_id.');
         self::assertCount(1, array_filter($planted, static fn (array $p): bool => 'expansion' === $p[0]), 'The walker missed a planted expansion.');
 
+        // Control — the opaque-`metadata` exemption (audit reads C1, M-3) is by PATH: an entry's `metadata` is skipped, a
+        // `metadata_x` beside it and a `metadata` outside `$.items[n]` are still walked (mutation M15 narrows it → red).
+        $planted = [];
+        self::walkReferences(['items' => [['metadata' => ['customer_id' => 'x', 'role' => ['id' => 'r']], 'metadata_x' => ['customer_id' => 'x']]],
+            'metadata' => ['customer_id' => 'x']], '$', $nested, $planted);
+        self::assertSame(['$.items[0].metadata_x.customer_id', '$.metadata.customer_id'],
+            array_column(array_filter($planted, static fn (array $p): bool => 'bare' === $p[0]), 1),
+            'The opaque-metadata exemption is not exactly $.items[n].metadata.');
+        self::assertSame([], array_filter($planted, static fn (array $p): bool => 'expansion' === $p[0]),
+            'An object inside an entry\'s opaque metadata was read as a reference expansion.');
+
         // Clause (ii)'s table, read from the ruling's own text rather than written
         // here. This match is also clause (ii)'s rule-text assertion.
         $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '));
@@ -725,6 +757,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         foreach ($value as $key => $member) {
             $key = (string) $key;
+            // §4.4.3 (audit reads C1, the M-3 ruling, `SEC` + `PO`): an audit entry's `metadata` is an OPAQUE server-written
+            // object, outside API-23b — exempt by PATH (`$.items[n].metadata`), never by key name, so a `metadata_x` member or
+            // a `metadata` anywhere else is still walked. Controlled in `everyReferenceIsExpanded()`.
+            if ('metadata' === $key && 1 === preg_match('/^\$\.items\[\d+\]$/', $where)) {
+                continue;
+            }
             if (str_ends_with($key, '_id') && !\in_array($key, ['subject_id', 'source_id', ...self::SIBLING_ROW_IDS], true)) {
                 $found[] = ['bare', $where.'.'.$key, $member];
             }
@@ -1247,6 +1285,19 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         return null;
     }
 
+    /**
+     * **Whether a `List / <Plural>` cell lists `$resource`** — through {@see self::singularsOf()}, the ONE singulariser
+     * {@see self::resourceOf()} also uses (audit reads C1, design H-1; final RED L-2). Until C1 {@see self::dtoClassOf()} matched
+     * the envelope with its own `'/^List \/ '.$resource.'s?$/'`, which never matches an `-ies` plural: `List / AuditLogEntries`
+     * resolved to `AuditLogEntry` in `resourceOf()` and to no DTO here. Controlled in
+     * {@see self::theListSingularisationIsOneRuleForBothLookups()}.
+     */
+    public static function listsResource(string $verbResource, string $resource): bool
+    {
+        return 1 === preg_match('/^List \/ ([A-Za-z]+)$/', $verbResource, $m)
+            && ($m[1] === $resource || \in_array($resource, self::singularsOf($m[1]), true));
+    }
+
     /** @return list<string> the `-s`, `-es` and `-ies → -y` singular candidates of a plural resource name */
     private static function singularsOf(string $plural): array
     {
@@ -1361,7 +1412,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             $verbResource = $rows[$name]['verbResource'] ?? '';
             if (1 === preg_match('/^(?!List )[A-Za-z]+ \/ '.$resource.'$/', $verbResource)) {
                 $classes[] = $operation->getOutput()['class'] ?? $operation->getClass();
-            } elseif (1 === preg_match('/^List \/ '.$resource.'s?$/', $verbResource)) {
+            } elseif (self::listsResource($verbResource, $resource)) {
                 $listEnvelopes[] = $operation->getOutput()['class'] ?? $operation->getClass();
             }
         }
@@ -1454,11 +1505,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             return $name;
         }
 
-        $candidates = array_intersect([
-            (string) preg_replace('/s$/', '', $name),
-            (string) preg_replace('/es$/', '', $name),
-            (string) preg_replace('/ies$/', 'y', $name),
-        ], $known);
+        $candidates = array_intersect(self::singularsOf($name), $known);
         $candidates = array_values(array_unique($candidates));
 
         self::assertCount(1, $candidates, \sprintf('"%s" does not resolve to exactly one singular resource another row names.', $verbResource));

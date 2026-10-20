@@ -890,6 +890,17 @@ trait OperationSuccessRecipes
 
                 return [200, 'list stock movements, newest first'];
             }],
+            // Audit reads C1 (design R1.3; final RED M-3): rows whose `metadata` carries bare `*_id` keys of several names
+            // (`customer_id`; `role_id`, `proposal_id`, `proposed_by_user_id`), a decimal (`counted_quantity`), and a security
+            // row with an IP, so `ResponseShapeTest`'s and `WireScaleTest`'s opaque-`metadata` exemptions are exercised on
+            // real bodies (mutation M15 narrows the walker's exemption to `customer_id` → red on the `role.assigned` row).
+            // Read through `?actor_user_id=` of the rows' own actor: every other recipe writes trail rows at `now()`, and on the
+            // unfiltered first page they would push these four off it (found by mutation M2b going GREEN).
+            'ListAuditLogEntries' => [fn (): array => $this->seedRecipeAuditTrail(), function (array $c): array {
+                $this->send('GET', '/audit-log?actor_user_id='.$c['actor']);
+
+                return [200, 'list the audit trail, newest first'];
+            }],
             'GetStockMovement' => [fn (): array => $this->seedRecipeMovements('Recipe Read Movement Warehouse'), function (array $c): array {
                 $this->send('GET', '/stock-movements/'.$c['movement']);
 
@@ -1257,6 +1268,36 @@ trait OperationSuccessRecipes
      * Stock reads C2: a receipt's two lines sharing one instant and one shipment line, as the owner (no `src/` path inserts a
      * movement but the three stock writers). @return array{movement: string} the shipment's movement id
      */
+    /**
+     * Audit reads C1: four trail rows by a dedicated user, at their own instants, by owner INSERT — a denial-free
+     * security row with an IP, and three business rows whose opaque `metadata` carries bare `*_id` keys and a decimal.
+     *
+     * @return array<string, string>
+     */
+    private function seedRecipeAuditTrail(): array
+    {
+        $uuid = static fn (): string => \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+        // A user of its own, so the filtered read returns exactly these rows and nothing another recipe wrote.
+        $actor = $uuid();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Recipe Auditor')",
+            [$actor, self::TENANT_A, 'recipe-audit-'.$actor.'@example.test']);
+        $rows = [
+            ['auth.login.failure', null, null, '{}', '203.0.113.9', '2026-03-01 09:00:00+00'],
+            ['customer_contact.deleted', 'customer_contact', $uuid(), json_encode(['customer_id' => $uuid()]), null, '2026-03-02 09:00:00+00'],
+            ['stock_movement.adjusted', 'stock_movement', $uuid(), json_encode(['counted_quantity' => '4.000000', 'note' => 'Recipe count']), null, '2026-03-03 09:00:00+00'],
+            ['role.assigned', 'app_user', $actor, json_encode(['role_id' => $uuid(), 'proposal_id' => $uuid(), 'proposed_by_user_id' => $actor]), null, '2026-03-04 09:00:00+00'],
+        ];
+        foreach ($rows as [$event, $subjectType, $subjectId, $metadata, $ip, $at]) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, subject_type, subject_id, metadata, ip_address, occurred_at)
+                VALUES (?::uuid, ?::uuid, ?, ?::uuid, 'Fixture Actor', ?, ?::uuid, ?::jsonb, ?::inet, ?::timestamptz)
+                SQL, [$uuid(), self::TENANT_A, $event, $actor, $subjectType, $subjectId, (string) $metadata, $ip, $at]);
+        }
+
+        return ['actor' => $actor];
+    }
+
     private function seedRecipeMovements(string $warehouseName): array
     {
         $bin = $this->seedStorageLocation(self::TENANT_A, $this->seedWarehouse(self::TENANT_A, $warehouseName), 'A-01-MOVE');

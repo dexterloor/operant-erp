@@ -140,6 +140,40 @@ final class LoginAuditCapTest extends AuthTestCase
     }
 
     /**
+     * **V1-S-5b's reader half** (audit reads C1, 2026-10-21): the E-12 marker row is read back through
+     * `ListAuditLogEntries`, as the owner and admins will read it — `metadata.suppression_started === true` on the newest
+     * of the day's twenty-one rows, `{}` on the other twenty, newest first, filtered by `event_type`. The alert half (a
+     * job that raises it to someone) still waits for a job runner (`API.md` §15.1). *Mutation M8 (strip `metadata` from the
+     * entry): red here.*
+     */
+    #[Test]
+    public function theMarkerIsReadBackThroughTheAuditTrail(): void
+    {
+        $slug = self::SLUG_PREFIX.'reader';
+        $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+        $userId = $this->seedUser($tenantId, self::EMAIL, self::PASSWORD);
+        $this->spendTheCap($slug, 'wrong');
+        $this->expirePause($slug, self::EMAIL);
+        $this->signIn($slug, self::EMAIL, 'wrong'); // C+2: silent, no row.
+
+        $this->actAs($tenantId, ['audit_log.view']);
+        $this->send('GET', '/audit-log?event_type='.AuditEvent::AUTH_LOGIN_FAILURE);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $items = $this->json()['items'];
+        self::assertCount(self::PINNED_CEILING + 1, $items, 'The trail does not serve C ordinary rows plus the marker.');
+        self::assertSame(['suppression_started' => true], $items[0]['metadata'], 'The newest row of the day is not the marker.');
+        foreach (\array_slice($items, 1) as $i => $row) {
+            self::assertSame([], $row['metadata'], sprintf('Row %d below the marker carries metadata.', $i + 2));
+        }
+        foreach ($items as $row) {
+            self::assertSame(AuditEvent::AUTH_LOGIN_FAILURE, $row['event_type']);
+            self::assertSame($userId, $row['actor']['id'] ?? null);
+            self::assertNotNull($row['ip_address'], 'A sign-in failure is a security event; its address is served on the trail.');
+        }
+    }
+
+    /**
      * E-12: *"counted over the union of `auth.login.failure` and
      * `auth.login.tenant_inactive`"*, so the two branches fall silent together.
      *
@@ -318,9 +352,10 @@ final class LoginAuditCapTest extends AuthTestCase
      * three attempts really are C, C+1 and C+2 (the counter), and exactly two of
      * them wrote (so the comparison straddles the marker and the silence).
      *
-     * The marker has **no reader yet** (`ListAuditLogEntries` is unbuilt; its
-     * reader and alert are V1-S-5b's). This test pins only that the caller cannot
-     * see the cap.
+     * The marker's **reader** is `ListAuditLogEntries` since audit reads C1
+     * ({@see self::theMarkerIsReadBackThroughTheAuditTrail()}); its **alert** is
+     * still V1-S-5b's, owed to a job runner. This test pins only that the caller
+     * cannot see the cap.
      *
      * *Mutations (cache deleted before and after):* a header (`X-B4-Marker`) and,
      * separately, a `detail` member added to the refusal at C+1 only — each GREEN

@@ -513,6 +513,27 @@ trait ListOperationFixtures
                     return ['filter' => ['inventory_item_id' => $item], 'search' => null, 'views' => ['', 'inventory_item_id='.$item]];
                 }];
             },
+            'ListAuditLogEntries' => function (): array {
+                // Audit reads C1. N rows by ONE actor of ONE event type, each at its own whole second, by owner INSERT; all
+                // three views (the whole trail, the actor's, the event type's) hold every row. One order per view, newest
+                // first (no `sort`, §14.2 item 30). The actor is a user of its own, so the trail the setup itself writes
+                // (a denial, a sign-in) never lands in the filtered views.
+                $actor = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Envelope Actor')",
+                    [$actor, self::TENANT_A, 'envelope-'.$actor.'@example.test']);
+
+                return ['/audit-log', function (int $rows) use ($actor): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            "INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, occurred_at) VALUES (?::uuid, ?::uuid, 'purchase_order.cancelled', ?::uuid, 'Envelope Actor', ?::timestamptz)",
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $actor, \sprintf('2026-01-%02dT00:00:00+00:00', $i)]);
+                    }
+
+                    return ['filter' => ['actor_user_id' => $actor], 'search' => null,
+                        'views' => ['', 'actor_user_id='.$actor, 'event_type=purchase_order.cancelled']];
+                }];
+            },
             'ListCustomerAddresses' => function (): array {
                 // Customers slice 1 C3. One customer; the seed step gives it N addresses with LETTER-bearing postal codes
                 // (CD-3), each its own row (distinct random keys, `seedCustomerAddress()`).

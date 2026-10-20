@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Platform\Security\PermissionGate;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PhpSourceScan;
+use App\Tests\Support\ResidualGapsDocument;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -305,9 +306,34 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_G35_RERATING = [
-        'ListAuditRecords' => 'the record-history read (L-7, `audit_log.view_record`).',
-        'ListAuditLogEntries' => 'the whole-trail read (`audit_log.view`).',
+        'ListAuditRecords' => 'the record-history read (L-7, `audit_log.view_record`) — it must resolve `customer` through PC-9 '
+            .'(`customer.view`), never `"{subject_type}.view"`; this key converts into the implication below in its own commit (C2).',
     ];
+
+    /**
+     * ⚖ **G-35's IMPLICATION** (audit reads C1, 2026-10-21; `docs/session13/audit-reads-owner-q-ruling.md` §2.6 / §5 C1, judge
+     * ruling under the owner's delegation; final RED L-6) — **converted from {@see self::OPERATIONS_OWING_THE_G35_RERATING}'s
+     * `ListAuditLogEntries` key, not emptied** (the {@see self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION} precedent). It
+     * read `'ListAuditLogEntries' => 'the whole-trail read'` and went red when C1 built it; C1 re-rated G-35 **Low** on three
+     * conditions, the first of which is that the trail serves every payment-terms value set, filterable by `event_type`. Now:
+     * `ListAuditLogEntries` is never in the spec without the test that holds that condition
+     * ({@see self::noAuditReadShipsWithoutReRatingG35()}) — and `RESIDUAL_GAPS.md` G-35 still carries the Low ruling line
+     * ({@see self::g35CarriesItsLowRulingWhileTheTrailIsReadable()}). Removing the carrier returns G-35 to Medium.
+     *
+     * **The supplier twin is not mirrored** (G-19 decision, ruling §2.5): the CUSTOMER trail records the terms VALUE since
+     * C0a; the supplier trail still records names only (`SupplierWriteTest::theUpdatedRowCarriesNamesNeverValues`, below),
+     * because supplier terms are credit the tenant receives — a long one favours the tenant.
+     *
+     * @var array<string, list<array{0: class-string, 1: string}>>
+     */
+    private const OPERATIONS_CARRYING_THE_G35_LOW_RATING = [
+        'ListAuditLogEntries' => [
+            [AuditLogReadTest::class, 'theTrailShowsEveryPaymentTermsValueSet'],
+        ],
+    ];
+
+    /** The line G-35 must carry while {@see self::OPERATIONS_CARRYING_THE_G35_LOW_RATING} holds (ruling §2.6, verbatim). */
+    private const G35_LOW_RULING_LINE = '**Low** (`SEC`, judge ruling 2026-10-20';
 
     /**
      * **The supplier twin of G-35's trail, framed as a decision** (customers slice 1 C2, 2026-10-09; judge C-5, C-7).
@@ -319,6 +345,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * … or record a twin gap'` and went red the moment `UpdateSupplier` was built; that commit took the first branch (owner
      * Q-S5: `supplier.created` / `supplier.updated`, field names only, row-locked diff — and ONLY those two, final RED
      * M-A). Now: `UpdateSupplier` is never in the spec without the tests that carry the trail.
+     *
+     * **Diverged deliberately since 2026-10-20 (G-35 (g), C0a; G-19 decision, `audit-reads-owner-q-ruling.md` §2.5):** the
+     * CUSTOMER trail records the payment-terms VALUE; the supplier trail is not mirrored and still records names only —
+     * supplier terms are credit the tenant receives, and a long one favours the tenant.
      *
      * @var array<string, list<array{0: class-string, 1: string}>>
      */
@@ -1172,10 +1202,19 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **`RESIDUAL_GAPS.md` G-35's hard trigger** (customers slice 1 C2; judge FINAL item 10). Red the moment either key of
-     * {@see self::OPERATIONS_OWING_THE_G35_RERATING} is in the generated spec. **Controls, same test:** the positive control
-     * every sibling uses; a non-empty map; and the intersection over a literal map naming a BUILT operation (`ListCustomers`)
-     * must report it. Mutation M-10: plant `ListCustomers` as a key → red naming it.
+     * **`RESIDUAL_GAPS.md` G-35's hard trigger, and since audit reads C1 its IMPLICATION** (customers slice 1 C2; judge FINAL
+     * item 10; C1 conversion, ruling §5). Two halves, one decision:
+     *  - **the pin** — red the moment a key of {@see self::OPERATIONS_OWING_THE_G35_RERATING} (now `ListAuditRecords` only,
+     *    until C2) is in the generated spec;
+     *  - **the implication** — while `ListAuditLogEntries` is in the spec, every test named in
+     *    {@see self::OPERATIONS_CARRYING_THE_G35_LOW_RATING} must exist. It detects a removed or renamed carrier, not a
+     *    weakened one (the supplier-trail implication's limit). Mutation M19: remove the control test → red naming it.
+     *
+     * The name is kept through the conversion: `DELIVERY_LEDGER.md`'s G-35 row runs it by name. **Controls, same test:** the
+     * positive control every sibling uses; a non-empty pin map and a non-empty antecedent; the intersection over a literal map
+     * naming a BUILT operation (`ListCustomers`) must report it; and the antecedent must be BUILT (else the implication holds
+     * over nothing). Mutation M-10: plant `ListCustomers` as a pin key → red naming it. **M12 (review check, not evidence):**
+     * deleting the pin's last key or the implication's carrier list defeats this test by exactly that edit.
      */
     #[Test]
     public function noAuditReadShipsWithoutReRatingG35(): void
@@ -1190,16 +1229,59 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             array_intersect_key(['ListCustomers' => 'x', 'NoSuchOperation' => 'y'], $built),
             'A planted owing operation that IS built was not reported: the intersection is blind.');
 
+        // The implication (C1): the antecedent is built, and every carrier exists.
+        self::assertNotSame([], self::OPERATIONS_CARRYING_THE_G35_LOW_RATING, 'The G-35 implication has no antecedent, so it asserts nothing.');
+        self::assertSame(array_keys(self::OPERATIONS_CARRYING_THE_G35_LOW_RATING),
+            array_keys(array_intersect_key(self::OPERATIONS_CARRYING_THE_G35_LOW_RATING, $built)),
+            'The G-35 implication\'s antecedent is not in the spec, so it holds over nothing: was ListAuditLogEntries removed?');
+        $missing = [];
+        foreach (self::OPERATIONS_CARRYING_THE_G35_LOW_RATING as $operation => $carriers) {
+            foreach ($carriers as [$class, $method]) {
+                if (!method_exists($class, $method)) {
+                    $missing[] = $operation.' is built, and '.$class.'::'.$method.' no longer exists';
+                }
+            }
+        }
+        self::assertSame([], $missing, \sprintf(
+            "%s\n\nRESIDUAL_GAPS.md G-35 is rated Low (judge ruling 2026-10-20 under the owner's delegation) on the condition that the\n"
+            ."audit trail serves every payment-terms value a person sets — `customer.created` {payment_terms_days} and\n"
+            ."`customer.updated` {fields, payment_terms_days: {from, to}} — readable by the owner through ListAuditLogEntries and\n"
+            ."filterable by event_type. That test holds the condition. Restore it, or move its obligation to another named test\n"
+            ."here; removing it returns G-35 to Medium. Record: docs/session13/audit-reads-owner-q-ruling.md §2.6, §5 C1.",
+            implode("\n", $missing),
+        ));
+
         $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_G35_RERATING, $built);
 
         self::assertSame([], $arrived, \sprintf(
             '%s has been built, so the customer trail (`customer.created` / `customer.updated`) is now readable by tenant users. '
-            .'RESIDUAL_GAPS.md G-35 is owed in THIS COMMIT: `SEC` re-rates it, and `PO` + `SEC` decide prevention (owner-gated '
-            .'terms, a role split) or record detection as the control. Also confirm `ListAuditRecords` resolves `customer` '
-            .'through PC-9 (`customer.view`). Do not hand-edit this pin to green. (%s)',
+            .'G-35 was re-rated Low at audit reads C1 (ruling §2.6); this commit owes the key\'s conversion into the implication '
+            .'above and the PC-9 resolution its message names. Do not hand-edit this pin to green. (%s)',
             implode(', ', array_keys($arrived)),
             implode(' ', $arrived),
         ));
+    }
+
+    /**
+     * **The implication's document half** (audit reads C1; final RED L-6: pin both the control test AND the ruling line).
+     * While `ListAuditLogEntries` is in the spec, `RESIDUAL_GAPS.md` G-35 carries {@see self::G35_LOW_RULING_LINE}. A rating
+     * edited away from Low without the implication moving — or the entry renumbered — is red here. Skipped without `docs/`,
+     * like every other reader; the method-existence half above runs everywhere.
+     */
+    #[Test]
+    public function g35CarriesItsLowRulingWhileTheTrailIsReadable(): void
+    {
+        if (!ResidualGapsDocument::isAvailable()) {
+            self::markTestSkipped('docs/RESIDUAL_GAPS.md is gitignored and absent from this checkout; the carrier half runs in noAuditReadShipsWithoutReRatingG35.');
+        }
+
+        self::assertArrayHasKey('ListAuditLogEntries', $this->builtOperationIds(), 'The antecedent is not built, so the ruling line need not hold.');
+        $entry = ResidualGapsDocument::entry('G-35');
+        self::assertNotSame('', $entry, 'RESIDUAL_GAPS.md has no G-35 entry: deleted or renumbered, so the Low rating is unanchored.');
+        self::assertStringContainsString('## G-35 ', $entry, 'Control: the reader did not return the G-35 entry.');
+        self::assertStringContainsString(self::G35_LOW_RULING_LINE, $entry,
+            'RESIDUAL_GAPS.md G-35 no longer carries its Low ruling line while ListAuditLogEntries is built. Either the rating '
+            .'moved (then move the implication with it, deliberately) or the line was edited away.');
     }
 
     /**

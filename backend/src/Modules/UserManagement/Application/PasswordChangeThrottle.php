@@ -69,7 +69,9 @@ use Doctrine\DBAL\Connection;
  * ===========================================================================
  * The probe is bounded, and the bound is stated rather than implied
  * ===========================================================================
- * `audit_log_tenant_actor_idx` is `(tenant_id, actor_user_id, occurred_at)`.
+ * `audit_log_tenant_actor_occurred_id_idx` is `(tenant_id, actor_user_id, occurred_at, id)` (audit reads C1,
+ * `Version20261021000100`, replaced `audit_log_tenant_actor_idx` with the same prefix plus `id`, so this probe's plan is
+ * unchanged).
  * `tenant_id` is supplied by the RLS policy, exactly as `DenialAuditWriter`'s
  * read-back leaves it (writing it explicitly folds into a `Result` node carrying
  * `One-Time Filter:`, measured in `DenialCapStorageTest`); `actor_user_id` and

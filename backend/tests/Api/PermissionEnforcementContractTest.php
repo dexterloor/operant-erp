@@ -140,6 +140,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Stock reads C2: `stock_movement.view` — owner, `admin`, `warehouse_operator`, `viewer` (`SECURITY_MODEL.md` §4).
         'ListStockMovements' => 'stock_movement.view',
         'GetStockMovement' => 'stock_movement.view',
+        // Audit reads C1 (2026-10-21): `audit_log.view` — owner and `admin` only; `viewer` holds `audit_log.view_record`
+        // and not this (PC-11; `SECURITY_MODEL.md` §4).
+        'ListAuditLogEntries' => 'audit_log.view',
         // Stock count C1 (2026-10-16): `stock_movement.adjust` — owner, `admin`, `warehouse_operator` (`SECURITY_MODEL.md` §4).
         'CreateStockAdjustment' => 'stock_movement.adjust',
         // Stock transfer C1 (2026-10-20): the same code — no new permission (SEC-O-13 no-split, E-25).

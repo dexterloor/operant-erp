@@ -160,6 +160,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Stock reads C2 (design R-H4; T-2′ measured: `seedMirror` registered no movement, so it now seeds one per tenant).
         'ListStockMovements' => [],
         'GetStockMovement' => ['vars' => ['id' => 'movement']],
+        // Audit reads C1: the whole trail, unfiltered (`seedMirror` writes one row per tenant). A moved read would list B's row.
+        'ListAuditLogEntries' => [],
         // Stock count C1: a count INTO the tenant's own bin of an item it never held there (`version: null`), on fresh state per
         // request. A moved write would land in B (B's counts change) or answer an unknown reference for A's ids.
         'CreateStockAdjustment' => ['body' => ['inventory_item_id' => '@loose_item', 'storage_location_id' => '@bin',
@@ -811,6 +813,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             "INSERT INTO stock_movement (id, tenant_id, inventory_item_id, storage_location_id, quantity, reason) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 50, 'receipt')",
             [$this->remember($letter, 'movement', Uuid::v4()->toRfc4122()), $tenantId, $item, $this->id($letter, 'bin')]);
+        // Audit reads C1: one trail row per tenant, by the tenant's own actor, so `ListAuditLogEntries`' baseline has a row and
+        // B's (another id, another tenant) must never appear in A's trail.
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label) VALUES (?::uuid, ?::uuid, 'purchase_order.placed', ?::uuid, 'Fixture Actor')",
+            [$this->remember($letter, 'audit_entry', Uuid::v4()->toRfc4122()), $tenantId, $actor]);
 
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM tenant_settings') as $row) {
             $this->remember($letter, 'tenant_settings', (string) $row['id']);
