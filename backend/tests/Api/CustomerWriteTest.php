@@ -16,7 +16,7 @@ use Symfony\Component\Uid\Uuid;
  * `customers-s1-ux.md` §2 as amended by final RED L-1).
  *
  * Each refusal's literal sentence is pinned once here (house rule, `roles-s4-ux-copy.md` §5.5). The terms bound is pinned
- * twice on purpose: by the literals 0/3650 accepted and −1/3651 refused (the same four values `InvoiceIssueTest` uses, so a
+ * twice on purpose: by the literals 0/365 accepted and −1/366 refused (one year since G-35 (f), C0b; 3650 before) (the same four values `InvoiceIssueTest` uses, so a
  * drift between customer and invoice reddens both), and by edges derived from {@see PaymentTerms} (so a hard-coded copy of
  * the number in the writer reddens when the constant moves — design mutation C2-1b).
  *
@@ -90,9 +90,9 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
     public static function terms(): iterable
     {
         yield 'zero (due on the invoice date)' => [0, 201];
-        yield 'ten years' => [3650, 201];
+        yield 'one year' => [365, 201];
         yield 'negative' => [-1, 422];
-        yield 'beyond ten years' => [3651, 422];
+        yield 'beyond one year' => [366, 422];
         yield 'a decimal' => [30.5, 422];
         yield 'a numeric string' => ['30', 422];
         yield 'a boolean' => [true, 422];
@@ -101,7 +101,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
     /** The literal edges, the same four `InvoiceIssueTest` uses; one code, `out_of_range`, one sentence. */
     #[Test]
     #[DataProvider('terms')]
-    public function paymentTermsAreAWholeNumberOfDaysFromZeroToTenYears(mixed $terms, int $status): void
+    public function paymentTermsAreAWholeNumberOfDaysFromZeroToOneYear(mixed $terms, int $status): void
     {
         $this->create(['code' => 'C-T'.bin2hex(random_bytes(3)), 'name' => 'Terms', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => $terms]);
 
@@ -112,7 +112,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
             return;
         }
         self::assertSame([['pointer' => '/payment_terms_days', 'code' => 'out_of_range',
-            'message' => 'Payment terms must be a whole number of days from 0 to 3650.']], $this->fieldErrors());
+            'message' => 'Payment terms must be a whole number of days from 0 to 365.']], $this->fieldErrors());
     }
 
     /** Edges derived from the ONE source: a writer carrying its own copy of the number reddens when the constant moves. */
@@ -286,17 +286,17 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
 
     /**
      * 7.1 — one `customer.created`, naming the creator; the subject is the new customer; `metadata` exactly
-     * `{"payment_terms_days": 3650}` — the terms value set at create (G-35 (g)), at today's bound.
+     * `{"payment_terms_days": 365}` — the terms value set at create (G-35 (g)), at the bound (one year, C0b).
      */
     #[Test]
     public function aCreatedCustomerWritesExactlyOneCustomerCreatedRow(): void
     {
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
 
-        $this->create(['code' => 'C-AUD', 'name' => 'Audited', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => 3650]);
+        $this->create(['code' => 'C-AUD', 'name' => 'Audited', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => 365]);
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->createdRow($this->json()['id'], 3650)], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED));
+        self::assertSame([$this->createdRow($this->json()['id'], 365)], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED));
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED), 'A create wrote an update row.');
     }
 
@@ -329,7 +329,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus());
         $this->create(['code' => 'C-BAD', 'name' => 'Bad', 'country_code' => 'FR', 'currency_code' => 'GBP']);
         self::assertSame(422, $this->httpStatus());
-        $this->create(['code' => 'C-BAD', 'name' => 'Bad', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => 3651]);
+        $this->create(['code' => 'C-BAD', 'name' => 'Bad', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => 366]);
         self::assertSame(422, $this->httpStatus());
 
         self::assertCount(1, $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED), 'A refused create wrote a customer.created row.');
@@ -345,13 +345,13 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(30, $stored['payment_terms_days'], 'Fixture: the seeded terms must be 30.');
 
-        $this->update($id, ['payment_terms_days' => 3650] + $stored);
+        $this->update($id, ['payment_terms_days' => 365] + $stored);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 3650])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
+        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 365])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
 
         $this->update($id, ['name' => 'Renamed', 'code' => 'C-RENAMED']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 3650]), $this->updatedRow($id, ['code', 'name'])],
+        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 365]), $this->updatedRow($id, ['code', 'name'])],
             $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED), 'An update wrote a create row.');
     }
@@ -401,7 +401,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
      * other submitted or stored value appears.
      *
      * ⚖ **Pin moved deliberately in C0a** (was `theUpdatedRowCarriesNamesNeverValues`; G-35 (g),
-     * `audit-reads-owner-q-ruling.md` §5 C0a): `'3650'` left the forbidden list because the terms value is now the one
+     * `audit-reads-owner-q-ruling.md` §5 C0a): `'3650'` (the bound then; 365 since C0b) left the forbidden list because the terms value is now the one
      * value this event records — names alone could not show a ten-year term, and a term raised and put back left nothing
      * to find. `'Zebra'`, `'USD'` and `'Valued'` stay forbidden: no name, currency or other value may follow it in.
      */
@@ -410,7 +410,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
     {
         $id = $this->seedCustomer(self::TENANT_A, 'Valued');
 
-        $this->update($id, ['name' => 'Zebra Holdings Secret', 'payment_terms_days' => 3650, 'currency_code' => 'USD']);
+        $this->update($id, ['name' => 'Zebra Holdings Secret', 'payment_terms_days' => 365, 'currency_code' => 'USD']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         $rows = $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED);
@@ -422,7 +422,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame(['currency_code', 'name', 'payment_terms_days'], $metadata['fields']);
         $terms = $metadata['payment_terms_days'];
         ksort($terms); // jsonb stores keys shortest-first ("to" before "from"); the order is not the contract.
-        self::assertSame(['from' => 30, 'to' => 3650], $terms);
+        self::assertSame(['from' => 30, 'to' => 365], $terms);
         foreach (['Zebra', 'USD', 'Valued'] as $value) {
             self::assertStringNotContainsString($value, $rows[0]['metadata'], 'A value other than the terms reached customer.updated\'s metadata.');
         }
@@ -445,8 +445,8 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * 7.6c — the G-35 abuse: terms raised and put back (30 → 3650 → 30). Two rows, `{from: 30, to: 3650}` then
-     * `{from: 3650, to: 30}`: the long term is visible from the trail although the customer ends where it started.
+     * 7.6c — the G-35 abuse: terms raised and put back (30 → 365 → 30). Two rows, `{from: 30, to: 365}` then
+     * `{from: 365, to: 30}`: the long term is visible from the trail although the customer ends where it started.
      */
     #[Test]
     public function aTermsRaisedAndPutBackShowBothValues(): void
@@ -455,24 +455,25 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame(30, $this->stored($id)['payment_terms_days'], 'Fixture: the seeded terms must be 30.');
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
 
-        $this->update($id, ['payment_terms_days' => 3650]);
+        $this->update($id, ['payment_terms_days' => 365]);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $this->update($id, ['payment_terms_days' => 30]);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
 
         self::assertSame(30, $this->stored($id)['payment_terms_days']);
         self::assertSame([
-            $this->updatedRow($id, ['payment_terms_days'], [30, 3650]),
-            $this->updatedRow($id, ['payment_terms_days'], [3650, 30]),
+            $this->updatedRow($id, ['payment_terms_days'], [30, 365]),
+            $this->updatedRow($id, ['payment_terms_days'], [365, 30]),
         ], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED), 'A term raised and put back is not visible from the trail.');
     }
 
     /**
-     * 7.7 — the race the row lock exists for (judge C-3; final RED F-2). A second connection resets the terms to 3650 and
+     * 7.7 — the race the row lock exists for (judge C-3; final RED F-2). A second connection resets the terms to 300 and
      * holds the row; this request sends `{payment_terms_days: 30, name}` against a row stored at 30. Locked, the request
-     * waits, then diffs against 3650: both fields change, the row ends at 30, and the request's row names both — the reset
+     * waits, then diffs against 300: both fields change, the row ends at 30, and the request's row names both — the reset
      * is undone AND attributed. Unlocked (mutation M-6), it diffs against the uncommitted 30, leaves the terms out of its
-     * `SET`, and the row keeps 3650 with nobody's name on the reset.
+     * `SET`, and the row keeps 300 with nobody's name on the reset. (The reset was 3650 until C0b; 300 is within the
+     * one-year bound, so the seed is a value the API could have written.)
      */
     #[Test]
     public function aTermsResetRacingATermsChangeIsAttributedToTheResetter(): void
@@ -481,7 +482,7 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame(30, $this->stored($id)['payment_terms_days'], 'Fixture: the seeded terms must be 30, or M-6 cannot redden this test.');
 
         $holder = $this->raceAgainstAHolder(
-            [['UPDATE customer SET payment_terms_days = 3650 WHERE id = ?::uuid', [$id]]],
+            [['UPDATE customer SET payment_terms_days = 300 WHERE id = ?::uuid', [$id]]],
             function () use ($id): void {
                 $this->update($id, ['payment_terms_days' => 30, 'name' => 'Raced Renamed']);
             },
@@ -491,8 +492,8 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame(30, $this->stored($id)['payment_terms_days'], 'The request did not re-apply its terms over the holder\'s reset.');
-        // G-35 (g): `from` is the LOCKED row's 3650 — what the request actually replaced — not the 30 it assumed.
-        self::assertSame([$this->updatedRow($id, ['name', 'payment_terms_days'], [3650, 30])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED),
+        // G-35 (g): `from` is the LOCKED row's 300 — what the request actually replaced — not the 30 it assumed.
+        self::assertSame([$this->updatedRow($id, ['name', 'payment_terms_days'], [300, 30])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED),
             'The request\'s customer.updated row does not name the terms it changed back, or records a from other than the locked row\'s.');
     }
 

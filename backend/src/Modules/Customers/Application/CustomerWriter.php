@@ -34,7 +34,10 @@ use Symfony\Component\Uid\Uuid;
  *
  * **Refusals, in order** (copy: `customers-s1-ux.md` §2 as amended by final RED L-1):
  *  1. shape, before any transaction: required/null, blank (empty after trimming — the value is stored as sent, no trim,
- *     final RED L-2), country/currency code shape, payment terms not a whole number in 0..{@see PaymentTerms::MAXIMUM_DAYS};
+ *     final RED L-2), country/currency code shape, payment terms not a whole number in 0..{@see PaymentTerms::MAXIMUM_DAYS}
+ *     (365 since G-35 (f), C0b). Shape runs **before** the diff, so a full-form PATCH that resends **unchanged** terms
+ *     above the bound is refused 422 although it changes nothing; a PATCH that omits terms is unaffected. No customer can
+ *     be stored above 365 by the API, so only a row set by SQL meets this (C0b migration docblock);
  *  2. (update) the row: absent or foreign → 404; archived → 409 `customer.is_archived` (ST-9; inlined, never a
  *     `refuseUnless…` method, which `EditWindowGuardTest` clause (b) would read as an edit window);
  *  3. country/currency not in the reference tables → 422 `unknown_reference` ("not supported yet": four rows each,

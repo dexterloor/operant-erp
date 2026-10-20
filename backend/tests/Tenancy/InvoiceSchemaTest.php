@@ -49,9 +49,10 @@ final class InvoiceSchemaTest extends TenancyTestCase
 
     /**
      * **The due window is zone-independent.** Under `Europe/Berlin`, an invoice issued 2026-10-26 12:00Z (the day
-     * after DST ends) and due exactly 3650 **UTC** days later is accepted; one day more is refused. The naive form,
-     * `issued_at + interval '3650 days'`, adds days on the session's local calendar and lands an hour early across
-     * the October 2036 boundary, so it refuses the first row — mutation C2-1.
+     * after DST ends) and due exactly 365 **UTC** days later is accepted; one day more is refused. The naive form,
+     * `issued_at + interval '365 days'`, adds days on the session's local calendar and lands an hour early, because
+     * 2027-10-26 is before the 2027-10-31 clock change (Berlin is still on summer time there), so it refuses the first
+     * row — mutation C2-1, and C0b's F5. (It was 3650 days and the October 2036 boundary until G-35 (f), C0b.)
      */
     #[\PHPUnit\Framework\Attributes\Test]
     public function theDueWindowIsComputedInUtcWhateverTheSessionZone(): void
@@ -60,8 +61,8 @@ final class InvoiceSchemaTest extends TenancyTestCase
         $issued = new \DateTimeImmutable('2026-10-26T12:00:00Z');
         $utc = new \DateTimeZone('UTC');
 
-        $atBound = $issued->setTimezone($utc)->modify('+3650 days')->format('Y-m-d\TH:i:s\Z');
-        $pastBound = $issued->setTimezone($utc)->modify('+3651 days')->format('Y-m-d\TH:i:s\Z');
+        $atBound = $issued->setTimezone($utc)->modify('+365 days')->format('Y-m-d\TH:i:s\Z');
+        $pastBound = $issued->setTimezone($utc)->modify('+366 days')->format('Y-m-d\TH:i:s\Z');
 
         self::assertSame('accepted', $this->attemptInvoice($w, ['issued_at' => $issued->format('Y-m-d\TH:i:s\Z'), 'due_at' => $atBound], 'Europe/Berlin'));
         self::assertSame('23514', $this->attemptInvoice($w, ['issued_at' => $issued->format('Y-m-d\TH:i:s\Z'), 'due_at' => $pastBound], 'Europe/Berlin'));

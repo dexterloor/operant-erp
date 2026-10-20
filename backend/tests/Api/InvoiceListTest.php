@@ -39,17 +39,24 @@ final class InvoiceListTest extends PurchaseOrderTestCase
         $f[] = $this->seedFulfilment($o2);
 
         $ids = [];
-        // number => [fulfilment, status, issued_at, due_at]
+        // number => [fulfilment, status, issued_at, due_at], as written on 2026-10-20 and shifted by the days since, so
+        // the overdue one stays past due and the three "not yet due" ones stay ~290 days ahead whenever this runs.
+        // ⚖ Changed in audit reads C0b (G-35 (f)): the not-yet-due rows were due in 2030 — four years after issue, which
+        // `invoice_due_window` refuses since it became 365 days. Their order (102 < 107 < 105) is kept.
+        $shift = (int) (new \DateTimeImmutable('2026-10-20', new \DateTimeZone('UTC')))
+            ->diff(new \DateTimeImmutable('today', new \DateTimeZone('UTC')))->format('%r%a');
+        $day = static fn (string $date): string => (new \DateTimeImmutable($date, new \DateTimeZone('UTC')))
+            ->modify(\sprintf('%+d days', $shift))->format('Y-m-d');
         foreach ([
             'INV-000101' => [$f[1], 'issued', '2026-08-01', '2026-08-31'],   // overdue by the clock
-            'INV-000102' => [$f[2], 'issued', '2026-08-10', '2030-08-20'],   // due in 2030
+            'INV-000102' => [$f[2], 'issued', '2026-08-10', '2027-08-05'],   // not yet due
             'INV-000103' => [$f[3], 'paid', '2026-08-05', '2026-09-04'],
             'INV-000104' => [$f[0], 'void', '2026-08-02', '2026-09-01'],
-            'INV-000105' => [$f[0], 'issued', '2026-08-20', '2030-09-19'],
+            'INV-000105' => [$f[0], 'issued', '2026-08-20', '2027-08-12'],
             'INV-000106' => [$f[0], 'void', '2026-08-03', '2026-09-02'],
-            'INV-000107' => [$f[5], 'issued', '2026-08-15', '2030-09-14'],   // Customer Two
+            'INV-000107' => [$f[5], 'issued', '2026-08-15', '2027-08-08'],   // Customer Two
         ] as $number => [$fulfilment, $status, $issued, $due]) {
-            $ids[$number] = $this->seedInvoiceRow($fulfilment, $number, $status, $issued, $due);
+            $ids[$number] = $this->seedInvoiceRow($fulfilment, $number, $status, $day($issued), $day($due));
         }
 
         $this->world = ['c1' => $c1, 'c2' => $c2, 'f' => $f, 'ids' => $ids];

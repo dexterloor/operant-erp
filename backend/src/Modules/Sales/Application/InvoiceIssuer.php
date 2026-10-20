@@ -40,7 +40,7 @@ use Symfony\Component\Uid\Uuid;
  *     live number is disclosed only to a holder of `invoice.view` (R-14), never the id, total or customer. Named
  *     `assert…` and not `refuseUnless…`, so it stays outside `EditWindowGuardTest` clause (b): it is not an edit
  *     window.
- *  4. The customer's payment terms must be 0–3650 days (`invoice.payment_terms_are_usable`): `invoice_due_window`
+ *  4. The customer's payment terms must be 0–365 days (one year since G-35 (f), C0b) (`invoice.payment_terms_are_usable`): `invoice_due_window`
  *     would otherwise refuse as a 23514 → 500. The bound is {@see PaymentTerms::MAXIMUM_DAYS} — one source with
  *     `CreateCustomer`/`UpdateCustomer`'s refusal since customers slice 1 C2 (`PaymentTermsBoundTest` holds it equal to
  *     the CHECK); this step stays for a row stored outside it by SQL.

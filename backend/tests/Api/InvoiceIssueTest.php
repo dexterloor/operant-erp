@@ -279,7 +279,7 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
     public static function unusableTerms(): iterable
     {
         yield 'negative' => [-1];
-        yield 'beyond ten years' => [3651];
+        yield 'beyond one year' => [366];
     }
 
     /** Step 4: terms `invoice_due_window` would refuse as a 23514 are refused in domain terms first. */
@@ -298,14 +298,14 @@ final class InvoiceIssueTest extends PurchaseOrderTestCase
     }
 
     /**
-     * The within-bound edge: ten years of terms is accepted — `due_at` lands exactly on `invoice_due_window`'s bound,
+     * The within-bound edge: one year of terms (365 days, G-35 (f), C0b) is accepted — `due_at` lands exactly on `invoice_due_window`'s bound,
      * and both sides of that CHECK come from the database's clock (RED-3 F-1). A `due_at` computed by PHP would reach
      * the CHECK on a second clock.
      */
     #[Test]
-    public function tenYearsOfTermsIsTheLastUsableBound(): void
+    public function oneYearOfTermsIsTheLastUsableBound(): void
     {
-        $s = $this->shipped('INV-K', [['1', '5.0000', '1']], terms: 3650);
+        $s = $this->shipped('INV-K', [['1', '5.0000', '1']], terms: 365);
         $this->actAsRole(DefaultRoles::SALES_REP);
 
         $this->issue($s['fulfilment']);

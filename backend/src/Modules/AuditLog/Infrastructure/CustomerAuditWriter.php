@@ -14,8 +14,8 @@ use Symfony\Component\Uid\Uuid;
  * (`docs/session13/customers-s1-g35-judge.md` FINAL items 1–3; `RESIDUAL_GAPS.md` G-35).
  *
  * The rows are what names the person who set a customer's payment terms: `sales_rep` holds `customer.create`,
- * `customer.edit` **and** `invoice.issue`, and nothing prevents one person from setting terms of up to ten years and
- * issuing that customer's invoice (G-35). **Detection, not prevention** — and evidence against an in-app actor only, since
+ * `customer.edit` **and** `invoice.issue`, and nothing prevents one person from setting terms of up to the bound (one
+ * year since G-35 (f), C0b; ten years before) and issuing that customer's invoice (G-35). **Detection, not prevention** — and evidence against an in-app actor only, since
  * SQL as `erp_app` can change `customer` with no row (A-3's shape).
  *
  * `SalesOrderAuditWriter`'s shape, for its reasons, which are not restated here: one method per event and no parameter
