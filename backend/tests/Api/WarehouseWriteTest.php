@@ -26,8 +26,8 @@ use Symfony\Component\Uid\Uuid;
  *
  * **The trail** (`warehouse.created` / `warehouse.updated`): one row per create and per CHANGING update, read back cell by
  * cell, no row on any refusal or no-op; **values are recorded** (owner Q-W2 (a)) over an explicit allowlist that a test
- * pins by literal (final RED M-4). The race test is a real second connection holding the row. **Only these two warehouse
- * events exist**: `.deleted`/`.restored` come with `DeleteWarehouse`/`RestoreWarehouse`.
+ * pins by literal (final RED M-4). The race test is a real second connection holding the row. `.restored` came with
+ * `RestoreWarehouse` (wh-loc-delete C1, `WarehouseRestoreTest`); `.deleted` comes with `DeleteWarehouse` (C4).
  */
 final class WarehouseWriteTest extends PurchaseOrderTestCase
 {
@@ -241,7 +241,7 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
         }
     }
 
-    /** ST-9: an archived warehouse is read-only (reachable only by SQL until `DeleteWarehouse` ships). No "Restore it". */
+    /** ST-9: an archived warehouse is read-only until it is restored (archived by SQL until `DeleteWarehouse` ships). Passive copy (UX R-3). */
     #[Test]
     public function anArchivedWarehouseCannotBeChanged(): void
     {
@@ -252,7 +252,7 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('warehouse.is_archived', $this->json()['rule']);
-        self::assertSame('This warehouse is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This warehouse is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
         self::assertSame('Closed', $this->stored($id)['name']);
     }
 
@@ -314,9 +314,12 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
             $this->auditRowsOf(AuditEvent::WAREHOUSE_UPDATED), 'The old name is not recoverable from the trail.');
     }
 
-    /** Of the four warehouse events only `.created` and `.updated` are minted — in the code catalogue AND the live CHECK. */
+    /**
+     * Of the four warehouse events `.created`, `.updated` and (wh-loc-delete C1, `RestoreWarehouse`) `.restored` are minted —
+     * in the code catalogue AND the live CHECK. `.deleted` comes with `DeleteWarehouse` (C4).
+     */
     #[Test]
-    public function onlyTheCreateAndUpdateWarehouseEventsAreMinted(): void
+    public function onlyTheWarehouseEventsWithAWriterAreMinted(): void
     {
         $definition = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'audit_log_event_type_values'")[0]['d'];
@@ -328,8 +331,8 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['warehouse.created', 'warehouse.updated'], $code, 'AuditEvent mints a warehouse event without its writer.');
-        self::assertSame(['warehouse.created', 'warehouse.updated'], $liveMembers, 'The live CHECK admits a warehouse event without its writer.');
+        self::assertSame(['warehouse.created', 'warehouse.restored', 'warehouse.updated'], $code, 'AuditEvent mints a warehouse event without its writer.');
+        self::assertSame(['warehouse.created', 'warehouse.restored', 'warehouse.updated'], $liveMembers, 'The live CHECK admits a warehouse event without its writer.');
     }
 
     /** One `warehouse.created` naming the creator, carrying the three values as stored; the subject is the new warehouse. */

@@ -137,8 +137,8 @@ namespace App\Modules\Inventory\Application\Contract;
  * That refusal is a **backstop, not the control.** A placed order's warehouse
  * cannot be changed — order edits are draft-only — so an order open against a
  * closed site cannot be "redirected"; the escape is `RestoreWarehouse`
- * (declared in API.md §4.2, same permission as archiving, **not yet built**),
- * not cancellation. The control belongs at archive time: `DeleteWarehouse`
+ * (same permission as archiving; built 2026-10-20, warehouse/location
+ * delete-restore C1), not cancellation. The control belongs at archive time: `DeleteWarehouse`
  * must refuse to archive a warehouse that still has open orders or stock, and
  * that is filed as **API-O-34** (API.md §14.1) for when `DeleteWarehouse` is
  * designed, with the ordering this read needs against a concurrent archive.

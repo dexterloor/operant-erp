@@ -421,6 +421,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             values: ['code' => 'W-PROBE', 'name' => 'Probe', 'country_code' => 'GB']);
         $warehouseWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', warehouseId: Uuid::v4()->toRfc4122(),
             from: ['name' => 'Probe'], to: ['name' => 'Probe Renamed']);
+        // Warehouse/location delete-restore C1: `warehouse.restored`, BUSINESS (listed AND driven).
+        $warehouseWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', warehouseId: Uuid::v4()->toRfc4122());
         // Warehouses slice 1 C3: `storage_location.created` / `storage_location.updated`, BUSINESS (listed AND driven).
         $locationWriter = self::getContainer()->get(StorageLocationAuditWriter::class);
         \assert($locationWriter instanceof StorageLocationAuditWriter);

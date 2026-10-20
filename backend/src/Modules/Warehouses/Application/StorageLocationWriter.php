@@ -104,9 +104,9 @@ final readonly class StorageLocationWriter
 
     public const CODE_TAKEN_ON_UPDATE = 'Another location in this warehouse already uses this code. Keep the current code or choose a different one.';
 
-    public const WAREHOUSE_ARCHIVED_ON_CREATE = 'This warehouse is archived, so no location can be added to it.';
+    public const WAREHOUSE_ARCHIVED_ON_CREATE = 'This warehouse is archived, so no location can be added to it until it\'s restored.';
 
-    public const WAREHOUSE_ARCHIVED_ON_UPDATE = 'This warehouse is archived, so its locations can\'t be changed.';
+    public const WAREHOUSE_ARCHIVED_ON_UPDATE = 'This warehouse is archived, so its locations can\'t be changed until it\'s restored.';
 
     public const ARCHIVED = 'This location is archived, so it can\'t be changed.';
 

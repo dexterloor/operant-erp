@@ -1403,16 +1403,19 @@ final class GrantFootprintTest extends TenancyTestCase
      */
     private const WAREHOUSE_COLUMN_WRITES = [
         'INSERT' => ['code', 'country_code', 'id', 'name', 'tenant_id'],
-        'UPDATE' => ['code', 'country_code', 'name', 'updated_at'],
+        // `deleted_at`: warehouse/location delete-restore C1 (`Version20261020000100`, `RestoreWarehouse`; `DeleteWarehouse`
+        // at C4 reuses it).
+        'UPDATE' => ['code', 'country_code', 'deleted_at', 'name', 'updated_at'],
     ];
 
     /**
      * **Warehouses slice 1 C2: `erp_app` can write exactly the columns `CreateWarehouse` and `UpdateWarehouse` name on
      * `warehouse`, and delete nothing — proved by running the statements as `erp_app`** (design §3.3; ADR-002 A4.4's
-     * *"exactly"*). The supplier method's shape. **Positive controls:** `warehouse.name` INSERT and UPDATE accepted.
-     * **Anti-vacuity:** `warehouse.deleted_at` UPDATE (archiving by SQL; `DeleteWarehouse` is not built), `warehouse.is_active`
+     * *"exactly"*). The supplier method's shape. **Positive controls:** `warehouse.name` INSERT and UPDATE accepted, and
+     * (wh-loc-delete C1, `RestoreWarehouse`) `warehouse.deleted_at` UPDATE accepted. **Anti-vacuity:** `warehouse.is_active`
      * and `warehouse.address_line` UPDATE (Q-W4, G-36) and `warehouse` DELETE refused. **Planted control, committed then
-     * undone:** `GRANT UPDATE (deleted_at) ON warehouse` must produce exactly one violation. The UPDATE columns also make
+     * undone:** `GRANT UPDATE (is_active) ON warehouse` must produce exactly one violation (moved off `deleted_at` at C1,
+     * which is now granted — revoking it would revoke the real grant). The UPDATE columns also make
      * `UpdateWarehouse`'s `FOR NO KEY UPDATE` and C3's parent `FOR SHARE` legal (A4.3 constraint 1).
      */
     #[Test]
@@ -1467,22 +1470,22 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame(['accepted', 'accepted'], [$outcomes['name INSERT'] ?? null, $outcomes['name UPDATE'] ?? null],
-            'The positive controls failed: erp_app could not insert or update warehouse.name.');
-        self::assertSame(['refused', 'refused', 'refused', 'refused'],
-            [$outcomes['deleted_at UPDATE'] ?? null, $outcomes['address_line UPDATE'] ?? null, $outcomes['is_active UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
-            'erp_app must not archive a warehouse, set its address or is_active, or delete it, and the probe did not see them refused.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['name INSERT'] ?? null, $outcomes['name UPDATE'] ?? null, $outcomes['deleted_at UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update warehouse.name, or restore a warehouse (deleted_at).');
+        self::assertSame(['refused', 'refused', 'refused'],
+            [$outcomes['address_line UPDATE'] ?? null, $outcomes['is_active UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not set a warehouse\'s address or is_active, or delete it, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on warehouse are not exactly WarehouseWriter's:\n  ".implode("\n  ", $violations($outcomes)));
 
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON warehouse TO %s', DatabaseRoles::APP));
-            self::assertSame(['warehouse.deleted_at UPDATE: WarehouseWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
-                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (is_active) ON warehouse TO %s', DatabaseRoles::APP));
+            self::assertSame(['warehouse.is_active UPDATE: WarehouseWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (is_active) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
-            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON warehouse FROM %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_active) ON warehouse FROM %s', DatabaseRoles::APP));
         }
-        self::assertSame([], $violations($probe()), 'The planted warehouse deleted_at grant survived its REVOKE.');
+        self::assertSame([], $violations($probe()), 'The planted warehouse is_active grant survived its REVOKE.');
     }
 
     /**

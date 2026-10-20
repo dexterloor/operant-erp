@@ -173,6 +173,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
         'UpdateWarehouse' => ['vars' => ['id' => 'warehouse'], 'body' => ['name' => 'Renamed Warehouse']],
+        // Warehouse/location delete-restore C1: the remembered archived warehouse (B's is another id, so a moved restore 404s).
+        'RestoreWarehouse' => ['vars' => ['id' => 'archived_warehouse']],
         // Warehouses slice 1 C3: a create under the remembered warehouse (a moved create would 404: B's warehouse is another
         // id), and a re-label of the remembered `A-01` bin (a moved update would 404 on the pair).
         'CreateStorageLocation' => ['vars' => ['id' => 'warehouse'], 'body' => ['code' => 'B-NEW', 'kind' => 'shelf']],
@@ -739,6 +741,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // C5 C2a: an archived supplier, so `RestoreSupplier`'s baseline drive succeeds.
         $archivedSupplier = $this->remember($letter, 'archived_supplier', $this->seedSupplier($tenantId, 'Archived Acme'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE supplier SET deleted_at = now() WHERE id = ?::uuid', [$archivedSupplier]);
+        // Warehouse/location delete-restore C1: an archived warehouse, so `RestoreWarehouse`'s baseline drive succeeds. Its
+        // code pinned (`seedWarehouse()`'s is random per seeding and the restore's body serves it).
+        $archivedWarehouse = $this->remember($letter, 'archived_warehouse', $this->seedWarehouse($tenantId, 'Archived Site'));
+        $this->insertAsOwnerForTenant($tenantId, "UPDATE warehouse SET code = 'W-ARCHIVED', deleted_at = now() WHERE id = ?::uuid", [$archivedWarehouse]);
         // C5 C4a: an archived customer, so `RestoreCustomer`'s baseline drive succeeds.
         $archivedCustomer = $this->remember($letter, 'archived_customer', $this->seedCustomer($tenantId, 'Archived Retail'));
         // The code pinned as the live customer's is above (`seedCustomer()`'s is random per seeding and is on the wire).

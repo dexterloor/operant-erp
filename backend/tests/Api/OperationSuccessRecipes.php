@@ -944,6 +944,18 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a warehouse'];
             }],
+            // Warehouse/location delete-restore C1: a warehouse archived by owner SQL (`DeleteWarehouse` is C4), restored.
+            // `seedWarehouse()`'s code is random, so the live code unique cannot collide.
+            'RestoreWarehouse' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Restored Warehouse '.bin2hex(random_bytes(3)));
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE warehouse SET deleted_at = now() WHERE id = ?::uuid', [$warehouse]);
+
+                return ['warehouse' => $warehouse];
+            }, function (array $c): array {
+                $this->send('POST', '/warehouses/'.$c['warehouse'].'/restoration');
+
+                return [200, 'restore a warehouse'];
+            }],
             // Warehouses slice 1, C3: a create with a letter-bearing code (CD-3) and an explicit kind; an update that re-labels
             // and holds an EMPTY bin (bin → quarantine; a hold is never gated), so the success path writes its
             // `storage_location.updated` row with `held_stock`.

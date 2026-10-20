@@ -388,7 +388,7 @@ final readonly class SalesReturnWriter
     {
         if ('warehouse.is_live' === $e->rule()) {
             return ApiProblem::businessRuleViolated($e->rule(),
-                'The warehouse these goods were shipped from has been closed, so it cannot take them back.');
+                'The warehouse these goods were shipped from is archived, so this return can\'t be recorded until the warehouse is restored.');
         }
 
         $index = $e->lineIndex();

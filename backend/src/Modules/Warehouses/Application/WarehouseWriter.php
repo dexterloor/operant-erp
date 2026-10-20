@@ -22,7 +22,8 @@ use Symfony\Component\Uid\Uuid;
  * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['warehouse']`,
  * `Version20261013000100`): the INSERT names `id, tenant_id, code, name, country_code`; the UPDATE sets only the
  * **changed** columns plus `updated_at`. `address_line`, `city`, `postal_code`, `is_active` and `deleted_at` are in
- * neither (Q-W4, `RESIDUAL_GAPS.md` G-36). A 42501 from either is fixed by removing the column from the statement, never by
+ * neither (Q-W4, `RESIDUAL_GAPS.md` G-36); `deleted_at` is written only by {@see self::restore()} (warehouse/location
+ * delete-restore C1, `Version20261020000100`) and, at C4, `DeleteWarehouse`. A 42501 from either is fixed by removing the column from the statement, never by
  * widening the grant.
  *
  * **Refusals, in order** (placeholder copy; `UX` owes the warehouse copy):
@@ -56,7 +57,13 @@ final readonly class WarehouseWriter
 
     public const CODE_TAKEN_ON_UPDATE = 'Another warehouse already uses this code. Keep the current code or choose a different one.';
 
-    public const ARCHIVED = 'This warehouse is archived, so it can\'t be changed.';
+    public const ARCHIVED = 'This warehouse is archived, so it can\'t be changed until it\'s restored.';
+
+    /** `RestoreWarehouse` on a live warehouse (`UX` U-1, `wh-loc-delete-roles.md`). */
+    public const NOT_ARCHIVED = 'This warehouse is not archived, so there is nothing to restore.';
+
+    /** `RestoreWarehouse` when a live warehouse took this one's code while it was archived (`UX` U-1). Passive (R-3). */
+    public const CODE_TAKEN_ON_RESTORE = 'Another warehouse now uses this warehouse\'s code, so it can\'t be restored. It can be restored once that warehouse\'s code is changed.';
 
     public const COUNTRY_UNSUPPORTED = 'This country isn\'t supported yet.';
 
@@ -173,8 +180,62 @@ final readonly class WarehouseWriter
     }
 
     /**
-     * ST-9: an archived warehouse is read-only. Reachable only by SQL: `DeleteWarehouse` is out of this slice (API-O-34,
-     * G-7). No "Restore it": `RestoreWarehouse` is not built.
+     * **`RestoreWarehouse`** (warehouse/location delete-restore C1, 2026-10-20; `docs/session13/wh-loc-delete-design.md`
+     * §3.3, §4.1, Revision 2; `SupplierWriter::restore()`'s shape). In one `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404 (ST-5, before any transaction for a non-uuid);
+     *  2. the row read `FOR NO KEY UPDATE` (the C5 restore lock: it must not wait on document readers' `FOR KEY SHARE`;
+     *     it serialises with `DeleteWarehouse`'s `FOR UPDATE` and the location writers' `FOR SHARE`, and takes nothing
+     *     after — `ARCHITECTURE.md` W-5 "warehouse row locks") — live → 409 `warehouse.is_not_archived` (§4.2
+     *     `guard:warehouse.deleted_at`: a replayed restore meets a live row, so no `Idempotency-Key`);
+     *  3. `UPDATE warehouse SET deleted_at = NULL, updated_at = now()` (the column grant of `Version20261020000100`);
+     *  4. `warehouse.restored`, `{}`, after the UPDATE, in its transaction — a refusal writes none;
+     *  5. 200 with `GetWarehouse`'s body, read inside the transaction.
+     * A live warehouse that took this one's code meanwhile → `warehouse_tenant_code_live` 23505 at step 3, translated
+     * **outside** `run()` to 409 `warehouse.code_is_unique_per_workspace` with the restore sentence. **No open-work or
+     * stock check** (§4.1: restoring creates no work). Its locations are untouched (owner Q-2 (a)): the ones left live are
+     * usable again at once, the ones archived on their own stay archived.
+     */
+    public function restore(string $id): WarehouseView
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        try {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): WarehouseView {
+                $connection = $em->getConnection();
+                // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+                $row = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM warehouse WHERE id = ?::uuid FOR NO KEY UPDATE', [$id]);
+                if (false === $row) {
+                    throw ApiProblem::notFound();
+                }
+                if (true !== $row['archived']) {
+                    throw ApiProblem::businessRuleViolated('warehouse.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection->executeStatement('UPDATE warehouse SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$id]);
+
+                // After the UPDATE, in its transaction: a 23505 above leaves no row.
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    warehouseId: $id,
+                );
+
+                return WarehouseReader::readInside($em, $id) ?? throw new \LogicException('The warehouse just restored is not readable.');
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            throw self::translated($e, self::CODE_TAKEN_ON_RESTORE);
+        }
+    }
+
+    /**
+     * ST-9: an archived warehouse is read-only, until it is restored ({@see self::restore()}). Reachable through the
+     * product once `DeleteWarehouse` ships (C4); until then only by SQL. The sentence is passive (`UX` R-3): the `.edit`
+     * holder may not hold `warehouse.delete`, which restoring needs.
      *
      * @param array<string, mixed> $row
      */

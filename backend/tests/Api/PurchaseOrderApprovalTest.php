@@ -439,6 +439,9 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('urn:erp:problem:business-rule-violated', $this->json()['type']);
         self::assertSame('purchase_order.warehouse_is_live', $this->json()['rule']);
+        // Pinned literally since warehouse/location delete-restore C1 (the archive-rules tripwire's "pin it literally"):
+        // "restored" became true with `RestoreWarehouse`; the twin of `supplier_is_live`'s sentence (UX U-2, roles-RED L-5).
+        self::assertSame('This order\'s warehouse has been archived, so the order can\'t be placed. It can be placed once the warehouse is restored or the order is moved to another warehouse, or the order can be deleted.', $this->json()['detail']);
 
         $this->assertStillAnUnplacedDraft($draft['order']);
     }

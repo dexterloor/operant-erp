@@ -190,12 +190,12 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
         $this->create($warehouse, ['code' => 'C-02']);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('warehouse.is_archived', $this->json()['rule']);
-        self::assertSame('This warehouse is archived, so no location can be added to it.', $this->json()['detail']);
+        self::assertSame('This warehouse is archived, so no location can be added to it until it\'s restored.', $this->json()['detail']);
 
         $this->update($warehouse, $location, ['code' => 'C-03']);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('warehouse.is_archived', $this->json()['rule']);
-        self::assertSame('This warehouse is archived, so its locations can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This warehouse is archived, so its locations can\'t be changed until it\'s restored.', $this->json()['detail']);
 
         self::assertSame(['C-01'], array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT code FROM storage_location WHERE warehouse_id = ?::uuid', [$warehouse]), 'code'));

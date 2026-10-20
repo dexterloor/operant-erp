@@ -87,7 +87,7 @@ final readonly class StockAdjuster implements AdjustStock
     // `UX` `docs/session13/stock-adjustment-ux.md` §2.1 (S-1…S-8) and §2.3 (V-1…V-11).
     public const ITEM_ARCHIVED = 'This item is archived, so its stock can\'t be counted. It can be counted once it\'s restored.';
 
-    public const WAREHOUSE_ARCHIVED = 'This warehouse is archived, so stock can\'t be counted in it.';
+    public const WAREHOUSE_ARCHIVED = 'This warehouse is archived, so stock can\'t be counted in it until it\'s restored.';
 
     public const LOCATION_ARCHIVED = 'This location is archived, so stock can\'t be counted in it.';
 

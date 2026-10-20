@@ -470,8 +470,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'warehouse branch, SalesOrderWriter::refuseUnresolvable*References), SalesReturnWriter and StockReturner take FOR KEY '
             .'SHARE on the warehouse since wh-loc-delete C0 — run the C4 races R-W1…R-W5 and mutations M0-1, M0-2, M0-3, M0-4b, '
             .'which can only go red once this delete exists; '
-            .'and reword `PurchaseOrder::place()`\'s `warehouse_is_live` sentence (\'…or restore this one.\') and pin it literally, '
-            .'unless `RestoreWarehouse` ships in the same commit (s34 D-1 item 5). '
+            .'(`PurchaseOrder::place()`\'s `warehouse_is_live` sentence was reworded and pinned literally with `RestoreWarehouse`, '
+            .'wh-loc-delete C1.) '
             .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
             .'cannot be counted off (the count refuses archived bins). An archived warehouse\'s quarantine stock would hold its item '
             .'for good (L-4 (ii)). `SEC` leans to refusing the delete of a stocked location or warehouse; rule it with the delete '
@@ -491,7 +491,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'E-15h held roles if `role` is admissible). Lock as the single Delete does; one `<table>.deleted` row per member.',
         'CreateBulkRestoration' => 'Parity with each resource\'s single Restore, per member (stock-transfer-sec.md §5): its collision '
             .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
-            .'Restore would refuse is not applied, with no per-id reason (E-14).',
+            .'Restore would refuse is not applied, with no per-id reason (E-14). For warehouse (built, wh-loc-delete C1): '
+            .'`warehouse.is_not_archived` and `warehouse.code_is_unique_per_workspace`; the warehouse\'s locations are left as '
+            .'they are (owner Q-2 (a)).',
     ];
 
     // The G-44 release pin (OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK / THE_RELEASE_RULE) was DELETED at CreateStockTransfer's C1

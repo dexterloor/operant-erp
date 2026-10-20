@@ -286,7 +286,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `customer_address`.
         // **And one more (stock transfer C1, 2026-10-20):** `CreateStockTransfer` (POST `/stock-movements/transfers`,
         // `stock_movement.adjust`; branch 4, 201) on `StockMovementResource`. No grant (the count's grants serve it, measured).
-        self::assertCount(106, $checked, 'The route set changed. This slice declares one hundred and six operations: '.implode(', ', array_keys($checked)));
+        // **And one more (warehouse/location delete-restore C1, 2026-10-20):** `RestoreWarehouse` (POST
+        // `/warehouses/{id}/restoration`, `warehouse.delete`; branch 5, 200) on `WarehouseResource`. Its migration grants
+        // `erp_app` column UPDATE (`deleted_at`) on `warehouse`.
+        self::assertCount(107, $checked, 'The route set changed. This slice declares one hundred and seven operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

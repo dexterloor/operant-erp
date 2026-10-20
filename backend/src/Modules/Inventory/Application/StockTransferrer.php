@@ -108,9 +108,9 @@ final readonly class StockTransferrer implements TransferStock
     // Sentences: PLACEHOLDERS, `UX` TO CONFIRM (`stock-transfer-sec.md` §10).
     public const ITEM_ARCHIVED = 'This item is archived, so its stock can\'t be moved. It can be moved once it\'s restored.';
 
-    public const SOURCE_WAREHOUSE_ARCHIVED = 'The warehouse you\'re moving stock from is archived, so stock can\'t be moved out of it.';
+    public const SOURCE_WAREHOUSE_ARCHIVED = 'The warehouse you\'re moving stock from is archived, so stock can\'t be moved out of it until it\'s restored.';
 
-    public const DESTINATION_WAREHOUSE_ARCHIVED = 'The warehouse you\'re moving stock to is archived, so stock can\'t be moved into it.';
+    public const DESTINATION_WAREHOUSE_ARCHIVED = 'The warehouse you\'re moving stock to is archived, so stock can\'t be moved into it until it\'s restored.';
 
     public const SOURCE_LOCATION_ARCHIVED = 'The location you\'re moving stock from is archived, so stock can\'t be moved out of it.';
 

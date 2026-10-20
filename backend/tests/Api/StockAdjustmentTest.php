@@ -264,7 +264,7 @@ final class StockAdjustmentTest extends PurchaseOrderTestCase
 
         $this->recount($site, '7', 3);
         self::assertSame(409, $this->httpStatus());
-        self::assertSame(['warehouse.is_archived', 'This warehouse is archived, so stock can\'t be counted in it.'], [$this->json()['rule'], $this->json()['detail']]);
+        self::assertSame(['warehouse.is_archived', 'This warehouse is archived, so stock can\'t be counted in it until it\'s restored.'], [$this->json()['rule'], $this->json()['detail']]);
 
         $this->assertNothingWritten($bin, '10.000000', 3);
         $this->assertNothingWritten($site, '10.000000', 3);

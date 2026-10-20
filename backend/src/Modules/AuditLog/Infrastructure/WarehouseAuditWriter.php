@@ -29,11 +29,14 @@ use Symfony\Component\Uid\Uuid;
  * every accepted field.
  *
  * Both events are **business** under PC-11 (4a) (the `supplier.*` filing's terms; `SEC` to confirm the warehouse block),
- * so there is **no `$ipAddress`** and no `permission_code`. `warehouse.deleted` / `.restored` are **not** written here:
- * they are minted with their writers when `DeleteWarehouse` / `RestoreWarehouse` ship (API-O-34, G-7).
+ * so there is **no `$ipAddress`** and no `permission_code`. `warehouse.restored` (C1 of the delete-restore build,
+ * 2026-10-20, {@see self::recordRestored()}) carries `{}` (`SEC` `wh-loc-delete-roles.md` S-1: a restore changes only
+ * `deleted_at`). `warehouse.deleted` is **not** written here yet: it is minted with its writer when `DeleteWarehouse`
+ * ships (C4, API-O-34, G-7).
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_UPDATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_RESTORED
  */
 final readonly class WarehouseAuditWriter
 {
@@ -88,6 +91,15 @@ final readonly class WarehouseAuditWriter
 
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::WAREHOUSE_UPDATED, $warehouseId,
             json_encode(['fields' => $fields, 'from' => self::checked($from), 'to' => self::checked($to)], \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `warehouse.restored` — `RestoreWarehouse`, after its UPDATE, in its transaction. `metadata` `{}`: the row shows the
+     * change itself (`archived_at`), and no value moved.
+     */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $warehouseId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::WAREHOUSE_RESTORED, $warehouseId, '{}');
     }
 
     /**

@@ -209,6 +209,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // Edited by hand 2026-10-14 (C5 C4b) on the same builder filing (`SEC` to confirm): `customer.deleted`, with its
         // writer (`CustomerWriter::delete()`), business, subject the customer, `{}`, no IP.
         'customer.deleted',
+        // Edited by hand 2026-10-20 (warehouse/location delete-restore C1) on `SEC`'s filing (`wh-loc-delete-roles.md` S-1:
+        // business, subject the warehouse, `{}`, no IP): ONLY `warehouse.restored` — `warehouse.deleted` comes with
+        // `DeleteWarehouse` (C4).
+        'warehouse.restored',
     ];
 
     /**

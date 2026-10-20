@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Warehouses\ApiResource\State\CreateWarehouseProcessor;
+use App\Modules\Warehouses\ApiResource\State\RestoreWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\UpdateWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\WarehouseProvider;
 use App\Modules\Warehouses\Application\WarehouseView;
@@ -35,6 +36,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * **`CreateWarehouse` / `UpdateWarehouse`** (warehouses slice 1 C2): `WarehouseWriter` behind both, `SupplierResource`'s
  * operation shape. Each writes one audit row in its transaction (`warehouse.created` `{values}` / `warehouse.updated`
  * `{fields, from, to}`; owner Q-W2 (a)). One live unique (code), refused, never replayed; the name is not unique.
+ *
+ * **`RestoreWarehouse`** (warehouse/location delete-restore C1, 2026-10-20): `WarehouseWriter::restore()`,
+ * `warehouse.restored` in its transaction.
  */
 #[ApiResource(
     shortName: 'Warehouse',
@@ -84,6 +88,24 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: WarehouseProvider::class,
             processor: UpdateWarehouseProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.edit'],
+        ),
+        // Warehouse/location delete-restore C1 — `RestoreWarehouse`, API-21 branch 5: a POST that creates no row this
+        // contract addresses, so 200 with the warehouse in its new state and no `Location` (`RestoreSupplier`'s shape). It
+        // ships after `ListWarehouses?archived` (E9-3: an archived warehouse's id is obtainable) —
+        // `WarehouseOperationContractTest` ties the two.
+        new Post(
+            uriTemplate: '/warehouses/{id}/restoration',
+            name: 'RestoreWarehouse',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreWarehouse'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreWarehouseProcessor::class,
+            // §4.2: `warehouse.delete` (undoing an archive is the same authority as making one; `RestoreItem`'s reason).
+            // **No `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:warehouse.deleted_at` — a replayed
+            // restore hits a live row and is refused `warehouse.is_not_archived` (`RestoreSupplier`'s reason).
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.delete'],
         ),
     ],
 )]
