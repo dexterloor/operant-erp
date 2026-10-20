@@ -11,6 +11,20 @@
 # `owner` is the DBAL default purely so that doctrine:migrations picks it up without
 # a flag. The ORM entity manager is pinned to `app`, so no application code can
 # reach the database as the owner by accident.
+# Doctrine's debug middleware (on whenever %kernel.debug% is) keeps every statement a connection runs, and with this
+# flag a backtrace of each. Nothing in this project reads them in any environment -- there is no profiler bundle and no
+# `framework.profiler` -- and under test they were the bulk of the suite's memory: `ResponseShapeTest::
+# everyReferenceIsExpanded` probes every tenant table for every expanded id over the owner connection, ~36,000
+# statements in one kernel, and their backtraces held 313 MB of the test's 473 MB peak (2026-10-20; a full gate died at
+# memory_limit 512M on it). Off under test, as a parameter rather than a `when@test` connection block, because
+# `EnvProcessorPinTest` pins each connection's keys in every `when@*` block. Pinned off by `DebugBacktraceOffInTestTest`.
+parameters:
+    app.doctrine.collect_backtrace: '%kernel.debug%'
+
+when@test:
+    parameters:
+        app.doctrine.collect_backtrace: false
+
 doctrine:
     dbal:
         types:
@@ -27,7 +41,7 @@ doctrine:
         connections:
             owner:
                 url: '%env(resolve:DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
@@ -39,7 +53,7 @@ doctrine:
                     inet: inet
             app:
                 url: '%env(resolve:APP_DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
@@ -51,7 +65,7 @@ doctrine:
                     inet: inet
             ai:
                 url: '%env(resolve:AI_DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
@@ -68,7 +82,7 @@ doctrine:
             # privilege silently.
             auth:
                 url: '%env(resolve:AUTH_DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
@@ -80,7 +94,7 @@ doctrine:
                     inet: inet
             authlog:
                 url: '%env(resolve:AUTHLOG_DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
@@ -92,7 +106,7 @@ doctrine:
                     inet: inet
             ratelimit:
                 url: '%env(resolve:RATELIMIT_DATABASE_URL)%'
-                profiling_collect_backtrace: '%kernel.debug%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 # Postgres network types have no DBAL equivalent, and without a
                 # mapping any introspection of the whole schema aborts with
                 # "Unknown database type cidr" -- which takes the ORM/DB
