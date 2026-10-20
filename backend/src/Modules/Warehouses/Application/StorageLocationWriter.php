@@ -7,6 +7,7 @@ namespace App\Modules\Warehouses\Application;
 use App\Modules\AuditLog\Infrastructure\StorageLocationAuditWriter;
 use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
+use App\Modules\Warehouses\Application\Port\Inventory\WarehouseHeldStock;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
@@ -27,7 +28,7 @@ use Symfony\Component\Uid\Uuid;
  * **changed** columns plus `updated_at`. **`warehouse_id` is INSERT-only and the path's** — a body `warehouse_id` is an
  * undeclared field: moving a location would move its stock between warehouses with no movement. `deleted_at` is in
  * neither: it is written only by {@see self::restore()} (warehouse/location delete-restore C2, `Version20261020000300`)
- * and, at C3, `DeleteStorageLocation` (G-27).
+ * and {@see self::delete()} (C3, `DeleteStorageLocation`; G-27).
  *
  * **Refusals, in order** (design §4.1; placeholder copy, `UX` owes it): the parent warehouse (absent or another
  * workspace's → 404) → (update) the location **of this warehouse** (another warehouse's location under this path is the
@@ -111,6 +112,31 @@ final readonly class StorageLocationWriter
 
     public const ARCHIVED = 'This location is archived, so it can\'t be changed until it\'s restored.';
 
+    /**
+     * `DeleteStorageLocation`'s location read: {@see self::LOCATION_READ} `FOR UPDATE` — public so a race test holds THIS
+     * statement, never a transcription (`SupplierWriter::DELETE_LOCK`'s reason). `FOR UPDATE`, never `FOR NO KEY UPDATE`:
+     * only `FOR UPDATE` conflicts with the `FOR KEY SHARE` every stock writer holds on the location (mutation M7).
+     */
+    public const DELETE_LOCK = self::LOCATION_READ.' FOR UPDATE';
+
+    /** The archive itself: `deleted_at` and `updated_at`, the two columns `erp_app` may write for it (`Version20261020000300`). */
+    public const ARCHIVE = 'UPDATE storage_location SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
+
+    /** `DeleteStorageLocation` on a location of an archived warehouse (owner Q-2 (a); `UX` U-1 C3). Passive (R-3). */
+    public const WAREHOUSE_ARCHIVED_ON_DELETE = 'This location\'s warehouse is archived, so the location can\'t be deleted until the warehouse is restored.';
+
+    /** `DeleteStorageLocation` repeated (ST-9; `UX` U-1 C3). */
+    public const ALREADY_ARCHIVED = 'This location is already archived. It\'s in this warehouse\'s archived locations.';
+
+    /** `DeleteStorageLocation` on a location holding stock, any kind, quarantine included (owner Q-1; `UX` U-1 C3). Passive. */
+    public const HOLDS_STOCK = 'This location still holds stock, so it can\'t be deleted until all of it is moved to another location or counted off.';
+
+    /**
+     * Appended to {@see self::HOLDS_STOCK} with one space when any of the stock is an archived item's (`UX` U-4, design
+     * Revision 2 L-5): one sentence true for "some" and "all". `RESIDUAL_GAPS.md` G-51.
+     */
+    public const ARCHIVED_ITEM_STOCK = 'Stock of an archived item can be moved or counted off only once that item is restored.';
+
     /** `RestoreStorageLocation` on a location of an archived warehouse (owner Q-2 (a); `UX` U-1). Passive (R-3). */
     public const WAREHOUSE_ARCHIVED_ON_RESTORE = 'This location\'s warehouse is archived, so the location can\'t be restored until the warehouse is restored.';
 
@@ -134,6 +160,7 @@ final readonly class StorageLocationWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private StorageLocationAuditWriter $audit,
+        private WarehouseHeldStock $heldStock,
     ) {
     }
 
@@ -348,8 +375,78 @@ final readonly class StorageLocationWriter
     }
 
     /**
+     * **`DeleteStorageLocation`** (warehouse/location delete-restore C3, 2026-10-20; `docs/session13/wh-loc-delete-design.md`
+     * §0, §2.2, §3.3, Revision 2; owner Q-1 adopted under delegation, `wh-loc-delete-q-ruling.md`). A soft delete: the
+     * location stays readable (`ListStorageLocations?archived=true`) and is restored by {@see self::restore()}. In one
+     * `TenantContext::run()`:
+     *  1. a non-uuid id → 404; the parent {@see self::PARENT_LOCK} (`FOR SHARE`: serialises with `DeleteWarehouse`'s
+     *     `FOR UPDATE`; warehouse before location, W-5 "warehouse row locks" rule 2) — absent or foreign → 404;
+     *  2. the location **of this warehouse**, {@see self::DELETE_LOCK} (`FOR UPDATE`, its own statement) — another
+     *     warehouse's location under this path is the same 404 (ST-5). `FOR UPDATE` waits for every in-flight stock
+     *     writer's `FOR KEY SHARE` on the location (an explicit lock, or the foreign-key check of the line, movement or level
+     *     row it inserts), and a stock writer arriving second waits for the archive, then re-reads the location and is
+     *     refused (`storage_location.is_archived`, or the receipt's / return's live-location rule);
+     *  3. archived warehouse → 409 `warehouse.is_archived` (ST-9: a location of an archived warehouse is read-only; owner
+     *     Q-2 (a));
+     *  4. already archived → 409 `storage_location.is_archived` (ST-9; §4.2 `Idem` `no`: refused, never replayed);
+     *  5. **a separate, later statement**, through {@see WarehouseHeldStock} (Inventory answers; A-2): stock in the location →
+     *     409 `storage_location.holds_stock` (owner Q-1), any kind, quarantine included, plus {@see self::ARCHIVED_ITEM_STOCK}
+     *     when any of it is an archived item's. Never folded into (2): under READ COMMITTED only a new statement sees what a
+     *     waited-on stock writer committed (T-13's lesson);
+     *  6. {@see self::ARCHIVE}; 7. `storage_location.deleted`, `{}`, after it — none on any refusal. 204, no body.
+     * **Not refused:** an empty quarantine location (no held stock to hide, G-44); a location that is some shipment's origin
+     * (G-27); zero `stock_level` rows (they stay, G-47).
+     */
+    public function delete(string $warehouseId, string $locationId): void
+    {
+        if (!Uuid::isValid($warehouseId) || !Uuid::isValid($locationId)) {
+            throw ApiProblem::notFound();
+        }
+        $warehouseId = Uuid::fromString($warehouseId)->toRfc4122();
+        $locationId = Uuid::fromString($locationId)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($warehouseId, $locationId, $identity): void {
+            $connection = $em->getConnection();
+
+            // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+            $parent = $connection->fetchAssociative(self::PARENT_LOCK, [$warehouseId]);
+            if (false === $parent) {
+                throw ApiProblem::notFound();
+            }
+            $row = $connection->fetchAssociative(self::DELETE_LOCK, [$locationId, $warehouseId]);
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
+            // ST-9. Inlined, never a `refuseUnless…` method (`EditWindowGuardTest` clause (b)).
+            if (true === $parent['archived']) {
+                throw ApiProblem::businessRuleViolated('warehouse.is_archived', self::WAREHOUSE_ARCHIVED_ON_DELETE);
+            }
+            if (true === $row['archived']) {
+                throw ApiProblem::businessRuleViolated('storage_location.is_archived', self::ALREADY_ARCHIVED);
+            }
+
+            $held = $this->heldStock->stockedLocationCountInside($em, $locationId);
+            if ($held->stocked > 0) {
+                throw ApiProblem::businessRuleViolated('storage_location.holds_stock',
+                    $held->archivedItemStocked > 0 ? self::HOLDS_STOCK.' '.self::ARCHIVED_ITEM_STOCK : self::HOLDS_STOCK);
+            }
+
+            $connection->executeStatement(self::ARCHIVE, [$locationId]);
+
+            // After the UPDATE, in its transaction: a refusal above leaves no row.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                storageLocationId: $locationId,
+            );
+        });
+    }
+
+    /**
      * ST-9: an archived location is read-only, until it is restored ({@see self::restore()}). Reachable through the product
-     * once `DeleteStorageLocation` ships (C3); until then only by SQL. Passive copy (`UX` R-3).
+     * since `DeleteStorageLocation` (C3, 2026-10-20). Passive copy (`UX` R-3).
      *
      * @param array<string, mixed> $row
      */

@@ -460,6 +460,9 @@ trait ArchivedRowSubjects
             // Warehouses slice 1 C3: the live twin re-labels its location (each twin has its own warehouse, so the code is
             // free); the archived twin's 409 is `storage_location.is_archived`'s alone (its warehouse is live).
             'UpdateStorageLocation' => ['code' => 'RELABELLED'],
+            // Warehouse/location delete-restore C3: the live twin (an empty location of a live warehouse) is archived, 204; the
+            // archived twin's 409 is `storage_location.is_archived`'s alone (a repeated delete, ST-9).
+            'DeleteStorageLocation' => null,
             'UpdatePurchaseOrder' => ['expected_at' => '2030-01-01T00:00:00Z'],
             // ⚠ **An EMPTY body, and the reason is a control in this very trait rather than laziness.**
             // All three of `UpdateSalesOrder`'s fields are ids of seeded rows, and these bodies are

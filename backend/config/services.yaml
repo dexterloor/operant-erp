@@ -333,6 +333,11 @@ services:
     # consumer (`c5-design.md` R1.6; co-signed by `ARCH` 2026-10-14), never a Contract — `Ai`/`Analytics` may not use `CustomersPort`.
     App\Modules\Customers\Application\Port\CustomerOpenWork: '@App\Modules\Sales\Application\CustomerOpenSalesWork'
 
+    # Warehouse/location delete-restore C3 — `DeleteStorageLocation` asks Inventory whether a location holds stock (owner
+    # Q-1: refuse). The split-port shape (`docs/session13/wh-loc-delete-arch.md` §1): an inbound PORT of Warehouses in its own
+    # `WarehousesInventoryPort` layer, implemented by its one named consumer, never a Contract — `Ai`/`Analytics` may not use it.
+    App\Modules\Warehouses\Application\Port\Inventory\WarehouseHeldStock: '@App\Modules\Inventory\Application\InventoryHeldStock'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

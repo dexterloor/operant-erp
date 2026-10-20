@@ -292,7 +292,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (warehouse/location delete-restore C2, 2026-10-20):** `RestoreStorageLocation` (POST
         // `/warehouses/{id}/locations/{locationId}/restoration`, `storage_location.delete`; branch 5, 200) on
         // `StorageLocationResource`. Its migration grants `erp_app` column UPDATE (`deleted_at`) on `storage_location`.
-        self::assertCount(108, $checked, 'The route set changed. This slice declares one hundred and eight operations: '.implode(', ', array_keys($checked)));
+        // **And one more (warehouse/location delete-restore C3, 2026-10-20):** `DeleteStorageLocation` (DELETE
+        // `/warehouses/{id}/locations/{locationId}`, `storage_location.delete`; branch 3, 204) on `StorageLocationResource`.
+        // No grant (C2's `UPDATE (deleted_at)` serves it).
+        self::assertCount(109, $checked, 'The route set changed. This slice declares one hundred and nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Warehouses\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Warehouses\ApiResource\State\CreateStorageLocationProcessor;
+use App\Modules\Warehouses\ApiResource\State\DeleteStorageLocationProcessor;
 use App\Modules\Warehouses\ApiResource\State\RestoreStorageLocationProcessor;
 use App\Modules\Warehouses\ApiResource\State\StorageLocationProvider;
 use App\Modules\Warehouses\ApiResource\State\UpdateStorageLocationProcessor;
@@ -93,6 +95,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no` — a PATCH sets absolute values on a row that exists.
             extraProperties: [
                 PermissionGate::OPERATION_PERMISSION => 'storage_location.edit',
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['warehouse', 'id'],
+            ],
+        ),
+        // Warehouse/location delete-restore C3 — `DeleteStorageLocation`, API-21 branch 3: 204, no body (`DeleteSupplier`'s
+        // shape). The pair is read first, so a DELETE at a location no row of THIS warehouse answers is a 404 before the
+        // writer runs (`BodylessWriteRefusal`). §4.2: `storage_location.delete`, `Idem` `no` — a repeated delete is refused
+        // `storage_location.is_archived`, never replayed. Refused while the location holds stock (owner Q-1).
+        new Delete(
+            uriTemplate: '/warehouses/{id}/locations/{locationId}',
+            uriVariables: [
+                'id' => new Link(fromClass: WarehouseResource::class, identifiers: ['id'], parameterName: 'id'),
+                'locationId' => new Link(fromClass: StorageLocationResource::class, identifiers: ['id'], parameterName: 'locationId'),
+            ],
+            name: 'DeleteStorageLocation',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteStorageLocation'),
+            provider: StorageLocationProvider::class,
+            processor: DeleteStorageLocationProcessor::class,
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'storage_location.delete',
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['warehouse', 'id'],
             ],
         ),

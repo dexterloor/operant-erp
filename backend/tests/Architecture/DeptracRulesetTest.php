@@ -344,6 +344,10 @@ final class DeptracRulesetTest extends TestCase
      *
      * **Mutations:** add `SuppliersPort` to `WarehousesApplication`'s allowed list → red (three users); map `SuppliersPort`
      * to `WarehousesApplication` here (and list it there) → red on the §5.2 check (`WHS → SUP` is no edge).
+     *
+     * Row form (2026-10-20): name, collector, owner and pair are read from the row; mutations MA-1…MA-4
+     * (`wh-loc-delete-arch.md` §1.5). A module that asks more than one module splits its Port by answerer —
+     * `<Module><Answerer>Port`, collector `Modules\<Module>\Application\Port\<Answerer>\` — and uses one form only.
      */
     #[Test]
     public function eachPortHasOneNamedConsumerOnASection52Edge(): void
@@ -359,7 +363,20 @@ final class DeptracRulesetTest extends TestCase
             'The declared *Port layers are not exactly the ones this test names a consumer for. A new Port adds its row to '
             .'PORT_CONSUMERS, with a consumer that already holds a §5.2 edge to it (A-2, amended 2026-10-14).');
 
-        foreach (self::PORT_CONSUMERS as $port => $consumer) {
+        $layers = array_column($config['deptrac']['layers'], null, 'name');
+        $forms = [];
+        foreach (self::PORT_CONSUMERS as $port => ['module' => $module, 'consumer' => $consumer]) {
+            $answerer = substr($consumer, 0, -\strlen('Application'));
+            $split = $port !== $module.'Port';
+            self::assertSame($split ? $module.$answerer.'Port' : $module.'Port', $port,
+                $port.' does not name its row: a Port layer is <Module>Port, or <Module><Answerer>Port when the module asks '
+                .'more than one module (A-2). A row cannot wire one module\'s question to another answerer.');
+            $forms[$module][] = $split;
+            $bs = '\\\\';   // the two characters `\\` as deptrac.yaml spells a namespace separator
+            $collector = '#^App'.$bs.'Modules'.$bs.$module.$bs.'Application'.$bs.'Port'.$bs.($split ? $answerer.$bs : '').'#';
+            self::assertSame([['type' => 'classNameRegex', 'value' => $collector]], $layers[$port]['collectors'] ?? null,
+                $port.'\'s collector is not the folder its row names (A-2).');
+
             $users = [];
             foreach ($config['deptrac']['ruleset'] as $layer => $allowed) {
                 if (\in_array($port, $allowed ?? [], true)) {
@@ -367,24 +384,34 @@ final class DeptracRulesetTest extends TestCase
                 }
             }
             sort($users);
-            $owner = substr($port, 0, -\strlen('Port')).'Application';
+            $owner = $module.'Application';
             $want = [$owner, $consumer];
             sort($want);
             self::assertSame($want, $users,
                 $port.' is listed by layers other than its own module\'s Application and its one named consumer ('.$consumer.'). '
                 .'A Port answers ONE question for ONE consumer; another module that needs the answer needs its own design (A-2).');
 
-            $pair = substr($consumer, 0, -\strlen('Application')).' -> '.substr($port, 0, -\strlen('Port'));
+            $pair = $answerer.' -> '.$module;
             self::assertTrue(\in_array($pair, self::SECTION_5_2_READ_EDGES, true) || str_ends_with($pair, ' -> UserManagement'),
                 $port.'\'s consumer is '.$consumer.', but '.$pair.' is not an edge in ARCHITECTURE.md §5.2. A Port never adds a '
                 .'module pair (A-2, amended 2026-10-14): the consumer must already hold the edge.');
         }
+        foreach ($forms as $module => $f) {
+            self::assertCount(1, array_unique($f), $module.' mixes <M>Port with <M><Answerer>Port; one form per module (A-2).');
+        }
     }
 
-    /** The one named consumer of each `*Port` layer (A-2, amended 2026-10-14; `owed-arch-c5.md` F-1). */
+    /**
+     * Each `*Port` layer: the module that declares (asks) it and the ONE layer that answers it (A-2, amended 2026-10-14;
+     * row form 2026-10-20, `docs/session13/wh-loc-delete-arch.md` §1). Name, collector, owner and §5.2 pair are all read
+     * from the row, never parsed from the layer name.
+     */
     private const PORT_CONSUMERS = [
-        'SuppliersPort' => 'PurchasingApplication',
-        'CustomersPort' => 'SalesApplication',
+        'SuppliersPort' => ['module' => 'Suppliers', 'consumer' => 'PurchasingApplication'],
+        'CustomersPort' => ['module' => 'Customers', 'consumer' => 'SalesApplication'],
+        'WarehousesInventoryPort' => ['module' => 'Warehouses', 'consumer' => 'InventoryApplication'],
+        // C4: 'WarehousesPurchasingPort' => ['module' => 'Warehouses', 'consumer' => 'PurchasingApplication'],
+        // C4: 'WarehousesSalesPort' => ['module' => 'Warehouses', 'consumer' => 'SalesApplication'],
     ];
 
     /** `ARCHITECTURE.md` §5.2's read edges, hand-copied (mermaid is not parsed); `*` → `UserManagement` is allowed separately. */

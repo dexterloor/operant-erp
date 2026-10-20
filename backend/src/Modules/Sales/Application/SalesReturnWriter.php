@@ -394,7 +394,8 @@ final readonly class SalesReturnWriter
         $index = $e->lineIndex();
         if (null !== $index && str_starts_with($e->rule(), 'storage_location.')) {
             return ApiProblem::validationFailed([self::error($index, 'storage_location_id', $e->rule(),
-                'This location is not a live location of the warehouse the goods were shipped from.')]);
+                // Product-reachable since `DeleteStorageLocation` (wh-loc-delete C3; `UX`, roles RED M-2): passive, no table word.
+                'This location can\'t take the goods back: it\'s archived, or it isn\'t in the warehouse they were shipped from.')]);
         }
 
         if (null !== $index && 'stock_level.returned_quantity_fits' === $e->rule()) {

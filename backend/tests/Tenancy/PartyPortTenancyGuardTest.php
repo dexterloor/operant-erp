@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Modules\Inventory\Application\InventoryHeldStock;
 use App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders;
 use App\Modules\Sales\Application\CustomerOpenSalesWork;
 use Doctrine\ORM\EntityManagerInterface;
@@ -23,6 +24,10 @@ use Symfony\Component\Uid\Uuid;
  *   2. in an open transaction with no `app.tenant_id` → `\LogicException` (L-5: a level-only check misses this);
  *   3. **positive control**, inside `TenantContext::run()` → a number, so the guard does not refuse everything.
  * **Mutations:** delete either guard in either port → its test 1 or 2 is red (the call returns 0 instead of throwing).
+ *
+ * **Warehouse/location delete-restore C3 (2026-10-20):** `WarehouseHeldStock` (Inventory answers, `InventoryHeldStock`)
+ * joins them — it is what stops `DeleteStorageLocation` archiving a location that holds stock (owner Q-1), and it fails
+ * open the same way (mutation M19).
  */
 final class PartyPortTenancyGuardTest extends TenancyTestCase
 {
@@ -80,6 +85,35 @@ final class PartyPortTenancyGuardTest extends TenancyTestCase
             (new CustomerOpenSalesWork())->openWorkInside($em, Uuid::v4()->toRfc4122()));
 
         self::assertSame([0, 0, 0, 0], [$count->openSalesOrders, $count->unbilledShipments, $count->unpaidInvoices, $count->owedCredits]);
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockPortRefusesOutsideATransaction(): void
+    {
+        self::assertSame(0, $this->em()->getConnection()->getTransactionNestingLevel(), 'Precondition: no transaction is open.');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('WarehouseHeldStock needs the caller\'s open tenancy transaction');
+        (new InventoryHeldStock())->stockedLocationCountInside($this->em(), Uuid::v4()->toRfc4122());
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockPortRefusesATransactionWithNoTenant(): void
+    {
+        $this->inATransactionWithNoTenant(function (EntityManagerInterface $em): void {
+            $this->expectException(\LogicException::class);
+            $this->expectExceptionMessage('WarehouseHeldStock was called in a transaction with no tenant set');
+            (new InventoryHeldStock())->stockedLocationCountInside($em, Uuid::v4()->toRfc4122());
+        });
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockPortAnswersInsideATenancyTransaction(): void
+    {
+        $held = $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em) =>
+            (new InventoryHeldStock())->stockedLocationCountInside($em, Uuid::v4()->toRfc4122()));
+
+        self::assertSame([0, 0], [$held->stocked, $held->archivedItemStocked]);
     }
 
     /**

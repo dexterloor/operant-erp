@@ -333,6 +333,13 @@ namespace App\SharedKernel\ValueObject;
  *     fifty members (read off `pg_constraint`, not generated) plus this one; it supersedes `Version20261020000200`.
  *     **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with one literal.
  *
+ *   - **`STORAGE_LOCATION_DELETED`**, 2026-10-20, warehouse/location delete-restore C3 — filed **`BUSINESS`**, subject the
+ *     location, `{}`, by `SEC` (`wh-loc-delete-roles.md` S-1), before the code; steps 3–5 done **with its writer in the
+ *     same commit** (`StorageLocationAuditWriter::recordDeleted()`). The storage-location pair is complete. Step 5 is
+ *     `Version20261020000500`, whose literal list is the live constraint's fifty-one members (read off `pg_constraint`, not
+ *     generated) plus this one; it supersedes `Version20261020000400`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited
+ *     by hand with one literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -1032,6 +1039,16 @@ final class AuditEvent
     public const STORAGE_LOCATION_RESTORED = 'storage_location.restored';
 
     /**
+     * **A storage location archived** — `DeleteStorageLocation` (warehouse/location delete-restore C3, 2026-10-20; `SEC`
+     * `wh-loc-delete-roles.md` S-1). Subject `('storage_location', id)`. **Business** under PC-11 (4a). No IP, no permission
+     * code, `metadata` `{}`: an archive changes only `deleted_at`, which the row shows as `archived_at`; no `held_stock` flag,
+     * because the delete refuses a location holding stock (owner Q-1), so it would always be false. Written by
+     * `StorageLocationAuditWriter::recordDeleted()` in `StorageLocationWriter`'s transaction, after the UPDATE; none on a
+     * refused delete (its warehouse archived, already archived, or holding stock). **Step 6 does not apply.**
+     */
+    public const STORAGE_LOCATION_DELETED = 'storage_location.deleted';
+
+    /**
      * **A storage location changed** — `UpdateStorageLocation` (warehouses slice 1 C3, 2026-10-13; owner Q-W2 (a), Q-W1
      * (d)). Subject `('storage_location', id)`. **Business** under PC-11 (4a). No IP, no permission code. `metadata`
      * `{"fields": [...], "from": {...}, "to": {...}[, "held_stock": bool]}` — the changed fields among `code`, `kind`,
@@ -1112,6 +1129,7 @@ final class AuditEvent
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
+        self::STORAGE_LOCATION_DELETED,
     ];
 
     /**
@@ -1204,6 +1222,7 @@ final class AuditEvent
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
+        self::STORAGE_LOCATION_DELETED,
     ];
 
     // ---------------------------------------------------------------------
@@ -1298,6 +1317,8 @@ final class AuditEvent
         self::STORAGE_LOCATION_UPDATED => 'storage_location',
         // Warehouse/location delete-restore C2: the location row whose own state changed (`SEC` S-1).
         self::STORAGE_LOCATION_RESTORED => 'storage_location',
+        // Warehouse/location delete-restore C3: the location row whose own state changed (`SEC` S-1).
+        self::STORAGE_LOCATION_DELETED => 'storage_location',
         self::ROLE_ASSIGNED => 'app_user',
         self::ROLE_REVOKED => 'app_user',
         self::ROLE_ASSIGNMENT_PROPOSED => 'app_user',

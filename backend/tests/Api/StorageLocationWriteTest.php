@@ -518,8 +518,8 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
     // ---- the trail ---------------------------------------------------------
 
     /**
-     * Of the four location events `.created`, `.updated` and (wh-loc-delete C2, `RestoreStorageLocation`) `.restored` are
-     * minted — in the code catalogue AND the live CHECK. `.deleted` comes with `DeleteStorageLocation` (C3).
+     * All four location events are minted — in the code catalogue AND the live CHECK: `.created`, `.updated`, `.restored`
+     * (wh-loc-delete C2, `RestoreStorageLocation`) and `.deleted` (C3, `DeleteStorageLocation`). The pair is complete.
      */
     #[Test]
     public function onlyTheStorageLocationEventsWithAWriterAreMinted(): void
@@ -534,8 +534,8 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['storage_location.created', 'storage_location.restored', 'storage_location.updated'], $code, 'AuditEvent mints a location event without its writer.');
-        self::assertSame(['storage_location.created', 'storage_location.restored', 'storage_location.updated'], $liveMembers, 'The live CHECK admits a location event without its writer.');
+        self::assertSame(['storage_location.created', 'storage_location.deleted', 'storage_location.restored', 'storage_location.updated'], $code, 'AuditEvent mints a location event without its writer.');
+        self::assertSame(['storage_location.created', 'storage_location.deleted', 'storage_location.restored', 'storage_location.updated'], $liveMembers, 'The live CHECK admits a location event without its writer.');
     }
 
     /** One `storage_location.created` naming the creator, with the code and the STORED kind (the default when omitted). */

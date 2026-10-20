@@ -27,12 +27,13 @@ use Symfony\Component\Uid\Uuid;
  * that changes every accepted field.
  *
  * Both events are **business** under PC-11 (4a) (`SEC` to confirm the storage-location block), so no `$ipAddress` and no
- * `permission_code`. `.restored` (C2 of the delete-restore build, 2026-10-20, {@see self::recordRestored()}) carries `{}`
- * (`SEC` `wh-loc-delete-roles.md` S-1); `.deleted` is minted with `DeleteStorageLocation` (C3, G-27).
+ * `permission_code`. `.restored` (C2 of the delete-restore build, 2026-10-20, {@see self::recordRestored()}) and `.deleted`
+ * (C3, `DeleteStorageLocation`, {@see self::recordDeleted()}) carry `{}` (`SEC` `wh-loc-delete-roles.md` S-1).
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_UPDATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_RESTORED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_DELETED
  */
 final readonly class StorageLocationAuditWriter
 {
@@ -104,6 +105,15 @@ final readonly class StorageLocationAuditWriter
     public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $storageLocationId): void
     {
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::STORAGE_LOCATION_RESTORED, $storageLocationId, '{}');
+    }
+
+    /**
+     * `storage_location.deleted` — `DeleteStorageLocation`, after its UPDATE, in its transaction. `metadata` `{}`: the row
+     * shows the change itself (`archived_at`); no `held_stock` flag, because a location holding stock is refused (owner Q-1).
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $storageLocationId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::STORAGE_LOCATION_DELETED, $storageLocationId, '{}');
     }
 
     /**

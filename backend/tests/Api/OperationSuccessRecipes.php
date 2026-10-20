@@ -956,8 +956,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'restore a warehouse'];
             }],
-            // Warehouse/location delete-restore C2: a location of a live warehouse archived by owner SQL (`DeleteStorageLocation`
-            // is C3), restored.
+            // Warehouse/location delete-restore C3: an empty location of a live warehouse (owner Q-1 refuses a stocked one),
+            // archived; 204, no body.
+            'DeleteStorageLocation' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Location Delete Warehouse');
+
+                return ['warehouse' => $warehouse, 'location' => $this->seedStorageLocation(self::TENANT_A, $warehouse, 'R-DELETE-01')];
+            }, function (array $c): array {
+                $this->send('DELETE', '/warehouses/'.$c['warehouse'].'/locations/'.$c['location']);
+
+                return [204, 'archive a storage location'];
+            }],
+            // Warehouse/location delete-restore C2: a location of a live warehouse archived by owner SQL (a fixture;
+            // `DeleteStorageLocation`, C3, has its own recipe), restored.
             'RestoreStorageLocation' => [function (): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Location Restore Warehouse');
                 $location = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'R-RESTORE-01');

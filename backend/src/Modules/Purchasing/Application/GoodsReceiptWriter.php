@@ -122,6 +122,12 @@ final readonly class GoodsReceiptWriter
     public const MAXIMUM_LINES = 200;
 
     /**
+     * A receipt line into a location that is archived or not in the order's warehouse (`storage_location.belongs_to_receiving_warehouse`;
+     * `UX`, `wh-loc-delete-roles-red.md` M-2, C3). Public so a test pins it by constant as well as by literal.
+     */
+    public const BIN_CANNOT_TAKE_GOODS = 'This location can\'t take goods: it\'s archived, or it isn\'t in this order\'s warehouse.';
+
+    /**
      * How far ahead of the server a client's clock may be before `received_at`
      * is refused rather than clamped. See {@see self::receivedAt()}.
      */
@@ -441,6 +447,13 @@ final readonly class GoodsReceiptWriter
                 'Order line %d: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong; it can be corrected by a stock count.',
                 (int) $live[$lines[$index]['orderLine']]['line_number'],
             ));
+        }
+
+        // A bin that is archived, or not in this order's warehouse — product-reachable since `DeleteStorageLocation` (wh-loc-delete
+        // C3, 2026-10-20; `UX`, `wh-loc-delete-roles-red.md` M-2). `StockReceiptRefused`'s own message names two raw ids and
+        // stays the contract's (internal) text; this request is told it passively, on its own field.
+        if ('storage_location.belongs_to_receiving_warehouse' === $e->rule()) {
+            return ApiProblem::validationFailed([self::error($index, 'storage_location_id', $e->rule(), self::BIN_CANNOT_TAKE_GOODS)]);
         }
 
         $field = str_starts_with($e->rule(), 'storage_location.') ? 'storage_location_id' : 'quantity';

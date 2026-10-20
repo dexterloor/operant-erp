@@ -979,6 +979,14 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Modules\\Warehouses\\Application\\Contract\\#'
+    # Warehouses delete/restore C3 (2026-10-20; `docs/session13/wh-loc-delete-arch.md` §1): Warehouses' inbound PORTS —
+    # `SuppliersPort`'s shape, cut by answering module because Warehouses asks three modules (A-2: one consumer per Port).
+    # Name, collector, owner and §5.2 pair are read from `DeptracRulesetTest::PORT_CONSUMERS`' row. A class directly under
+    # `Warehouses\Application\Port\` belongs to no layer (`everyClassInSrcBelongsToALayer`): put it in the answerer's folder.
+    - name: WarehousesInventoryPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Application\\Port\\Inventory\\#'
     - name: WarehousesApplication
       collectors:
         - type: bool
@@ -988,6 +996,9 @@ deptrac:
           must_not:
             - type: classNameRegex
               value: '#^App\\Modules\\Warehouses\\Application\\Contract\\#'
+            # C3 (wh-loc-delete): every Warehouses port is collected by its own `Warehouses<Answerer>Port` layer ONLY.
+            - type: classNameRegex
+              value: '#^App\\Modules\\Warehouses\\Application\\Port\\#'
     - name: WarehousesInfrastructure
       collectors:
         - type: classNameRegex
@@ -1248,6 +1259,8 @@ deptrac:
       - SharedKernel
       - UserManagementContract
       - WarehousesContract
+      # C3 (wh-loc-delete): Inventory answers WarehouseHeldStock — the one consumer WarehousesInventoryPort names.
+      - WarehousesInventoryPort
     InventoryApiResource:
       - Doctrine
       - HttpFoundation
@@ -1401,6 +1414,11 @@ deptrac:
       - Doctrine
       - PlatformTenancy
       - SharedKernel
+    # C3 (wh-loc-delete): the port may use Doctrine, SharedKernel and PlatformTenancy only (the C5 F-3 shape).
+    WarehousesInventoryPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
     SuppliersApplication:
       - Doctrine
       - PlatformConsole
@@ -1515,6 +1533,7 @@ deptrac:
       - UserManagementContract
       - WarehousesContract
       - WarehousesDomain
+      - WarehousesInventoryPort
     WarehousesApiResource:
       - Doctrine
       - HttpFoundation

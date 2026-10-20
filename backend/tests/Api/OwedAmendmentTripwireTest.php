@@ -454,7 +454,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     /**
      * **What the archive operations owe, mechanised** (warehouses-s1 §4.7, C3 2026-10-13; bulk parity:
      * `docs/session13/stock-transfer-sec.md` §5, 2026-10-20). Slice 1 ships no archive: `DeleteWarehouse` waits on API-O-34
-     * and G-7, `DeleteStorageLocation` on G-27; `CreateBulkArchival` / `CreateBulkRestoration` owe parity with each
+     * and G-7, `DeleteStorageLocation` on G-27 (its entry left with wh-loc-delete C3, 2026-10-20: G-27 narrowed, the stock
+     * refusal, `FOR UPDATE`, `storage_location.deleted`, all built — `StorageLocationDeleteTest`); `CreateBulkArchival` /
+     * `CreateBulkRestoration` owe parity with each
      * resource's single Delete / Restore (the bulk-parity gap in `RESIDUAL_GAPS.md`). Keyed by `operationId` (the pick-read
      * precedent, `1076ba3`). A PIN, red on arrival; an entry leaves only in the commit that does its work. The key set is
      * pinned by literal too (final RED L-5), so a key cannot drift to a name that is never built.
@@ -477,18 +479,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'for good (L-4 (ii)). `SEC` leans to refusing the delete of a stocked location or warehouse; rule it with the delete '
             .'(stock-adjustment-sec.md §6); and re-read the count\'s `warehouse.is_archived` sentence (UX S-2); '
             .'and a transfer refuses an archived source bin, so stock left in an archived bin cannot be moved out either — rule it with the delete.',
-        'DeleteStorageLocation' => 'G-27 fires; refuse while stock_level holds stock (or rule it); the depleter\'s FOR KEY SHARE '
-            .'lock already serialises a pick with it; take FOR UPDATE on the location; mint storage_location.deleted with its writer. '
-            .'Stock in an archived quarantine location escapes the count\'s held-item read (L-8), and stock in an archived location '
-            .'cannot be counted off (the count refuses archived bins). `SEC` leans to refusing the delete of a stocked location; rule '
-            .'it with the delete (stock-adjustment-sec.md §6); and re-read the count\'s `storage_location.is_archived` sentence (UX S-3); '
-            .'and a transfer refuses an archived source bin, so stock left in an archived bin cannot be moved out either — rule it with the delete.',
         'CreateBulkArchival' => 'Parity with each resource\'s single Delete, per member (new gap, stock-transfer-sec.md §5): a member '
             .'the single Delete would refuse is NOT applied (counted out of `applied`, no per-id reason — E-14). For storage_location '
-            .'and warehouse: whatever DeleteStorageLocation/DeleteWarehouse rule (SEC leans: refuse a stocked bin/warehouse) — '
-            .'archiving stocked quarantine hides held stock from StockAdjuster\'s held read (G-44 bypass by `admin`, who holds '
-            .'.delete and stock_movement.adjust). For every other resource, its own Delete\'s refusals (open work, draft-only, '
-            .'E-15h held roles if `role` is admissible). Lock as the single Delete does; one `<table>.deleted` row per member.',
+            .'(built, wh-loc-delete C3): `warehouse.is_archived` (a location of an archived warehouse), `storage_location.is_archived` '
+            .'and `storage_location.holds_stock` (any stock, any kind, quarantine included) — archiving stocked quarantine would hide '
+            .'held stock from StockAdjuster\'s held read (G-44 bypass by `admin`, who holds .delete and stock_movement.adjust). For '
+            .'warehouse: whatever DeleteWarehouse rules (API-O-34: open orders and stock refuse). For every other resource, its own Delete\'s refusals (open work, draft-only, '
+            .'E-15h held roles if `role` is admissible); items: G-51 (an item with stock must not be bulk-archived, or its stock blocks its locations and warehouse). Lock as the single Delete does; one `<table>.deleted` row per member.',
         'CreateBulkRestoration' => 'Parity with each resource\'s single Restore, per member (stock-transfer-sec.md §5): its collision '
             .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
             .'Restore would refuse is not applied, with no per-id reason (E-14). For warehouse (built, wh-loc-delete C1): '
@@ -1247,7 +1244,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * **What the archive operations owe** (warehouses-s1 §4.7; bulk parity: stock-transfer-sec.md §5). Red the moment
-     * `DeleteWarehouse`, `DeleteStorageLocation`, `CreateBulkArchival` or `CreateBulkRestoration` is in the generated spec.
+     * `DeleteWarehouse`, `CreateBulkArchival` or `CreateBulkRestoration` is in the generated spec (`DeleteStorageLocation`
+     * left at wh-loc-delete C3).
      * **Controls, same test:** the positive control every sibling uses; a non-empty map; the key set by literal (final RED
      * L-5; mutation M-T1: rename a key → red); and the intersection over a literal map naming a BUILT operation
      * (`UpdateStorageLocation`) must report it. Mutation M9: rename the positive control → red.
@@ -1263,7 +1261,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'The archive-rules map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
         $sortedKeys = array_keys(self::OPERATIONS_OWING_THE_ARCHIVE_RULES);
         sort($sortedKeys);
-        self::assertSame(['CreateBulkArchival', 'CreateBulkRestoration', 'DeleteStorageLocation', 'DeleteWarehouse'], $sortedKeys,
+        self::assertSame(['CreateBulkArchival', 'CreateBulkRestoration', 'DeleteWarehouse'], $sortedKeys,
             'The archive-rules pin no longer names exactly the unbuilt archive operations of API.md §4.2 (final RED L-5). A '
             .'renamed key is never built and guards nothing; an entry leaves only with its work done.');
         self::assertSame(['UpdateStorageLocation' => 'x'],
