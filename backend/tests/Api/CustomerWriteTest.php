@@ -24,6 +24,11 @@ use Symfony\Component\Uid\Uuid;
  * `RESIDUAL_GAPS.md` G-35): one `customer.created` per create and one `customer.updated` per CHANGING update, each read
  * back as the owner cell by cell — event, actor, label, subject pair, no IP, no permission code, the exact `metadata` —
  * and no row on any refusal or on a no-op. The race test is a real second connection holding the row.
+ *
+ * **G-35 (g), C0a** (`docs/session13/audit-reads-owner-q-ruling.md` §5 C0a, judge 2026-10-20 under the owner's
+ * delegation): the trail is names only **except the terms value** — `customer.created` `{"payment_terms_days": n}` as
+ * stored (the INSERT's `RETURNING`), `customer.updated` `{"fields": [...], "payment_terms_days": {"from", "to"}}` when
+ * terms changed, `from` the locked row's value. A term raised and put back now shows both values.
  */
 final class CustomerWriteTest extends PurchaseOrderTestCase
 {
@@ -279,7 +284,10 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame(403, $this->httpStatus());
     }
 
-    /** 7.1 — one `customer.created`, `{}`, naming the creator; the subject is the new customer. */
+    /**
+     * 7.1 — one `customer.created`, naming the creator; the subject is the new customer; `metadata` exactly
+     * `{"payment_terms_days": 3650}` — the terms value set at create (G-35 (g)), at today's bound.
+     */
     #[Test]
     public function aCreatedCustomerWritesExactlyOneCustomerCreatedRow(): void
     {
@@ -288,9 +296,25 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         $this->create(['code' => 'C-AUD', 'name' => 'Audited', 'country_code' => 'GB', 'currency_code' => 'GBP', 'payment_terms_days' => 3650]);
 
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->businessRow(AuditEvent::CUSTOMER_CREATED, 'customer', $this->json()['id'])],
-            $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED));
+        self::assertSame([$this->createdRow($this->json()['id'], 3650)], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED));
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED), 'A create wrote an update row.');
+    }
+
+    /**
+     * 7.1b — terms omitted: the row records the column default **as stored** (30), read back by the INSERT's `RETURNING`.
+     * It cannot tell a PHP literal 30 from the default while the default is 30 (ruling mutation G6, a review check); it
+     * does catch `{}` and any value other than what the database stored.
+     */
+    #[Test]
+    public function aCreateWithoutTermsRecordsTheDefault(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+
+        $this->create(['code' => 'C-DEF', 'name' => 'Defaulted', 'country_code' => 'GB', 'currency_code' => 'GBP']);
+
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(30, $this->stored($this->json()['id'])['payment_terms_days'], 'Fixture: the column default is no longer 30.');
+        self::assertSame([$this->createdRow($this->json()['id'], 30)], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED));
     }
 
     /** 7.2 — a create refused for a taken code (409, the 23505 caught outside `run()`) or for its shape (422) writes no row. */
@@ -319,13 +343,15 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         $stored = $this->stored($id);
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
 
+        self::assertSame(30, $stored['payment_terms_days'], 'Fixture: the seeded terms must be 30.');
+
         $this->update($id, ['payment_terms_days' => 3650] + $stored);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->updatedRow($id, ['payment_terms_days'])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
+        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 3650])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
 
         $this->update($id, ['name' => 'Renamed', 'code' => 'C-RENAMED']);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame([$this->updatedRow($id, ['payment_terms_days']), $this->updatedRow($id, ['code', 'name'])],
+        self::assertSame([$this->updatedRow($id, ['payment_terms_days'], [30, 3650]), $this->updatedRow($id, ['code', 'name'])],
             $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_CREATED), 'An update wrote a create row.');
     }
@@ -370,9 +396,17 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED), 'A refused update wrote a customer.updated row.');
     }
 
-    /** 7.6 — `metadata` is `{fields}` and nothing else, and no submitted value appears in it. */
+    /**
+     * 7.6 — `metadata` is `{fields, payment_terms_days}` and nothing else; the terms pair is the only value in it, and no
+     * other submitted or stored value appears.
+     *
+     * ⚖ **Pin moved deliberately in C0a** (was `theUpdatedRowCarriesNamesNeverValues`; G-35 (g),
+     * `audit-reads-owner-q-ruling.md` §5 C0a): `'3650'` left the forbidden list because the terms value is now the one
+     * value this event records — names alone could not show a ten-year term, and a term raised and put back left nothing
+     * to find. `'Zebra'`, `'USD'` and `'Valued'` stay forbidden: no name, currency or other value may follow it in.
+     */
     #[Test]
-    public function theUpdatedRowCarriesNamesNeverValues(): void
+    public function theUpdatedRowCarriesNamesAndOnlyTheTermsValue(): void
     {
         $id = $this->seedCustomer(self::TENANT_A, 'Valued');
 
@@ -382,11 +416,55 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         $rows = $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED);
         self::assertCount(1, $rows);
         $metadata = json_decode($rows[0]['metadata'], true, flags: \JSON_THROW_ON_ERROR);
-        self::assertSame(['fields'], array_keys($metadata), 'customer.updated carries a key other than fields.');
+        $keys = array_keys($metadata);
+        sort($keys);
+        self::assertSame(['fields', 'payment_terms_days'], $keys, 'customer.updated carries a key other than fields and the terms pair.');
         self::assertSame(['currency_code', 'name', 'payment_terms_days'], $metadata['fields']);
-        foreach (['3650', 'Zebra', 'USD', 'Valued'] as $value) {
-            self::assertStringNotContainsString($value, $rows[0]['metadata'], 'A value reached customer.updated\'s metadata.');
+        $terms = $metadata['payment_terms_days'];
+        ksort($terms); // jsonb stores keys shortest-first ("to" before "from"); the order is not the contract.
+        self::assertSame(['from' => 30, 'to' => 3650], $terms);
+        foreach (['Zebra', 'USD', 'Valued'] as $value) {
+            self::assertStringNotContainsString($value, $rows[0]['metadata'], 'A value other than the terms reached customer.updated\'s metadata.');
         }
+    }
+
+    /** 7.6b — an update that does not change terms carries no terms value: `metadata` is `{fields}` only. */
+    #[Test]
+    public function anUpdateNotChangingTermsCarriesNoTermsValue(): void
+    {
+        $id = $this->seedCustomer(self::TENANT_A, 'Untermed');
+        $stored = $this->stored($id);
+
+        // Terms resent unchanged alongside a rename: still not a terms change.
+        $this->update($id, ['name' => 'Untermed Renamed', 'payment_terms_days' => $stored['payment_terms_days']]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([$this->updatedRow($id, ['name'])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED));
+        $metadata = json_decode($this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED)[0]['metadata'], true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame(['fields'], array_keys($metadata), 'An update that left terms alone carried a terms value.');
+    }
+
+    /**
+     * 7.6c — the G-35 abuse: terms raised and put back (30 → 3650 → 30). Two rows, `{from: 30, to: 3650}` then
+     * `{from: 3650, to: 30}`: the long term is visible from the trail although the customer ends where it started.
+     */
+    #[Test]
+    public function aTermsRaisedAndPutBackShowBothValues(): void
+    {
+        $id = $this->seedCustomer(self::TENANT_A, 'Reverted');
+        self::assertSame(30, $this->stored($id)['payment_terms_days'], 'Fixture: the seeded terms must be 30.');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+
+        $this->update($id, ['payment_terms_days' => 3650]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->update($id, ['payment_terms_days' => 30]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame(30, $this->stored($id)['payment_terms_days']);
+        self::assertSame([
+            $this->updatedRow($id, ['payment_terms_days'], [30, 3650]),
+            $this->updatedRow($id, ['payment_terms_days'], [3650, 30]),
+        ], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED), 'A term raised and put back is not visible from the trail.');
     }
 
     /**
@@ -413,8 +491,9 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
         self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame(30, $this->stored($id)['payment_terms_days'], 'The request did not re-apply its terms over the holder\'s reset.');
-        self::assertSame([$this->updatedRow($id, ['name', 'payment_terms_days'])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED),
-            'The request\'s customer.updated row does not name the terms it changed back.');
+        // G-35 (g): `from` is the LOCKED row's 3650 — what the request actually replaced — not the 30 it assumed.
+        self::assertSame([$this->updatedRow($id, ['name', 'payment_terms_days'], [3650, 30])], $this->auditRowsOf(AuditEvent::CUSTOMER_UPDATED),
+            'The request\'s customer.updated row does not name the terms it changed back, or records a from other than the locked row\'s.');
     }
 
     // -----------------------------------------------------------------------
@@ -449,18 +528,39 @@ final class CustomerWriteTest extends PurchaseOrderTestCase
 
     /**
      * The one `customer.updated` row a change must write: this actor, the fixture label, the subject pair, no IP, no
-     * permission code, `metadata` exactly `{"fields": [...]}` as Postgres renders the jsonb.
+     * permission code, `metadata` exactly `{"fields": [...]}` — plus `"payment_terms_days": {"from", "to"}` when terms
+     * changed (G-35 (g)) — as Postgres renders the jsonb.
      *
-     * @param list<string> $fields
+     * @param list<string>      $fields
+     * @param array{int, int}|null $terms [from, to]
      *
      * @return array<string, ?string>
      */
-    private function updatedRow(string $id, array $fields): array
+    private function updatedRow(string $id, array $fields, ?array $terms = null): array
     {
+        $metadata = ['fields' => $fields];
+        if (null !== $terms) {
+            $metadata['payment_terms_days'] = ['from' => $terms[0], 'to' => $terms[1]];
+        }
+
         return array_replace($this->businessRow(AuditEvent::CUSTOMER_UPDATED, 'customer', $id), [
-            'metadata' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m',
-                [json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR)])[0]['m'],
+            'metadata' => $this->asJsonb($metadata),
         ]);
+    }
+
+    /** The one `customer.created` row a create must write: `metadata` exactly `{"payment_terms_days": n}` (G-35 (g)). */
+    private function createdRow(string $id, int $terms): array
+    {
+        return array_replace($this->businessRow(AuditEvent::CUSTOMER_CREATED, 'customer', $id), [
+            'metadata' => $this->asJsonb(['payment_terms_days' => $terms]),
+        ]);
+    }
+
+    /** @param array<string, mixed> $value rendered as Postgres renders the jsonb, so a cell compares exactly */
+    private function asJsonb(array $value): string
+    {
+        return (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m',
+            [json_encode($value, \JSON_THROW_ON_ERROR)])[0]['m'];
     }
 
     /**

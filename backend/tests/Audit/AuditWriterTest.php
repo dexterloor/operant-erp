@@ -403,8 +403,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Customers slice 1 C2: `customer.created` / `customer.updated`, BUSINESS (final RED F-1: listed AND driven).
         $customerWriter = self::getContainer()->get(CustomerAuditWriter::class);
         \assert($customerWriter instanceof CustomerAuditWriter);
-        $customerWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122());
-        $customerWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122(), fields: ['name']);
+        // C0a (G-35 (g)): create carries the stored terms; the update drives the terms pair too.
+        $customerWriter->recordCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122(), paymentTermsDays: 30);
+        $customerWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122(), fields: ['name', 'payment_terms_days'],
+            paymentTerms: ['from' => 30, 'to' => 60]);
         // C5 C4a: `customer.restored`, BUSINESS (listed AND driven).
         $customerWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', customerId: Uuid::v4()->toRfc4122());
         // Suppliers slice 1 C2: `supplier.created` / `supplier.updated`, BUSINESS (listed AND driven).

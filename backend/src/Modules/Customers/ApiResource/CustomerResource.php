@@ -33,8 +33,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * 404; an archived customer in the caller's workspace is returned with `archived_at` set (§5.2a, ST-9).
  *
  * **`CreateCustomer` / `UpdateCustomer`** (customers slice 1 C2): `CustomerWriter` behind both, `ItemResource`'s operation
- * shape. Each writes one audit row in its transaction (`customer.created` / `customer.updated` with field names only;
- * `RESIDUAL_GAPS.md` G-35).
+ * shape. Each writes one audit row in its transaction (`customer.created` `{payment_terms_days}` / `customer.updated`
+ * `{fields[, payment_terms_days {from, to}]}` — field names only, except the terms value; `RESIDUAL_GAPS.md` G-35 (g)).
  *
  * **`RestoreCustomer`** (C5 C4a): `CustomerWriter::restore()`, `customer.restored` in its transaction.
  *

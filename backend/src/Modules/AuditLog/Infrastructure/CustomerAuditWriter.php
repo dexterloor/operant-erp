@@ -26,13 +26,24 @@ use Symfony\Component\Uid\Uuid;
  *
  * **The parameter lists are the control.** Both events are **business** under PC-11 (4a) — a delegated filing by the G-35
  * judge in the `SEC` role (`customers-s1-g35-judge.md` C-4; `SEC` to confirm) — so there is **no `$ipAddress`**
- * (`audit_log_ip_address_scope` refuses one on a business event) and no `permission_code`. `recordCreated()` takes no
- * metadata at all (`{}`), nor do `recordRestored()` (C5 C4a) and `recordDeleted()` (C5 C4b, `DeleteCustomer`).
- * `recordUpdated()` takes only the **names** of the changed fields: it builds
- * `{"fields": [...]}` itself, sorted and de-duplicated, and refuses an empty list, because "no field changed" writes no
- * row (judge FINAL item 2). **Never values**: a list of column names is sourced from no table, so PC-11's metadata clause
- * and PC-15 condition 6 are met by construction; an old or new name, or a term, cannot reach `metadata` through this
- * class.
+ * (`audit_log_ip_address_scope` refuses one on a business event) and no `permission_code`. `recordRestored()` (C5 C4a)
+ * and `recordDeleted()` (C5 C4b, `DeleteCustomer`) take no metadata at all (`{}`).
+ *
+ * **Names only, except the terms value** (G-35 (g), `docs/session13/audit-reads-owner-q-ruling.md` §2 / §5 C0a, judge
+ * 2026-10-20 under the owner's delegation; it reverses `customers-s1-g35-judge.md`'s "names only" for this one field).
+ * Field names alone cannot show how long a term was set to, and the invoice issuer reads terms live, so "raise to
+ * 3650, issue, put back to 30" left two ordinary `["payment_terms_days"]` rows and nothing showing the ten years.
+ *  - `recordCreated()` writes `{"payment_terms_days": n}`, where `n` is the value the INSERT stored — the caller passes
+ *    `INSERT … RETURNING payment_terms_days`, never a PHP copy of the column default.
+ *  - `recordUpdated()` builds `{"fields": [...]}` itself, sorted and de-duplicated, and refuses an empty list, because
+ *    "no field changed" writes no row (judge FINAL item 2). When terms changed it adds
+ *    `"payment_terms_days": {"from": a, "to": b}`, `from` being the **locked row's** value, and it refuses a pair
+ *    without the name in `fields`, or the name without a pair (`LogicException`): the two cannot drift apart.
+ *  - **No other value**: an old or new name, code, country or currency cannot reach `metadata` through this class. The
+ *    terms value comes from the subject row itself, so PC-11's metadata clause (no field sourced from a table the reader
+ *    has no `.view` on) and PC-15 condition 6 still hold; it is an integer, so no scale-4 decimal and no PII.
+ *  - **The supplier is not mirrored** (G-19 decision, ruling §2.5): supplier terms are credit the tenant receives, and a
+ *    long supplier term favours the tenant, so `SupplierAuditWriter` stays names-only.
  *
  * The subject is the customer, read off `AuditEvent::SUBJECT_TYPES` rather than written as a literal
  * (`audit_log_subject_pair` requires the pair to arrive together).
@@ -51,19 +62,26 @@ final readonly class CustomerAuditWriter
     {
     }
 
-    /** `customer.created` — `CreateCustomer`, after its INSERT, in its transaction. `metadata` `{}`. */
-    public function recordCreated(string $tenantId, string $actorUserId, string $actorLabel, string $customerId): void
+    /**
+     * `customer.created` — `CreateCustomer`, after its INSERT, in its transaction. `metadata` `{"payment_terms_days": n}`,
+     * `n` read back from the INSERT's `RETURNING` (G-35 (g)), so an omitted field records the column default as stored.
+     */
+    public function recordCreated(string $tenantId, string $actorUserId, string $actorLabel, string $customerId, int $paymentTermsDays): void
     {
-        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_CREATED, $customerId, '{}');
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_CREATED, $customerId,
+            json_encode(['payment_terms_days' => $paymentTermsDays], \JSON_THROW_ON_ERROR));
     }
 
     /**
      * `customer.updated` — `UpdateCustomer`, after its UPDATE, in its transaction: `{"fields": [...]}`, the wire names of
-     * the fields whose submitted value differs from the locked row, sorted ascending, never values.
+     * the fields whose submitted value differs from the locked row, sorted ascending; plus, when terms changed,
+     * `"payment_terms_days": {"from": a, "to": b}` (G-35 (g)) — the only value this event carries.
      *
-     * @param list<string> $fields
+     * @param list<string>                 $fields
+     * @param array{from: int, to: int}|null $paymentTerms the locked row's terms and the submitted ones; set exactly when
+     *                                                     `payment_terms_days` is in `$fields`
      */
-    public function recordUpdated(string $tenantId, string $actorUserId, string $actorLabel, string $customerId, array $fields): void
+    public function recordUpdated(string $tenantId, string $actorUserId, string $actorLabel, string $customerId, array $fields, ?array $paymentTerms = null): void
     {
         if ([] === $fields) {
             throw new \LogicException('customer.updated names the fields that changed; an update that changed nothing writes no row.');
@@ -76,8 +94,21 @@ final readonly class CustomerAuditWriter
         $fields = array_values(array_unique($fields));
         sort($fields);
 
+        $termsChanged = \in_array('payment_terms_days', $fields, true);
+        if ($termsChanged && null === $paymentTerms) {
+            throw new \LogicException('customer.updated names payment_terms_days but was given no {from, to}: the terms value is what G-35 (g) records.');
+        }
+        if (!$termsChanged && null !== $paymentTerms) {
+            throw new \LogicException('customer.updated was given a terms {from, to} but does not name payment_terms_days: only a terms change carries the value.');
+        }
+
+        $metadata = ['fields' => $fields];
+        if (null !== $paymentTerms) {
+            $metadata['payment_terms_days'] = ['from' => $paymentTerms['from'], 'to' => $paymentTerms['to']];
+        }
+
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::CUSTOMER_UPDATED, $customerId,
-            json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR));
+            json_encode($metadata, \JSON_THROW_ON_ERROR));
     }
 
     /** `customer.restored` — `RestoreCustomer` (C5 C4a), after its UPDATE, in its transaction. `metadata` `{}`. */

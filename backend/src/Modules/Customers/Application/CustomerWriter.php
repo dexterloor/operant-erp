@@ -26,7 +26,8 @@ use Symfony\Component\Uid\Uuid;
  *
  * The two writes are raw SQL naming exactly the columns `erp_app`'s column grants cover (`SchemaManifest['customer']`,
  * `Version20261009000300`): the INSERT names `id, tenant_id, code, name, country_code, currency_code` and
- * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy); the UPDATE sets only
+ * `payment_terms_days` only when sent (omitted, the column default 30 applies, never a PHP copy — and the INSERT's
+ * `RETURNING payment_terms_days` is what `customer.created` records, G-35 (g)); the UPDATE sets only
  * the **changed** columns plus `updated_at`. `deleted_at` is written only by `restore()` and `delete()` (C5 C4a / C4b,
  * the column grant `Version20261014000200`). A 42501 from any of them is fixed by removing the column from the statement, never by
  * widening the grant.
@@ -45,7 +46,8 @@ use Symfony\Component\Uid\Uuid;
  * One row lock, taken by the first read (`FOR NO KEY UPDATE`, the lock the `UPDATE` would take anyway): last writer still
  * wins, and there is no `stale-record`; the lock exists so `customer.updated`'s field list is exact — an unlocked diff
  * could hide a concurrent terms reset (`customers-s1-g35-judge.md` C-3). One audit row per create and per changing
- * update, field names only (`RESIDUAL_GAPS.md` G-35). Both audit calls sit **after** their write statement, inside the
+ * update, field names only except the terms value (`{payment_terms_days}` on create, `{from, to}` from the locked row on
+ * a terms change; `RESIDUAL_GAPS.md` G-35 (g)). Both audit calls sit **after** their write statement, inside the
  * same `run()`, so a 23505 (caught outside `run()`) or any 4xx leaves no row. An update that changes nothing issues no
  * `UPDATE` and writes no row; its 200 body is the unchanged row.
  *
@@ -169,10 +171,16 @@ final readonly class CustomerWriter
                     $parameters[] = $values['payment_terms_days'];
                 }
 
-                $em->getConnection()->executeStatement(
-                    \sprintf('INSERT INTO customer (%s) VALUES (?::uuid, ?::uuid%s)', implode(', ', $columns), str_repeat(', ?', \count($columns) - 2)),
+                // `RETURNING payment_terms_days` (G-35 (g)): the trail records the terms as STORED, so an omitted field
+                // records the column default, read back from the database — never a PHP copy of 30.
+                $storedTerms = $em->getConnection()->fetchOne(
+                    \sprintf('INSERT INTO customer (%s) VALUES (?::uuid, ?::uuid%s) RETURNING payment_terms_days', implode(', ', $columns), str_repeat(', ?', \count($columns) - 2)),
                     $parameters,
                 );
+                if (!\is_int($storedTerms) && !(\is_string($storedTerms) && ctype_digit($storedTerms))) {
+                    // Never `(int) false` = 0: a missing RETURNING row would record terms nobody set.
+                    throw new \LogicException('The customer INSERT returned no payment_terms_days.');
+                }
 
                 // After the INSERT, in its transaction: a 23505 above leaves no row (G-35).
                 $this->audit->recordCreated(
@@ -180,6 +188,7 @@ final readonly class CustomerWriter
                     actorUserId: $identity->userId,
                     actorLabel: $identity->actorLabel,
                     customerId: $id,
+                    paymentTermsDays: (int) $storedTerms,
                 );
 
                 return CustomerReader::readInside($em, $id) ?? throw new \LogicException('The customer just inserted is not readable.');
@@ -243,6 +252,11 @@ final readonly class CustomerWriter
                         actorLabel: $identity->actorLabel,
                         customerId: $id,
                         fields: $changed,
+                        // G-35 (g): `from` is the LOCKED row's value — what this request actually replaced, even when a
+                        // concurrent write moved it after the caller read it — and `to` is what it set.
+                        paymentTerms: \in_array('payment_terms_days', $changed, true)
+                            ? ['from' => (int) $row['payment_terms_days'], 'to' => (int) $submitted['payment_terms_days']]
+                            : null,
                     );
                 }
 
