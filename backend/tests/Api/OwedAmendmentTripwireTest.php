@@ -493,7 +493,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
             .'Restore would refuse is not applied, with no per-id reason (E-14). For warehouse (built, wh-loc-delete C1): '
             .'`warehouse.is_not_archived` and `warehouse.code_is_unique_per_workspace`; the warehouse\'s locations are left as '
-            .'they are (owner Q-2 (a)).',
+            .'they are (owner Q-2 (a)). For storage_location (built, wh-loc-delete C2): `warehouse.is_archived` (a location of '
+            .'an archived warehouse), `storage_location.is_not_archived` and `storage_location.code_is_unique_per_warehouse`.',
     ];
 
     // The G-44 release pin (OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK / THE_RELEASE_RULE) was DELETED at CreateStockTransfer's C1

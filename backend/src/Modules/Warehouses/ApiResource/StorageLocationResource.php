@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Warehouses\ApiResource\State\CreateStorageLocationProcessor;
+use App\Modules\Warehouses\ApiResource\State\RestoreStorageLocationProcessor;
 use App\Modules\Warehouses\ApiResource\State\StorageLocationProvider;
 use App\Modules\Warehouses\ApiResource\State\UpdateStorageLocationProcessor;
 use App\Modules\Warehouses\Application\StorageLocationView;
@@ -92,6 +93,30 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // No `OPERATION_FLAG`: §4.2's `Idem` cell is `no` — a PATCH sets absolute values on a row that exists.
             extraProperties: [
                 PermissionGate::OPERATION_PERMISSION => 'storage_location.edit',
+                PermissionGate::OPERATION_DENIAL_SUBJECT => ['warehouse', 'id'],
+            ],
+        ),
+        // Warehouse/location delete-restore C2 — `RestoreStorageLocation`, API-21 branch 5: 200 with the location in its new
+        // state, no `Location` (`RestoreWarehouse`'s shape). It ships after `ListStorageLocations?archived` (E9-3) —
+        // `WarehouseOperationContractTest` ties the two.
+        new Post(
+            uriTemplate: '/warehouses/{id}/locations/{locationId}/restoration',
+            uriVariables: [
+                'id' => new Link(fromClass: WarehouseResource::class, identifiers: ['id'], parameterName: 'id'),
+                'locationId' => new Link(fromClass: StorageLocationResource::class, identifiers: ['id'], parameterName: 'locationId'),
+            ],
+            name: 'RestoreStorageLocation',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreStorageLocation'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreStorageLocationProcessor::class,
+            // §4.2: `storage_location.delete` (undoing an archive is the same authority as making one). **No
+            // `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:storage_location.deleted_at` — a replayed restore
+            // hits a live row and is refused `storage_location.is_not_archived`.
+            extraProperties: [
+                PermissionGate::OPERATION_PERMISSION => 'storage_location.delete',
                 PermissionGate::OPERATION_DENIAL_SUBJECT => ['warehouse', 'id'],
             ],
         ),

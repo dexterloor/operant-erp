@@ -26,7 +26,8 @@ use Symfony\Component\Uid\Uuid;
  * `kind` only when it was sent (omitted, the column default `bin` applies, never a PHP copy); the UPDATE sets only the
  * **changed** columns plus `updated_at`. **`warehouse_id` is INSERT-only and the path's** — a body `warehouse_id` is an
  * undeclared field: moving a location would move its stock between warehouses with no movement. `deleted_at` is in
- * neither: `DeleteStorageLocation` is not built (G-27).
+ * neither: it is written only by {@see self::restore()} (warehouse/location delete-restore C2, `Version20261020000300`)
+ * and, at C3, `DeleteStorageLocation` (G-27).
  *
  * **Refusals, in order** (design §4.1; placeholder copy, `UX` owes it): the parent warehouse (absent or another
  * workspace's → 404) → (update) the location **of this warehouse** (another warehouse's location under this path is the
@@ -108,7 +109,16 @@ final readonly class StorageLocationWriter
 
     public const WAREHOUSE_ARCHIVED_ON_UPDATE = 'This warehouse is archived, so its locations can\'t be changed until it\'s restored.';
 
-    public const ARCHIVED = 'This location is archived, so it can\'t be changed.';
+    public const ARCHIVED = 'This location is archived, so it can\'t be changed until it\'s restored.';
+
+    /** `RestoreStorageLocation` on a location of an archived warehouse (owner Q-2 (a); `UX` U-1). Passive (R-3). */
+    public const WAREHOUSE_ARCHIVED_ON_RESTORE = 'This location\'s warehouse is archived, so the location can\'t be restored until the warehouse is restored.';
+
+    /** `RestoreStorageLocation` on a live location (`UX` U-1). */
+    public const NOT_ARCHIVED = 'This location is not archived, so there is nothing to restore.';
+
+    /** `RestoreStorageLocation` when a live location of the same warehouse took this one's code meanwhile (`UX` U-1). */
+    public const CODE_TAKEN_ON_RESTORE = 'Another location in this warehouse now uses this location\'s code, so it can\'t be restored. It can be restored once that location\'s code is changed.';
 
     public const RELEASE_NEEDS_OWNER = 'This location holds stock, so only an owner can take it out of quarantine.';
 
@@ -274,8 +284,72 @@ final readonly class StorageLocationWriter
     }
 
     /**
-     * ST-9: an archived location is read-only. Reachable only by SQL: `DeleteStorageLocation` is not built (G-27). No
-     * "Restore it": `RestoreStorageLocation` is not built.
+     * **`RestoreStorageLocation`** (warehouse/location delete-restore C2, 2026-10-20; `docs/session13/wh-loc-delete-design.md`
+     * §3.3, §4.1, §4.2, Revision 2; {@see WarehouseWriter::restore()}'s shape under this class's parent order). In one
+     * `TenantContext::run()`:
+     *  1. a non-uuid id → 404; the parent {@see self::PARENT_LOCK} (`FOR SHARE`: serialises with `DeleteWarehouse`'s
+     *     `FOR UPDATE` and `RestoreWarehouse`'s `FOR NO KEY UPDATE`; warehouse before location, W-5 "warehouse row locks") —
+     *     absent or foreign → 404;
+     *  2. the location **of this warehouse**, `FOR NO KEY UPDATE` ({@see self::LOCATION_READ}) — another warehouse's location
+     *     under this path is the same 404 (ST-5);
+     *  3. archived warehouse → 409 `warehouse.is_archived` (§4.2: a location of an archived warehouse is restored only after
+     *     the warehouse — owner Q-2 (a), ST-9 parity with create/update);
+     *  4. live location → 409 `storage_location.is_not_archived` (§4.2 `guard:storage_location.deleted_at`; no key);
+     *  5. `UPDATE storage_location SET deleted_at = NULL, updated_at = now()`; 6. `storage_location.restored`, `{}`, after it;
+     *  7. 200 with the location, read inside the transaction.
+     * A live location of the same warehouse that took this one's code → `storage_location_tenant_warehouse_code_live` 23505
+     * at step 5, translated **outside** `run()` to 409 `storage_location.code_is_unique_per_warehouse`. **No stock check**
+     * (§4.1: an archived location is empty and no stock writer reaches it while archived).
+     */
+    public function restore(string $warehouseId, string $locationId): StorageLocationView
+    {
+        if (!Uuid::isValid($warehouseId) || !Uuid::isValid($locationId)) {
+            throw ApiProblem::notFound();
+        }
+        $warehouseId = Uuid::fromString($warehouseId)->toRfc4122();
+        $locationId = Uuid::fromString($locationId)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        try {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($warehouseId, $locationId, $identity): StorageLocationView {
+                $connection = $em->getConnection();
+
+                $parent = $connection->fetchAssociative(self::PARENT_LOCK, [$warehouseId]);
+                if (false === $parent) {
+                    throw ApiProblem::notFound();
+                }
+                $row = $connection->fetchAssociative(self::LOCATION_READ.' FOR NO KEY UPDATE', [$locationId, $warehouseId]);
+                if (false === $row) {
+                    throw ApiProblem::notFound();
+                }
+                if (true === $parent['archived']) {
+                    throw ApiProblem::businessRuleViolated('warehouse.is_archived', self::WAREHOUSE_ARCHIVED_ON_RESTORE);
+                }
+                if (true !== $row['archived']) {
+                    throw ApiProblem::businessRuleViolated('storage_location.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection->executeStatement('UPDATE storage_location SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$locationId]);
+
+                // After the UPDATE, in its transaction: a 23505 above leaves no row.
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    storageLocationId: $locationId,
+                );
+
+                return StorageLocationReader::readInside($em, $warehouseId, $locationId)
+                    ?? throw new \LogicException('The storage location just restored is not readable.');
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            throw self::translated($e, self::CODE_TAKEN_ON_RESTORE);
+        }
+    }
+
+    /**
+     * ST-9: an archived location is read-only, until it is restored ({@see self::restore()}). Reachable through the product
+     * once `DeleteStorageLocation` ships (C3); until then only by SQL. Passive copy (`UX` R-3).
      *
      * @param array<string, mixed> $row
      */

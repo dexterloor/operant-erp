@@ -14,7 +14,7 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * `ListWarehouses` has declared `archived` since warehouses slice 1 C1 (2026-10-13), so the restore became buildable then;
  * this ties the two facts on the TRUE side from `RestoreWarehouse`'s first commit. No archived-ordering index tie (`D-a`):
- * the `/warehouses` list is bounded and ordered by code (`DATA` D-4, none). C2 adds the location twin.
+ * the `/warehouses` list is bounded and ordered by code (`DATA` D-4, none). C2 added the location twin.
  */
 final class WarehouseOperationContractTest extends PurchaseOrderTestCase
 {
@@ -36,6 +36,18 @@ final class WarehouseOperationContractTest extends PurchaseOrderTestCase
             'E9-3: `RestoreWarehouse` ships exactly when an archived warehouse\'s id is obtainable. A restore nobody can reach '
             .'is not a shipped operation, and it is the kind that passes every test because the test holds the id.',
         );
+    }
+
+    /** The location twin (wh-loc-delete C2): `RestoreStorageLocation` ships exactly when `ListStorageLocations` offers `archived`. */
+    #[Test]
+    public function theArchivedIdProblemIsWhyNoStorageLocationRestoreShips(): void
+    {
+        $reachable = \in_array('archived', self::declaredParametersOf('ListStorageLocations'), true);
+        $declared = array_keys(TransactionBoundaryTest::contractOperations());
+
+        self::assertTrue($reachable, 'Control: ListStorageLocations no longer declares archived; RestoreStorageLocation would be unreachable.');
+        self::assertSame($reachable, \in_array('RestoreStorageLocation', $declared, true),
+            'E9-3: `RestoreStorageLocation` ships exactly when an archived location\'s id is obtainable.');
     }
 
     /** @return list<string> */

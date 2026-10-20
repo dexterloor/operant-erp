@@ -378,6 +378,10 @@ final class SalesReturnCreateTest extends PurchaseOrderTestCase
         $this->recordReturn($s['fulfilment'], 'recorded_in_error', [['fulfilment_line_id' => $s['fulfilment_lines'][0], 'quantity' => '1']]);
         self::assertSame(409, $this->httpStatus());
         self::assertSame('sales_return.origin_bin_is_live', $this->json()['rule']);
+        // Pinned literally since warehouse/location delete-restore C2 (`UX` U-2): "restored" became true with
+        // `RestoreStorageLocation`; it replaced "…has been closed … Reopen the location first."
+        $code = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT code FROM storage_location WHERE id = ?::uuid', [$s['bin']])[0]['code'];
+        self::assertSame('Location '.$code.', where these goods were taken from, is archived, so this shipment can\'t be recorded as made in error until the location is restored.', $this->json()['detail']);
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE storage_location SET deleted_at = NULL WHERE id = ?::uuid', [$s['bin']]);
 
         $before = $this->onHand($s['bin']);

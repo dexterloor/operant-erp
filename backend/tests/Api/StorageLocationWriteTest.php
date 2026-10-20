@@ -260,7 +260,7 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
         self::assertSame('N-01', $this->stored($theirs)['code']);
     }
 
-    /** ST-9: an archived location is read-only. No "Restore it": `RestoreStorageLocation` is not built. */
+    /** ST-9: an archived location is read-only until it is restored (wh-loc-delete C2). Passive copy (UX R-3), no "Restore it". */
     #[Test]
     public function anArchivedLocationCannotBeChanged(): void
     {
@@ -272,7 +272,7 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame('storage_location.is_archived', $this->json()['rule']);
-        self::assertSame('This location is archived, so it can\'t be changed.', $this->json()['detail']);
+        self::assertSame('This location is archived, so it can\'t be changed until it\'s restored.', $this->json()['detail']);
         self::assertSame('D-01', $this->stored($location)['code']);
     }
 
@@ -517,9 +517,12 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
 
     // ---- the trail ---------------------------------------------------------
 
-    /** Of the four location events only `.created` and `.updated` are minted — in the code catalogue AND the live CHECK. */
+    /**
+     * Of the four location events `.created`, `.updated` and (wh-loc-delete C2, `RestoreStorageLocation`) `.restored` are
+     * minted — in the code catalogue AND the live CHECK. `.deleted` comes with `DeleteStorageLocation` (C3).
+     */
     #[Test]
-    public function onlyTheCreateAndUpdateStorageLocationEventsAreMinted(): void
+    public function onlyTheStorageLocationEventsWithAWriterAreMinted(): void
     {
         $definition = (string) $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'audit_log_event_type_values'")[0]['d'];
@@ -531,8 +534,8 @@ final class StorageLocationWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['storage_location.created', 'storage_location.updated'], $code, 'AuditEvent mints a location event without its writer.');
-        self::assertSame(['storage_location.created', 'storage_location.updated'], $liveMembers, 'The live CHECK admits a location event without its writer.');
+        self::assertSame(['storage_location.created', 'storage_location.restored', 'storage_location.updated'], $code, 'AuditEvent mints a location event without its writer.');
+        self::assertSame(['storage_location.created', 'storage_location.restored', 'storage_location.updated'], $liveMembers, 'The live CHECK admits a location event without its writer.');
     }
 
     /** One `storage_location.created` naming the creator, with the code and the STORED kind (the default when omitted). */

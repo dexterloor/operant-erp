@@ -443,15 +443,18 @@ final class SchemaManifest
             'why' => 'stock_movement records where stock physically moved; the bin can be retired but the history cannot.',
             // Warehouses slice 1 C3 (2026-10-13, Version20261013000300): StorageLocationWriter's one INSERT and one UPDATE, both
             // COLUMN-level, exactly the columns they name (ADR-002 A4.4's "exactly"). Not table-level: that would let SQL as
-            // erp_app move a location to another warehouse (warehouse_id -- its stock would move with no movement) or archive
-            // it (deleted_at), which no operation writes. No DELETE: DeleteStorageLocation is not built (G-27). The UPDATE
+            // erp_app move a location to another warehouse (warehouse_id -- its stock would move with no movement). UPDATE
+            // (deleted_at) since warehouse/location delete-restore C2 (2026-10-20, Version20261020000300) for
+            // RestoreStorageLocation and DeleteStorageLocation (C3) -- archive and restore are UPDATEs of that one column plus
+            // updated_at. SQL as erp_app can archive or restore a location with no audit row (A-3's shape; RESIDUAL_GAPS.md
+            // G-44, SEC S-5). No DELETE. The UPDATE
             // grant also makes UpdateStorageLocation's FOR UPDATE / FOR NO KEY UPDATE and StockDepleter's FOR KEY SHARE on the
             // locations it picks from legal (A4.3 constraint 1; 42501 without it, measured). Declared explicitly so erp_ai
             // keeps exactly its inherited SELECT.
             'grants' => [DatabaseRoles::APP => ['SELECT'], DatabaseRoles::AI => ['SELECT']],
             'column_grants' => [DatabaseRoles::APP => [
                 'INSERT' => ['id', 'tenant_id', 'warehouse_id', 'code', 'kind'],
-                'UPDATE' => ['code', 'kind', 'updated_at'],
+                'UPDATE' => ['code', 'kind', 'updated_at', 'deleted_at'],
             ]],
         ],
 

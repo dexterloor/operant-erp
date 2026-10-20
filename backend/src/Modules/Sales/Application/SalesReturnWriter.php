@@ -290,7 +290,7 @@ final readonly class SalesReturnWriter
             if ([] !== $archived) {
                 throw ApiProblem::businessRuleViolated(
                     'sales_return.origin_bin_is_live',
-                    \sprintf('Location %s, where these goods were taken from, has been closed, so the shipment cannot be recorded in error. Reopen the location first.',
+                    \sprintf('Location %s, where these goods were taken from, is archived, so this shipment can\'t be recorded as made in error until the location is restored.',
                         $codes[(string) $archived[0]] ?? (string) $archived[0]),
                 );
             }

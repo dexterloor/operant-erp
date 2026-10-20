@@ -956,6 +956,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'restore a warehouse'];
             }],
+            // Warehouse/location delete-restore C2: a location of a live warehouse archived by owner SQL (`DeleteStorageLocation`
+            // is C3), restored.
+            'RestoreStorageLocation' => [function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Location Restore Warehouse');
+                $location = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'R-RESTORE-01');
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE storage_location SET deleted_at = now() WHERE id = ?::uuid', [$location]);
+
+                return ['warehouse' => $warehouse, 'location' => $location];
+            }, function (array $c): array {
+                $this->send('POST', '/warehouses/'.$c['warehouse'].'/locations/'.$c['location'].'/restoration');
+
+                return [200, 'restore a storage location'];
+            }],
             // Warehouses slice 1, C3: a create with a letter-bearing code (CD-3) and an explicit kind; an update that re-labels
             // and holds an EMPTY bin (bin → quarantine; a hold is never gated), so the success path writes its
             // `storage_location.updated` row with `held_stock`.

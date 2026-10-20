@@ -112,9 +112,9 @@ final readonly class StockTransferrer implements TransferStock
 
     public const DESTINATION_WAREHOUSE_ARCHIVED = 'The warehouse you\'re moving stock to is archived, so stock can\'t be moved into it until it\'s restored.';
 
-    public const SOURCE_LOCATION_ARCHIVED = 'The location you\'re moving stock from is archived, so stock can\'t be moved out of it.';
+    public const SOURCE_LOCATION_ARCHIVED = 'The location you\'re moving stock from is archived, so stock can\'t be moved out of it until it\'s restored.';
 
-    public const DESTINATION_LOCATION_ARCHIVED = 'The location you\'re moving stock to is archived, so stock can\'t be moved into it.';
+    public const DESTINATION_LOCATION_ARCHIVED = 'The location you\'re moving stock to is archived, so stock can\'t be moved into it until it\'s restored.';
 
     public const RELEASE_NEEDS_OWNER = 'This stock is in a quarantine location, so only an owner can move it to a location that isn\'t quarantine. Moving it there releases held stock. Nothing was moved.';
 

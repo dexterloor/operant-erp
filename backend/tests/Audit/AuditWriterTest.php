@@ -430,6 +430,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             values: ['code' => 'P-01', 'kind' => 'bin']);
         $locationWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', storageLocationId: Uuid::v4()->toRfc4122(),
             from: ['kind' => 'bin'], to: ['kind' => 'quarantine'], heldStock: false);
+        // Warehouse/location delete-restore C2: `storage_location.restored`, BUSINESS (listed AND driven).
+        $locationWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', storageLocationId: Uuid::v4()->toRfc4122());
         // Stock count C1: `stock_movement.adjusted`, BUSINESS (listed AND driven).
         $movementWriter = self::getContainer()->get(\App\Modules\AuditLog\Infrastructure\StockMovementAuditWriter::class);
         \assert($movementWriter instanceof \App\Modules\AuditLog\Infrastructure\StockMovementAuditWriter);

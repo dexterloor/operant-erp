@@ -293,6 +293,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
                 .'its own repeat and writes nothing (no second supplier.restored row).',
         ],
+        'RestoreStorageLocation' => [
+            'method' => 'replayRestoreStorageLocation',
+            'why' => 'Warehouse/location delete-restore C2: a second restoration of a live location. guard:storage_location.deleted_at '
+                .'— the guard refuses its own repeat and writes nothing (no second storage_location.restored row).',
+        ],
         'RestoreWarehouse' => [
             'method' => 'replayRestoreWarehouse',
             'why' => 'Warehouse/location delete-restore C1: a second restoration of a live warehouse. guard:warehouse.deleted_at — '
@@ -1181,6 +1186,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame($after, $this->rowOf($draft['order']), $why);
         self::assertSame(PurchaseOrder::STATUS_CANCELLED, $after[0]['status']);
+    }
+
+    private function replayRestoreStorageLocation(string $why): void
+    {
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'Replayed Location Restore');
+        $id = $this->seedStorageLocation(self::TENANT_A, $warehouse, 'R-REPLAY');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE storage_location SET deleted_at = now() WHERE id = ?::uuid', [$id]);
+        $path = '/warehouses/'.$warehouse.'/locations/'.$id.'/restoration';
+
+        $this->send('POST', $path);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at, updated_at FROM storage_location WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', $path);
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('storage_location.is_not_archived', $this->json()['rule']);
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT deleted_at, updated_at FROM storage_location WHERE id = ?::uuid', [$id]), $why);
+        self::assertNull($after[0]['deleted_at'], 'The first restoration did not restore the row, so the second proves nothing.');
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_RESTORED), $why);
     }
 
     private function replayRestoreWarehouse(string $why): void

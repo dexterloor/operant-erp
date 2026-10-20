@@ -27,10 +27,12 @@ use Symfony\Component\Uid\Uuid;
  * that changes every accepted field.
  *
  * Both events are **business** under PC-11 (4a) (`SEC` to confirm the storage-location block), so no `$ipAddress` and no
- * `permission_code`. `.deleted` / `.restored` are minted with `DeleteStorageLocation` / `RestoreStorageLocation` (G-27).
+ * `permission_code`. `.restored` (C2 of the delete-restore build, 2026-10-20, {@see self::recordRestored()}) carries `{}`
+ * (`SEC` `wh-loc-delete-roles.md` S-1); `.deleted` is minted with `DeleteStorageLocation` (C3, G-27).
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_UPDATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::STORAGE_LOCATION_RESTORED
  */
 final readonly class StorageLocationAuditWriter
 {
@@ -93,6 +95,15 @@ final readonly class StorageLocationAuditWriter
 
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::STORAGE_LOCATION_UPDATED, $storageLocationId,
             json_encode($metadata, \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `storage_location.restored` — `RestoreStorageLocation`, after its UPDATE, in its transaction. `metadata` `{}`: the row
+     * shows the change itself (`archived_at`), and `warehouse_id` is frozen, so the subject always resolves.
+     */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $storageLocationId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::STORAGE_LOCATION_RESTORED, $storageLocationId, '{}');
     }
 
     /**

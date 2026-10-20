@@ -292,7 +292,6 @@ final class IdempotencyContractTest extends TenancyTestCase
         'RestoreWarehouse' => 'guard:warehouse.deleted_at',
         'RestoreStorageLocation' => 'guard:storage_location.deleted_at',
         'RestoreSupplier' => 'guard:supplier.deleted_at',
-        'RestoreWarehouse' => 'guard:warehouse.deleted_at',
         'RestoreCustomer' => 'guard:customer.deleted_at',
         'RestoreUser' => 'guard:app_user.deleted_at',
         'RestoreRole' => 'guard:role.deleted_at',

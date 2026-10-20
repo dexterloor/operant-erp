@@ -44,6 +44,8 @@ final class WarehouseReadTest extends PurchaseOrderTestCase
         'UpdateStorageLocation' => ['method' => 'PATCH', 'path' => '/warehouses/{id}/locations/{locationId}', 'idem' => false],
         // Warehouse/location delete-restore C1 (2026-10-20): `guard:warehouse.deleted_at` — no header.
         'RestoreWarehouse' => ['method' => 'POST', 'path' => '/warehouses/{id}/restoration', 'idem' => false],
+        // C2 (2026-10-20): `guard:storage_location.deleted_at` — no header.
+        'RestoreStorageLocation' => ['method' => 'POST', 'path' => '/warehouses/{id}/locations/{locationId}/restoration', 'idem' => false],
     ];
 
     /** `WarehouseResource`'s serialized members — §4.4.3's derivation (design §1.4). */

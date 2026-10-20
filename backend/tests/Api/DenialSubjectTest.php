@@ -49,7 +49,8 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
     // recorded `{id}` a `supplier` row.
     // Warehouses slice 1 C1: `ListStorageLocations` — gated `storage_location.view`, its recorded `{id}` a `warehouse` row.
     // Warehouses slice 1 C3: `CreateStorageLocation`, `UpdateStorageLocation` — gated `storage_location.*`, the same subject.
-    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateStorageLocation', 'CreateSupplierProduct', 'DeleteSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListStorageLocations', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RevokeRole', 'UpdateStorageLocation', 'UpdateSupplierProduct'];
+    // Warehouse/location group C2: `RestoreStorageLocation` — gated `storage_location.delete`, the same subject.
+    private const NESTED_OPERATIONS_OF_ANOTHER_RESOURCE = ['AssignRole', 'CancelRoleGrantProposal', 'ConfirmRoleGrantProposal', 'CreateAdjustmentDecision', 'CreateFulfilment', 'CreateGoodsReceipt', 'CreateRoleGrantProposal', 'CreateSalesReturn', 'CreateStorageLocation', 'CreateSupplierProduct', 'DeleteSupplierProduct', 'GetCreditNote', 'GetPickList', 'GetRoleGrantProposal', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice', 'ListOfferedRoles', 'ListStorageLocations', 'ListSupplierProducts', 'RejectRoleGrantProposal', 'RestoreStorageLocation', 'RevokeRole', 'UpdateStorageLocation', 'UpdateSupplierProduct'];
 
     /** The flat positive control: `/items/{id}` addresses `inventory_item`, and so does `inventory_item.view`. */
     private const FLAT_CONTROL = 'GetItem';
@@ -215,6 +216,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
             'CreateStorageLocation' => ['POST', '/warehouses/'.$warehouse.'/locations', 'storage_location.create', $warehouse],
             'UpdateStorageLocation' => ['PATCH', '/warehouses/'.$warehouse.'/locations/'.$this->seedStorageLocation(self::TENANT_A, $warehouse, 'F1-01'),
                 'storage_location.edit', $warehouse],
+            // Warehouse/location group C2: the location restore names the warehouse as well.
+            'RestoreStorageLocation' => ['POST', '/warehouses/'.$warehouse.'/locations/'.$this->seedStorageLocation(self::TENANT_A, $warehouse, 'F1-02').'/restoration',
+                'storage_location.delete', $warehouse],
             self::FLAT_CONTROL => ['GET', '/items/'.$item, 'inventory_item.view', $item],
         ];
 

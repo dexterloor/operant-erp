@@ -175,6 +175,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'UpdateWarehouse' => ['vars' => ['id' => 'warehouse'], 'body' => ['name' => 'Renamed Warehouse']],
         // Warehouse/location delete-restore C1: the remembered archived warehouse (B's is another id, so a moved restore 404s).
         'RestoreWarehouse' => ['vars' => ['id' => 'archived_warehouse']],
+        // C2: an archived location of the remembered warehouse (B's pair is other ids, so a moved restore 404s).
+        'RestoreStorageLocation' => ['vars' => ['id' => 'warehouse', 'locationId' => 'archived_bin']],
         // Warehouses slice 1 C3: a create under the remembered warehouse (a moved create would 404: B's warehouse is another
         // id), and a re-label of the remembered `A-01` bin (a moved update would 404 on the pair).
         'CreateStorageLocation' => ['vars' => ['id' => 'warehouse'], 'body' => ['code' => 'B-NEW', 'kind' => 'shelf']],
@@ -727,6 +729,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-01')",
             [$this->remember($letter, 'bin', Uuid::v4()->toRfc4122()), $tenantId, $warehouse]);
+        // Warehouse/location delete-restore C2: an archived location of the same warehouse, so `RestoreStorageLocation`'s
+        // baseline drive succeeds.
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO storage_location (id, tenant_id, warehouse_id, code, deleted_at) VALUES (?::uuid, ?::uuid, ?::uuid, 'Z-ARCHIVED', now())",
+            [$this->remember($letter, 'archived_bin', Uuid::v4()->toRfc4122()), $tenantId, $warehouse]);
 
         $item = $this->remember($letter, 'item', $this->seedItem($tenantId, 'SKU-1', $supplier));
         $catalogued = $this->remember($letter, 'catalogued_item', $this->seedItem($tenantId, 'SKU-2', $supplier));

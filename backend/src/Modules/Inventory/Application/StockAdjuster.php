@@ -89,7 +89,7 @@ final readonly class StockAdjuster implements AdjustStock
 
     public const WAREHOUSE_ARCHIVED = 'This warehouse is archived, so stock can\'t be counted in it until it\'s restored.';
 
-    public const LOCATION_ARCHIVED = 'This location is archived, so stock can\'t be counted in it.';
+    public const LOCATION_ARCHIVED = 'This location is archived, so stock can\'t be counted in it until it\'s restored.';
 
     public const KEY_REUSED_HINT = 'A recount is a new request, so it needs a new key too.';
 

@@ -335,7 +335,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **4 -> 5 on 2026-10-20** (warehouse/location delete-restore C1), read off this test's run: `WarehouseWriter::restore()`'s
         // `UPDATE warehouse SET deleted_at = NULL` (`RestoreWarehouse`; the table is Warehouses'). Its `FOR NO KEY UPDATE` row
         // lock is excluded.
-        'Modules\\Warehouses' => 5,
+        // **5 -> 6 on 2026-10-20** (warehouse/location delete-restore C2): `StorageLocationWriter::restore()`'s `UPDATE
+        // storage_location SET deleted_at = NULL` (`RestoreStorageLocation`). Its row locks are excluded.
+        'Modules\\Warehouses' => 6,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

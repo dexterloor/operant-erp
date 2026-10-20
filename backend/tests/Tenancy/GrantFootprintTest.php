@@ -1497,7 +1497,9 @@ final class GrantFootprintTest extends TenancyTestCase
      */
     private const STORAGE_LOCATION_COLUMN_WRITES = [
         'INSERT' => ['code', 'id', 'kind', 'tenant_id', 'warehouse_id'],
-        'UPDATE' => ['code', 'kind', 'updated_at'],
+        // `deleted_at`: warehouse/location delete-restore C2 (`Version20261020000300`, `RestoreStorageLocation`;
+        // `DeleteStorageLocation` at C3 reuses it).
+        'UPDATE' => ['code', 'deleted_at', 'kind', 'updated_at'],
     ];
 
     /**
@@ -1506,9 +1508,9 @@ final class GrantFootprintTest extends TenancyTestCase
      * ADR-002 A4.4's *"exactly"*). The warehouse method's shape. **Positive controls:** `code` INSERT and UPDATE accepted,
      * and the row locks the grant makes legal (A4.3 constraint 1; 42501 before it, measured): `FOR KEY SHARE`
      * (`StockDepleter`) and `FOR UPDATE` (`UpdateStorageLocation`). **Anti-vacuity:** `warehouse_id` UPDATE (moving a
-     * location's stock between warehouses with no movement), `deleted_at` UPDATE (archiving by SQL; `DeleteStorageLocation`
-     * is not built) and DELETE refused. **Planted control, committed then undone:** `GRANT UPDATE (deleted_at) ON
-     * storage_location` must produce exactly one violation.
+     * location's stock between warehouses with no movement) and DELETE refused; `deleted_at` UPDATE accepted since
+     * wh-loc-delete C2 (`RestoreStorageLocation`). **Planted control, committed then undone:** `GRANT UPDATE (created_at) ON
+     * storage_location` must produce exactly one violation (moved off `deleted_at` at C2, which is now granted).
      */
     #[Test]
     public function theApplicationCanWriteOnlyTheStorageLocationColumnsTheStorageLocationWriterNames(): void
@@ -1562,11 +1564,11 @@ final class GrantFootprintTest extends TenancyTestCase
         };
 
         $outcomes = $probe();
-        self::assertSame(['accepted', 'accepted'], [$outcomes['code INSERT'] ?? null, $outcomes['code UPDATE'] ?? null],
-            'The positive controls failed: erp_app could not insert or update storage_location.code.');
+        self::assertSame(['accepted', 'accepted', 'accepted'], [$outcomes['code INSERT'] ?? null, $outcomes['code UPDATE'] ?? null, $outcomes['deleted_at UPDATE'] ?? null],
+            'The positive controls failed: erp_app could not insert or update storage_location.code, or restore a location (deleted_at).');
         self::assertSame(['refused', 'refused', 'refused'],
-            [$outcomes['warehouse_id UPDATE'] ?? null, $outcomes['deleted_at UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
-            'erp_app must not move a location to another warehouse, archive it, or delete it, and the probe did not see them refused.');
+            [$outcomes['warehouse_id UPDATE'] ?? null, $outcomes['created_at UPDATE'] ?? null, $outcomes['* DELETE'] ?? null],
+            'erp_app must not move a location to another warehouse, rewrite its created_at, or delete it, and the probe did not see them refused.');
         self::assertSame([], $violations($outcomes),
             "erp_app's writes on storage_location are not exactly StorageLocationWriter's:\n  ".implode("\n  ", $violations($outcomes)));
         $outcomes = [];
@@ -1576,13 +1578,13 @@ final class GrantFootprintTest extends TenancyTestCase
             'erp_app cannot take the row locks StockDepleter and UpdateStorageLocation take: the column UPDATE grant is what makes them legal.');
 
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE (deleted_at) ON storage_location TO %s', DatabaseRoles::APP));
-            self::assertSame(['storage_location.deleted_at UPDATE: StorageLocationWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
-                'A committed UPDATE (deleted_at) grant to erp_app did not make this check fail, so it is not a check.');
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (created_at) ON storage_location TO %s', DatabaseRoles::APP));
+            self::assertSame(['storage_location.created_at UPDATE: StorageLocationWriter does not issue it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed UPDATE (created_at) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
-            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (deleted_at) ON storage_location FROM %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (created_at) ON storage_location FROM %s', DatabaseRoles::APP));
         }
-        self::assertSame([], $violations($probe()), 'The planted storage_location deleted_at grant survived its REVOKE.');
+        self::assertSame([], $violations($probe()), 'The planted storage_location created_at grant survived its REVOKE.');
     }
 
     /**
