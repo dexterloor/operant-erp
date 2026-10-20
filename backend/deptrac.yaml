@@ -90,6 +90,11 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-10-21 with `DeleteWarehouse` in the tree (warehouse/location delete-restore C4): the three commands
+  # return **153 / 90 / 36** -- TWO edge lines added, both A-7: `WarehouseOpenPurchaseOrdersCount -> PurchaseOrder` and
+  # `WarehouseOpenSalesOrdersCount -> SalesOrder` (the open statuses are the entities' own constants, API-15). By TAG the
+  # register now holds 159 edge lines, A-7 89 (the other tags unchanged). LAYER edges, not edge lines: the two Port layers
+  # `WarehousesPurchasingPort` / `WarehousesSalesPort` and their answerers. `make deptrac`: see the progress note's C4 gate.)
   # (Re-derived 2026-10-20 with `CreateStockTransfer` in the tree (stock transfer, C1): the three commands return
   # **151 / 88 / 36** -- ONE edge line added: `StockTransferrer -> StockMovementAuditWriter` (A-5, `stock_movement.adjusted`,
   # one row per leg). By TAG the register now holds 157 edge lines, A-5 34 (the other tags unchanged). No LAYER edge.
@@ -419,6 +424,9 @@ deptrac:
     App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders:
       # C5 C2b, 2026-10-14: the open statuses are the entity's own constants (API-15), `PurchaseOrderViews`' A-7 shape.
       - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
+    App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount:
+      # wh-loc-delete C4, 2026-10-20: the open statuses are the entity's own constants (API-15), `SupplierOpenPurchaseOrders`' shape.
+      - App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder   # A-7
     App\Modules\Purchasing\Infrastructure\Entity\GoodsReceipt:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
       - App\Modules\Warehouses\Infrastructure\Entity\Warehouse   # A-12
@@ -482,6 +490,9 @@ deptrac:
       # C5 C4b, 2026-10-14: the open order statuses and the invoice statuses are the entities' own constants (API-15),
       # `SalesOrderViews`' / `InvoiceCredit`'s A-7 shape.
       - App\Modules\Sales\Infrastructure\Entity\Invoice   # A-7
+      - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
+    App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount:
+      # wh-loc-delete C4, 2026-10-20: the open statuses are the entity's own constants (API-15), `CustomerOpenSalesWork`'s shape.
       - App\Modules\Sales\Infrastructure\Entity\SalesOrder   # A-7
     App\Modules\Sales\Application\InvoiceReader:
       # `GetInvoice`'s derived status binds `Invoice::STATUS_*` (`SalesOrderLineRow`'s shape).
@@ -987,6 +998,15 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Modules\\Warehouses\\Application\\Port\\Inventory\\#'
+    # C4 (wh-loc-delete): the open-order questions `DeleteWarehouse` asks Purchasing and Sales (API-O-34).
+    - name: WarehousesPurchasingPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Application\\Port\\Purchasing\\#'
+    - name: WarehousesSalesPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Warehouses\\Application\\Port\\Sales\\#'
     - name: WarehousesApplication
       collectors:
         - type: bool
@@ -1316,6 +1336,8 @@ deptrac:
       - SuppliersPort
       - UserManagementContract
       - WarehousesContract
+      # C4 (wh-loc-delete): Purchasing answers WarehouseOpenPurchaseOrders — the one consumer WarehousesPurchasingPort names.
+      - WarehousesPurchasingPort
     PurchasingApiResource:
       - Doctrine
       - HttpFoundation
@@ -1358,6 +1380,8 @@ deptrac:
       - CustomersContract
       # C5 C4b: Sales answers `CustomerOpenWork` (R1.6) — the one consumer `CustomersPort` names.
       - CustomersPort
+      # C4 (wh-loc-delete): Sales answers WarehouseOpenSalesOrders — the one consumer WarehousesSalesPort names.
+      - WarehousesSalesPort
       - Doctrine
       - InventoryContract
       - PlatformConsole
@@ -1416,6 +1440,15 @@ deptrac:
       - SharedKernel
     # C3 (wh-loc-delete): the port may use Doctrine, SharedKernel and PlatformTenancy only (the C5 F-3 shape).
     WarehousesInventoryPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
+    # C4 (wh-loc-delete): the two order ports, the same shape.
+    WarehousesPurchasingPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
+    WarehousesSalesPort:
       - Doctrine
       - PlatformTenancy
       - SharedKernel
@@ -1534,6 +1567,8 @@ deptrac:
       - WarehousesContract
       - WarehousesDomain
       - WarehousesInventoryPort
+      - WarehousesPurchasingPort
+      - WarehousesSalesPort
     WarehousesApiResource:
       - Doctrine
       - HttpFoundation

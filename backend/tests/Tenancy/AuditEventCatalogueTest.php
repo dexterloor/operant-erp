@@ -213,6 +213,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // business, subject the warehouse, `{}`, no IP): ONLY `warehouse.restored` — `warehouse.deleted` comes with
         // `DeleteWarehouse` (C4).
         'warehouse.restored',
+        // Edited by hand 2026-10-20 (warehouse/location delete-restore C4) on the same `SEC` filing: `warehouse.deleted`
+        // (`DeleteWarehouse`). The warehouse pair is complete.
+        'warehouse.deleted',
         // Edited by hand 2026-10-20 (warehouse/location delete-restore C2) on the same `SEC` filing: ONLY
         // `storage_location.restored` (C2) and `storage_location.deleted` (C3, `DeleteStorageLocation`; `SEC` S-1).
         'storage_location.restored',

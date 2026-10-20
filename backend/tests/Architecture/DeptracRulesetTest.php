@@ -410,8 +410,8 @@ final class DeptracRulesetTest extends TestCase
         'SuppliersPort' => ['module' => 'Suppliers', 'consumer' => 'PurchasingApplication'],
         'CustomersPort' => ['module' => 'Customers', 'consumer' => 'SalesApplication'],
         'WarehousesInventoryPort' => ['module' => 'Warehouses', 'consumer' => 'InventoryApplication'],
-        // C4: 'WarehousesPurchasingPort' => ['module' => 'Warehouses', 'consumer' => 'PurchasingApplication'],
-        // C4: 'WarehousesSalesPort' => ['module' => 'Warehouses', 'consumer' => 'SalesApplication'],
+        'WarehousesPurchasingPort' => ['module' => 'Warehouses', 'consumer' => 'PurchasingApplication'],
+        'WarehousesSalesPort' => ['module' => 'Warehouses', 'consumer' => 'SalesApplication'],
     ];
 
     /** `ARCHITECTURE.md` §5.2's read edges, hand-copied (mermaid is not parsed); `*` → `UserManagement` is allowed separately. */

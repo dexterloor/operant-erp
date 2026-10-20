@@ -944,7 +944,16 @@ trait OperationSuccessRecipes
 
                 return [200, 'update a warehouse'];
             }],
-            // Warehouse/location delete-restore C1: a warehouse archived by owner SQL (`DeleteWarehouse` is C4), restored.
+            // Warehouse/location delete-restore C4: a warehouse with no order and no stock (API-O-34 refuses otherwise), archived;
+            // 204, no body.
+            'DeleteWarehouse' => [fn (): array => ['warehouse' => $this->seedWarehouse(self::TENANT_A, 'Recipe Archived Warehouse '.bin2hex(random_bytes(3)))],
+                function (array $c): array {
+                    $this->send('DELETE', '/warehouses/'.$c['warehouse']);
+
+                    return [204, 'archive a warehouse'];
+                }],
+            // Warehouse/location delete-restore C1: a warehouse archived by owner SQL (a fixture; `DeleteWarehouse`, C4, has its
+            // own recipe), restored.
             // `seedWarehouse()`'s code is random, so the live code unique cannot collide.
             'RestoreWarehouse' => [function (): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'Recipe Restored Warehouse '.bin2hex(random_bytes(3)));

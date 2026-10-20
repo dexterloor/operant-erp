@@ -340,6 +340,13 @@ namespace App\SharedKernel\ValueObject;
  *     generated) plus this one; it supersedes `Version20261020000400`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited
  *     by hand with one literal.
  *
+ *   - **`WAREHOUSE_DELETED`**, 2026-10-20, warehouse/location delete-restore C4 — filed **`BUSINESS`**, subject the
+ *     warehouse, `{}`, by `SEC` (`wh-loc-delete-roles.md` S-1), before the code; steps 3–5 done **with its writer in the
+ *     same commit** (`WarehouseAuditWriter::recordDeleted()`). The warehouse pair is complete. Step 5 is
+ *     `Version20261020000600`, whose literal list is the live constraint's fifty-two members (read off `pg_constraint`, not
+ *     generated) plus this one; it supersedes `Version20261020000500`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited
+ *     by hand with one literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -1019,6 +1026,16 @@ final class AuditEvent
     public const WAREHOUSE_RESTORED = 'warehouse.restored';
 
     /**
+     * **A warehouse archived** — `DeleteWarehouse` (warehouse/location delete-restore C4, 2026-10-20; `SEC`
+     * `wh-loc-delete-roles.md` S-1; API-O-34). Subject `('warehouse', id)`. **Business** under PC-11 (4a). No IP, no
+     * permission code, `metadata` `{}`: an archive changes only `deleted_at`, which the row shows as `archived_at`; its
+     * locations are left as they are (owner Q-2 (a)). Written by `WarehouseAuditWriter::recordDeleted()` in
+     * `WarehouseWriter`'s transaction, after the UPDATE; none on a refused delete (already archived, open purchase or sales
+     * orders, or stock in any of its locations, live or archived). **Step 6 does not apply.**
+     */
+    public const WAREHOUSE_DELETED = 'warehouse.deleted';
+
+    /**
      * **A storage location created** — `CreateStorageLocation` (warehouses slice 1 C3, 2026-10-13; owner Q-W2 (a)).
      * Subject `('storage_location', id)`. **Business** under PC-11 (4a). No IP, no permission code. `metadata`
      * `{"values": {"code", "kind"}}` — the values as stored (the kind the database defaulted, when none was sent), the
@@ -1126,6 +1143,7 @@ final class AuditEvent
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::WAREHOUSE_RESTORED,
+        self::WAREHOUSE_DELETED,
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
@@ -1219,6 +1237,7 @@ final class AuditEvent
         self::WAREHOUSE_CREATED,
         self::WAREHOUSE_UPDATED,
         self::WAREHOUSE_RESTORED,
+        self::WAREHOUSE_DELETED,
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
@@ -1312,6 +1331,8 @@ final class AuditEvent
         self::WAREHOUSE_UPDATED => 'warehouse',
         // Warehouse/location delete-restore C1: the warehouse row whose own state changed (`SEC` S-1).
         self::WAREHOUSE_RESTORED => 'warehouse',
+        // Warehouse/location delete-restore C4: the warehouse row whose own state changed (`SEC` S-1).
+        self::WAREHOUSE_DELETED => 'warehouse',
         // Warehouses slice 1 C3: the location row whose own state changed (owner Q-W2 (a)).
         self::STORAGE_LOCATION_CREATED => 'storage_location',
         self::STORAGE_LOCATION_UPDATED => 'storage_location',

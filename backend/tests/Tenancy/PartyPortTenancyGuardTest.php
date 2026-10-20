@@ -6,7 +6,9 @@ namespace App\Tests\Tenancy;
 
 use App\Modules\Inventory\Application\InventoryHeldStock;
 use App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders;
+use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
 use App\Modules\Sales\Application\CustomerOpenSalesWork;
+use App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -27,7 +29,8 @@ use Symfony\Component\Uid\Uuid;
  *
  * **Warehouse/location delete-restore C3 (2026-10-20):** `WarehouseHeldStock` (Inventory answers, `InventoryHeldStock`)
  * joins them — it is what stops `DeleteStorageLocation` archiving a location that holds stock (owner Q-1), and it fails
- * open the same way (mutation M19).
+ * open the same way (mutation M19). **C4 (2026-10-20):** its warehouse question and the two open-order ports
+ * `DeleteWarehouse` asks (`WarehouseOpenPurchaseOrders`, `WarehouseOpenSalesOrders`) join them, the same three drives each.
  */
 final class PartyPortTenancyGuardTest extends TenancyTestCase
 {
@@ -112,6 +115,89 @@ final class PartyPortTenancyGuardTest extends TenancyTestCase
     {
         $held = $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em) =>
             (new InventoryHeldStock())->stockedLocationCountInside($em, Uuid::v4()->toRfc4122()));
+
+        self::assertSame([0, 0], [$held->stocked, $held->archivedItemStocked]);
+    }
+
+    #[Test]
+    public function theWarehouseOpenPurchaseOrdersPortRefusesOutsideATransaction(): void
+    {
+        self::assertSame(0, $this->em()->getConnection()->getTransactionNestingLevel(), 'Precondition: no transaction is open.');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('WarehouseOpenPurchaseOrders needs the caller\'s open tenancy transaction');
+        (new WarehouseOpenPurchaseOrdersCount())->openPurchaseOrderCountInside($this->em(), Uuid::v4()->toRfc4122());
+    }
+
+    #[Test]
+    public function theWarehouseOpenPurchaseOrdersPortRefusesATransactionWithNoTenant(): void
+    {
+        $this->inATransactionWithNoTenant(function (EntityManagerInterface $em): void {
+            $this->expectException(\LogicException::class);
+            $this->expectExceptionMessage('WarehouseOpenPurchaseOrders was called in a transaction with no tenant set');
+            (new WarehouseOpenPurchaseOrdersCount())->openPurchaseOrderCountInside($em, Uuid::v4()->toRfc4122());
+        });
+    }
+
+    #[Test]
+    public function theWarehouseOpenPurchaseOrdersPortAnswersInsideATenancyTransaction(): void
+    {
+        self::assertSame(0, $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em): int =>
+            (new WarehouseOpenPurchaseOrdersCount())->openPurchaseOrderCountInside($em, Uuid::v4()->toRfc4122())));
+    }
+
+    #[Test]
+    public function theWarehouseOpenSalesOrdersPortRefusesOutsideATransaction(): void
+    {
+        self::assertSame(0, $this->em()->getConnection()->getTransactionNestingLevel(), 'Precondition: no transaction is open.');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('WarehouseOpenSalesOrders needs the caller\'s open tenancy transaction');
+        (new WarehouseOpenSalesOrdersCount())->openSalesOrderCountInside($this->em(), Uuid::v4()->toRfc4122());
+    }
+
+    #[Test]
+    public function theWarehouseOpenSalesOrdersPortRefusesATransactionWithNoTenant(): void
+    {
+        $this->inATransactionWithNoTenant(function (EntityManagerInterface $em): void {
+            $this->expectException(\LogicException::class);
+            $this->expectExceptionMessage('WarehouseOpenSalesOrders was called in a transaction with no tenant set');
+            (new WarehouseOpenSalesOrdersCount())->openSalesOrderCountInside($em, Uuid::v4()->toRfc4122());
+        });
+    }
+
+    #[Test]
+    public function theWarehouseOpenSalesOrdersPortAnswersInsideATenancyTransaction(): void
+    {
+        self::assertSame(0, $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em): int =>
+            (new WarehouseOpenSalesOrdersCount())->openSalesOrderCountInside($em, Uuid::v4()->toRfc4122())));
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockWarehouseQuestionRefusesOutsideATransaction(): void
+    {
+        self::assertSame(0, $this->em()->getConnection()->getTransactionNestingLevel(), 'Precondition: no transaction is open.');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('WarehouseHeldStock needs the caller\'s open tenancy transaction');
+        (new InventoryHeldStock())->stockedLocationCountInWarehouseInside($this->em(), Uuid::v4()->toRfc4122());
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockWarehouseQuestionRefusesATransactionWithNoTenant(): void
+    {
+        $this->inATransactionWithNoTenant(function (EntityManagerInterface $em): void {
+            $this->expectException(\LogicException::class);
+            $this->expectExceptionMessage('WarehouseHeldStock was called in a transaction with no tenant set');
+            (new InventoryHeldStock())->stockedLocationCountInWarehouseInside($em, Uuid::v4()->toRfc4122());
+        });
+    }
+
+    #[Test]
+    public function theWarehouseHeldStockWarehouseQuestionAnswersInsideATenancyTransaction(): void
+    {
+        $held = $this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em) =>
+            (new InventoryHeldStock())->stockedLocationCountInWarehouseInside($em, Uuid::v4()->toRfc4122()));
 
         self::assertSame([0, 0], [$held->stocked, $held->archivedItemStocked]);
     }

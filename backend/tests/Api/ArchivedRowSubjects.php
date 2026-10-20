@@ -457,6 +457,9 @@ trait ArchivedRowSubjects
             // Warehouses slice 1 C2: the live twin renames (the name is not unique); the archived twin's 409 is
             // `warehouse.is_archived`'s alone.
             'UpdateWarehouse' => ['name' => 'Renamed'],
+            // Warehouse/location delete-restore C4: the live twin (a fresh warehouse, no order, no stock) is archived, 204; the
+            // archived twin's 409 is `warehouse.is_archived`'s alone (a repeated delete, ST-9).
+            'DeleteWarehouse' => null,
             // Warehouses slice 1 C3: the live twin re-labels its location (each twin has its own warehouse, so the code is
             // free); the archived twin's 409 is `storage_location.is_archived`'s alone (its warehouse is live).
             'UpdateStorageLocation' => ['code' => 'RELABELLED'],

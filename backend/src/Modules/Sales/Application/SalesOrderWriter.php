@@ -1614,11 +1614,11 @@ final readonly class SalesOrderWriter
      * (`GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnCustomer`). On the edit the order's
      * `SalesOrderRowLock` is taken first ({@see self::update()}), then this KEY SHARE; the customer writers
      * lock only the customer row, so no cycle. The warehouse KEY SHARE follows, for the same reason:
-     * `DeleteWarehouse` (API-O-34) will archive a warehouse under `FOR UPDATE` as its only row lock and refuse one
+     * `DeleteWarehouse` (API-O-34) archives a warehouse under `FOR UPDATE` as its only row lock and refuses one
      * with an open sales order, so an order naming it either commits first and is counted, or waits and is
      * refused. Legal because `erp_app` holds column UPDATE on `warehouse` (`Version20261013000100`;
-     * `GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnWarehouse`). Until `DeleteWarehouse` ships
-     * nothing takes the conflicting lock, so no test can see this one matter yet (its race is R-W3/R-W4, C4).
+     * `GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnWarehouse`). Pinned since C4 by
+     * `WarehouseDeleteTest`'s races R-W3/R-W4 (mutation M0-2).
      *
      * @param array<string, string|null> $values
      */

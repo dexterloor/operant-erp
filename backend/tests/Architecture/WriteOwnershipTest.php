@@ -340,7 +340,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // **6 -> 7 on 2026-10-20** (warehouse/location delete-restore C3): `StorageLocationWriter::ARCHIVE`'s `UPDATE
         // storage_location SET deleted_at = now()` (`DeleteStorageLocation`). Its row locks are excluded; the stock question is
         // Inventory's (`InventoryHeldStock`, a read).
-        'Modules\\Warehouses' => 7,
+        // **7 -> 8 on 2026-10-20** (warehouse/location delete-restore C4): `WarehouseWriter::ARCHIVE`'s `UPDATE warehouse SET
+        // deleted_at = now()` (`DeleteWarehouse`). Its `FOR UPDATE` row lock is excluded; the open-order and stock questions are
+        // Purchasing's, Sales' and Inventory's (reads).
+        'Modules\\Warehouses' => 8,
     ];
 
     /** The target key for a registered statement whose table the scan cannot read. */

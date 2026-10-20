@@ -61,6 +61,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'sales_order_tenant_open_idx', columns: ['tenant_id', 'ordered_at'], options: ['where' => "((deleted_at IS NULL) AND (status = ANY (ARRAY['confirmed'::text, 'partially_fulfilled'::text])))"])]
 // "This customer's order history" — the account screen.
 #[ORM\Index(name: 'sales_order_tenant_customer_idx', columns: ['tenant_id', 'customer_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
+// wh-loc-delete C4 (`Version20261020000700`): `DeleteWarehouse`'s open-order count (`WarehousesSalesPort`); `status` a key column.
+#[ORM\Index(name: 'sales_order_tenant_warehouse_open_idx', columns: ['tenant_id', 'warehouse_id', 'status'], options: ['where' => '(deleted_at IS NULL)'])]
 class SalesOrder
 {
     use GuardsStatusTransitions;

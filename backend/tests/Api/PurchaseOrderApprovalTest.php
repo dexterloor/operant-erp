@@ -417,8 +417,8 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
      * with the supplier, and the goods were then refused at the dock by
      * `ReceiveStock`'s `warehouse.is_live`.
      *
-     * The warehouse is archived by statement as the owner because no operation
-     * archives one (`DeleteWarehouse` is declared and unbuilt; API-O-34). The
+     * The warehouse is archived by statement as the owner because
+     * `DeleteWarehouse` refuses to archive one with an open order (API-O-34). The
      * draft has a live line and a different creator, so every earlier step of
      * §8.1 passes and the warehouse is the only thing left to refuse. The same
      * three things as the line guard's tests are asserted: the rule, the

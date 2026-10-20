@@ -295,7 +295,9 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (warehouse/location delete-restore C3, 2026-10-20):** `DeleteStorageLocation` (DELETE
         // `/warehouses/{id}/locations/{locationId}`, `storage_location.delete`; branch 3, 204) on `StorageLocationResource`.
         // No grant (C2's `UPDATE (deleted_at)` serves it).
-        self::assertCount(109, $checked, 'The route set changed. This slice declares one hundred and nine operations: '.implode(', ', array_keys($checked)));
+        // **And one more (warehouse/location delete-restore C4, 2026-10-20):** `DeleteWarehouse` (DELETE `/warehouses/{id}`,
+        // `warehouse.delete`; branch 3, 204) on `WarehouseResource`. No grant (C1's `UPDATE (deleted_at)` serves it).
+        self::assertCount(110, $checked, 'The route set changed. This slice declares one hundred and ten operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

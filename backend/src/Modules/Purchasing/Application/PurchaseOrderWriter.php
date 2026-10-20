@@ -1163,8 +1163,8 @@ final readonly class PurchaseOrderWriter
      * counted, or waits and re-reads `deleted_at IS NULL` and is refused. Legal
      * because `erp_app` holds column UPDATE on `warehouse`
      * (`Version20261013000100`; `GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnWarehouse`).
-     * Until `DeleteWarehouse` ships nothing takes the conflicting lock, so no test
-     * can see this one matter yet (its race is R-W1/R-W2, C4).
+     * Pinned since C4 by `WarehouseDeleteTest`'s races R-W1/R-W2 (mutation
+     * M0-1).
      *
      * @param array<string, string|null> $values
      *

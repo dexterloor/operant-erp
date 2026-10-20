@@ -50,6 +50,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'purchase_order_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\Index(name: 'purchase_order_tenant_open_idx', columns: ['tenant_id', 'ordered_at'], options: ['where' => "((deleted_at IS NULL) AND (status = ANY (ARRAY['ordered'::text, 'partially_received'::text])))"])]
 #[ORM\Index(name: 'purchase_order_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
+// wh-loc-delete C4 (`Version20261020000700`): `DeleteWarehouse`'s open-order count (`WarehousesPurchasingPort`); `status` a key column.
+#[ORM\Index(name: 'purchase_order_tenant_warehouse_open_idx', columns: ['tenant_id', 'warehouse_id', 'status'], options: ['where' => '(deleted_at IS NULL)'])]
 class PurchaseOrder
 {
     use GuardsStatusTransitions;

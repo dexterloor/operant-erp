@@ -55,7 +55,7 @@ use Symfony\Component\Uid\Uuid;
  * `held_stock` true.
  *
  * **Statement order, prescribed (design §4.1, §4.4; measured by the final RED, §1):**
- *  1. the parent: {@see self::PARENT_LOCK} (`FOR SHARE`; conflicts with a future `DeleteWarehouse`'s `FOR UPDATE`, and is
+ *  1. the parent: {@see self::PARENT_LOCK} (`FOR SHARE`; conflicts with `DeleteWarehouse`'s `FOR UPDATE`, and is
  *     compatible with the `FOR KEY SHARE` that order and fulfilment inserts take). Legal for `erp_app` because it holds a
  *     column UPDATE on `warehouse` (C2, A4.3 constraint 1);
  *  2. **its own statement**, the location row: `FOR UPDATE` when `kind` is in the body, `FOR NO KEY UPDATE` when it is not

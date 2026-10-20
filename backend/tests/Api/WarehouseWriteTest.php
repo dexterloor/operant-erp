@@ -241,7 +241,7 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
         }
     }
 
-    /** ST-9: an archived warehouse is read-only until it is restored (archived by SQL until `DeleteWarehouse` ships). Passive copy (UX R-3). */
+    /** ST-9: an archived warehouse is read-only until it is restored (archived by owner SQL here; `DeleteWarehouse` since C4). Passive copy (UX R-3). */
     #[Test]
     public function anArchivedWarehouseCannotBeChanged(): void
     {
@@ -315,8 +315,8 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Of the four warehouse events `.created`, `.updated` and (wh-loc-delete C1, `RestoreWarehouse`) `.restored` are minted —
-     * in the code catalogue AND the live CHECK. `.deleted` comes with `DeleteWarehouse` (C4).
+     * All four warehouse events are minted — in the code catalogue AND the live CHECK: `.created`, `.updated`, `.restored`
+     * (wh-loc-delete C1, `RestoreWarehouse`) and `.deleted` (C4, `DeleteWarehouse`). The pair is complete.
      */
     #[Test]
     public function onlyTheWarehouseEventsWithAWriterAreMinted(): void
@@ -331,8 +331,8 @@ final class WarehouseWriteTest extends PurchaseOrderTestCase
         $liveMembers = $live[1];
         sort($liveMembers);
 
-        self::assertSame(['warehouse.created', 'warehouse.restored', 'warehouse.updated'], $code, 'AuditEvent mints a warehouse event without its writer.');
-        self::assertSame(['warehouse.created', 'warehouse.restored', 'warehouse.updated'], $liveMembers, 'The live CHECK admits a warehouse event without its writer.');
+        self::assertSame(['warehouse.created', 'warehouse.deleted', 'warehouse.restored', 'warehouse.updated'], $code, 'AuditEvent mints a warehouse event without its writer.');
+        self::assertSame(['warehouse.created', 'warehouse.deleted', 'warehouse.restored', 'warehouse.updated'], $liveMembers, 'The live CHECK admits a warehouse event without its writer.');
     }
 
     /** One `warehouse.created` naming the creator, carrying the three values as stored; the subject is the new warehouse. */

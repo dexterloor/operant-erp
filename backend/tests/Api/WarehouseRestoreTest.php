@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
  * malformed id → the same 404; a live warehouse that took the archived one's code meanwhile → 409
  * `warehouse.code_is_unique_per_workspace` with the restore sentence (the 23505 translated outside the transaction); one
  * `warehouse.restored` row, `{}`, on success and none on any refusal; its locations untouched (owner Q-2 (a)). Archived
- * warehouses are seeded by owner SQL: `DeleteWarehouse` is C4. Copy is `UX`'s final (`wh-loc-delete-roles.md` U-1).
+ * warehouses are seeded by owner SQL (written before `DeleteWarehouse`, C4). Copy is `UX`'s final (`wh-loc-delete-roles.md` U-1).
  */
 final class WarehouseRestoreTest extends PurchaseOrderTestCase
 {

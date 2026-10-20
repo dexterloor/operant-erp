@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Warehouses\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Warehouses\ApiResource\State\CreateWarehouseProcessor;
+use App\Modules\Warehouses\ApiResource\State\DeleteWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\RestoreWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\UpdateWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\WarehouseProvider;
@@ -88,6 +90,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: WarehouseProvider::class,
             processor: UpdateWarehouseProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.edit'],
+        ),
+        // Warehouse/location delete-restore C4 — `DeleteWarehouse`, API-21 branch 3: 204, no body (`DeleteSupplier`'s shape).
+        // The row is read first, so a DELETE at an id no row answers is `GetWarehouse`'s 404 (`BodylessWriteRefusal`).
+        // §4.2: `warehouse.delete`, `Idem` `no` — a repeated delete is refused `warehouse.is_archived`, never replayed.
+        // Refused while open orders or any stock remain (API-O-34).
+        new Delete(
+            uriTemplate: '/warehouses/{id}',
+            name: 'DeleteWarehouse',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteWarehouse'),
+            provider: WarehouseProvider::class,
+            processor: DeleteWarehouseProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'warehouse.delete'],
         ),
         // Warehouse/location delete-restore C1 — `RestoreWarehouse`, API-21 branch 5: a POST that creates no row this
         // contract addresses, so 200 with the warehouse in its new state and no `Location` (`RestoreSupplier`'s shape). It

@@ -31,12 +31,13 @@ use Symfony\Component\Uid\Uuid;
  * Both events are **business** under PC-11 (4a) (the `supplier.*` filing's terms; `SEC` to confirm the warehouse block),
  * so there is **no `$ipAddress`** and no `permission_code`. `warehouse.restored` (C1 of the delete-restore build,
  * 2026-10-20, {@see self::recordRestored()}) carries `{}` (`SEC` `wh-loc-delete-roles.md` S-1: a restore changes only
- * `deleted_at`). `warehouse.deleted` is **not** written here yet: it is minted with its writer when `DeleteWarehouse`
- * ships (C4, API-O-34, G-7).
+ * `deleted_at`). `warehouse.deleted` (C4, `DeleteWarehouse`, {@see self::recordDeleted()}) carries `{}` too: an archive
+ * changes only `deleted_at`, and a refused one (open orders or stock, API-O-34) writes nothing.
  *
  * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_UPDATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_RESTORED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_DELETED
  */
 final readonly class WarehouseAuditWriter
 {
@@ -100,6 +101,15 @@ final readonly class WarehouseAuditWriter
     public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $warehouseId): void
     {
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::WAREHOUSE_RESTORED, $warehouseId, '{}');
+    }
+
+    /**
+     * `warehouse.deleted` — `DeleteWarehouse`, after its UPDATE, in its transaction. `metadata` `{}`: the row shows the change
+     * itself (`archived_at`); its locations are left as they are (owner Q-2 (a)), so nothing else moved.
+     */
+    public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $warehouseId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::WAREHOUSE_DELETED, $warehouseId, '{}');
     }
 
     /**

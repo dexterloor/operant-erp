@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Warehouses\Application;
 
 use App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter;
+use App\Modules\Warehouses\Application\Port\Inventory\WarehouseHeldStock;
+use App\Modules\Warehouses\Application\Port\Purchasing\WarehouseOpenPurchaseOrders;
+use App\Modules\Warehouses\Application\Port\Sales\WarehouseOpenSalesOrders;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
+use App\SharedKernel\Display\Counted;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -23,7 +27,7 @@ use Symfony\Component\Uid\Uuid;
  * `Version20261013000100`): the INSERT names `id, tenant_id, code, name, country_code`; the UPDATE sets only the
  * **changed** columns plus `updated_at`. `address_line`, `city`, `postal_code`, `is_active` and `deleted_at` are in
  * neither (Q-W4, `RESIDUAL_GAPS.md` G-36); `deleted_at` is written only by {@see self::restore()} (warehouse/location
- * delete-restore C1, `Version20261020000100`) and, at C4, `DeleteWarehouse`. A 42501 from either is fixed by removing the column from the statement, never by
+ * delete-restore C1, `Version20261020000100`) and {@see self::delete()} (C4, `DeleteWarehouse`). A 42501 from either is fixed by removing the column from the statement, never by
  * widening the grant.
  *
  * **Refusals, in order** (placeholder copy; `UX` owes the warehouse copy):
@@ -65,6 +69,32 @@ final readonly class WarehouseWriter
     /** `RestoreWarehouse` when a live warehouse took this one's code while it was archived (`UX` U-1). Passive (R-3). */
     public const CODE_TAKEN_ON_RESTORE = 'Another warehouse now uses this warehouse\'s code, so it can\'t be restored. It can be restored once that warehouse\'s code is changed.';
 
+    /**
+     * `DeleteWarehouse`'s row lock: `FOR UPDATE`, its first and only row lock (W-5 rule 3; the warehouse row locks amendment,
+     * rule 1). Only `FOR UPDATE` conflicts with the `FOR KEY SHARE` every path creating work or stock in a warehouse holds, so
+     * nothing new can arrive while it is held (mutation M10: `FOR NO KEY UPDATE` → the races are red). Public so a race test
+     * holds THIS statement (`SupplierWriter::DELETE_LOCK`'s reason).
+     */
+    public const DELETE_LOCK = 'SELECT deleted_at IS NOT NULL AS archived FROM warehouse WHERE id = ?::uuid FOR UPDATE';
+
+    /** The archive itself: the two columns `erp_app` may write for it (`Version20261020000100`). Its locations are untouched. */
+    public const ARCHIVE = 'UPDATE warehouse SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid';
+
+    /** `DeleteWarehouse` repeated (ST-9; `UX` U-1 C4). */
+    public const ALREADY_ARCHIVED = 'This warehouse is already archived. It\'s in the archived warehouses.';
+
+    /** API-O-34, first leg (`UX` U-1 C4, U-3 precedence). `%s` from {@see self::openPurchaseOrders()}. Passive (R-3). */
+    public const HAS_OPEN_PURCHASE_ORDERS = 'This warehouse still has %s, so it can\'t be deleted until each open order is received in full or cancelled. A draft can be moved to another warehouse or simply deleted.';
+
+    /** API-O-34, second leg. `%s` from {@see self::openSalesOrders()}. */
+    public const HAS_OPEN_SALES_ORDERS = 'This warehouse still has %s, so it can\'t be deleted until each open order is shipped in full or cancelled. A draft can be moved to another warehouse or simply deleted.';
+
+    /** API-O-34, third leg: stock in any of its locations, live or archived. `%s` from {@see self::locations()}. */
+    public const HOLDS_STOCK = 'This warehouse still holds stock in %s, so it can\'t be deleted until all of it is moved to another warehouse or counted off.';
+
+    /** Appended with one space when any of that stock is an archived item's (`UX` U-4; `RESIDUAL_GAPS.md` G-51). */
+    public const ARCHIVED_ITEM_STOCK = 'Stock of an archived item can be moved or counted off only once that item is restored.';
+
     public const COUNTRY_UNSUPPORTED = 'This country isn\'t supported yet.';
 
     public const COUNTRY_SHAPE = 'Use the two-letter country code, for example GB.';
@@ -79,7 +109,28 @@ final readonly class WarehouseWriter
         private CurrentTenant $tenant,
         private RequestIdentity $identities,
         private WarehouseAuditWriter $audit,
+        private WarehouseOpenPurchaseOrders $openPurchaseOrders,
+        private WarehouseOpenSalesOrders $openSalesOrders,
+        private WarehouseHeldStock $heldStock,
     ) {
+    }
+
+    /** The noun of {@see self::HAS_OPEN_PURCHASE_ORDERS} (`UX` R-2; the counting rule is {@see Counted::of()}). */
+    public static function openPurchaseOrders(int $count): string
+    {
+        return Counted::of($count, 'open purchase order', 'open purchase orders');
+    }
+
+    /** The noun of {@see self::HAS_OPEN_SALES_ORDERS}. */
+    public static function openSalesOrders(int $count): string
+    {
+        return Counted::of($count, 'open sales order', 'open sales orders');
+    }
+
+    /** The noun of {@see self::HOLDS_STOCK}: locations, never quantities or items (`SEC` S-3). */
+    public static function locations(int $count): string
+    {
+        return Counted::of($count, 'location', 'locations');
     }
 
     /** @param array<string, mixed> $values wire name => value, for the fields the body carried */
@@ -233,8 +284,76 @@ final readonly class WarehouseWriter
     }
 
     /**
+     * **`DeleteWarehouse`** (warehouse/location delete-restore C4, 2026-10-20; `docs/session13/wh-loc-delete-design.md` §0,
+     * §2.1, §3.3, Revision 2; API-O-34, the owner's note of 2026-09-13; owner Q-2 (a) and Q-3 adopted under delegation,
+     * `wh-loc-delete-q-ruling.md`). A soft delete: the warehouse stays readable (`GetWarehouse`, `ListWarehouses?archived=true`)
+     * and is restored by {@see self::restore()}. In one `TenantContext::run()`:
+     *  1. a non-uuid, absent or foreign id → 404;
+     *  2. {@see self::DELETE_LOCK} — `FOR UPDATE`, the first and **only** row lock (W-5 rule 3; `PartyLockOrderScanTest` holds
+     *     this method to it): every path that creates work or stock in a warehouse holds it `FOR KEY SHARE` (W-5 warehouse row
+     *     locks, rule 1), so each count below — a later statement under READ COMMITTED — sees everything committed before the
+     *     lock was granted, and nothing new can arrive while it is held. Already archived → 409 `warehouse.is_archived`;
+     *  3. open purchase orders (live `draft`, `ordered`, `partially_received`; Purchasing answers) → 409
+     *     `warehouse.has_open_purchase_orders`;
+     *  4. open sales orders (live `draft`, `confirmed`, `partially_fulfilled`; Sales answers) → 409
+     *     `warehouse.has_open_sales_orders`;
+     *  5. stock in any of its locations, live **or archived** (Inventory answers) → 409 `warehouse.holds_stock`, plus the
+     *     archived-item sentence when any of it is an archived item's. Order: `UX` U-3 (resolving orders changes stock);
+     *  6. {@see self::ARCHIVE}; 7. `warehouse.deleted`, `{}`, after it — none on any refusal. 204, no body.
+     * **Not refused** (`PO` P-2): the last live warehouse (N-2); its live locations, left as they are (owner Q-2 (a): unusable
+     * while it is archived, back as before on restore — W-6); posted documents, which keep its name (G-43). **Not locked**: its
+     * locations (rejected design (L): a bin lock after the party lock could deadlock with a stock writer); the Port answerers
+     * lock nothing. It can wait behind a stream of `KEY SHARE` holders (disclosed, W-5; no fairness mechanism).
+     */
+    public function delete(string $id): void
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $id = Uuid::fromString($id)->toRfc4122();
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
+            $connection = $em->getConnection();
+            // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+            $row = $connection->fetchAssociative(self::DELETE_LOCK, [$id]);
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
+            if (true === $row['archived']) {
+                throw ApiProblem::businessRuleViolated('warehouse.is_archived', self::ALREADY_ARCHIVED);
+            }
+
+            $purchase = $this->openPurchaseOrders->openPurchaseOrderCountInside($em, $id);
+            if ($purchase > 0) {
+                throw ApiProblem::businessRuleViolated('warehouse.has_open_purchase_orders', \sprintf(self::HAS_OPEN_PURCHASE_ORDERS, self::openPurchaseOrders($purchase)));
+            }
+            $sales = $this->openSalesOrders->openSalesOrderCountInside($em, $id);
+            if ($sales > 0) {
+                throw ApiProblem::businessRuleViolated('warehouse.has_open_sales_orders', \sprintf(self::HAS_OPEN_SALES_ORDERS, self::openSalesOrders($sales)));
+            }
+            $held = $this->heldStock->stockedLocationCountInWarehouseInside($em, $id);
+            if ($held->stocked > 0) {
+                $sentence = \sprintf(self::HOLDS_STOCK, self::locations($held->stocked));
+                throw ApiProblem::businessRuleViolated('warehouse.holds_stock',
+                    $held->archivedItemStocked > 0 ? $sentence.' '.self::ARCHIVED_ITEM_STOCK : $sentence);
+            }
+
+            $connection->executeStatement(self::ARCHIVE, [$id]);
+
+            // After the UPDATE, in its transaction: a refusal above leaves no row.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                warehouseId: $id,
+            );
+        });
+    }
+
+    /**
      * ST-9: an archived warehouse is read-only, until it is restored ({@see self::restore()}). Reachable through the
-     * product once `DeleteWarehouse` ships (C4); until then only by SQL. The sentence is passive (`UX` R-3): the `.edit`
+     * product since `DeleteWarehouse` (C4, 2026-10-20). The sentence is passive (`UX` R-3): the `.edit`
      * holder may not hold `warehouse.delete`, which restoring needs.
      *
      * @param array<string, mixed> $row

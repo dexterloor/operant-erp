@@ -34,6 +34,21 @@ final readonly class InventoryHeldStock implements WarehouseHeldStock
         SQL;
 
     /**
+     * C4: over every location of the warehouse, live **or archived** (no `deleted_at` predicate on `storage_location`, design
+     * §2.1 step 3), counted in DISTINCT locations. `DATA` D-5: the workspace's locations through `(tenant_id, id)` with
+     * `warehouse_id` as a filter (bounded, TB-1c), then `stock_level_tenant_location_idx`; no new index.
+     */
+    public const WAREHOUSE = <<<'SQL'
+        SELECT count(DISTINCT sl.storage_location_id) AS stocked_rows,
+               count(DISTINCT sl.storage_location_id) FILTER (WHERE i.deleted_at IS NOT NULL) AS archived_item_rows
+          FROM storage_location l
+          JOIN stock_level sl ON sl.tenant_id = l.tenant_id AND sl.storage_location_id = l.id
+          JOIN inventory_item i ON i.tenant_id = sl.tenant_id AND i.id = sl.inventory_item_id
+         WHERE l.warehouse_id = ?::uuid
+           AND (sl.qty_on_hand <> 0 OR sl.qty_reserved <> 0)
+        SQL;
+
+    /**
      * The port refuses to answer outside a tenancy transaction (`SupplierOpenPurchaseOrders::TENANT_GUC`'s reason: the answer
      * FAILS OPEN — with no tenant set RLS hides every row, the count is 0, and the archive goes through). Public so the
      * refusal tests name it.
@@ -53,6 +68,18 @@ final readonly class InventoryHeldStock implements WarehouseHeldStock
             stocked: (int) $row['stocked_rows'] > 0 ? 1 : 0,
             archivedItemStocked: (int) $row['archived_item_rows'] > 0 ? 1 : 0,
         );
+    }
+
+    public function stockedLocationCountInWarehouseInside(EntityManagerInterface $em, string $warehouseId): HeldStock
+    {
+        self::refuseOutsideATenancyTransaction($em, 'WarehouseHeldStock');
+
+        $row = $em->getConnection()->fetchAssociative(self::WAREHOUSE, [$warehouseId]);
+        if (false === $row) {
+            throw new \LogicException('A SELECT of two counts returned no row.');
+        }
+
+        return new HeldStock(stocked: (int) $row['stocked_rows'], archivedItemStocked: (int) $row['archived_item_rows']);
     }
 
     /**

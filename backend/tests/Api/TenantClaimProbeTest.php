@@ -173,6 +173,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // and an update of the remembered warehouse (B's warehouse is another id, so a moved update would 404).
         'CreateWarehouse' => ['body' => ['code' => 'W-NEW', 'name' => 'New Warehouse', 'country_code' => 'GB']],
         'UpdateWarehouse' => ['vars' => ['id' => 'warehouse'], 'body' => ['name' => 'Renamed Warehouse']],
+        // Warehouse/location delete-restore C4: a warehouse no order and no stock names (the remembered `warehouse` carries the
+        // mirror's orders and stock — API-O-34 refuses it); B's idle warehouse is another id, so a moved delete 404s.
+        'DeleteWarehouse' => ['vars' => ['id' => 'idle_warehouse']],
         // Warehouse/location delete-restore C1: the remembered archived warehouse (B's is another id, so a moved restore 404s).
         'RestoreWarehouse' => ['vars' => ['id' => 'archived_warehouse']],
         // C2: an archived location of the remembered warehouse (B's pair is other ids, so a moved restore 404s).
@@ -741,6 +744,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant($tenantId,
             "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'Y-IDLE')",
             [$this->remember($letter, 'idle_bin', Uuid::v4()->toRfc4122()), $tenantId, $warehouse]);
+        // Warehouse/location delete-restore C4: a live warehouse no order and no stock names, so `DeleteWarehouse`'s baseline
+        // drive succeeds. Its code pinned (`ListWarehouses` serves it).
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, 'W-IDLE', 'Idle', 'DE')",
+            [$this->remember($letter, 'idle_warehouse', Uuid::v4()->toRfc4122()), $tenantId]);
 
         $item = $this->remember($letter, 'item', $this->seedItem($tenantId, 'SKU-1', $supplier));
         $catalogued = $this->remember($letter, 'catalogued_item', $this->seedItem($tenantId, 'SKU-2', $supplier));

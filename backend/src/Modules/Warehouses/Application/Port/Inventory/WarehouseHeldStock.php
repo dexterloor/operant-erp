@@ -7,7 +7,7 @@ namespace App\Modules\Warehouses\Application\Port\Inventory;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
- * **What stops a storage location (C3) — and, at C4, a warehouse — being archived: the stock it holds.** Warehouses'
+ * **What stops a storage location (C3) — and a warehouse (C4) — being archived: the stock it holds.** Warehouses'
  * inbound port for ONE named consumer (warehouse/location delete-restore C3, 2026-10-20;
  * `docs/session13/wh-loc-delete-design.md` §5, Revision 1 G2, Revision 2 G4; `docs/session13/wh-loc-delete-arch.md` §1;
  * owner Q-1 adopted under delegation, `wh-loc-delete-q-ruling.md`). `DeleteStorageLocation` (`StorageLocationWriter::delete()`)
@@ -34,4 +34,12 @@ interface WarehouseHeldStock
      * @param string $locationId canonical lower-case RFC 4122
      */
     public function stockedLocationCountInside(EntityManagerInterface $em, string $locationId): HeldStock;
+
+    /**
+     * C4 (`DeleteWarehouse`, API-O-34): the same question over **every** location of the warehouse, live **or archived** — a
+     * location archived by SQL with stock must not slip through (design §2.1 step 3). Counted in locations (`SEC` S-3).
+     *
+     * @param string $warehouseId canonical lower-case RFC 4122
+     */
+    public function stockedLocationCountInWarehouseInside(EntityManagerInterface $em, string $warehouseId): HeldStock;
 }

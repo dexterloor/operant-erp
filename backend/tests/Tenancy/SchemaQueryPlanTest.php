@@ -9,7 +9,9 @@ use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
+use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
 use App\Modules\Sales\Application\SalesReturnReader;
+use App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount;
 use App\Modules\Suppliers\Application\SupplierListCriteria;
 use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
@@ -529,6 +531,50 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         $this->assertPlan('Sales — credited so far against one return line', $plan, 'credit_note_line_tenant_return_line_idx');
         self::assertMatchesRegularExpression('/Index Cond:[^\n]*sales_return_line_id/', $plan,
             "The return line is not an index condition, so every credit-note line of the workspace is read:\n$plan");
+    }
+
+    /**
+     * **`DeleteWarehouse`'s open purchase-order count uses the warehouse index, `status` included** (warehouse/location
+     * delete-restore C4; `DATA` `wh-loc-delete-roles.md` D-2/D-3, corrected by `wh-loc-delete-roles-red.md` L-2). The Port's
+     * public `COUNT` statement, read from the class (never transcribed), with a real warehouse of the seeded world and the
+     * Port's own status array. Asserted: the index name with `tenant_id` an `Index Cond` (`assertPlan()`); **`status = ANY`
+     * inside an `Index Cond` line** — a two-column `(tenant_id, warehouse_id)` index, which `assertPlan()` alone would accept,
+     * is red; and no `Filter:` line names `warehouse_id`. The scan node is NOT asserted (L-2 measured a Bitmap Index Scan):
+     * index name and `Index Cond` lines only. **`enable_seqscan = off` is a planner-size accommodation**, never the thing under
+     * test: this proves the index CAN serve the statement, not that the planner picks it at volume. Mutations D-M1 (drop the
+     * index) and D-M2 (two columns) → red; D-M3 (literal statuses, no `deleted_at IS NULL`) → red (the partial index cannot be
+     * proven implied).
+     */
+    #[Test]
+    public function theOpenPurchaseOrderCountForAWarehouseUsesTheWarehouseIndex(): void
+    {
+        $this->assertTheOpenOrderCountUsesItsIndex('purchase_order', WarehouseOpenPurchaseOrdersCount::COUNT,
+            WarehouseOpenPurchaseOrdersCount::OPEN_STATUSES, 'purchase_order_tenant_warehouse_open_idx');
+    }
+
+    /** The sales twin of {@see self::theOpenPurchaseOrderCountForAWarehouseUsesTheWarehouseIndex()} (D-2). */
+    #[Test]
+    public function theOpenSalesOrderCountForAWarehouseUsesTheWarehouseIndex(): void
+    {
+        $this->assertTheOpenOrderCountUsesItsIndex('sales_order', WarehouseOpenSalesOrdersCount::COUNT,
+            WarehouseOpenSalesOrdersCount::OPEN_STATUSES, 'sales_order_tenant_warehouse_open_idx');
+    }
+
+    /** @param list<string> $statuses */
+    private function assertTheOpenOrderCountUsesItsIndex(string $table, string $statement, array $statuses, string $index): void
+    {
+        $this->seedWorld();
+        $warehouse = (string) $this->tenantContext()->run(self::TENANT_A, fn (): string => (string) $this->app()->fetchOne(
+            'SELECT warehouse_id::text FROM '.$table.' ORDER BY order_number LIMIT 1'));
+        self::assertNotSame('', $warehouse, 'Fixture: the seeded world has no '.$table.' row to take a warehouse from.');
+
+        $plan = $this->planWith(['enable_seqscan' => 'off'], $statement, [$warehouse, '{'.implode(',', $statuses).'}']);
+
+        $this->assertPlan('Warehouses — open '.$table.' rows of one warehouse (DeleteWarehouse, API-O-34)', $plan, $index);
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*status = ANY/', $plan,
+            "The open-status set is not an index condition, so every live order of the warehouse — history included — is read:\n$plan");
+        self::assertDoesNotMatchRegularExpression('/Filter:[^\n]*warehouse_id/', $plan,
+            "The warehouse is a Filter, not an index condition, so every live order of the workspace is read:\n$plan");
     }
 
     /** AuditLog: "what happened in this tenant, newest first". */

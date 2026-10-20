@@ -338,6 +338,11 @@ services:
     # `WarehousesInventoryPort` layer, implemented by its one named consumer, never a Contract — `Ai`/`Analytics` may not use it.
     App\Modules\Warehouses\Application\Port\Inventory\WarehouseHeldStock: '@App\Modules\Inventory\Application\InventoryHeldStock'
 
+    # Warehouse/location delete-restore C4 — `DeleteWarehouse` asks Purchasing and Sales whether a warehouse has open orders
+    # (API-O-34). The split-port shape: one layer per answering module (`WarehousesPurchasingPort`, `WarehousesSalesPort`).
+    App\Modules\Warehouses\Application\Port\Purchasing\WarehouseOpenPurchaseOrders: '@App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount'
+    App\Modules\Warehouses\Application\Port\Sales\WarehouseOpenSalesOrders: '@App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test
