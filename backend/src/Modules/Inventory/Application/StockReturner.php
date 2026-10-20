@@ -63,11 +63,21 @@ final readonly class StockReturner implements ReturnStock
 
             // The shipping warehouse, closed since, takes nothing back (owner ruling Q-M): its bins are not archived
             // with it, so the bin check alone would not see it.
-            $archived = $connection->fetchOne(
-                'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NOT NULL',
+            //
+            // `FOR KEY SHARE` on the row whether it is live or archived (W-5 "warehouse row locks", wh-loc-delete C0,
+            // 2026-10-20): a locking read locks only the rows it RETURNS, so the predicate is in the select list, never
+            // in WHERE — `… WHERE deleted_at IS NOT NULL FOR KEY SHARE` would lock nothing for a live warehouse. The
+            // caller (`SalesReturnWriter`, the only one) already holds this lock, so this is a re-take; kept so the
+            // contract does not rely on its caller for it. The row always exists: the id is a fulfilment's
+            // `warehouse_id` (`fulfilment_warehouse_fk`), so a missing row is a caller bug.
+            $warehouse = $connection->fetchAssociative(
+                'SELECT deleted_at IS NOT NULL AS archived FROM warehouse WHERE id = ?::uuid FOR KEY SHARE',
                 [$return->warehouseId],
             );
-            if (false !== $archived) {
+            if (false === $warehouse) {
+                throw new \LogicException(\sprintf('ReturnStock was given warehouse %s, which this workspace does not hold.', $return->warehouseId));
+            }
+            if (true === $warehouse['archived']) {
                 throw StockReturnRefused::warehouseIsArchived($return->warehouseId);
             }
 

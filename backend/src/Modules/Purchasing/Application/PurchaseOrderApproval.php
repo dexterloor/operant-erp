@@ -68,6 +68,10 @@ use Symfony\Component\Uid\Uuid;
  * second party. Ordering it — the archive locking the warehouse row, or this
  * read taking `FOR SHARE` — belongs to API-O-34 with `DeleteWarehouse`, which
  * must refuse to archive a site with open orders in the first place.
+ * Settled 2026-10-20 (wh-loc-delete design §3.4): this read stays unlocked,
+ * because the order is a draft — open work — until this transition, so
+ * `DeleteWarehouse` (C4) refuses the archive while it exists; the create and
+ * edit reads take the warehouse `FOR KEY SHARE` since C0.
  *
  * **The race with every other write to this order: CLOSED by step 6c.** Until
  * then nothing in `src/` took a row lock and `PurchaseOrder` has no

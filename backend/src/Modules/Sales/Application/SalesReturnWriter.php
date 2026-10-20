@@ -35,6 +35,7 @@ use Symfony\Component\Uid\Uuid;
  *  2. The fulfilment, for **not-found only** (E-2: another workspace's and a random uuid are one 404).
  *  3. `SalesOrderRowLock::holdInside()` on the fulfilment's ORDER — first (`ARCH` §6(c), W-5's sales document order):
  *     a return and `IssueInvoice` on one shipment serialise here, so "deducted xor creditable" is decided once.
+ *  3a. The shipping warehouse `FOR KEY SHARE` (wh-loc-delete C0, 2026-10-20): warehouse before bin (W-5).
  *  4. The replay read by the key's hash, under the lock; a digest mismatch is `idempotency-key-conflict`. A match
  *     returns the first return, 201 with the same body (`CreateFulfilment`'s choice, measured — design §13 item 4).
  *  5. Each line's `fulfilment_line_id` must be a line of THIS fulfilment (V2-S-9) — else `unknown_reference`.
@@ -177,6 +178,13 @@ final readonly class SalesReturnWriter
 
         // 3.
         SalesOrderRowLock::holdInside($em, (string) $fulfilment['sales_order_id']);
+
+        // 3a. The shipping warehouse, `FOR KEY SHARE`, before any bin is locked (W-5 "warehouse row locks",
+        // wh-loc-delete C0, 2026-10-20, notice N-4): `sales_return` has no warehouse FK, so without this the return
+        // would hold its bins (line FK) and not their warehouse, and a `DeleteWarehouse` (C4, `FOR UPDATE`) could
+        // miss stock arriving. Warehouse before bin, like every other stock writer; `ReturnStock`'s own read of
+        // this row is then a re-take. The row always exists (`fulfilment_warehouse_fk`).
+        $connection->fetchOne('SELECT 1 FROM warehouse WHERE id = ?::uuid FOR KEY SHARE', [(string) $fulfilment['warehouse_id']]);
 
         // 4.
         $replay = $connection->fetchAssociative(

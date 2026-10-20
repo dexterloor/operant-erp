@@ -1602,8 +1602,9 @@ final readonly class SalesOrderWriter
      * `currency` is **reference data** (ADR-002 §6) and is not tenant-scoped, so its lookup is an existence
      * check and discloses nothing.
      *
-     * **The customer read takes `FOR KEY SHARE`; the warehouse read takes no lock** (C5 C3, owner ruling Q-2 of
-     * 2026-10-13, `docs/session13/session29-c5-ruling.md` — the sales twin of Q-S2's *"supplier-only lock"*).
+     * **Both reads take `FOR KEY SHARE`.** The customer's since C5 C3 (owner ruling Q-2 of 2026-10-13,
+     * `docs/session13/session29-c5-ruling.md` — the sales twin of Q-S2's *"supplier-only lock"*); the warehouse's
+     * since warehouse/location delete-restore C0 (2026-10-20, notice N-4; `ARCHITECTURE.md` W-5 "warehouse row locks").
      * `DeleteCustomer` (C5 C4b) archives a customer under `FOR UPDATE` and refuses one with an open sales
      * order; KEY SHARE is the one lock that conflicts with that `FOR UPDATE` and with nothing `UpdateCustomer`
      * takes (`FOR NO KEY UPDATE`), so a create or an edit naming the customer either commits first and is
@@ -1612,9 +1613,12 @@ final readonly class SalesOrderWriter
      * narrowing that grant to no column makes this read 42501
      * (`GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnCustomer`). On the edit the order's
      * `SalesOrderRowLock` is taken first ({@see self::update()}), then this KEY SHARE; the customer writers
-     * lock only the customer row, so no cycle. The warehouse branch stays unlocked by the same ruling —
-     * locking it is `DeleteWarehouse`'s to order (API-O-34, G-7; carried by
-     * `OwedAmendmentTripwireTest::OPERATIONS_OWING_THE_ARCHIVE_RULES`).
+     * lock only the customer row, so no cycle. The warehouse KEY SHARE follows, for the same reason:
+     * `DeleteWarehouse` (API-O-34) will archive a warehouse under `FOR UPDATE` as its only row lock and refuse one
+     * with an open sales order, so an order naming it either commits first and is counted, or waits and is
+     * refused. Legal because `erp_app` holds column UPDATE on `warehouse` (`Version20261013000100`;
+     * `GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnWarehouse`). Until `DeleteWarehouse` ships
+     * nothing takes the conflicting lock, so no test can see this one matter yet (its race is R-W3/R-W4, C4).
      *
      * @param array<string, string|null> $values
      */
@@ -1642,14 +1646,14 @@ final readonly class SalesOrderWriter
 
     /**
      * The two parent liveness reads both create and edit make, one statement each (see
-     * {@see self::refuseUnresolvableCreateReferences()}): the customer's locks `FOR KEY SHARE` (C5 C3, owner
-     * Q-2), the warehouse's locks nothing.
+     * {@see self::refuseUnresolvableCreateReferences()}): both lock `FOR KEY SHARE` (the customer's since C5 C3,
+     * owner Q-2; the warehouse's since wh-loc-delete C0).
      *
      * @var array<string, array{0: string, 1: string}>
      */
     private const PARENT_LIVENESS_READS = [
         'customerId' => ['customer', 'SELECT 1 FROM customer WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
-        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL'],
+        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
     ];
 
     /**

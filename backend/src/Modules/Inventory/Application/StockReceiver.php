@@ -80,6 +80,12 @@ final readonly class StockReceiver implements ReceiveStock
             // refused here; an unknown or invisible one is left to the bin
             // check, which refuses its bins — calling it "archived" would be
             // a false statement.
+            //
+            // Unlocked, deliberately (wh-loc-delete C0, W-5 "warehouse row
+            // locks"): the caller's goods-receipt header INSERT, a statement
+            // earlier, already holds this warehouse `FOR KEY SHARE` through
+            // `goods_receipt_warehouse_fk`, which is what a `DeleteWarehouse`
+            // `FOR UPDATE` conflicts with. Pinned by the C4 races, not here.
             $archived = $connection->fetchOne(
                 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NOT NULL',
                 [$receipt->warehouseId],

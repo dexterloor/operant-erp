@@ -1347,6 +1347,54 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * **Warehouse/location delete-restore C0 (2026-10-20): the row locks taken on `warehouse` are legal for `erp_app`.**
+     * The twin of `theApplicationMayTakeThePartyRowLocksOnSupplier`/`…OnCustomer`, for the third party (`ARCHITECTURE.md`
+     * W-5 "warehouse row locks"). `FOR KEY SHARE`: the purchase/sales order liveness reads (`PARENT_LIVENESS_READS`, C0),
+     * `SalesReturnWriter` and `StockReturner` (C0), `StockAdjuster`, `StockTransferrer`. `FOR SHARE`:
+     * `StorageLocationWriter::PARENT_LOCK`. `FOR UPDATE`: `DeleteWarehouse` (C4). Postgres allows any of them only to a
+     * role holding UPDATE on at least one column (ADR-002 A4.3 constraint 1; `erp_app` holds column UPDATE on `warehouse`
+     * since `Version20261013000100`), so narrowing that grant to no column would 42501 every order create and every
+     * return. **Negative control, same test:** the same three locks on `currency` (SELECT only) are refused.
+     *
+     * **Mutation:** revoke every `warehouse` column UPDATE from `erp_app` → red here (and every PO/SO create 500s).
+     */
+    #[Test]
+    public function theApplicationMayTakeThePartyRowLocksOnWarehouse(): void
+    {
+        $outcome = function (string $sql): string {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $connection->executeQuery($sql)->fetchAllAssociative();
+
+                return 'accepted';
+            } catch (DriverException $e) {
+                return '42501' === $e->getSQLState() ? 'refused' : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+        $locks = static fn (string $table, string $column): array => [
+            'FOR KEY SHARE' => 'SELECT '.$column.' FROM '.$table.' WHERE false FOR KEY SHARE',
+            'FOR SHARE' => 'SELECT '.$column.' FROM '.$table.' WHERE false FOR SHARE',
+            'FOR UPDATE' => 'SELECT '.$column.' FROM '.$table.' WHERE false FOR UPDATE',
+        ];
+
+        self::assertSame(
+            ['FOR KEY SHARE' => 'accepted', 'FOR SHARE' => 'accepted', 'FOR UPDATE' => 'accepted'],
+            array_map($outcome, $locks('warehouse', 'id')),
+            'erp_app cannot take the warehouse row locks the order writers, the return path, the stock writers and the location writers rely on.',
+        );
+        self::assertSame(
+            ['FOR KEY SHARE' => 'refused', 'FOR SHARE' => 'refused', 'FOR UPDATE' => 'refused'],
+            array_map($outcome, $locks('currency', 'code')),
+            'The negative control failed: a row lock on a table erp_app may only read was not refused, so this probe cannot see a refusal.',
+        );
+    }
+
+    /**
      * The columns `WarehouseWriter` names, per privilege (warehouses slice 1 C2, `Version20261013000100`). **Typed by hand from
      * its INSERT and UPDATE, never read from `SchemaManifest`** (a joint widening of the manifest and a migration must still
      * fail here). No DELETE.

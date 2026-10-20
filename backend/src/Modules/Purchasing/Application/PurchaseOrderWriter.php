@@ -1142,8 +1142,10 @@ final readonly class PurchaseOrderWriter
      * present in `$values` are checked; RLS makes another tenant's id and a
      * missing one the same answer (ST-5).
      *
-     * **The supplier read takes `FOR KEY SHARE`; the warehouse read takes no
-     * lock** (C5 C1, owner ruling Q-S2 of 2026-10-12: *"supplier-only lock"*).
+     * **Both reads take `FOR KEY SHARE`.** The supplier's since C5 C1 (owner
+     * ruling Q-S2 of 2026-10-12, which scoped C5's locks to the supplier); the
+     * warehouse's since warehouse/location delete-restore C0 (2026-10-20, notice
+     * N-4; `ARCHITECTURE.md` W-5 "warehouse row locks").
      * `DeleteSupplier` archives a supplier under `FOR UPDATE` and refuses one
      * with an open purchase order; KEY SHARE is the one lock that conflicts with
      * that `FOR UPDATE` and with nothing `UpdateSupplier` takes
@@ -1154,9 +1156,15 @@ final readonly class PurchaseOrderWriter
      * — narrowing that grant to no column makes this read 42501.
      * Lock order on the edit: `PurchaseOrderRowLock` first (the caller's first
      * statement), then this KEY SHARE; the supplier writers lock only the
-     * supplier row, so no cycle. The warehouse branch stays unlocked by the same
-     * ruling — locking it is `DeleteWarehouse`'s to order (API-O-34, G-7;
-     * carried by `OwedAmendmentTripwireTest::OPERATIONS_OWING_THE_ARCHIVE_RULES`).
+     * supplier row, so no cycle. The warehouse KEY SHARE is taken after it, for
+     * the same reason: `DeleteWarehouse` (API-O-34) will archive a warehouse under
+     * `FOR UPDATE` as its only row lock and refuse one with an open purchase
+     * order, so an order naming the warehouse either commits first and is
+     * counted, or waits and re-reads `deleted_at IS NULL` and is refused. Legal
+     * because `erp_app` holds column UPDATE on `warehouse`
+     * (`Version20261013000100`; `GrantFootprintTest::theApplicationMayTakeThePartyRowLocksOnWarehouse`).
+     * Until `DeleteWarehouse` ships nothing takes the conflicting lock, so no test
+     * can see this one matter yet (its race is R-W1/R-W2, C4).
      *
      * @param array<string, string|null> $values
      *
@@ -1181,13 +1189,13 @@ final readonly class PurchaseOrderWriter
 
     /**
      * The two liveness reads, one statement each (see `notLiveParentErrors()`):
-     * the supplier's locks `FOR KEY SHARE`, the warehouse's locks nothing.
+     * both lock `FOR KEY SHARE` (the warehouse's since wh-loc-delete C0).
      *
      * @var array<string, array{0: string, 1: string}>
      */
     private const PARENT_LIVENESS_READS = [
         'supplierId' => ['supplier', 'SELECT 1 FROM supplier WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
-        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL'],
+        'warehouseId' => ['warehouse', 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE'],
     ];
 
     /**

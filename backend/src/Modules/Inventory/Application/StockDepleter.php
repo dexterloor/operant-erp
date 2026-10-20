@@ -62,6 +62,9 @@ final readonly class StockDepleter implements DepleteStock
                 throw StockDepletionRefused::fulfilmentAlreadyPosted($depletion->fulfilmentId);
             }
 
+            // Unlocked, deliberately (wh-loc-delete C0, W-5 "warehouse row locks"): the caller's fulfilment
+            // header INSERT, a statement earlier, already holds this warehouse `FOR KEY SHARE` through
+            // `fulfilment_warehouse_fk` — the lock a `DeleteWarehouse` `FOR UPDATE` conflicts with.
             $archived = $connection->fetchOne(
                 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NOT NULL',
                 [$depletion->warehouseId],
