@@ -98,6 +98,22 @@ trait ListOperationFixtures
         return str_contains($path, '?');
     }
 
+    /**
+     * **Whether a fixture path's scope is EXCLUSIVE** — `ListStockLevels`' one-of-two (API-19b), where a consumer sends each
+     * scope alone against {@see self::routeOf()}. Every scoped path but those in {@see self::PAIRED_SCOPE_ROUTES} (audit reads
+     * C2): there the scope is a PAIR required together, so a consumer merges onto the fixture's own path with
+     * {@see self::withQuery()} — sent alone against the bare route, either half is a 422 `required` by contract.
+     */
+    protected static function hasExclusiveScope(string $path): bool
+    {
+        return self::isScoped($path) && !\array_key_exists(self::routeOf($path), self::PAIRED_SCOPE_ROUTES);
+    }
+
+    /** @var array<string, string> route => why its scope is a pair, not a choice */
+    private const PAIRED_SCOPE_ROUTES = [
+        '/audit-log/records' => 'ListAuditRecords: subject_type and subject_id together name ONE record (E-5); neither alone is a History.',
+    ];
+
     /** @return list<string> the parameter names the operation declares */
     protected static function declaredParameters(HttpOperation $operation): array
     {
@@ -532,6 +548,22 @@ trait ListOperationFixtures
 
                     return ['filter' => ['actor_user_id' => $actor], 'search' => null,
                         'views' => ['', 'actor_user_id='.$actor, 'event_type=purchase_order.cancelled']];
+                }];
+            },
+            'ListAuditRecords' => function (): array {
+                // Audit reads C2. The path CARRIES its required PAIR (`subject_type` + `subject_id`; {@see self::PAIRED_SCOPE_ROUTES}),
+                // so consumers merge onto it. N `purchase_order.cancelled` rows on ONE purchase order id (no FK on
+                // `subject_id`), each at its own whole second, by owner INSERT. One view, newest first (no `sort`).
+                $order = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+
+                return ['/audit-log/records?subject_type=purchase_order&subject_id='.$order, function (int $rows) use ($order): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A,
+                            "INSERT INTO audit_log (id, tenant_id, event_type, actor_label, subject_type, subject_id, occurred_at) VALUES (?::uuid, ?::uuid, 'purchase_order.cancelled', 'Envelope History', 'purchase_order', ?::uuid, '2026-02-01 00:00:00+00'::timestamptz + ?::int * interval '1 second')",
+                            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $order, $i]);
+                    }
+
+                    return ['filter' => ['subject_type' => 'purchase_order', 'subject_id' => $order], 'search' => null, 'views' => ['']];
                 }];
             },
             'ListCustomerAddresses' => function (): array {

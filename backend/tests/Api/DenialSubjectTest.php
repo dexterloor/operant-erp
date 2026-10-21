@@ -349,19 +349,7 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         $addressed = self::ADDRESSED_WITHOUT_A_GET_OPERATION;
 
         $unreviewed = [];
-        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $template = self::templateOf($operation);
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
-
-            if ('GET' !== $operation->getMethod() || !str_ends_with($template, '}') || !\is_string($required)) {
-                continue;
-            }
-
-            $prefix = self::normalised($template);
-            $table = self::PATH_SEGMENT_OVERRIDES[$prefix] ?? self::addressedTable($template, $required, array_keys(SchemaManifest::TABLES));
-            if (null === $table) {
-                continue;
-            }
+        foreach (self::builtItemGets() as $name => ['table' => $table, 'gate' => $required, 'prefix' => $prefix]) {
             $permissionTable = (string) strstr($required, '.', true);
             if ($table !== $permissionTable && !isset(self::PATH_TABLE_IS_NOT_THE_PERMISSIONS[$prefix])) {
                 $unreviewed[] = \sprintf('%s (%s): the path addresses %s, its code is %s', $name, $prefix, $table, $required);
@@ -384,6 +372,34 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         }
 
         return $addressed;
+    }
+
+    /**
+     * **Every built item-`GET` that takes an `{id}`, with the table its path addresses and its gate code** — the same
+     * derivation {@see self::tablesAddressedByPrefix()} runs, offered to `RecordHistorySubjectsTest` (audit reads C2, final
+     * RED M-4: the History subject domain is "the tables of all built item-GETs that take an `{id}` (the `DenialSubjectTest`
+     * derivation)"), so that test reads THIS rule rather than a second copy of it.
+     *
+     * @return array<string, array{table: string, gate: string, prefix: string}> operationId => the addressed table, the gate
+     *                                                                         code and the normalised path prefix
+     */
+    public static function builtItemGets(): array
+    {
+        $gets = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $template = self::templateOf($operation);
+            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            if ('GET' !== $operation->getMethod() || !str_ends_with($template, '}') || !\is_string($required)) {
+                continue;
+            }
+            $table = self::PATH_SEGMENT_OVERRIDES[self::normalised($template)] ?? self::addressedTable($template, $required, array_keys(SchemaManifest::TABLES));
+            if (null !== $table) {
+                $gets[(string) $name] = ['table' => $table, 'gate' => $required, 'prefix' => self::normalised($template)];
+            }
+        }
+        ksort($gets);
+
+        return $gets;
     }
 
     /**

@@ -32,7 +32,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * other; `SEC` re-rated Low unchanged 2026-10-20, `stock-transfer-sec.md` §2), and C0's `stock_movement_transfer_source`
  * CHECK ties that value to the two transfer reasons;
  * `source_id` is **bare**, never expanded (`SEC` CONFIRMED 2026-10-14, Low). No actor (the table has none) and no `warehouse` (V2-C-12 is `StockLevel`'s). It does
- * not show an adjustment's written reason (L-7 → `ListAuditRecords`, unbuilt).
+ * not show an adjustment's written reason — and since audit reads C2 (2026-10-21) neither does its History: `ListAuditRecords`
+ * serves no `metadata` (`audit-reads-sec-po.md` C.2), so the note is read only through `ListAuditLogEntries` (`owner`/`admin`)
+ * until `SEC` rules a per-event key list.
  *
  * The gate refuses before the provider loads anything (E-1). An unknown, malformed or another workspace's id is the same
  * 404 — including `GET /stock-movements/adjustments`, the path of the `POST`-only `CreateStockAdjustment`.

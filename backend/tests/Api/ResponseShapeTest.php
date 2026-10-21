@@ -723,8 +723,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             // A list that pages is read once more at one row a page, so a body
             // carrying a real cursor is walked too.
             if ('GET' === $registry[$name]->getMethod() && (bool) $registry[$name]->getParameters()?->has('limit')) {
-                $uri = (string) parse_url($this->client()->getRequest()->getUri(), \PHP_URL_PATH);
-                $this->send('GET', $uri.'?limit=1');
+                // The recipe's own query is kept and `limit` set over it (audit reads C2): `ListAuditRecords` REQUIRES its
+                // `subject_type` + `subject_id` pair, so the bare path is a 422 by contract, not a page.
+                $request = $this->client()->getRequest();
+                $uri = (string) parse_url($request->getUri(), \PHP_URL_PATH);
+                $query = array_merge($request->query->all(), ['limit' => '1']);
+                $this->send('GET', $uri.'?'.http_build_query($query));
                 self::assertSame(200, $this->httpStatus(), $name.' at limit=1 was not driven to success.');
                 $bodies[$name.' (limit=1)'] = json_decode((string) $this->client()->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
             }

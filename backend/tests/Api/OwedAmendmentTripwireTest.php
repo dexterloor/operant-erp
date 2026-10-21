@@ -297,28 +297,20 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     /**
-     * **G-35's re-rating trigger, mechanised** (customers slice 1 C2, 2026-10-09; `docs/session13/customers-s1-g35-judge.md`
-     * FINAL item 10). From C2 the customer trail (`customer.created` / `customer.updated`) attributes a payment-terms change,
-     * but only owner SQL can read it: G-35's "detection, not prevention" is evidence nobody in the workspace can see. The
-     * first audit read makes it usable, and that commit owes the re-rating and the prevention decision. Keyed by
-     * `operationId` (the pick-read precedent, `1076ba3`).
-     *
-     * @var array<string, string>
-     */
-    private const OPERATIONS_OWING_THE_G35_RERATING = [
-        'ListAuditRecords' => 'the record-history read (L-7, `audit_log.view_record`) — it must resolve `customer` through PC-9 '
-            .'(`customer.view`), never `"{subject_type}.view"`; this key converts into the implication below in its own commit (C2).',
-    ];
-
-    /**
      * ⚖ **G-35's IMPLICATION** (audit reads C1, 2026-10-21; `docs/session13/audit-reads-owner-q-ruling.md` §2.6 / §5 C1, judge
-     * ruling under the owner's delegation; final RED L-6) — **converted from {@see self::OPERATIONS_OWING_THE_G35_RERATING}'s
-     * `ListAuditLogEntries` key, not emptied** (the {@see self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION} precedent). It
-     * read `'ListAuditLogEntries' => 'the whole-trail read'` and went red when C1 built it; C1 re-rated G-35 **Low** on three
-     * conditions, the first of which is that the trail serves every payment-terms value set, filterable by `event_type`. Now:
-     * `ListAuditLogEntries` is never in the spec without the test that holds that condition
-     * ({@see self::noAuditReadShipsWithoutReRatingG35()}) — and `RESIDUAL_GAPS.md` G-35 still carries the Low ruling line
-     * ({@see self::g35CarriesItsLowRulingWhileTheTrailIsReadable()}). Removing the carrier returns G-35 to Medium.
+     * ruling under the owner's delegation; final RED L-6) — **converted, key by key, from the pin map
+     * `OPERATIONS_OWING_THE_G35_RERATING`, never emptied by hand** (the {@see self::OPERATIONS_OWING_THE_SUPPLIER_TRAIL_DECISION}
+     * precedent). That map was keyed on the two audit reads (customers slice 1 C2, judge FINAL item 10: the customer trail
+     * attributed a payment-terms change that only owner SQL could read):
+     *  - `'ListAuditLogEntries' => 'the whole-trail read'` went red when C1 built it; C1 re-rated G-35 **Low** on three
+     *    conditions, the first of which is that the trail serves every payment-terms value set, filterable by `event_type`;
+     *  - `'ListAuditRecords' => 'the record-history read … must resolve customer through PC-9 (customer.view), never
+     *    "{subject_type}.view"'` went red when **C2** built it (2026-10-21) and converted here: its carrier is
+     *    `RecordHistorySubjectsTest::aCustomerAndItsChildrenAreReadOnCustomerView` (final RED M-1). With both keys converted
+     *    the pin map was empty, so it was removed with its pin half rather than left asserting over nothing.
+     * Now: neither read is in the spec without its carrier test ({@see self::noAuditReadShipsWithoutReRatingG35()}) — and
+     * `RESIDUAL_GAPS.md` G-35 still carries the Low ruling line ({@see self::g35CarriesItsLowRulingWhileTheTrailIsReadable()}).
+     * Removing the trail's carrier returns G-35 to Medium; removing the History's unpins the PC-9 clause the pin carried.
      *
      * **The supplier twin is not mirrored** (G-19 decision, ruling §2.5): the CUSTOMER trail records the terms VALUE since
      * C0a; the supplier trail still records names only (`SupplierWriteTest::theUpdatedRowCarriesNamesNeverValues`, below),
@@ -329,6 +321,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     private const OPERATIONS_CARRYING_THE_G35_LOW_RATING = [
         'ListAuditLogEntries' => [
             [AuditLogReadTest::class, 'theTrailShowsEveryPaymentTermsValueSet'],
+        ],
+        // Audit reads C2: converted from the pin's last key (its PC-9 clause).
+        'ListAuditRecords' => [
+            [RecordHistorySubjectsTest::class, 'aCustomerAndItsChildrenAreReadOnCustomerView'],
         ],
     ];
 
@@ -1202,19 +1198,17 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **`RESIDUAL_GAPS.md` G-35's hard trigger, and since audit reads C1 its IMPLICATION** (customers slice 1 C2; judge FINAL
-     * item 10; C1 conversion, ruling §5). Two halves, one decision:
-     *  - **the pin** — red the moment a key of {@see self::OPERATIONS_OWING_THE_G35_RERATING} (now `ListAuditRecords` only,
-     *    until C2) is in the generated spec;
-     *  - **the implication** — while `ListAuditLogEntries` is in the spec, every test named in
-     *    {@see self::OPERATIONS_CARRYING_THE_G35_LOW_RATING} must exist. It detects a removed or renamed carrier, not a
-     *    weakened one (the supplier-trail implication's limit). Mutation M19: remove the control test → red naming it.
+     * **`RESIDUAL_GAPS.md` G-35's hard trigger, now wholly its IMPLICATION** (customers slice 1 C2; judge FINAL item 10;
+     * converted at audit reads C1 and C2, ruling §5): while each audit read is in the spec, every test named for it in
+     * {@see self::OPERATIONS_CARRYING_THE_G35_LOW_RATING} must exist. It detects a removed or renamed carrier, not a weakened
+     * one (the supplier-trail implication's limit). Mutation M19: remove a carrier test → red naming it. *(Until C2 it also
+     * held a pin half, red the moment a key of the pin map was in the spec; C2 built the last key and converted it, so the
+     * pin half went with the empty map.)*
      *
      * The name is kept through the conversion: `DELIVERY_LEDGER.md`'s G-35 row runs it by name. **Controls, same test:** the
-     * positive control every sibling uses; a non-empty pin map and a non-empty antecedent; the intersection over a literal map
-     * naming a BUILT operation (`ListCustomers`) must report it; and the antecedent must be BUILT (else the implication holds
-     * over nothing). Mutation M-10: plant `ListCustomers` as a pin key → red naming it. **M12 (review check, not evidence):**
-     * deleting the pin's last key or the implication's carrier list defeats this test by exactly that edit.
+     * positive control every sibling uses; a non-empty antecedent; and every antecedent must be BUILT (else the implication
+     * holds over nothing). **M12 (review check, not evidence):** deleting the implication's carrier list defeats this test by
+     * exactly that edit.
      */
     #[Test]
     public function noAuditReadShipsWithoutReRatingG35(): void
@@ -1223,17 +1217,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
         self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
             'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_G35_RERATING,
-            'The G-35 re-rating map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
-        self::assertSame(['ListCustomers' => 'x'],
-            array_intersect_key(['ListCustomers' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        // The implication (C1): the antecedent is built, and every carrier exists.
+        // The implication (C1, C2): every antecedent is built, and every carrier exists.
         self::assertNotSame([], self::OPERATIONS_CARRYING_THE_G35_LOW_RATING, 'The G-35 implication has no antecedent, so it asserts nothing.');
         self::assertSame(array_keys(self::OPERATIONS_CARRYING_THE_G35_LOW_RATING),
             array_keys(array_intersect_key(self::OPERATIONS_CARRYING_THE_G35_LOW_RATING, $built)),
-            'The G-35 implication\'s antecedent is not in the spec, so it holds over nothing: was ListAuditLogEntries removed?');
+            'A G-35 implication\'s antecedent is not in the spec, so it holds over nothing: was an audit read removed?');
         $missing = [];
         foreach (self::OPERATIONS_CARRYING_THE_G35_LOW_RATING as $operation => $carriers) {
             foreach ($carriers as [$class, $method]) {
@@ -1246,19 +1234,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             "%s\n\nRESIDUAL_GAPS.md G-35 is rated Low (judge ruling 2026-10-20 under the owner's delegation) on the condition that the\n"
             ."audit trail serves every payment-terms value a person sets — `customer.created` {payment_terms_days} and\n"
             ."`customer.updated` {fields, payment_terms_days: {from, to}} — readable by the owner through ListAuditLogEntries and\n"
-            ."filterable by event_type. That test holds the condition. Restore it, or move its obligation to another named test\n"
-            ."here; removing it returns G-35 to Medium. Record: docs/session13/audit-reads-owner-q-ruling.md §2.6, §5 C1.",
+            ."filterable by event_type; the trail's carrier holds that condition, and removing it returns G-35 to Medium. The\n"
+            ."History's carrier holds the clause G-35's pin carried until C2: a customer, and its contacts and addresses, are read\n"
+            ."through PC-9 on customer.view. Restore the test, or move its obligation to another named test here.\n"
+            ."Record: docs/session13/audit-reads-owner-q-ruling.md §2.6, §5 C1/C2.",
             implode("\n", $missing),
-        ));
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_G35_RERATING, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            '%s has been built, so the customer trail (`customer.created` / `customer.updated`) is now readable by tenant users. '
-            .'G-35 was re-rated Low at audit reads C1 (ruling §2.6); this commit owes the key\'s conversion into the implication '
-            .'above and the PC-9 resolution its message names. Do not hand-edit this pin to green. (%s)',
-            implode(', ', array_keys($arrived)),
-            implode(' ', $arrived),
         ));
     }
 

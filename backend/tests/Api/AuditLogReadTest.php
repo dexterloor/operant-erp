@@ -38,12 +38,14 @@ use Symfony\Component\Uid\Uuid;
 final class AuditLogReadTest extends PurchaseOrderTestCase
 {
     /**
-     * The `/audit-log` operations, held equal to the registry. `ListAuditRecords` (`/audit-log/records`) joins at C2.
+     * The `/audit-log` operations, held equal to the registry. `ListAuditRecords` (`/audit-log/records`) joined at C2.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_AUDIT_OPERATIONS = [
         'ListAuditLogEntries' => ['method' => 'GET', 'path' => '/audit-log', 'idem' => false],
+        // Audit reads C2: one record's History (`AuditRecordReadTest`).
+        'ListAuditRecords' => ['method' => 'GET', 'path' => '/audit-log/records', 'idem' => false],
     ];
 
     /** The reader's own page statement — `FROM (SELECT … FROM audit_log a …` — never the bare table name. */

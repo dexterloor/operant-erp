@@ -89,6 +89,11 @@ services:
             # data, not services. `AuditLogEntryCollection` is NOT excluded, for `ItemResource`'s reason.
             - '../src/Modules/AuditLog/Application/{AuditLogEntryView.php,AuditLogPage.php,AuditLogListCriteria.php}'
             - '../src/Modules/AuditLog/ApiResource/AuditActorReference.php'
+            # Audit reads C2 (2026-10-21): the History's read model, page and criteria, the subject map and the shared paging
+            # parameters (both function-only, private constructors) — data, not services. `AuditRecordCollection` is NOT
+            # excluded, for `ItemResource`'s reason.
+            - '../src/Modules/AuditLog/Application/{AuditRecordView.php,AuditRecordPage.php,AuditRecordCriteria.php,RecordHistorySubjects.php}'
+            - '../src/Modules/AuditLog/ApiResource/State/AuditListParameters.php'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would

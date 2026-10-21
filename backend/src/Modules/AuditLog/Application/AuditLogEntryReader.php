@@ -69,7 +69,7 @@ final readonly class AuditLogEntryReader
                 $rows = array_reverse($rows);
             }
 
-            [$next, $previous] = self::cursors($criteria, $rows, $hasMore);
+            [$next, $previous] = self::pageCursors($criteria->isBackwards(), null !== $criteria->after, $rows, $hasMore);
 
             return new AuditLogPage(
                 items: array_map(self::view(...), $rows),
@@ -136,11 +136,14 @@ final readonly class AuditLogEntryReader
     private const JOINS = 'LEFT JOIN app_user u ON u.tenant_id = a.tenant_id AND u.id = a.actor_user_id';
 
     /**
+     * A page's two cursors over the `(occurred_at, id)` keyset — shared with {@see AuditRecordReader} (audit reads C2), which
+     * pages the same table on the same key.
+     *
      * @param list<array<string, mixed>> $rows in the list's own order
      *
      * @return array{?string, ?string} next, previous
      */
-    private static function cursors(AuditLogListCriteria $criteria, array $rows, bool $hasMore): array
+    public static function pageCursors(bool $backwards, bool $hasAfter, array $rows, bool $hasMore): array
     {
         if ([] === $rows) {
             return [null, null];
@@ -151,11 +154,11 @@ final readonly class AuditLogEntryReader
         $lastRow = $rows[array_key_last($rows)];
         $last = new Cursor((string) $lastRow['occurred_at'], (string) $lastRow['id']);
 
-        if ($criteria->isBackwards()) {
+        if ($backwards) {
             return [$last->encode(), $hasMore ? $first->encode() : null];
         }
 
-        return [$hasMore ? $last->encode() : null, null !== $criteria->after ? $first->encode() : null];
+        return [$hasMore ? $last->encode() : null, $hasAfter ? $first->encode() : null];
     }
 
     /** @param array<string, mixed> $row */

@@ -909,6 +909,23 @@ trait OperationSuccessRecipes
 
                 return [200, 'list the audit trail, newest first'];
             }],
+            // Audit reads C2: one purchase order's History — a business row and a denial naming the same subject, so the body
+            // the registry-wide checks walk is a real History page (the denial must not be on it; `AuditRecordReadTest` pins that).
+            'ListAuditRecords' => [function (): array {
+                $order = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+                foreach (['purchase_order.placed', 'authz.permission.denied'] as $i => $event) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO audit_log (id, tenant_id, event_type, actor_label, subject_type, subject_id, occurred_at)
+                        VALUES (?::uuid, ?::uuid, ?, 'Recipe History', 'purchase_order', ?::uuid, '2026-03-05 09:00:00+00'::timestamptz + ?::int * interval '1 second')
+                        SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $event, $order, $i]);
+                }
+
+                return ['order' => $order];
+            }, function (array $c): array {
+                $this->send('GET', '/audit-log/records?subject_type=purchase_order&subject_id='.$c['order']);
+
+                return [200, 'list one record\'s History, newest first'];
+            }],
             'GetStockMovement' => [fn (): array => $this->seedRecipeMovements('Recipe Read Movement Warehouse'), function (array $c): array {
                 $this->send('GET', '/stock-movements/'.$c['movement']);
 

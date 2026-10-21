@@ -143,6 +143,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // Audit reads C1 (2026-10-21): `audit_log.view` — owner and `admin` only; `viewer` holds `audit_log.view_record`
         // and not this (PC-11; `SECURITY_MODEL.md` §4).
         'ListAuditLogEntries' => 'audit_log.view',
+        // Audit reads C2 (2026-10-21): `audit_log.view_record` — every default role (PC-11's colleague-readable half); the
+        // subject's own read code is checked AFTER the gate, in the provider (E-5, `AuditRecordAccess`).
+        'ListAuditRecords' => 'audit_log.view_record',
         // Stock count C1 (2026-10-16): `stock_movement.adjust` — owner, `admin`, `warehouse_operator` (`SECURITY_MODEL.md` §4).
         'CreateStockAdjustment' => 'stock_movement.adjust',
         // Stock transfer C1 (2026-10-20): the same code — no new permission (SEC-O-13 no-split, E-25).

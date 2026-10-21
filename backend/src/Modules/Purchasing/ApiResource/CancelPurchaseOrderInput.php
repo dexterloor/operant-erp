@@ -24,7 +24,9 @@ namespace App\Modules\Purchasing\ApiResource;
  * inherits it rather than deciding it."* The precedent it cites is
  * `STOCK_MOVEMENT_ADJUSTED`, where `stock_movement` has no free-text column
  * (nine columns then, eleven since stock count C0 added the retry-key hashes), so F-6a's operator reason lives in `metadata` under the key `note`
- * and surfaces through L-7's History section.
+ * and was to surface through L-7's History section. *(Since audit reads C2, 2026-10-21, it does not: `ListAuditRecords` serves
+ * no `metadata` (`audit-reads-sec-po.md` C.2) until `SEC` rules a per-event key list; the reason is read through
+ * `ListAuditLogEntries`, `owner`/`admin`.)*
  *
  * **So the field is accepted, and accepting it is the whole point.** Dropping it
  * would be the silent shape this project has now recorded finding nineteen

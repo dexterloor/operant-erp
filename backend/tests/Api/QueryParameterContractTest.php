@@ -381,7 +381,7 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                 // A scoped list (`/stock`, stock reads C1): its declared parameters are its mutually exclusive scopes, so
                 // each is sent alone against the route — beside the fixture's own scope it would be "both", which tests
                 // API-19b's exactly-one rule, not acceptance.
-                $base = self::isScoped($path) ? self::routeOf($path) : $path;
+                $base = self::hasExclusiveScope($path) ? self::routeOf($path) : $path;
                 $this->send('GET', self::withQuery($base, (null === $companion ? '' : $companion.'&').$parameter.'='.urlencode((string) $value)));
                 if (200 !== $this->httpStatus()) {
                     $defects[] = \sprintf('%s refused its declared `%s=%s`: %d %s', $name, $parameter, $value, $this->httpStatus(), substr((string) $this->client()->getResponse()->getContent(), 0, 200));

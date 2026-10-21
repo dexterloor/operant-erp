@@ -1145,8 +1145,13 @@ final class WriteOwnershipTest extends KernelTestCase
         ],
     ];
 
-    /** The three files that legitimately hold the literal `'stock_movement'` (measured 2026-09-22, F-2). */
+    /**
+     * The files that legitimately hold the literal `'stock_movement'` (three measured 2026-09-22, F-2). Audit reads C2
+     * (2026-10-21) added the fourth, reviewed: `RecordHistorySubjects` names the table as a History SUBJECT TYPE (a key of a
+     * read-code map and of `?subject_type`'s enum) and issues no statement at all.
+     */
     private const STOCK_MOVEMENT_NAME_HOLDERS = [
+        'src/Modules/AuditLog/Application/RecordHistorySubjects.php',
         'src/Modules/Inventory/Infrastructure/Entity/StockMovement.php',
         'src/Platform/Tenancy/SchemaManifest.php',
         'src/SharedKernel/ValueObject/AuditEvent.php',

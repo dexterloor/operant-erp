@@ -6,6 +6,8 @@ namespace App\Tests\Tenancy;
 
 use App\Modules\AuditLog\Application\AuditLogEntryReader;
 use App\Modules\AuditLog\Application\AuditLogListCriteria;
+use App\Modules\AuditLog\Application\AuditRecordCriteria;
+use App\Modules\AuditLog\Application\AuditRecordReader;
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\StockLevelReader;
@@ -63,6 +65,18 @@ final class SchemaQueryPlanTest extends TenancyTestCase
     private const AUDIT_TIE = 5000;
     private const AUDIT_TIE_INSTANT = '2025-07-01 00:00:00+00';
     private const AUDIT_TIE_EVENT = 'purchase_order.cancelled';
+    /**
+     * Audit reads C2 (design §5.4 T-3): the tie group's rows all name ONE subject, so a record's History pages inside the same
+     * group. The same id in both tenants (no FK on `subject_id`), so the tenant bound is part of what the plan must honour.
+     */
+    private const AUDIT_TIE_SUBJECT = '0198a5d0-0000-7000-8000-00000000c2c2';
+    /**
+     * Audit reads C2 (T-3): other records' rows AT THE SAME INSTANT, so the subject is a fifth of its tie group's instant — a
+     * scan of the whole-trail index filtering on the subject would read past them, and only the History index pages the
+     * subject's rows directly. Measured: with the subject alone at the instant, the planner (rightly) served the History
+     * page from `audit_log_tenant_occurred_id_idx`, and the plan test could not tell the indexes apart.
+     */
+    private const AUDIT_TIE_NOISE = 20000;
 
     private bool $seeded = false;
 
@@ -247,13 +261,22 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::EVENTS]);
 
-                // Audit reads C1: the audit tie group — one actor, one event type, one instant, AUDIT_TIE rows.
+                // Audit reads C1: the audit tie group — one actor, one event type, one instant, AUDIT_TIE rows; since C2 also one
+                // subject (T-3).
                 $c->executeStatement(<<<'SQL'
-                    INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, occurred_at)
+                    INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, subject_type, subject_id, occurred_at)
                     SELECT gen_random_uuid(), ?::uuid, ?,
-                           (SELECT id FROM app_user WHERE email = 'plan-seed@example.com'), 'Plan Seed', ?::timestamptz
+                           (SELECT id FROM app_user WHERE email = 'plan-seed@example.com'), 'Plan Seed',
+                           'purchase_order', ?::uuid, ?::timestamptz
                     FROM generate_series(1, ?) g
-                    SQL, [$tenant, self::AUDIT_TIE_EVENT, self::AUDIT_TIE_INSTANT, self::AUDIT_TIE]);
+                    SQL, [$tenant, self::AUDIT_TIE_EVENT, self::AUDIT_TIE_SUBJECT, self::AUDIT_TIE_INSTANT, self::AUDIT_TIE]);
+
+                // Audit reads C2 (T-3): other records' rows at the same instant — no actor, another event type and subject type.
+                $c->executeStatement(<<<'SQL'
+                    INSERT INTO audit_log (id, tenant_id, event_type, actor_label, subject_type, subject_id, occurred_at)
+                    SELECT gen_random_uuid(), ?::uuid, 'sales_order.cancelled', 'system', 'sales_order', gen_random_uuid(), ?::timestamptz
+                    FROM generate_series(1, ?) g
+                    SQL, [$tenant, self::AUDIT_TIE_INSTANT, self::AUDIT_TIE_NOISE]);
             });
         }
 
@@ -277,7 +300,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertSame(
                 ['inventory_item' => self::ITEMS, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
                     'fulfilment' => self::ORDERS, 'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
-                    'stock_movement' => self::EVENTS + self::TIE, 'audit_log' => self::EVENTS + self::AUDIT_TIE],
+                    'stock_movement' => self::EVENTS + self::TIE, 'audit_log' => self::EVENTS + self::AUDIT_TIE + self::AUDIT_TIE_NOISE],
                 $counts,
                 'The seed did not produce the world these plans are measured against.');
         }
@@ -653,7 +676,43 @@ final class SchemaQueryPlanTest extends TenancyTestCase
     }
 
     /**
-     * Each of C1's three concurrently built indexes exists and is VALID (design R1.3; L-1): a failed `CREATE INDEX
+     * `/audit-log/records`, the History section (L-7) — **one record's History pages inside a 5,000-row tie group without a
+     * sort** (audit reads C2, design §5.4 T-3; `Version20261021000200`). The statement is
+     * {@see AuditRecordReader::listStatement()}'s: `subject_type` and `subject_id` and the row comparison in the index
+     * condition, the allowlist's `IN` a `Filter`. **Expected red under the old `audit_log_tenant_subject_idx`** (it ends
+     * `occurred_at`, so only `occurred_at <= ?` is indexable and the group is sorted — measured before the migration).
+     */
+    #[Test]
+    public function aRecordsHistoryPagesInsideATieGroupWithoutASort(): void
+    {
+        $this->seedWorld();
+
+        [$key, $id] = $this->tenantContext()->run(self::TENANT_A, fn (): array => [
+            (string) $this->app()->fetchOne('SELECT DISTINCT occurred_at::text FROM audit_log WHERE subject_id = ?::uuid AND occurred_at = ?::timestamptz', [self::AUDIT_TIE_SUBJECT, self::AUDIT_TIE_INSTANT]),
+            (string) $this->app()->fetchOne('SELECT id FROM audit_log WHERE subject_id = ?::uuid AND occurred_at = ?::timestamptz ORDER BY id DESC OFFSET 2499 LIMIT 1', [self::AUDIT_TIE_SUBJECT, self::AUDIT_TIE_INSTANT]),
+        ]);
+        self::assertNotSame('', $id, 'The History tie group was not seeded on its subject, so the page would be over nothing.');
+
+        $criteria = new AuditRecordCriteria(
+            subjectType: 'purchase_order',
+            subjectId: self::AUDIT_TIE_SUBJECT,
+            limit: AuditLogListCriteria::DEFAULT_LIMIT,
+            after: new Cursor($key, $id),
+        );
+        [$sql, $parameters] = AuditRecordReader::listStatement($criteria);
+        self::assertStringContainsString('(a.occurred_at, a.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the History keyset page.');
+        self::assertSame(2, substr_count($sql, 'ORDER BY a.occurred_at DESC, a.id DESC'),
+            'The order must be applied inside the page AND after the join, or the page order rests on the join strategy.');
+
+        $this->assertAuditTieScan($sql, $parameters, 'audit_log_tenant_subject_occurred_id_idx', 'AuditLog — one record\'s History, page inside a tie group', $criteria->limit);
+
+        $plan = $this->planWith([], $sql, $parameters);
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*subject_type[^\n]*subject_id/', $plan, "The subject bound is not an index condition:\n$plan");
+        self::assertMatchesRegularExpression('/Filter:[^\n]*event_type = ANY/', $plan, "The allowlist is expected as a Filter on the index scan (design §5.3):\n$plan");
+    }
+
+    /**
+     * Each of C1's three (and C2's one) concurrently built indexes exists and is VALID (design R1.3; L-1): a failed `CREATE INDEX
      * CONCURRENTLY` leaves `indisvalid = false`, which an `IF NOT EXISTS` would have accepted as done. And the three indexes
      * they replace are gone (replace, not add: `audit_log` grows without bound). Read from `pg_index`, as the owner.
      */
@@ -663,7 +722,8 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         $rows = $this->owner()->fetchAllKeyValue(<<<'SQL'
             SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
             WHERE c.relname IN ('audit_log_tenant_occurred_id_idx', 'audit_log_tenant_actor_occurred_id_idx', 'audit_log_tenant_event_occurred_id_idx',
-                                'audit_log_tenant_occurred_idx', 'audit_log_tenant_actor_idx', 'audit_log_tenant_event_idx')
+                                'audit_log_tenant_subject_occurred_id_idx',
+                                'audit_log_tenant_occurred_idx', 'audit_log_tenant_actor_idx', 'audit_log_tenant_event_idx', 'audit_log_tenant_subject_idx')
             ORDER BY c.relname
             SQL);
 
@@ -671,6 +731,8 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             'audit_log_tenant_actor_occurred_id_idx' => true,
             'audit_log_tenant_event_occurred_id_idx' => true,
             'audit_log_tenant_occurred_id_idx' => true,
+            // Audit reads C2: the History index, rebuilt the same way (`Version20261021000200`); the old one gone.
+            'audit_log_tenant_subject_occurred_id_idx' => true,
         ], array_map(static fn (mixed $valid): bool => true === $valid || 't' === $valid || 1 === $valid || '1' === $valid, $rows));
     }
 
@@ -811,6 +873,17 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         self::assertSame(2, substr_count($sql, 'ORDER BY a.occurred_at DESC, a.id DESC'),
             'The order must be applied inside the page AND after the join, or the page order rests on the join strategy.');
 
+        $this->assertAuditTieScan($sql, $parameters, $index, $label, $criteria->limit);
+    }
+
+    /**
+     * The four assertions every audit tie-group page owes, under three join strategies — C1's, shared with C2's History
+     * page (T-3) rather than copied.
+     *
+     * @param list<mixed> $parameters
+     */
+    private function assertAuditTieScan(string $sql, array $parameters, string $index, string $label, int $limit): void
+    {
         foreach ([
             'as planned' => [],
             'merge join forced' => ['enable_nestloop' => 'off', 'enable_hashjoin' => 'off'],
@@ -826,7 +899,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 "(c) [$strategy] The row comparison is not an index condition:\n$plan");
             self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan);
             preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
-            self::assertLessThanOrEqual($criteria->limit + 1, (int) $m[1], "(d) [$strategy] The scan read past LIMIT inside the tie group:\n$plan");
+            self::assertLessThanOrEqual($limit + 1, (int) $m[1], "(d) [$strategy] The scan read past LIMIT inside the tie group:\n$plan");
         }
     }
 

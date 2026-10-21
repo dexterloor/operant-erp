@@ -80,8 +80,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'audit_log_tenant_occurred_id_idx', columns: ['tenant_id', 'occurred_at', 'id'])]
 // "What did this user do" -- the access review. Ends `id` since audit reads C1 (same reason).
 #[ORM\Index(name: 'audit_log_tenant_actor_occurred_id_idx', columns: ['tenant_id', 'actor_user_id', 'occurred_at', 'id'])]
-// "The history of this purchase order" -- the per-record timeline.
-#[ORM\Index(name: 'audit_log_tenant_subject_idx', columns: ['tenant_id', 'subject_type', 'subject_id', 'occurred_at'])]
+// "The history of this purchase order" -- the per-record timeline. Ends `id` since audit reads C2 (`Version20261021000200`):
+// `ListAuditRecords`' keyset is then a whole index condition (C1's reason).
+#[ORM\Index(name: 'audit_log_tenant_subject_occurred_id_idx', columns: ['tenant_id', 'subject_type', 'subject_id', 'occurred_at', 'id'])]
 // "Every failed login in the last hour" -- ADR-006 §2.2's whole point. Ends `id` since audit reads C1 (same reason).
 #[ORM\Index(name: 'audit_log_tenant_event_occurred_id_idx', columns: ['tenant_id', 'event_type', 'occurred_at', 'id'])]
 // E-3a's cap key. Partial on the denial event type: the predicate has to be

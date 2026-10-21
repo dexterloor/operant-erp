@@ -244,7 +244,7 @@ final class PaginationContractTest extends PurchaseOrderTestCase
                     $filters[] = $parameter.'='.$value;
                 }
             }
-            if ([] !== $filters && self::isScoped($path)) {
+            if ([] !== $filters && self::hasExclusiveScope($path)) {
                 // A scoped list (`/stock`): its filters ARE its mutually exclusive scopes, so each is sent alone against the
                 // route — together they are API-19b's "both", a 422 by contract (stock reads C1).
                 foreach ($filters as $filter) {

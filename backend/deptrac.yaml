@@ -90,6 +90,11 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-10-21 with `ListAuditRecords` in the tree (audit reads C2): the three commands return
+  # **154 / 91 / 36** -- ONE edge line added, A-7: `AuditRecordAccess -> DenialAuditWriter` (E-5's second check writes its
+  # E-3 row through the gate's own writer, within the AuditLog module). By TAG the register now holds **162 edge lines: A-1 1,
+  # A-5 35, A-7 91, A-10 10, A-12 25** (counted, not added to the C4 note's figures, which this count does not reproduce). No
+  # LAYER edge. `make deptrac`: see the progress note's C2 gate.)
   # (Re-derived 2026-10-21 with `DeleteWarehouse` in the tree (warehouse/location delete-restore C4): the three commands
   # return **153 / 90 / 36** -- TWO edge lines added, both A-7: `WarehouseOpenPurchaseOrdersCount -> PurchaseOrder` and
   # `WarehouseOpenSalesOrdersCount -> SalesOrder` (the open statuses are the entities' own constants, API-15). By TAG the
@@ -362,6 +367,10 @@ deptrac:
   #                   `issued_by_user_id`'s composite FK, sales step 6 C2.)
   # ------------------------------------------------------------------------
   skip_violations:
+    App\Modules\AuditLog\Application\AuditRecordAccess:
+      # Audit reads C2, 2026-10-21: E-5's second check writes its E-3 row through the gate's own writer (design §4.1.3;
+      # `RoleAdministrationActor -> DenialAuditWriter` is the A-5 precedent from another module). `ARCH` TO CONFIRM the tag.
+      - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-7
     App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry:

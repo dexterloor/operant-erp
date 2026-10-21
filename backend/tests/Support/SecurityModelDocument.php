@@ -237,6 +237,78 @@ final class SecurityModelDocument
     }
 
     /**
+     * **PC-9's table — each child table's READ code** (audit reads C2; `docs/session13/audit-reads-final-red.md` L-10 and
+     * `audit-reads-design.md` R1.5). `RecordHistorySubjectsTest` holds `RecordHistorySubjects`' map equal to this for every
+     * table PC-9 names, so the E-5 second check resolves a child through its parent's code (R-7: never
+     * `"{subject_type}.view"` — no `credit_note.view` exists).
+     *
+     * One rule, four cell forms, in this order:
+     *  1. a `read:` clause → its first backticked code (`credit_note` → `invoice.view`);
+     *  2. else a backticked `x.*` → `x.view` (`purchase_order_line` → `purchase_order.view`);
+     *  3. else the first backticked code ending `.view` (`customer_contact` → `customer.view`);
+     *  4. else **null** — a row naming only write codes (`role_permission` → `role.edit`, `user_role` → `role.assign`) has
+     *     no read code, so the table is not a History subject.
+     *
+     * The table is the first one after the line opening `**PC-9 — `; rows are `| child tables | governed by |`, the child
+     * cell a list of backticked table names. Empty when the heading or its table is not found — callers assert a control.
+     *
+     * @return array<string, ?string> child table => its read code, or null
+     */
+    public static function pc9ReadCodes(): array
+    {
+        $codes = [];
+        $inside = false;
+        $tableStarted = false;
+
+        foreach (explode("\n", (string) file_get_contents(self::path())) as $line) {
+            if (!$inside) {
+                $inside = str_starts_with($line, '**PC-9 — ');
+                continue;
+            }
+            if (!str_starts_with($line, '|')) {
+                if ($tableStarted) {
+                    break;
+                }
+                continue;
+            }
+            $tableStarted = true;
+            $cells = array_map('trim', explode('|', trim($line, " |")));
+            if (2 !== \count($cells) || 'Child table' === $cells[0] || 1 === preg_match('/^-+$/', $cells[0])) {
+                continue;
+            }
+            [$children, $governedBy] = $cells;
+
+            $read = null;
+            if (1 === preg_match('/read:\s*`([a-z_]+\.[a-z_]+)`/', $governedBy, $m)) {
+                $read = $m[1];
+            } else {
+                foreach (self::backtickedTokens($governedBy) as $token) {
+                    if (1 === preg_match('/^([a-z_]+)\.\*$/', $token, $m)) {
+                        $read = $m[1].'.view';
+                        break;
+                    }
+                }
+                if (null === $read) {
+                    foreach (self::backtickedTokens($governedBy) as $token) {
+                        if (1 === preg_match('/^[a-z_]+\.view$/', $token)) {
+                            $read = $token;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            foreach (self::backtickedTokens($children) as $table) {
+                if (1 === preg_match('/^[a-z_]+$/', $table)) {
+                    $codes[$table] = $read;
+                }
+            }
+        }
+
+        return $codes;
+    }
+
+    /**
      * Every backticked token on a line.
      *
      * @return list<string>
