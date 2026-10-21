@@ -92,7 +92,13 @@ use Symfony\Component\Yaml\Yaml;
  * `Connection` only on private methods fed by `$em->getConnection()` — no
  * constructor injection, nothing to bind. It is S-7(b)'s residual (raw SQL on
  * the entity manager's connection, which A-10 does not reach), and its writes
- * are covered by S-7(c)'s `WriteOwnershipTest`. `Platform\Tenancy` is exempt by
+ * are covered by S-7(c)'s `WriteOwnershipTest`. So is
+ * `Platform\Http\Idempotency\IdempotencyEnvelopeStore` (G5-C0, 2026-10-22): its
+ * PUBLIC methods take a caller-supplied `Connection` (the run's
+ * `$em->getConnection()`), no constructor injection, nothing to bind — and,
+ * unlike `ItemWriter`, nothing here checks which principal a caller passes; the
+ * store refuses a bare connection and another tenant's record, and a caller check
+ * is owed with its first caller (G5-C1). `Platform\Tenancy` is exempt by
  * A-10's own wording.
  */
 final class ConnectionBindingTest extends KernelTestCase
@@ -101,7 +107,8 @@ final class ConnectionBindingTest extends KernelTestCase
      * The constructor-injected `Connection`s in `src/` outside
      * `Platform\Tenancy` on 2026-09-14 at `18a4750`: nine, the nine
      * constructor-injected edges of deptrac's A-10 register (its tenth,
-     * `ItemWriter`, is a method type hint). The exact count, so a derivation
+     * `ItemWriter`, is a method type hint, and so is its eleventh,
+     * `IdempotencyEnvelopeStore`, since 2026-10-22). The exact count, so a derivation
      * that stops finding one is red.
      */
     private const CONSTRUCTOR_INJECTED_FLOOR = 9;

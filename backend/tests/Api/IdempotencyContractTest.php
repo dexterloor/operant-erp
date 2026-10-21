@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Platform\Http\Idempotency\IdempotencyEnvelopeStore;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
@@ -1176,6 +1177,15 @@ final class IdempotencyContractTest extends TenancyTestCase
      *
      * **Mutation, run:** `CreateGoodsReceipt`'s pin changed `⛔ none` → `store`,
      * making a fourth `store` operation. Red.
+     *
+     * **Dated note, 2026-10-22 (remaining-ops G5-C0):** the store EXISTS from G5-C0 —
+     * `idempotency_key` holds the response envelope and `IdempotencyEnvelopeStore`
+     * the lookup / record / same-transaction re-read protocol — but no OPERATION uses
+     * it yet and `erp_app` still holds no INSERT, so the second half is unchanged and
+     * still true: none of the three ships. It moves with G5-C1, the first store
+     * operation. The store's own operation list is tied to this cell set here, so
+     * the class cannot serve a fourth operation the contract does not name.
+     * Mutation: `'CreateGoodsReceipt'` added to `IdempotencyEnvelopeStore::OPERATIONS` → red.
      */
     #[Test]
     public function everyStoreMechanismIsABulkOperationAndNoneShipsWithoutTheReplayPath(): void
@@ -1189,6 +1199,11 @@ final class IdempotencyContractTest extends TenancyTestCase
             '§6.1 scopes the envelope store to the three bulk operations: their response is known before '
             .'commit, which is what makes the no-UPDATE grant sufficient.',
         );
+
+        $storeOperations = IdempotencyEnvelopeStore::OPERATIONS;
+        sort($storeOperations);
+        self::assertSame($store, $storeOperations,
+            'IdempotencyEnvelopeStore::OPERATIONS is not the set of operations whose §4.2 Idem cell reads `store`.');
 
         $shipped = array_keys(TransactionBoundaryTest::contractOperations());
 

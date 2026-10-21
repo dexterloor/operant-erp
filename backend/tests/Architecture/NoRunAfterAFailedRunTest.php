@@ -125,6 +125,18 @@ final class NoRunAfterAFailedRunTest extends TestCase
         self::assertContains('CustomerAddressWriter::create', $real['runners'],
             'Control: the scan no longer knows CustomerAddressWriter::create as a method that calls run(), so it may be blind.');
 
+        // Named control (G5-C0, 2026-10-22, design R1.2): the envelope store's re-lookup after a lost
+        // `ON CONFLICT DO NOTHING` (`IdempotencyEnvelopeStore::replayTheWinner()`) runs on the CALLER's connection in
+        // the SAME transaction. It is a class the processor calls, so this scan's one-level, same-class resolution
+        // could not see a `run()` inside it from the processor's side — hence no method of the store may call `run()`.
+        // Mutation: `replayTheWinner()` wraps its read in `$this->tenants->run(...)` → red.
+        self::assertArrayHasKey('src/Platform/Http/Idempotency/IdempotencyEnvelopeStore.php', $sources,
+            'Control: the envelope store was not scanned.');
+        self::assertSame([], array_values(array_filter($real['runners'],
+            static fn (string $m): bool => str_starts_with($m, 'IdempotencyEnvelopeStore::'))),
+            'A method of IdempotencyEnvelopeStore calls run(). Its re-lookup must stay on the caller\'s connection in the '
+            .'same transaction (design C-1): a second run() after a failed one is the 309c674 500.');
+
         self::assertSame([], $real['findings'],
             "A catch or finally body starts a second run(). The first run() closed the EntityManager when the exception left\n"
             ."wrapInTransaction(), so the second one fails at its flush() with \"The EntityManager is closed.\" (HTTP 500) whenever\n"

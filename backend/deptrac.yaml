@@ -90,6 +90,10 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-10-22 with the envelope store in the tree (remaining-ops G5-C0): ONE edge line added, an A-10 line,
+  # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
+  # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
+  # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
   # (Re-derived 2026-10-21 with `ListAuditRecords` in the tree (audit reads C2): the three commands return
   # **154 / 91 / 36** -- ONE edge line added, A-7: `AuditRecordAccess -> DenialAuditWriter` (E-5's second check writes its
   # E-3 row through the gate's own writer, within the AuditLog module). By TAG the register now holds **162 edge lines: A-1 1,
@@ -345,7 +349,7 @@ deptrac:
   #                   `CurrentUserResource` are declared there and returned from
   #                   Application) or on its own `Infrastructure` (entities and
   #                   concrete adapters). Both are Output 4 slice shapes.
-  #   A-10 (10 edges; still 10 at 2026-10-15) Module code and `Platform\Security` take
+  #   A-10 (10 edges; still 10 at 2026-10-15; 11 at 2026-10-22) Module code, `Platform\Security` and `Platform\Http` take
   #                   `Doctrine\DBAL\Connection` directly. This one is not an
   #                   oversight and should not be "fixed" without reading
   #                   ADR-006 first: the explicit per-principal connection
@@ -704,6 +708,12 @@ deptrac:
     App\Modules\UserManagement\Infrastructure\LockoutStore:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\PreAuthBudgets:
+      - Doctrine\DBAL\Connection   # A-10
+    # G5-C0 (2026-10-22): the envelope store's PUBLIC methods take a caller-supplied connection, as g5-g6-final-red L-7
+    # prescribes (so C0's tests can drive record() on an owner connection while erp_app holds no INSERT). Callers pass the
+    # run's $em->getConnection() (erp_app). Unlike ItemWriter the store cannot see the principal it is handed; owner use is
+    # tests only, and it refuses a bare connection and another tenant's record. A caller check is owed at G5-C1.
+    App\Platform\Http\Idempotency\IdempotencyEnvelopeStore:
       - Doctrine\DBAL\Connection   # A-10
     App\Platform\Security\IdentityReader:
       - Doctrine\DBAL\Connection   # A-10

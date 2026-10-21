@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Tenancy;
 
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -34,17 +35,22 @@ use PHPUnit\Framework\Attributes\Test;
  * ---------------------------------------------------------------------------
  * What is deliberately untested here, because it is not built
  * ---------------------------------------------------------------------------
- * `API.md` §6.2's *"returns the stored response, byte for byte"* has no test in
- * this file and cannot have one: §6.1's column list holds the response
- * **digest**, not the response, so no replay path can reproduce a body. That is
- * a contract defect rather than a missing test, and it is recorded as such in
- * `Version20260910000200`'s docblock. `IdempotencyTest::everyIdempotentOperationRefusesAReplay`
- * — §6.1's own named phase-2 check, over the operation registry — is Output 9's
- * and is not written here.
+ * `API.md` §6.2's *"returns the stored response, byte for byte"* is not tested
+ * here. **Until 2026-10-22 it could not be**: §6.1's column list held the
+ * response **digest**, not the response. **G5-C0 (`Version20261022003000`) added
+ * the envelope** — `response_body` (2..1024 bytes, `sha256` = `response_digest`),
+ * `response_headers` (a closed object of §6.2's normative headers) and a key that
+ * must be lower-case hex SHA-256 — and the replay is now `IdempotencyEnvelopeStore`'s,
+ * tested in `IdempotencyEnvelopeStoreTest`; the HTTP byte-identical test lands with
+ * the first store operation (G5-C1). Every fixture below therefore writes a full
+ * envelope and a hashed key (design Response to RED M-2, 2026-10-22).
  */
 final class IdempotencyKeyStorageTest extends TenancyTestCase
 {
-    private const OPERATION = 'CreateGoodsReceipt';
+    private const OPERATION = 'CreateBulkArchival';
+
+    /** A bulk body: counts only (`idempotency_key_body_bytes`, 2..1024). */
+    private const BODY = '{"requested":1,"applied":1}';
 
     /** How a privilege refusal is named: by message, since RLS refusals share its SQLSTATE (R3). */
     private const PRIVILEGE_REFUSED = 'permission denied for table';
@@ -73,62 +79,92 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
             fn (): array => $this->app()->fetchFirstColumn('SELECT key FROM idempotency_key ORDER BY key'),
         );
 
-        self::assertSame(['alpha'], $read(self::TENANT_A));
-        self::assertSame(['beta'], $read(self::TENANT_B));
+        self::assertSame([IdempotencyKeyHash::of('alpha')], $read(self::TENANT_A));
+        self::assertSame([IdempotencyKeyHash::of('beta')], $read(self::TENANT_B));
     }
 
     /**
-     * The grant footprint as three statements rather than as a catalogue lookup.
+     * **`erp_app` cannot record a key YET** — the first of the three claims the
+     * old `…CanNeitherRecordNorRewriteNorRemoveAKey` held together (split
+     * 2026-10-22, G5-C0, design Response to RED M-2).
      *
      * `GrantFootprintTest::everyRoleHoldsExactlyTheTablePrivilegesTheManifestDeclares`
-     * asserts `has_table_privilege` is `SELECT` and nothing else, in both
-     * directions, and that is the exhaustive check. This one asserts what a
-     * reader wants to know — that the application login can neither record, nor
-     * rewrite, nor remove a key — because a privilege check and a refused
-     * statement have come apart before on this project. Each refusal is named by
-     * its message, `permission denied for table`, never by `42501` alone, which an
-     * RLS refusal shares (ADR-002 Amendment 4, rule R3).
+     * is the exhaustive check; this is the refused statement, named by its
+     * message (`permission denied for table`), never by `42501` alone, which an
+     * RLS refusal shares (ADR-002 Amendment 4, rule R3). G5-C0 added the envelope
+     * columns and the store class and **deliberately granted nothing**: the INSERT
+     * column list ships with its first caller, `CreateBulkRoleAssignment` (G5-C1,
+     * ADR-002 A4.1). **That commit turns this test into `recordsTheNineColumns`**
+     * — `erp_app` INSERTs a row naming exactly the nine granted columns.
      *
-     * **No `INSERT`** since ADR-002 Amendment 4 (`Version20260916000300`,
-     * 2026-09-16): nothing under `src/` writes this store — `IdempotencyKeyGuard`
-     * requires and discards the header, and every built retry key is a domain
-     * column on its business table — so the privilege had no caller. Until then
-     * this test was `…RecordsAKeyOnceAndThenCannotRewriteOrRemoveIt` and asserted
-     * INSERT `accepted`. The first bulk operation that writes the store grants
-     * INSERT in its own migration and moves this pin.
+     * Mutation, run (V4 batch B7, and again at G5-C0): the revoke absent /
+     * `GRANT INSERT ON idempotency_key TO erp_app` — INSERT reads `accepted`.
+     */
+    #[Test]
+    public function theApplicationPrincipalCannotRecordYet(): void
+    {
+        self::assertSame(self::PRIVILEGE_REFUSED,
+            $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'written-once')),
+            'erp_app recorded a key, and nothing under src/ writes the store until G5-C1 grants its column list.');
+    }
+
+    /**
+     * **`erp_app` can never set `created_at`.** The expiry (RO-B1 (a′): 24 h,
+     * refused at read) is computed against that column on the database clock, so
+     * a principal that could backdate it could make a key replay forever, and one
+     * that could forward-date it could make a key expire early. G5-C1's column
+     * grant leaves `created_at` out, so the row always takes `DEFAULT now()`. Today
+     * the whole INSERT is refused (see above); from G5-C1 this statement is still
+     * refused while the nine-column INSERT is accepted — which is the moment this
+     * test starts carrying weight on its own.
      *
-     * The two older refusals are not symmetry. **No `UPDATE`** is §6.1's rule that a
-     * replayed key is answered from the stored row rather than rewritten, and it
-     * is what forces the write-once-at-commit protocol. **No `DELETE`** is the
-     * larger one: a principal that can delete its own idempotency records can
-     * replay any request it likes by first deleting the row that would refuse
-     * it, which is the control removed by the party it constrains.
+     * Mutation (to run at G5-C1): `created_at` added to the column grant → reads
+     * `accepted`.
+     */
+    #[Test]
+    public function theApplicationPrincipalCannotSetCreatedAt(): void
+    {
+        self::assertSame(self::PRIVILEGE_REFUSED, $this->attemptAsApplicationRole(<<<'SQL'
+            INSERT INTO idempotency_key (id, tenant_id, operation_id, key, request_digest, response_status, response_digest,
+                                         response_body, response_headers, created_at)
+            VALUES (gen_random_uuid(), ?::uuid, ?, ?, sha256(convert_to(?, 'UTF8')), 200, sha256(convert_to(?, 'UTF8')),
+                    convert_to(?, 'UTF8'), '{"content-type":"application/json"}', now() - interval '1 year')
+            SQL, [self::TENANT_A, self::OPERATION, IdempotencyKeyHash::of('backdated'), 'r', self::BODY, self::BODY]),
+            'erp_app set created_at, so it can move a key\'s expiry (RO-B1 (a′)).');
+    }
+
+    /**
+     * **`erp_app` can neither rewrite nor remove a key — ever.** **No `UPDATE`**
+     * is §6.1's rule that a replayed key is answered from the stored row rather
+     * than rewritten, and it is what forces the write-once-at-commit protocol
+     * (`INSERT … ON CONFLICT DO NOTHING`, then a same-transaction re-read: design
+     * C-1). **No `DELETE`** is the larger one: a principal that can delete its own
+     * idempotency records can replay any request it likes by first deleting the
+     * row that would refuse it, which is the control removed by the party it
+     * constrains. An expired key is refused and KEPT (RO-B1 (a′)); there is no
+     * purge until a scheduler exists.
      *
      * Each verb gets its own connection, and that is not tidiness: a refused
      * statement inside `TenantContext::run()` closes the entity manager, so
-     * three verbs sharing one unit of work would measure the first refusal and
-     * then an `EntityManagerClosed` — a fake-green wearing a red hat.
+     * verbs sharing one unit of work would measure the first refusal and then an
+     * `EntityManagerClosed` — a fake-green wearing a red hat.
      *
-     * Mutations, run (V4 batch B7): `GRANT UPDATE, DELETE ON idempotency_key TO
-     * erp_app` — both read `accepted` and the assertion fails naming them; and
-     * the migration's revoke absent — INSERT reads `accepted`.
+     * Mutation, run (V4 batch B7): `GRANT UPDATE, DELETE ON idempotency_key TO
+     * erp_app` — both read `accepted` and the assertion fails naming them.
      */
     #[Test]
-    public function theApplicationPrincipalCanNeitherRecordNorRewriteNorRemoveAKey(): void
+    public function theApplicationPrincipalCanNeitherRewriteNorRemoveAKey(): void
     {
-        $outcomes = [
-            'INSERT' => $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'written-once')),
-            'UPDATE' => $this->attemptAsApplicationRole('UPDATE idempotency_key SET response_status = 500'),
-            'DELETE' => $this->attemptAsApplicationRole('DELETE FROM idempotency_key'),
-        ];
-
         self::assertSame(
-            ['INSERT' => self::PRIVILEGE_REFUSED, 'UPDATE' => self::PRIVILEGE_REFUSED, 'DELETE' => self::PRIVILEGE_REFUSED],
-            $outcomes,
-            'erp_app must not be able to record, rewrite or remove a key. INSERT has no src/ caller (ADR-002 '
-            .'Amendment 4). API.md §6.1: a replayed key is answered from the stored row, never rewritten — and a '
-            .'principal holding DELETE can replay anything by deleting the row that refuses it. The '
-            .'purge is the owner\'s per-tenant lifecycle loop (SEC-O-3\'s ruling), not the application\'s.');
+            ['UPDATE' => self::PRIVILEGE_REFUSED, 'DELETE' => self::PRIVILEGE_REFUSED],
+            [
+                'UPDATE' => $this->attemptAsApplicationRole('UPDATE idempotency_key SET response_status = 500'),
+                'DELETE' => $this->attemptAsApplicationRole('DELETE FROM idempotency_key'),
+            ],
+            'erp_app must not be able to rewrite or remove a key. API.md §6.1: a replayed key is answered from the '
+            .'stored row, never rewritten — and a principal holding DELETE can replay anything by deleting the row '
+            .'that refuses it. The purge is the owner\'s per-tenant lifecycle loop (SEC-O-3\'s ruling), not the '
+            .'application\'s.');
     }
 
     /**
@@ -152,8 +188,8 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         self::assertSame('23505',
             $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'retried')),
             'A key already recorded for this operation in this workspace was accepted a second time. '
-            .'That is E9-2\'s exact consequence: the client that retries a timed-out request gets a '
-            .'second goods receipt, and no precondition refuses it because partial receipt is legal.');
+            .'That is E9-2\'s exact consequence: the client that retries a timed-out bulk request gets it '
+            .'applied twice. (IdempotencyEnvelopeStore::record() relies on this unique as its ON CONFLICT target.)');
     }
 
     /**
@@ -178,7 +214,7 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
         self::assertSame(
             ['other operation' => 'accepted', 'other workspace' => 'accepted'],
             [
-                'other operation' => $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, 'CreateFulfilment', 'collides')),
+                'other operation' => $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, 'CreateBulkRestoration', 'collides')),
                 'other workspace' => $this->attemptAsOwnerForTenant(self::TENANT_B, $this->insertSql(), $this->insertParams(self::TENANT_B, self::OPERATION, 'collides')),
             ],
             'A client-generated string in one workspace displaced another workspace\'s — or one '
@@ -188,63 +224,57 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
     }
 
     /**
-     * The 255-byte ceiling, asserted as **one** limit rather than two that agree.
+     * The 255-byte ceiling is **the guard's alone**, and the store holds its hash.
      *
-     * `IdempotencyKeyGuard::MAXIMUM_KEY_BYTES` refuses an over-long header at
-     * the edge; the `idempotency_key_key_bytes` constraint refuses an over-long
-     * key at the store. Two numbers in two files drift, so **every probe below
-     * is positioned from the guard's constant** — nothing here restates 255.
-     * Move either limit and the run is red.
+     * **Re-anchored 2026-10-22 (G5-C0, design Response to RED M-2).** Until then
+     * this test probed the `idempotency_key_key_bytes` constraint with raw keys of
+     * the guard's length, because the column held the header. It now holds
+     * `IdempotencyKeyHash::of(header)` — always 64 bytes of lower-case hex
+     * (`idempotency_key_key_is_sha256_hex`, D-B's rule on every other retry key) —
+     * so the column can no longer disagree with the guard about anything, and the
+     * bytes CHECK stays only as a cheap backstop under the hex one. The ceiling
+     * that matters is the edge's: `IdempotencyKeyGuard::MAXIMUM_KEY_BYTES`, which
+     * `IdempotencyKeyHash::of()` restates as its precondition. **Every probe is
+     * positioned from the guard's constant** — nothing here restates 255 — and the
+     * multibyte probe is still why the limit counts bytes, not characters.
      *
-     * The column is `text` with an octet-length check rather than
-     * `varchar(255)`, and the multibyte case is why: `varchar(n)` counts
-     * *characters*, so a 255-character accented key is 510 bytes and would be
-     * accepted by a `varchar(255)` store and refused by the guard, which counts
-     * bytes. The two would then disagree about what the limit measures rather
-     * than about its value, which is the harder failure to see.
-     *
-     * **A second half was written, observed to be redundant, and deleted** —
-     * recorded because the deletion is the finding. It read the bounds out of
-     * `pg_get_constraintdef` and compared them with the guard's constant. Two
-     * mutations were run against it and *neither reached it*: dropping the
-     * constraint stops the run at the statements above, and changing the
-     * constant moves the probes above with it, so both are red before the
-     * catalogue is ever queried. It was a textual restatement of a binding the
-     * statements already prove semantically, and its only reachable failure was
-     * an equivalent constraint written in a different form — a false alarm.
-     * A check that cannot be made to fail for its own reason is not evidence.
-     *
-     * Mutations, run:
-     *   (a) `ALTER TABLE idempotency_key DROP CONSTRAINT idempotency_key_key_bytes`
-     *       — the over-long, empty and multibyte keys all read `accepted`.
-     *   (b) `IdempotencyKeyGuard::MAXIMUM_KEY_BYTES` changed to 256 — *"at the
-     *       ceiling"* reads `23514`, because the probe moved and the database
-     *       did not. That is the two limits being one limit.
-     *   (c) the constraint rewritten with `length(key)` in place of
-     *       `octet_length(key)` — the three ASCII probes are unmoved and the
-     *       multibyte one reads `accepted`. That is the `varchar(255)` defect,
-     *       and it is the reason that probe exists.
+     * Mutations: `IdempotencyKeyHash::of()`'s bound changed to `> MAXIMUM_KEY_BYTES + 1`
+     * → "one byte over" is hashed → red; `strlen` replaced by `mb_strlen` → the
+     * multibyte probe is hashed → red; the hex CHECK dropped → the raw key row
+     * reads `accepted` → red.
      */
     #[Test]
-    public function theStoreAndTheGuardShareOneKeyCeilingMeasuredInBytes(): void
+    public function theGuardHoldsTheKeyCeilingAndTheStoreHoldsOnlyTheHash(): void
     {
         $maximum = IdempotencyKeyGuard::MAXIMUM_KEY_BYTES;
+        $hashes = function (string $header): string {
+            try {
+                return 64 === \strlen(IdempotencyKeyHash::of($header)) ? 'hashed' : 'not 64 bytes';
+            } catch (\LogicException) {
+                return 'refused';
+            }
+        };
 
         self::assertSame([
-            'at the ceiling' => 'accepted',
-            'one byte over' => '23514',
-            'empty' => '23514',
-            'multibyte, under the character count and over the byte count' => '23514',
+            'one byte' => 'hashed',
+            'at the ceiling' => 'hashed',
+            'one byte over' => 'refused',
+            'empty' => 'refused',
+            'multibyte, under the character count and over the byte count' => 'refused',
         ], [
-            'at the ceiling' => $this->attemptKeyOfBytes(str_repeat('k', $maximum)),
-            'one byte over' => $this->attemptKeyOfBytes(str_repeat('k', $maximum + 1)),
-            'empty' => $this->attemptKeyOfBytes(''),
-            // 255 characters, 510 bytes. A `varchar(255)` store would take it.
-            'multibyte, under the character count and over the byte count' => $this->attemptKeyOfBytes(str_repeat('é', $maximum)),
-        ], 'The store\'s key ceiling and IdempotencyKeyGuard::MAXIMUM_KEY_BYTES have come apart. A key '
-            .'the guard accepts and the store refuses is a 500 on a legal request; a key the store '
-            .'accepts and the guard refuses is a limit with no meaning. If only the multibyte row moved, '
-            .'the constraint has started counting characters instead of bytes.');
+            'one byte' => $hashes('k'),
+            'at the ceiling' => $hashes(str_repeat('k', $maximum)),
+            'one byte over' => $hashes(str_repeat('k', $maximum + 1)),
+            'empty' => $hashes(''),
+            // 255 characters, 510 bytes. A character-counting guard would take it.
+            'multibyte, under the character count and over the byte count' => $hashes(str_repeat('é', $maximum)),
+        ], 'The key ceiling has moved off IdempotencyKeyGuard::MAXIMUM_KEY_BYTES, or started counting characters.');
+
+        self::assertSame(['a hash' => 'accepted', 'a raw header' => '23514'], [
+            'a hash' => $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, str_repeat('k', $maximum))),
+            'a raw header' => $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(),
+                [self::TENANT_A, self::OPERATION, str_repeat('k', 64), 'r', self::BODY, self::BODY]),
+        ], 'The store accepted a key that is not IdempotencyKeyHash::of(header).');
     }
 
     /**
@@ -272,14 +302,16 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
     public function aDigestThatIsNotASha256AndAStatusThatIsNotHttpAreBothRefused(): void
     {
         $insert = <<<'SQL'
-            INSERT INTO idempotency_key (id, tenant_id, operation_id, key, request_digest, response_status, response_digest)
-            VALUES (gen_random_uuid(), ?::uuid, ?, ?, ?::bytea, ?, sha256(convert_to('{}', 'UTF8')))
+            INSERT INTO idempotency_key (id, tenant_id, operation_id, key, request_digest, response_status, response_digest,
+                                         response_body, response_headers)
+            VALUES (gen_random_uuid(), ?::uuid, ?, ?, ?::bytea, ?, sha256(convert_to('{}', 'UTF8')), convert_to('{}', 'UTF8'),
+                    '{"content-type":"application/json"}')
             SQL;
 
         $attempt = fn (string $key, string $digestExpression, int $status): string => $this->attemptAsOwnerForTenant(
             self::TENANT_A,
             str_replace('?::bytea', $digestExpression, $insert),
-            [self::TENANT_A, self::OPERATION, $key, $status],
+            [self::TENANT_A, self::OPERATION, IdempotencyKeyHash::of($key), $status],
         );
 
         self::assertSame([
@@ -311,20 +343,21 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
     private function insertSql(): string
     {
         return <<<'SQL'
-            INSERT INTO idempotency_key (id, tenant_id, operation_id, key, request_digest, response_status, response_digest)
-            VALUES (gen_random_uuid(), ?::uuid, ?, ?, sha256(convert_to(?, 'UTF8')), 201, sha256(convert_to('{}', 'UTF8')))
+            INSERT INTO idempotency_key (id, tenant_id, operation_id, key, request_digest, response_status, response_digest,
+                                         response_body, response_headers)
+            VALUES (gen_random_uuid(), ?::uuid, ?, ?, sha256(convert_to(?, 'UTF8')), 200, sha256(convert_to(?, 'UTF8')),
+                    convert_to(?, 'UTF8'), '{"content-type":"application/json"}')
             SQL;
     }
 
-    /** @return list<string> */
+    /**
+     * The key is stored as `IdempotencyKeyHash::of(header)` (G5-C0), so every fixture hashes its label.
+     *
+     * @return list<string>
+     */
     private function insertParams(string $tenantId, string $operationId, string $key): array
     {
-        return [$tenantId, $operationId, $key, '{"body":"'.$key.'"}'];
-    }
-
-    private function attemptKeyOfBytes(string $key): string
-    {
-        return $this->attemptAsOwnerForTenant(self::TENANT_A, $this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, $key));
+        return [$tenantId, $operationId, IdempotencyKeyHash::of($key), '{"body":"'.$key.'"}', self::BODY, self::BODY];
     }
 
     /**
