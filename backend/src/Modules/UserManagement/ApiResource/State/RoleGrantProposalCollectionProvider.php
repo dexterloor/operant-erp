@@ -12,6 +12,7 @@ use App\Modules\UserManagement\Application\RoleGrantProposalListCriteria;
 use App\Modules\UserManagement\Application\RoleGrantProposalReader;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -24,9 +25,6 @@ final readonly class RoleGrantProposalCollectionProvider implements ProviderInte
 
     /** The five stored values (`role_grant_proposal_status_values`). */
     public const STATUSES = ['pending', 'confirmed', 'rejected', 'cancelled', 'lapsed'];
-
-    /** The cursor's sort key is `proposed_at` exactly as PostgreSQL renders a `timestamptz` (`DATA` §1.4). */
-    private const SORT_KEY_SHAPE = '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/';
 
     public function __construct(private RoleGrantProposalReader $reader)
     {
@@ -121,7 +119,7 @@ final readonly class RoleGrantProposalCollectionProvider implements ProviderInte
             $cursor = null;
         }
 
-        if (null === $cursor || 1 !== preg_match(self::SORT_KEY_SHAPE, $cursor->sortKey)) {
+        if (null === $cursor || !TimestampSortKey::isValid($cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;

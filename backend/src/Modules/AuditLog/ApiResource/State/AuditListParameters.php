@@ -7,6 +7,7 @@ namespace App\Modules\AuditLog\ApiResource\State;
 use App\Modules\AuditLog\Application\AuditLogListCriteria;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 
 /**
  * **The paging parameters both audit reads share** — `limit` and the `after`│`before` cursor pair (API-17, API-18) — ONE
@@ -80,7 +81,7 @@ final class AuditListParameters
             $cursor = null;
         }
 
-        if (null === $cursor || !self::isTimestamp($cursor->sortKey)) {
+        if (null === $cursor || !TimestampSortKey::isValid($cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;
@@ -89,16 +90,4 @@ final class AuditListParameters
         return $cursor;
     }
 
-    /** A `timestamptz` exactly as Postgres renders one in this project's sessions (`2026-09-02 00:00:00.123456+00`). */
-    private static function isTimestamp(string $value): bool
-    {
-        if (1 !== preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/', $value)) {
-            return false;
-        }
-
-        $parsed = date_parse($value);
-
-        return 0 === $parsed['error_count'] && 0 === $parsed['warning_count']
-            && checkdate((int) $parsed['month'], (int) $parsed['day'], (int) $parsed['year']);
-    }
 }

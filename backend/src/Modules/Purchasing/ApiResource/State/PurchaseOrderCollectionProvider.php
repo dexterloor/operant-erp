@@ -12,6 +12,7 @@ use App\Modules\Purchasing\Application\PurchaseOrderReader;
 use App\Modules\Purchasing\Application\PurchaseOrderViews;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -120,8 +121,8 @@ final readonly class PurchaseOrderCollectionProvider implements ProviderInterfac
             $errors[] = self::error('after', 'mutually_exclusive', 'Send at most one of after and before.');
         }
 
-        $after = self::cursor($query, 'after', $errors);
-        $before = self::cursor($query, 'before', $errors);
+        $after = self::cursor($query, 'after', $sort, $errors);
+        $before = self::cursor($query, 'before', $sort, $errors);
 
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
@@ -142,19 +143,30 @@ final readonly class PurchaseOrderCollectionProvider implements ProviderInterfac
      * @param array<string, mixed>                                        $query
      * @param list<array{pointer: string, code: string, message: string}> $errors
      */
-    private static function cursor(array $query, string $name, array &$errors): ?Cursor
+    private static function cursor(array $query, string $name, string $sort, array &$errors): ?Cursor
     {
         if (!isset($query[$name]) || '' === $query[$name]) {
             return null;
         }
 
         try {
-            return Cursor::decode((string) $query[$name]);
+            $cursor = Cursor::decode((string) $query[$name]);
         } catch (InvalidCursor) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response.', $name));
 
             return null;
         }
+
+        // `ordered_at`'s key is bound as `?::timestamptz` (the reader's `SORT_KEY_CASTS`), so a key Postgres would refuse
+        // there is refused HERE, as a malformed cursor, not raised inside the read as a 500 (shipped-defect fix,
+        // 2026-10-21: until then any forged key on this sort -- `x`, `''`, an offset of `+16` -- answered 500).
+        if (PurchaseOrderViews::SORT_ORDERED_AT === $sort && !TimestampSortKey::isValid($cursor->sortKey)) {
+            $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
+
+            return null;
+        }
+
+        return $cursor;
     }
 
     /** @return array{pointer: string, code: string, message: string} */

@@ -244,6 +244,26 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
     }
 
     /**
+     * A `decided_since` Postgres cannot hold is refused, never a 500 (shipped-defect fix, 2026-10-21): year 0000, and a
+     * year-1 instant that is year 0000 in UTC, each answered 500 until `Rfc3339Timestamp` refused them (measured). The
+     * last two are the edges that still pass.
+     */
+    #[Test]
+    public function aDecidedSincePostgresCannotHoldIsRefusedNotA500(): void
+    {
+        $this->actAsRole(DefaultRoles::FINANCE);
+        foreach (['0000-06-01T00:00:00Z', '0001-01-01T00:00:00+01:00', '2026-01-01T00:00:00+16:00'] as $value) {
+            $this->send('GET', '/sales-returns?adjustment_decided=same&decided_since='.rawurlencode($value));
+            self::assertSame(422, $this->httpStatus(), $value.' was not refused.');
+            self::assertSame(['?decided_since', 'not_a_timestamp'], [$this->json()['errors'][0]['pointer'], $this->json()['errors'][0]['code']], $value);
+        }
+        foreach (['0001-01-01T00:00:00Z', '9999-12-31T23:59:59-15:59'] as $value) {
+            $this->send('GET', '/sales-returns?adjustment_decided=same&decided_since='.rawurlencode($value));
+            self::assertSame(200, $this->httpStatus(), $value.' was refused.');
+        }
+    }
+
+    /**
      * Test 9 (§4.3 row 6; M-8): a return on a line an adjustment used up has no room, so it is not creditable — and the
      * decision queue still finds it. An owner's `distinct` is impossible there; finance's `same` takes it off the queue,
      * and a later return on the same line is queued again.

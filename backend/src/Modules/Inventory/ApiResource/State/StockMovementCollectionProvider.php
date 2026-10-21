@@ -12,6 +12,7 @@ use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -103,26 +104,13 @@ final readonly class StockMovementCollectionProvider implements ProviderInterfac
             $cursor = null;
         }
 
-        if (null === $cursor || !self::isTimestamp($cursor->sortKey)) {
+        if (null === $cursor || !TimestampSortKey::isValid($cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;
         }
 
         return $cursor;
-    }
-
-    /** A `timestamptz` exactly as Postgres renders one in this project's sessions (`2026-09-02 00:00:00.123456+00`). */
-    private static function isTimestamp(string $value): bool
-    {
-        if (1 !== preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/', $value)) {
-            return false;
-        }
-
-        $parsed = date_parse($value);
-
-        return 0 === $parsed['error_count'] && 0 === $parsed['warning_count']
-            && checkdate((int) $parsed['month'], (int) $parsed['day'], (int) $parsed['year']);
     }
 
     /** @return array{pointer: string, code: string, message: string} */

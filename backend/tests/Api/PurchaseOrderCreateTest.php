@@ -1511,6 +1511,9 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
         yield '30 February' => ['2026-02-30T00:00:00Z'];
         yield 'hour 24' => ['2026-10-01T24:00:00Z'];
         yield 'second 60' => ['2026-10-01T23:59:60Z'];
+        // Accepted by PHP without a warning and refused by Postgres (shipped-defect fix, 2026-10-21).
+        yield 'year 0000' => ['0000-06-01T00:00:00Z'];
+        yield 'offset +16:00' => ['2026-10-01T00:00:00+16:00'];
     }
 
     /**

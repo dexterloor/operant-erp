@@ -28,6 +28,17 @@ namespace App\Platform\Http;
  * one written. A leap second cannot be represented by either PHP or Postgres,
  * and a client meaning "end of day" can send `00:00` of the next one. One rule
  * — refuse anything PHP had to correct — covers all four cases.
+ *
+ * ---------------------------------------------------------------------------
+ * Year 0000 and offsets past ±15:59 are refused too (shipped-defect fix, 2026-10-21)
+ * ---------------------------------------------------------------------------
+ * PHP accepts both without a warning, and Postgres refuses both: year 0 does not exist in its calendar (`date/time field
+ * value out of range` — the year before 1 AD is 1 BC), and its time-zone displacement stops at `±15:59:59` (`time zone
+ * displacement out of range`), both measured on Postgres 17. A value carrying either reached the database and came back as
+ * a 500 — measured over HTTP on `ListSalesReturns?decided_since=0000-06-01T00:00:00Z` and on
+ * `0001-01-01T00:00:00+01:00`, which is year 0000 once converted to UTC. So the year must be at least 1 both as written
+ * and in UTC (callers format either), and the offset must be one Postgres takes. The cursor-side twin of this rule is
+ * `Pagination\TimestampSortKey`.
  */
 final class Rfc3339Timestamp
 {
@@ -40,10 +51,18 @@ final class Rfc3339Timestamp
             if (false !== $parsed
                 && (false === $problems || (0 === $problems['warning_count'] && 0 === $problems['error_count']))
             ) {
-                return $parsed;
+                return self::postgresCanHold($parsed) ? $parsed : null;
             }
         }
 
         return null;
+    }
+
+    /** Year at least 1 as written and in UTC, and an offset within Postgres's `±15:59:59` (see the class docblock). */
+    private static function postgresCanHold(\DateTimeImmutable $parsed): bool
+    {
+        return (int) $parsed->format('Y') >= 1
+            && (int) $parsed->setTimezone(new \DateTimeZone('UTC'))->format('Y') >= 1
+            && abs($parsed->getOffset()) < 16 * 3600;
     }
 }

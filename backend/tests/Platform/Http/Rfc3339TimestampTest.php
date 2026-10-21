@@ -27,6 +27,11 @@ final class Rfc3339TimestampTest extends TestCase
         foreach (['2026-10-01T00:00:00Z', '2026-10-01T00:00:00+00:00', '2026-10-01T02:00:00+02:00', '2026-10-01T00:00:00.000Z'] as $value) {
             self::assertSame(1790812800, Rfc3339Timestamp::parse($value)?->getTimestamp(), $value);
         }
+
+        // The edges Postgres still takes: the first instant of year 1 in UTC, the largest displacement, year 9999.
+        foreach (['0001-01-01T00:00:00Z', '0001-01-01T15:59:00+15:59', '2026-01-01T00:00:00-15:59', '9999-12-31T23:59:59-15:59'] as $value) {
+            self::assertNotNull(Rfc3339Timestamp::parse($value), $value);
+        }
     }
 
     /** @return iterable<string, array{string}> */
@@ -43,6 +48,12 @@ final class Rfc3339TimestampTest extends TestCase
         // Refused before this class existed, and still.
         yield 'date only' => ['2026-10-01'];
         yield 'prose' => ['next tuesday'];
+        // Accepted by PHP without a warning, refused by Postgres -- each was a 500 (shipped-defect fix, 2026-10-21).
+        yield 'year 0000' => ['0000-06-01T00:00:00Z'];
+        yield 'year 0000 once in UTC' => ['0001-01-01T00:00:00+01:00'];
+        yield 'offset +16:00' => ['2026-01-01T00:00:00+16:00'];
+        yield 'offset -16:00' => ['2026-01-01T00:00:00-16:00'];
+        yield 'offset +99:59' => ['2026-01-01T00:00:00+99:59'];
     }
 
     #[Test]

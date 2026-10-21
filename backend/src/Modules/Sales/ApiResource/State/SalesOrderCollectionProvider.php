@@ -12,6 +12,7 @@ use App\Modules\Sales\Application\SalesOrderReader;
 use App\Modules\Sales\Application\SalesOrderViews;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -185,31 +186,22 @@ final readonly class SalesOrderCollectionProvider implements ProviderInterface
             return null;
         }
 
-        // The Archived view's key is cast `::timestamptz`, so a cursor whose key is not a timestamp (an `order_number`
-        // cursor from the live view) is refused here rather than 500 there (`CustomerCollectionProvider`'s precedent).
+        // Both timestamp sorts bind the key as `?::timestamptz` (the reader's `SORT_KEY_CASTS` for `ordered_at`; the Archived
+        // view's `archived_at`), so a key Postgres would refuse there is refused HERE, as a malformed cursor, not raised
+        // inside the read as a 500 (shipped-defect fix, 2026-10-21: until then any forged `ordered_at` key -- `x`, `''`, an
+        // offset of `+16` -- answered 500, and the Archived view's own check let `+16`...`+99` offsets through). An
+        // `order_number` cursor from the live view is refused on the Archived view the same way.
         // ⚠ A live `ordered_at` cursor IS a timestamp and is accepted, as a position among archived rows: `Cursor` carries
         // no view marker. Harmless — it seeks only within rows the caller may read (final RED M-2). Recorded, not
         // engineered against; `Cursor` is shared by every list and is not changed here.
-        if (SalesOrderViews::SORT_ARCHIVED_AT === $sort && !self::isTimestamp($cursor->sortKey)) {
+        if ((SalesOrderViews::SORT_ORDERED_AT === $sort || SalesOrderViews::SORT_ARCHIVED_AT === $sort)
+            && !TimestampSortKey::isValid($cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;
         }
 
         return $cursor;
-    }
-
-    /** A `timestamptz` as Postgres renders one in this project's sessions (`CustomerCollectionProvider::isTimestamp()`'s, copied — modules do not share providers). */
-    private static function isTimestamp(string $value): bool
-    {
-        if (1 !== preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/', $value)) {
-            return false;
-        }
-
-        $parsed = date_parse($value);
-
-        return 0 === $parsed['error_count'] && 0 === $parsed['warning_count']
-            && checkdate((int) $parsed['month'], (int) $parsed['day'], (int) $parsed['year']);
     }
 
     /** @return array{pointer: string, code: string, message: string} */
