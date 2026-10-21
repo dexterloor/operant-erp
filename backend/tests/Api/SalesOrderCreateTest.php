@@ -30,9 +30,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s
      * whole-registry union, so an operation added to `SalesOrderResource` and not pinned here is red there.
      *
-     * **Of §4.2's `/sales-orders` rows, only `RestoreSalesOrder` is not built here** — E9-3 blocks it while
-     * `ListSalesOrders` declares no `archived` parameter (owner ruling Q1, 2026-09-21), and
-     * {@see self::theArchivedIdProblemIsWhyNoOrderRestoreShips} holds that both ways. *(This sentence listed
+     * **Every §4.2 `/sales-orders` row is built here since order restores C2 (2026-10-21)**: `RestoreSalesOrder`, the last,
+     * shipped with `ListSalesOrders?archived`, and {@see self::theArchivedIdProblemIsWhyNoOrderRestoreShips} holds the pair
+     * both ways. *(Until then it was blocked by E9-3, owner ruling Q1, 2026-09-21.)* *(This sentence listed
      * `ListSalesOrders`, `UpdateSalesOrder`, `CancelSalesOrder` and `CreateSalesOrderLine` as unbuilt until
      * 2026-09-21, while all four were built and pinned directly below it — the step-4 design's stale claim
      * S-3.)* `GetSalesOrder` is the resource's first item operation, and its arrival is why `CreateSalesOrder`
@@ -83,6 +83,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
         // `idem` false: §4.2's cell is `no`. A repeat finds the order archived and is refused by the archived
         // guard, `DeletePurchaseOrder`'s answer. Position read off this test's own failure.
         'DeleteSalesOrder' => ['method' => 'DELETE', 'path' => '/sales-orders/{id}', 'idem' => false],
+        // Order restores C2. `idem` false: §4.2's cell is `guard:sales_order.deleted_at`, and API-14 as amended demands the
+        // header for `store` and `unique:` only. Declared right after the delete on `SalesOrderResource`.
+        'RestoreSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/restoration', 'idem' => false],
         'ConfirmSalesOrder' => ['method' => 'POST', 'path' => '/sales-orders/{id}/confirmation', 'idem' => false],
         // `idem` false for the confirmation's reason: §4.2's cell is `guard:sales_order.status`, and API-14
         // as amended demands the header for `store` and `unique:` only.
@@ -620,6 +623,10 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * when `DeleteSalesOrder` entered the registry, and after the re-key nothing would have fired on the restore at
      * all. This test and `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt` are what
      * replace it, in the same commit.
+     *
+     * **On its TRUE side since order restores C2 (2026-10-21)**: both are declared; kept, never deleted, as
+     * `CustomerOperationContractTest`'s twin was at C4a. `OwedAmendmentTripwireTest::noOrderRestoreIsBuiltWithoutTheTestsThatCarryItsCollisions`
+     * names this test as a carrier. *(The paragraph below is the record as written.)*
      *
      * **`RESIDUAL_GAPS.md` G-8** (owner-accepted 2026-09-21, Q1): until this goes red on purpose, a discarded draft
      * is recoverable only by direct SQL, and `IA.md` L-9's reversal-register row *"Delete a draft"* asserts a

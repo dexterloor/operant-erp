@@ -224,4 +224,31 @@ final readonly class SalesOrderAuditWriter
                 ]);
         });
     }
+
+    /**
+     * `sales_order.restored` — `RestoreSalesOrder` (order restores C2, 2026-10-21). Business, subject the order, `{}`,
+     * no IP: `recordDeleted()`'s shape, its inverse. Called by `SalesOrderWriter::restore()` after the UPDATE, inside the
+     * restoring transaction (`TenantContext::run()` is re-entrant for the same tenant), so a refused restore — including
+     * a 23505 from the UPDATE or the cascade trigger — leaves no row.
+     */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $salesOrderId): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $salesOrderId): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, '{}'::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::SALES_ORDER_RESTORED,
+                    $actorUserId,
+                    $actorLabel,
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::SALES_ORDER_RESTORED],
+                    $salesOrderId,
+                ]);
+        });
+    }
 }

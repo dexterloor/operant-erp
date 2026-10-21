@@ -301,6 +301,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // The seeded order is a DRAFT, so the baseline delete succeeds (204) -- a probe whose baseline is
         // refused would compare a refusal with a refusal.
         'DeleteSalesOrder' => ['vars' => ['id' => 'sales_order']],
+        // Order restores C2: an ARCHIVED draft, so the baseline restore succeeds (a probe whose baseline is refused compares
+        // a refusal with a refusal).
+        'RestoreSalesOrder' => ['vars' => ['id' => 'archived_sales_order']],
         // ⚠ Its subject must be an ARCHIVED line, because the baseline drive has to SUCCEED -- a probe
         // whose baseline is refused compares a refusal with a refusal. `archived_sales_order_line` is a
         // per-tenant symbol seeded beside the live one.
@@ -812,6 +815,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             $this->seedSalesOrderLine($tenantId, $salesOrder, $item, lineNumber: 2));
         $this->insertAsOwnerForTenant($tenantId,
             'UPDATE sales_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archivedLine]);
+        // Order restores C2: an archived DRAFT of the same customer and warehouse, so `RestoreSalesOrder`'s baseline succeeds.
+        $archivedOrder = $this->remember($letter, 'archived_sales_order', $this->seedSalesOrder($tenantId, 'SO-000009', $customer, $warehouse));
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE sales_order SET deleted_at = now() WHERE id = ?::uuid', [$archivedOrder]);
 
         // A CONFIRMED order with a line, so `GetPickList`'s baseline answers 200 (a draft is not-found there).
         $confirmed = $this->remember($letter, 'confirmed_sales_order', $this->seedSalesOrder(

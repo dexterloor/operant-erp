@@ -2255,6 +2255,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             $substitutions['{line}'] = $line['id'];
             $substitutions['{bin}'] = $bin;
         }
+        if (str_contains($path, '{archive}')) {
+            $path = str_replace('{archive}', '', $path);
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = clock_timestamp() WHERE id = ?::uuid', [$order]);
+        }
         if (null !== $body) {
             array_walk_recursive($body, static function (mixed &$value) use ($substitutions): void {
                 $value = \is_string($value) ? strtr($value, $substitutions) : $value;
@@ -2328,6 +2332,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // SET deleted_at` is really issued; the cascade's line UPDATE runs inside the trigger, below the PHP
         // statement log, so exactly one write is seen.
         yield 'DeleteSalesOrder' => ['DELETE', '/sales-orders/{order}', null, 204];
+        // 200, API-21 branch 5 (order restores C2). `{archive}` tells the test to archive the seeded draft first: the
+        // restore's own guard refuses a live order, and a refused drive issues no write.
+        yield 'RestoreSalesOrder' => ['POST', '/sales-orders/{order}/restoration{archive}', null, 200];
         // 201, API-21 branch 4 (sales step 5, commit 4). `{fulfil}` tells the test to CONFIRM the seeded order and
         // stock a bin for its line first: a draft is refused by `recordFulfilment()`'s guard and a refused drive
         // issues no write, so `assertCount(1, $writing)` would fail before the position check ran. The body is
@@ -2370,6 +2377,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // Added 2026-09-21 (sales slice 5), read off the scan's own failure: `SalesOrderWriter::archive — SQL:
         // UPDATE sales_order` was named before this entry existed.
         'DeleteSalesOrder' => 'SalesOrderWriter::archive',
+        // Order restores C2, read off the scan's own failure: `SalesOrderWriter::restore` (`UPDATE sales_order`, its
+        // `RESTORE` constant) was named before this entry existed.
+        'RestoreSalesOrder' => 'SalesOrderWriter::restore',
         // Added 2026-09-22 (sales step 5, commit 4), read off the scan's own failure: `FulfilmentWriter::create — via
         // createInside()` was named before this entry existed. Its three statements (the two fulfilment INSERTs and
         // `UPDATE sales_order_line SET quantity_fulfilled`) are in the private helper, so the scan credits `create()`.

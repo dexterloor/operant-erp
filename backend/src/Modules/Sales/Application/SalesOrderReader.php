@@ -57,9 +57,9 @@ final readonly class SalesOrderReader
      * is not a uuid at all takes the same path — so "another tenant's", "hard-deleted" and "never
      * existed" answer identically.
      *
-     * **`DeleteSalesOrder` archives orders since 2026-09-21, and `RestoreSalesOrder` is still unbuilt** (E9-3;
-     * owner ruling Q1, `RESIDUAL_GAPS.md` G-8), so the direct hit is how a holder of a discarded draft's id
-     * can still read it. It is right for ST-9's reason too — an archived order stays readable because a
+     * **`DeleteSalesOrder` archives orders since 2026-09-21**, and since order restores C2 (2026-10-21) the
+     * Archived view of `ListSalesOrders` lists them and `RestoreSalesOrder` brings one back (E9-3 met; G-8's sales
+     * half closed). The direct hit stays right for ST-9's reason — an archived order stays readable because a
      * fulfilment or an invoice legitimately references it.
      */
     public function get(string $id): ?SalesOrderResource
@@ -112,7 +112,7 @@ final readonly class SalesOrderReader
         return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): SalesOrderCollection {
             $connection = $em->getConnection();
 
-            [$sql, $parameters] = $this->listStatement($criteria);
+            [$sql, $parameters] = self::listStatement($criteria);
 
             // One row more than the page, so "is there a next page" is answered by the rows themselves
             // rather than by a COUNT(*) -- which TB-2b forbids on any keyset-paginated list.
@@ -148,8 +148,12 @@ final readonly class SalesOrderReader
      *
      * @return array{string, list<mixed>}
      */
-    private function listStatement(SalesOrderListCriteria $criteria): array
+    public static function listStatement(SalesOrderListCriteria $criteria): array
     {
+        if ($criteria->archived) {
+            return self::archivedStatement($criteria);
+        }
+
         // TB-3: a live list never returns a soft-deleted row. This predicate is also what makes every
         // one of this table's three partial indexes usable -- a partial index cannot be chosen for a
         // query that does not carry its predicate.
@@ -216,6 +220,44 @@ final readonly class SalesOrderReader
     }
 
     /**
+     * **The Archived view** (order restores C2, 2026-10-21; `IA.md` §5.6 `/sales-orders` Archived; D-a's
+     * `sales_order_tenant_archived_idx`): the archived orders INSTEAD of the live ones (TB-3), never beside them, newest
+     * first (`deleted_at DESC, id DESC`, so forward is DESC and the keyset comparison is `<`). `q` is kept as a filter
+     * inside the archived range (the customer precedent; `UX`-signed for customers). `status` and `customer_id` never
+     * reach here — the provider refuses the combination. The cursor key is `deleted_at`'s text **as Postgres returns it**
+     * (microseconds), never the wire's millisecond `archived_at`, and the provider has already refused a cursor whose key
+     * is not a timestamp, so the cast cannot 500. `ListCustomers`' archived statement, with sales names.
+     *
+     * @return array{string, list<mixed>}
+     */
+    private static function archivedStatement(SalesOrderListCriteria $criteria): array
+    {
+        $where = ['so.deleted_at IS NOT NULL'];
+        $parameters = [];
+
+        if (null !== $criteria->search) {
+            $where[] = 'so.order_number LIKE ?';
+            $parameters[] = addcslashes($criteria->search, '%_\\').'%';
+        }
+
+        $descending = !$criteria->isBackwards();
+        $cursor = $criteria->after ?? $criteria->before;
+        if (null !== $cursor) {
+            $where[] = \sprintf('(so.deleted_at, so.id) %s (?::timestamptz, ?::uuid)', $descending ? '<' : '>');
+            $parameters[] = $cursor->sortKey;
+            $parameters[] = $cursor->id;
+        }
+
+        $direction = $descending ? 'DESC' : 'ASC';
+        $sql = 'SELECT '.SalesOrderRow::COLUMNS.' '.SalesOrderRow::FROM
+            .' WHERE '.implode(' AND ', $where)
+            .\sprintf(' ORDER BY so.deleted_at %s, so.id %s LIMIT ?', $direction, $direction);
+        $parameters[] = $criteria->limit + 1;
+
+        return [$sql, $parameters];
+    }
+
+    /**
      * The database type each sort key is compared as.
      *
      * `ordered_at` is `timestamptz`; an uncast text comparison against it is an error rather than a
@@ -246,9 +288,11 @@ final readonly class SalesOrderReader
         // `6fe8b7d` repaired in `PurchaseOrderReader` on 2026-09-20. **Hardening the cast is a separate
         // decision nobody has taken**; what holds it here is the view derivation, and `SalesOrderListTest`
         // pages the one view where a null key would otherwise appear.
-        $first = new Cursor((string) $rows[0][$criteria->sort], (string) $rows[0]['id']);
+        // The Archived view's key is `deleted_at`, NOT NULL by its own predicate, read as the raw column text.
+        $key = SalesOrderViews::SORT_ARCHIVED_AT === $criteria->sort ? 'deleted_at' : $criteria->sort;
+        $first = new Cursor((string) $rows[0][$key], (string) $rows[0]['id']);
         $lastRow = $rows[array_key_last($rows)];
-        $last = new Cursor((string) $lastRow[$criteria->sort], (string) $lastRow['id']);
+        $last = new Cursor((string) $lastRow[$key], (string) $lastRow['id']);
 
         if ($criteria->isBackwards()) {
             // We arrived here from a later page, so a next page exists by construction. Whether an

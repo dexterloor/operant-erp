@@ -94,6 +94,18 @@ final class SalesOrderViews
     public const SORT_ORDER_NUMBER = 'order_number';
     public const SORT_ORDERED_AT = 'ordered_at';
 
+    /**
+     * **The Archived view's one order** (order restores C2, 2026-10-21; `IA.md` §5.6 `/sales-orders` Archived row, D-a's
+     * `sales_order_tenant_archived_idx`): `archived_at` = `deleted_at DESC, id DESC`, most recently archived first. Offered
+     * ONLY on the Archived view, and the Archived view offers nothing else ({@see self::ARCHIVED_SORTS}) — it never calls
+     * {@see self::legalSorts()}, whose `ordered_at` would be a nullable key there: every archived sales order is a draft
+     * (`sales_order_archived_only_while_draft`), and a draft carries no `ordered_at` (`6fe8b7d`'s trap; RED M-1).
+     */
+    public const SORT_ARCHIVED_AT = 'archived_at';
+
+    /** @var non-empty-list<string> the Archived view's legal sorts, default first */
+    public const ARCHIVED_SORTS = [self::SORT_ARCHIVED_AT];
+
     /** @return list<string> §4.2's segment names, derived from the table above */
     public static function segmentNames(): array
     {
@@ -110,7 +122,7 @@ final class SalesOrderViews
      *   |--------------------------------|----------------|----------------|
      *   | **Open**                       | `ordered_at`   | `order_number` |
      *   | Draft · Fulfilled · Cancelled  | `order_number` | —              |
-     *   | Archived                       | ⛔ **D-a**     | —              |
+     *   | Archived                       | `archived_at`  | —              |   (order restores C2; {@see self::ARCHIVED_SORTS})
      *   | filtered to a customer         | `ordered_at`   | `order_number` |
      *
      * So `order_number` is legal on every live view and `ordered_at` on two of them,

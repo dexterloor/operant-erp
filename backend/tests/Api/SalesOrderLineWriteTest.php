@@ -398,7 +398,8 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
      * so the same-order case is now proved impossible at the database by
      * `DeletionPolicyTest::restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds`,
      * on both parents. A key reused on ANOTHER order's line can still collide on the order path, because
-     * the key is tenant-wide; that is `RestoreSalesOrder`'s to translate when it is built.
+     * the key is tenant-wide; `RestoreSalesOrder` translates it (order restores C2,
+     * `SalesOrderRestoreTest::anOrderWhoseLineKeyALineOnAnotherOrderNowHoldsIsRefusedOnTheLineKey`).
      */
     #[Test]
     public function restoringALineWhoseRetryKeyALiveLineNowHoldsIsRefusedAndNeverA500(): void

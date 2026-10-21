@@ -288,6 +288,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'status, which is why §4.2 spells it guard:<table>.deleted_at -- and the order TOTAL is part of the '
                 .'check here, because a restore raises it and a second one would raise it twice.',
         ],
+        'RestoreSalesOrder' => [
+            'method' => 'replayRestoreSalesOrder',
+            'why' => 'Order restores C2: a second restoration of a live sales order. guard:sales_order.deleted_at -- the guard '
+                .'refuses its own repeat and writes nothing (no second sales_order.restored row, the lines untouched).',
+        ],
         'RestorePurchaseOrderLine' => [
             'method' => 'replayRestorePurchaseOrderLine',
             'why' => 'Order-restores C0: a second restoration of a live purchase line. guard:purchase_order_line.deleted_at '
@@ -860,6 +865,25 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame('sales_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
         self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
+    }
+
+    /** Order restores C2: seed a draft with a line, delete and restore it through the operations, then restore again. */
+    private function replayRestoreSalesOrder(string $why): void
+    {
+        $order = $this->seedSalesOrder(self::TENANT_A, 'SO-162000');
+        $this->seedSalesOrderLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-RSO'));
+
+        $this->send('DELETE', '/sales-orders/'.$order);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('POST', '/sales-orders/'.$order.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/sales-orders/'.$order.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), $why);
+        self::assertSame('sales_order.is_not_archived', $this->json()['rule'] ?? null, $why);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::SALES_ORDER_RESTORED, $order]), $why);
     }
 
     /** The sales twin's shape: delete and restore through the operations, then restore again. */

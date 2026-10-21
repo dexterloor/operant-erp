@@ -26,6 +26,11 @@ use Symfony\Component\Uid\Uuid;
  * the spec documents the same set — so a parameter accepted here but undocumented,
  * or documented and refused, is not expressible.
  *
+ * **`archived`** (order restores C2, 2026-10-21; API-19c limb 1 now that `IA.md` §5.6's `/sales-orders` Archived row is
+ * no longer `⛔ D-a`): `true`/`1` serve the archived orders instead of the live ones (TB-3), `false`/`0` or absent the
+ * live ones, anything else 422 `not_a_boolean` (`CustomerCollectionProvider`'s handling). With `status` or `customer_id`
+ * it is a 422 `mutually_exclusive` at `?archived` (TO CONFIRM by `UX`/`SEC`). `RestoreSalesOrder` ships with it (E9-3).
+ *
  * **What a *view* is, and which orders it offers, is `SalesOrderViews`'** — that
  * is a fact about the query and the indexes behind it, and this class only parses
  * what a client sent and refuses what the view does not serve.
@@ -97,7 +102,31 @@ final readonly class SalesOrderCollectionProvider implements ProviderInterface
             }
         }
 
-        $legal = SalesOrderViews::legalSorts($statuses, null !== $customerId);
+        $archived = false;
+        if (isset($query['archived'])) {
+            $archived = match ($query['archived']) {
+                'true', '1' => true,
+                'false', '0' => false,
+                default => null,
+            };
+            if (null === $archived) {
+                $errors[] = self::error('archived', 'not_a_boolean', 'archived must be true or false.');
+                $archived = false;
+            }
+        }
+
+        if ($archived && (isset($query['status']) || isset($query['customer_id']))) {
+            // R1.5 / final RED L-10: the Archived view is a sibling of the segments (TB-3a), every archived sales order is
+            // a draft by CHECK, and the archived index serves neither filter — so the combination is refused rather than
+            // served unindexed. Shipped as the STRICTER default (loosening later breaks no client); the code, the pointer
+            // and the 422 itself are TO CONFIRM by `UX` and `SEC` (L-1).
+            $errors[] = self::error('archived', 'mutually_exclusive',
+                'The archived orders are their own view: send archived without status or customer_id.');
+        }
+
+        // API-19, per view: the Archived view has its own one-element list and never the live derivation, whose
+        // `ordered_at` would be a nullable key there (RED M-1).
+        $legal = $archived ? SalesOrderViews::ARCHIVED_SORTS : SalesOrderViews::legalSorts($statuses, null !== $customerId);
         $sort = $legal[0];
 
         if (isset($query['sort'])) {
@@ -119,8 +148,8 @@ final readonly class SalesOrderCollectionProvider implements ProviderInterface
             $errors[] = self::error('after', 'mutually_exclusive', 'Send at most one of after and before.');
         }
 
-        $after = self::cursor($query, 'after', $errors);
-        $before = self::cursor($query, 'before', $errors);
+        $after = self::cursor($query, 'after', $sort, $errors);
+        $before = self::cursor($query, 'before', $sort, $errors);
 
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
@@ -134,6 +163,7 @@ final readonly class SalesOrderCollectionProvider implements ProviderInterface
             search: $search,
             after: $after,
             before: $before,
+            archived: $archived,
         );
     }
 
@@ -141,19 +171,45 @@ final readonly class SalesOrderCollectionProvider implements ProviderInterface
      * @param array<string, mixed>                                        $query
      * @param list<array{pointer: string, code: string, message: string}> $errors
      */
-    private static function cursor(array $query, string $name, array &$errors): ?Cursor
+    private static function cursor(array $query, string $name, string $sort, array &$errors): ?Cursor
     {
         if (!isset($query[$name]) || '' === $query[$name]) {
             return null;
         }
 
         try {
-            return Cursor::decode((string) $query[$name]);
+            $cursor = Cursor::decode((string) $query[$name]);
         } catch (InvalidCursor) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response.', $name));
 
             return null;
         }
+
+        // The Archived view's key is cast `::timestamptz`, so a cursor whose key is not a timestamp (an `order_number`
+        // cursor from the live view) is refused here rather than 500 there (`CustomerCollectionProvider`'s precedent).
+        // ⚠ A live `ordered_at` cursor IS a timestamp and is accepted, as a position among archived rows: `Cursor` carries
+        // no view marker. Harmless — it seeks only within rows the caller may read (final RED M-2). Recorded, not
+        // engineered against; `Cursor` is shared by every list and is not changed here.
+        if (SalesOrderViews::SORT_ARCHIVED_AT === $sort && !self::isTimestamp($cursor->sortKey)) {
+            $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
+
+            return null;
+        }
+
+        return $cursor;
+    }
+
+    /** A `timestamptz` as Postgres renders one in this project's sessions (`CustomerCollectionProvider::isTimestamp()`'s, copied — modules do not share providers). */
+    private static function isTimestamp(string $value): bool
+    {
+        if (1 !== preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/', $value)) {
+            return false;
+        }
+
+        $parsed = date_parse($value);
+
+        return 0 === $parsed['error_count'] && 0 === $parsed['warning_count']
+            && checkdate((int) $parsed['month'], (int) $parsed['day'], (int) $parsed['year']);
     }
 
     /** @return array{pointer: string, code: string, message: string} */

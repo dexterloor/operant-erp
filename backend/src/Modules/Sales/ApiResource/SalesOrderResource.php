@@ -14,6 +14,7 @@ use App\Modules\Sales\ApiResource\State\CancelSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\ConfirmSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\DeleteSalesOrderProcessor;
+use App\Modules\Sales\ApiResource\State\RestoreSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -166,8 +167,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
         // API-21 branch 3: 204, no body. `DeletePurchaseOrder`'s declaration, one module over. Read first, so a
         // DELETE at an id no row answers is the same `not-found` `GetSalesOrder` returns (§5.3 clause 2); the
         // writer then reads the row again under its lock. §4.2's `Idem` cell is `no`: a repeat is refused by the
-        // archived guard, so no `IdempotencyKeyGuard::OPERATION_FLAG`. **`RestoreSalesOrder` is not declared** —
-        // E9-3 blocks it (owner ruling Q1, 2026-09-21; `RESIDUAL_GAPS.md` G-8).
+        // archived guard, so no `IdempotencyKeyGuard::OPERATION_FLAG`. Its inverse, `RestoreSalesOrder`, is declared
+        // below since order restores C2 (2026-10-21): E9-3 is met — `ListSalesOrders` declares `archived` in the same commit.
         new Delete(
             uriTemplate: '/sales-orders/{id}',
             name: 'DeleteSalesOrder',
@@ -175,6 +176,22 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeleteSalesOrder'),
             provider: SalesOrderProvider::class,
             processor: DeleteSalesOrderProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.delete'],
+        ),
+        // **`RestoreSalesOrder`** (order restores C2): API-21 branch 5, 200 with `GetSalesOrder`'s body
+        // (`RestoreCustomer`'s declaration). `read: false`: the row is read under the writer's lock, not by a provider
+        // before the transaction opens. §4.2's `Idem` is `guard:sales_order.deleted_at` — a replay hits a live row and is
+        // refused `sales_order.is_not_archived`, so no `IdempotencyKeyGuard::OPERATION_FLAG`.
+        new Post(
+            uriTemplate: '/sales-orders/{id}/restoration',
+            name: 'RestoreSalesOrder',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreSalesOrder'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreSalesOrderProcessor::class,
+            // §4.2: `sales_order.delete` — undoing an archive is the same authority as making one (`RestoreItem`'s reason).
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'sales_order.delete'],
         ),
         // API-21 branch 5, `ApprovePurchaseOrder`'s branch: a confirmation creates no row and has no

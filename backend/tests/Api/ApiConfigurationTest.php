@@ -149,8 +149,8 @@ final class ApiConfigurationTest extends ApiTestCase
         // not (the twin followed at order-restores C0, 2026-10-21) -- see `RestoreSalesOrderLineProcessor`'s docblock.
         // **And one more on 2026-09-21 (sales slice 5):** `DeleteSalesOrder`. A **soft** delete as well --
         // `has_table_privilege('erp_app', 'sales_order', 'DELETE')` is false before and after -- and it adds no
-        // `$notExposed` route: `SalesOrderResource` already has its item `Get`. `RestoreSalesOrder` is NOT
-        // declared: E9-3 blocks it (owner ruling Q1, 2026-09-21).
+        // `$notExposed` route: `SalesOrderResource` already has its item `Get`. `RestoreSalesOrder` was NOT
+        // declared then: E9-3 blocked it (owner ruling Q1, 2026-09-21) — it arrived at order restores C2, below.
         // **And one more on 2026-09-22 (sales step 5, commit 3):** `GetPickList`, the 116th §4.2 row (owner ruling
         // R7). A read over tables `erp_app` already SELECTs; its `Get` is its resource's only operation, so it adds
         // no `$notExposed` fallback route.
@@ -306,7 +306,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (remaining-ops G1, 2026-10-21):** `ListGoodsReceipts` (GET `/goods-receipts`, `goods_receipt.view`) on
         // `GoodsReceiptCollection`, a `Get` as its only operation. A read over tables `erp_app` already SELECTs -- no migration,
         // no grant, no new index (RED L-6).
-        self::assertCount(114, $checked, 'The route set changed. This slice declares one hundred and fourteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (order restores C2, 2026-10-21):** `RestoreSalesOrder` (POST `/sales-orders/{id}/restoration`,
+        // `sales_order.delete`; branch 5, 200) on `SalesOrderResource`. Its migrations add `sales_order_tenant_archived_idx` and
+        // re-issue the audit catalogue; no grant (`erp_app` holds table-level UPDATE on `sales_order`, measured).
+        self::assertCount(115, $checked, 'The route set changed. This slice declares one hundred and fifteen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

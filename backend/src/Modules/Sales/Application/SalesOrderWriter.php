@@ -839,6 +839,141 @@ final readonly class SalesOrderWriter
     }
 
     /**
+     * **The restore's two parent reads, in lock order — public so a race test's holder runs THESE statements rather than
+     * a transcription** (`order-restores-design.md` R1.7 R-1r; `CustomerWriter::DELETE_LOCK`'s precedent). Each is the
+     * create/edit liveness read (`PARENT_LIVENESS_READS`): live, `FOR KEY SHARE`, which conflicts only with
+     * `DeleteCustomer` / `DeleteWarehouse`'s `FOR UPDATE` (W-5). Customer first, then warehouse — the edit path's lock
+     * order (`ARCHITECTURE.md` W-5 row of `UpdateSalesOrder`; `ARCH` to confirm the restore's row).
+     */
+    public const RESTORE_CUSTOMER_READ = 'SELECT 1 FROM customer WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE';
+    public const RESTORE_WAREHOUSE_READ = 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE';
+
+    /** The restore's UPDATE; the cascade trigger revives the lines archived WITH the order (owner Q3, `Version20260921000200`). */
+    public const RESTORE = 'UPDATE sales_order SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid';
+
+    /** Placeholder copy, TO CONFIRM by `UX` (design §5.2, R1.2). None says "on this order" for a key collision (RED M-3). */
+    public const NOT_ARCHIVED = 'This sales order is not archived, so there is nothing to restore.';
+    public const RESTORE_WAREHOUSE_ARCHIVED = 'This order\'s warehouse is archived. Restore the warehouse first.';
+    public const RESTORE_CUSTOMER_ARCHIVED = 'This order\'s customer is archived. Restore the customer first.';
+    public const RESTORE_ORDER_KEY_HELD = 'An order created since this one was deleted holds its retry key, so it cannot be restored.';
+    public const RESTORE_LINE_KEY_HELD = 'A line on another order was created with the same retry key as one of this order\'s lines, so this order cannot be restored.';
+    public const RESTORE_LINE_NUMBER_TAKEN = 'Two of this order\'s deleted lines share a line number, so it cannot be restored.';
+
+    /**
+     * **`RestoreSalesOrder`** (order restores C2, 2026-10-21; `docs/session13/order-restores-design.md` §5.2 as amended by
+     * Revision 1 R1.2/R1.4 and `order-restores-final-red.md`). API-21 branch 5: 200 with `GetSalesOrder`'s body.
+     * `guard:sales_order.deleted_at` — a repeat finds a live row and is refused, so no `Idempotency-Key`.
+     *
+     * In one `TenantContext::run()`, in this order (R1.4):
+     *  1. `SalesOrderRowLock` first (the lock-first registry demands it);
+     *  2. 404 (§5.3 clause 2: absent, foreign and not-a-uuid answer alike);
+     *  3. live → 409 `sales_order.is_not_archived`;
+     *  4. **no draft guard** — `sales_order_archived_only_while_draft` guarantees an archived order is a draft (the CHECK
+     *     is the guard; §8.3a does not name this operation);
+     *  5. both parents read {@see self::RESTORE_CUSTOMER_READ} then {@see self::RESTORE_WAREHOUSE_READ}, BEFORE either
+     *     refusal, so the lock order does not depend on which one is archived;
+     *  6. refused in `PurchaseOrder::place()`'s order (RED L-3, final RED M-1): an archived **warehouse** first →
+     *     `sales_order.warehouse_is_live` (confirmed 2026-10-21: the sales mirror of `purchase_order.warehouse_is_live`), then an
+     *     archived customer → `sales_order.customer_is_live` (C5's invariant: an archived party holds no open document;
+     *     `DeleteWarehouse` likewise, API-O-34). Without this a restore would be the first route to that state;
+     *  7. {@see self::RESTORE} — the trigger revives exactly the lines archived with the order; an individually deleted line
+     *     stays deleted (Q3);
+     *  8. `sales_order.restored`, `{}`, after the UPDATE, in its transaction — a refusal or a 23505 leaves no row;
+     *  9. the order read back.
+     *
+     * **No recompute** (R1.3, sales): the delete leaves `total_amount` as it was, and the revived lines are exactly the
+     * lines that were live at archive time, so the stored total already equals their sum. Recomputing would mask a defect
+     * in that sentence; `SalesOrderRestoreTest` asserts the equality instead. Sales has no legacy window (`ac7d362` landed
+     * after `3292c4a`). **No item-liveness check**: a live draft keeps lines whose items were archived since, and restoring
+     * one should not be stricter than keeping one (`PO` to confirm).
+     *
+     * **Collisions** — {@see self::translatingRestoreCollisions()}, outside `run()`, by name, on this path only (R1.2):
+     * the order key and the line key across orders are reachable; `sales_order_line_unique` is unreachable through the
+     * API but mapped anyway, so a "try again" default can never answer it; `sales_order_tenant_number_live` is
+     * unreachable since Q4 (a deleted order's number is never reissued) and is NOT translated — proved by a test.
+     */
+    public function restore(string $id): SalesOrderResource
+    {
+        $identity = $this->identities->authenticated();
+
+        return $this->translatingRestoreCollisions(fn (): SalesOrderResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($id, $identity): SalesOrderResource {
+                SalesOrderRowLock::holdInside($em, $id);
+                $order = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
+
+                if (null === $order->archivedAt) {
+                    throw ApiProblem::businessRuleViolated('sales_order.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection = $em->getConnection();
+                $customerLive = false !== $connection->fetchOne(self::RESTORE_CUSTOMER_READ, [$order->customer->id]);
+                $warehouseLive = false !== $connection->fetchOne(self::RESTORE_WAREHOUSE_READ, [$order->warehouse->id]);
+
+                if (!$warehouseLive) {
+                    throw ApiProblem::businessRuleViolated('sales_order.warehouse_is_live', self::RESTORE_WAREHOUSE_ARCHIVED);
+                }
+                if (!$customerLive) {
+                    throw ApiProblem::businessRuleViolated('sales_order.customer_is_live', self::RESTORE_CUSTOMER_ARCHIVED);
+                }
+
+                $connection->executeStatement(self::RESTORE, [$order->id]);
+
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    salesOrderId: $order->id,
+                );
+
+                return $this->readOrderInside($em, $order->id)
+                    ?? throw new \LogicException('The sales order just restored is not readable.');
+            },
+        ));
+    }
+
+    /**
+     * **The order restore's own translator — its own `index name ⇒ answer` map, and everything else rethrown** (final RED
+     * L-7). `translatingConstraintFailures()` is not reused: it consults its map only for the two line indexes and turns
+     * any FK violation into an `inventoryItemId` `unknown_reference`, which no restore can cause. Outside `run()`: the
+     * failed statement aborted the transaction (25P02), so no audit row was written.
+     *
+     * A 23505 raised inside the cascade trigger's `UPDATE` still names its constraint in the driver message `violated()`
+     * reads (T-1, measured by `SalesOrderRestoreTest`'s line-key test). The order's own uniques are checked while its row
+     * is updated, before the AFTER ROW trigger runs (T-2), so an order-key collision is reported even when a line key also
+     * collides.
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T
+     */
+    private function translatingRestoreCollisions(callable $write): mixed
+    {
+        $answers = [
+            self::IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'sales_order.retry_key_is_held_by_a_live_order', self::RESTORE_ORDER_KEY_HELD),
+            self::LINE_IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'sales_order.line_retry_key_is_held_by_another_order', self::RESTORE_LINE_KEY_HELD),
+            self::LINE_NUMBER_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'sales_order.line_number_is_taken_on_this_order', self::RESTORE_LINE_NUMBER_TAKEN),
+        ];
+
+        try {
+            return $write();
+        } catch (UniqueConstraintViolationException $e) {
+            foreach ($answers as $index => $answer) {
+                if (self::violated($e, $index)) {
+                    throw $answer();
+                }
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
      * **`RestoreSalesOrderLine` — `guard:sales_order_line.deleted_at`, so a repeat is refused by the
      * guard itself and no retry key is needed** (API-14 as amended demands the header for `store` and
      * `unique:` only).

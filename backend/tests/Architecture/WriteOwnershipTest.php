@@ -203,7 +203,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // audit_log`, shared by `customer_contact.created` and `.updated` (PREDICTED; confirmed off this test's run).
         // **25 -> 26 on 2026-10-20** (stock transfer C1): `StockMovementAuditWriter::recordTransferred()`'s ONE single-row
         // `INSERT INTO audit_log` literal, executed once per leg (final RED H-1) (PREDICTED; confirmed off this test's run).
-        'Modules\\AuditLog' => 26,
+        // **26 -> 27 on 2026-10-21** (order restores C2), read off this test's run: `SalesOrderAuditWriter::recordRestored()`'s
+        // `INSERT INTO audit_log` for `sales_order.restored`, `recordDeleted()`'s statement with one event name changed.
+        'Modules\\AuditLog' => 27,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -295,7 +297,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **19 -> 20 on 2026-10-06** (G-29 / G-30 part 3, C2): `CreditNoteWriter`'s own `INSERT INTO adjustment_decision` (step
         // 12, the `distinct` row a named pending return gets), a second writer of the table beside `AdjustmentDecisionWriter`
         // — same module, same column list as the grant (read off the failure, never typed).
-        'Modules\\Sales' => 20,
+        // **20 -> 21 on 2026-10-21** (order restores C2), read off this test's run: `SalesOrderWriter::RESTORE`'s `UPDATE
+        // sales_order SET deleted_at = NULL` (`RestoreSalesOrder`). Its row lock and the two `FOR KEY SHARE` parent reads are excluded.
+        'Modules\\Sales' => 21,
         // **New key 2026-10-12** (suppliers slice 1 C2), read off this test's run: `SupplierWriter`'s one `INSERT INTO
         // supplier` (column list built from the sent fields) and one `UPDATE supplier` (SET built from the changed fields).
         // The row lock is a `FOR NO KEY UPDATE` this scan excludes.

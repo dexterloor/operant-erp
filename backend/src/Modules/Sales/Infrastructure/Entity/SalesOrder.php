@@ -63,6 +63,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'sales_order_tenant_customer_idx', columns: ['tenant_id', 'customer_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
 // wh-loc-delete C4 (`Version20261020000700`): `DeleteWarehouse`'s open-order count (`WarehousesSalesPort`); `status` a key column.
 #[ORM\Index(name: 'sales_order_tenant_warehouse_open_idx', columns: ['tenant_id', 'warehouse_id', 'status'], options: ['where' => '(deleted_at IS NULL)'])]
+// Order restores C2 (`Version20261021000400`): the `/sales-orders` Archived view, `deleted_at DESC, id DESC`.
+#[ORM\Index(name: 'sales_order_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
 class SalesOrder
 {
     use GuardsStatusTransitions;
@@ -314,7 +316,7 @@ class SalesOrder
      * not the control: `CreateSalesOrder`/`UpdateSalesOrder` read the customer
      * `FOR KEY SHARE`, and `DeleteCustomer` (C5 C4b) refuses a customer with an
      * open order (a draft is open), so this fires only on an order reached by
-     * owner SQL, a future `RestoreSalesOrder`, or a lock regression.
+     * owner SQL or a lock regression (`RestoreSalesOrder`, order restores C2, refuses an archived customer).
      */
     public function confirm(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $customerIsLive): void
     {

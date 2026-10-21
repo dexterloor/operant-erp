@@ -299,6 +299,16 @@ trait OperationSuccessRecipes
 
                 return [204, 'seed a draft with a line, then delete it'];
             }],
+            // Order restores C2: the order is raised and deleted through the operations, so the row restored was archived by a
+            // writer (and its line by the cascade) rather than by a fixture -- the 200 means the restore worked.
+            'RestoreSalesOrder' => [fn (): array => $salesWorkspace('SO-163000'), function (array $c) use ($raiseSalesOrder): array {
+                $raiseSalesOrder($c);
+                $order = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('DELETE', $order);
+                $this->send('POST', $order.'/restoration');
+
+                return [200, 'create the order, delete it, then restore it'];
+            }],
             // The line is created, deleted and then restored through the operations themselves, so the
             // row this drives at is archived by a writer rather than by a fixture -- which is what makes
             // the 200 mean the restore worked rather than that the guard happened to be satisfied.

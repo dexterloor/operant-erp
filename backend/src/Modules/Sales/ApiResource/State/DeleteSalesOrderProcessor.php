@@ -15,8 +15,8 @@ use App\Modules\Sales\Application\SalesOrderWriter;
  * **L-8 is what makes this operation different from `CancelSalesOrder`**, and the writer is where that rule lives: a
  * document is deletable only while `status = 'draft'`. `DeletePurchaseOrderProcessor` is the precedent.
  *
- * **Shipped without `RestoreSalesOrder`** (owner ruling Q1, 2026-09-21): E9-3 blocks that restore while
- * `ListSalesOrders` declares no `archived` parameter — `RESIDUAL_GAPS.md` G-8.
+ * **Shipped without `RestoreSalesOrder`** (owner ruling Q1, 2026-09-21), on E9-3; its inverse shipped with
+ * `ListSalesOrders?archived` at order restores C2 (2026-10-21), closing G-8's sales half.
  *
  * @implements ProcessorInterface<mixed, null>
  */

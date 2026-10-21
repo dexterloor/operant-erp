@@ -620,10 +620,16 @@ trait ListOperationFixtures
                     for ($i = 1; $i <= $rows; ++$i) {
                         $this->seedSalesOrder(self::TENANT_A, \sprintf('SO-9%05d', $i), $customer, $warehouse,
                             status: SalesOrder::STATUS_CONFIRMED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
+                        // Order restores C2: as many ARCHIVED drafts again (the only archivable status, by CHECK), each at a
+                        // distinct microsecond instant (owner SQL: a fixture needs distinct instants), so the Archived view
+                        // (`archived=true&sort=archived_at`) pages too; they never appear in the live views.
+                        $archived = $this->seedSalesOrder(self::TENANT_A, \sprintf('SO-95%04d', $i), $customer, $warehouse);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE sales_order SET deleted_at = ?::timestamptz WHERE id = ?::uuid',
+                            [\sprintf('2026-10-%02d 12:00:00.123456+00', $i), $archived]);
                     }
 
                     return ['filter' => ['customer_id' => $customer], 'search' => 'SO-9',
-                        'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
+                        'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number', 'archived=true&sort=archived_at']];
                 }];
             },
             'ListGoodsReceipts' => function (): array {

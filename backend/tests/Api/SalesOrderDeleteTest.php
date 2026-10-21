@@ -16,6 +16,8 @@ use Symfony\Component\Uid\Uuid;
  * `TenantClaimProbeTest`, `ResponseStatusTest`, `PurchaseOrderRowLockTest`) each hold one property of this operation
  * over a derived domain. This class holds what is true of this operation alone.
  *
+ * *(Order restores C2, 2026-10-21: `RestoreSalesOrder` now ships, with `ListSalesOrders?archived` — G-8's sales half is
+ * closed; `SalesOrderRestoreTest`. The paragraph below is the record as shipped.)*
  * **It ships WITHOUT `RestoreSalesOrder`** — the owner's Q1 ruling of 2026-09-21. E9-3 blocks that restore while
  * `ListSalesOrders` declares no `archived` parameter, so a discarded draft is recoverable only by direct SQL
  * (`RESIDUAL_GAPS.md` **G-8**) and nothing records who discarded it (**G-9**). Both are accepted, both are carried on

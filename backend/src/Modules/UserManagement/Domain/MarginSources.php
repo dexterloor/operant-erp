@@ -31,6 +31,11 @@ namespace App\Modules\UserManagement\Domain;
  * (PC-12 clause 2's third bullet) has no built tool; the derivation test fails if an AI module appears under
  * `src/Modules/` so that half cannot arrive unaccounted for.
  *
+ * **`sales_order.delete` became a sale source 2026-10-21 (order restores C2)** — `RestoreSalesOrder` returns the order,
+ * `total_amount` included, under `sales_order.delete`. From it, a composed role holding `sales_order.delete` with a cost
+ * source reads `margin_exposure: true`. Whether any default role moves is measured by the default-role checks in the same
+ * commit (`SEC` to confirm the source; owner notice).
+ *
  * **`credit_note.total_amount` and `credit_note_line.amount` are classified `sale`** at C0: a credit note reduces a sale
  * and its amounts are the invoice's sale price. PC-12 clause 1's written list (8 columns) predates both tables; `SEC` is
  * asked to confirm the classification (recorded in `docs/session13/roles-s4-build-progress.md`).
@@ -79,6 +84,9 @@ final class MarginSources
         ['sales_order.cancel'],
         ['sales_order.confirm'],
         ['sales_order.create'],
+        // Order restores C2 (2026-10-21): `RestoreSalesOrder`'s 200 carries `GetSalesOrder`'s body, `total_amount` included,
+        // under `sales_order.delete` (PC-17) — read off `MarginSourcesDerivationTest`'s failure, not anticipated.
+        ['sales_order.delete'],
         ['sales_order.edit'],
         ['sales_order.view'],
     ];

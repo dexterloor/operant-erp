@@ -278,18 +278,20 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     }
 
     /**
-     * **API-19c limb 1 — `/sales-orders` Archived is `⛔ D-a`, so `archived` is not
-     * offered and a green 200 on one would be red.** It is the mirror of
-     * `ListSalesOrderLines`, which offers it on limb 2; the two rows are the two
-     * sides of the rule and a copy-paste between them satisfies neither.
+     * **API-19c limb 1 — offered since order restores C2 (2026-10-21).** Until then `/sales-orders` Archived was `⛔ D-a`,
+     * `archived` was not offered, and this test pinned a 422 `undeclared_parameter` (`archivedIsNotOfferedOnTheDocumentList`).
+     * D-a's index arrived with `RestoreSalesOrder` (E9-3), so the parameter is now declared and served; its behaviour is
+     * `SalesOrderArchivedViewTest`'s. What stays true here is the live view: `archived=false` is the default list.
      */
     #[Test]
-    public function archivedIsNotOfferedOnTheDocumentList(): void
+    public function archivedFalseIsTheLiveList(): void
     {
-        $this->send('GET', '/sales-orders?archived=true');
+        $this->seedSalesOrder(self::TENANT_A, 'SO-184001');
 
-        self::assertSame(422, $this->httpStatus());
-        self::assertSame('undeclared_parameter', $this->json()['errors'][0]['code']);
+        $this->send('GET', '/sales-orders?archived=false');
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['SO-184001'], array_column($this->json()['items'], 'order_number'));
     }
 
     /**

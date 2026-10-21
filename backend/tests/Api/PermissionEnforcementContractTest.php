@@ -209,6 +209,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // `sales_rep` holds it (`DefaultRoles`), and no DSoD rule applies -- ADR-008 §2 declines the sales duty
         // split, and a draft is not a commitment. Unattributed: `RESIDUAL_GAPS.md` G-9.
         'DeleteSalesOrder' => 'sales_order.delete',
+        // Order restores C2: undoing an archive is the same authority as making one (`RestoreItem`'s reason).
+        'RestoreSalesOrder' => 'sales_order.delete',
         // `sales_order.edit`, not a code of its own: a line is part of the order, and §4.2 gives every
         // line write the parent's edit permission -- the purchase twin's rule.
         'CreateSalesOrderLine' => 'sales_order.edit',
