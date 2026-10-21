@@ -13,6 +13,8 @@ use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
+use App\Modules\Purchasing\Application\GoodsReceiptListCriteria;
+use App\Modules\Purchasing\Application\GoodsReceiptReader;
 use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
 use App\Modules\Sales\Application\SalesReturnReader;
 use App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount;
@@ -77,6 +79,15 @@ final class SchemaQueryPlanTest extends TenancyTestCase
      * page from `audit_log_tenant_occurred_id_idx`, and the plan test could not tell the indexes apart.
      */
     private const AUDIT_TIE_NOISE = 20000;
+
+    /**
+     * Remaining-ops G1 (RED L-6 review, M-3 b): ONE purchase order with a deep run of receipts, a third of them back-dated to
+     * one instant — the worst `ListGoodsReceipts?purchase_order_id=` page the schema allows (nothing caps receipts per order,
+     * and `received_at` is the client's). Every other order carries one receipt, so the order filter is selective.
+     */
+    private const DEEP_RECEIPTS = 3000;
+    private const DEEP_ORDER = 'PO-000001';
+    private const RECEIPT_TIE_INSTANT = '2025-08-01 00:00:00+00';
 
     private bool $seeded = false;
 
@@ -155,6 +166,31 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                            encode(sha256(gen_random_uuid()::text::bytea), 'hex')
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::ORDERS]);
+
+                // Remaining-ops G1: one receipt per purchase order, numbered after its order (six digits:
+                // `goods_receipt_number_shape`), then DEEP_RECEIPTS more on DEEP_ORDER, numbered above ORDERS. As `erp_app`,
+                // which holds INSERT on `goods_receipt` (`CreateGoodsReceipt`'s writer): the orders above are this
+                // transaction's own uncommitted rows, which an owner connection could not see. No receiver (nullable).
+                $c->executeStatement(<<<'SQL'
+                    INSERT INTO goods_receipt (id, tenant_id, purchase_order_id, warehouse_id, receipt_number, received_at,
+                                               idempotency_key, request_digest)
+                    SELECT gen_random_uuid(), po.tenant_id, po.id, po.warehouse_id,
+                           'GR-' || substring(po.order_number FROM 4), po.ordered_at,
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                    FROM purchase_order po
+                    SQL);
+                $c->executeStatement(<<<'SQL'
+                    INSERT INTO goods_receipt (id, tenant_id, purchase_order_id, warehouse_id, receipt_number, received_at,
+                                               idempotency_key, request_digest)
+                    SELECT gen_random_uuid(), po.tenant_id, po.id, po.warehouse_id,
+                           'GR-' || lpad((? + g)::text, 6, '0'),
+                           CASE WHEN g % 3 = 0 THEN ?::timestamptz ELSE ?::timestamptz - (g || ' minutes')::interval END,
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                    FROM purchase_order po CROSS JOIN generate_series(1, ?) g
+                    WHERE po.order_number = ?
+                    SQL, [self::ORDERS, self::RECEIPT_TIE_INSTANT, self::RECEIPT_TIE_INSTANT, self::DEEP_RECEIPTS, self::DEEP_ORDER]);
 
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
@@ -290,6 +326,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 'inventory_item' => (int) $this->app()->fetchOne('SELECT count(*) FROM inventory_item'),
                 'storage_location' => (int) $this->app()->fetchOne('SELECT count(*) FROM storage_location'),
                 'purchase_order' => (int) $this->app()->fetchOne('SELECT count(*) FROM purchase_order'),
+                'goods_receipt' => (int) $this->app()->fetchOne('SELECT count(*) FROM goods_receipt'),
                 'fulfilment' => (int) $this->app()->fetchOne('SELECT count(*) FROM fulfilment'),
                 'invoice' => (int) $this->app()->fetchOne('SELECT count(*) FROM invoice'),
                 'stock_level' => (int) $this->app()->fetchOne('SELECT count(*) FROM stock_level'),
@@ -299,6 +336,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
 
             self::assertSame(
                 ['inventory_item' => self::ITEMS, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
+                    'goods_receipt' => self::ORDERS + self::DEEP_RECEIPTS,
                     'fulfilment' => self::ORDERS, 'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
                     'stock_movement' => self::EVENTS + self::TIE, 'audit_log' => self::EVENTS + self::AUDIT_TIE + self::AUDIT_TIE_NOISE],
                 $counts,
@@ -309,7 +347,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         // defaults and every assertion below would be about a guess.
         $this->owner()->executeStatement(
             'ANALYZE warehouse, storage_location, inventory_item, supplier, customer, purchase_order, '
-            .'sales_order, invoice, stock_level, stock_movement, audit_log');
+            .'sales_order, invoice, stock_level, stock_movement, audit_log, goods_receipt');
 
         $this->seeded = true;
     }
@@ -943,6 +981,121 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan);
             preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
             self::assertLessThanOrEqual($criteria->limit + 1, (int) $m[1], "(d) [$strategy] The scan read past LIMIT inside the tie group:\n$plan");
+        }
+    }
+
+    /**
+     * Purchasing, `/goods-receipts` (remaining-ops G1; RED L-6 and its review) — **the receipt register, read backward along
+     * `goods_receipt_number_unique`** on its second page. The statement is {@see GoodsReceiptReader::listStatement()}'s
+     * (customers' L-4 rule), explained as planned and with each other join strategy forced (`5c183a4`'s rule: the planner's
+     * join choice must not decide whether the page is cut). Asserted: (a) the scan is ordered and backward; (b) the cursor's
+     * `receipt_number` bound is an index condition; (c) no plain `Sort` sits above it — an `Incremental Sort` presorted on
+     * `receipt_number` is allowed, the stated cost of keeping API-18's `(sort key, id)` cursor on a unique key (review L-1);
+     * (d) the scan stops near `LIMIT`. `assertPlanOn()` narrows "no `Seq Scan`" to `goods_receipt`: the display joins may
+     * seq-scan the tiny seeded `app_user`.
+     */
+    #[Test]
+    public function theReceiptRegisterIsReadBackwardAlongTheNumberIndex(): void
+    {
+        $criteria = new GoodsReceiptListCriteria(
+            limit: GoodsReceiptListCriteria::DEFAULT_LIMIT,
+            after: new Cursor('GR-000500', '00000000-0000-4000-8000-000000000000'),
+        );
+        [$sql, $parameters] = GoodsReceiptReader::listStatement($criteria);
+        self::assertStringContainsString('(gr.receipt_number, gr.id) < (?, ?::uuid)', $sql, 'The statement explained is not the register keyset page.');
+        self::assertSame(2, substr_count($sql, 'ORDER BY gr.receipt_number DESC, gr.id DESC'),
+            'The order must be applied inside the page AND after the joins, or the page order rests on the join strategy.');
+
+        $this->assertReceiptPage($sql, $parameters, 'goods_receipt_number_unique', 'receipt_number', 'Purchasing — the receipt register, second page', $criteria->limit);
+    }
+
+    /**
+     * Purchasing, `/goods-receipts?purchase_order_id=` (remaining-ops G1; RED L-6) — **one order's receipts, read backward
+     * along `goods_receipt_tenant_order_idx`, on a page inside a 1,000-row same-instant group of that order** (the review's
+     * M-3: a deep single-order fixture, a cursor in the middle of the group). **No new index:** the index serves the order
+     * and the `received_at` half of the keyset; the `id` half is an `Incremental Sort` over the tie group, which is the
+     * accepted cost (`API.md` §15.1) — so (c) allows exactly that and refuses a plain `Sort`, and (d) is bounded by the tie
+     * group plus a page, not by the page: inside a tie group the scan reads the group (measured 501), never the whole order. Mutations (progress note): reorder by `receipt_number`, or make the order
+     * predicate unindexable, and this goes red.
+     */
+    #[Test]
+    public function oneOrdersReceiptsAreReadBackwardAlongTheOrderIndexInsideATieGroup(): void
+    {
+        $this->seedWorld();
+
+        [$order, $key, $id] = $this->tenantContext()->run(self::TENANT_A, function (): array {
+            $order = (string) $this->app()->fetchOne('SELECT id FROM purchase_order WHERE order_number = ?', [self::DEEP_ORDER]);
+
+            return [
+                $order,
+                (string) $this->app()->fetchOne('SELECT DISTINCT received_at::text FROM goods_receipt WHERE purchase_order_id = ?::uuid AND received_at = ?::timestamptz', [$order, self::RECEIPT_TIE_INSTANT]),
+                (string) $this->app()->fetchOne('SELECT id FROM goods_receipt WHERE purchase_order_id = ?::uuid AND received_at = ?::timestamptz ORDER BY id DESC OFFSET 499 LIMIT 1', [$order, self::RECEIPT_TIE_INSTANT]),
+            ];
+        });
+
+        $criteria = new GoodsReceiptListCriteria(
+            limit: GoodsReceiptListCriteria::DEFAULT_LIMIT,
+            purchaseOrderId: $order,
+            after: new Cursor($key, $id),
+        );
+        [$sql, $parameters] = GoodsReceiptReader::listStatement($criteria);
+        self::assertStringContainsString('gr.purchase_order_id = ?::uuid', $sql, 'The statement explained is not the order\'s view.');
+        self::assertStringContainsString('(gr.received_at, gr.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the order\'s keyset page.');
+        self::assertSame(2, substr_count($sql, 'ORDER BY gr.received_at DESC, gr.id DESC'),
+            'The order must be applied inside the page AND after the joins, or the page order rests on the join strategy.');
+
+        // (d), bounded by the accepted cost (RED review L-3): inside the tie group the scan may read the group, never the order.
+        $this->assertReceiptPage($sql, $parameters, 'goods_receipt_tenant_order_idx', 'received_at', 'Purchasing — one order\'s receipts, page inside a tie group',
+            intdiv(self::DEEP_RECEIPTS, 3) + $criteria->limit);
+    }
+
+    /** @param list<int|string> $parameters */
+    private function assertReceiptPage(string $sql, array $parameters, string $index, string $key, string $label, ?int $limit): void
+    {
+        foreach ([
+            'as planned' => [],
+            'merge join forced' => ['enable_nestloop' => 'off', 'enable_hashjoin' => 'off'],
+            'hash join forced' => ['enable_nestloop' => 'off', 'enable_mergejoin' => 'off'],
+        ] as $strategy => $settings) {
+            $plan = $this->planWith($settings, $sql, $parameters);
+            $this->assertPlanOn('goods_receipt', $label.' ('.$strategy.')', $plan, $index);
+
+            self::assertStringContainsString('Index Scan Backward using '.$index, $plan, "(a) [$strategy] Not an ordered backward scan of $index:\n$plan");
+            self::assertMatchesRegularExpression('/Index Scan Backward using '.$index.'[^\n]*\n(\s+[A-Z][^\n]*\n)*?\s+Index Cond:[^\n]*\b'.$key.' <=? /', $plan,
+                "(b) [$strategy] The cursor's $key bound is not an index condition of the scan, so the page is filtered, not sought:\n$plan");
+            // (c): between the page's own LIMIT and the scan, the only node allowed is an Incremental Sort presorted on the key.
+            $lines = explode("\n", $plan);
+            $scanAt = null;
+            foreach ($lines as $n => $line) {
+                if (str_contains($line, 'Index Scan Backward using '.$index)) {
+                    $scanAt = $n;
+                    break;
+                }
+            }
+            self::assertNotNull($scanAt);
+            $limitAt = null;
+            for ($n = $scanAt - 1; $n >= 0; --$n) {
+                if (1 === preg_match('/->\s+Limit \(actual/', $lines[$n])) {
+                    $limitAt = $n;
+                    break;
+                }
+            }
+            self::assertNotNull($limitAt, "(c) [$strategy] No LIMIT above the scan, so nothing stops it:\n$plan");
+            $between = \array_slice($lines, $limitAt + 1, $scanAt - $limitAt - 1);
+            $nodes = array_values(array_filter($between, static fn (string $line): bool => str_contains($line, '->')));
+            foreach ($nodes as $node) {
+                self::assertMatchesRegularExpression('/->\s+Incremental Sort \(actual/', $node,
+                    "(c) [$strategy] Something other than an Incremental Sort sits between the scan and the page's LIMIT:\n$plan");
+            }
+            if ([] !== $nodes) {
+                self::assertMatchesRegularExpression('/^\s+Presorted Key: (\w+\.)?'.$key.'$/m', implode("\n", $between),
+                    "(c) [$strategy] The Incremental Sort is not presorted on $key, so the index order does not serve the page:\n$plan");
+            }
+            if (null !== $limit) {
+                preg_match('/Index Scan Backward using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
+                self::assertNotSame([], $m, "(d) [$strategy] No scan row count:\n$plan");
+                self::assertLessThanOrEqual($limit + 2, (int) $m[1], "(d) [$strategy] The scan read past its bound ($limit + 2):\n$plan");
+            }
         }
     }
 }

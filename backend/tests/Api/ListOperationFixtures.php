@@ -626,6 +626,34 @@ trait ListOperationFixtures
                         'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
                 }];
             },
+            'ListGoodsReceipts' => function (): array {
+                $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Receipts');
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Receipts');
+                $order = $this->seedOrder(self::TENANT_A, 'PO-335000', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+
+                return ['/goods-receipts', function (int $rows) use ($order, $warehouse): array {
+                    // Line-less receipts of ONE order, as the owner (`ListFulfilments`' precedent: a line-less
+                    // header the API cannot write), each with a distinct number and receipt time, so both views (the
+                    // register and the order's) hold every row. Numbered from `GR-900001` so they cannot collide
+                    // with a receipt a success recipe booked through the API earlier (the writer mints from
+                    // `GR-000001`). No receiver: the column is nullable, and the outer join must keep the row.
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                            INSERT INTO goods_receipt (id, tenant_id, purchase_order_id, warehouse_id, receipt_number, received_at,
+                                                       idempotency_key, request_digest)
+                            VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?::timestamptz,
+                                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                                    encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $order, $warehouse,
+                                \sprintf('GR-9%05d', $i), \sprintf('2026-01-%02dT00:00:00+00:00', $i)]);
+                    }
+
+                    // `purchase_order_id` is the only filter; TB-5 names `receipt_number`; no `sort` (IA §5.6 gives
+                    // each view one order), so the two views are the register and the order's.
+                    return ['filter' => ['purchase_order_id' => $order], 'search' => 'GR-9',
+                        'views' => ['', 'purchase_order_id='.$order]];
+                }];
+            },
             'ListPurchaseOrders' => function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Orders');
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Orders');

@@ -303,7 +303,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `PurchaseOrderLineResource`. No grant: `erp_app` holds table-level UPDATE on `purchase_order_line` (measured).
         // **And one more (audit reads C2, 2026-10-21):** `ListAuditRecords` (GET `/audit-log/records`, `audit_log.view_record`)
         // on `AuditRecordCollection`. Its migration rebuilds the History `audit_log` index with a trailing `id`, concurrently; no grant.
-        self::assertCount(113, $checked, 'The route set changed. This slice declares one hundred and thirteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (remaining-ops G1, 2026-10-21):** `ListGoodsReceipts` (GET `/goods-receipts`, `goods_receipt.view`) on
+        // `GoodsReceiptCollection`, a `Get` as its only operation. A read over tables `erp_app` already SELECTs -- no migration,
+        // no grant, no new index (RED L-6).
+        self::assertCount(114, $checked, 'The route set changed. This slice declares one hundred and fourteen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

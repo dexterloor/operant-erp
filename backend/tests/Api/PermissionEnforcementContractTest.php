@@ -256,6 +256,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // `.approve` and `.cancel` — so the static split is the whole control.
         'CreateGoodsReceipt' => 'goods_receipt.create',
         'GetGoodsReceipt' => 'goods_receipt.view',
+        // Remaining-ops G1 (2026-10-21): the receipt register, the row's own `Perm` cell. `warehouse_operator` holds it.
+        'ListGoodsReceipts' => 'goods_receipt.view',
         'CreatePurchaseOrderLine' => 'purchase_order.edit',
         'UpdatePurchaseOrderLine' => 'purchase_order.edit',
         'DeletePurchaseOrderLine' => 'purchase_order.edit',

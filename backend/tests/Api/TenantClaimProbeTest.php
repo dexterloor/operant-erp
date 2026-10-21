@@ -260,6 +260,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['lines' => [['purchase_order_line_id' => '@placed_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
         ],
         'GetGoodsReceipt' => ['vars' => ['id' => 'receipt'], 'setup' => 'receipt'],
+        // Remaining-ops G1: the register, over a receipt booked through the operation in each tenant (`ListFulfilments`'
+        // precedent), so the baseline page is non-empty and a supplied tenant id that moved the read would list B's receipt.
+        'ListGoodsReceipts' => ['setup' => 'receipt'],
         // The ship-to address is a symbol of THIS tenant's customer, so the cross-tenant probe drives the
         // V2-S-9 ownership check as well as the claim: if a supplied tenant id changed which workspace the
         // lookup ran in, the address would resolve against the other tenant's customer.

@@ -421,6 +421,12 @@ final class SearchContractTest extends PurchaseOrderTestCase
         }
 
         [$start, $end] = self::whereClause($blanked);
+        if ([0, 0] === [$start, $end]) {
+            // A statement with no top-level WHERE that cuts its page in a derived table first (`FROM (SELECT … WHERE …
+            // LIMIT ?) alias`, `StockMovementReader`'s and `GoodsReceiptReader`'s shape, `5c183a4`): the predicates are the
+            // derived page's own top-level WHERE, so descend into it. Offsets stay absolute, so `$bound` still applies.
+            [$start, $end] = self::derivedPageWhereClause($blanked);
+        }
         $aliases = [];
         foreach (self::aliases($blanked) as $a) {
             $aliases[$a['alias']] = $a['table'];
@@ -484,6 +490,33 @@ final class SearchContractTest extends PurchaseOrderTestCase
         }
 
         return null === $start ? [0, 0] : [$start, $length];
+    }
+
+    /**
+     * The top-level WHERE of the FIRST derived table `FROM ( SELECT … )`, as absolute offsets into `$blanked`, or `[0, 0]`.
+     *
+     * @return array{int, int}
+     */
+    private static function derivedPageWhereClause(string $blanked): array
+    {
+        if (1 !== preg_match('/\bFROM\s*\(\s*SELECT\b/i', $blanked, $m, \PREG_OFFSET_CAPTURE)) {
+            return [0, 0];
+        }
+        $open = strpos($blanked, '(', $m[0][1]);
+        $depth = 0;
+        $length = \strlen($blanked);
+        for ($i = $open; $i < $length; ++$i) {
+            if ('(' === $blanked[$i]) {
+                ++$depth;
+            } elseif (')' === $blanked[$i] && 0 === --$depth) {
+                $inner = substr($blanked, $open + 1, $i - $open - 1);
+                [$start, $end] = self::whereClause($inner);
+
+                return [0, 0] === [$start, $end] ? [0, 0] : [$open + 1 + $start, $open + 1 + $end];
+            }
+        }
+
+        return [0, 0];
     }
 
     /** @return list<array{int, int}> leaf ranges, descending into wholly parenthesised terms */

@@ -28,11 +28,13 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
      * pinned in `PurchaseOrderOperationContractTest` because N-8 hangs its path
      * off the order; `GetGoodsReceipt` has a path of its own, so it is pinned
      * here and joined into `AuthOperationContractTest`'s whole-registry union.
-     * `ListGoodsReceipts` is declared in §4.2 and not built at step 8.
+     * `ListGoodsReceipts` was declared in §4.2 and not built at step 8; it joined the pin at remaining-ops G1
+     * (2026-10-21), moved here on purpose in the commit that builds it.
      *
      * @var array<string, array{method: string, path: string, idem: bool}>
      */
     public const PINNED_GOODS_RECEIPT_OPERATIONS = [
+        'ListGoodsReceipts' => ['method' => 'GET', 'path' => '/goods-receipts', 'idem' => false],
         'GetGoodsReceipt' => ['method' => 'GET', 'path' => '/goods-receipts/{id}', 'idem' => false],
     ];
 

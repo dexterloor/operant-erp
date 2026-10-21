@@ -127,14 +127,26 @@ final class SortManifestTest extends PurchaseOrderTestCase
 
         $lists = $this->listOperations();
         $built = array_map(self::pathOf(...), $lists);
-        $inDomain = 0;
-        foreach ($manifest as $row) {
-            if (\in_array($mapping[$row['route']] ?? $row['route'], $built, true)) {
-                ++$inDomain;
+        $inDomain = static function (array $built) use ($manifest, $mapping): int {
+            $n = 0;
+            foreach ($manifest as $row) {
+                if (\in_array($mapping[$row['route']] ?? $row['route'], $built, true)) {
+                    ++$n;
+                }
             }
-        }
-        self::assertGreaterThan(0, $inDomain, 'No manifest row is on a built path.');
-        self::assertLessThan(\count($manifest), $inDomain, 'Every manifest row is on a built path, so the restriction was never exercised.');
+
+            return $n;
+        };
+        self::assertGreaterThan(0, $inDomain($built), 'No manifest row is on a built path.');
+        // **Since remaining-ops G1 (`ListGoodsReceipts`, 2026-10-21) every manifest row is on a built path**, so "fewer rows
+        // in the domain than in the manifest" can no longer show the restriction works (it was asserted until then). The
+        // positive control instead (`QueryParameterContractTest::builtManifestRows()`' twin): withhold one built path the
+        // manifest names and exactly its rows must leave the domain.
+        $withheld = $mapping[$manifest[0]['route']] ?? $manifest[0]['route'];
+        $withheldRows = \count(array_filter($manifest, static fn (array $r): bool => ($mapping[$r['route']] ?? $r['route']) === $withheld));
+        self::assertContains($withheld, $built, 'The control path is not built, so withholding it proves nothing.');
+        self::assertSame($inDomain($built) - $withheldRows, $inDomain(array_values(array_diff($built, [$withheld]))),
+            'Withholding one built path did not remove exactly its manifest rows from the domain, so the restriction does not restrict.');
 
         $fixtures = $this->listFixtures();
         $defects = [];

@@ -203,6 +203,9 @@
     "ListFulfilments $.items[].lines[].quantity": [
         6
     ],
+    "ListGoodsReceipts $.items[].lines[].quantity": [
+        6
+    ],
     "ListInvoiceLines $.items[].amount_billed": [
         4
     ],

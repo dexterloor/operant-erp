@@ -156,6 +156,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'receive, then read'];
             }],
+            // Remaining-ops G1: the register, read after a receipt the API wrote, so the row every reference and scale
+            // walker sees is a real one -- lines included (`quantity` is a decimal WireScaleTest must observe).
+            'ListGoodsReceipts' => [fn (): array => $ordered('PO-334000'), function (array $c) use ($receive): array {
+                $receive($c);
+                $this->send('GET', '/goods-receipts');
+
+                return [200, 'receive, then list the receipts'];
+            }],
             'CreateGoodsReceipt' => [fn (): array => $ordered('PO-115000'), function (array $c) use ($receive): array {
                 $receive($c);
 

@@ -122,6 +122,8 @@ services:
             - '../src/Modules/Purchasing/ApiResource/{NamedReference.php,ActorReference.php,CreatePurchaseOrderInput.php,UpdatePurchaseOrderInput.php,ApprovePurchaseOrderInput.php,CancelPurchaseOrderInput.php,CreatePurchaseOrderLineInput.php,UpdatePurchaseOrderLineInput.php}'
             - '../src/Modules/Purchasing/ApiResource/State/QueryParameters.php'
             - '../src/Modules/Purchasing/Application/{PurchaseOrderRow.php,PurchaseOrderLineRow.php,PurchaseOrderListCriteria.php,PurchaseOrderViews.php}'
+            # Remaining-ops G1 (2026-10-21): `ListGoodsReceipts`' criteria and page -- data, not services.
+            - '../src/Modules/Purchasing/Application/{GoodsReceiptListCriteria.php,GoodsReceiptPage.php}'
             # The Sales slice's data classes (Output 9, sales slice 1, commit 2).
             # Same rule as the three blocks above: a request DTO the serializer
             # builds, a reference DTO, and one function-only read model.

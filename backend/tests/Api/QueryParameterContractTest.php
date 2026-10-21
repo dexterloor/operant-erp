@@ -429,6 +429,12 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
     /**
      * The manifest rows on built paths, keyed by API path, and the rows left out.
      *
+     * **Since remaining-ops G1 (`ListGoodsReceipts`, 2026-10-21) every manifest row is on a built path**, so the real
+     * left-out list is empty and can no longer show that the restriction works. It was asserted non-empty until then; the
+     * assertion is replaced by a **positive control** on the same partition: with one built path withheld, exactly that
+     * path's rows must fall out, and every row must still be in or out. The real left-out list stays unasserted, so a
+     * manifest row written ahead of its route keeps passing, as the restriction was built to allow.
+     *
      * @return array{0: array<string, list<array<string, string>>>, 1: list<string>}
      */
     private function builtManifestRows(): array
@@ -442,6 +448,32 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
 
         $built = array_map(self::pathOf(...), $this->listOperations());
 
+        [$domain, $excluded] = self::partition($manifest, $mapping, $built);
+
+        self::assertNotSame([], $domain, 'No manifest row is on a built path, so the restriction left nothing to compare.');
+        self::assertSame(\count($manifest), \count($excluded) + array_sum(array_map(\count(...), $domain)), 'A manifest row is neither in nor out of the built-path domain.');
+
+        // The positive control: withhold one built path the manifest names and the restriction must drop exactly its rows.
+        $withheld = array_key_first($domain);
+        [$controlDomain, $controlExcluded] = self::partition($manifest, $mapping, array_values(array_diff($built, [$withheld])));
+        self::assertArrayNotHasKey($withheld, $controlDomain, 'A withheld path stayed in the built-path domain, so the restriction does not restrict.');
+        $expected = [...$excluded, ...array_map(self::label(...), $domain[$withheld])];
+        sort($expected);
+        sort($controlExcluded);
+        self::assertSame($expected, $controlExcluded, 'Withholding one built path did not move exactly its manifest rows out of the domain.');
+
+        return [$domain, $excluded];
+    }
+
+    /**
+     * @param list<array<string, string>> $manifest
+     * @param array<string, string>       $mapping
+     * @param list<string>                $built
+     *
+     * @return array{0: array<string, list<array<string, string>>>, 1: list<string>}
+     */
+    private static function partition(array $manifest, array $mapping, array $built): array
+    {
         $domain = [];
         $excluded = [];
         foreach ($manifest as $row) {
@@ -452,10 +484,6 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
                 $excluded[] = self::label($row);
             }
         }
-
-        self::assertNotSame([], $domain, 'No manifest row is on a built path, so the restriction left nothing to compare.');
-        self::assertNotSame([], $excluded, 'Every manifest row is on a built path, so the restriction was never exercised.');
-        self::assertSame(\count($manifest), \count($excluded) + array_sum(array_map(\count(...), $domain)), 'A manifest row is neither in nor out of the built-path domain.');
 
         return [$domain, $excluded];
     }
