@@ -671,9 +671,16 @@ trait ListOperationFixtures
                     for ($i = 1; $i <= $rows; ++$i) {
                         $this->seedOrder(self::TENANT_A, \sprintf('PO-9%05d', $i), $supplier, $warehouse,
                             status: PurchaseOrder::STATUS_ORDERED, orderedAt: \sprintf('2026-01-%02dT00:00:00+00:00', $i));
+                        // Order restores C3: as many ARCHIVED drafts again (the only archivable status, by CHECK), each at a
+                        // distinct microsecond instant, so the Archived view (`archived=true&sort=archived_at`) pages too;
+                        // they never appear in the live views.
+                        $archived = $this->seedOrder(self::TENANT_A, \sprintf('PO-95%04d', $i), $supplier, $warehouse);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE purchase_order SET deleted_at = ?::timestamptz WHERE id = ?::uuid',
+                            [\sprintf('2026-10-%02d 12:00:00.123456+00', $i), $archived]);
                     }
 
-                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'PO-9', 'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number']];
+                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'PO-9',
+                        'views' => ['', 'status=open&sort=ordered_at', 'sort=order_number', 'archived=true&sort=archived_at']];
                 }];
             },
         ];

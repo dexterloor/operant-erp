@@ -65,6 +65,11 @@ final class MarginSources
         ['purchase_order.approve'],
         ['purchase_order.cancel'],
         ['purchase_order.create'],
+        // Order restores C3 (2026-10-22): `RestorePurchaseOrder`'s 200 carries `GetPurchaseOrder`'s body, `total_amount`
+        // included, under `purchase_order.delete` (PC-17) — C2's lesson (`sales_order.delete` above), confirmed
+        // off `MarginSourcesDerivationTest`'s failure. No default role moves: `buyer` and `purchasing_manager`, its default
+        // holders, already hold cost sources.
+        ['purchase_order.delete'],
         ['purchase_order.edit'],
         ['purchase_order.view'],
         // Suppliers slice 1 C3 (2026-10-12): the catalogue serves `supplier_product.unit_cost` (list under `.view`; create and

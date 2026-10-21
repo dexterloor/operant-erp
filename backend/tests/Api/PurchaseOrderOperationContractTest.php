@@ -32,26 +32,15 @@ use PHPUnit\Framework\Attributes\Test;
  * both directions.
  *
  * ---------------------------------------------------------------------------
- * Rows of §4.2's Purchasing block that are DELIBERATELY UNSHIPPED
+ * Rows of §4.2's Purchasing block that are DELIBERATELY UNSHIPPED — none since order restores C3
  * ---------------------------------------------------------------------------
- * `PINNED_UNSHIPPED` names them and `thePinsMatchTheContractDocument`
- * asserts their absence, on `AuthOperationContractTest`'s pattern for
- * `RefreshToken` and `RevokeSession`. Each is blocked by something a test can
- * point at, not by a schedule:
- *
- *   `RestorePurchaseOrder`       **E9-3 / API-O-11** — no path yields an
- *                                archived order's id to a caller who does not
- *                                already hold it. `theArchivedIdProblemIsWhyNoRestoreShips`
- *                                is the half of that a test can carry.
- *                                (`RestorePurchaseOrderLine` left at order-restores C0.)
- *   `CreateGoodsReceipt`         see `PINNED_UNSHIPPED`'s own note — blocked
- *                                three times over, and the Inventory contract
- *                                class it needs does not exist.
- *
- * **It was five until 2026-09-11.** `CreatePurchaseOrder` and
- * `CancelPurchaseOrder` shipped in step 6; what unblocked each is recorded on
- * the constant rather than here, because that is where a reader looking for why
- * a name is absent will be.
+ * `PINNED_UNSHIPPED` named them and `thePinsMatchTheContractDocument` asserted their absence, on
+ * `AuthOperationContractTest`'s pattern for `RefreshToken` and `RevokeSession`. **It was five until 2026-09-11**
+ * (`CreatePurchaseOrder`, `CancelPurchaseOrder` shipped in step 6; `CreateGoodsReceipt` at step 8;
+ * `RestorePurchaseOrderLine` at order-restores C0), and its last member, `RestorePurchaseOrder`, shipped at order
+ * restores C3 (2026-10-22) with `ListPurchaseOrders?archived` (E9-3 / API-O-11 met;
+ * `theArchivedIdProblemIsWhyNoRestoreShips` holds the pair both ways). An empty pin loops over nothing, so the constant
+ * and its two readers were removed rather than left vacuous (T-9); a future deliberately-unshipped row brings it back.
  */
 final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
 {
@@ -89,47 +78,11 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         'DeletePurchaseOrderLine' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
         // Order-restores C0: `guard:purchase_order_line.deleted_at`, so no header (API-14 as amended).
         'RestorePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines/{lineId}/restoration', 'idem' => false],
+        // Order restores C3: `guard:purchase_order.deleted_at`, so no header (API-14 as amended). Left `PINNED_UNSHIPPED`.
+        'RestorePurchaseOrder' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/restoration', 'idem' => false],
         // Step 8: `unique:goods_receipt_idem_unique`, header-sourced like
         // `CreatePurchaseOrder`. Here because its path is under the order (N-8).
         'CreateGoodsReceipt' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/goods-receipts', 'idem' => true],
-    ];
-
-    /**
-     * Declared in §4.2 under a `/purchase-orders` path, deliberately not shipped.
-     * See the class docblock for the first four.
-     *
-     * **`CreateGoodsReceipt` is the fifth and it is here because of its `Path`,
-     * not its resource.** N-8a hangs the create off the parent order, so
-     * `/purchase-orders/{id}/goods-receipts` falls inside this file's domain and
-     * would otherwise read as a row this package failed to ship. It is blocked
-     * three times over: X9-1 and §8.3 name it as one of the four transitions with
-     * **no entity method**; §4.2 marks it `Idem: yes` and it is one of the six
-     * create-a-child operations **E9-2** stops while API-O-1's key store
-     * deduplicates nothing; and posting a receipt is
-     * `ARCHITECTURE.md` W-3's cross-module write into
-     * `Inventory::ReceiveStock`, which needs an Inventory contract class that
-     * does not exist — `deptrac.yaml` admits `InventoryContract` into
-     * `PurchasingApplication` and there is nothing under that namespace to admit.
-     */
-    public const PINNED_UNSHIPPED = [
-        // ⚠ **`CreatePurchaseOrder` and `CancelPurchaseOrder` left this list on
-        // 2026-09-11 and the reasons they were on it are both discharged rather
-        // than waived.** The first was blocked on §6.2's byte-for-byte promise
-        // against §6.1's columns: `Version20260911000100` gave it a
-        // client-supplied retry key, §6.2 was amended to say what a `unique:`
-        // replay actually returns, and E9-2 stopped naming it. The second was
-        // blocked by X9-1 because `PurchaseOrder::cancel()` did not exist, and
-        // it now does — §8.3's matrix row names the method, which is what makes
-        // `STATUS_CANCELLED` reachable.
-        'RestorePurchaseOrder',
-        // `RestorePurchaseOrderLine` left this list at order-restores C0 (2026-10-21). It was blocked on
-        // coherence with its parent, not on obtainability (`ListPurchaseOrderLines` declares `archived`): *"shipping
-        // the child restore alone would leave a line restorable inside an order that is not."* It answers that by
-        // guards, as `RestoreSalesOrderLine` did: `refuseIfArchived($order)` and `refuseUnlessDraft($order)` run in
-        // front, so a cascade-archived line cannot be restored alone (`PurchaseOrderLineRestoreTest`).
-        // `CreateGoodsReceipt` left this list at step 8: its E9-2 block was
-        // discharged by 8-i's retry key, X9-1's by `recordReceipt()`, and the
-        // Inventory contract it needed shipped at step 7.
     ];
 
     /**
@@ -176,7 +129,7 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
 
     /** §4.2's `Query parameters` cell for the two list rows. */
     private const PINNED_QUERY_PARAMETERS = [
-        'ListPurchaseOrders' => ['status', 'supplier_id', 'q', 'sort', 'limit', 'after', 'before'],
+        'ListPurchaseOrders' => ['status', 'supplier_id', 'archived', 'q', 'sort', 'limit', 'after', 'before'],
         'ListPurchaseOrderLines' => ['archived'],
     ];
 
@@ -253,11 +206,12 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * bounded sub-list (TB-1c) of a table whose `SchemaManifest` deletion class
      * is `soft`.
      *
-     *   `ListPurchaseOrders`      limb 1 fails — `/purchase-orders` Archived is
-     *                             `⛔ D-a`, and the index that would close it
-     *                             does not exist in `backend/migrations/`.
-     *                             limb 2 fails — the list is not bounded.
-     *                             **So a green 200 on `?archived=true` is red.**
+     *   `ListPurchaseOrders`      limb 1 holds since order restores C3
+     *                             (2026-10-22) — `purchase_order_tenant_archived_idx`
+     *                             is migrated and `/purchase-orders` Archived is
+     *                             served. Until then limb 1 failed (`⛔ D-a`) and
+     *                             limb 2 fails still (the list is not bounded),
+     *                             so a green 200 on `?archived=true` was red.
      *   `ListPurchaseOrderLines`  limb 2 holds — bounded, and
      *                             `purchase_order_line` is
      *                             `SchemaManifest::SOFT`.
@@ -269,7 +223,7 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * remembered a routed decision.
      */
     #[Test]
-    public function archivedIsOfferedOnTheBoundedSubListAndNotOnTheDocumentList(): void
+    public function archivedIsOfferedOnTheBoundedSubListAndOnTheDocumentListExactlyWithItsIndex(): void
     {
         self::assertSame(SchemaManifest::SOFT, SchemaManifest::TABLES['purchase_order_line']['deletion'],
             'API-19c limb 2 needs a `soft` table, and the manifest no longer says this one is.');
@@ -277,8 +231,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         self::assertContains('archived', self::declaredParametersOf('ListPurchaseOrderLines'),
             'API-19c limb 2 holds for this list and it does not offer the parameter.');
 
-        // The `⛔ D-a` tie. An archived-ordering index on `purchase_order` is what
-        // limb 1 waits for, and there is none.
+        // The D-a tie. An archived-ordering index on `purchase_order` is what limb 1
+        // waited for; it arrived at order restores C3, and the tie holds both ways.
         $indexes = self::indexesCreatedOn('purchase_order');
         self::assertNotSame([], $indexes,
             'No index on purchase_order was parsed out of backend/migrations, so the condition below would be decided by a broken reader.');
@@ -294,20 +248,20 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
     }
 
     /**
-     * The behavioural half of the clause above, because a parameter list is a
-     * declaration and §4.2's own mutation note is about a **200**.
+     * **The behavioural half of the clause above — offered since order restores C3 (2026-10-22).** Until then this pinned
+     * a 422 at `?archived` (`listingPurchaseOrdersRefusesAnArchivedParameter`: API-19c offered the parameter on neither
+     * limb). D-a's index arrived with `RestorePurchaseOrder` (E9-3), so the parameter is declared and served; its behaviour
+     * is `PurchaseOrderArchivedViewTest`'s. What stays true here is the live view: `archived=false` is the default list.
      */
     #[Test]
-    public function listingPurchaseOrdersRefusesAnArchivedParameter(): void
+    public function archivedFalseIsTheLiveList(): void
     {
         $this->seedDraft(self::TENANT_A, 'PO-000001');
 
-        $this->send('GET', '/purchase-orders?archived=true');
+        $this->send('GET', '/purchase-orders?archived=false');
 
-        self::assertSame(422, $this->httpStatus(),
-            'A green 200 on ?archived is red: API-19c offers the parameter on neither limb for this list.');
-        self::assertSame('urn:erp:problem:validation-failed', $this->json()['type']);
-        self::assertSame('?archived', $this->json()['errors'][0]['pointer']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['PO-000001'], array_column($this->json()['items'], 'order_number'));
     }
 
     /**
@@ -407,16 +361,25 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
      * **E9-3 / API-O-11, as a check rather than a comment.**
      *
      * `Restore*` needs a path by which a caller who does not already hold an
-     * archived row's id can obtain one. For `purchase_order` there is none:
-     * `/purchase-orders` Archived is `⛔ D-a`, so `ListPurchaseOrders` offers no
-     * `archived` parameter, and §5.2a's direct hit needs the id already. This
-     * asserts the consequence — no restore operation is declared — **tied to its
-     * cause**, so the day the parameter arrives this goes red and the restore
-     * becomes buildable rather than merely remembered.
+     * archived row's id can obtain one. Until order restores C3 (2026-10-22) there
+     * was none for `purchase_order`: `/purchase-orders` Archived was `⛔ D-a`, so
+     * `ListPurchaseOrders` offered no `archived` parameter. **Since C3 both sides are
+     * true** — the Archived view and `RestorePurchaseOrder` shipped in one commit —
+     * and this holds the pair both ways, so neither can leave without the other.
+     *
+     * **The `status` control (added at C3, the design's empty-set note):** the sales
+     * twin has one and this did not. If `declaredParametersOf()` ever stopped reading
+     * the parameters (returned nothing), `archived` would read as absent, and on any
+     * day the restore were also absent the pair would agree on `false` and pass on
+     * nothing (the empty-set trap).
      */
     #[Test]
     public function theArchivedIdProblemIsWhyNoRestoreShips(): void
     {
+        self::assertContains('status', self::declaredParametersOf('ListPurchaseOrders'),
+            'Control: `ListPurchaseOrders` no longer declares `status`, so its parameters are not being read the way '
+            .'this check reads them and the `archived` test below would pass on nothing.');
+
         $reachable = \in_array('archived', self::declaredParametersOf('ListPurchaseOrders'), true);
         $declared = array_keys(TransactionBoundaryTest::contractOperations());
 
@@ -454,14 +417,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
             }
         }
 
-        // The four §4.2 declares and this package does not ship. They are removed
-        // by **name**, so a fifth appearing in the document fails rather than
-        // joining them.
-        foreach (self::PINNED_UNSHIPPED as $unshipped) {
-            self::assertArrayHasKey($unshipped, $documented,
-                $unshipped.' is pinned as an unshipped §4.2 row and the document no longer declares it.');
-            unset($documented[$unshipped]);
-        }
+        // No §4.2 row under `/purchase-orders` is deliberately unshipped since order restores C3 (`PINNED_UNSHIPPED`
+        // removed), so the document's set and the pin are compared whole.
 
         ksort($documented);
         $pinned = self::PINNED_PURCHASE_ORDER_OPERATIONS;

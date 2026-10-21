@@ -207,6 +207,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'delete the draft\'s line, then restore it'];
             }],
+            // Order restores C3: the draft is deleted through the operation (its line by the cascade), so the row restored was
+            // archived by a writer rather than by a fixture -- the 200 means the restore worked.
+            'RestorePurchaseOrder' => [fn (): array => $draft('PO-129000'), function (array $c): array {
+                $this->send('DELETE', '/purchase-orders/'.$c['order']);
+                $this->send('POST', '/purchase-orders/'.$c['order'].'/restoration');
+
+                return [200, 'delete the draft, then restore it'];
+            }],
             'GetPurchaseOrder' => [fn (): array => $draft('PO-113000'), function (array $c): array {
                 $this->send('GET', '/purchase-orders/'.$c['order']);
 

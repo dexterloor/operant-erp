@@ -53,12 +53,12 @@ final readonly class PurchaseOrderReader
      * own tenant returns the row with a non-null `archived_at`, never a 404.
      * There is deliberately no `deleted_at` predicate here.
      *
-     * **On this resource that carve-out currently leads nowhere, and the reason
-     * is recorded rather than left to be discovered.** §5.2a calls the direct hit
+     * **Until order restores C3 that carve-out led nowhere on this resource.** §5.2a calls the direct hit
      * *"the only path by which a caller can obtain the id `Restore*` takes"*, and
-     * `RestorePurchaseOrder` is blocked by **E9-3 / API-O-11** because
-     * `/purchase-orders` Archived is `⛔ D-a` and this list therefore carries no
-     * `archived` parameter. The carve-out is still right — ST-9's *"documents
+     * since order restores C3 (2026-10-22) the Archived view is the other path:
+     * `ListPurchaseOrders?archived` serves the archived drafts, and
+     * `RestorePurchaseOrder` takes the id (until then E9-3 / API-O-11 blocked it,
+     * `/purchase-orders` Archived being `⛔ D-a`). The carve-out is still right — ST-9's *"documents
      * legitimately reference it"* is about a `goods_receipt` pointing at an
      * archived order, not about restoring one.
      */
@@ -112,7 +112,7 @@ final readonly class PurchaseOrderReader
         return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): PurchaseOrderCollection {
             $connection = $em->getConnection();
 
-            [$sql, $parameters] = $this->listStatement($criteria);
+            [$sql, $parameters] = self::listStatement($criteria);
 
             // One row more than the page, so "is there a next page" is answered
             // by the rows themselves rather than by a COUNT(*) -- which TB-2b
@@ -201,8 +201,12 @@ final readonly class PurchaseOrderReader
      *
      * @return array{string, list<mixed>}
      */
-    private function listStatement(PurchaseOrderListCriteria $criteria): array
+    public static function listStatement(PurchaseOrderListCriteria $criteria): array
     {
+        if ($criteria->archived) {
+            return self::archivedStatement($criteria);
+        }
+
         // TB-3: a live list never returns a soft-deleted row. This predicate is
         // also what makes every one of this table's three partial indexes usable
         // -- a partial index cannot be chosen for a query that does not carry its
@@ -274,6 +278,42 @@ final readonly class PurchaseOrderReader
     }
 
     /**
+     * **The Archived view** (order restores C3, 2026-10-21; `IA.md` §5.6 `/purchase-orders` Archived; D-a's
+     * `purchase_order_tenant_archived_idx`) — `SalesOrderReader::archivedStatement()`'s twin: the archived orders INSTEAD of
+     * the live ones, newest first (`deleted_at DESC, id DESC`, forward DESC, keyset `<`), `q` kept inside the range, the
+     * cursor key `deleted_at`'s raw text (microseconds). `status` and `supplier_id` never reach here (the provider refuses
+     * them), and a non-timestamp cursor was already refused, so the cast cannot 500.
+     *
+     * @return array{string, list<mixed>}
+     */
+    private static function archivedStatement(PurchaseOrderListCriteria $criteria): array
+    {
+        $where = ['po.deleted_at IS NOT NULL'];
+        $parameters = [];
+
+        if (null !== $criteria->search) {
+            $where[] = 'po.order_number LIKE ?';
+            $parameters[] = addcslashes($criteria->search, '%_\\').'%';
+        }
+
+        $descending = !$criteria->isBackwards();
+        $cursor = $criteria->after ?? $criteria->before;
+        if (null !== $cursor) {
+            $where[] = \sprintf('(po.deleted_at, po.id) %s (?::timestamptz, ?::uuid)', $descending ? '<' : '>');
+            $parameters[] = $cursor->sortKey;
+            $parameters[] = $cursor->id;
+        }
+
+        $direction = $descending ? 'DESC' : 'ASC';
+        $sql = 'SELECT '.PurchaseOrderRow::COLUMNS.' '.PurchaseOrderRow::FROM
+            .' WHERE '.implode(' AND ', $where)
+            .\sprintf(' ORDER BY po.deleted_at %s, po.id %s LIMIT ?', $direction, $direction);
+        $parameters[] = $criteria->limit + 1;
+
+        return [$sql, $parameters];
+    }
+
+    /**
      * The database type each sort key is compared as.
      *
      * `ordered_at` is `timestamptz`; an uncast text comparison against it is an
@@ -296,9 +336,11 @@ final readonly class PurchaseOrderReader
             return [null, null];
         }
 
-        $first = new Cursor((string) $rows[0][$criteria->sort], (string) $rows[0]['id']);
+        // The Archived view's key is `deleted_at`, NOT NULL by its own predicate, read as the raw column text.
+        $key = PurchaseOrderViews::SORT_ARCHIVED_AT === $criteria->sort ? 'deleted_at' : $criteria->sort;
+        $first = new Cursor((string) $rows[0][$key], (string) $rows[0]['id']);
         $lastRow = $rows[array_key_last($rows)];
-        $last = new Cursor((string) $lastRow[$criteria->sort], (string) $lastRow['id']);
+        $last = new Cursor((string) $lastRow[$key], (string) $lastRow['id']);
 
         if ($criteria->isBackwards()) {
             // We arrived here from a later page, so a next page exists by

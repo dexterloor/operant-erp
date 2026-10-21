@@ -52,6 +52,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'purchase_order_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id', 'ordered_at'], options: ['where' => '(deleted_at IS NULL)'])]
 // wh-loc-delete C4 (`Version20261020000700`): `DeleteWarehouse`'s open-order count (`WarehousesPurchasingPort`); `status` a key column.
 #[ORM\Index(name: 'purchase_order_tenant_warehouse_open_idx', columns: ['tenant_id', 'warehouse_id', 'status'], options: ['where' => '(deleted_at IS NULL)'])]
+// Order restores C3 (`Version20261021000600`): the `/purchase-orders` Archived view, `deleted_at DESC, id DESC`.
+#[ORM\Index(name: 'purchase_order_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
 class PurchaseOrder
 {
     use GuardsStatusTransitions;
@@ -302,8 +304,9 @@ class PurchaseOrder
      * is told about the warehouse, as it was before this guard existed, and no
      * response step 6 shipped changes. It is the backstop, not the control:
      * `DeleteSupplier` refuses a supplier with an open order, so this fires only
-     * on an order reached by owner SQL, a future `RestorePurchaseOrder`, or a
-     * lock regression.
+     * on an order reached by owner SQL or a lock regression —
+     * `RestorePurchaseOrder` (order restores C3) refuses an archived supplier
+     * or warehouse itself, with these two codes and its own sentences.
      */
     public function place(\DateTimeImmutable $orderedAt, int $liveLineCount, bool $warehouseIsLive, bool $supplierIsLive, ?\DateTimeImmutable $expectedAt = null): void
     {

@@ -609,8 +609,9 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
 
     /**
      * **An individually deleted line is read-only, and the refusal no longer says it "is restored with the order"**
-     * (`owed-ux-c5.md` FINAL (a3)): it never is — `RestorePurchaseOrder` is unbuilt (G-8), and the cascade's restore skips
-     * an individually deleted line (V2-R-12b). The PATCH reaches `lineArchived()`; a repeat DELETE is told the line is
+     * (`owed-ux-c5.md` FINAL (a3)): it never is — the cascade's restore skips an individually deleted line (V2-R-12b, Q3),
+     * true since `RestorePurchaseOrder` shipped (order restores C3) as before it; the line has its own restore
+     * (`RestorePurchaseOrderLine`). Whether the literal should now point at Restore is `UX`'s L-6 answer — not changed here. The PATCH reaches `lineArchived()`; a repeat DELETE is told the line is
      * already archived (`lineAlreadyArchived()`, s34 RED N-1), so the loop is two literal checks.
      * **Mutation:** put the old sentence back in either method; red here on that method's `detail` literal.
      */

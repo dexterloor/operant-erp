@@ -15,6 +15,9 @@ use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
 use App\Modules\Purchasing\Application\GoodsReceiptListCriteria;
 use App\Modules\Purchasing\Application\GoodsReceiptReader;
+use App\Modules\Purchasing\Application\PurchaseOrderListCriteria;
+use App\Modules\Purchasing\Application\PurchaseOrderReader;
+use App\Modules\Purchasing\Application\PurchaseOrderViews;
 use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
 use App\Modules\Sales\Application\SalesOrderListCriteria;
 use App\Modules\Sales\Application\SalesOrderReader;
@@ -563,6 +566,40 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 'sales_order_tenant_archived_idx');
             if (null === $search) {
                 $this->assertServedInIndexOrder($plan, 'sales_order_tenant_archived_idx');
+            }
+        }
+    }
+
+    /**
+     * Purchase orders, the Archived view (order restores C3, 2026-10-22; `IA.md` §5.6 / D-a): the statement
+     * `ListPurchaseOrders?archived=true` issues, from {@see PurchaseOrderReader::listStatement()}, on its second page, with
+     * and without `q` — `theSalesOrderArchivedViewUsesTheArchivedIndex`' twin. **Mutation:** drop
+     * `purchase_order_tenant_archived_idx` → red here (no index scan of it, or a sort node).
+     */
+    #[Test]
+    public function thePurchaseOrderArchivedViewUsesTheArchivedIndex(): void
+    {
+        foreach ([null, 'PO-1'] as $search) {
+            [$sql, $parameters] = PurchaseOrderReader::listStatement(new PurchaseOrderListCriteria(
+                limit: 50,
+                sort: PurchaseOrderViews::SORT_ARCHIVED_AT,
+                search: $search,
+                after: new Cursor('2026-10-13 02:38:16.744164+00', '00000000-0000-4000-8000-000000000000'),
+                archived: true,
+            ));
+            self::assertStringContainsString('po.deleted_at IS NOT NULL', $sql, 'The statement explained is not the Archived view.');
+            self::assertStringContainsString('(po.deleted_at, po.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
+            self::assertStringContainsString('ORDER BY po.deleted_at DESC, po.id DESC', $sql);
+
+            // `assertPlanOn('purchase_order', …)`: `PurchaseOrderRow::FROM` joins the supplier and warehouse for display
+            // (the sales twin's reason). `purchase_order` itself must not be scanned.
+            $plan = null === $search ? $this->planWith(['enable_bitmapscan' => 'off'], $sql, $parameters) : $this->plan($sql, $parameters);
+            $this->assertPlanOn('purchase_order',
+                'Purchase orders — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
+                $plan,
+                'purchase_order_tenant_archived_idx');
+            if (null === $search) {
+                $this->assertServedInIndexOrder($plan, 'purchase_order_tenant_archived_idx');
             }
         }
     }

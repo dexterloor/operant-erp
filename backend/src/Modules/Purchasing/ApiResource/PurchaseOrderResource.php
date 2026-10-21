@@ -15,6 +15,7 @@ use App\Modules\Purchasing\ApiResource\State\CancelPurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\CreatePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\DeletePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderProvider;
+use App\Modules\Purchasing\ApiResource\State\RestorePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
@@ -67,12 +68,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * ---------------------------------------------------------------------------
  * What is NOT here, and why each is out of this package rather than forgotten
  * ---------------------------------------------------------------------------
- *   `RestorePurchaseOrder` — **E9-3 / API-O-11**: `/purchase-orders` Archived is
- *                            `⛔ D-a` and this list therefore offers no
- *                            `archived` parameter (API-19c, both limbs fail), so
- *                            no path yields an archived order's id to a caller
- *                            who does not already hold it. A restore nobody can
- *                            reach is not a shipped operation.
+ *   Nothing since order restores C3 (2026-10-22). `RestorePurchaseOrder` was
+ *   listed here — E9-3 / API-O-11: `/purchase-orders` Archived was `⛔ D-a`, so
+ *   no path yielded an archived order's id — and it shipped with
+ *   `ListPurchaseOrders?archived` (below).
  */
 #[ApiResource(
     shortName: 'PurchaseOrder',
@@ -152,6 +151,22 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeletePurchaseOrder'),
             provider: PurchaseOrderProvider::class,
             processor: DeletePurchaseOrderProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'purchase_order.delete'],
+        ),
+        // **`RestorePurchaseOrder`** (order restores C3): API-21 branch 5, 200 with `GetPurchaseOrder`'s body
+        // (`RestoreSalesOrder`'s declaration). `read: false`: the row is read under the writer's lock. §4.2's `Idem` is
+        // `guard:purchase_order.deleted_at` — a replay hits a live row and is refused `purchase_order.is_not_archived`, so no
+        // `IdempotencyKeyGuard::OPERATION_FLAG`.
+        new Post(
+            uriTemplate: '/purchase-orders/{id}/restoration',
+            name: 'RestorePurchaseOrder',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestorePurchaseOrder'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestorePurchaseOrderProcessor::class,
+            // §4.2: `purchase_order.delete` — undoing an archive is the same authority as making one (`RestoreItem`'s reason).
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'purchase_order.delete'],
         ),
         // API-21 branch 5: a POST that creates no row this contract addresses.

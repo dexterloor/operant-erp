@@ -314,6 +314,9 @@
     "RestoreItem $.safety_stock": [
         6
     ],
+    "RestorePurchaseOrder $.total_amount": [
+        4
+    ],
     "RestorePurchaseOrderLine $.quantity": [
         6
     ],

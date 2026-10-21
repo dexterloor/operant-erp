@@ -407,6 +407,12 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem, '{bin}' => $bin,
             '{archivedLine}' => $this->archivedSecondLine($draft['order'])];
 
+        // Order restores C3: `{archive}` → archive the draft first (the cascade takes its lines), so the restore writes.
+        if (str_contains($path, '{archive}')) {
+            $path = str_replace('{archive}', '', $path);
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE purchase_order SET deleted_at = clock_timestamp() WHERE id = ?::uuid', [$draft['order']]);
+        }
+
         // A receipt writes only against a placed order (step 8).
         if (PurchaseOrder::STATUS_DRAFT !== $orderStatus) {
             $this->insertAsOwnerForTenant(self::TENANT_A,
@@ -477,6 +483,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 default => 200,
             }];
         }
+
+        // 200, API-21 branch 5 (order restores C3). NOT in `draftOnlyWrites()`: the restore drives an ARCHIVED draft, so it
+        // has no place in that provider's race. `{archive}` tells the position test to archive the seeded draft first (its
+        // line goes with it, by the cascade): the restore's own guard refuses a live order, and a refused drive issues no write.
+        yield 'RestorePurchaseOrder' => ['POST', '/purchase-orders/{order}/restoration{archive}', null, 200];
 
         // Step 8: the goods receipt writes `purchase_order_line.quantity_received`
         // and `purchase_order.status`, so it is a member of this domain.
@@ -954,6 +965,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'UpdatePurchaseOrderLine' => 'PurchaseOrderWriter::updateLine',
         'DeletePurchaseOrderLine' => 'PurchaseOrderWriter::archiveLine',
         'RestorePurchaseOrderLine' => 'PurchaseOrderWriter::restoreLine',
+        // Order restores C3, read off the scan's own failure: `PurchaseOrderWriter::restore` (`UPDATE purchase_order`, its
+        // `RESTORE` constant, and the recompute) was named before this entry existed.
+        'RestorePurchaseOrder' => 'PurchaseOrderWriter::restore',
         'CreateGoodsReceipt' => 'GoodsReceiptWriter::create',
     ];
 

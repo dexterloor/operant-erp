@@ -91,6 +91,17 @@ final class PurchaseOrderViews
     public const SORT_ORDER_NUMBER = 'order_number';
     public const SORT_ORDERED_AT = 'ordered_at';
 
+    /**
+     * **The Archived view's one order** (order restores C3, 2026-10-21; `IA.md` §5.6 `/purchase-orders` Archived, D-a's
+     * `purchase_order_tenant_archived_idx`): `archived_at` = `deleted_at DESC, id DESC`. Offered ONLY there, and the Archived
+     * view offers nothing else — it never calls {@see self::legalSorts()}: every archived purchase order is a draft
+     * (`purchase_order_archived_only_while_draft`), and `ordered_at` is NULL on every draft (`6fe8b7d`'s trap; RED M-1).
+     */
+    public const SORT_ARCHIVED_AT = 'archived_at';
+
+    /** @var non-empty-list<string> the Archived view's legal sorts, default first */
+    public const ARCHIVED_SORTS = [self::SORT_ARCHIVED_AT];
+
     /** @return list<string> §4.2's segment names, derived from the table above */
     public static function segmentNames(): array
     {

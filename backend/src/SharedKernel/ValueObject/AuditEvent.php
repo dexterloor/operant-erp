@@ -114,8 +114,8 @@ namespace App\SharedKernel\ValueObject;
  * **Still NOT on the trail, stated narrowly so it cannot be read as wider:** edits to a draft (`Update*` and the
  * draft-line operations, sales and purchasing, and `UpdateItem`) record no actor — `updated_at` records when, not who.
  * That is owner-accepted residual **`RESIDUAL_GAPS.md` G-19** (roles slice 2, Q-B, 2026-09-29), whose closing work is
- * one event design covering both modules. `sales_order.restored` is minted since order restores C2 (2026-10-21);
- * `purchase_order.restored` is filed but unminted until `RestorePurchaseOrder` ships (G-8's purchase half).
+ * one event design covering both modules. `sales_order.restored` and `purchase_order.restored` are minted since order
+ * restores C2 / C3 (2026-10-21); G-8 is closed.
  * Customer edits ARE on the trail since customers slice 1 C2 (`customer.updated`, field names only), supplier edits
  * since suppliers slice 1 C2 (`supplier.updated`, the same shape), and customer address edits since suppliers slice 1
  * C2b (`customer_address.created` / `.updated`, the same shape). Warehouse edits are on it since warehouses slice 1 C2
@@ -799,10 +799,8 @@ final class AuditEvent
      * **A draft purchase order discarded** — `DeletePurchaseOrder`. `SALES_ORDER_DELETED`'s twin, on its ground.
      * Written by `PurchaseOrderAuditWriter::recordDeleted()` in the archiving transaction.
      *
-     * The matching `*.restored` events are **filed** (`SEC`: business, subject the order, `{}`). `sales_order.restored`
-     * is minted (order restores C2, 2026-10-21, below); `purchase_order.restored` is not yet — `RestorePurchaseOrder` is
-     * unbuilt (G-8's purchase half, E9-3). `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt`
-     * carries that obligation and goes red when it enters the spec.
+     * The matching `*.restored` events are **filed** (`SEC`: business, subject the order, `{}`) and both are minted:
+     * `sales_order.restored` at order restores C2 and `purchase_order.restored` at C3 (2026-10-21, below). G-8 is closed.
      */
     public const PURCHASE_ORDER_DELETED = 'purchase_order.deleted';
 
@@ -816,6 +814,14 @@ final class AuditEvent
      * live order or line now holding a retry key). **Step 6 does not apply.**
      */
     public const SALES_ORDER_RESTORED = 'sales_order.restored';
+
+    /**
+     * **A discarded draft purchase order brought back** — `RestorePurchaseOrder` (order restores C3, 2026-10-21).
+     * `SALES_ORDER_RESTORED`'s twin, on its ground: **business**, subject `('purchase_order', id)`, no IP, `metadata` `{}`
+     * (`SEC`'s filing, `SECURITY_MODEL.md` §4.1). Written by `PurchaseOrderAuditWriter::recordRestored()` in the restoring
+     * transaction, after the UPDATE and the total's recompute; none on a refused restore. **Step 6 does not apply.**
+     */
+    public const PURCHASE_ORDER_RESTORED = 'purchase_order.restored';
 
     /**
      * **Goods a customer sent back, recorded** — minted 2026-10-01 with `CreateSalesReturn` (sales step 7, R2): a
@@ -1158,6 +1164,7 @@ final class AuditEvent
         self::WAREHOUSE_RESTORED,
         self::WAREHOUSE_DELETED,
         self::SALES_ORDER_RESTORED,
+        self::PURCHASE_ORDER_RESTORED,
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
@@ -1253,6 +1260,7 @@ final class AuditEvent
         self::WAREHOUSE_RESTORED,
         self::WAREHOUSE_DELETED,
         self::SALES_ORDER_RESTORED,
+        self::PURCHASE_ORDER_RESTORED,
         self::STORAGE_LOCATION_CREATED,
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
@@ -1349,6 +1357,7 @@ final class AuditEvent
         // Warehouse/location delete-restore C4: the warehouse row whose own state changed (`SEC` S-1).
         self::WAREHOUSE_DELETED => 'warehouse',
         self::SALES_ORDER_RESTORED => 'sales_order',
+        self::PURCHASE_ORDER_RESTORED => 'purchase_order',
         // Warehouses slice 1 C3: the location row whose own state changed (owner Q-W2 (a)).
         self::STORAGE_LOCATION_CREATED => 'storage_location',
         self::STORAGE_LOCATION_UPDATED => 'storage_location',

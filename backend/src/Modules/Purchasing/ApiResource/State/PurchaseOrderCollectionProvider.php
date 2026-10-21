@@ -28,6 +28,11 @@ use Symfony\Component\Uid\Uuid;
  * exactly that column, and the spec documents the same set -- so a parameter
  * accepted here but undocumented, or documented and refused, is not expressible.
  *
+ * **`archived`** (order restores C3, 2026-10-21; API-19c limb 1 now that `IA.md` §5.6's `/purchase-orders` Archived row
+ * is no longer `⛔ D-a`): `true`/`1` serve the archived orders instead of the live ones (TB-3), `false`/`0` or absent the
+ * live ones, anything else 422 `not_a_boolean`. With `status` or `supplier_id` it is a 422 `mutually_exclusive` at
+ * `?archived` (TO CONFIRM by `UX`/`SEC`). `RestorePurchaseOrder` ships with it (E9-3).
+ *
  * **What a *view* is, and which orders it offers, is `PurchaseOrderViews`'** --
  * that is a fact about the query and the indexes behind it, and this class only
  * parses what a client sent and refuses what the view does not serve.
@@ -99,7 +104,29 @@ final readonly class PurchaseOrderCollectionProvider implements ProviderInterfac
             }
         }
 
-        $legal = PurchaseOrderViews::legalSorts($statuses, null !== $supplierId);
+        $archived = false;
+        if (isset($query['archived'])) {
+            $archived = match ($query['archived']) {
+                'true', '1' => true,
+                'false', '0' => false,
+                default => null,
+            };
+            if (null === $archived) {
+                $errors[] = self::error('archived', 'not_a_boolean', 'archived must be true or false.');
+                $archived = false;
+            }
+        }
+
+        if ($archived && (isset($query['status']) || isset($query['supplier_id']))) {
+            // R1.5 / final RED L-10, `SalesOrderCollectionProvider`'s twin: the Archived view is a sibling of the segments
+            // (TB-3a), every archived purchase order is a draft by CHECK, and the archived index serves neither filter.
+            // Shipped as the STRICTER default; the code, the pointer and the 422 itself are TO CONFIRM by `UX` and `SEC`.
+            $errors[] = self::error('archived', 'mutually_exclusive',
+                'The archived orders are their own view: send archived without status or supplier_id.');
+        }
+
+        // API-19, per view: the Archived view has its own one-element list, never the live derivation (RED M-1).
+        $legal = $archived ? PurchaseOrderViews::ARCHIVED_SORTS : PurchaseOrderViews::legalSorts($statuses, null !== $supplierId);
         $sort = $legal[0];
 
         if (isset($query['sort'])) {
@@ -136,6 +163,7 @@ final readonly class PurchaseOrderCollectionProvider implements ProviderInterfac
             search: $search,
             after: $after,
             before: $before,
+            archived: $archived,
         );
     }
 
@@ -157,10 +185,14 @@ final readonly class PurchaseOrderCollectionProvider implements ProviderInterfac
             return null;
         }
 
-        // `ordered_at`'s key is bound as `?::timestamptz` (the reader's `SORT_KEY_CASTS`), so a key Postgres would refuse
-        // there is refused HERE, as a malformed cursor, not raised inside the read as a 500 (shipped-defect fix,
-        // 2026-10-21: until then any forged key on this sort -- `x`, `''`, an offset of `+16` -- answered 500).
-        if (PurchaseOrderViews::SORT_ORDERED_AT === $sort && !TimestampSortKey::isValid($cursor->sortKey)) {
+        // Both timestamp sorts bind the key as `?::timestamptz` (the reader's `SORT_KEY_CASTS` for `ordered_at`; the Archived
+        // view's `archived_at`, order restores C3), so a key Postgres would refuse there is refused HERE, as a malformed
+        // cursor, not raised inside the read as a 500 (shipped-defect fix, 2026-10-21: until then any forged `ordered_at` key --
+        // `x`, `''`, an offset of `+16` -- answered 500). An `order_number` cursor from the live view is refused on the
+        // Archived view the same way. ⚠ A live `ordered_at` cursor IS a timestamp and is accepted as a position among
+        // archived rows (final RED M-2: harmless, recorded, `Cursor` not changed) — `SalesOrderCollectionProvider`'s twin.
+        if ((PurchaseOrderViews::SORT_ORDERED_AT === $sort || PurchaseOrderViews::SORT_ARCHIVED_AT === $sort)
+            && !TimestampSortKey::isValid($cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;

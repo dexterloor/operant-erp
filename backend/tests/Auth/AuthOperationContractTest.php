@@ -169,17 +169,9 @@ final class AuthOperationContractTest extends ApiTestCase
                 .'bound by ADR-005 to a BFF cookie the browser half of which is deferred.');
         }
 
-        // The purchasing block's four deliberate absences, asserted here for the
-        // reason `RefreshToken` and `RevokeSession` are: this is the one method
-        // whose domain is the **whole** registry, so it is the only place an
-        // operation's absence is a claim about the shipped surface rather than
-        // about one resource's pin.
-        foreach (\App\Tests\Api\PurchaseOrderOperationContractTest::PINNED_UNSHIPPED as $residual) {
-            self::assertNotContains($residual, $declared,
-                $residual.' is shipped and it is pinned as blocked. `CreatePurchaseOrder` is blocked on '
-                .'§6.2 against §6.1\'s columns; `CancelPurchaseOrder` on `PurchaseOrder::cancel()`, which '
-                .'§8.3 and X9-1 exist to find missing; the two restores on E9-3 / API-O-11.');
-        }
+        // *(The purchasing block's deliberate absences were asserted here from `PurchaseOrderOperationContractTest::
+        // PINNED_UNSHIPPED` until order restores C3 (2026-10-22), when its last member, `RestorePurchaseOrder`, shipped and
+        // the constant was removed — an empty list would loop over nothing.)*
     }
 
     /**

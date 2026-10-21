@@ -817,7 +817,8 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
 
     /**
      * **A new receipt against an archived order is refused, and the refusal promises no restore** (`owed-ux-c5.md` FINAL
-     * (a3)): it read *"Restore it before changing it"*, pointing at `RestorePurchaseOrder`, which is unbuilt (G-8).
+     * (a3)): it read *"Restore it before changing it"*, pointing at `RestorePurchaseOrder`, then unbuilt (G-8). It is built
+     * since order restores C3 (2026-10-22); whether the literal should now point at it is `UX`'s L-6 answer — not changed here.
      * **An archived DRAFT since 2026-10-21** (order restores C1): it used to archive an `ordered` order as owner SQL, which
      * `purchase_order_archived_only_while_draft` now refuses. The archived refusal runs before the status guard, so a
      * deleted draft still reaches it and gets the same `detail`.

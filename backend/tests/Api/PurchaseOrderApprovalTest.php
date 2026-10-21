@@ -449,7 +449,8 @@ final class PurchaseOrderApprovalTest extends PurchaseOrderTestCase
     /**
      * **C5 C1 (owner ruling Q-S2, 2026-10-12; `API.md` §8.1 step 6b): approval re-checks the supplier.** The twin of
      * the warehouse test above. `DeleteSupplier` (C5 C2b) refuses a supplier with an open order, so this state is reachable
-     * only by owner SQL (used here), a future `RestorePurchaseOrder`, or a lock regression — the guard is the backstop.
+     * only by owner SQL (used here) or a lock regression — `RestorePurchaseOrder` (order restores C3, 2026-10-22) refuses
+     * an archived supplier itself with this same code, `purchase_order.supplier_is_live` — the guard is the backstop.
      * Also answers the design's to-measure 6: an archived supplier hidden by `SoftDeleteFilter` does not 500 the approval
      * (nothing reads `$order->getSupplier()`).
      *

@@ -27,18 +27,16 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * forbids the total that pipeline exists to compute.
  *
  * ---------------------------------------------------------------------------
- * The parameter set is §4.2's cell, and `archived` is absent by rule
+ * The parameter set is §4.2's cell, and `archived` is offered since order restores C3
  * ---------------------------------------------------------------------------
- * §4.2's `Query parameters` cell for this row reads `status`; `supplier_id`; `q`;
- * `sort`; `limit`; `after`│`before`, and the column is exhaustive (API-19b).
+ * §4.2's `Query parameters` cell for this row reads `status`; `supplier_id`; `archived`; `q`; `sort`; `limit`;
+ * `after`│`before`, and the column is exhaustive (API-19b).
  *
- * **`archived` is not offered and a green 200 on one would be red**, because
- * API-19c decides it against two sources outside this file and **both limbs
- * fail**: `IA.md` §5.6's `/purchase-orders` Archived row is `⛔ D-a` (limb 1
- * needs a row that is *not* `⛔`), and this list is not a `(bounded)` sub-list
- * (limb 2 needs one). `PurchaseOrderOperationContractTest` ties the parameter
- * list to the migrations in both directions, so the day D-a's index is created
- * the suite goes red until the parameter arrives.
+ * **`archived`** (order restores C3, 2026-10-21): API-19c limb 1 offers it because `IA.md` §5.6's `/purchase-orders`
+ * Archived row is no longer `⛔ D-a` — `purchase_order_tenant_archived_idx` serves it. Until then it was absent by rule
+ * (both limbs failed). `RestorePurchaseOrder` ships in the same commit (E9-3's twin,
+ * `PurchaseOrderOperationContractTest::theArchivedIdProblemIsWhyNoRestoreShips`, is bidirectional). The Archived view is
+ * the archived drafts instead of the live orders, newest first, never combined with `status` or `supplier_id`.
  *
  * ---------------------------------------------------------------------------
  * `status` is a **segment**, not a raw status value (§10.3 derivation step 2)
@@ -74,15 +72,20 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     description: 'Restrict to one supplier. The sort manifest\'s "/purchase-orders filtered to a supplier" predicate, served by purchase_order_tenant_supplier_idx.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
+                'archived' => new QueryParameter(
+                    description: 'Return the archived (deleted) orders instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /purchase-orders Archived view (order restores C3). Not combinable with status or supplier_id.',
+                    schema: ['type' => 'boolean', 'default' => false],
+                ),
                 'q' => new QueryParameter(
                     description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, purchase_order.order_number, and it is the only column searched.',
                     schema: ['type' => 'string'],
                 ),
                 'sort' => new QueryParameter(
-                    description: 'The order. Legal values depend on the view (API-19): order_number always, ordered_at only where IA.md §5.6 offers it and every row in the view carries one.',
+                    description: 'The order. Legal values depend on the view (API-19): on the live views order_number always, ordered_at only where IA.md §5.6 offers it and every row in the view carries one; on the Archived view archived_at, newest first, and nothing else.',
                     schema: ['type' => 'string', 'enum' => [
                         PurchaseOrderViews::SORT_ORDER_NUMBER,
                         PurchaseOrderViews::SORT_ORDERED_AT,
+                        PurchaseOrderViews::SORT_ARCHIVED_AT,
                     ]],
                 ),
                 'limit' => new QueryParameter(

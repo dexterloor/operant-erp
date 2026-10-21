@@ -558,6 +558,143 @@ final readonly class PurchaseOrderWriter
         });
     }
 
+    /**
+     * **The restore's two parent reads, in lock order — public so a race test's holder runs THESE statements** (order
+     * restores R1.7; C2's `SalesOrderWriter::RESTORE_CUSTOMER_READ` shape). Each is the create/edit liveness read
+     * (`PARENT_LIVENESS_READS`): live, `FOR KEY SHARE`, conflicting only with `DeleteSupplier` / `DeleteWarehouse`'s
+     * `FOR UPDATE` (W-5). Supplier first, then warehouse — `UpdatePurchaseOrder`'s lock order (`ARCHITECTURE.md` W-5;
+     * `ARCH` to confirm the restore's row); the REFUSAL order is the other way round (see `restore()`).
+     */
+    public const RESTORE_SUPPLIER_READ = 'SELECT 1 FROM supplier WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE';
+    public const RESTORE_WAREHOUSE_READ = 'SELECT 1 FROM warehouse WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE';
+
+    /** The restore's UPDATE; the cascade trigger revives the lines whose stamp equals the order's (`Version20260921000200`). */
+    public const RESTORE = 'UPDATE purchase_order SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid';
+
+    /**
+     * Placeholder copy, TO CONFIRM by `UX` (design §6, R1.2; `restore-warehouse-rule-code-spar.md` UX: passive, because the
+     * person refused may not hold the parent's `.delete`). None says "on this order" for a key collision (RED M-3), and
+     * none promises a remedy the API lacks (final RED M-4: the two line collisions can be permanent).
+     */
+    public const NOT_ARCHIVED = 'This purchase order is not archived, so there is nothing to restore.';
+    public const RESTORE_WAREHOUSE_ARCHIVED = 'This order\'s warehouse is archived, so the order can\'t be restored. It can be restored once its warehouse is restored.';
+    public const RESTORE_SUPPLIER_ARCHIVED = 'This order\'s supplier is archived, so the order can\'t be restored. It can be restored once its supplier is restored.';
+    public const RESTORE_ORDER_KEY_HELD = 'An order created since this one was deleted holds its retry key, so it cannot be restored.';
+    public const RESTORE_ORDER_NUMBER_TAKEN = 'An order created while this one was deleted was given the same number, so this order cannot be restored.';
+    public const RESTORE_LINE_KEY_HELD = 'A line on another order was created with the same retry key as one of this order\'s lines, so this order cannot be restored.';
+    public const RESTORE_LINE_NUMBER_TAKEN = 'Two of this order\'s deleted lines share a line number, so it cannot be restored.';
+    public const RESTORE_TOTAL_TOO_LARGE = 'Restoring this order would bring back lines whose total is larger than an order can hold, so it cannot be restored.';
+
+    /**
+     * **`RestorePurchaseOrder`** (order restores C3, 2026-10-21; `docs/session13/order-restores-design.md` §6 as amended by
+     * Revision 1 R1.2/R1.3/R1.4, `order-restores-final-red.md`, and `restore-warehouse-rule-code-spar.md`). API-21 branch 5:
+     * 200 with `GetPurchaseOrder`'s body. `guard:purchase_order.deleted_at` — a repeat finds a live row and is refused, so
+     * no `Idempotency-Key`. `SalesOrderWriter::restore()`'s shape, with purchase names and two differences (below).
+     *
+     * In one `TenantContext::run()`, in this order (R1.4):
+     *  1. `PurchaseOrderRowLock` first (the lock-first registry demands it);
+     *  2. 404 (§5.3 clause 2);
+     *  3. live → 409 `purchase_order.is_not_archived`;
+     *  4. **no draft guard** — `purchase_order_archived_only_while_draft` (order restores C1, owner OQ-1) is the guard;
+     *  5. both parents read {@see self::RESTORE_SUPPLIER_READ} then {@see self::RESTORE_WAREHOUSE_READ}, BEFORE either refusal;
+     *  6. refused in `PurchaseOrder::place()`'s order: an archived **warehouse** first, then an archived supplier. **No new
+     *     rule code** (the spar, binding): `purchase_order.warehouse_is_live` and `purchase_order.supplier_is_live`, the codes
+     *     `ApprovePurchaseOrder` already answers, with restore sentences — both codes now come from two operations;
+     *  7. {@see self::RESTORE};
+     *  8. **the total RECOMPUTED** (R1.3, the first difference): a purchase order deleted before `3292c4a` (2026-09-21)
+     *     may revive lines its user deleted one by one, because the old cascade re-stamped them with the order's instant.
+     *     **Disclosed limit (RED H-1 c):** those lines cannot be told apart from the ones deleted with the order — the
+     *     information was destroyed at the time, and no data repair is possible; fixture-only or legacy-only. An overflow is
+     *     the domain 409 `purchase_order.total_would_exceed_the_limit_on_restore`, never `recomputeTotal()`'s LogicException;
+     *  9. `purchase_order.restored`, `{}`, after the UPDATE, in its transaction — a refusal or a 23505 leaves no row;
+     * 10. the order read back.
+     *
+     * **Collisions** — {@see self::translatingRestoreCollisions()}, outside `run()`, by name, on this path only (R1.2,
+     * purchase column; the second difference): the order key and the line key across orders are reachable; the order
+     * NUMBER and the LINE NUMBER are legacy-reachable (purchasing's `DeletePurchaseOrder` shipped 2026-09-10, before its Q4
+     * fix and before `3292c4a`) and are translated too.
+     */
+    public function restore(string $id): PurchaseOrderResource
+    {
+        $identity = $this->identities->authenticated();
+
+        return $this->translatingRestoreCollisions(fn (): PurchaseOrderResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($id, $identity): PurchaseOrderResource {
+                PurchaseOrderRowLock::holdInside($em, $id);
+                $order = $this->readOrderInside($em, $id) ?? throw ApiProblem::notFound();
+
+                if (null === $order->archivedAt) {
+                    throw ApiProblem::businessRuleViolated('purchase_order.is_not_archived', self::NOT_ARCHIVED);
+                }
+
+                $connection = $em->getConnection();
+                $supplierLive = false !== $connection->fetchOne(self::RESTORE_SUPPLIER_READ, [$order->supplier->id]);
+                $warehouseLive = false !== $connection->fetchOne(self::RESTORE_WAREHOUSE_READ, [$order->warehouse->id]);
+
+                if (!$warehouseLive) {
+                    throw ApiProblem::businessRuleViolated('purchase_order.warehouse_is_live', self::RESTORE_WAREHOUSE_ARCHIVED);
+                }
+                if (!$supplierLive) {
+                    throw ApiProblem::businessRuleViolated('purchase_order.supplier_is_live', self::RESTORE_SUPPLIER_ARCHIVED);
+                }
+
+                $connection->executeStatement(self::RESTORE, [$order->id]);
+
+                $this->recomputeTotal($em, $order->id, null, static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                    'purchase_order.total_would_exceed_the_limit_on_restore', self::RESTORE_TOTAL_TOO_LARGE));
+
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    purchaseOrderId: $order->id,
+                );
+
+                return $this->readOrderInside($em, $order->id)
+                    ?? throw new \LogicException('The purchase order just restored is not readable.');
+            },
+        ));
+    }
+
+    /**
+     * **The order restore's own translator — its own `index name ⇒ answer` map, everything else rethrown** (final RED L-7;
+     * `SalesOrderWriter::translatingRestoreCollisions()`'s twin). Outside `run()`: the failed statement aborted the
+     * transaction, so no audit row was written. The order's own uniques are checked while its row is updated, before the
+     * AFTER ROW trigger's line uniques (T-2).
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T
+     */
+    private function translatingRestoreCollisions(callable $write): mixed
+    {
+        $answers = [
+            self::NUMBER_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order.order_number_is_taken_by_a_live_order', self::RESTORE_ORDER_NUMBER_TAKEN),
+            self::IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order.retry_key_is_held_by_a_live_order', self::RESTORE_ORDER_KEY_HELD),
+            self::LINE_IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order.line_retry_key_is_held_by_another_order', self::RESTORE_LINE_KEY_HELD),
+            self::LINE_NUMBER_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order.line_number_is_taken_on_this_order', self::RESTORE_LINE_NUMBER_TAKEN),
+        ];
+
+        try {
+            return $write();
+        } catch (UniqueConstraintViolationException $e) {
+            foreach ($answers as $index => $answer) {
+                if (self::violated($e, $index)) {
+                    throw $answer();
+                }
+            }
+
+            throw $e;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // The lines
     // -----------------------------------------------------------------------
@@ -1013,7 +1150,7 @@ final readonly class PurchaseOrderWriter
      *                         lower. Null on the paths that cannot raise the
      *                         total at all; see the branch below.
      */
-    private function recomputeTotal(EntityManagerInterface $em, string $orderId, ?string $pointer): void
+    private function recomputeTotal(EntityManagerInterface $em, string $orderId, ?string $pointer, ?\Closure $refusal = null): void
     {
         $total = (string) $em->getConnection()->fetchOne(
             <<<'SQL'
@@ -1036,6 +1173,12 @@ final readonly class PurchaseOrderWriter
             // item can only lower or hold a sum that already fitted. Reaching
             // here means one of those sentences stopped being true, which is a
             // defect in this class and not in the request.
+            // **`restore()` (order restores C3, R1.3) passes a refusal instead of a pointer**: a restore is bodyless, so there
+            // is no field to name, and on the legacy path a revived line CAN raise the total — so it is a domain 409 there,
+            // not this branch's "unreachable" 500 (final RED L-2: no overflow may surface as a 500).
+            if (null !== $refusal) {
+                throw $refusal();
+            }
             if (null === $pointer) {
                 throw new \LogicException(\sprintf(
                     'The total of order %s left numeric(19,4) on a write that cannot raise it (%s). '
@@ -1288,8 +1431,9 @@ final readonly class PurchaseOrderWriter
      * never issued again.** Until then this counted live rows only, matching
      * `purchase_order_tenant_number_live`'s partiality, so deleting the newest
      * draft (`DeletePurchaseOrder`, shipped 2026-09-10) handed its number to the
-     * next order; the two then shared a number for good and a future
-     * `RestorePurchaseOrder` could never bring the archived one back. The unique
+     * next order; the two then shared a number for good, and `RestorePurchaseOrder`
+     * (order restores C3) refuses the archived one with
+     * `purchase_order.order_number_is_taken_by_a_live_order`. The unique
      * stays partial (`SchemaManifest` requires it on a soft table) and is now a
      * race guard only. `MAX` over all rows cannot use the partial index; said
      * here so nobody "restores" the predicate for speed. The sales twin is

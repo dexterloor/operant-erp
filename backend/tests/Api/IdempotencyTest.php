@@ -293,6 +293,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'Order restores C2: a second restoration of a live sales order. guard:sales_order.deleted_at -- the guard '
                 .'refuses its own repeat and writes nothing (no second sales_order.restored row, the lines untouched).',
         ],
+        'RestorePurchaseOrder' => [
+            'method' => 'replayRestorePurchaseOrder',
+            'why' => 'Order restores C3: a second restoration of a live purchase order. guard:purchase_order.deleted_at -- the '
+                .'guard refuses its own repeat and writes nothing (no second purchase_order.restored row, the total unmoved).',
+        ],
         'RestorePurchaseOrderLine' => [
             'method' => 'replayRestorePurchaseOrderLine',
             'why' => 'Order-restores C0: a second restoration of a live purchase line. guard:purchase_order_line.deleted_at '
@@ -904,6 +909,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame(409, $this->httpStatus(), $why);
         self::assertSame('purchase_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
         self::assertSame([['total_amount' => '50.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]), $why);
+    }
+
+    /** Order restores C3: seed a draft with a line, delete and restore it through the operations, then restore again. */
+    private function replayRestorePurchaseOrder(string $why): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+
+        $this->send('DELETE', '/purchase-orders/'.$draft['order']);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), $why);
+        self::assertSame('purchase_order.is_not_archived', $this->json()['rule'] ?? null, $why);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
+            'SELECT count(*) FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::PURCHASE_ORDER_RESTORED, $draft['order']]), $why);
+        self::assertSame([['total_amount' => '25.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]), $why);
     }
 

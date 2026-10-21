@@ -248,6 +248,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CancelPurchaseOrder' => 'purchase_order.cancel',
         'UpdatePurchaseOrder' => 'purchase_order.edit',
         'DeletePurchaseOrder' => 'purchase_order.delete',
+        // Order restores C3: undoing an archive is the same authority as making one (`RestoreItem`'s reason).
+        'RestorePurchaseOrder' => 'purchase_order.delete',
         'ApprovePurchaseOrder' => 'purchase_order.approve',
         'ListPurchaseOrderLines' => 'purchase_order.view',
         // Step 8 (2026-09-11), each the row's own `Perm` cell.

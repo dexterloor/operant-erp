@@ -183,30 +183,18 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      */
     private const AN_OPERATION_ID_KNOWN_TO_BE_BUILT = 'CreateGoodsReceipt';
 
-    /**
-     * `operationId` => what it owes: **V2-R-12b's order-level restore collisions**, which no restore of an ORDER
-     * may ship without — **and, since B-4a (roles slice 2 C1, 2026-09-29), the `<table>.restored` audit event**, filed
-     * business by `SEC` and minted with its writer in the restore's commit. That obligation is carried in THIS map's
-     * failure message rather than a second map on the same two keys (spar P9: a second copy of one set rots).
-     *
-     * Keyed by `operationId` for `1076ba3`'s reason (a path pin that guesses wrong never fires). Both order restores
-     * are named, not only the sales one: the purchase twin has the same four uniques and the same reissue history.
-     *
-     * @var array<string, string>
-     */
-    private const OPERATIONS_OWING_THE_RESTORE_COLLISIONS = [
-        // `RestoreSalesOrder` left at order restores C2 (2026-10-21) for the implication below
-        // (`OPERATIONS_CARRYING_THE_RESTORE_COLLISIONS`): it was built with every owed item, so the entry moved rather than
-        // emptied (final RED L-3: two methods; this pin keeps its name until `RestorePurchaseOrder` ships at C3).
-        'RestorePurchaseOrder' => 'purchase_order',
-    ];
+    // *(The pin `OPERATIONS_OWING_THE_RESTORE_COLLISIONS` — `operationId => table`, V2-R-12b's order-level restore
+    // collisions plus `<table>.restored`, red the moment an order restore entered the spec — was DELETED at order restores
+    // C3 (2026-10-22, final RED L-3) once both order restores had shipped with every owed item; its method
+    // `noOperationOwingTheRestoreCollisionsHasBeenBuilt` went with it. The obligations are carried by the implication
+    // below, whose carriers are the named tests; it is never emptied.)*
 
     /**
      * **`operationId` => the tests that carry V2-R-12b's order-restore collisions and the restore's other owed items, once
      * built** (order restores C2, 2026-10-21; `order-restores-design.md` R1.6, final RED L-3/L-6). The house implication
      * (`OPERATIONS_OWING_THE_RETURNED_DEDUCTION`'s shape): while the restore is in the spec, every carrier must exist. A
      * pin emptied would hold over nothing, and a deleted carrier would take its obligation with it silently. It detects a
-     * removed or renamed carrier, not a weakened one. `RestorePurchaseOrder` joins at C3, and this map is never emptied.
+     * removed or renamed carrier, not a weakened one. `RestorePurchaseOrder` joined at C3 (2026-10-22), and this map is never emptied.
      *
      * @var array<string, list<array{0: class-string, 1: string}>>
      */
@@ -236,11 +224,40 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             // E9-3's twin, bidirectional.
             [SalesOrderCreateTest::class, 'theArchivedIdProblemIsWhyNoOrderRestoreShips'],
         ],
+        // Order restores C3 (2026-10-22): the purchase twin, moved from the deleted pin with its carriers (R1.6).
+        'RestorePurchaseOrder' => [
+            // 1. the order key — reachable for keyed orders, translated, reached alone.
+            [PurchaseOrderRestoreTest::class, 'anOrderWhoseRetryKeyALiveOrderNowHoldsIsRefusedOnTheOrderKey'],
+            // 2. the line key across orders — reachable, raised in the trigger, reached alone.
+            [PurchaseOrderRestoreTest::class, 'anOrderWhoseLineKeyALineOnAnotherOrderNowHoldsIsRefusedOnTheLineKey'],
+            // 3. the order number — LEGACY-reachable (pre-Q4), translated, owner-seeded.
+            [PurchaseOrderRestoreTest::class, 'aLegacyOrderWhoseNumberALiveOrderWasGivenIsRefusedOnTheNumber'],
+            // 4. the line number — LEGACY-reachable (pre-`3292c4a` re-stamp, RED H-1), translated, fixture (a).
+            [PurchaseOrderRestoreTest::class, 'legacyFixtureA_twoRevivedLinesSharingANumberAreRefusedOnTheLineNumber'],
+            // 5. the total — recomputed (R1.3), fixture (b); an overflow is a 409, never a 500, fixture (c).
+            [PurchaseOrderRestoreTest::class, 'legacyFixtureB_aRevivedLegacyLineIsCountedInTheRecomputedTotal'],
+            [PurchaseOrderRestoreTest::class, 'legacyFixtureC_revivedLinesWhoseSumOverflowsAreRefusedNotA500'],
+            // Already done at the database (Q3, `Version20260921000200`), on both parents.
+            [\App\Tests\Tenancy\DeletionPolicyTest::class, 'restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds'],
+            // Q3 through the API, and the total-equals-live-lines assertion.
+            [PurchaseOrderRestoreTest::class, 'aDeletedDraftComesBackWithTheLinesDeletedWithItAndATotalThatIsTheirSum'],
+            // The audit event, minted in the commit.
+            [PurchaseOrderRestoreTest::class, 'aRestoreWritesOneRestoredRowAndARepeatIsRefusedWithoutASecond'],
+            // C5's invariant and API-O-34's, and the refusal order (warehouse first; the spar, binding).
+            [PurchaseOrderRestoreTest::class, 'aDraftIsNotRestoredOntoAnArchivedSupplier'],
+            [PurchaseOrderRestoreTest::class, 'aDraftIsNotRestoredOntoAnArchivedWarehouse'],
+            [PurchaseOrderRestoreTest::class, 'whenBothParentsAreArchivedTheWarehouseIsNamed'],
+            // The parent locks, delete first (R1.7 R-1d / R-2d).
+            [PurchaseOrderRestoreTest::class, 'aRestoreRacingADeleteOfItsSupplierWaitsAndIsRefused'],
+            [PurchaseOrderRestoreTest::class, 'aRestoreRacingADeleteOfItsWarehouseWaitsAndIsRefused'],
+            // E9-3's twin, bidirectional, with its `status` control (C3).
+            [PurchaseOrderOperationContractTest::class, 'theArchivedIdProblemIsWhyNoRestoreShips'],
+        ],
     ];
 
     /**
-     * The restore-collision pin's positive control: a BUILT restore, so the spec is known to carry `Restore*`
-     * operationIds the way the pin reads them. `RestoreSalesOrderLine` is the nearest twin — it owns and translates
+     * The order-restore implication's positive control (the deleted pin's, until C3): a BUILT restore, so the spec is
+     * known to carry `Restore*` operationIds the way the implication reads them. `RestoreSalesOrderLine` is the nearest twin — it owns and translates
      * the line-level half of the same hazard.
      */
     private const A_RESTORE_KNOWN_TO_BE_BUILT = 'RestoreSalesOrderLine';
@@ -964,90 +981,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **V2-R-12b's second trigger — the ORDER restore — carried by a mechanism rather than by a handover.**
-     *
-     * Until 2026-09-21 this obligation was named in a migration docblock, §15.1 and a processor's docblock, and
-     * **nothing in `backend/` went red about it**. `Version20260921000200` removed the same-order half at the database
-     * (the cascade now revives only the lines archived with the order, the owner's Q3 ruling), and
-     * `DeletionPolicyTest` proves that on both parents. What remains is what the trigger cannot see, and it is owed
-     * by whichever commit ships an order restore. This method goes red the moment either one appears in the spec.
-     *
-     * **It detects the trigger, not the translations** — clearing the pin without building them defeats it, the
-     * residual every sibling method here carries. Mutation proof (run 2026-09-21): planting the positive control's
-     * own id, `RestoreSalesOrderLine`, into the pin turns this RED naming it; renaming the control to a non-existent
-     * id turns it RED loudly; both restored byte-identical.
-     */
-    #[Test]
-    public function noOperationOwingTheRestoreCollisionsHasBeenBuilt(): void
-    {
-        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
-
-        $built = [];
-        foreach (GeneratedSpec::operations($spec) as $data) {
-            $operationId = $data['operation']['operationId'] ?? null;
-            if (\is_string($operationId) && '' !== $operationId) {
-                $built[$operationId] = true;
-            }
-        }
-
-        self::assertArrayHasKey(self::A_RESTORE_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec does not carry a built restore\'s `operationId` the way this pin '
-            .'reads it, so the check below would compare the pin against nothing and pass on everything.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_RESTORE_COLLISIONS, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built. An ORDER restore owes V2-R-12b's collisions, IN THIS COMMIT.\n\n"
-            ."ALREADY DONE AT THE DATABASE (do not redo): `Version20260921000200` revives only the lines archived\n"
-            ."WITH the order (owner ruling Q3, 2026-09-21), so a replacement line on the SAME order cannot collide.\n"
-            ."`DeletionPolicyTest::restoringAnOrderWhoseReplacementLineHoldsTheArchivedLinesNumberAndKeySucceeds`\n"
-            ."proves it on both parents.\n\n"
-            ."STILL OWED, each translated BY CONSTRAINT NAME on the restore path only, each with a test that reaches\n"
-            ."its branch ALONE (sales slice 4's lesson: the unpredicted collision fired first):\n"
-            ."  1. `<order>_tenant_idem_live` -- REACHABLE: a client that retries a create after the order was\n"
-            ."     deleted gets a NEW order holding the same key (the key lookup is live-only). Refuse in domain\n"
-            ."     terms: an order created since holds this order's retry key.\n"
-            ."  2. `<order>_line_tenant_idem_live` -- REACHABLE ACROSS ORDERS: the line key is tenant-wide, so a key\n"
-            ."     on an archived order's line may be reused on ANOTHER order's line, and the restore then collides\n"
-            ."     inside the cascade trigger's statement (SQLSTATE 23505, the message still names the constraint).\n"
-            ."  3. `purchase_order_tenant_number_live` -- LEGACY-REACHABLE (order restores R1.2, corrected at C2): a\n"
-            ."     purchase order deleted BEFORE purchasing's Q4 fix (2026-09-21) may share its number with a live one.\n"
-            ."     TRANSLATE it: 409 `purchase_order.order_number_is_taken_by_a_live_order`, reached by an owner-seeded\n"
-            ."     legacy fixture. (Sales: unreachable, not translated, proved -- done at C2.)\n"
-            ."  4. `purchase_order_line_unique` -- LEGACY-REACHABLE (RED H-1, corrected at C2): the pre-`3292c4a`\n"
-            ."     cascade re-stamped individually deleted lines with the order's instant, so a legacy restore may\n"
-            ."     revive two lines with one number. TRANSLATE it: 409 `purchase_order.line_number_is_taken_on_this_order`,\n"
-            ."     owner-seeded fixture. (Sales maps it too, unreachable, at C2.)\n"
-            ."  5. THE TOTAL (R1.3): recompute it after the UPDATE -- a legacy restore may revive lines the user deleted\n"
-            ."     one by one (the information was destroyed at the time; a DISCLOSED LIMIT: docblock, §15.1 and G-8's\n"
-            ."     closing note). An overflow must be a domain 409, never `recomputeTotal()`'s LogicException 500.\n\n"
-            ."ALSO DUE WITH THE RESTORE: E9-3 (`theArchivedIdProblemIsWhyNo*RestoreShips`) must have gone green on\n"
-            ."`archived` arriving; `RESIDUAL_GAPS.md` G-8 closes;\n"
-            ."THE AUDIT EVENT: mint `<table>.restored` with its writer IN THIS COMMIT -- BUSINESS, subject the order,\n"
-            ."`{}`, no IP (`SEC` 2026-09-29, `docs/session13/roles-s2-sec.md` §3; already filed in `SECURITY_MODEL.md`\n"
-            ."§4.1, so no new ruling is owed). `<table>.deleted` shipped with B-4a (roles slice 2 C1); a restore without\n"
-            ."its event re-opens G-9's asymmetry. Both restores mint together if both ship together;\n"
-            ."`RequestContractTest::archiveTheRowARestoreBinds()` must know the order's collection; and §8.3a --\n"
-            ."under `purchase_order_archived_only_while_draft` (order restores C1, owner OQ-1) a restore needs no draft\n"
-            ."guard (the CHECK is the guard), as `sales_order_archived_only_while_draft` does for sales.\n"
-            ."AND (C5 C2b / C4b, `c5-design.md` §6.3): refuse restoring a draft onto an archived supplier (purchase) or an\n"
-            ."archived customer (sales) -- C5's invariant is that an archived party holds no open document: `DeleteSupplier`\n"
-            ."(C2b) refuses a supplier with an open order and `DeleteCustomer` (C4b) a customer with an open order, an unbilled\n"
-            ."shipment, an unpaid invoice or a credit owed (ruling Q-1 (b′); a check at the moment of archiving, G-45).\n"
-            ."AND (wh-loc-delete C4, design §3.4): refuse restoring a draft onto an ARCHIVED WAREHOUSE in both modules --\n"
-            ."`DeleteWarehouse` refuses a warehouse with any open order (API-O-34), so an archived warehouse holds none; a\n"
-            ."restored draft must not be the first. Take the warehouse `FOR KEY SHARE` as the create/edit liveness reads do (C0).\n\n"
-            ."Then MOVE this entry into OPERATIONS_CARRYING_THE_RESTORE_COLLISIONS with its carrier tests (the sales\n"
-            ."entry is the model) -- never empty or delete the implication. Record: `docs/session12/output9-sales-5-design.md`\n"
-            ."§5; `docs/session13/order-restores-design.md` Revision 1 FINAL C3.",
-            implode(', ', array_keys($arrived)),
-        ));
-    }
-
-    /**
      * **The order-restore implication** (order restores C2, 2026-10-21; R1.6, final RED L-3): while an order restore is in the
-     * spec, every test named in {@see self::OPERATIONS_CARRYING_THE_RESTORE_COLLISIONS} must exist. The pin above keeps the
-     * unbuilt `RestorePurchaseOrder`; this method holds the built ones. Detects a removed or renamed carrier, not a weakened one.
+     * spec, every test named in {@see self::OPERATIONS_CARRYING_THE_RESTORE_COLLISIONS} must exist. Until C3 (2026-10-22) a
+     * pin method beside it held the unbuilt `RestorePurchaseOrder`; it was deleted when that restore shipped (final RED
+     * L-3), and this method now holds both. Detects a removed or renamed carrier, not a weakened one. **V2-R-12b's history**
+     * (the order restore's second trigger, named only in docblocks until 2026-09-21, then pinned): `docs/session12/
+     * output9-sales-5-design.md` §5; the owed list as the pin printed it: `docs/session13/order-restores-design.md` R1.2,
+     * R1.3 and Revision 1 FINAL C2/C3.
      */
     #[Test]
     public function noOrderRestoreIsBuiltWithoutTheTestsThatCarryItsCollisions(): void
@@ -1077,7 +1017,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             "%s\n\nAn ORDER restore owes V2-R-12b's collisions, each translated by constraint name on the restore path only\n"
             ."and each reached ALONE; the number proof; the line-number mapping; Q3 and the total; `<table>.restored`; the\n"
             ."party and warehouse refusals and their locks; and E9-3's twin. These tests carry them. Record:\n"
-            ."`docs/session13/order-restores-design.md` §5 and Revision 1 FINAL C2.",
+            ."`docs/session13/order-restores-design.md` §5, §6 and Revision 1 FINAL C2/C3.",
             implode("\n", $missing),
         ));
     }

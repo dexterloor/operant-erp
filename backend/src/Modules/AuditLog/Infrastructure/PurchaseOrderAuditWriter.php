@@ -213,4 +213,30 @@ final readonly class PurchaseOrderAuditWriter
                 ]);
         });
     }
+
+    /**
+     * `purchase_order.restored` — `RestorePurchaseOrder` (order restores C3, 2026-10-21). Business, subject the order, `{}`,
+     * no IP: `recordDeleted()`'s shape, its inverse. Called by `PurchaseOrderWriter::restore()` after the UPDATE and the
+     * recompute, inside the restoring transaction, so a refused restore — including a 23505 — leaves no row.
+     */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $purchaseOrderId): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $purchaseOrderId): void {
+            $em->getConnection()->executeStatement(<<<'SQL'
+                INSERT INTO audit_log
+                    (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
+                     subject_type, subject_id, ip_address, metadata)
+                VALUES
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, ?, ?::uuid, NULL, '{}'::jsonb)
+                SQL, [
+                    Uuid::v4()->toRfc4122(),
+                    $tenantId,
+                    AuditEvent::PURCHASE_ORDER_RESTORED,
+                    $actorUserId,
+                    $actorLabel,
+                    AuditEvent::SUBJECT_TYPES[AuditEvent::PURCHASE_ORDER_RESTORED],
+                    $purchaseOrderId,
+                ]);
+        });
+    }
 }

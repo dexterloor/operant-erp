@@ -309,7 +309,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (order restores C2, 2026-10-21):** `RestoreSalesOrder` (POST `/sales-orders/{id}/restoration`,
         // `sales_order.delete`; branch 5, 200) on `SalesOrderResource`. Its migrations add `sales_order_tenant_archived_idx` and
         // re-issue the audit catalogue; no grant (`erp_app` holds table-level UPDATE on `sales_order`, measured).
-        self::assertCount(115, $checked, 'The route set changed. This slice declares one hundred and fifteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (order restores C3, 2026-10-22):** `RestorePurchaseOrder` (POST `/purchase-orders/{id}/restoration`,
+        // `purchase_order.delete`; branch 5, 200) on `PurchaseOrderResource`. Its migrations add `purchase_order_tenant_archived_idx`
+        // and re-issue the audit catalogue; no grant (`erp_app` holds table-level UPDATE on `purchase_order`, measured).
+        self::assertCount(116, $checked, 'The route set changed. This slice declares one hundred and sixteen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

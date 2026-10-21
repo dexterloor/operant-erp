@@ -17,6 +17,9 @@ use App\Platform\Http\Pagination\Cursor;
  *
  * `$sort` is one of `PurchaseOrderCollectionProvider::SORT_*`, already checked
  * against the legal set for *this* view (API-19).
+ *
+ * `$archived` (order restores C3) selects the Archived view — the archived orders INSTEAD of the live ones (TB-3); it is
+ * never combined with `$statuses` or `$supplierId` (the provider refuses the combination).
  */
 final readonly class PurchaseOrderListCriteria
 {
@@ -29,6 +32,7 @@ final readonly class PurchaseOrderListCriteria
         public ?string $search = null,
         public ?Cursor $after = null,
         public ?Cursor $before = null,
+        public bool $archived = false,
     ) {
     }
 

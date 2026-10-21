@@ -205,7 +205,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // `INSERT INTO audit_log` literal, executed once per leg (final RED H-1) (PREDICTED; confirmed off this test's run).
         // **26 -> 27 on 2026-10-21** (order restores C2), read off this test's run: `SalesOrderAuditWriter::recordRestored()`'s
         // `INSERT INTO audit_log` for `sales_order.restored`, `recordDeleted()`'s statement with one event name changed.
-        'Modules\\AuditLog' => 27,
+        // **27 -> 28 on 2026-10-22** (order restores C3), read off this test's run: `PurchaseOrderAuditWriter::recordRestored()`'s
+        // `INSERT INTO audit_log` for `purchase_order.restored`.
+        'Modules\\AuditLog' => 28,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -244,7 +246,10 @@ final class WriteOwnershipTest extends KernelTestCase
         'Modules\\Inventory' => 16,
         // **10 -> 11 on 2026-10-21** (order restores C0), read off this test's own failure: `PurchaseOrderWriter::restoreLine()`'s
         // one `UPDATE purchase_order_line SET deleted_at = NULL`, the mirror of `archiveLine()`'s.
-        'Modules\\Purchasing' => 11,
+        // **11 -> 12 on 2026-10-22** (order restores C3), read off this test's run: `PurchaseOrderWriter::RESTORE`'s `UPDATE
+        // purchase_order SET deleted_at = NULL` (`RestorePurchaseOrder`). Its row lock and the two `FOR KEY SHARE` parent reads
+        // are excluded; the recompute's `UPDATE purchase_order SET total_amount` is the shipped statement, already counted.
+        'Modules\\Purchasing' => 12,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
         // `CreateSalesOrderLine` deleted that expression -- `insertOrderInside()`'s own docblock named

@@ -621,8 +621,9 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
      * commit, `SalesOrderLineReadTest`'s CD-4 pin intersected `['DeleteSalesOrder', 'RestoreSalesOrder']` with the
      * registry, so a `RestoreSalesOrder` added then DID go red — for CD-4's reason. The CD-4 pin had to be re-keyed
      * when `DeleteSalesOrder` entered the registry, and after the re-key nothing would have fired on the restore at
-     * all. This test and `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt` are what
-     * replace it, in the same commit.
+     * all. This test and `OwedAmendmentTripwireTest::noOperationOwingTheRestoreCollisionsHasBeenBuilt` (deleted at order
+     * restores C3, 2026-10-22, when both order restores had shipped; the implication
+     * `noOrderRestoreIsBuiltWithoutTheTestsThatCarryItsCollisions` carries them) are what replaced it, in the same commit.
      *
      * **On its TRUE side since order restores C2 (2026-10-21)**: both are declared; kept, never deleted, as
      * `CustomerOperationContractTest`'s twin was at C4a. `OwedAmendmentTripwireTest::noOrderRestoreIsBuiltWithoutTheTestsThatCarryItsCollisions`

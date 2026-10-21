@@ -1670,8 +1670,9 @@ final class PurchaseOrderCreateTest extends PurchaseOrderTestCase
      *
      * `nextOrderNumber()` minted `MAX + 1` over LIVE rows only, so *discard the newest draft, raise another*
      * handed the discarded number on. `DeletePurchaseOrder` has shipped since 2026-09-10, so this was reachable
-     * through the API: two documents then share a number for good, and a future `RestorePurchaseOrder` could never
-     * bring the archived one back (`purchase_order_tenant_number_live` refuses it). Driven through the operations
+     * through the API: two documents then share a number for good, and `RestorePurchaseOrder` (built at order restores
+     * C3) cannot bring the archived one back — it answers `purchase_order.order_number_is_taken_by_a_live_order`
+     * (`PurchaseOrderRestoreTest::aLegacyOrderWhoseNumberALiveOrderWasGivenIsRefusedOnTheNumber`). Driven through the operations
      * themselves — `DeletePurchaseOrder` is built.
      */
     #[Test]

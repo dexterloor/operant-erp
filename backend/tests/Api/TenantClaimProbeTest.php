@@ -255,6 +255,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'DeletePurchaseOrderLine' => ['vars' => ['id' => 'draft', 'lineId' => 'draft_line']],
         // Order-restores C0: an archived second line of the draft, so the baseline restore succeeds.
         'RestorePurchaseOrderLine' => ['vars' => ['id' => 'draft', 'lineId' => 'archived_draft_line']],
+        // Order restores C3: an ARCHIVED draft, so the baseline restore succeeds (a probe whose baseline is refused compares
+        // a refusal with a refusal).
+        'RestorePurchaseOrder' => ['vars' => ['id' => 'archived_draft']],
         'CreateGoodsReceipt' => [
             'vars' => ['id' => 'placed'],
             'body' => ['lines' => [['purchase_order_line_id' => '@placed_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
@@ -797,6 +800,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         $archivedDraftLine = $this->remember($letter, 'archived_draft_line', $this->seedLine($tenantId, $draft, $item, 2));
         $this->insertAsOwnerForTenant($tenantId,
             'UPDATE purchase_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archivedDraftLine]);
+        // Order restores C3: an archived DRAFT of the same supplier and warehouse, so `RestorePurchaseOrder`'s baseline succeeds.
+        $archivedDraft = $this->remember($letter, 'archived_draft', $this->seedOrder($tenantId, 'PO-000009', $supplier, $warehouse));
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE purchase_order SET deleted_at = now() WHERE id = ?::uuid', [$archivedDraft]);
 
         $placed = $this->remember($letter, 'placed',
             $this->seedOrder($tenantId, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED));

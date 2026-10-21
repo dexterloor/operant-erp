@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\Test;
 /**
  * **E9-3 and `⛔ D-a` for `supplier`, as checks rather than sentences** (suppliers slice 1 C1; design FINAL F-2, final RED
  * C1-3). The purchasing twins are `PurchaseOrderOperationContractTest::theArchivedIdProblemIsWhyNoRestoreShips` and
- * `::archivedIsOfferedOnTheBoundedSubListAndNotOnTheDocumentList`.
+ * `::archivedIsOfferedOnTheBoundedSubListAndOnTheDocumentListExactlyWithItsIndex` (renamed at order restores C3).
  *
  * The owner ruled 2026-10-12 (Q-S1 (d)) that `DeleteSupplier` and `RestoreSupplier` ship later, together with
  * `DeleteCustomer`/`RestoreCustomer`, in ONE archived-view slice (C5). These two methods tie the three facts together

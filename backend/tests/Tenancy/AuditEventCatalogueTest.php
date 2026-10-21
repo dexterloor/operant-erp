@@ -220,6 +220,9 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // `SECURITY_MODEL.md` §4.1: BUSINESS, subject the order, `{}`, no IP), which preceded the code: `sales_order.restored`
         // (`RestoreSalesOrder`). Its subject is `sales_order`, so (4c) does not reach it. The purchase twin follows at C3.
         'sales_order.restored',
+        // Edited by hand 2026-10-22 (order restores C3) on the same `SEC` filing: `purchase_order.restored`
+        // (`RestorePurchaseOrder`). Its subject is `purchase_order`.
+        'purchase_order.restored',
         // Edited by hand 2026-10-20 (warehouse/location delete-restore C2) on the same `SEC` filing: ONLY
         // `storage_location.restored` (C2) and `storage_location.deleted` (C3, `DeleteStorageLocation`; `SEC` S-1).
         'storage_location.restored',
