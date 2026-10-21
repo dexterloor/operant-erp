@@ -312,7 +312,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (order restores C3, 2026-10-22):** `RestorePurchaseOrder` (POST `/purchase-orders/{id}/restoration`,
         // `purchase_order.delete`; branch 5, 200) on `PurchaseOrderResource`. Its migrations add `purchase_order_tenant_archived_idx`
         // and re-issue the audit catalogue; no grant (`erp_app` holds table-level UPDATE on `purchase_order`, measured).
-        self::assertCount(116, $checked, 'The route set changed. This slice declares one hundred and sixteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (remaining-ops G7a, 2026-10-21):** `GetSettings` (GET `/settings`, `tenant_settings.view`) on
+        // `SettingsResource`, a singleton with no path variable. A read over `tenant` + `tenant_settings`, which `erp_app`
+        // already SELECTs -- no migration, no grant.
+        self::assertCount(117, $checked, 'The route set changed. This slice declares one hundred and seventeen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

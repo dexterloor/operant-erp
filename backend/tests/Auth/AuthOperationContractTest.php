@@ -148,6 +148,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\StockMovementReadTest::PINNED_STOCK_MOVEMENT_OPERATIONS),
             // Audit reads C1: the `/audit-log` path family (`ListAuditRecords` joined it at C2).
             array_keys(\App\Tests\Api\AuditLogReadTest::PINNED_AUDIT_OPERATIONS),
+            // Remaining-ops G7a: the `/settings` path family (`UpdateSettings` joins it at G7b).
+            array_keys(\App\Tests\Api\SettingsReadTest::PINNED_SETTINGS_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

@@ -1293,6 +1293,12 @@ trait OperationSuccessRecipes
 
                 return [200, 'read'];
             }],
+            // Remaining-ops G7a: the caller's own workspace; `setUp()` seeds its registry and settings rows.
+            'GetSettings' => [$none, function (): array {
+                $this->send('GET', '/settings');
+
+                return [200, 'read'];
+            }],
             // Last two, in this order: the sign-in presents the password the
             // change just set, so both writers on the credential path run.
             'ChangePassword' => [function () use ($password): array {

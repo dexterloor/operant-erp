@@ -92,6 +92,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'authenticated' => false,
         ],
         'GetCurrentUser' => [],
+        // Remaining-ops G7a (final RED L-3): `tenant` has no RLS, so this probe is the one a tenant id could move.
+        'GetSettings' => [],
         'ChangePassword' => [
             'body' => ['current_password' => self::PASSWORD, 'new_password' => 'a-different-password-of-some-length'],
         ],

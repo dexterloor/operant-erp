@@ -94,6 +94,16 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const NO_ID_RESOURCES = ['Permission'];
 
     /**
+     * **Step 2's second exception: a singleton addressed by no id** (remaining-ops G7a, 2026-10-21; fresh RED H-2 in
+     * `docs/session13/cursor-g7a-red.md`). `Settings` is the caller's own workspace: its tables (`tenant`,
+     * `tenant_settings`) HAVE an `id`, so {@see self::NO_ID_RESOURCES}' ground does not apply — but serving one would put a
+     * tenant identifier on the wire (API-6, P-6, T-1) and nothing addresses the resource by it. A separate pin with its
+     * own ground, never a widening of the no-table-`id` one: {@see self::singletonDefects()} requires every read of a member
+     * to be at a path with no `{…}` variable, so the exception cannot be granted to a resource a client addresses by id.
+     */
+    private const SINGLETON_RESOURCES = ['Settings'];
+
+    /**
      * **Owner ruling Q-H (2026-09-30, sales step 7; `API.md` §4.4.3's Q1(d) deferral, discharged as a ruling):** a
      * `fulfilment_line` has no display field — no `name`, `code`, `sku`, document number or `line_number` — so the
      * derivation has nothing to offer and a reference to one fails above unless it is named here. The ruled shape, by
@@ -348,6 +358,16 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             self::noIdDefects(['CurrentUser'], $this->attributesOf(...)),
             'The no-`id` check accepted a planted member that has no table.');
 
+        // Step 2's singleton exception (G7a), named by the rule text, and its control: a planted member read at an
+        // `{id}` path is refused.
+        self::assertStringContainsString('ResponseShapeTest::SINGLETON_RESOURCES', $section,
+            '§4.4.3 step 2 no longer points at the pinned singleton exception (G7a, RED H-2).');
+        self::assertSame(['Role: GetRole reads it at /roles/{id}, a path with a variable, so it is not a singleton'],
+            self::singletonDefects(['Role'], $operations, $rows),
+            'The singleton check accepted a planted member that is addressed by id.');
+        self::assertSame([], self::singletonDefects(self::SINGLETON_RESOURCES, $operations, $rows),
+            'A SINGLETON_RESOURCES member is read at a path with a variable, so the exception is stale.');
+
         // Control 1 — the resource → table tie covers the soft set exactly.
         $tied = array_values($softResources);
         sort($tied);
@@ -391,6 +411,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         $bodies = null;
         $entriesExamined = 0;
         $noIdSeen = [];
+        $singletonSeen = [];
         foreach ($resources as $resource => $readers) {
             $class = self::dtoClassOf($resource, $rows, $operations);
             $embedded = [];
@@ -401,6 +422,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                     $resource.' is in NO_ID_RESOURCES but its DTO carries `id`, so the exception excepts nothing.');
                 unset($expected['id']);
                 $noIdSeen[] = $resource;
+            }
+            if (\in_array($resource, self::SINGLETON_RESOURCES, true)) {
+                self::assertContains('lacks `id`', self::compare($expected, self::serializedFields($class)),
+                    $resource.' is in SINGLETON_RESOURCES but its DTO carries `id`, so the exception excepts nothing.');
+                unset($expected['id']);
+                $singletonSeen[] = $resource;
             }
 
             $hasCreate = [] !== array_filter($rows, static fn (array $row): bool => 'Create / '.$resource === $row['verbResource']);
@@ -451,6 +478,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         self::assertSame([], $defects, 'API-23: a built read DTO and its derived field list disagree.');
         self::assertSame(self::NO_ID_RESOURCES, $noIdSeen, 'A NO_ID_RESOURCES member is not a built read resource, so its exception has no subject.');
+        self::assertSame(self::SINGLETON_RESOURCES, $singletonSeen, 'A SINGLETON_RESOURCES member is not a built read resource, so its exception has no subject.');
         self::assertGreaterThan(0, $entriesExamined, 'No embedded list entry was compared, so the nested half had no subject.');
     }
 
@@ -1009,6 +1037,39 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 $defects[] = \sprintf('%s: no table `%s` exists, so the no-`id` exception has nothing to check it against', $resource, $table);
             } elseif (\in_array('id', $columns, true)) {
                 $defects[] = \sprintf('%s: its table `%s` has an `id` column, so the no-`id` exception is stale', $resource, $table);
+            }
+        }
+
+        return $defects;
+    }
+
+    /**
+     * Step 2's singleton exception as a rule over the registry: every `GET` whose §4.2 row names the member must be at a
+     * path with no `{…}` variable, and there must be at least one.
+     *
+     * @param list<string>                                  $members
+     * @param array<string, \ApiPlatform\Metadata\HttpOperation> $operations
+     * @param array<string, array<string, string>>          $rows
+     *
+     * @return list<string>
+     */
+    private static function singletonDefects(array $members, array $operations, array $rows): array
+    {
+        $defects = [];
+        foreach ($members as $resource) {
+            $reads = 0;
+            foreach ($operations as $name => $operation) {
+                if ('GET' !== $operation->getMethod() || !str_ends_with($rows[$name]['verbResource'] ?? '', ' / '.$resource)) {
+                    continue;
+                }
+                ++$reads;
+                $path = (string) $operation->getUriTemplate();
+                if (str_contains($path, '{')) {
+                    $defects[] = \sprintf('%s: %s reads it at %s, a path with a variable, so it is not a singleton', $resource, $name, $path);
+                }
+            }
+            if (0 === $reads) {
+                $defects[] = $resource.': no built read names it, so the singleton exception has nothing to check';
             }
         }
 

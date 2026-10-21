@@ -42,6 +42,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
     public const PINNED_PERMISSIONS = [
         'IssueToken' => null,
         'GetCurrentUser' => null,
+        // Remaining-ops G7a (2026-10-21): §4.2 :870's `Perm` cell.
+        'GetSettings' => 'tenant_settings.view',
         // §4.2's `—`, ruled on `PasswordResource`: §3's catalogue is closed at
         // sixty codes and none of them fits. `app_user.edit` is the near miss and
         // is the administrative code behind `UpdateUser`, held by `owner` and

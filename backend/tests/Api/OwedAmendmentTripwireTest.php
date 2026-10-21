@@ -452,6 +452,23 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      *
      * @var array<string, string>
      */
+    /**
+     * **`GetSettings` reads `display_name` from `tenant.name` until `UpdateSettings` moves it** (remaining-ops G7a,
+     * 2026-10-21; owner ruling RO-S1, `docs/session13/remaining-ops-ruling.md`; fresh RED M-3, `cursor-g7a-red.md`). The
+     * plan's shipped-behaviour notice — *"GetSettings' `display_name` source moves from `tenant.name` to `tenant_settings`,
+     * backfilled"* — is a sentence; this is its mechanism. Keyed by `operationId`. A PIN, red on arrival.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE = [
+        'UpdateSettings' => 'GetSettings (`SettingsReader`) reads `display_name` from `tenant.name`; in the same commit add '
+            .'`tenant_settings.display_name` backfilled from `tenant.name`, move the read to it, grant `erp_app` column UPDATE on '
+            .'that one column only (never on `tenant`, which has no RLS) and edit `SchemaManifest`\'s `tenant_settings` grants + '
+            .'`TenantSettingsStorageTest::theApplicationPrincipalCannotWriteTheSettingsRowAtAll`, build '
+            .'`SettingsContractTest::everyDeclaredSettingsFieldHasAColumn` (API.md §4.3b), and give the RO-S1 notice (the source '
+            .'moves; the value shown does not change).',
+    ];
+
     private const OPERATIONS_OWING_THE_CATALOGUE_TRAIL = [
         'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion; '
             .'and (C5 C2b, design §6.3) an item\'s preferred supplier may be archived (`DeleteSupplier` keeps the reference and '
@@ -1782,6 +1799,28 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return $found;
+    }
+
+    /**
+     * **RO-S1's source move** — red the moment `UpdateSettings` is in the generated spec. Controls in the same test: the
+     * positive control every sibling uses, a non-empty map, and a planted BUILT key (`GetSettings`) reported.
+     */
+    #[Test]
+    public function noSettingsWriteShipsWithoutMovingTheNameItReads(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertArrayHasKey('GetSettings', $built, 'The reader whose source this pin moves is not built.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE, 'The settings map is empty, so it holds over nothing.');
+        self::assertSame(['GetSettings' => 'x'], array_intersect_key(['GetSettings' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE, $built);
+
+        self::assertSame([], $arrived, \sprintf('%s has been built: %s Do not hand-edit this pin to green.',
+            implode(', ', array_keys($arrived)), implode(' ', $arrived)));
     }
 
     /**
