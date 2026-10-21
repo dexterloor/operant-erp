@@ -6,7 +6,7 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\UserManagement\Application\CurrentUserReader;
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Uid\Uuid;
@@ -137,9 +137,11 @@ final class PermissionEnforcementTest extends ApiTestCase
     {
         $this->actAs(self::TENANT_A, []);
 
+        // P-0 (F-M2): the pin keeps the declaration form (null, 'code', or a list of two or more), so it is normalised
+        // through the same parser as the registry rather than typed `?string` (a list would be a TypeError here).
         $expected = array_keys(array_filter(
-            PermissionEnforcementContractTest::PINNED_PERMISSIONS,
-            static fn (?string $code): bool => null !== $code,
+            PermissionEnforcementContractTest::pinnedRequirements(),
+            static fn (PermissionRequirement $pin): bool => PermissionRequirement::NONE !== $pin->kind(),
         ));
         sort($expected);
 
@@ -150,11 +152,16 @@ final class PermissionEnforcementTest extends ApiTestCase
         $drove = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            $requirement = PermissionRequirement::of($operation);
 
-            if (!\is_string($required)) {
+            if (PermissionRequirement::NONE === $requirement->kind()) {
                 continue;
             }
+
+            // codes() throws on a derived operation: G5-D0 must say how this loop drives one (an empty body names no
+            // resource), rather than the loop skipping it in silence. An empty-handed caller is refused naming the
+            // FIRST code in byte order (F-M2, F-L1).
+            $required = $requirement->codes()[0];
 
             ++$examined;
             $drove[] = (string) $name;
@@ -199,11 +206,13 @@ final class PermissionEnforcementTest extends ApiTestCase
         $examined = 0;
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            $requirement = PermissionRequirement::of($operation);
 
-            if (!\is_string($required)) {
+            if (PermissionRequirement::NONE === $requirement->kind()) {
                 continue;
             }
+
+            $required = implode(' + ', $requirement->codes());
 
             ++$examined;
 
@@ -274,38 +283,42 @@ final class PermissionEnforcementTest extends ApiTestCase
         $aSiblingCodeWasHeld = 0;
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            $requirement = PermissionRequirement::of($operation);
 
-            if (!\is_string($required)) {
+            if (PermissionRequirement::NONE === $requirement->kind()) {
                 continue;
             }
 
-            ++$examined;
+            // Every code but ONE of the required ones, for each required one in turn (an all-of requirement must be
+            // refused whichever code is missing, naming that code).
+            foreach ($requirement->codes() as $required) {
+                ++$examined;
 
-            $held = array_values(array_diff($everyCode, [$required]));
-            $module = strstr($required, '.', true);
+                $held = array_values(array_diff($everyCode, [$required]));
+                $module = strstr($required, '.', true);
 
-            foreach ($held as $code) {
-                if (false !== $module && str_starts_with($code, $module.'.')) {
-                    ++$aSiblingCodeWasHeld;
+                foreach ($held as $code) {
+                    if (false !== $module && str_starts_with($code, $module.'.')) {
+                        ++$aSiblingCodeWasHeld;
 
-                    break;
+                        break;
+                    }
                 }
+
+                $this->actAs(self::TENANT_A, $held);
+
+                $this->send(
+                    (string) $operation->getMethod(),
+                    $this->concretePathFor($operation),
+                    \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
+                );
+
+                self::assertSame(403, $this->httpStatus(),
+                    $name.' did not refuse a caller who holds every declared code except '.$required.'. Body: '
+                    .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+                self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $name);
+                self::assertSame($required, $this->json()['required_permission'], $name);
             }
-
-            $this->actAs(self::TENANT_A, $held);
-
-            $this->send(
-                (string) $operation->getMethod(),
-                $this->concretePathFor($operation),
-                \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
-            );
-
-            self::assertSame(403, $this->httpStatus(),
-                $name.' did not refuse a caller who holds every declared code except '.$required.'. Body: '
-                .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
-            self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $name);
-            self::assertSame($required, $this->json()['required_permission'], $name);
         }
 
         self::assertGreaterThan(0, $examined,

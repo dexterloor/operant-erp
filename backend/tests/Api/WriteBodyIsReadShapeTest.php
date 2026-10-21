@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -62,7 +63,6 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
                 $byId[$id] = $data['operation'];
             }
         }
-        $codes = PermissionEnforcementContractTest::PINNED_PERMISSIONS;
 
         $defects = [];
         $admitted = [];
@@ -92,8 +92,13 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
                 $defects[] = $id.' returns a body, and '.$resource.' has no Get and no List: PC-17 has no read shape to hold it to (add it to NO_READ with a reason, or build the read)';
                 continue;
             }
-            if (!str_ends_with((string) ($codes[$readId] ?? ''), '.view')) {
-                $defects[] = $id.'\'s read '.$readId.' is gated on '.var_export($codes[$readId] ?? null, true).', not a .view code: PC-17 does not apply, so this body must be ruled by name';
+            // P-0 (F-M2): the pin is in declaration form, so it is read through the parser -- a list cast to string
+            // would be "Array" and report every write. A read gated on all-of codes counts only if every one is `.view`.
+            $read = PermissionEnforcementContractTest::pinnedRequirement((string) $readId);
+            $viewOnly = PermissionRequirement::ALL_OF === $read->kind()
+                && [] === array_filter($read->codes(), static fn (string $code): bool => !str_ends_with($code, '.view'));
+            if (!$viewOnly) {
+                $defects[] = $id.'\'s read '.$readId.' is gated on '.$read->describe().', not a .view code: PC-17 does not apply, so this body must be ruled by name';
                 continue;
             }
             if (!self::sameShape($body, $readSchema, $spec)) {

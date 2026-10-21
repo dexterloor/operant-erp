@@ -9,6 +9,7 @@ use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use App\Platform\Tenancy\SchemaManifest;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
@@ -99,10 +100,13 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         $pairs = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            // P-0: an empty-handed caller is refused naming the FIRST code (byte order), and the denial row's derived type
+            // reads that code -- so the first code is the one the derivation below is about. codes() throws on DERIVED.
+            $requirement = PermissionRequirement::of($operation);
+            $required = PermissionRequirement::NONE === $requirement->kind() ? null : $requirement->codes()[0];
             $template = self::templateOf($operation);
 
-            if (!\is_string($required) || 0 === preg_match_all('/\{([^}]+)\}/', $template, $variables)) {
+            if (null === $required || 0 === preg_match_all('/\{([^}]+)\}/', $template, $variables)) {
                 continue;
             }
 
@@ -388,8 +392,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         $gets = [];
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $template = self::templateOf($operation);
-            $required = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
-            if ('GET' !== $operation->getMethod() || !str_ends_with($template, '}') || !\is_string($required)) {
+            $requirement = PermissionRequirement::of($operation);
+            $required = PermissionRequirement::NONE === $requirement->kind() ? null : $requirement->codes()[0];
+            if ('GET' !== $operation->getMethod() || !str_ends_with($template, '}') || null === $required) {
                 continue;
             }
             $table = self::PATH_SEGMENT_OVERRIDES[self::normalised($template)] ?? self::addressedTable($template, $required, array_keys(SchemaManifest::TABLES));

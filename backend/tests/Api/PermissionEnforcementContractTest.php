@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\PermissionCell;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -37,7 +38,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
      * §4.2's `Perm` cell for every operation this wave ships, transcribed once.
      * `null` is the column's `—`.
      *
-     * @var array<string, string|null>
+     * **P-0 (2026-10-22, `g3-g7b-final-red.md` F-M2): a pin keeps the DECLARATION form** -- `null`, `'code'`, or a list of
+     * two or more codes in byte order -- never a one-element list, which the declarations are forbidden to use. Pin and
+     * registry are both normalised through `PermissionRequirement` before they are compared.
+     *
+     * @var array<string, string|list<string>|null>
      */
     public const PINNED_PERMISSIONS = [
         'IssueToken' => null,
@@ -275,6 +280,37 @@ final class PermissionEnforcementContractTest extends ApiTestCase
     ];
 
     /**
+     * **P-0 (RED M-2): a derived pin's resolver.** A pin spells a derived permission as `PermissionGate::DERIVED`, exactly
+     * as the declaration does, and its resolver service id lives here (the declaration's second extra). Empty until
+     * G5-D0 ships a derived operation. Every pin read goes through {@see self::pinnedRequirement()}, so G5-D0 adds a row
+     * here and edits no consumer.
+     *
+     * @var array<string, string>
+     */
+    public const PINNED_RESOLVERS = [];
+
+    /** One pin, normalised through the same parser as the registry. */
+    public static function pinnedRequirement(string $operationId): PermissionRequirement
+    {
+        return PermissionRequirement::fromDeclaration(
+            self::PINNED_PERMISSIONS[$operationId] ?? null,
+            self::PINNED_RESOLVERS[$operationId] ?? null,
+            $operationId,
+        );
+    }
+
+    /** @return array<string, PermissionRequirement> every pin, normalised */
+    public static function pinnedRequirements(): array
+    {
+        $requirements = [];
+        foreach (array_keys(self::PINNED_PERMISSIONS) as $operationId) {
+            $requirements[$operationId] = self::pinnedRequirement($operationId);
+        }
+
+        return $requirements;
+    }
+
+    /**
      * Claim 1. The domain is the registry and the pin has to cover all of it, so
      * an operation added without a `Perm` decision fails twice — once for having
      * no declaration, once for not being in the pin.
@@ -291,22 +327,23 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         $declared = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $extra = $operation->getExtraProperties();
-
-            self::assertArrayHasKey(PermissionGate::OPERATION_PERMISSION, $extra,
-                $name.' declares no required permission. §4.2 gives every row a `Perm` cell, and an '
-                .'operation that declares nothing is one nobody decided about — PermissionGate refuses '
-                .'to guess, so this would be a 500 on its first request.');
-
-            $code = $extra[PermissionGate::OPERATION_PERMISSION];
-            self::assertTrue(null === $code || (\is_string($code) && '' !== $code),
-                $name.' declares a required permission that is neither a code nor §4.2\'s `—`.');
-
-            $declared[$name] = $code;
+            // P-0: the one parser. An absent declaration, and any declaration outside the forms, is its LogicException.
+            try {
+                $declared[$name] = PermissionRequirement::of($operation)->describe();
+            } catch (\LogicException $e) {
+                self::fail($name.' declares no usable required permission ('.$e->getMessage().'). §4.2 gives every row a '
+                    .'`Perm` cell, and an operation that declares nothing is one nobody decided about — PermissionGate '
+                    .'refuses to guess, so this would be a 500 on its first request.');
+            }
         }
 
         ksort($declared);
-        $pinned = self::PINNED_PERMISSIONS;
+        $pinned = [];
+        foreach (self::pinnedRequirements() as $name => $pin) {
+            $pinned[$name] = $pin->describe();
+        }
+        self::assertSame([], array_diff_key(self::PINNED_RESOLVERS, self::PINNED_PERMISSIONS),
+            'A resolver is pinned for an operation that has no pin.');
         ksort($pinned);
 
         self::assertSame($pinned, $declared,
@@ -386,14 +423,70 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         $rows = ContractDocument::operationRows();
         self::assertGreaterThan(50, \count($rows), 'The §4.2 parser found almost nothing, so every comparison below would be vacuous.');
 
-        foreach (self::PINNED_PERMISSIONS as $operationId => $pinned) {
+        foreach (self::pinnedRequirements() as $operationId => $pin) {
             self::assertArrayHasKey($operationId, $rows, $operationId.' is shipped and §4.2 declares no row for it.');
 
             $cell = $rows[$operationId]['perm'];
+            $parsed = $rows[$operationId]['permission'];
+            $enforced = PermissionRequirement::ALL_OF === $pin->kind() ? $pin->codes() : [];
 
-            self::assertSame($pinned ?? '—', $cell,
-                $operationId.'\'s `Perm` cell is "'.$cell.'" and this suite enforces "'.($pinned ?? '—').'".');
+            // Cell order is checked as written: the codes() of a pin are byte-sorted by construction, so a cell listing
+            // the same codes in another order is red here (F-L1: declaration == sorted == cell).
+            self::assertSame([$pin->kind(), $enforced], [$parsed['kind'], $parsed['codes']],
+                $operationId.'\'s `Perm` cell is "'.$cell.'" and this suite enforces "'.$pin->describe().'".');
         }
+    }
+
+    /**
+     * **P-0: the `Perm`-cell grammar, both directions** (`g3-g7b-final-red.md` F-M2). Planted cells first (they run on
+     * every checkout): each form parses to its kind, both live derived spellings are derived, and a cell outside the
+     * grammar is `unparsed` -- never silently `none`. Then every §4.2 row, built or not, must parse.
+     */
+    #[Test]
+    public function everyPermCellIsInTheGrammar(): void
+    {
+        self::assertSame(['kind' => 'none', 'codes' => []], PermissionCell::parse(' — '));
+        self::assertSame(['kind' => 'all_of', 'codes' => ['a.view']], PermissionCell::parse('`a.view`'));
+        self::assertSame(['kind' => 'all_of', 'codes' => ['b.view', 'a.view']], PermissionCell::parse('`b.view` `a.view`'),
+            'Cell order must be preserved, so an unsorted cell can be caught against the byte-sorted declaration.');
+        self::assertSame(['kind' => 'derived', 'codes' => []], PermissionCell::parse('*(derived)*'));
+        self::assertSame(['kind' => 'derived', 'codes' => []], PermissionCell::parse('*(derived — see below)*'));
+        foreach (['', '`a.view`,`b.view`', 'a.view', '`A.View`', '*derived*'] as $outside) {
+            self::assertSame('unparsed', PermissionCell::parse($outside)['kind'], var_export($outside, true).' parsed.');
+        }
+
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored and absent from this checkout; the planted cells above were checked, §4.2\'s rows were not.');
+        }
+
+        $rows = ContractDocument::operationRows();
+        self::assertGreaterThan(50, \count($rows), 'The §4.2 parser found almost nothing.');
+        $unparsed = [];
+        foreach ($rows as $operationId => $row) {
+            if ('unparsed' === $row['permission']['kind']) {
+                $unparsed[] = $operationId.' => '.($row['permission']['codes'][0] ?? '');
+            }
+        }
+        self::assertSame([], $unparsed, '§4.2 rows whose `Perm` cell is outside the grammar.');
+
+        // RED L-3 / F-L1, for every row built or not: a multi-code cell is distinct codes in byte order -- the order the
+        // declaration must use and the 403 names the first missing one in.
+        $misordered = [];
+        $multi = 0;
+        foreach ($rows as $operationId => $row) {
+            $codes = $row['permission']['codes'];
+            if ('all_of' !== $row['permission']['kind'] || \count($codes) < 2) {
+                continue;
+            }
+            ++$multi;
+            $sorted = array_values(array_unique($codes));
+            sort($sorted, \SORT_STRING);
+            if ($sorted !== $codes) {
+                $misordered[] = $operationId.' => '.implode(' ', $codes);
+            }
+        }
+        self::assertGreaterThan(0, $multi, 'No §4.2 cell carries two or more codes, so the order rule had no subject.');
+        self::assertSame([], $misordered, '§4.2 multi-code `Perm` cells that are not distinct and byte-sorted.');
     }
 
     /**
@@ -411,14 +504,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         $withoutACode = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            // `??` cannot be used to ask this question: it treats a declared
-            // `null` as an absent key, which is precisely the distinction §4.2's
-            // `—` turns on. `array_key_exists` is the whole reason the gate can
-            // tell "no code required" from "nobody decided".
-            $extra = $operation->getExtraProperties();
-
-            if (!\array_key_exists(PermissionGate::OPERATION_PERMISSION, $extra)
-                || null !== $extra[PermissionGate::OPERATION_PERMISSION]) {
+            // A declared `null` is NONE and an absent key is a LogicException inside `PermissionRequirement::of()` --
+            // the distinction §4.2's `—` turns on ("no code required" vs "nobody decided") lives in that one parser.
+            if (PermissionRequirement::NONE !== PermissionRequirement::of($operation)->kind()) {
                 continue;
             }
 

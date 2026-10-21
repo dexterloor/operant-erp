@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PhpSourceScan;
 use App\Tests\Support\ResidualGapsDocument;
@@ -924,11 +924,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
                     isset($built[$operation]) ? ', and '.$operation.' IS' : '');
                 continue;
             }
-            $permission = isset($registry[$pickRead])
-                ? ($registry[$pickRead]->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null)
-                : null;
-            if (self::THE_PICK_READS_PERMISSION !== $permission) {
-                $defects[] = \sprintf('%s is gated on %s, not on %s alone.', $pickRead, var_export($permission, true), self::THE_PICK_READS_PERMISSION);
+            // P-0: read through the one parser; "alone" is exactly ALL_OF of the one code (a list adding a second code, or a
+            // derived requirement, is mis-gated too).
+            $permission = isset($registry[$pickRead]) ? PermissionRequirement::of($registry[$pickRead])->describe() : 'not registered';
+            if (PermissionRequirement::fromDeclaration(self::THE_PICK_READS_PERMISSION)->describe() !== $permission) {
+                $defects[] = \sprintf('%s is gated on %s, not on %s alone.', $pickRead, $permission, self::THE_PICK_READS_PERMISSION);
             }
         }
 

@@ -22,7 +22,7 @@ use App\Modules\AuditLog\Infrastructure\StorageLocationAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Api\OperationSuccessRecipes;
 use App\Tests\Api\PurchaseOrderTestCase;
@@ -941,9 +941,13 @@ final class AuditWriterTest extends PurchaseOrderTestCase
 
         $this->actAs(self::TENANT_A, []);
         foreach ($registry as $name => $operation) {
-            if (!\is_string($operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null)) {
+            // P-0: NONE is skipped by kind. A derived operation is NOT skipped: it fails here until G5-D0 decides how an
+            // empty-handed caller drives it (the old `\is_string()` filter would have dropped it in silence).
+            $kind = PermissionRequirement::of($operation)->kind();
+            if (PermissionRequirement::NONE === $kind) {
                 continue;
             }
+            self::assertSame(PermissionRequirement::ALL_OF, $kind, $name.' declares a derived permission; G5-D0 owes this sweep its arm.');
             $this->send((string) $operation->getMethod(),
                 (string) preg_replace_callback('/\{[^}]+\}/', static fn (): string => Uuid::v4()->toRfc4122(), (string) $operation->getUriTemplate()),
                 \in_array($operation->getMethod(), ['POST', 'PATCH'], true) ? [] : null);

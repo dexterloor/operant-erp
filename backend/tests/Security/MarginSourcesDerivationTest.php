@@ -11,7 +11,7 @@ use App\Modules\UserManagement\Domain\MarginExposure;
 use App\Modules\UserManagement\Domain\MarginSources;
 use App\Modules\UserManagement\Domain\RoleCompanions;
 use App\Modules\UserManagement\Domain\RoleDefinitionRules;
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Tenancy\TenancyTestCase;
@@ -275,7 +275,7 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
 
         $permissions = [];
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $permissions[$name] = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
+            $permissions[$name] = PermissionRequirement::of($operation);
         }
 
         $seen = [];
@@ -289,9 +289,15 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
                     if (MarginSources::NEITHER === $class) {
                         continue;
                     }
-                    $code = $permissions[$id] ?? null;
-                    self::assertIsString($code, $id.' serves '.$field.' with no Perm code, so it cannot be a source.');
-                    $sources[$class][$code] = [$code];
+                    // P-0 (F-H1 point 4): by kind, and NEVER the union of a derived requirement's possible codes -- for
+                    // DERIVED that set is a disjunction, and as a source it would read as all-of.
+                    $requirement = $permissions[$id] ?? null;
+                    $set = match ($requirement?->kind()) {
+                        PermissionRequirement::ALL_OF => $requirement->codes(),
+                        PermissionRequirement::DERIVED => self::fail($id.' serves '.$field.' under a derived permission: wire per-resource codes (PC-12 cl. 2 bullet 2) before a derived operation serves money.'),
+                        default => self::fail($id.' serves '.$field.' with no Perm code, so it cannot be a source.'),
+                    };
+                    $sources[$class][implode(',', $set)] = $set;
                 }
             }
         }

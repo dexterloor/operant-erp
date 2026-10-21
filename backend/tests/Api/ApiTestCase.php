@@ -6,7 +6,8 @@ namespace App\Tests\Api;
 
 use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Platform\Security\Identity;
-use App\Platform\Security\PermissionGate;
+use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\Platform\Security\RequestIdentity;
 use App\Tests\Support\OwnerRequestWindow;
 use App\Tests\Support\SqlRecorder;
@@ -262,12 +263,15 @@ abstract class ApiTestCase extends TenancyTestCase
      */
     protected static function everyDeclaredPermission(): array
     {
+        // P-0: through the container-aware seam, so a derived operation (G5-D0) is answered by its resolver, or throws --
+        // never silently dropped from "holds everything" the way `\is_string()` dropped it (F-H1 point 3).
+        $requirements = static::getContainer()->get(PermissionRequirements::class);
+        \assert($requirements instanceof PermissionRequirements);
+
         $codes = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $operation) {
-            $code = $operation->getExtraProperties()[PermissionGate::OPERATION_PERMISSION] ?? null;
-
-            if (\is_string($code)) {
+            foreach ($requirements->possibleCodes(PermissionRequirement::of($operation)) as $code) {
                 $codes[] = $code;
             }
         }

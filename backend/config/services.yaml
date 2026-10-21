@@ -75,6 +75,9 @@ services:
             # it would have the container try to autowire a constructor that
             # takes a tenant id.
             - '../src/Platform/Security/Identity.php'
+            # P-0 (2026-10-22): an operation's parsed permission declaration. Data, not a service: built by
+            # `PermissionRequirement::of()` from operation metadata; `PermissionRequirements` is the service.
+            - '../src/Platform/Security/PermissionRequirement.php'
             - '../src/Modules/Inventory/ApiResource/{CreateItemInput.php,UpdateItemInput.php,SupplierReference.php}'
             - '../src/Modules/Inventory/Application/{ItemRow.php,ItemListCriteria.php}'
             # Stock reads C1 (2026-10-14): the stock row's read model and its three references — data, not services.

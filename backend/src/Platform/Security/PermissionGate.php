@@ -95,6 +95,17 @@ final readonly class PermissionGate
     public const OPERATION_PERMISSION = 'required_permission';
 
     /**
+     * **P-0 (2026-10-22): the sentinel an operation declares as its {@see self::OPERATION_PERMISSION} when its one code is
+     * resolved from the request** (G5-D0, `g5-g6-bulk-export-design.md` §5.1a). Never a real code: it is not §3-shaped, so
+     * no principal can hold it. It is only meaningful beside {@see self::DERIVED_PERMISSION}. Parsed by
+     * {@see PermissionRequirement}; resolved by nothing yet -- a derived operation fails closed until G5-D0.
+     */
+    public const DERIVED = '(derived)';
+
+    /** P-0: the extra property naming a derived requirement's resolver service id (G5-D0). */
+    public const DERIVED_PERMISSION = 'derived_permission';
+
+    /**
      * **F-1 (2026-09-29): the extra property an operation carries when its denial's subject is NOT the permission's
      * resource** — `[<table>, <route variable>]`. Optional; absent means the default derivation below, which is right
      * for every path whose first id addresses the permission's own resource (`/items/{id}` under
@@ -113,6 +124,7 @@ final readonly class PermissionGate
         private CurrentOperation $operations,
         private RequestIdentity $identities,
         private DenialAuditWriter $denials,
+        private PermissionRequirements $requirements,
     ) {
     }
 
@@ -124,26 +136,13 @@ final readonly class PermissionGate
             return;
         }
 
-        $extra = $operation->getExtraProperties();
+        // P-0: the declaration is read in ONE place. An absent key is still a LogicException with the same text, and a
+        // malformed one is too; the kinds are matched inside PermissionRequirements, never here.
+        $required = $this->requirements->demandedBy(PermissionRequirement::of($operation), $event->getRequest());
 
-        if (!\array_key_exists(self::OPERATION_PERMISSION, $extra)) {
-            throw new \LogicException(\sprintf(
-                'Operation "%s" declares no "%s" extra property. Every operation must declare §4.2\'s '
-                .'Perm cell — a permission code, or null for the column\'s "—". An operation that '
-                .'declares nothing is an operation nobody decided about, and this gate refuses to '
-                .'guess in the direction that ships it unchecked.',
-                (string) $operation->getName(),
-                self::OPERATION_PERMISSION,
-            ));
-        }
-
-        $required = $extra[self::OPERATION_PERMISSION];
-
-        if (null === $required) {
+        if ([] === $required) {
             return;
         }
-
-        \assert(\is_string($required));
 
         $identity = $this->identities->current();
 
@@ -157,11 +156,22 @@ final readonly class PermissionGate
                 'Operation "%s" requires "%s" but no identity was resolved. A pre-authentication '
                 .'operation cannot require a permission code.',
                 (string) $operation->getName(),
-                $required,
+                implode('", "', $required),
             ));
         }
 
-        if ($identity->holds($required)) {
+        // All of them, in byte order: the refusal names the FIRST missing code (F-L1, F-L7 -- a caller lacking several
+        // learns them one at a time). With one code this is exactly the old single decision.
+        $missing = null;
+        foreach ($required as $code) {
+            if (!$identity->holds($code)) {
+                $missing = $code;
+
+                break;
+            }
+        }
+
+        if (null === $missing) {
             return;
         }
 
@@ -171,13 +181,13 @@ final readonly class PermissionGate
             tenantId: $identity->tenantId,
             actorUserId: $identity->userId,
             actorLabel: $identity->actorLabel,
-            permissionCode: $required,
+            permissionCode: $missing,
             subjectId: $subjectId,
             ipAddress: $event->getRequest()->getClientIp(),
             subjectType: $subjectType,
         );
 
-        throw ApiProblem::permissionDenied($required);
+        throw ApiProblem::permissionDenied($missing);
     }
 
     /**

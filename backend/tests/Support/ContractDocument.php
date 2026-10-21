@@ -82,7 +82,10 @@ final class ContractDocument
      * §4.2's rows. The field-count rule is §3.3's own: with `-F'|'` a
      * well-formed row has 11 fields, so the columns are $2 … $10.
      *
-     * @return array<string, array{operationId: string, verbResource: string, method: string, path: string, perm: string, idem: string, accepts: string, errors: string, query: string}>
+     * `perm` is the cell with its outer backticks trimmed (the historical reading); `permission` is the same cell PARSED by
+     * {@see PermissionCell::parse()} (P-0).
+     *
+     * @return array<string, array{operationId: string, verbResource: string, method: string, path: string, perm: string, permission: array{kind: string, codes: list<string>}, idem: string, accepts: string, errors: string, query: string}>
      */
     public static function operationRows(): array
     {
@@ -108,6 +111,7 @@ final class ContractDocument
                 'method' => $cells[3],
                 'path' => trim($cells[4], '`'),
                 'perm' => trim($cells[5], '`'),
+                'permission' => PermissionCell::parse($cells[5]),
                 'idem' => self::mechanismCell($cells[6]),
                 'accepts' => $cells[7],
                 'errors' => $cells[8],
