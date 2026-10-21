@@ -84,9 +84,10 @@ trait RoleGrantFixtures
 
     /**
      * A PENDING proposal seeded by owner INSERT, `$ageHours` old (`proposed_at = clock_timestamp() - age`; the window
-     * CHECK holds `expires_at` at + 336 hours). Its snapshot is the role's live codes, sorted.
+     * CHECK holds `expires_at` at + 336 hours). Its snapshot is the role's live codes, sorted. A NEGATIVE `$ageSeconds`
+     * seeds it in the database's future — what a decision sees after the clock stepped back (proposal clock fix, T-A).
      */
-    private function seedPendingProposal(string $userId, string $roleId, string $proposerId, int $ageHours = 0): string
+    private function seedPendingProposal(string $userId, string $roleId, string $proposerId, int $ageHours = 0, int $ageSeconds = 0): string
     {
         $id = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
@@ -94,8 +95,8 @@ trait RoleGrantFixtures
             SELECT ?::uuid, ?::uuid, ?::uuid, ?::uuid,
                    COALESCE((SELECT jsonb_agg(rp.permission_code ORDER BY rp.permission_code) FROM role_permission rp WHERE rp.role_id = ?::uuid), '["role.view"]'::jsonb),
                    ?::uuid, c.t, c.t + interval '336 hours'
-              FROM (SELECT clock_timestamp() - make_interval(hours => ?) AS t) c
-            SQL, [$id, self::TENANT_A, $userId, $roleId, $roleId, $proposerId, $ageHours]);
+              FROM (SELECT clock_timestamp() - make_interval(hours => ?, secs => ?) AS t) c
+            SQL, [$id, self::TENANT_A, $userId, $roleId, $roleId, $proposerId, $ageHours, $ageSeconds]);
 
         return $id;
     }

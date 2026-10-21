@@ -1435,7 +1435,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
         $holder = $this->raceAgainstAHolder($i['invoice'], before: [
             ["UPDATE invoice SET status = 'issued', paid_at = NULL, paid_by_user_id = NULL, updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
-            ['UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, now()) WHERE id = ?::uuid', [$i['invoice']]],
+            ["UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, CASE WHEN issued_at - now() <= interval '60 seconds' THEN GREATEST(now(), issued_at) ELSE now() END) WHERE id = ?::uuid", [$i['invoice']]], // InvoicePaymentReversal::MARK_REVERSED, verbatim
         ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/payment-reversal', ['reason' => 'Concurrent']), table: 'invoice');
 
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);
@@ -1512,7 +1512,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
 
         $holder = $this->raceAgainstAHolder($i['invoice'], before: [
             ["UPDATE invoice SET status = 'issued', paid_at = NULL, paid_by_user_id = NULL, updated_at = now() WHERE id = ?::uuid", [$i['invoice']]],
-            ['UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, now()) WHERE id = ?::uuid', [$i['invoice']]],
+            ["UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, CASE WHEN issued_at - now() <= interval '60 seconds' THEN GREATEST(now(), issued_at) ELSE now() END) WHERE id = ?::uuid", [$i['invoice']]], // InvoicePaymentReversal::MARK_REVERSED, verbatim
         ], request: fn () => $this->send('POST', '/invoices/'.$i['invoice'].'/void', ['reason' => 'Concurrent']), table: 'invoice');
 
         $this->assertTheHolderWasWaitedOnAndCommitted($holder);

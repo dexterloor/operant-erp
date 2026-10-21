@@ -24,14 +24,25 @@ use Symfony\Component\Uid\Uuid;
  *
  * **Four transitions, all present from C1** (`TransitionGuardTest` clause (b): every `STATUS_*` reachable by a declared
  * method), whose callers arrive over C1–C3: `lapse()` (C1, Create's lapse-on-touch), `confirm()` (C2), `reject()`,
- * `cancel()` (C3). Each FIRST refuses anything but `pending`, then sets `status`, `decidedAt` and `updatedAt` from the
- * SAME `$at` — the post-lock database instant (S-11) — and the decider where a human decides. **Transitions read status
+ * `cancel()` (C3). Each FIRST refuses anything but `pending`, then sets `status` and `updatedAt` from `$at` — the
+ * post-lock database instant (S-11) — `decidedAt` from `decisionInstant($at)`, and the decider where a human decides.
+ * **Transitions read status
  * only** (RED R2-M5): confirmer ≠ proposer, canceller = proposer, E-15a and the `reason` length are the handlers' rules
  * (and CHECKs), never these methods'.
  *
  * `decided_at` is written at MICROSECOND precision (`DATA` §2): `role_grant_proposal_decided_not_before_proposed`
  * compares it with `proposed_at`, which the database writes with microseconds, and the default type drops the fraction —
- * a decision in the proposal's own second would land before it (`Invoice::$paidAt`'s precedent).
+ * a decision in the proposal's own second would land before it (`Invoice::$paidAt`'s precedent). The clamp below relies
+ * on it too: `max($at, $proposedAt)` must land EXACTLY on `proposed_at`, not a fraction below it.
+ *
+ * **The decision is never dated before the proposal, even when the database clock steps back** (proposal clock fix,
+ * 2026-10-21). `proposed_at` and `$at` are both `clock_timestamp()`, but read in two transactions, and that is a wall
+ * clock: a backward step between them (the Lima host agent pulls a fast VM guest back ~0.1 s every few seconds; NTP can
+ * step a server) made `$at` earlier than the proposal, and `role_grant_proposal_decided_not_before_proposed` answered
+ * 23514 as a 500. `decisionInstant()` stores `max($at, $proposedAt)` — within `CLOCK_STEP_TOLERANCE_SECONDS`. A proposal
+ * further ahead than that is no clock step: it was written outside the application (G-10's residual — SQL as `erp_app`
+ * chooses `proposed_at`), and it is refused rather than silently decided in the future. Expiry is still decided on the
+ * unclamped `$at` (the handlers' SQL), so the clamp moves only the stored decision instant.
  *
  * The four associations are single-column `ManyToOne`s — never a composite association (the composite FKs are database
  * constraints; `DoctrineMappingTest`). Handlers read the subject and the role by id through DBAL, never through these
@@ -54,6 +65,9 @@ class RoleGrantProposal
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_CANCELLED = 'cancelled';
     public const STATUS_LAPSED = 'lapsed';
+
+    /** The house clock slack (`InvoicePayment::CLOCK_SKEW_SECONDS`): how far a proposal may lie ahead of the decision's clock. */
+    public const CLOCK_STEP_TOLERANCE_SECONDS = 60;
 
     #[ORM\Id]
     #[ORM\Column(type: UuidType::NAME)]
@@ -156,10 +170,10 @@ class RoleGrantProposal
     public function confirm(\DateTimeImmutable $at, AppUser $by): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+        $this->decidedAt = $this->decisionInstant($at); // first: a refused instant changes nothing
 
         $this->status = self::STATUS_CONFIRMED;
         $this->decidedBy = $by;
-        $this->decidedAt = $at;
         $this->updatedAt = $at;
     }
 
@@ -167,10 +181,10 @@ class RoleGrantProposal
     public function reject(\DateTimeImmutable $at, AppUser $by, ?string $reason): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+        $this->decidedAt = $this->decisionInstant($at); // first: a refused instant changes nothing
 
         $this->status = self::STATUS_REJECTED;
         $this->decidedBy = $by;
-        $this->decidedAt = $at;
         $this->updatedAt = $at;
         $this->reason = $reason;
     }
@@ -179,10 +193,10 @@ class RoleGrantProposal
     public function cancel(\DateTimeImmutable $at, AppUser $by): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+        $this->decidedAt = $this->decisionInstant($at); // first: a refused instant changes nothing
 
         $this->status = self::STATUS_CANCELLED;
         $this->decidedBy = $by;
-        $this->decidedAt = $at;
         $this->updatedAt = $at;
     }
 
@@ -194,10 +208,27 @@ class RoleGrantProposal
     public function lapse(string $reason, \DateTimeImmutable $at): void
     {
         $this->refuseUnlessStatusIsOneOf(__FUNCTION__, [self::STATUS_PENDING]);
+        $this->decidedAt = $this->decisionInstant($at); // first: a refused instant changes nothing
 
         $this->status = self::STATUS_LAPSED;
         $this->lapseReason = $reason;
-        $this->decidedAt = $at;
         $this->updatedAt = $at;
+    }
+
+    /**
+     * The stored decision instant: `$at`, or the proposal's own instant when the clock has stepped back past it (never
+     * before what it decides — the CHECK is kept). Beyond the tolerance the row did not come from the application.
+     */
+    private function decisionInstant(\DateTimeImmutable $at): \DateTimeImmutable
+    {
+        if ($this->proposedAt > $at->modify('+'.self::CLOCK_STEP_TOLERANCE_SECONDS.' seconds')) {
+            throw new \RuntimeException(\sprintf(
+                'Role grant proposal %s was proposed at %s, more than %d seconds after the database clock now reads (%s). No '
+                .'clock step explains that: the row was written outside the application (RESIDUAL_GAPS.md G-10). Nothing was decided.',
+                $this->id->toRfc4122(), $this->proposedAt->format('Y-m-d H:i:s.uP'), self::CLOCK_STEP_TOLERANCE_SECONDS, $at->format('Y-m-d H:i:s.uP'),
+            ));
+        }
+
+        return max($at, $this->proposedAt);
     }
 }

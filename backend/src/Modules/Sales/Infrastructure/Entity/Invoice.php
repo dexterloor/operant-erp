@@ -151,9 +151,10 @@ class Invoice
     /**
      * **B′: when a payment on this invoice was FIRST reversed** (sales step 6, C6; owner ruling (d), `SEC` §15). Set once,
      * never cleared. **Read-only to the ORM** (`insertable: false, updatable: false`): `reversePayment()` does not write
-     * it. `InvoicePaymentReversal` sets it with `COALESCE(payment_reversed_at, now())` in SQL, after the flush, in the
-     * same locked transaction — the database clock, the same clock as `issued_at` and
-     * `invoice_payment_reversed_not_before_issue` (RED-3 F-1). C7's `VoidInvoice` reads it (only an owner may void a
+     * it. `InvoicePaymentReversal` sets it with `COALESCE(payment_reversed_at, GREATEST(now(), issued_at))` (bounded to
+     * 60 s) in SQL, after the flush, in the same locked transaction — the database clock, the same clock as `issued_at`
+     * and `invoice_payment_reversed_not_before_issue` (RED-3 F-1), clamped because that wall clock can step back between
+     * the issue and the reversal (proposal clock fix, 2026-10-21). C7's `VoidInvoice` reads it (only an owner may void a
      * reversed invoice). Not on the wire (`SEC` §17.2 permits a `payment_reversed` boolean; not built — see the build log).
      */
     #[ORM\Column(name: 'payment_reversed_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true, insertable: false, updatable: false)]

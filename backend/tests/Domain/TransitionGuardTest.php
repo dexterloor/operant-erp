@@ -388,6 +388,21 @@ final class TransitionGuardTest extends TestCase
      *
      * @var array<string, string>
      */
+    /**
+     * The properties a transition READS besides `status`, seeded on the reflected instance with a value an application row
+     * would carry. Proposal clock fix (2026-10-21): `RoleGrantProposal`'s four transitions date the decision no earlier
+     * than `proposedAt` (`decisionInstant()`), and the database always writes that column, so an instance without it is
+     * one no handler can hold. Seeded a minute in the past: the ordinary case, never the clamp or its bound.
+     * `everyReadPropertyExists` keeps an entry from naming a property that is gone.
+     *
+     * Values are instants, relative to now, as `\DateTimeImmutable` modifiers.
+     *
+     * @var array<class-string, array<string, string>>
+     */
+    private const READ_BY_A_TRANSITION = [
+        RoleGrantProposal::class => ['proposedAt' => '-1 minute'],
+    ];
+
     private const ENTITY_ARGUMENTS = [
         RoleGrantProposal::class.'::confirm($by)' => 'Roles slice 3 C1: the confirmer is the granter of record (Q1) and '
             .'`role_grant_proposal_decider_iff_human` makes the decision and its decider one write. The guard reads status '
@@ -400,6 +415,17 @@ final class TransitionGuardTest extends TestCase
             .'that records it (`invoice_paid_by_matches_status`, two-way), never by a sibling setter a caller could skip. '
             .'The guard reads status only; the payer is the authenticated caller (`SEC` §2), decided by `InvoicePayment`.',
     ];
+
+    /** Every {@see self::READ_BY_A_TRANSITION} entry names a property its entity declares. */
+    #[Test]
+    public function everyReadPropertyExists(): void
+    {
+        foreach (self::READ_BY_A_TRANSITION as $entity => $properties) {
+            foreach (array_keys($properties) as $property) {
+                self::assertTrue(property_exists($entity, $property), $entity.'::$'.$property.' is seeded but does not exist.');
+            }
+        }
+    }
 
     // -----------------------------------------------------------------------
     // The domain
@@ -1259,7 +1285,8 @@ final class TransitionGuardTest extends TestCase
      * and a sales order — six rows of fixture to reach a branch that reads one
      * property. Every `status` property carries a declared default, so the
      * reflected set never lands on an uninitialised typed property, and every
-     * transition method assigns scalars only.
+     * transition method assigns scalars only — reading, besides `status`, only
+     * what {@see self::READ_BY_A_TRANSITION} seeds.
      *
      * @param class-string $entity
      */
@@ -1268,6 +1295,9 @@ final class TransitionGuardTest extends TestCase
         $reflection = new \ReflectionClass($entity);
         $subject = $reflection->newInstanceWithoutConstructor();
         $reflection->getProperty('status')->setValue($subject, $status);
+        foreach (self::READ_BY_A_TRANSITION[$entity] ?? [] as $property => $value) {
+            $reflection->getProperty($property)->setValue($subject, new \DateTimeImmutable($value));
+        }
 
         return $subject;
     }

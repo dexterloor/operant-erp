@@ -283,7 +283,8 @@ final class WriteOwnershipTest extends KernelTestCase
         // SELECT …`, the first write of `invoice` from `src/`. `invoice` is `Modules\\Sales`' own table.
         // **13 -> 14 on 2026-09-28** (sales step 6, C6): `InvoicePaymentReversal::MARK_REVERSED`, `UPDATE invoice SET
         // payment_reversed_at = COALESCE(payment_reversed_at, now())` -- B′'s set-once column, written in SQL on the
-        // database clock (RED-3 F-1). The reversal's status change is an ORM flush and is not counted.
+        // database clock (RED-3 F-1). The reversal's status change is an ORM flush and is not counted. (2026-10-21, the
+        // proposal clock fix: the value became a bounded `GREATEST(now(), issued_at)` -- still one statement, count unchanged.)
         // **14 -> 16 on 2026-10-01** (sales step 7 R2), read off this test's own failure: `SalesReturnWriter`'s `INSERT INTO
         // sales_return` and `INSERT INTO sales_return_line`. `IssueInvoice`'s new lock is a `FOR NO KEY UPDATE` this scan
         // excludes, and its amount read is a SELECT.

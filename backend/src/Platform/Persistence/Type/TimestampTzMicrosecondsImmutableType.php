@@ -26,6 +26,11 @@ use Doctrine\DBAL\Types\Exception\InvalidType;
  * the stored precision of every ORM-written timestamp in shipped operations (and so what their reads return). The
  * SQL declaration is the parent's, so the schema comparator sees no difference (`DoctrineMappingTest`). The READ side is
  * `TimestampTzImmutableType`'s, repeated because that class is `final`.
+ *
+ * **The clock-step clamps rely on it being exact** (proposal clock fix, 2026-10-21): `RoleGrantProposal::decisionInstant()`
+ * and `InvoicePayment::paidAt()` may store the earlier instant itself (`proposed_at`, `issued_at`) when the database
+ * clock has stepped back; written through this type it lands `=` that instant, never a fraction below it
+ * (`RoleGrantProposalClockStepTest`, `InvoiceClockStepTest` assert the equality).
  */
 final class TimestampTzMicrosecondsImmutableType extends DateTimeTzImmutableType
 {

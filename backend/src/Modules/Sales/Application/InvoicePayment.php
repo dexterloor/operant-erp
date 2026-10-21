@@ -292,15 +292,27 @@ final readonly class InvoicePayment
     }
 
     /**
-     * Step 4, entirely on the database's clock. `now()` is the transaction timestamp — the clock `issued_at`'s
-     * default was read from — so "not before the invoice" and "not in the future" are decided on one clock.
+     * Step 4, entirely on the database's clock. `now()` is the transaction timestamp, read from the same clock as
+     * `issued_at`'s default — one clock, but a WALL clock, and not monotone: it can step back between the issuing
+     * transaction and this one (the Lima host agent pulls a fast VM guest back ~0.1 s every few seconds; NTP can step a
+     * server). So the payment is dated no earlier than the issue (proposal clock fix, 2026-10-21, `RED` H-1):
+     *  - omitted → `max(now, issued_at)` (was `now`, which under a step answered 23514 `invoice_paid_not_before_issue` as a 500);
+     *  - explicit → refused `invoice.paid_after_issue` iff the REQUEST'S OWN date is before the issue, otherwise
+     *    `max(min(requested, now), issued_at)` (was `min(requested, now)`, which under a step could drop an honest date below
+     *    `issued_at` and refuse it falsely).
+     * Under a monotone clock `now >= issued_at` always holds, so both are identical to before on every honest path. An
+     * issue more than `CLOCK_SKEW_SECONDS` ahead of `now` is no clock step: the invoice was written outside the
+     * application (G-15), and nothing is paid (an explicit date that far ahead is already the `in_the_future` 422).
      */
     private function paidAt(EntityManagerInterface $em, ?\DateTimeImmutable $requested, Invoice $invoice): \DateTimeImmutable
     {
         $now = new \DateTimeImmutable((string) $em->getConnection()->fetchOne('SELECT now()'));
+        $issuedAt = $invoice->getIssuedAt();
 
         if (null === $requested) {
-            return $now;
+            self::assertIssuedWithinAClockStep($invoice, $issuedAt, $now);
+
+            return max($now, $issuedAt);
         }
 
         if ($requested > $now->modify('+'.self::CLOCK_SKEW_SECONDS.' seconds')) {
@@ -309,15 +321,24 @@ final readonly class InvoicePayment
             ]);
         }
 
-        $paidAt = min($requested, $now);
-
-        if ($paidAt < $invoice->getIssuedAt()) {
+        if ($requested < $issuedAt) {
             throw ApiProblem::businessRuleViolated(
                 'invoice.paid_after_issue',
                 'A payment cannot be dated before the invoice was issued.',
             );
         }
 
-        return $paidAt;
+        return max(min($requested, $now), $issuedAt);
+    }
+
+    private static function assertIssuedWithinAClockStep(Invoice $invoice, \DateTimeImmutable $issuedAt, \DateTimeImmutable $now): void
+    {
+        if ($issuedAt > $now->modify('+'.self::CLOCK_SKEW_SECONDS.' seconds')) {
+            throw new \RuntimeException(\sprintf(
+                'Invoice %s was issued at %s, more than %d seconds after the database clock now reads (%s). No clock step explains '
+                .'that: the invoice was written outside the application (RESIDUAL_GAPS.md G-15). Nothing was paid.',
+                $invoice->getId()->toRfc4122(), $issuedAt->format('Y-m-d H:i:s.uP'), self::CLOCK_SKEW_SECONDS, $now->format('Y-m-d H:i:s.uP'),
+            ));
+        }
     }
 }

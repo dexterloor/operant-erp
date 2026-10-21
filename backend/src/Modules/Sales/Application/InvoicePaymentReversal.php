@@ -34,8 +34,9 @@ use Symfony\Component\Uid\Uuid;
  *     permission set — the ONE owner predicate (V2-R-19 + V2-S-5, C6a), never a role name. Refused
  *     `invoice.reverser_is_not_the_recorder`, *"You recorded this payment. It needs a different person to reverse it."*
  *  6. Flush — the ORM `UPDATE` sets `status`, `paid_at` (NULL), `paid_by_user_id` (NULL) and `updated_at`, all granted
- *     since C5 — then **`payment_reversed_at = COALESCE(payment_reversed_at, now())`** in SQL: B′'s "ever reversed",
- *     set once on the database clock (RED-3 F-1), never moved by a later reversal (`SEC` §15 modification 1).
+ *     since C5 — then **`payment_reversed_at = COALESCE(payment_reversed_at, GREATEST(now(), issued_at))`** (the clamp
+ *     bounded to 60 s, see `MARK_REVERSED`) in SQL: B′'s "ever reversed", set once on the database clock (RED-3 F-1),
+ *     never before the issue even when that clock steps back, never moved by a later reversal (`SEC` §15 modification 1).
  *  7. `invoice.payment_reversed`, metadata `{"reason"}`, in the same transaction. Then the 200 body, read back —
  *     `issued` again, `paid_at` and `paid_by` null.
  *
@@ -46,8 +47,15 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class InvoicePaymentReversal
 {
-    /** B′'s one statement: set once, on the database clock. `WriteOwnershipTest` counts it for `Modules\Sales`. */
-    private const MARK_REVERSED = 'UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, now()) WHERE id = ?::uuid';
+    /**
+     * B′'s one statement: set once, on the database clock, never before the issue. `now()` is a wall clock that can step
+     * back between the issuing transaction and this one (proposal clock fix, 2026-10-21), when a bare `now()` answered
+     * 23514 `invoice_payment_reversed_not_before_issue` as a 500 — so it is clamped to `issued_at`, from the same row in
+     * the same statement, within `InvoicePayment::CLOCK_SKEW_SECONDS` (60). An issue further ahead is no clock step (the
+     * invoice was written outside the application, G-15): the bare `now()` is written and the CHECK refuses it, as before.
+     * `WriteOwnershipTest` counts it for `Modules\Sales`.
+     */
+    private const MARK_REVERSED = "UPDATE invoice SET payment_reversed_at = COALESCE(payment_reversed_at, CASE WHEN issued_at - now() <= interval '60 seconds' THEN GREATEST(now(), issued_at) ELSE now() END) WHERE id = ?::uuid";
 
     public function __construct(
         private TenantContext $tenants,
