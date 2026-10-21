@@ -509,6 +509,19 @@ final readonly class PurchaseOrderWriter
      *
      * **One `purchase_order.deleted` row, naming the deleter** — B-4a (roles slice 2, C1, 2026-09-29), minted with
      * its sales twin as `RESIDUAL_GAPS.md` G-9's fallback required; G-9 is closed for both modules.
+     *
+     * **Draft-only at the database too since 2026-10-21** (order restores C1, owner ruling OQ-1):
+     * `purchase_order_archived_only_while_draft` is `refuseUnlessDraft()`'s rule for every writer, so widening this
+     * window would turn the first archived non-draft into a `23514`, loudly.
+     *
+     * ⚠ **`clock_timestamp()`, not `now()`, and it is not a style** (order restores C1; `SalesOrderWriter::archive()`'s
+     * reason, which purchasing lacked until then). The cascade identifies the lines to restore by "same stamp as the
+     * order", so an order's stamp must be DISTINCT from any line's that was archived on its own. Every line archive holds
+     * this row lock and commits before it is granted here, and `clock_timestamp()` is read after the lock is held, so the
+     * two instants differ except across a backward wall-clock step. `now()` would collide only if both transactions
+     * STARTED in the same microsecond — negligible, and this removes even that. Do not "normalise" it. Equality is the
+     * only comparison made with it (`cascade_deletion_to_lines`), so a backward step cannot break a CHECK here
+     * (`TimeComparisonCheckInventoryTest`'s domain; the `a37cce0` clamp rule is for ordering CHECKs, of which there are none).
      */
     public function archive(string $id): void
     {
@@ -531,7 +544,7 @@ final readonly class PurchaseOrderWriter
             $this->refuseUnlessDraft($current);
 
             $em->getConnection()->executeStatement(
-                'UPDATE purchase_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid',
+                'UPDATE purchase_order SET deleted_at = clock_timestamp(), updated_at = now() WHERE id = ?::uuid',
                 [$id],
             );
 

@@ -158,6 +158,13 @@ final class DeletionPolicyTest extends TenancyTestCase
      * root". That is a convention, and ADR-007's own argument is that a control
      * enforced by a convention is a hope. Written here as raw SQL, so the
      * cascade is proved to survive a caller that never touches the ORM.
+     *
+     * **The order is a DRAFT, and until 2026-10-21 it was `ordered`** (order
+     * restores C1, owner ruling OQ-1): `purchase_order_archived_only_while_draft`
+     * refuses the ordered fixture this test used to archive, as its sales twin's
+     * CHECK did for the sales test below. The on-order query carries no status
+     * predicate, so a draft's lines count while it is live, and the property is
+     * unchanged: lines of a discarded order must stop counting the moment it is.
      */
     #[Test]
     public function softDeletingAPurchaseOrderSoftDeletesItsLinesAndRemovesItFromTheOnOrderQuantity(): void
@@ -172,7 +179,7 @@ final class DeletionPolicyTest extends TenancyTestCase
             $this->app()->executeStatement(<<<'SQL'
                 INSERT INTO purchase_order (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at, idempotency_key, request_digest)
                 VALUES (?::uuid, ?::uuid, 'PO-107000', ?::uuid,
-                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'ordered', now(),
+                        (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', 'draft', NULL,
                         encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
                 SQL, [$orderId, self::TENANT_A, $supplierId]);
             $this->app()->executeStatement(<<<'SQL'
@@ -367,6 +374,67 @@ final class DeletionPolicyTest extends TenancyTestCase
         $refused = $refusal("UPDATE sales_order SET status = 'confirmed', ordered_at = now() WHERE id = ?::uuid", $draft);
         self::assertNotNull($refused, 'An ARCHIVED draft was confirmed underneath the API — the discarded order became a commitment.');
         self::assertStringContainsString('sales_order_archived_only_while_draft', $refused);
+    }
+
+    /**
+     * **The purchase twin of the test above: an archived purchase order is always a draft** (order restores C1,
+     * 2026-10-21; owner ruling OQ-1, `docs/session13/order-restores-ruling.md`). Until this commit purchasing was
+     * draft-only in `PurchaseOrderWriter::archive()` alone, and an archived `ordered` order was constructible by any
+     * writer that skipped the edit window. `purchase_order_archived_only_while_draft` makes it impossible for every
+     * writer, raw SQL included, and FREEZES an archived order's status: it cannot be placed underneath the API either.
+     * `RestorePurchaseOrder` (C3) relies on it and carries no draft guard of its own — the CHECK is the guard.
+     *
+     * Raw SQL as the owner on purpose, as in the sales twin: the subject is the constraint, which binds every role.
+     * **Mutation:** drop the CHECK → every refusal below is null → red.
+     */
+    #[Test]
+    public function aPurchaseOrderCanBeArchivedOnlyWhileItIsADraft(): void
+    {
+        $this->seedWarehouse();
+        $supplierId = Uuid::v4()->toRfc4122();
+        $this->insertSupplier($supplierId, self::TENANT_A, 'Draft Supplier', 'SUP-D');
+        $order = function (string $number, string $status) use ($supplierId): string {
+            $id = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                INSERT INTO purchase_order
+                    (id, tenant_id, order_number, supplier_id, warehouse_id, currency_code, status, ordered_at,
+                     idempotency_key, request_digest)
+                VALUES (?::uuid, ?::uuid, ?, ?::uuid, (SELECT id FROM warehouse WHERE code = 'WH-C'), 'EUR', ?,
+                        CASE WHEN ? = 'draft' THEN NULL ELSE now() END,
+                        encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                SQL, [$id, self::TENANT_A, $number, $supplierId, $status, $status]);
+
+            return $id;
+        };
+        $refusal = function (string $sql, string $id): ?string {
+            try {
+                $this->executeAsOwnerForTenant(self::TENANT_A, $sql, [$id]);
+            } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+                return $e->getSQLState().' '.$e->getMessage();
+            }
+
+            return null;
+        };
+
+        $draft = $order('PO-148000', 'draft');
+        self::assertNull($refusal('UPDATE purchase_order SET deleted_at = clock_timestamp() WHERE id = ?::uuid', $draft),
+            'Control: archiving a DRAFT purchase order was refused, so the refusals below could be refusing everything.');
+
+        // Seeded with nothing received: the CHECK under test reads only `status`, so the seed is sufficient for it.
+        foreach (['ordered', 'partially_received', 'received', 'cancelled'] as $n => $status) {
+            $id = $order(\sprintf('PO-2001%02d', $n), $status);
+            $refused = $refusal('UPDATE purchase_order SET deleted_at = clock_timestamp() WHERE id = ?::uuid', $id);
+            self::assertNotNull($refused,
+                "A $status purchase order was archived underneath the API. OQ-1 (ruled 2026-10-21): an archived purchase "
+                .'order is always a draft, so RestorePurchaseOrder needs no draft guard and no line read has to decide what '
+                .'a deleted COMMITMENT owes. Widening this is the owner\'s to rule, not an implementer\'s.');
+            self::assertStringStartsWith('23514', $refused);
+            self::assertStringContainsString('purchase_order_archived_only_while_draft', $refused);
+        }
+
+        $refused = $refusal("UPDATE purchase_order SET status = 'ordered', ordered_at = now() WHERE id = ?::uuid", $draft);
+        self::assertNotNull($refused, 'An ARCHIVED draft was placed underneath the API — the discarded order became a commitment.');
+        self::assertStringContainsString('purchase_order_archived_only_while_draft', $refused);
     }
 
     /**

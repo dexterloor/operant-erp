@@ -265,6 +265,10 @@ final readonly class GoodsReceiptWriter
         // The archived refusal stays BEHIND the replay on purpose: a receipt
         // that was accepted is a fact, and a retry of the request that created
         // it is answered from the row whatever has happened to the order since.
+        // ⚠ Unreachable in that order since 2026-10-21 (order restores C1): an order
+        // with a receipt is never a draft, and `purchase_order_archived_only_while_draft`
+        // lets only a draft be archived. Kept as the backstop; the refusal below is
+        // still reached by a deleted draft.
         if (null !== $order['deleted_at']) {
             throw ApiProblem::businessRuleViolated(
                 'purchase_order.is_archived',

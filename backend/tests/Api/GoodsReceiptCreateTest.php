@@ -805,45 +805,26 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
     }
 
-    /**
-     * **A replay still answers even when the order has been archived since.**
-     * The not-found check moved in front of the replay read for the test above,
-     * and this is the half that must NOT move with it: the archived refusal stays
-     * **behind** the replay, because a receipt that was accepted is a fact, and a
-     * retry of the request that created it is answered from the row whatever has
-     * happened to the order since.
-     */
-    #[Test]
-    public function aRetryIsStillAnsweredAfterTheOrderWasArchived(): void
-    {
-        $po = $this->orderedOrderWithLines(['10']);
-        $key = Uuid::v4()->toRfc4122();
-        $lines = [['purchase_order_line_id' => $po['lines'][0], 'quantity' => '1', 'storage_location_id' => $po['bin']]];
-
-        $this->receive($po['order'], $lines, $key);
-        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        $first = $this->json();
-
-        $this->insertAsOwnerForTenant(self::TENANT_A,
-            'UPDATE purchase_order SET deleted_at = now() WHERE id = ?::uuid', [$po['order']]);
-
-        $this->receive($po['order'], $lines, $key);
-
-        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame($first, $this->json());
-        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt'));
-    }
+    // ⚠ RETIRED 2026-10-21 (order restores C1, owner ruling OQ-1): `aRetryIsStillAnsweredAfterTheOrderWasArchived`.
+    // It pinned that a receipt retry is answered from the stored receipt BEFORE the archived-order refusal, by archiving
+    // an `ordered` order (as owner SQL) after a receipt against it. `purchase_order_archived_only_while_draft` now
+    // refuses that archive (23514), and no order with a receipt can be a draft. So a receipt retry after its order was
+    // deleted can no longer happen, because an order with receipts can no longer be deleted. The code that answers it
+    // first (`GoodsReceiptWriter`'s replay read, ahead of the archived refusal) stays, but no test can reach that
+    // ordering any more. The archived refusal itself is still reached, by the re-seeded test below.
 
     /**
      * **A new receipt against an archived order is refused, and the refusal promises no restore** (`owed-ux-c5.md` FINAL
-     * (a3)): it read *"Restore it before changing it"*, pointing at `RestorePurchaseOrder`, which is unbuilt (G-8). Reachable
-     * only by owner SQL today (an ordered order cannot be deleted through the API), used here, as in the retry test above.
+     * (a3)): it read *"Restore it before changing it"*, pointing at `RestorePurchaseOrder`, which is unbuilt (G-8).
+     * **An archived DRAFT since 2026-10-21** (order restores C1): it used to archive an `ordered` order as owner SQL, which
+     * `purchase_order_archived_only_while_draft` now refuses. The archived refusal runs before the status guard, so a
+     * deleted draft still reaches it and gets the same `detail`.
      * **Mutation:** put the old sentence back in `GoodsReceiptWriter`; red here on the `detail` literal.
      */
     #[Test]
     public function aNewReceiptAgainstAnArchivedOrderIsRefusedWithoutPromisingARestore(): void
     {
-        $po = $this->orderedOrderWithLines(['10']);
+        $po = $this->orderedOrderWithLines(['10'], PurchaseOrder::STATUS_DRAFT);
         $this->insertAsOwnerForTenant(self::TENANT_A,
             'UPDATE purchase_order SET deleted_at = now() WHERE id = ?::uuid', [$po['order']]);
 

@@ -535,7 +535,13 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
     // The refusals every operation on this row shares
     // -----------------------------------------------------------------------
 
-    /** ST-9 / §5.2a — an archived row is read-only, and the refusal is the business-rule branch. */
+    /**
+     * ST-9 / §5.2a — an archived row is read-only, and the refusal is the business-rule branch.
+     *
+     * **An archived DRAFT since 2026-10-21** (order restores C1, owner ruling OQ-1): it was seeded `ordered` and archived,
+     * which `purchase_order_archived_only_while_draft` now refuses. The archived refusal runs before `cancel()`'s status
+     * guard, so a deleted draft still reaches it with the same `detail` (the `SalesOrderCancellationTest` precedent).
+     */
     #[Test]
     public function anArchivedOrderCannotBeCancelled(): void
     {
@@ -545,7 +551,7 @@ final class PurchaseOrderCancellationTest extends PurchaseOrderTestCase
             $this->seedSupplier(self::TENANT_A, 'Acme'),
             $this->seedWarehouse(self::TENANT_A, 'Main'),
             null,
-            PurchaseOrder::STATUS_ORDERED,
+            PurchaseOrder::STATUS_DRAFT,
             archived: true,
         );
 

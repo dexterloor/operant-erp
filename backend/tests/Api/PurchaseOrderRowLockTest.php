@@ -193,7 +193,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             before: [],
             request: fn () => $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line),
             after: [
-                ['UPDATE purchase_order SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid', [$draft['order']]],
+                // A hand copy of `PurchaseOrderWriter::archive()`'s statement (`clock_timestamp()` since order restores C1).
+                ['UPDATE purchase_order SET deleted_at = clock_timestamp(), updated_at = now() WHERE id = ?::uuid', [$draft['order']]],
             ],
         );
 

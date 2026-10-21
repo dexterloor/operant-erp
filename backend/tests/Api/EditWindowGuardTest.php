@@ -245,6 +245,36 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **The purchase twin of the pin above** (order restores C1, 2026-10-21; owner ruling OQ-1). An archived purchase
+     * order is always a draft — `RestorePurchaseOrder` (C3) carries no draft guard because of it, and no purchase line
+     * read has to decide what a deleted COMMITMENT owes. That holds only while `DeletePurchaseOrder`'s window is
+     * draft-only.
+     *
+     * **The CHECK is the real mechanism and this pin is secondary:** `purchase_order_archived_only_while_draft` refuses an
+     * archived non-draft for every writer, raw SQL included (`DeletionPolicyTest::aPurchaseOrderCanBeArchivedOnlyWhileItIsADraft`).
+     * This pin reads §8.3a's windows, not the database, so dropping the CHECK cannot redden it (final RED L-5); widening the
+     * window does. **Mutation:** widen `DeletePurchaseOrder`'s window → red here.
+     */
+    #[Test]
+    public function thePurchaseArchivedParentQuestionStaysMootOnlyWhileDeleteIsDraftOnly(): void
+    {
+        $windows = [];
+        foreach (self::ROWS as $name => $row) {
+            if (\in_array('DeletePurchaseOrder', $row['operations'], true)) {
+                $windows[$name] = $row['from'];
+            }
+        }
+
+        self::assertSame(['PurchaseOrder' => [PurchaseOrder::STATUS_DRAFT]], $windows,
+            "OQ-1 (ruled 2026-10-21): an archived purchase order is always a DRAFT, so RestorePurchaseOrder needs no draft\n"
+            ."guard. That holds only while DeletePurchaseOrder is named by exactly one row, 'PurchaseOrder', whose window is\n"
+            ."STATUS_DRAFT alone.\n"
+            .'Widening it is the owner\'s question, not an implementer\'s, and the database will refuse the first archived '
+            .'non-draft anyway (purchase_order_archived_only_while_draft, 23514 -> HTTP 500). Rule it again, give '
+            .'RestorePurchaseOrder its own draft guard, and move the CHECK, in the same commit.');
+    }
+
+    /**
      * **Clause (b) — the clause that makes the table a mechanism.**
      *
      * The derivation, entirely from `src/` and the registry:
