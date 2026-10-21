@@ -11,6 +11,7 @@ use App\Modules\Inventory\Application\ItemListCriteria;
 use App\Modules\Inventory\Application\ItemReader;
 use App\Platform\Http\Pagination\Cursor;
 use App\Platform\Http\Pagination\InvalidCursor;
+use App\Platform\Http\Pagination\TimestampSortKey;
 use App\Platform\Http\Problem\ApiProblem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
@@ -25,6 +26,13 @@ use Symfony\Component\Uid\Uuid;
  * declares exactly that column, and the spec documents the same set -- so a
  * parameter accepted here but undocumented, or documented and refused, is not
  * expressible.
+ *
+ * **`archived`** (remaining-ops G-I, 2026-10-21; API-19c limb 1, now that `IA.md` §5.6's `/items` Archived row is no
+ * longer `⛔ D-a`): `true`/`1` serve the archived items instead of the live ones (TB-3), `false`/`0` or absent the live
+ * ones, anything else 422 `not_a_boolean` (`CustomerCollectionProvider`'s handling, copied — modules do not share
+ * providers). With `supplier_id` it is a 422 `mutually_exclusive` at `?archived` (`SalesOrderCollectionProvider`'s
+ * precedent for `customer_id`; the stricter default, `UX`/`SEC` to confirm). **A cursor whose key is not a timestamp sent
+ * to the Archived view is `malformed_cursor`**: a live-view `sku` cursor would otherwise reach `?::timestamptz` and 500.
  *
  * @implements ProviderInterface<ItemCollection>
  */
@@ -87,6 +95,27 @@ final readonly class ItemCollectionProvider implements ProviderInterface
             }
         }
 
+        $archived = false;
+        if (isset($query['archived'])) {
+            $archived = match ($query['archived']) {
+                'true', '1' => true,
+                'false', '0' => false,
+                default => null,
+            };
+            if (null === $archived) {
+                $errors[] = self::error('archived', 'not_a_boolean', 'archived must be true or false.');
+                $archived = false;
+            }
+        }
+
+        if ($archived && isset($query['supplier_id'])) {
+            // The Archived view is a sibling of the live list (TB-3a), and its index serves no supplier filter, so the
+            // combination is refused rather than served unindexed — `ListSalesOrders`' stricter default for `customer_id`
+            // (order restores C2). Loosening later breaks no client; the code, pointer and copy are TO CONFIRM by `UX`/`SEC`.
+            $errors[] = self::error('archived', 'mutually_exclusive',
+                'The archived items are their own view: send archived without supplier_id.');
+        }
+
         $search = null;
         if (isset($query['q'])) {
             $raw = $query['q'];
@@ -107,8 +136,8 @@ final readonly class ItemCollectionProvider implements ProviderInterface
             $errors[] = self::error('after', 'mutually_exclusive', 'Send at most one of after and before.');
         }
 
-        $after = $this->cursor($query, 'after', $errors);
-        $before = $this->cursor($query, 'before', $errors);
+        $after = $this->cursor($query, 'after', $archived, $errors);
+        $before = $this->cursor($query, 'before', $archived, $errors);
 
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
@@ -120,6 +149,7 @@ final readonly class ItemCollectionProvider implements ProviderInterface
             search: $search,
             after: $after,
             before: $before,
+            archived: $archived,
         );
     }
 
@@ -127,19 +157,32 @@ final readonly class ItemCollectionProvider implements ProviderInterface
      * @param array<string, mixed>                                        $query
      * @param list<array{pointer: string, code: string, message: string}> $errors
      */
-    private function cursor(array $query, string $name, array &$errors): ?Cursor
+    private function cursor(array $query, string $name, bool $archived, array &$errors): ?Cursor
     {
         if (!isset($query[$name]) || '' === $query[$name]) {
             return null;
         }
 
         try {
-            return Cursor::decode((string) $query[$name]);
+            $cursor = Cursor::decode((string) $query[$name]);
         } catch (InvalidCursor) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response.', $name));
 
             return null;
         }
+
+        // The Archived view's key is cast `::timestamptz`, so a cursor whose key is not a timestamp (an `sku` cursor from the
+        // live view) is refused here rather than 500 there. The reverse — an archived cursor sent to the live view — is a
+        // text position among SKUs, served: `Cursor` carries no view marker, and it seeks only within rows the caller may
+        // read (`SalesOrderCollectionProvider`'s recorded M-2 shape). The check is the shared `TimestampSortKey` (cf01f17), which
+        // also holds G-I RED M-1's narrowing (offset hour <= 15) that this class first carried in a private copy.
+        if ($archived && !TimestampSortKey::isValid($cursor->sortKey)) {
+            $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
+
+            return null;
+        }
+
+        return $cursor;
     }
 
     /** @return array{pointer: string, code: string, message: string} */

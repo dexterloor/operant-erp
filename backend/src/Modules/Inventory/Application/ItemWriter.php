@@ -388,7 +388,9 @@ final readonly class ItemWriter
     {
         return ApiProblem::businessRuleViolated(
             'inventory_item.is_archived',
-            'This item is already archived.',
+            // Since remaining-ops G-I the clause `IA.md` §5.7's D-a items note (s34 D-1 item 6) held back until the `/items`
+            // Archived view existed, as the supplier and customer sentences carry.
+            'This item is already archived. It\'s in the archived items.',
         );
     }
 

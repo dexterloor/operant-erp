@@ -10,6 +10,8 @@ use App\Modules\AuditLog\Application\AuditRecordCriteria;
 use App\Modules\AuditLog\Application\AuditRecordReader;
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
+use App\Modules\Inventory\Application\ItemListCriteria;
+use App\Modules\Inventory\Application\ItemReader;
 use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
@@ -319,6 +321,14 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     SELECT gen_random_uuid(), ?::uuid, 'sales_order.cancelled', 'system', 'sales_order', gen_random_uuid(), ?::timestamptz
                     FROM generate_series(1, ?) g
                     SQL, [$tenant, self::AUDIT_TIE_INSTANT, self::AUDIT_TIE_NOISE]);
+
+                // Remaining-ops G-I (RED L-2): a few archived items at distinct instants, so the Archived view's plan reads a
+                // non-empty `inventory_item_tenant_archived_idx` — after the stock seeds, which every item takes part in, so
+                // no other count moves. As `erp_app`, which holds `DeleteItem`'s UPDATE.
+                $c->executeStatement(<<<'SQL'
+                    UPDATE inventory_item SET deleted_at = now() - (substring(sku FROM 5)::int || ' minutes')::interval
+                    WHERE sku IN ('SKU-491', 'SKU-492', 'SKU-493', 'SKU-494', 'SKU-495')
+                    SQL);
             });
         }
 
@@ -330,6 +340,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         foreach ([self::TENANT_A, self::TENANT_B] as $tenant) {
             $counts = $this->tenantContext()->run($tenant, fn (): array => [
                 'inventory_item' => (int) $this->app()->fetchOne('SELECT count(*) FROM inventory_item'),
+                'archived inventory_item' => (int) $this->app()->fetchOne('SELECT count(*) FROM inventory_item WHERE deleted_at IS NOT NULL'),
                 'storage_location' => (int) $this->app()->fetchOne('SELECT count(*) FROM storage_location'),
                 'purchase_order' => (int) $this->app()->fetchOne('SELECT count(*) FROM purchase_order'),
                 'goods_receipt' => (int) $this->app()->fetchOne('SELECT count(*) FROM goods_receipt'),
@@ -341,7 +352,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             ]);
 
             self::assertSame(
-                ['inventory_item' => self::ITEMS, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
+                ['inventory_item' => self::ITEMS, 'archived inventory_item' => 5, 'storage_location' => 4, 'purchase_order' => self::ORDERS,
                     'goods_receipt' => self::ORDERS + self::DEEP_RECEIPTS,
                     'fulfilment' => self::ORDERS, 'invoice' => self::ORDERS, 'stock_level' => 2 * self::ITEMS,
                     'stock_movement' => self::EVENTS + self::TIE, 'audit_log' => self::EVENTS + self::AUDIT_TIE + self::AUDIT_TIE_NOISE],
@@ -600,6 +611,43 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 'purchase_order_tenant_archived_idx');
             if (null === $search) {
                 $this->assertServedInIndexOrder($plan, 'purchase_order_tenant_archived_idx');
+            }
+        }
+    }
+
+    /**
+     * Items, the Archived view (remaining-ops G-I; `IA.md` §5.6 / D-a, final RED H-1: *"a plan test that can go red"*): the
+     * statement `ListItems?archived=true` issues, from {@see ItemReader::listStatement()}, on its second page, with and without
+     * `q` (the customer twin's shape), over five archived items seeded by `seedWorld()` (RED L-2: not an empty index). The item statement LEFT JOINs `supplier` for the reference's name, so the "no
+     * `Seq Scan`" half is narrowed to `inventory_item` ({@see self::assertPlanOn()}; the join's inner side is a small reference
+     * table and is not what this index serves). Mutation GI-M6: drop `inventory_item_tenant_archived_idx` → red here and in
+     * `ItemOperationContractTest`'s D-a tie; GI-M7: the index re-created two-column `(tenant_id, deleted_at)` → red on the
+     * index-order half.
+     */
+    #[Test]
+    public function theItemArchivedViewUsesTheArchivedIndex(): void
+    {
+        foreach ([null, 'SKU-49'] as $search) {
+            [$sql, $parameters] = ItemReader::listStatement(new ItemListCriteria(
+                limit: 50,
+                search: $search,
+                // A cursor after every seeded archive instant, so the page actually reads the five archived rows (RED L-2).
+                after: new Cursor('2099-01-01 00:00:00+00', 'ffffffff-ffff-4fff-bfff-ffffffffffff'),
+                archived: true,
+            ));
+            self::assertStringContainsString('i.deleted_at IS NOT NULL', $sql, 'The statement explained is not the Archived view.');
+            self::assertStringContainsString('(i.deleted_at, i.id) < (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the archived keyset page.');
+            self::assertStringContainsString('ORDER BY i.deleted_at DESC, i.id DESC', $sql);
+
+            // `enable_bitmapscan = off` on the plain page: the planner-size accommodation `planWith()` describes (the seeded
+            // world holds five archived items, and a bitmap scan plus a sort would be a fact about its size, not the index).
+            $plan = null === $search ? $this->planWith(['enable_bitmapscan' => 'off'], $sql, $parameters) : $this->plan($sql, $parameters);
+            $this->assertPlanOn('inventory_item',
+                'Items — the Archived view, newest first (the reader\'s keyset page'.(null === $search ? '' : ', with q').')',
+                $plan,
+                'inventory_item_tenant_archived_idx');
+            if (null === $search) {
+                $this->assertServedInIndexOrder($plan, 'inventory_item_tenant_archived_idx');
             }
         }
     }

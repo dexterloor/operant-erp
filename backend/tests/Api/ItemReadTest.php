@@ -66,9 +66,9 @@ final class ItemReadTest extends ApiTestCase
     }
 
     /**
-     * API-13a / ST-9 — *"Never a 404"*. This is also the only path by which a
-     * caller obtains the id `RestoreItem` takes, because §10.2 does not offer
-     * the `⛔ D-a` archived list.
+     * API-13a / ST-9 — *"Never a 404"*. Until remaining-ops G-I (2026-10-21)
+     * this was the only path by which a caller obtained the id `RestoreItem`
+     * takes; since then `ListItems?archived=true` is the other (E9-3, D-a).
      */
     #[Test]
     public function anArchivedRowIsReadableByDirectHitAndCarriesItsArchivedAt(): void

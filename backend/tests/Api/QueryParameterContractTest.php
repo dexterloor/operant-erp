@@ -157,7 +157,16 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
      *
      * **Mutations (C5 batch C, 2026-09-15; cache deleted — Rule 17):** §10.3's
      * forward analogue on a built list — `archived` added to `ItemCollection`
-     * (`/items` Archived is `⛔ D-a`, not bounded) → red; the reverse — `archived`
+     * (`/items` Archived is `⛔ D-a`, not bounded) → red *(re-pointed 2026-10-21,
+     * remaining-ops G-I, which ships `ListItems?archived` with its index: the
+     * forward analogue is now `archived` added to `PurchaseOrderCollection`
+     * (`/purchase-orders` Archived still `⛔ D-a` until order restores C3) → red,
+     * re-run in G-I, mutation GI-M12; **re-pointed again 2026-10-22** when G-I was
+     * stacked on order restores C3, which ships `ListPurchaseOrders?archived`: no
+     * §5.6 Archived row is `⛔ D-a` any more, so limb 1 has no built list left to
+     * fail on. The forward mutation is now `archived` added to
+     * `StockMovementCollection` — `stock_movement` is not a soft-delete table, so
+     * limb 2 fails — → red, re-run, mutation GI-M12′)*; the reverse — `archived`
      * removed from `PurchaseOrderLineCollection` (limb 2 holds) → red; `IA.md`'s
      * `/purchase-orders` Archived row's `⛔ **D-a**` replaced with `order_number`
      * (restored by `cmp`) → red (limb 1 now holds and the list does not offer it).

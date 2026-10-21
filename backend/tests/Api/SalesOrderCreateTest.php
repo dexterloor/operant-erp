@@ -591,10 +591,11 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
             .'If `ListSalesOrderLines` ever drops its `archived` parameter, this operation must be withdrawn in the '
             .'same commit -- and if this operation is withdrawn while the parameter stands, that is red too.');
 
-        // The control, and it is the carve-out E9-3's rewritten clause names explicitly: `RestoreItem`
-        // SHIPS while `ListItems` declares NO `archived`. A naive computable clause makes a shipped
-        // operation retroactively illegal on its first run, which is why the carve-out is written into
-        // the ledger cell rather than left as a comment.
+        // The control. Until remaining-ops G-I (2026-10-21) it was the carve-out E9-3's rewritten clause named BY NAME:
+        // `RestoreItem` shipped while `ListItems` declared no `archived`, so this asserted the parameter's ABSENCE and told
+        // whoever added it to retire the carve-out. G-I added it and retired the carve-out in the ledger cell (final RED H-1),
+        // so the control is now `RestoreItem`'s own E9-3 pair, BIDIRECTIONAL like the line pair above: `RestoreItem` ships
+        // exactly when `ListItems` declares `archived`. Both sides are true today; dropping either alone is red (mutation GI-M1).
         $items = TransactionBoundaryTest::contractOperations()['ListItems'];
         \assert($items instanceof \ApiPlatform\Metadata\HttpOperation);
 
@@ -603,12 +604,15 @@ final class SalesOrderCreateTest extends PurchaseOrderTestCase
             $itemParameters[] = (string) ($parameter->getKey() ?? $key);
         }
 
-        self::assertNotContains('archived', $itemParameters,
-            '`ListItems` has gained an `archived` parameter. E9-3 carves `RestoreItem` out BY NAME precisely because '
-            .'it ships without one; if that has changed, the carve-out is now unnecessary and the ledger cell should '
-            .'say so rather than keeping an exception nothing needs.');
+        self::assertSame(\in_array('archived', $itemParameters, true), \in_array('RestoreItem', $declared, true),
+            'E9-3 for `RestoreItem` (carve-out retired 2026-10-21, remaining-ops G-I): `RestoreItem` ships exactly when an '
+            .'archived item\'s id is obtainable through `ListItems?archived`. Dropping `archived` while `RestoreItem` ships is red, '
+            .'and withdrawing `RestoreItem` while the parameter stands is red too.');
+        // The vacuity control: both sides false would also be equal. So a deliberate withdrawal of `RestoreItem` (an owner
+        // ruling, never a hand edit) must move THIS assertion in the same commit, as well as the pair above (G-I RED L-1).
         self::assertContains('RestoreItem', $declared,
-            'The carve-out above is vacuous unless `RestoreItem` really is shipped.');
+            'The control is vacuous unless `RestoreItem` really is shipped. A ruled withdrawal of `RestoreItem` moves this '
+            .'assertion in the same commit.');
     }
 
     /**

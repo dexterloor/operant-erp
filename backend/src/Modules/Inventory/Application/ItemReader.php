@@ -48,8 +48,9 @@ final readonly class ItemReader
      * tenant returns the row with a non-null `archived_at`, never a 404. ST-9:
      * *"Never a 404 -- documents legitimately reference it, which is the entire
      * reason it is soft-deleted."* So there is deliberately no `deleted_at`
-     * predicate here, and it is the only path by which a caller can obtain the
-     * id `RestoreItem` takes.
+     * predicate here. Until remaining-ops G-I (2026-10-21) it was the only path by
+     * which a caller could obtain the id `RestoreItem` takes; since then
+     * `ListItems?archived=true` is the other (E9-3).
      */
     public function get(string $id): ?ItemResource
     {
@@ -75,7 +76,7 @@ final readonly class ItemReader
         return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($criteria): ItemCollection {
             $connection = $em->getConnection();
 
-            [$sql, $parameters, $types] = $this->listStatement($criteria);
+            [$sql, $parameters, $types] = self::listStatement($criteria);
 
             // One row more than the page, so "is there a next page" is answered
             // by the rows themselves rather than by a COUNT(*) -- which TB-2b
@@ -95,7 +96,7 @@ final readonly class ItemReader
 
             $items = array_map(ItemRow::toResource(...), $rows);
 
-            [$next, $previous] = $this->cursors($criteria, $rows, $hasMore);
+            [$next, $previous] = self::cursors($criteria, $rows, $hasMore);
 
             return new ItemCollection(
                 items: $items,
@@ -110,14 +111,24 @@ final readonly class ItemReader
     }
 
     /**
+     * **`ListItems`' one statement**, public and static so `SchemaQueryPlanTest` explains the statement this reader issues
+     * rather than a copy of it (customers' L-4 rule).
+     *
+     * Two views (remaining-ops G-I): the live items in `sku` order, or, with `archived=true`, the **archived** ones instead
+     * (`deleted_at IS NOT NULL`, TB-3; the `/items` Archived view, `IA.md` §5.6, served by
+     * `inventory_item_tenant_archived_idx`), `archived_at` = `deleted_at DESC, id DESC`, most recently archived first (D-a).
+     * The Archived view's cursor key is the column's text **as Postgres returns it** (microseconds and offset), never the
+     * millisecond `archived_at` the wire shows — a millisecond key would skip or repeat items archived within one millisecond.
+     *
      * @return array{string, list<mixed>, array<int, int|string>}
      */
-    private function listStatement(ItemListCriteria $criteria): array
+    public static function listStatement(ItemListCriteria $criteria): array
     {
-        // TB-3: a live list never returns a soft-deleted row. This predicate is
-        // also what makes `inventory_item_tenant_sku_live` usable -- a partial
-        // index cannot be chosen for a query that does not carry its predicate.
-        $where = ['i.deleted_at IS NULL'];
+        // TB-3: a live list never returns a soft-deleted row, and the Archived view returns only those -- instead of the
+        // live set, never beside it. Each predicate is also what makes its partial index (`inventory_item_tenant_sku_live` /
+        // `inventory_item_tenant_archived_idx`) usable -- a partial index cannot be chosen for a query that does not carry
+        // its predicate.
+        $where = [$criteria->archived ? 'i.deleted_at IS NOT NULL' : 'i.deleted_at IS NULL'];
         $parameters = [];
 
         if (null !== $criteria->supplierId) {
@@ -135,6 +146,26 @@ final readonly class ItemReader
         }
 
         $cursor = $criteria->after ?? $criteria->before;
+
+        if ($criteria->archived) {
+            // The Archived view: newest first, so forward is DESC and the keyset comparison is `<`. The provider has already
+            // refused a cursor whose key is not a timestamp (a live-view `sku` cursor), so the cast cannot 500.
+            $descending = !$criteria->isBackwards();
+            if (null !== $cursor) {
+                $where[] = \sprintf('(i.deleted_at, i.id) %s (?::timestamptz, ?::uuid)', $descending ? '<' : '>');
+                $parameters[] = $cursor->sortKey;
+                $parameters[] = $cursor->id;
+            }
+            $direction = $descending ? 'DESC' : 'ASC';
+            $sql = 'SELECT '.ItemRow::COLUMNS.' '.ItemRow::FROM
+                .' WHERE '.implode(' AND ', $where)
+                .\sprintf(' ORDER BY i.deleted_at %s, i.id %s', $direction, $direction)
+                .' LIMIT ?';
+            $parameters[] = $criteria->limit + 1;
+
+            return [$sql, $parameters, []];
+        }
+
         if (null !== $cursor) {
             // API-18: the cursor is (sort key, id), never the sort key alone.
             // A row comparison is what makes the pair a single ordering
@@ -161,14 +192,18 @@ final readonly class ItemReader
      *
      * @return array{?string, ?string} next, previous
      */
-    private function cursors(ItemListCriteria $criteria, array $rows, bool $hasMore): array
+    private static function cursors(ItemListCriteria $criteria, array $rows, bool $hasMore): array
     {
         if ([] === $rows) {
             return [null, null];
         }
 
-        $first = new Cursor((string) $rows[0]['sku'], (string) $rows[0]['id']);
-        $last = new Cursor((string) $rows[array_key_last($rows)]['sku'], (string) $rows[array_key_last($rows)]['id']);
+        // `sku` is NOT NULL text, and the Archived view's key is `deleted_at`, NOT NULL by its own predicate, so `6fe8b7d`'s
+        // empty-key cursor cannot arise here. The archived key is the raw column text (microseconds), never the wire's
+        // millisecond `archived_at`.
+        $key = $criteria->archived ? 'deleted_at' : 'sku';
+        $first = new Cursor((string) $rows[0][$key], (string) $rows[0]['id']);
+        $last = new Cursor((string) $rows[array_key_last($rows)][$key], (string) $rows[array_key_last($rows)]['id']);
 
         if ($criteria->isBackwards()) {
             // We arrived here from a later page, so a next page exists by

@@ -29,11 +29,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * read rather than a collection wrapper this contract does not use.
  *
  * The `Query parameters` cell of §4.2's `ListItems` row is exhaustive, and the
- * parameters below are that cell. `archived` is deliberately absent:
- * API-19c offers it only where the sort manifest gives the route an archived row
- * that is not `⛔`, or where the list is a bounded sub-list of a `soft` table.
- * `/items` Archived is `⛔ D-a` and `/items` is not bounded, so neither limb is
- * satisfied.
+ * parameters below are that cell. **`archived`** (remaining-ops G-I, 2026-10-21):
+ * API-19c limb 1 offers it because the sort manifest now gives `/items` an Archived
+ * row that is not `⛔` (`IA.md` §5.6; D-a's `inventory_item_tenant_archived_idx`).
+ * Until then it was absent by rule, and `RestoreItem` shipped under a by-name
+ * carve-out in E9-3, retired in the same commit (final RED H-1). The Archived view
+ * is the archived items instead of the live ones, `archived_at` newest first, `q`
+ * kept inside it, never combined with `supplier_id`;
+ * `ItemOperationContractTest::archivedIsOfferedOnItemsExactlyWhenItsIndexIsMigrated`
+ * ties the parameter to the index.
  *
  * **`sort` is absent too, and for a reason that is checked rather than
  * remembered.** §10.3's derivation step 4 adds `sort` only *where the manifest
@@ -42,7 +46,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * the separate `/items` by `name` row is `⛔ D-b` — the owed index
  * `inventory_item_tenant_name_live`, which no migration creates. A parameter
  * whose only legal value is the order the list already returns is a control that
- * cannot change anything.
+ * cannot change anything. **That holds per view since G-I:** the Archived row's one
+ * order is `archived_at`, also with no alternate, so `archived` alone switches the
+ * order and `sort` stays absent (`SortManifestTest` holds it).
  *
  * The **only** thing that gets it back is closing D-b, and that is not left to
  * whoever reads this comment:
@@ -62,6 +68,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 'supplier_id' => new QueryParameter(
                     description: 'Restrict to one supplier. The sort manifest\'s "/items filtered to a supplier" predicate.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
+                ),
+                'archived' => new QueryParameter(
+                    description: 'Return the archived items instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has an /items Archived view (remaining-ops G-I). Not combinable with supplier_id.',
+                    schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
                     description: 'Free-text search. TB-5 names exactly one searchable column on this table, inventory_item.sku; inventory_item.name is not searched (D-b).',

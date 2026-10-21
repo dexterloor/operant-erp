@@ -257,14 +257,23 @@ final class ItemListTest extends ApiTestCase
         self::assertSame('?created_by', $this->json()['errors'][0]['pointer']);
     }
 
-    /** API-19c — `/items` Archived is `⛔ D-a` and the list is not bounded, so neither limb of API-19c is satisfied. */
+    /**
+     * **API-19c limb 1 — offered since remaining-ops G-I (2026-10-21).** Until then `/items` Archived was `⛔ D-a`, `archived`
+     * was not offered, and this test pinned its 422 (`theArchivedParameterIsNotOffered`). D-a's
+     * `inventory_item_tenant_archived_idx` arrived with the parameter, so it is now declared and served; its behaviour is
+     * `ItemArchivedViewTest`'s. What stays true here is the live view: `archived=false` is the default list.
+     */
     #[Test]
-    public function theArchivedParameterIsNotOffered(): void
+    public function archivedFalseIsTheLiveList(): void
     {
-        $this->send('GET', '/items?archived=true');
+        $this->seedItem(self::TENANT_A, 'SKU-LIVE');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid',
+            [$this->seedItem(self::TENANT_A, 'SKU-GONE')]);
 
-        self::assertSame(422, $this->httpStatus());
-        self::assertSame('?archived', $this->json()['errors'][0]['pointer']);
+        $this->send('GET', '/items?archived=false');
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['SKU-LIVE'], array_column($this->json()['items'], 'sku'));
     }
 
     /** API-17 — default 50, maximum 200. */

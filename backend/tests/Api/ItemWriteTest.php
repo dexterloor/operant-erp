@@ -327,8 +327,9 @@ final class ItemWriteTest extends ApiTestCase
 
         foreach ([
             ['PATCH', ['name' => 'x'], 'This item is archived, so it can\'t be changed until it\'s restored.'],
-            // A repeat delete is told the plain fact (s34 D-1 item 1).
-            ['DELETE', null, 'This item is already archived.'],
+            // A repeat delete is told the plain fact (s34 D-1 item 1), and since remaining-ops G-I where to find it: the
+            // clause `IA.md` §5.7's D-a items note (s34 D-1 item 6) held back until the `/items` Archived view existed.
+            ['DELETE', null, 'This item is already archived. It\'s in the archived items.'],
         ] as [$method, $body, $detail]) {
             $this->send($method, '/items/'.$id, $body);
             self::assertSame(409, $this->httpStatus(), $method.' on an archived row was not refused.');

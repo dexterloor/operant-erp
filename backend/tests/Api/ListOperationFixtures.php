@@ -134,12 +134,18 @@ trait ListOperationFixtures
             'ListItems' => function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Acme Items');
 
+                // Remaining-ops G-I: as many ARCHIVED items again, each archived at a distinct microsecond instant (owner SQL:
+                // a fixture needs distinct instants; `DeleteItem` archives at `now()`), so the Archived view (`archived=true`;
+                // `/items` declares no `sort` on either view) pages too; they never appear in the live view.
                 return ['/items', function (int $rows) use ($supplier): array {
                     for ($i = 1; $i <= $rows; ++$i) {
                         $this->seedItem(self::TENANT_A, 'SKU-ENV-'.$i, $supplier);
+                        $archived = $this->seedItem(self::TENANT_A, 'SKU-ENV-ARCHIVED-'.$i, $supplier);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = ?::timestamptz WHERE id = ?::uuid',
+                            [\sprintf('2026-10-%02d 12:00:00.123456+00', $i), $archived]);
                     }
 
-                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'SKU-ENV', 'views' => ['']];
+                    return ['filter' => ['supplier_id' => $supplier], 'search' => 'SKU-ENV', 'views' => ['', 'archived=true']];
                 }];
             },
             'ListPurchaseOrderLines' => function (): array {

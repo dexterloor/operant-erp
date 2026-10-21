@@ -47,6 +47,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'inventory_item_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'inventory_item_tenant_sku_live', columns: ['tenant_id', 'sku'], options: ['where' => '(deleted_at IS NULL)'])]
 #[ORM\Index(name: 'inventory_item_tenant_supplier_idx', columns: ['tenant_id', 'supplier_id'])]
+// Remaining-ops G-I (`Version20261021002000`): the `/items` Archived view's index (D-a), mapped so the schema diff stays empty.
+#[ORM\Index(name: 'inventory_item_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
 class InventoryItem
 {
     #[ORM\Id]

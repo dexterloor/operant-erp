@@ -53,8 +53,11 @@ final class ItemOperationContractTest extends ApiTestCase
         'reorder_point', 'reorder_quantity', 'safety_stock',
     ];
 
-    /** §4.2's `Query parameters` cell for `ListItems`. */
-    private const PINNED_QUERY_PARAMETERS = ['supplier_id', 'q', 'limit', 'after', 'before'];
+    /** §4.2's `Query parameters` cell for `ListItems`. `archived` since remaining-ops G-I (2026-10-21; D-a). */
+    private const PINNED_QUERY_PARAMETERS = ['supplier_id', 'archived', 'q', 'limit', 'after', 'before'];
+
+    /** The index the `/items` Archived view (`IA.md` §5.6, D-a) is served by; the house `<table>_tenant_archived_idx` name. */
+    private const ARCHIVED_INDEX = 'inventory_item_tenant_archived_idx';
 
     /**
      * The pin against the registry: method, path and the `Idem` flag.
@@ -179,6 +182,37 @@ final class ItemOperationContractTest extends ApiTestCase
             \in_array('sort', $declared, true),
             'D-b: `/items` must offer `sort` exactly when inventory_item_tenant_name_live is migrated. '
             .'Indexes found on inventory_item: '.implode(', ', $indexes),
+        );
+    }
+
+    /**
+     * **`⛔ D-a`'s tie for `/items`, to the migrations** (remaining-ops G-I, 2026-10-21; `CustomerOperationContractTest`'s
+     * twin): `/items` offers `archived` exactly when `inventory_item_tenant_archived_idx` is migrated. Born on its TRUE side in
+     * the commit that adds both, so its evidence is the mutation run, not its first green: drop the index's `CREATE INDEX`
+     * with `archived` declared → red (mutation GI-M6); remove `archived` with the index migrated → red (GI-M1). The E9-3 half
+     * (`RestoreItem` ⇔ `ListItems?archived`) is `SalesOrderCreateTest::theArchivedIdProblemIsWhyNoLineRestoreShips`' control,
+     * where the by-name carve-out it replaces used to be (final RED H-1).
+     */
+    #[Test]
+    public function archivedIsOfferedOnItemsExactlyWhenItsIndexIsMigrated(): void
+    {
+        $indexes = self::indexesCreatedOnInventoryItem();
+        self::assertContains('inventory_item_tenant_sku_live', $indexes,
+            'The migration reader did not find an index known to exist on inventory_item, so the condition below would be decided by a broken reader.');
+
+        $operation = TransactionBoundaryTest::contractOperations()['ListItems'];
+        \assert($operation instanceof HttpOperation);
+
+        $declared = [];
+        foreach ($operation->getParameters() ?? [] as $key => $parameter) {
+            $declared[] = (string) ($parameter->getKey() ?? $key);
+        }
+
+        self::assertSame(
+            \in_array(self::ARCHIVED_INDEX, $indexes, true),
+            \in_array('archived', $declared, true),
+            'D-a: `/items` must offer `archived` exactly when '.self::ARCHIVED_INDEX.' is migrated. Indexes found on inventory_item: '
+            .implode(', ', $indexes),
         );
     }
 
