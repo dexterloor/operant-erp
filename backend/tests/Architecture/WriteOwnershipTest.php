@@ -240,7 +240,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // `LEVEL_BOUNDED_UPSERT` (`INSERT INTO stock_level … ON CONFLICT DO UPDATE`, the destination). Its savepoint
         // statements write nothing; its `FOR KEY SHARE` reads are locks this scan excludes.
         'Modules\\Inventory' => 16,
-        'Modules\\Purchasing' => 10,
+        // **10 -> 11 on 2026-10-21** (order restores C0), read off this test's own failure: `PurchaseOrderWriter::restoreLine()`'s
+        // one `UPDATE purchase_order_line SET deleted_at = NULL`, the mirror of `archiveLine()`'s.
+        'Modules\\Purchasing' => 11,
         // ⚠ **This block read "Two … **There is no UPDATE**, which is the whole of that ruling —
         // `total_amount` is summed inside the order's own INSERT" and is FALSE as of 2026-09-21.**
         // `CreateSalesOrderLine` deleted that expression -- `insertOrderInside()`'s own docblock named

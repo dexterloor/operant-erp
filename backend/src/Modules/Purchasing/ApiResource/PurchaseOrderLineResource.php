@@ -13,6 +13,7 @@ use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Purchasing\ApiResource\State\CreatePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\DeletePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\PurchaseOrderLineProvider;
+use App\Modules\Purchasing\ApiResource\State\RestorePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\Application\ItemReference;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
@@ -21,7 +22,7 @@ use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
- * `purchase_order_line`'s read shape and its three write operations.
+ * `purchase_order_line`'s read shape and its four write operations.
  *
  * ---------------------------------------------------------------------------
  * The field list is derived, not chosen (API-23)
@@ -145,6 +146,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeletePurchaseOrderLine'),
             provider: PurchaseOrderLineProvider::class,
             processor: DeletePurchaseOrderLineProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'purchase_order.edit'],
+        ),
+        // It mints nothing -- it clears `deleted_at` on a row the caller already holds the id of -- so **200 with
+        // the resource in its new state, and no `Location`**. `RestoreSalesOrderLine` is the twin.
+        new Post(
+            uriTemplate: '/purchase-orders/{id}/lines/{lineId}/restoration',
+            uriVariables: [
+                'id' => new Link(fromClass: PurchaseOrderResource::class, identifiers: ['id'], parameterName: 'id'),
+                'lineId' => new Link(fromClass: PurchaseOrderLineResource::class, identifiers: ['id'], parameterName: 'lineId'),
+            ],
+            name: 'RestorePurchaseOrderLine',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestorePurchaseOrderLine'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestorePurchaseOrderLineProcessor::class,
+            // No `IdempotencyKeyGuard::OPERATION_FLAG`, deliberately: §4.2's cell is
+            // `guard:purchase_order_line.deleted_at`, so a replayed restore finds a live row and is refused by the
+            // writer. `IdempotencyContractTest` holds this flag and that cell to each other.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'purchase_order.edit'],
         ),
     ],

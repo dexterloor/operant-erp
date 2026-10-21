@@ -311,6 +311,18 @@
     "RestoreItem $.safety_stock": [
         6
     ],
+    "RestorePurchaseOrderLine $.quantity": [
+        6
+    ],
+    "RestorePurchaseOrderLine $.quantity_outstanding": [
+        6
+    ],
+    "RestorePurchaseOrderLine $.quantity_received": [
+        6
+    ],
+    "RestorePurchaseOrderLine $.unit_cost": [
+        4
+    ],
     "RestoreSalesOrderLine $.quantity": [
         6
     ],

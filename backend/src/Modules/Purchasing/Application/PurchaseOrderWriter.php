@@ -827,6 +827,75 @@ final readonly class PurchaseOrderWriter
         });
     }
 
+    /**
+     * **`RestorePurchaseOrderLine` — `guard:purchase_order_line.deleted_at`, so a repeat is refused by the guard
+     * itself and no retry key is needed** (API-14 as amended demands the header for `store` and `unique:` only).
+     * `SalesOrderWriter::restoreLine()` is the shipped twin; order-restores design §3 / Revision 1 FINAL C0.
+     *
+     * **The two order-level guards run in FRONT, and they are the coherence answer** the blocked state recorded
+     * (*"shipping the child restore alone would leave a line restorable inside an order that is not"*): a
+     * cascade-archived line has an archived order, so `refuseIfArchived()` refuses it and a line can never be
+     * restored inside an order that is not. The only restorable line is one deleted individually while its order
+     * was a live draft.
+     *
+     * ⚠ **The total must RISE here, so this passes a pointer where `archiveLine()` passes null.** A restore adds a
+     * term back to the sum, and a null pointer would send an overflow down `recomputeTotal()`'s `LogicException`
+     * branch — a 500. The pointer names `/unit_cost` on a bodyless POST, as the sales twin names `/unit_price`.
+     *
+     * ⚠ **Both line uniques are partial on `deleted_at IS NULL`, so both are reachable and both are translated
+     * by name on THIS path only** ({@see self::translatingConstraintFailures()}'s `$onCollision`): a line number
+     * is minted `MAX + 1` over LIVE lines, so a replacement line takes the archived line's number; and the retry
+     * key is TENANT-wide, so a line on ANOTHER order may take the archived line's key. The create path keeps its
+     * race answers. No audit row: draft line edits write none in either module (`RESIDUAL_GAPS.md` G-19, widened
+     * by this operation — a notice).
+     */
+    public function restoreLine(string $orderId, string $lineId): PurchaseOrderLineResource
+    {
+        return $this->translatingConstraintFailures(fn (): PurchaseOrderLineResource => $this->tenants->run(
+            $this->tenant->tenantId(),
+            function (EntityManagerInterface $em) use ($orderId, $lineId): PurchaseOrderLineResource {
+                PurchaseOrderRowLock::holdInside($em, $orderId);
+                $order = $this->readOrderInside($em, $orderId) ?? throw ApiProblem::notFound();
+                $this->refuseIfArchived($order);
+                $this->refuseUnlessDraft($order);
+
+                $line = $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+
+                // The declared mechanism: a repeat finds a LIVE row and is refused here, with no key.
+                if (null === $line->archivedAt) {
+                    throw ApiProblem::businessRuleViolated(
+                        'purchase_order_line.is_not_archived',
+                        'This line is not archived, so there is nothing to restore.',
+                    );
+                }
+
+                $em->getConnection()->executeStatement(
+                    'UPDATE purchase_order_line SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid',
+                    [$lineId],
+                );
+
+                $this->recomputeTotal($em, $orderId, self::POINTERS['unitCost']);
+
+                return $this->readLineInside($em, $orderId, $lineId) ?? throw ApiProblem::notFound();
+            },
+        ), [
+            // `purchase_order_line_unique` is the older index, so it fires FIRST when both collide (T-2, measured
+            // by the four-step test). Copy is a PLACEHOLDER, TO CONFIRM by `UX`.
+            self::LINE_NUMBER_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order_line.line_number_is_taken_by_a_live_line',
+                'A newer line on this order now has this line\'s number, so this line cannot be restored. '
+                .'Delete the newer line first, or add this line again.',
+            ),
+            // ⚠ **Not "on this order"** (order-restores RED M-3): the key is tenant-wide, so the line holding it
+            // may sit on another order. Copy is a PLACEHOLDER, TO CONFIRM by `UX`.
+            self::LINE_IDEMPOTENCY_INDEX => static fn (): ApiProblem => ApiProblem::businessRuleViolated(
+                'purchase_order_line.retry_key_is_held_by_a_live_line',
+                'Another line, on this order or another, was created with the same retry key as this one, so this '
+                .'line cannot be restored. Add this line again instead.',
+            ),
+        ]);
+    }
+
     // -----------------------------------------------------------------------
 
     /** Property name => column, so no UPDATE restates the field list. */
@@ -1810,11 +1879,15 @@ final readonly class PurchaseOrderWriter
     /**
      * @template T
      *
-     * @param callable(): T $write
+     * @param callable(): T                         $write
+     * @param array<string, callable(): ApiProblem> $onCollision index name => how to answer a violation of it on
+     *                                                            THIS path. An index not named here falls through
+     *                                                            to the create-path answers below (only
+     *                                                            `restoreLine()` passes one)
      *
      * @return T
      */
-    private function translatingConstraintFailures(callable $write): mixed
+    private function translatingConstraintFailures(callable $write, array $onCollision = []): mixed
     {
         try {
             return $write();
@@ -1824,7 +1897,13 @@ final readonly class PurchaseOrderWriter
             // line-number race, which was true only while that was the table's
             // one unique a write could reach.
             if (self::violated($e, self::LINE_IDEMPOTENCY_INDEX)) {
-                // The same key committed on ANOTHER order between this request's
+                // `restoreLine()`: the archived line's key was taken by a LIVE line while it was archived. No
+                // retry is involved, so `idempotency-key-conflict` would name a mechanism the caller never used.
+                if (isset($onCollision[self::LINE_IDEMPOTENCY_INDEX])) {
+                    throw $onCollision[self::LINE_IDEMPOTENCY_INDEX]();
+                }
+
+                // `createLine()`: the same key committed on ANOTHER order between this request's
                 // key lookup and its INSERT: a same-order retry would have waited
                 // at the order's row lock and then found the line. Another order
                 // is in the digest, so this is a key reused for a different
@@ -1834,7 +1913,13 @@ final readonly class PurchaseOrderWriter
             }
 
             if (self::violated($e, self::LINE_NUMBER_INDEX)) {
-                // Two concurrent creates picking the same MAX+1. A genuine
+                // `restoreLine()`: a replacement line took the archived line's number. "Try again" would be
+                // advice into a wall, since nothing about a retry can change it.
+                if (isset($onCollision[self::LINE_NUMBER_INDEX])) {
+                    throw $onCollision[self::LINE_NUMBER_INDEX]();
+                }
+
+                // `createLine()`: two concurrent creates picking the same MAX+1. A genuine
                 // conflict rather than a client mistake; the answer is to retry.
                 throw ApiProblem::businessRuleViolated(
                     'purchase_order_line.line_number_is_unique_per_order',

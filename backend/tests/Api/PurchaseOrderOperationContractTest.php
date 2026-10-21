@@ -40,9 +40,10 @@ use PHPUnit\Framework\Attributes\Test;
  * point at, not by a schedule:
  *
  *   `RestorePurchaseOrder`       **E9-3 / API-O-11** — no path yields an
- *   `RestorePurchaseOrderLine`   archived row's id to a caller who does not
+ *                                archived order's id to a caller who does not
  *                                already hold it. `theArchivedIdProblemIsWhyNoRestoreShips`
  *                                is the half of that a test can carry.
+ *                                (`RestorePurchaseOrderLine` left at order-restores C0.)
  *   `CreateGoodsReceipt`         see `PINNED_UNSHIPPED`'s own note — blocked
  *                                three times over, and the Inventory contract
  *                                class it needs does not exist.
@@ -86,6 +87,8 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         'CreatePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines', 'idem' => true],
         'UpdatePurchaseOrderLine' => ['method' => 'PATCH', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
         'DeletePurchaseOrderLine' => ['method' => 'DELETE', 'path' => '/purchase-orders/{id}/lines/{lineId}', 'idem' => false],
+        // Order-restores C0: `guard:purchase_order_line.deleted_at`, so no header (API-14 as amended).
+        'RestorePurchaseOrderLine' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/lines/{lineId}/restoration', 'idem' => false],
         // Step 8: `unique:goods_receipt_idem_unique`, header-sourced like
         // `CreatePurchaseOrder`. Here because its path is under the order (N-8).
         'CreateGoodsReceipt' => ['method' => 'POST', 'path' => '/purchase-orders/{id}/goods-receipts', 'idem' => true],
@@ -119,25 +122,11 @@ final class PurchaseOrderOperationContractTest extends PurchaseOrderTestCase
         // it now does — §8.3's matrix row names the method, which is what makes
         // `STATUS_CANCELLED` reachable.
         'RestorePurchaseOrder',
-        // ⚠ **`RestoreSalesOrderLine` SHIPPED on 2026-09-21 while this one did not, and the asymmetry is
-        // deliberate rather than an oversight — so the reason is recorded here, where a reader wondering
-        // why the twin is absent will look.**
-        //
-        // E9-3's clause was rewritten computably in that same commit, and under the new wording
-        // **neither** line restore is blocked on obtainability any more: `ListPurchaseOrderLines` and
-        // `ListSalesOrderLines` both declare `archived`, so an archived line's id IS obtainable, and
-        // `DeletePurchaseOrderLineProcessor`'s docblock has conceded that half in shipped code since the
-        // purchasing slice. What blocks this one is the **other** half of that docblock: coherence with
-        // the parent -- *"shipping the child restore alone would leave a line restorable inside an order
-        // that is not."*
-        //
-        // **The sales side answered that objection rather than inheriting it:** `restoreLine()` runs
-        // `refuseIfArchived($order)` and `refuseUnlessDraft($order)` in front, so a cascade-archived line
-        // cannot be restored at all -- its order is archived and the first guard refuses -- and the only
-        // restorable line is one deleted individually while its order was a live draft. **The same
-        // treatment is available here and is simply not this slice's scope**; whoever builds it also owes
-        // V2-R-12b's translation, which the sales twin now has a worked example of.
-        'RestorePurchaseOrderLine',
+        // `RestorePurchaseOrderLine` left this list at order-restores C0 (2026-10-21). It was blocked on
+        // coherence with its parent, not on obtainability (`ListPurchaseOrderLines` declares `archived`): *"shipping
+        // the child restore alone would leave a line restorable inside an order that is not."* It answers that by
+        // guards, as `RestoreSalesOrderLine` did: `refuseIfArchived($order)` and `refuseUnlessDraft($order)` run in
+        // front, so a cascade-archived line cannot be restored alone (`PurchaseOrderLineRestoreTest`).
         // `CreateGoodsReceipt` left this list at step 8: its E9-2 block was
         // discharged by 8-i's retry key, X9-1's by `recordReceipt()`, and the
         // Inventory contract it needed shipped at step 7.

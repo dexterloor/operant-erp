@@ -145,9 +145,8 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more:** `DeleteSalesOrderLine`. A **soft** delete -- an `UPDATE` of `deleted_at` --
         // so it needs no `DELETE` grant and none was added: `has_table_privilege('erp_app',
         // 'sales_order_line', 'DELETE')` is false and stays false.
-        // **And the last of this slice:** `RestoreSalesOrderLine`. It ships while its purchase twin does
-        // not, and the asymmetry is deliberate -- see `RestoreSalesOrderLineProcessor`'s docblock and
-        // `PurchaseOrderOperationContractTest::PINNED_UNSHIPPED`'s note.
+        // **And the last of this slice:** `RestoreSalesOrderLine`. It shipped while its purchase twin did
+        // not (the twin followed at order-restores C0, 2026-10-21) -- see `RestoreSalesOrderLineProcessor`'s docblock.
         // **And one more on 2026-09-21 (sales slice 5):** `DeleteSalesOrder`. A **soft** delete as well --
         // `has_table_privilege('erp_app', 'sales_order', 'DELETE')` is false before and after -- and it adds no
         // `$notExposed` route: `SalesOrderResource` already has its item `Get`. `RestoreSalesOrder` is NOT
@@ -299,7 +298,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `warehouse.delete`; branch 3, 204) on `WarehouseResource`. No grant (C1's `UPDATE (deleted_at)` serves it).
         // **And one more (audit reads C1, 2026-10-21):** `ListAuditLogEntries` (GET `/audit-log`, `audit_log.view`) on
         // `AuditLogEntryCollection`. Its migration rebuilds three `audit_log` indexes with a trailing `id`, concurrently; no grant.
-        self::assertCount(111, $checked, 'The route set changed. This slice declares one hundred and eleven operations: '.implode(', ', array_keys($checked)));
+        // **And one more (order restores C0, 2026-10-21):** `RestorePurchaseOrderLine` (POST
+        // `/purchase-orders/{id}/lines/{lineId}/restoration`, `purchase_order.edit`; branch 5, 200) on
+        // `PurchaseOrderLineResource`. No grant: `erp_app` holds table-level UPDATE on `purchase_order_line` (measured).
+        self::assertCount(112, $checked, 'The route set changed. This slice declares one hundred and twelve operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

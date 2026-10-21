@@ -233,7 +233,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $otherItem = $this->seedItem(self::TENANT_A, 'SKU-OTHER');
         $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $otherItem);
 
-        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem];
+        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem,
+            '{archivedLine}' => $this->archivedSecondLine($draft['order'])];
         $before = $this->contentOf($draft['order']);
 
         $holder = $this->raceAgainstAHolder($draft['order'], before: [
@@ -252,6 +253,34 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->assertOrderStatus($draft['order'], PurchaseOrder::STATUS_ORDERED);
         self::assertSame($before, $this->contentOf($draft['order']),
             'A refused write changed the order or its lines.');
+    }
+
+    /**
+     * **Order-restores C0 — a restore waits for a concurrent restore of the same line, then is refused.** A takes
+     * the order's lock, brings the line back and holds. The request must wait on the order lock, re-read the line
+     * live and answer `is_not_archived`, with the total raised ONCE.
+     *
+     * Without the lock first, the request reads the line still archived (A has not committed), passes the guard,
+     * waits only at its own `UPDATE` of the line, and then goes ahead: 200, a second `recomputeTotal()` — and the
+     * caller is told it restored a line someone else restored.
+     */
+    #[Test]
+    public function aRestoreWaitsForAConcurrentRestoreOfTheSameLineAndThenRefuses(): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001', $this->seedPrincipal(self::TENANT_A, []));
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item']);
+        $archived = $this->archivedSecondLine($draft['order']);
+
+        $holder = $this->raceAgainstAHolder($draft['order'], before: [
+            ['UPDATE purchase_order_line SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$archived]],
+            ['UPDATE purchase_order SET total_amount = 50, updated_at = now() WHERE id = ?::uuid', [$draft['order']]],
+        ], request: fn () => $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines/'.$archived.'/restoration'));
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchase_order_line.is_not_archived', $this->json()['rule']);
+        self::assertSame([['t' => '50.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount::text AS t FROM purchase_order WHERE id = ?::uuid', [$draft['order']]));
     }
 
     /**
@@ -307,6 +336,19 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'SELECT quantity_received::text AS q FROM purchase_order_line WHERE id = ?::uuid', [$line]));
     }
 
+    /**
+     * A second line of the order, individually deleted while the order is a draft — the only line
+     * `RestorePurchaseOrderLine` admits (order-restores C0).
+     */
+    private function archivedSecondLine(string $orderId): string
+    {
+        $line = $this->seedLine(self::TENANT_A, $orderId, $this->seedItem(self::TENANT_A, 'SKU-ARC-'.substr(md5($orderId), 0, 6)), 2);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'UPDATE purchase_order_line SET deleted_at = now() WHERE id = ?::uuid', [$line]);
+
+        return $line;
+    }
+
     /** @return array{string, string, string, string} order, its one line (10 ordered), a bin of its warehouse, that warehouse */
     private function orderedOrderToReceive(string $number = 'PO-000001'): array
     {
@@ -332,6 +374,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         ]];
         yield 'UpdatePurchaseOrderLine' => ['PATCH', '/purchase-orders/{order}/lines/{line}', ['unit_cost' => '9.0000']];
         yield 'DeletePurchaseOrderLine' => ['DELETE', '/purchase-orders/{order}/lines/{line}', null];
+        // Order-restores C0. Driven at `{archivedLine}`: a live line is refused by the restore's own guard, which
+        // issues no write, so the race and the position check would both prove nothing.
+        yield 'RestorePurchaseOrderLine' => ['POST', '/purchase-orders/{order}/lines/{archivedLine}/restoration', null];
     }
 
     /**
@@ -358,7 +403,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->insertAsOwnerForTenant(self::TENANT_A,
             "INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, 'A-01')",
             [$bin, self::TENANT_A, $draft['warehouse']]);
-        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem, '{bin}' => $bin];
+        $placeholders = ['{order}' => $draft['order'], '{line}' => $line, '{item}' => $otherItem, '{bin}' => $bin,
+            '{archivedLine}' => $this->archivedSecondLine($draft['order'])];
 
         // A receipt writes only against a placed order (step 8).
         if (PurchaseOrder::STATUS_DRAFT !== $orderStatus) {
@@ -422,9 +468,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'CancelPurchaseOrder' => ['POST', '/purchase-orders/{order}/cancellation', [], 200];
 
         foreach (self::draftOnlyWrites() as $name => [$method, $path, $body]) {
-            yield $name => [$method, $path, $body, match ($method) {
-                'POST' => 201,
-                'DELETE' => 204,
+            yield $name => [$method, $path, $body, match (true) {
+                // A restore mints nothing: 200 with the line (API-21 branch 5), not 201.
+                str_ends_with($path, '/restoration') => 200,
+                'POST' === $method => 201,
+                'DELETE' === $method => 204,
                 default => 200,
             }];
         }
@@ -904,6 +952,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CreatePurchaseOrderLine' => 'PurchaseOrderWriter::createLine',
         'UpdatePurchaseOrderLine' => 'PurchaseOrderWriter::updateLine',
         'DeletePurchaseOrderLine' => 'PurchaseOrderWriter::archiveLine',
+        'RestorePurchaseOrderLine' => 'PurchaseOrderWriter::restoreLine',
         'CreateGoodsReceipt' => 'GoodsReceiptWriter::create',
     ];
 

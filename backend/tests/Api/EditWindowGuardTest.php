@@ -94,6 +94,8 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
                 'CreatePurchaseOrderLine',
                 'UpdatePurchaseOrderLine',
                 'DeletePurchaseOrderLine',
+                // Order-restores C0 (2026-10-21): its writer calls `refuseUnlessDraft()`, so clause (b) forces it.
+                'RestorePurchaseOrderLine',
             ],
         ],
         'SalesOrder' => [
@@ -682,6 +684,11 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
         $context = $this->seedDraft(self::TENANT_A, self::freshNumber('PO'));
         $order = $context['order'];
         $line = $this->seedLine(self::TENANT_A, $order, $context['item']);
+        // A SECOND line, archived, so `RestorePurchaseOrderLine` has a subject its own guard admits -- the sales
+        // twin's reason: a live line would be refused by `is_not_archived`, the wrong reason for this cell.
+        $archived = $this->seedLine(self::TENANT_A, $order, $this->seedItem(self::TENANT_A, 'SKU-EWA-'.substr(md5($order), 0, 6)), 2);
+        $this->executeAsOwnerForTenant(self::TENANT_A,
+            'UPDATE purchase_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archived]);
 
         // `seedOrder()` handles `purchase_order_ordered_at_set`
         // (`CHECK (status = ANY (ARRAY['draft','cancelled']) OR ordered_at IS NOT NULL)`), but this row
@@ -703,6 +710,7 @@ final class EditWindowGuardTest extends PurchaseOrderTestCase
             ], $key),
             'UpdatePurchaseOrderLine' => $this->send('PATCH', '/purchase-orders/'.$order.'/lines/'.$line, ['quantity' => '2'], $key),
             'DeletePurchaseOrderLine' => $this->send('DELETE', '/purchase-orders/'.$order.'/lines/'.$line, null, $key),
+            'RestorePurchaseOrderLine' => $this->send('POST', '/purchase-orders/'.$order.'/lines/'.$archived.'/restoration', null, $key),
             default => self::fail('§8.3a names a purchase-order operation this test cannot drive: '.$operation),
         };
     }

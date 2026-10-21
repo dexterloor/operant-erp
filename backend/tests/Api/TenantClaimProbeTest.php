@@ -250,6 +250,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         ],
         'UpdatePurchaseOrderLine' => ['vars' => ['id' => 'draft', 'lineId' => 'draft_line'], 'body' => ['quantity' => '7.000000']],
         'DeletePurchaseOrderLine' => ['vars' => ['id' => 'draft', 'lineId' => 'draft_line']],
+        // Order-restores C0: an archived second line of the draft, so the baseline restore succeeds.
+        'RestorePurchaseOrderLine' => ['vars' => ['id' => 'draft', 'lineId' => 'archived_draft_line']],
         'CreateGoodsReceipt' => [
             'vars' => ['id' => 'placed'],
             'body' => ['lines' => [['purchase_order_line_id' => '@placed_line', 'quantity' => '1', 'storage_location_id' => '@bin']]],
@@ -782,6 +784,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
 
         $draft = $this->remember($letter, 'draft', $this->seedOrder($tenantId, 'PO-000001', $supplier, $warehouse));
         $this->remember($letter, 'draft_line', $this->seedLine($tenantId, $draft, $item));
+        // Order-restores C0: a second line of the draft, ARCHIVED, so `RestorePurchaseOrderLine`'s baseline succeeds.
+        $archivedDraftLine = $this->remember($letter, 'archived_draft_line', $this->seedLine($tenantId, $draft, $item, 2));
+        $this->insertAsOwnerForTenant($tenantId,
+            'UPDATE purchase_order_line SET deleted_at = now() WHERE id = ?::uuid', [$archivedDraftLine]);
 
         $placed = $this->remember($letter, 'placed',
             $this->seedOrder($tenantId, 'PO-000002', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED));

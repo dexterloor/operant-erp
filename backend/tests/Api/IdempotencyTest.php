@@ -288,6 +288,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'status, which is why §4.2 spells it guard:<table>.deleted_at -- and the order TOTAL is part of the '
                 .'check here, because a restore raises it and a second one would raise it twice.',
         ],
+        'RestorePurchaseOrderLine' => [
+            'method' => 'replayRestorePurchaseOrderLine',
+            'why' => 'Order-restores C0: a second restoration of a live purchase line. guard:purchase_order_line.deleted_at '
+                .'-- and the order TOTAL is part of the check, because a restore raises it and a second one would raise it twice.',
+        ],
         'RestoreSupplier' => [
             'method' => 'replayRestoreSupplier',
             'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
@@ -855,6 +860,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame('sales_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
         self::assertSame([['total_amount' => '6.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$order]), $why);
+    }
+
+    /** The sales twin's shape: delete and restore through the operations, then restore again. */
+    private function replayRestorePurchaseOrderLine(string $why): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $this->seedLine(self::TENANT_A, $draft['order'], $draft['item'], 1);
+        $line = $this->seedLine(self::TENANT_A, $draft['order'], $this->seedItem(self::TENANT_A, 'SKU-RPOL'), 2);
+
+        $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines/'.$line.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines/'.$line.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), $why);
+        self::assertSame('purchase_order_line.is_not_archived', $this->json()['rule'] ?? null, $why);
+        self::assertSame([['total_amount' => '50.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM purchase_order WHERE id = ?::uuid', [$draft['order']]), $why);
     }
 
     private function replayCreateStockAdjustment(string $why): void
