@@ -337,13 +337,49 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
      * **Field names, never values** (PC-12: `unit_cost` is money; `API.md` §4.4.3 `AuditLogEntry.metadata`). A walk over
      * every `supplier_product.*` row this test writes: only the allowed keys, and no string anywhere in the metadata that
      * carries either cost at any scale. Mutation M-C0-4 (write values into metadata) → red.
+     *
+     * **Why the walk decodes instead of searching the raw JSON** (shipped test defect, fixed 2026-10-23): it used to search
+     * the raw metadata for `"17` and `"19` (the MOQs). The created row carries two random uuids, and a uuid beginning with
+     * `17` or `19` put exactly that substring in the JSON, so the test failed about once in 128 runs with nothing wrong
+     * (seen with an item id `17e060b5-…`). Now every id leaf must EQUAL one of the two ids this test seeded — so a value
+     * cannot hide in an id slot either — and the value needles are searched only in the other leaves and in every key,
+     * which no random id can reach. {@see metadataNeverCarriesTheCostEvenWhenTheIdsLookLikeTheValues} pins the old flaky
+     * shape deterministically.
      */
     #[Test]
     public function metadataNeverCarriesTheCost(): void
     {
-        $supplier = $this->seedSupplier(self::TENANT_A, 'Secret Costs');
-        $item = $this->seedItem(self::TENANT_A, 'SKU-SECRET');
+        $this->assertTermsNeverReachMetadata(
+            $this->seedSupplier(self::TENANT_A, 'Secret Costs'),
+            $this->seedItem(self::TENANT_A, 'SKU-SECRET'),
+        );
+    }
 
+    /**
+     * The flaky shape, made deterministic: the supplier's id begins `17` and the item's `19`, the two MOQs this walk
+     * looks for. A raw-substring search over the JSON fails here on a correct writer; the decoded walk must not.
+     */
+    #[Test]
+    public function metadataNeverCarriesTheCostEvenWhenTheIdsLookLikeTheValues(): void
+    {
+        $supplier = '17000000-0000-4000-8000-000000000017';
+        $item = '19000000-0000-4000-8000-000000000019';
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO supplier (id, tenant_id, name, code, country_code, currency_code) VALUES (?::uuid, ?::uuid, 'Lookalike Ids', 'S-LOOKALIK', 'GB', 'EUR')",
+            [$supplier, self::TENANT_A]);
+        $this->tenantContext()->run(self::TENANT_A, function () use ($item): void {
+            $this->app()->executeStatement(
+                "INSERT INTO inventory_item (id, tenant_id, sku, name, unit_of_measure_code, currency_code)
+                 VALUES (?::uuid, ?::uuid, 'SKU-LOOKALIKE', 'SKU-LOOKALIKE', 'EA', 'EUR')",
+                [$item, self::TENANT_A],
+            );
+        });
+
+        $this->assertTermsNeverReachMetadata($supplier, $item);
+    }
+
+    private function assertTermsNeverReachMetadata(string $supplier, string $item): void
+    {
         $this->create($supplier, ['inventory_item_id' => $item, 'supplier_sku' => 'SP-SECRET', 'unit_cost' => '4321.9876', 'lead_time_days' => 13,
             'minimum_order_quantity' => '17']);
         self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
@@ -354,13 +390,30 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         $rows = [...$this->auditRowsOf(AuditEvent::SUPPLIER_PRODUCT_CREATED), ...$this->auditRowsOf(AuditEvent::SUPPLIER_PRODUCT_UPDATED)];
         self::assertCount(2, $rows, 'Control: the two writes did not each leave a row, so the walk below proves nothing.');
         $allowed = [AuditEvent::SUPPLIER_PRODUCT_CREATED => ['inventory_item_id', 'supplier_id'], AuditEvent::SUPPLIER_PRODUCT_UPDATED => ['fields']];
+        $ids = [$supplier, $item];
+        $needles = ['4321.9876', '4321.987', '4321', '8765.4321', '8765.432', '8765', 'SP-SECRET', '13', '29', '17', '19'];
         foreach ($rows as $row) {
             $metadata = json_decode($row['metadata'], true, 512, \JSON_THROW_ON_ERROR);
             $keys = array_keys($metadata);
             sort($keys);
             self::assertSame($allowed[$row['event_type']], $keys, $row['event_type'].' carries a key outside its allowlist.');
-            foreach (['4321.9876', '4321.987', '4321', '8765.4321', '8765.432', '8765', 'SP-SECRET', '"13"', '"29"', '"17', '"19'] as $value) {
-                self::assertStringNotContainsString($value, $row['metadata'], 'A value reached '.$row['event_type'].'\'s metadata.');
+
+            $leaves = [];
+            array_walk_recursive($metadata, static function (mixed $leaf, int|string $key) use (&$leaves): void {
+                $leaves[] = [$key, $leaf];
+            });
+            self::assertNotSame([], $leaves, 'Control: the metadata has no leaves, so the walk below proves nothing.');
+            foreach ($leaves as [$key, $leaf]) {
+                self::assertIsString($leaf, 'A non-string (a number) reached '.$row['event_type'].'\'s metadata at '.$key.'.');
+                $isIdSlot = \is_string($key) && str_ends_with($key, '_id');
+                if ($isIdSlot) {
+                    self::assertContains($leaf, $ids, 'An id slot in '.$row['event_type'].'\'s metadata holds something other than a seeded id.');
+                    continue;
+                }
+                foreach ($needles as $value) {
+                    self::assertStringNotContainsString($value, $leaf, 'A value reached '.$row['event_type'].'\'s metadata.');
+                    self::assertStringNotContainsString($value, (string) $key, 'A value reached '.$row['event_type'].'\'s metadata as a key.');
+                }
             }
         }
         self::assertSame(['lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'], json_decode($rows[1]['metadata'], true)['fields']);
