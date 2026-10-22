@@ -114,8 +114,8 @@ final class LiveGrantReader
 
     /**
      * The one grant `(user, role)` in this workspace, with the role's **stored** codes and whether the role is live —
-     * whether or not it is archived (D-15: E-15b on a revoke reads the stored codes, because `RestoreRole` would make an
-     * archived marker grant live again). Null when there is no such grant.
+     * whether or not it is archived (D-15: E-15b on a revoke reads the stored codes, because a grant planted on an archived
+     * role would be live again were the role restored — `RestoreRole` (G2) refuses a held role, and SQL can still clear `deleted_at`). Null when there is no such grant.
      *
      * @return array{id: string, role_live: bool, role_codes: list<string>}|null
      */

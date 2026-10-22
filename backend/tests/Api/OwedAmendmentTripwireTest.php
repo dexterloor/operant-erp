@@ -639,8 +639,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     // The double-credit pin (G-28 / G-32) was DELETED at the stock count's C1 (2026-10-16, `SEC`
     // `docs/session13/stock-adjustment-sec.md` §1): its last entry, `CreateStockAdjustment`, left with path (iii) tested, and
-    // no unbuilt operation composes a role through the API (`RestoreRole` revives no grant: E-15h refuses deleting a held role,
-    // and an archived role cannot be granted). Bulk's AssignRole parity is carried below, on its own entry.
+    // no unbuilt operation composes a role through the API (`RestoreRole`, built at G2, revives no grant: it refuses any
+    // holder and any pending proposal, and an archived role cannot be granted). Bulk's AssignRole parity is carried below, on its own entry.
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
         'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
             .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '

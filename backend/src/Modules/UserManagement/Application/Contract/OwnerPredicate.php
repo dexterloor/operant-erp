@@ -48,6 +48,9 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *   - `RoleUpdate` — **roles slice 4 C2, Q-A** (`roles-s4-c2-decisions.md` FINAL): only a marker holder (lock-time codes)
  *     may change a role whose stored or resulting codes confer the marker; the predicate is also applied to a ROLE's
  *     codes there (the stored set, the resulting set, and the removed codes for API-20's floor);
+ *   - `RoleRestoration` — **G2 `RestoreRole`** (2026-10-22, `docs/session13/g2-restore-role-design.md` §3 S-2, roles-s4
+ *     Q-A symmetry): only a marker holder (lock-time codes) may restore a role whose stored codes confer the marker; the
+ *     predicate is applied to the ROLE's codes and to the actor's;
  *   - `StorageLocationWriter` — **warehouses slice 1 C3, owner Q-W1 (d)** (`warehouses-s1-design.md` §4.3, adopted under
  *     delegation 2026-10-13): taking a storage location OUT of `quarantine` while it holds stock (a release of held goods
  *     to picking). The refusal it exempts from is UNCONDITIONAL — `storage_location.release_needs_owner` — so no holder

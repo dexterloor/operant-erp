@@ -61,6 +61,8 @@ final class OwnerPredicateSingleSourceTest extends TestCase
         'PurchaseOrderDutySeparation',
         'RoleGrantProposalConfirmation',
         'RoleGrantProposalRejection',
+        // G2 (2026-10-22): Q-A symmetry — only an owner restores a role that makes its holders owners.
+        'RoleRestoration',
         'RoleRevocation',
         // Roles slice 4 C2 (2026-10-07): Q-A — only an owner changes a role that makes its holders owners.
         'RoleUpdate',

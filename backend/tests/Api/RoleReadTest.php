@@ -46,6 +46,8 @@ final class RoleReadTest extends ApiTestCase
         'UpdateRole' => ['method' => 'PATCH', 'path' => '/roles/{id}', 'idem' => false],
         // Roles slice 4 C3. `idem`: §4.2's `no` — a repeat meets the deleted role and is 409 `role.is_archived`.
         'DeleteRole' => ['method' => 'DELETE', 'path' => '/roles/{id}', 'idem' => false],
+        // G2. `idem`: §4.2's `guard:role.deleted_at` — a repeat meets a live role and is 409 `role.is_not_archived`.
+        'RestoreRole' => ['method' => 'POST', 'path' => '/roles/{id}/restoration', 'idem' => false],
     ];
 
     /**

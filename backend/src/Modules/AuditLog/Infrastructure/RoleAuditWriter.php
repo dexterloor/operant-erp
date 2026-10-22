@@ -161,6 +161,12 @@ final readonly class RoleAuditWriter
         $this->record(AuditEvent::ROLE_DELETED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress);
     }
 
+    /** G2 `RestoreRole`: `role.restored` `{role_id}`, subject the role, the request's IP (SECURITY). */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $roleId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::ROLE_RESTORED, $tenantId, $actorUserId, $actorLabel, $roleId, $roleId, $ipAddress);
+    }
+
     /**
      * One statement for every `role.*` event, so the rows cannot drift apart in shape (reconciliation arms A, B and C read
      * them together). `ROLE_ID` is always the first key; `$extra` adds the proposal keys (ids) or, for a definition change,

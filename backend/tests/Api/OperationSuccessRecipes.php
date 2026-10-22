@@ -725,6 +725,22 @@ trait OperationSuccessRecipes
 
                 return [204, 'delete a role'];
             }],
+            // G2: an archived, unheld one-code composed role (owner SQL; `DeleteRole` is its own recipe) with no proposal,
+            // restored by the actor, who holds `role.delete` and `role.assign` (every declared code). Its name is unique.
+            'RestoreRole' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name, deleted_at) VALUES (?::uuid, ?::uuid, ?, now())',
+                    [$role, self::TENANT_A, 'Recipe Restore '.substr($role, 0, 8)]);
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+                    [self::TENANT_A, $role]);
+
+                return ['role' => $role];
+            }, function (array $c): array {
+                $this->send('POST', '/roles/'.$c['role'].'/restoration');
+
+                return [200, 'restore a role'];
+            }],
             'CreateRoleGrantProposal' => [function (): array {
                 $role = Uuid::v4()->toRfc4122();
                 $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',

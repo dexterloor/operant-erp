@@ -564,6 +564,14 @@ final class AuditEvent
      */
     public const ROLE_DELETED = 'role.deleted';
 
+    /**
+     * G2 (`RestoreRole`, 2026-10-22; `docs/session13/g2-restore-role-design.md` §3 S-3): a composed role brought back from
+     * the archive — only one nobody holds and nobody has a pending proposal for. Subject `('role', id)`; `metadata`
+     * `{role_id}` only. SECURITY, by `role.deleted`'s ground: it puts a definition back in the set that can be granted;
+     * IP-bearing.
+     */
+    public const ROLE_RESTORED = 'role.restored';
+
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
     // read through `audit_log.view_record` in the History section of a detail
@@ -1137,6 +1145,7 @@ final class AuditEvent
         self::ROLE_PERMISSIONS_CHANGED,
         self::ROLE_UPDATED,
         self::ROLE_DELETED,
+        self::ROLE_RESTORED,
         self::GOODS_RECEIPT_CREATED,
         self::SALES_ORDER_CONFIRMED,
         self::FULFILMENT_CREATED,
@@ -1202,6 +1211,7 @@ final class AuditEvent
         self::ROLE_PERMISSIONS_CHANGED,
         self::ROLE_UPDATED,
         self::ROLE_DELETED,
+        self::ROLE_RESTORED,
     ];
 
     /**
@@ -1378,6 +1388,8 @@ final class AuditEvent
         self::ROLE_UPDATED => 'role',
         // Roles slice 4 C3: the role whose definition left the set.
         self::ROLE_DELETED => 'role',
+        // G2: the role whose definition came back.
+        self::ROLE_RESTORED => 'role',
     ];
 
     /**

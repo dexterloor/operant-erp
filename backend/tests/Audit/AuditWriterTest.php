@@ -157,6 +157,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Roles slice 4 C3 (2026-10-07): a composed role soft-deleted, SECURITY, IP-bearing; `Version20261007000600`
         // re-issues the scope with it.
         'role.deleted',
+        // G2 (2026-10-22): a composed role restored, SECURITY, IP-bearing (`role.deleted`'s filing); `Version20261022000100`
+        // re-issues the scope with it.
+        'role.restored',
     ];
 
     /**

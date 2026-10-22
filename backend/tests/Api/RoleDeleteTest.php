@@ -236,7 +236,7 @@ final class RoleDeleteTest extends ApiTestCase
 
         $this->delete($role);
 
-        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'], $this->refusal());
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change, delete or restore roles.'], $this->refusal());
         $this->assertUntouched($role, $before);
     }
 

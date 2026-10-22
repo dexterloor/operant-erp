@@ -94,6 +94,10 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-22 with `RestoreRole` in the tree (remaining-ops G2): the three commands return **155 / 91 / 37** --
+  # ONE edge line added, A-5: `RoleRestoration -> RoleAuditWriter` (`role.restored`, `RoleDeletion`'s shape). By TAG (every
+  # `skip_violations` entry line, by its trailing `# A-n`, counted with awk) **161: A-1 1, A-5 35, A-7 90, A-10 10, A-12 25** (counted on `49bf62c`; stacked on G5-C0 the A-10 tag is **11**, LEAD 2026-10-22) --
+  # counted, not reconciled with the earlier notes' tag figures, which this method does not reproduce. No LAYER edge. `make deptrac`: see the G2 progress note's gate.)
   # (Re-derived 2026-10-21 with `ListAuditRecords` in the tree (audit reads C2): the three commands return
   # **154 / 91 / 36** -- ONE edge line added, A-7: `AuditRecordAccess -> DenialAuditWriter` (E-5's second check writes its
   # E-3 row through the gate's own writer, within the AuditLog module). By TAG the register now holds **162 edge lines: A-1 1,
@@ -642,6 +646,10 @@ deptrac:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
     App\Modules\UserManagement\Application\RoleDeletion:
       # Roles slice 4 C3, 2026-10-07: `role.deleted` written synchronously in the deleting transaction (`RoleUpdate`'s
+      # shape). Raw SQL for the write, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\RoleRestoration:
+      # G2 `RestoreRole`, 2026-10-22: `role.restored` written synchronously in the restoring transaction (`RoleDeletion`'s
       # shape). Raw SQL for the write, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\Customers\Application\CustomerContactWriter:

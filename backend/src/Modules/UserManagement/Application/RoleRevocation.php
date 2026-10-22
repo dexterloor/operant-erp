@@ -33,7 +33,7 @@ use Symfony\Component\Uid\Uuid;
  *  4. **The subject:** `{id}` not a uuid, absent, another workspace's or soft-deleted → 404; `{roleId}` not a uuid, or no
  *     grant `(user, role)` → 404. An archived role's grant is revocable.
  *  5. **E-15a:** nobody revokes their own role → 409 `user_role.actor_is_subject` (this is also how the last owner is kept).
- *  6. **E-15b:** a role whose STORED codes confer the marker — archived or not (D-15: `RestoreRole` could revive it) — is
+ *  6. **E-15b:** a role whose STORED codes confer the marker — archived or not (D-15: a restore by SQL could revive it; `RestoreRole` refuses a held role, G2) — is
  *     revoked only by an actor holding the marker under the lock → 409 `user_role.marker_needs_owner`.
  *  7. **API-20:** `LastOwnerFloor::refuses(before, after)` over active marker holders → 409 `user_role.last_owner`.
  *  8. `DELETE FROM user_role` — the project's first `DELETE` grant (`Version20260929000300`), exactly this statement.

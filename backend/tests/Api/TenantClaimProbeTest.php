@@ -236,6 +236,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every
         // declared code, `role.assign` included — RED F1-D). A supplied tenant id that moved the write would delete B's role.
         'DeleteRole' => ['vars' => ['id' => 'delete_role']],
+        // G2: the remembered archived role (B's is another id, so a moved restore 404s).
+        'RestoreRole' => ['vars' => ['id' => 'restore_role']],
         'GetItem' => ['vars' => ['id' => 'item']],
         'CreateItem' => ['body' => ['sku' => 'SKU-NEW', 'name' => 'Widget', 'unit_of_measure_code' => 'EA']],
         'UpdateItem' => ['vars' => ['id' => 'item'], 'body' => ['name' => 'Renamed']],
@@ -711,6 +713,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // Roles slice 4, C3: `DeleteRole`'s role — composed, unheld, no proposal, so the baseline deletes it.
         $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, 'Deletable Role')",
             [$this->remember($letter, 'delete_role', Uuid::v4()->toRfc4122()), $tenantId]);
+        // G2: `RestoreRole`'s role — composed, archived, unheld, no proposal, so the baseline restores it.
+        $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name, deleted_at) VALUES (?::uuid, ?::uuid, 'Restorable Role', now())",
+            [$this->remember($letter, 'restore_role', Uuid::v4()->toRfc4122()), $tenantId]);
         // Roles slice 2, C3: `AssignRole`'s subject — active, holding nothing.
         $assignSubject = $this->remember($letter, 'assign_subject', Uuid::v4()->toRfc4122());
         $this->insertAsOwnerForTenant($tenantId,

@@ -348,7 +348,7 @@ final class RoleCreateTest extends ApiTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$this->actorId]);
         $this->create('Stock clerk', ['inventory_item.view']);
 
-        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'],
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change, delete or restore roles.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertNothingWritten();
     }

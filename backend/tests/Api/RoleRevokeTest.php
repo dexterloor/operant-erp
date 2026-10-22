@@ -173,7 +173,8 @@ final class RoleRevokeTest extends ApiTestCase
 
     /**
      * D-15 / R2-12: an ARCHIVED role that confers the marker is still owner-only to revoke — its stored codes are read,
-     * because `RestoreRole` would make the grant live again.
+     * because restoring the role would make the grant live again. (G2: `RestoreRole` refuses a held role and a built-in one —
+     * this fixture's role is the built-in `owner` — so only SQL could restore it; the rule stands for that path.)
      */
     #[Test]
     public function anArchivedMarkerRolesGrantIsRevokedOnlyByAnOwner(): void

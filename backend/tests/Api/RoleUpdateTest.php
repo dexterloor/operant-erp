@@ -137,7 +137,7 @@ final class RoleUpdateTest extends ApiTestCase
         $this->assertUnchanged($role, $before);
     }
 
-    /** An archived role cannot be edited (no `RestoreRole`, D-8) — 409 `role.is_archived`, before Q-A (an admin on an archived marker role). */
+    /** An archived role cannot be edited (restore it first — `RestoreRole`, G2) — 409 `role.is_archived`, before Q-A (an admin on an archived marker role). */
     #[Test]
     public function anArchivedRoleIsRefused(): void
     {
@@ -147,7 +147,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['name' => 'Back again']);
-        self::assertSame([409, 'role.is_archived', 'This role is archived, so it can\'t be changed. Archived roles can\'t be restored, so a new role can be created in its place.'], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        self::assertSame([409, 'role.is_archived', 'This role is archived, so it can\'t be changed. It can be changed once it\'s restored, or a new role can be created in its place.'], [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
     }
 
@@ -369,7 +369,7 @@ final class RoleUpdateTest extends ApiTestCase
         $before = $this->snapshot($role);
 
         $this->patch($role, ['name' => 'Renamed']);
-        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change or delete roles.'],
+        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change, delete or restore roles.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
     }

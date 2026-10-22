@@ -14,6 +14,7 @@ use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\DeleteRoleProcessor;
+use App\Modules\UserManagement\ApiResource\State\RestoreRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RevokeRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\RoleProvider;
 use App\Modules\UserManagement\ApiResource\State\UpdateRoleProcessor;
@@ -29,7 +30,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `AssignRole` (C3), `POST /api/v1/users/{id}/roles`, whose 201 body IS this shape: the granted role (`SEC` S-1 (b)), so
  * `Assign / Role` and `Get / Role` resolve to one DTO class; `CreateRole` (roles slice 4 C1) and `UpdateRole` (C2) answer
  * with it too, and `ResponseShapeTest`'s one-DTO-per-resource holds; `DeleteRole` (C3, `DELETE /api/v1/roles/{id}`,
- * `role.delete`) is 204 with no body, so it adds nothing to this shape.
+ * `role.delete`) is 204 with no body, so it adds nothing to this shape; `RestoreRole` (G2, `POST /api/v1/roles/{id}/restoration`,
+ * `role.delete`) answers 200 with this shape in the role's new state.
  *
  * The shape is API-23's derivation for `Role`:
  *   1. `CreateRole`'s accepted fields — `name`, `description`, `permission_codes`;
@@ -168,6 +170,22 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeleteRole'),
             read: false,
             processor: DeleteRoleProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'role.delete'],
+        ),
+        // G2 (2026-10-22). API-21 branch 5: a POST that creates no row this contract addresses, so 200 with the role in its new
+        // state and no `Location` (`RestoreWarehouse`'s shape). §4.2: `role.delete` (undoing an archive is the authority that
+        // makes one). **No `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:role.deleted_at` — a replay meets a
+        // live role and is refused `role.is_not_archived`. `read: false`: the role is read under the role-administration lock
+        // (E-1). E9-3 does not block it: `ListRoles` declares `archived`. The denial subject is the default derivation.
+        new Post(
+            uriTemplate: '/roles/{id}/restoration',
+            name: 'RestoreRole',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreRole'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreRoleProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'role.delete'],
         ),
     ],

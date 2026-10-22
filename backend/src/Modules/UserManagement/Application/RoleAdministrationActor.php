@@ -98,7 +98,7 @@ final readonly class RoleAdministrationActor
     {
         return ApiProblem::businessRuleViolated('user_role.actor_is_inactive', match ($requiredPermission) {
             'role.assign' => 'Your account is not active, so you can\'t change anyone\'s roles.',
-            'role.create', 'role.edit', 'role.delete' => 'Your account is not active, so you can\'t create, change or delete roles.',
+            'role.create', 'role.edit', 'role.delete' => 'Your account is not active, so you can\'t create, change, delete or restore roles.',
         });
     }
 }

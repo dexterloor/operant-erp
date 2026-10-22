@@ -43,7 +43,7 @@ use Symfony\Component\Uid\Uuid;
  *     clearable: an owner may reject it (expired or not, §5.2.7), its proposer may withdraw it.
  *  9. The write, raw SQL, exactly the C3 grant: one `UPDATE role SET deleted_at, updated_at` (both `clock_timestamp()`,
  *     never a PHP clock), carrying `AND deleted_at IS NULL AND NOT is_system` itself. `role_permission` rows STAY (the
- *     definition is kept for audit and any later restore; `RestoreRole` is out, D-8). No cascade statement exists.
+ *     definition is kept for audit and for `RestoreRole`, G2 2026-10-22, which brings it back unchanged). No cascade statement exists.
  * 10. One audit row, `role.deleted` `{role_id}`, subject the role (SECURITY, IP-bearing).
  *
  * **G-31, worsened and disclosed (design §5.3; no pull-forward):** an expired proposal nobody opens now blocks deletion
@@ -61,7 +61,7 @@ final readonly class RoleDeletion
     /** `UX` `roles-s4-ux-copy.md` #17 (E-15h). */
     public const IS_SYSTEM = 'This is one of the built-in roles, and built-in roles can\'t be deleted.';
 
-    /** `UX` `roles-s4-ux-copy.md` #18 (a repeat lands here; no `RestoreRole`, D-8). */
+    /** `UX` `roles-s4-ux-copy.md` #18 (a repeat lands here; still true since G2 shipped `RestoreRole` — the archived roles are where it is restored from). */
     public const IS_ARCHIVED = 'This role has already been deleted. It\'s listed with the archived roles.';
 
     /** `UX` `roles-s4-ux-copy.md` #19 (`SEC` D-7.2 item 2: the row count, which may exceed `GetRole`'s `holder_count`). */

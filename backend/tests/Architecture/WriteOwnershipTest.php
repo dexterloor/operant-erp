@@ -338,7 +338,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // tables, read off this test's failure. `Modules\\AuditLog` does NOT move: both events go through `RoleAuditWriter::record()`.
         // **13 -> 14 on 2026-10-07** (roles slice 4, C3): `RoleDeletion`'s `UPDATE role SET deleted_at, updated_at` (the soft
         // delete), read off this test's failure. `Modules\\AuditLog` does NOT move: `role.deleted` goes through `RoleAuditWriter::record()`.
-        'Modules\\UserManagement' => 14,
+        // **14 -> 15 on 2026-10-22** (G2), read off this test's run: `RoleRestoration::restore()`'s `UPDATE role SET
+        // deleted_at = NULL` (`RestoreRole`; the table is UserManagement's).
+        'Modules\\UserManagement' => 15,
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.

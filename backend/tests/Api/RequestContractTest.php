@@ -371,6 +371,8 @@ final class RequestContractTest extends PurchaseOrderTestCase
             'warehouses' => 'warehouse',
             // Warehouse/location delete-restore C2.
             'warehouses/locations' => 'storage_location',
+            // G2 `RestoreRole`.
+            'roles' => 'role',
         ];
 
         self::assertNotNull($bound, $uriTemplate.': a Restore operation binds no row, so there is nothing to archive.');

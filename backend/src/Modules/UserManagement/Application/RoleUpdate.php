@@ -37,7 +37,7 @@ use Symfony\Component\Uid\Uuid;
  *  3. `{id}` not a uuid, absent, or another workspace's → 404 (read ARCHIVED OR NOT, so step 5 can answer).
  *  4. **E-15h:** `is_system` → 409 `role.is_system` — even for a request that changes nothing (*"an edit to an `is_system`
  *     role through any path"*).
- *  5. Archived → 409 `role.is_archived` (no `RestoreRole`, D-8: the sentence says to create a new role).
+ *  5. Archived → 409 `role.is_archived` (the sentence names both ways on: restore it — `RestoreRole`, G2 — or create a new role).
  *  6. Field validation of the members PRESENT ({@see RoleDefinitionFields}, shared with `CreateRole`; 422), the name rule
  *     excluding this role (409 `role.name_taken`), codes from the `permission` table (422).
  *  7. `added`, `removed`, `fields` (`name` / `description` whose stored value differs). **All empty → 200 with the role,
@@ -81,8 +81,8 @@ final readonly class RoleUpdate
     /** `UX` `roles-s4-ux-copy.md` #6 (E-15h). Passive remedy (R-3): a `role.edit` seat need not hold `role.create`. */
     public const IS_SYSTEM = 'This is one of the built-in roles, and built-in roles can\'t be changed. A new role can be created instead.';
 
-    /** `UX` `roles-s4-ux-copy.md` #7. "can't be restored" is true while `RestoreRole` is out (D-8); it changes if one ships. */
-    public const IS_ARCHIVED = 'This role is archived, so it can\'t be changed. Archived roles can\'t be restored, so a new role can be created in its place.';
+    /** `UX` `roles-s4-ux-copy.md` #7, re-worded at G2 (`RestoreRole` shipped, so "can't be restored" became false). PLACEHOLDER — `UX` to confirm. */
+    public const IS_ARCHIVED = 'This role is archived, so it can\'t be changed. It can be changed once it\'s restored, or a new role can be created in its place.';
 
     /** `UX` `roles-s4-ux-copy.md` #8 (Q-A): "makes, or would make" is true on both the stored and the resulting disjunct. */
     public const MARKER_NEEDS_OWNER = 'Only an owner can change this role, because it makes, or would make, the people given it owners.';

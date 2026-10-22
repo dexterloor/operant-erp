@@ -41,6 +41,8 @@ final class RoleAdministrationActorCallerTest extends TestCase
         'RoleGrantProposalConfirmation' => 'role.assign',
         'RoleGrantProposalCreation' => 'role.assign',
         'RoleGrantProposalRejection' => 'role.assign',
+        // G2: `RestoreRole`'s own §4.2 code (its `role.assign` backstop reads the returned set, as `RoleDeletion`'s).
+        'RoleRestoration' => 'role.delete',
         'RoleRevocation' => 'role.assign',
         // Roles slice 4 C2: `UpdateRole`'s own §4.2 code.
         'RoleUpdate' => 'role.edit',
