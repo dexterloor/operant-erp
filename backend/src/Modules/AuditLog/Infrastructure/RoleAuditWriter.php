@@ -86,10 +86,15 @@ final readonly class RoleAuditWriter
         ]);
     }
 
-    /** `role.revoked` — `RevokeRole` (C2), after its `DELETE`, in the same locked transaction. */
-    public function recordRevoked(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress): void
+    /**
+     * `role.revoked` — `RevokeRole` (C2), after its `DELETE`, in the same locked transaction; and since G4-C1 one row per
+     * grant `UpdateUser` strips (E-15g), with `$revokeReason` = {@see RoleEventMetadata::REVOKE_REASON_SUBJECT_REMOVED}. A
+     * direct revoke passes none, so its row stays `{role_id}`.
+     */
+    public function recordRevoked(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, string $roleId, ?string $ipAddress, ?string $revokeReason = null): void
     {
-        $this->record(AuditEvent::ROLE_REVOKED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress);
+        $this->record(AuditEvent::ROLE_REVOKED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $roleId, $ipAddress,
+            null === $revokeReason ? [] : [RoleEventMetadata::REVOKE_REASON => $revokeReason]);
     }
 
     /**

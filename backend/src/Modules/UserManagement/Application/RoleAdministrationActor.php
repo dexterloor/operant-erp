@@ -92,8 +92,9 @@ final readonly class RoleAdministrationActor
      * to `RoleAdministrationActorCallerTest`). The grant family (`role.assign`: `AssignRole`, `RevokeRole`, the four proposal
      * operations and the picker `ListOfferedRoles`) keeps the shipped slice-2 sentence (`roles-s2-ux-copy.md` §2), pinned
      * literally in `RoleRevokeTest` and `GrantRulesCharacterisationTest` — do not "tidy" it. The role-definition family
-     * (`role.create` / `role.edit` / `role.delete`) gets its own. **No default arm** (RED B-L2): a future caller gated on
-     * another code (`UpdateUser`, a bulk operation) fails loudly with `\UnhandledMatchError` instead of silently inheriting a
+     * (`role.create` / `role.edit` / `role.delete`) gets its own, and since G4-C1 the user family (`app_user.edit` —
+     * `UpdateUser`; `app_user.delete` — C2/C3) its own. **No default arm** (RED B-L2): a future caller gated on
+     * another code (a bulk operation) fails loudly with `\UnhandledMatchError` instead of silently inheriting a
      * sentence that is false for it.
      */
     public static function inactiveRefusal(string $requiredPermission): ApiProblem
@@ -101,6 +102,8 @@ final readonly class RoleAdministrationActor
         return ApiProblem::businessRuleViolated('user_role.actor_is_inactive', match ($requiredPermission) {
             'role.assign' => 'Your account is not active, so you can\'t change anyone\'s roles.',
             'role.create', 'role.edit', 'role.delete' => 'Your account is not active, so you can\'t create, change, delete or restore roles.',
+            // G4-C1 (`UpdateUser`; C2/C3 `DeleteUser` / `RestoreUser` are gated `app_user.delete`). PLACEHOLDER — `UX` to confirm.
+            'app_user.edit', 'app_user.delete' => 'Your account is not active, so you can\'t change, switch off, delete or restore anyone\'s account.',
         });
     }
 }

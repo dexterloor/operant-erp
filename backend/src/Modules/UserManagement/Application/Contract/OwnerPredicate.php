@@ -65,7 +65,8 @@ use App\Modules\UserManagement\Domain\OwnerMarker;
  *     non-owner; into quarantine and quarantine → quarantine stay open. One capability, four refusals now (`SEC`
  *     stock-transfer-sec.md §7; G-44's future code covers all four);
  *   - *(`GrantRules`, `RoleRevocation` apply the predicate to a ROLE's codes — E-15b, "is this role an owner-grade
- *     role" — not to the caller's exemption.)*
+ *     role" — not to the caller's exemption. So does `UserLiveness` (G4-C1, E-15g's consequence clause): over the stored
+ *     codes of every grant a strip will remove, and then to the caller's lock-time codes — only an owner strips an owner.)*
  *   **For `distinct` and the reversal the refusal this predicate exempts from is UNCONDITIONAL** (`SEC` S-2, R-5): no
  *   holder of `credit_note.issue` without the marker can ever perform them, so the marker is the only route — a
  *   capability no catalogue entry names, invisible to anyone composing a role from `ListPermissions`.

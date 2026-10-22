@@ -84,10 +84,10 @@ class AppUser
 
     /**
      * G4-C0 (`Version20261022007000`): a token whose `iat` is not strictly after this instant is refused by
-     * `App\Platform\Security\IdentityReader`; NULL = no restriction. **Mapped read-only at C0** — no mutator writes it
-     * until G4-C1's liveness transitions (monotone `max(existing, $at)` from the injected PSR clock, design R1.3 D-2), and
-     * `erp_app` holds no `UPDATE (sessions_valid_after)` until then. An ORM flush writes only changed fields, so
-     * `recordLogin()` and `replacePasswordHash()` stay inside H0's column list.
+     * `App\Platform\Security\IdentityReader`; NULL = no restriction. Mapped read-only at C0; **written since G4-C1** by
+     * {@see self::deactivate()} and {@see self::reactivate()} only (monotone `max(existing, $at)` from the injected PSR clock,
+     * design R1.3 D-2; `erp_app` holds `UPDATE (sessions_valid_after)` from `Version20261023000100`). An ORM flush writes only
+     * changed fields, so `recordLogin()` and `replacePasswordHash()` stay inside H0's column list.
      *
      * **Whole-second on write** (`g4-users-final-red.md` L-6, verified): DBAL's Postgres platform formats `datetimetz` as
      * `'Y-m-d H:i:sO'`, and the house `TimestampTzImmutableType` replaces the read side only. That is harmless here —
@@ -141,11 +141,6 @@ class AppUser
         return $this->displayName;
     }
 
-    public function isActive(): bool
-    {
-        return $this->isActive;
-    }
-
     public function getLastLoginAt(): ?\DateTimeImmutable
     {
         return $this->lastLoginAt;
@@ -193,14 +188,71 @@ class AppUser
     }
 
     /**
-     * No caller yet (E-15g). `erp_app` holds no UPDATE on `is_active` or `deleted_at` (H0,
-     * `Version20260922000300`), so the first caller of this or `delete()` is a `42501` until it grants
-     * `UPDATE (is_active, deleted_at)` in its own migration (ADR-002 A4.4 duty 1) — never table-level UPDATE.
+     * **G4-C1 `UpdateUser`: switch the person off** (E-15g; `docs/session13/g4-users-design.md` §5.6, R1.3 D-2). Sets
+     * `is_active = false`, raises the session stamp to `$at` (so every token minted at or before this second is refused by
+     * `IdentityReader`), and moves `updated_at`. **One caller, `UserUpdate`, under the role-administration lock, on an entity
+     * it re-read `FOR UPDATE` after the lock** (final RED M-2(a), L-1) — never on an entity hydrated before it.
+     *
+     * `$at` is ONE value per request from the injected `Psr\Clock\ClockInterface` (the `clock` service `SignIn` mints with,
+     * §4.3), never a database clock: the stamp is compared with a token's `iat`, which is the same PHP clock's second.
+     * `erp_app` holds `UPDATE (is_active, display_name, sessions_valid_after, updated_at, …)` since `Version20261023000100`.
      */
-    public function deactivate(): void
+    public function deactivate(\DateTimeImmutable $at): void
     {
         $this->isActive = false;
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->raiseSessionStamp($at);
+        $this->updatedAt = $at;
+    }
+
+    /**
+     * **G4-C1 `UpdateUser`: switch the person back on.** No role comes back (E-15g: *"reactivation restores nothing"*); the
+     * caller strips any leftover grant first. The stamp is raised to `$at` (first RED M-1(c)): every token minted before the
+     * re-enable second — including a race token minted from a read taken before the deactivation committed — stays dead,
+     * and a sign-in in the same wall-clock second is refused once (the named cost, owner notice 3).
+     */
+    public function reactivate(\DateTimeImmutable $at): void
+    {
+        $this->isActive = true;
+        $this->raiseSessionStamp($at);
+        $this->updatedAt = $at;
+    }
+
+    /**
+     * **G4-C1 `UpdateUser`: rename the person** (owner ruling RO-U1 (a)). Sets `display_name` and `updated_at`; **no stamp** —
+     * a rename ends no session. Not a liveness mutator (it assigns neither `isActive` nor `deletedAt`), so the role lock-first
+     * scan does not list it; `UpdateUser` takes the lock anyway, because the same request may deactivate.
+     */
+    public function rename(string $displayName, \DateTimeImmutable $at): void
+    {
+        $this->displayName = $displayName;
+        $this->updatedAt = $at;
+    }
+
+    public function isActive(): bool
+    {
+        return $this->isActive;
+    }
+
+    public function getSessionsValidAfter(): ?\DateTimeImmutable
+    {
+        return $this->sessionsValidAfter;
+    }
+
+    /**
+     * **Monotone** (first RED L-2, `SEC`'s ruling): the stamp only moves forward, `max(existing, $at)`. A backward step of the
+     * host clock between a deactivation and a reactivation would otherwise LOWER the bar and revive tokens minted in between;
+     * this design fails closed instead. The cost (R1.6 item 8): a stamp written from a forward-stepped clock persists, and
+     * that person's new tokens are refused until real time passes it. Mail-C2's reset stamp follows the same rule in SQL
+     * (`GREATEST(sessions_valid_after, ?::timestamptz)`, the G4 amendment to `cred-mail-user-design.md`).
+     *
+     * Against a fractional SQL seed `S + 0.7` and `$at = S + 0.9`, the ORM writes the whole second `S` (L-6) — lower on paper,
+     * the same predicate under `iat > s ⇔ iat > floor(s)`, so it is not a regression.
+     */
+    private function raiseSessionStamp(\DateTimeImmutable $at): void
+    {
+        if (null === $this->sessionsValidAfter || $at > $this->sessionsValidAfter) {
+            $this->sessionsValidAfter = $at;
+        }
     }
 
     public function isDeleted(): bool

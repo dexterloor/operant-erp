@@ -649,10 +649,14 @@ final class GrantFootprintTest extends TenancyTestCase
      *
      *   LoginRecorder  -> AppUser::recordLogin()         -> last_login_at, updated_at
      *   ChangePassword -> AppUser::replacePasswordHash() -> password_hash, updated_at
+     *   UserUpdate     -> AppUser::deactivate() / reactivate() -> is_active, sessions_valid_after, updated_at
+     *                     AppUser::rename()                      -> display_name, updated_at
+     *                     (G4-C1, `Version20261023000100`; E-15g, owner ruling RO-U1 (a))
      *
-     * Both SET lists were measured from the server log at build, not inferred.
+     * Every SET list was measured from the statement at build, not inferred (G4-C1's: the recorded `UPDATE app_user` in
+     * `UserUpdateTest::aDeactivationStripsEveryRoleAndRecordsEachOne`).
      */
-    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['last_login_at', 'password_hash', 'updated_at'];
+    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['display_name', 'is_active', 'last_login_at', 'password_hash', 'sessions_valid_after', 'updated_at'];
 
     /**
      * **H0: `erp_app` can UPDATE exactly the `app_user` columns its callers write — proved by running the
@@ -684,8 +688,9 @@ final class GrantFootprintTest extends TenancyTestCase
      * **Planted control, committed then undone in `finally`** — the precedent is
      * `theCoverageConstantsNameEveryPrivilegePostgresHas`. A grant on the owner's *uncommitted* transaction is
      * invisible to `erp_app`'s separate session, and the owner cannot `SET ROLE erp_app` (it is not a member,
-     * measured), so the plant has to be real to reach the probe. `display_name` is chosen because its `attacl`
-     * is otherwise empty. A crash that skips `finally` leaves the grant behind, and
+     * measured), so the plant has to be real to reach the probe. `created_at` is chosen because its `attacl`
+     * is otherwise empty — it was `display_name` until G4-C1 granted that column, when a plant on it became a no-op grant and
+     * the check would have gone blind (design risk 7). A crash that skips `finally` leaves the grant behind, and
      * `everyColumnLevelPrivilegeIsExactlyTheDeclaredSet` fails loudly on the next run.
      */
     #[Test]
@@ -750,10 +755,11 @@ final class GrantFootprintTest extends TenancyTestCase
             'The positive control failed: erp_app could not update last_login_at on its own tenant\'s user, '
             .'so the refusals in this test prove nothing about the privilege.');
 
-        // Anti-vacuity: the routes H0 closes are in the domain and are refused.
-        foreach (['email', 'is_active', 'deleted_at', 'display_name'] as $closed) {
+        // Anti-vacuity: the routes still closed are in the domain and are refused. G4-C1 re-opened `is_active` and
+        // `display_name` with `UpdateUser` (G-12's reach records it); `deleted_at` stays closed until G4-C2's `DeleteUser`.
+        foreach (['email', 'deleted_at', 'id', 'tenant_id', 'created_at'] as $closed) {
             self::assertSame('refused', $outcomes[$closed] ?? null,
-                "H0 closes erp_app writing app_user.{$closed}, and the probe did not see it refused.");
+                "erp_app must not write app_user.{$closed}, and the probe did not see it refused.");
         }
         foreach (self::APP_USER_COLUMNS_THE_CALLERS_WRITE as $written) {
             self::assertArrayHasKey($written, $outcomes, "A column the callers write, {$written}, is not in app_user.");
@@ -765,16 +771,16 @@ final class GrantFootprintTest extends TenancyTestCase
             .implode("\n  ", $violations($outcomes)));
 
         try {
-            $this->owner()->executeStatement(sprintf('GRANT UPDATE (display_name) ON app_user TO %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('GRANT UPDATE (created_at) ON app_user TO %s', DatabaseRoles::APP));
             self::assertSame(
-                ['app_user.display_name: no caller writes it, but erp_app got "accepted:1"'],
+                ['app_user.created_at: no caller writes it, but erp_app got "accepted:1"'],
                 $violations($probe()),
-                'A committed UPDATE (display_name) grant to erp_app did not make this check fail, so it is not a check.');
+                'A committed UPDATE (created_at) grant to erp_app did not make this check fail, so it is not a check.');
         } finally {
-            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (display_name) ON app_user FROM %s', DatabaseRoles::APP));
+            $this->owner()->executeStatement(sprintf('REVOKE UPDATE (created_at) ON app_user FROM %s', DatabaseRoles::APP));
         }
 
-        self::assertSame([], $violations($probe()), 'The planted display_name grant survived its REVOKE.');
+        self::assertSame([], $violations($probe()), 'The planted created_at grant survived its REVOKE.');
     }
 
     /**

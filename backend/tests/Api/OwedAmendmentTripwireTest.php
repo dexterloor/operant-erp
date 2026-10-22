@@ -633,12 +633,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     // no unbuilt operation composes a role through the API (`RestoreRole`, built at G2, revives no grant: it refuses any
     // holder and any pending proposal, and an archived role cannot be granted). Bulk's AssignRole parity is carried below, on its own entry.
     private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
-        'UpdateUser' => 'E-15g: deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user '
-            .'(`proposer_removed`), one `role.assignment_lapsed` each, under the role lock taken FIRST and unconditionally '
-            .'(SECURITY_MODEL.md §5.2.5); plus `UPDATE (is_active)` on app_user with its caller (G-12). The lapse is a bulk '
-            .'UPDATE that MUST carry `AND status = \'pending\'` — the decided-is-final trigger refuses any other (DATA §3.1); '
-            .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
-            .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
+        // `UpdateUser` LEFT 2026-10-23 (G4-C1), its work done: the role lock is its first statement, unconditionally (positional
+        // case `PurchaseOrderRowLockTest::theRoleAdministrationLockIsTheFirstStatementOfTheWritingTransaction` 'UpdateUser');
+        // a deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user (`proposer_removed`),
+        // one `role.assignment_lapsed` each, in bulk statements carrying `AND status = 'pending'` (`UserLiveness::lapse()`;
+        // `UserUpdateTest::aDeactivationLapsesEveryPendingProposalForAndByThePerson`); `UPDATE (is_active, display_name,
+        // sessions_valid_after)` granted with its caller (`Version20261023000100`, G-12 reach recorded); and E-15g's strip
+        // removes every `user_role` row, so `LiveGrantReader::holderRowCount` stops counting a switched-off person
+        // (`UserUpdateTest::aDeactivationStripsEveryRoleAndRecordsEachOne`).
         'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0); '
             .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
             .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',

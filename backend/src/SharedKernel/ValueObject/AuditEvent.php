@@ -375,6 +375,16 @@ namespace App\SharedKernel\ValueObject;
  *     `pg_constraint`, not generated) plus this one; it supersedes `Version20261022010000`. **Step 6 does not apply.**
  *     `PINNED_ALLOWLIST` edited by hand with one literal.
  *
+ *   - **`USER_DEACTIVATED`, `USER_REACTIVATED` and `USER_UPDATED`**, 2026-10-23, G4-C1 `UpdateUser` — `SEC` filed all three
+ *     **`SECURITY`** before the code (`docs/session13/g4-users-design.md` §5.3, D-9, D-10): a liveness change is privilege
+ *     history (PC-11 (4a)), and a rename of a principal names an `app_user` subject, which (4c) bars from the business
+ *     allowlist structurally. Subject `('app_user', id)`. Steps 3–5 done **with their writer in the same commit**
+ *     (`UserAuditWriter`). Step 5 is `Version20261023000200`: the live constraint's sixty-two members (read off
+ *     `pg_constraint`, not generated) plus these three; it supersedes `Version20261022020100`. **Step 6 applies, both
+ *     halves:** `AuditWriterTest::PINNED_IP_BEARING_EVENTS` gains the three, and the same migration re-issues
+ *     `audit_log_ip_address_scope` (sixteen + three, superseding `Version20261022000100`'s IP list). `PINNED_ALLOWLIST` was
+ *     **not** touched.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -598,6 +608,29 @@ final class AuditEvent
      * IP-bearing.
      */
     public const ROLE_RESTORED = 'role.restored';
+
+    /**
+     * G4-C1 (`UpdateUser`, 2026-10-23; `docs/session13/g4-users-design.md` §5.3, D-10): a person switched off — `is_active`
+     * true → false. Subject `('app_user', id)`; `metadata` `{}`. Written FIRST in its transaction, before the
+     * `role.revoked` row per stripped grant (each carrying `revoke_reason: subject_removed`) and the `role.assignment_lapsed`
+     * row per lapsed proposal (E-15g). SECURITY: a liveness change is privilege history (PC-11 (4a)); IP-bearing.
+     */
+    public const USER_DEACTIVATED = 'user.deactivated';
+
+    /**
+     * G4-C1 (`UpdateUser`): a person switched back on — `is_active` false → true. No role comes back (E-15g); any leftover
+     * grant (a database edit) is stripped and recorded as `role.revoked` with `revoke_reason`. Subject `('app_user', id)`;
+     * `metadata` `{}`. SECURITY, IP-bearing.
+     */
+    public const USER_REACTIVATED = 'user.reactivated';
+
+    /**
+     * G4-C1 (`UpdateUser`, owner ruling RO-U1 (a)): a person renamed. Subject `('app_user', id)`; `metadata`
+     * `{"fields": ["display_name"]}` — **field names only, never the old or new name** (D-9: personal data in an append-only
+     * table; the SQL route H0 closed and C1 re-opens writes no row either way, `RESIDUAL_GAPS.md` G-12). SECURITY: (4c)
+     * bars an `app_user` subject from the business allowlist; IP-bearing.
+     */
+    public const USER_UPDATED = 'user.updated';
 
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
@@ -1280,6 +1313,9 @@ final class AuditEvent
         self::STORAGE_LOCATION_UPDATED,
         self::STORAGE_LOCATION_RESTORED,
         self::STORAGE_LOCATION_DELETED,
+        self::USER_DEACTIVATED,
+        self::USER_REACTIVATED,
+        self::USER_UPDATED,
     ];
 
     /**
@@ -1314,6 +1350,9 @@ final class AuditEvent
         self::ROLE_UPDATED,
         self::ROLE_DELETED,
         self::ROLE_RESTORED,
+        self::USER_DEACTIVATED,
+        self::USER_REACTIVATED,
+        self::USER_UPDATED,
     ];
 
     /**
@@ -1507,6 +1546,10 @@ final class AuditEvent
         self::ROLE_DELETED => 'role',
         // G2: the role whose definition came back.
         self::ROLE_RESTORED => 'role',
+        // G4-C1: the person whose liveness or name changed.
+        self::USER_DEACTIVATED => 'app_user',
+        self::USER_REACTIVATED => 'app_user',
+        self::USER_UPDATED => 'app_user',
     ];
 
     /**

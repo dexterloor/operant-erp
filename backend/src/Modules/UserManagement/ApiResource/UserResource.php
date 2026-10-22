@@ -6,7 +6,9 @@ namespace App\Modules\UserManagement\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\Patch;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\UpdateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UserProvider;
 use App\Modules\UserManagement\Application\UserView;
 use App\Platform\Security\PermissionGate;
@@ -41,6 +43,26 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: UserProvider::class,
             // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, before the provider loads anything.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.view'],
+        ),
+        // G4-C1 (2026-10-23): rename, switch off, switch back on (E-15g; `docs/session13/g4-users-design.md` §5). §4.2's
+        // `Idem` cell is `no`: a repeat computes an empty delta and writes nothing. `read: false` (final RED L-2): the person is
+        // read under the role-administration lock only, so a 404 cannot precede the lock-time 403 (E-1) and a deleted person
+        // meets 409 `app_user.is_archived`. The denial subject is the default derivation, `('app_user', {id})`, path-first.
+        new Patch(
+            uriTemplate: '/users/{id}',
+            name: 'UpdateUser',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'UpdateUser'),
+            input: UpdateUserInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+                // The row is named by the path and by nothing else (§3.1 case 2) — `UpdateRole`'s reason.
+                'api_allow_update' => false,
+            ],
+            read: false,
+            processor: UpdateUserProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.edit'],
         ),
     ],
 )]

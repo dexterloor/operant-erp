@@ -203,7 +203,10 @@ class RoleGrantProposal
     /**
      * §8.3: `pending → lapsed`, no human decider. Writes exactly `status`, `decided_at`, `lapse_reason` and `updated_at` —
      * the four C1 column grants (M-26: a fifth column in this changeset is a `42501`; fix the entity, never the grant).
-     * Callers: Create's lapse-on-touch (`expired`, C1); E-15g's paths later (`subject_removed`, `proposer_removed`).
+     * Caller: Create's lapse-on-touch (`expired`, C1). **E-15g's lapses do NOT come through here** (G4-C1, final RED L-5):
+     * `UserLiveness::lapse()` writes `subject_removed` / `proposer_removed` as two bulk `UPDATE … AND status = 'pending'`
+     * statements dated `GREATEST(clock_timestamp(), proposed_at)`, deliberately WITHOUT this method's tolerance (D-8,
+     * `SECURITY_MODEL.md` §5.2.6: a planted future-dated proposal must not block a deactivation).
      */
     public function lapse(string $reason, \DateTimeImmutable $at): void
     {
@@ -218,6 +221,8 @@ class RoleGrantProposal
     /**
      * The stored decision instant: `$at`, or the proposal's own instant when the clock has stepped back past it (never
      * before what it decides — the CHECK is kept). Beyond the tolerance the row did not come from the application.
+     * The E-15g lapse (`UserLiveness::lapse()`, G4-C1) clamps the same way but deliberately WITHOUT this tolerance (D-8,
+     * §5.2.6's G4 sentence): refusing there would let such a row block a deactivation.
      */
     private function decisionInstant(\DateTimeImmutable $at): \DateTimeImmutable
     {

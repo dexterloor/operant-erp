@@ -97,6 +97,9 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-23 with `UpdateUser` in the tree (G4-C1): FOUR edge lines added — A-5 `UserUpdate -> UserAuditWriter`,
+  # A-7 `UserUpdate -> Entity\AppUser`, A-5 `UserLiveness -> RoleAuditWriter`, A-7 `UserLiveness -> Entity\AppUser`. The three commands and the by-TAG count: see
+  # `docs/session13/g4-c1-progress.md` (measured there, not restated here). No LAYER edge.)
   # (Re-derived 2026-10-22 with the workspace rename in the tree (G7b `UpdateSettings`): ONE edge line added, A-5:
   # `SettingsWriter -> SettingsAuditWriter` (`tenant_settings.updated`). The three commands and the by-TAG count: see
   # `docs/session13/g7b-progress.md` (measured there, not restated here). No LAYER edge.)
@@ -728,6 +731,18 @@ deptrac:
       # Roles slice 4 C2, 2026-10-07: `role.permissions_changed` / `role.updated` written synchronously in the editing
       # transaction (`RoleCreation`'s shape). Raw SQL for the writes, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\UserUpdate:
+      # G4-C1 `UpdateUser`, 2026-10-23: `user.deactivated` / `.reactivated` / `.updated` written synchronously in the
+      # updating transaction (`RoleUpdate`'s shape); the `AppUser` liveness mutators called on the entity `UserLiveness`
+      # loads, the class named so the role lock-first scan derives this method as a writer (deviation D-3).
+      - App\Modules\AuditLog\Infrastructure\UserAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\UserLiveness:
+      # G4-C1, 2026-10-23 (E-15g's shared mechanics, design D-7): one `role.revoked` per stripped grant and one
+      # `role.assignment_lapsed` per lapsed proposal, written synchronously (`RoleRevocation`'s shape); the person's `AppUser`
+      # loaded and row-locked under the role lock (`ChangePassword`'s entity edge, final RED M-2(a)).
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
     App\Modules\UserManagement\Application\SignIn:
       - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7
       - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7

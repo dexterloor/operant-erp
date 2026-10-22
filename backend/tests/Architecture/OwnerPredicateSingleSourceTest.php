@@ -73,6 +73,8 @@ final class OwnerPredicateSingleSourceTest extends TestCase
         'StockTransferrer',
         // Warehouses slice 1 C3 (2026-10-13): Q-W1 (d) — only an owner releases a stocked location from quarantine.
         'StorageLocationWriter',
+        // G4-C1 (2026-10-23): E-15g's consequence clause — only an owner strips (deactivates, reactivates with leftovers) an owner.
+        'UserLiveness',
     ];
 
     #[Test]

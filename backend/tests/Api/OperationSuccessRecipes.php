@@ -724,6 +724,13 @@ trait OperationSuccessRecipes
 
                 return [200, 'edit a role'];
             }],
+            // G4-C1: a person holding nothing, renamed — no liveness transition, so no strip, no lapse, no E-15b; the actor holds
+            // `app_user.edit` (every declared code but the marker). One `user.updated` row.
+            'UpdateUser' => [fn (): array => ['user' => $this->seedPrincipal(self::TENANT_A, [])], function (array $c): array {
+                $this->send('PATCH', '/users/'.$c['user'], ['display_name' => 'Recipe renamed '.substr($c['user'], 0, 8)]);
+
+                return [200, 'rename a person'];
+            }],
             // Roles slice 4, C3: an unheld one-code composed role (`role.view`, seeded as the owner) with no proposal, deleted
             // by the actor, who holds `role.delete` and `role.assign` (every declared code — `roles-s4-sec-data-red.md` F1-D).
             'DeleteRole' => [function (): array {

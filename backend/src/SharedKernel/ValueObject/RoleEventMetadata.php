@@ -37,8 +37,28 @@ final class RoleEventMetadata
      */
     public const PROPOSED_BY_USER_ID = 'proposed_by_user_id';
 
-    /** On `role.assignment_lapsed`: `expired` | `subject_removed` | `proposer_removed`. */
+    /**
+     * On `role.assignment_lapsed`: `expired` | `subject_removed` | `proposer_removed`.
+     *
+     * **An E-15g lapse records its own transaction's cause** (G4-C1, `g4-users-design.md` D-15 / first RED L-8): a
+     * deactivation lapses every pending proposal for the person as `subject_removed` and by the person as
+     * `proposer_removed` — even a pending row already past `expires_at`. The list already shows that row as expired
+     * (§5.2.7), so the reason loses nothing, and a `CASE` would add a database-clock branch to a statement that need not decide
+     * expiry.
+     */
     public const LAPSE_REASON = 'lapse_reason';
+
+    /**
+     * G4-C1 (`UpdateUser`; first RED M-3, D-11): on a `role.revoked` written by a STRIP — E-15g's taking away of every role
+     * when a person is switched off, or of a leftover grant (a database edit) when they are switched back on — the cause:
+     * {@see self::REVOKE_REASON_SUBJECT_REMOVED}. **A `role.revoked` with no `revoke_reason` means a direct revoke**
+     * (`RevokeRole`); shipped rows stay `{role_id}`. A key, not an event type: reconciliation arm B pairs `role.revoked` with
+     * the grant it ended either way, and arm C keys on {@see self::ROLE_ID} only.
+     */
+    public const REVOKE_REASON = 'revoke_reason';
+
+    /** {@see self::REVOKE_REASON}'s one value today. */
+    public const REVOKE_REASON_SUBJECT_REMOVED = 'subject_removed';
 
     /**
      * Roles slice 4 C1 (E-15f; `roles-s4-design.md` §7): on `role.permissions_changed`, the codes the change ADDED and

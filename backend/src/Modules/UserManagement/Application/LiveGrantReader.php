@@ -194,6 +194,47 @@ final class LiveGrantReader
     }
 
     /**
+     * API-20's `after` for switching one person off (G4-C1 `UpdateUser`; design §5.2 step 8, V2-S-6): the same count with
+     * every grant of that USER taken away — the person stops counting whatever roles they hold.
+     */
+    public static function activeMarkerHolderCountExcludingUser(EntityManagerInterface $em, string $userId): int
+    {
+        $connection = $em->getConnection();
+
+        return (int) $connection->fetchOne(self::ACTIVE_MARKER_HOLDERS.' AND u.id <> ?::uuid', [OwnerMarker::CODE, $userId]);
+    }
+
+    /**
+     * **Every `user_role` row the person holds, each with its role's STORED codes — archived role or not, live user or not**
+     * (G4-C1; design §5.2 step 6): what E-15g's strip removes and what E-15b judges before it (R1.3 D-4: a non-owner is
+     * refused if ANY stripped row's stored codes confer the marker). {@see self::rolesHeldBy()} cannot serve: it hides
+     * archived roles and deleted users, and a grant on an archived role would be live again were the role restored by SQL
+     * (D-15's reason, `RoleRevocation`). Ordered by role id.
+     *
+     * @return list<array{id: string, role_id: string, role_codes: list<string>}>
+     */
+    public static function allGrantsOf(EntityManagerInterface $em, string $userId): array
+    {
+        $connection = $em->getConnection();
+
+        $rows = $connection->fetchAllAssociative(<<<'SQL'
+            SELECT ur.id::text AS id, ur.role_id::text AS role_id,
+                   COALESCE((SELECT array_to_json(array_agg(rp.permission_code ORDER BY rp.permission_code))
+                               FROM role_permission rp
+                              WHERE rp.tenant_id = ur.tenant_id AND rp.role_id = ur.role_id), '[]') AS role_codes
+              FROM user_role ur
+             WHERE ur.user_id = ?::uuid
+             ORDER BY ur.role_id
+            SQL, [$userId]);
+
+        return array_map(static fn (array $row): array => [
+            'id' => (string) $row['id'],
+            'role_id' => (string) $row['role_id'],
+            'role_codes' => self::codes((string) $row['role_codes']),
+        ], $rows);
+    }
+
+    /**
      * API-20's `after` for an edit that REMOVES the marker from one role (roles slice 4 C2, `UpdateRole`; design §4.3 step
      * 9b): the same count with every grant of that role taken away. It counts USERS, so a holder who also holds the marker
      * through another live role still counts.

@@ -80,6 +80,37 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         self::assertStringEndsWith(RoleReconciliation::CADENCE, trim($out));
     }
 
+    /**
+     * **T-1-10 (G4-C1): a switch-off through `UpdateUser` leaves the reconciliation nothing to report.** The person holds an
+     * accounted grant and has one pending proposal FOR them and one BY them; an admin switches them off. Arm B finds no
+     * `unaccounted_removal` (the strip wrote one `role.revoked` per grant, keyed on `role_id`); arm G finds no proposal
+     * outcome without its decision event (each lapse wrote `role.assignment_lapsed` with `proposal_id`); arm F finds an
+     * active owner (another owner remains). The `role.assigned` rows are planted an hour and more in the PAST (design §5.7
+     * T-1-10, risk 4: a backward clock step could otherwise order the strip's row before them). Mutation M-1-2 (strip without
+     * `role.revoked`) → arm B reports the person, red.
+     */
+    #[Test]
+    public function aSwitchOffThroughTheApiLeavesNothingToReport(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $subject = $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $other = $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $admin = $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $role = $this->roleWith('inventory_item.view');
+        $this->plantProposal('pending', $subject, $role, $admin, null);
+        $this->plantProposal('pending', $other, $role, $subject, null);
+
+        $this->actAsUser(self::TENANT_A, $admin);
+        $this->send('PATCH', '/users/'.$subject, ['is_active' => false]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role_grant_proposal WHERE status = 'lapsed'"),
+            'Control: the two proposals did not lapse, so arm G below proves nothing.');
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertSame(0, $code, $out);
+        self::assertSame(RoleReconciliation::CADENCE, trim($out));
+    }
+
     /** **Arm F, planted:** the only owner is inactive → `no_active_owner`, labelled triage. Control: an active owner → none. */
     #[Test]
     public function armFReportsAWorkspaceWithNoActiveOwner(): void

@@ -39,6 +39,8 @@ final class UserReadTest extends ApiTestCase
         'GetUser' => ['method' => 'GET', 'path' => '/users/{id}', 'idem' => false],
         // Users slice 1 C2.
         'ListUsers' => ['method' => 'GET', 'path' => '/users', 'idem' => false],
+        // G4-C1: rename / switch off / switch on. `idem`: §4.2's `no` (a repeat computes an empty delta).
+        'UpdateUser' => ['method' => 'PATCH', 'path' => '/users/{id}', 'idem' => false],
     ];
 
     /** `UserResource`'s serialized members — §4.4.3's `User` row as rewritten at C1 (K-1), pinned against the DTO. */

@@ -333,7 +333,8 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (G5-C2, 2026-10-22):** `CreateBulkArchival` (POST `/bulk/archivals`, `*(derived)*` -- each resource's
         // single `Delete*` code, `<resource>.delete`) on `BulkArchivalRequest`, the first `store` operation. Its migration grants
         // `erp_app` INSERT on the nine `idempotency_key` envelope columns (never `created_at`).
-        self::assertCount(123, $checked, 'The route set changed. This slice declares one hundred and twenty-three operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G4-C1, 2026-10-23):** `UpdateUser` (PATCH `/users/{id}`, `app_user.edit`).
+        self::assertCount(124, $checked, 'The route set changed. This slice declares one hundred and twenty-four operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

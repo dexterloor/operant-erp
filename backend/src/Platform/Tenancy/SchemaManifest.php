@@ -333,10 +333,13 @@ final class SchemaManifest
             // password_hash one widening away from a model-driven query.
             // erp_app: table-level SELECT (ORM hydration reads every column) and
             // COLUMN-level UPDATE only (H0, ADR-002 A4.0, 2026-09-22,
-            // Version20260922000300). The columns are the union of the two ORM
+            // Version20260922000300). The columns are the union of the ORM
             // flushes that write this table:
             //   LoginRecorder  -> recordLogin()         last_login_at, updated_at
             //   ChangePassword -> replacePasswordHash() password_hash, updated_at
+            //   UserUpdate     -> deactivate() / reactivate() / rename()
+            //                     is_active, sessions_valid_after, display_name, updated_at
+            //                     (G4-C1, Version20261023000100; E-15g)
             // Nothing else in `src/` writes a user, and nothing creates or deletes
             // one -- CreateUser and provisioning grant INSERT when they are built.
             // A NEW COLUMN HERE INHERITS SELECT BUT NO UPDATE: the table-level ACL
@@ -347,16 +350,19 @@ final class SchemaManifest
             // writer is fixed by granting that column, never by restoring
             // table-level UPDATE. sessions_valid_after (G4-C0, Version20261022007000) is
             // such a column: IdentityReader reads it through the table SELECT, and
-            // nobody writes it until G4-C1 grants UPDATE (sessions_valid_after) with
-            // UpdateUser. password_hash stays writable, so H0 does not
-            // close lockout or takeover through it (RESIDUAL_GAPS G-12).
+            // G4-C1 granted UPDATE (sessions_valid_after) with UpdateUser, its first
+            // writer. password_hash stays writable, so H0 does not
+            // close lockout or takeover through it (RESIDUAL_GAPS G-12); and since G4-C1
+            // is_active / display_name / sessions_valid_after are writable too, which
+            // re-opens two lockout routes and the relabel route H0 had closed (G-12).
+            // deleted_at stays refused until G4-C2's DeleteUser grants it.
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             'column_grants' => [
                 // erp_auth: CredentialLookup's one statement (ADR-006 §2). deleted_at joined at G4-C0a
                 // (Version20261022006000) so sign-in excludes a soft-deleted person (`AND deleted_at IS NULL`):
                 // a column privilege is needed for a WHERE reference as much as for the select list.
                 DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at']],
-                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at']],
+                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after']],
             ],
         ],
         'role' => [

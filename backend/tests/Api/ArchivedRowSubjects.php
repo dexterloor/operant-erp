@@ -497,6 +497,9 @@ trait ArchivedRowSubjects
             // Roles slice 4 C2: a rename. The fixture role carries no code (so no Q-A, no PC-4, no companion), and the actor
             // holds `role.edit`, so the LIVE twin succeeds and the archived twin's 409 is `role.is_archived`'s alone.
             'UpdateRole' => ['name' => 'Renamed role'],
+            // G4-C1: a rename — no transition, no strip, so the LIVE twin succeeds and the archived (soft-deleted) twin's 409
+            // is `app_user.is_archived`'s alone.
+            'UpdateUser' => ['display_name' => 'Renamed person'],
             // Roles slice 4 C3: a `DELETE` carries no body. The fixture role is unheld with no proposal and the actor holds
             // `role.assign` (every declared code), so the LIVE twin is deleted and the archived twin's 409 is
             // `role.is_archived`'s alone.

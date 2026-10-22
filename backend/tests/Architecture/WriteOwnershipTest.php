@@ -216,7 +216,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **29 -> 30 on 2026-10-22** (LEAD stacking G5-C2a on G6-C0): both ONE-insert writers above, together.
         // **30 -> 31 on 2026-10-22** (G7b `UpdateSettings`), read off this test's run: `SettingsAuditWriter::recordUpdated()`'s
         // ONE `INSERT INTO audit_log` for `tenant_settings.updated` (PREDICTED; confirmed off this test's run).
-        'Modules\\AuditLog' => 31,
+        // **31 -> 32 on 2026-10-23** (G4-C1 `UpdateUser`): `UserAuditWriter::record()`'s one `INSERT INTO audit_log` for
+        // `user.deactivated` / `.reactivated` / `.updated` (first RED L-4).
+        'Modules\\AuditLog' => 32,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -351,7 +353,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // deleted_at = NULL` (`RestoreRole`; the table is UserManagement's).
         // **15 -> 16 on 2026-10-22** (G7b `UpdateSettings`), read off this test's run: `SettingsWriter::RENAME`, the one `UPDATE
         // tenant_settings SET display_name, updated_at` (the table is UserManagement's; the row lock is excluded).
-        'Modules\\UserManagement' => 16,
+        // **16 -> 19 on 2026-10-23** (G4-C1 `UpdateUser`): `UserLiveness`'s E-15g strip (`DELETE FROM user_role`) and its
+        // two lapse statements (`UPDATE role_grant_proposal … AND status = 'pending'`, for and by the person), read off this
+        // test's failure. The `app_user` writes are an ORM flush, which this scan does not count.
+        'Modules\\UserManagement' => 19,
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.

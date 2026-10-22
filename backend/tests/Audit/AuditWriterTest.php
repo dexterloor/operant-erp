@@ -162,6 +162,11 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // G2 (2026-10-22): a composed role restored, SECURITY, IP-bearing (`role.deleted`'s filing); `Version20261022000100`
         // re-issues the scope with it.
         'role.restored',
+        // G4-C1 (2026-10-23): a person switched off, switched back on, or renamed — SECURITY (`g4-users-design.md` §5.3),
+        // IP-bearing; `Version20261023000200` re-issues the scope with all three.
+        'user.deactivated',
+        'user.reactivated',
+        'user.updated',
     ];
 
     /**
@@ -235,6 +240,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Added 2026-10-22 with `CreateExport` (G6-C0): `data.export.completed`, a SECURITY event (E-16), so it carries the
         // request's IP; it is subjectless. Listed AND driven below, inside a tenancy transaction (it refuses outside one).
         'Modules/AuditLog/Infrastructure/ExportAuditWriter.php',
+        // Added 2026-10-23 with `UpdateUser` (G4-C1): `user.deactivated` / `.reactivated` / `.updated`, SECURITY, so each
+        // carries the request's IP. Listed AND driven below.
+        'Modules/AuditLog/Infrastructure/UserAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -502,6 +510,12 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Roles slice 3, C1: E-15e's proposal events, the same SECURITY shape through the same private statement.
         $roleWriter->recordProposed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), supersedesProposalId: null, ipAddress: self::PROBE_IP);
         $roleWriter->recordLapsed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), lapseReason: 'expired', ipAddress: self::PROBE_IP);
+        // G4-C1: the three `user.*` events, SECURITY, IP-bearing, subject the person.
+        $userWriter = self::getContainer()->get(\App\Modules\AuditLog\Infrastructure\UserAuditWriter::class);
+        \assert($userWriter instanceof \App\Modules\AuditLog\Infrastructure\UserAuditWriter);
+        $userWriter->recordDeactivated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
+        $userWriter->recordReactivated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
+        $userWriter->recordRenamed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
         // G6-C0: E-16's export row, SECURITY, IP-bearing, subjectless; written only inside the export's tenancy transaction.
         $exportWriter = self::getContainer()->get(\App\Modules\AuditLog\Infrastructure\ExportAuditWriter::class);
         \assert($exportWriter instanceof \App\Modules\AuditLog\Infrastructure\ExportAuditWriter);

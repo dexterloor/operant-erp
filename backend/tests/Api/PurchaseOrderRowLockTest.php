@@ -3049,6 +3049,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             'DeleteRole' => $this->send('DELETE', '/roles/'.$editable),
             // G2: `admin` restores it — writes `role` (`deleted_at = NULL`) and the audit row.
             'RestoreRole' => $this->send('POST', '/roles/'.$editable.'/restoration'),
+            // G4-C1 (T-1-14): `admin` switches the viewer off — writes `user_role` (the strip), `app_user` (the flush) and the
+            // audit rows, in one transaction whose first statement is the lock.
+            'UpdateUser' => $this->send('PATCH', '/users/'.$subject, ['is_active' => false]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -3075,6 +3078,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'UpdateRole' => ['UpdateRole', 200];
         yield 'DeleteRole' => ['DeleteRole', 204];
         yield 'RestoreRole' => ['RestoreRole', 200];
+        yield 'UpdateUser' => ['UpdateUser', 200];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3264,26 +3268,113 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * `SEC` §2.4's order: an actor who is inactive AND loses `role.assign` while waiting gets the 403 and its row, not the
      * inactive 409 — the permission re-check is first.
      *
-     * **At G4-C0 this is a plain 401 test, deliberately, outside the race helper** (`g4-users-design.md` §4.4 item 3,
-     * Response to RED M-5). The actor was set inactive as the owner BEFORE the request, so after API-O-22 closed (a) the
-     * request is the constant 401 at the gate and never reaches the lock — the holder was never waited on (step (a)'s red:
-     * *"The request never waited on the holder"*). An inactive actor that still reaches the lock needs `is_active` cleared
-     * WHILE the request waits, and an `erp_app` holder can do that only once `UpdateUser` grants `UPDATE (is_active)` at
-     * **G4-C1, where this returns to its race shape** (§5.7 T-1-12: the holder deactivates the actor and removes
-     * `role.assign` inside `before:`). Until then the 403-first order is unreachable through the API and untested here.
+     * **Back in its race shape at G4-C1** (design §4.4 item 3, §5.7 T-1-12). At G4-C0 it was a plain 401 test: an actor set
+     * inactive BEFORE the request is refused at the edge (API-O-22 closed (a)) and never reaches the lock. An inactive actor
+     * reaches the lock only when `is_active` is cleared WHILE the request waits — and only outside `UpdateUser`, whose
+     * deactivation strips every role first (first RED L-1). The holder models that SQL route (G-12): as `erp_app`, which holds
+     * `UPDATE (is_active)` since `Version20261023000100`, it switches the actor off AND removes their roles under the lock.
      */
     #[Test]
     public function anInactiveActorDemotedWhileWaitingGetsThe403First(): void
     {
         $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
         $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
-        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]);
+        $path = '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject);
+        $this->assertTheRequestConnectionIsReadCommitted();
         $this->actAsUser(self::TENANT_A, $actor);
 
-        $this->send('DELETE', '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject));
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]],
+            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('DELETE', $path), table: 'role_administration');
 
-        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], (string) $this->client()->getResponse()->getContent());
-        self::assertCount(0, $this->denialRows(), 'A 401 at the edge writes no denial row.');
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(RoleRevokeTest::ROLE_ASSIGN_DENIED, (string) $this->client()->getResponse()->getContent());
+        self::assertCount(1, $this->denialRows(), 'The 403-first refusal did not write exactly its one denial row.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]));
+    }
+
+    /**
+     * **T-1-12 — an actor switched off (by SQL) while waiting meets the inactive backstop** (G4-C1; design §5.7, first RED
+     * L-1). The holder, as `erp_app` under the role lock, clears the actor's `is_active` and leaves their roles: the waiting
+     * `RevokeRole` passes the permission re-check, then is refused 409 `user_role.actor_is_inactive`, and writes nothing.
+     * This is the ONLY shape that reaches the 409 since G4-C0 — `UpdateUser`'s own deactivation strips the roles first, so a
+     * waiting actor deactivated through the API meets the 403 instead (the twin above).
+     */
+    #[Test]
+    public function anActorDeactivatedWhileWaitingIsRefusedInactive(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $path = '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject);
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $afterUserRoles = $this->userRoleRows();
+        $this->actAsUser(self::TENANT_A, $actor);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('DELETE', $path), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame([409, 'user_role.actor_is_inactive'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertSame($afterUserRoles, $this->userRoleRows(), 'The inactive actor\'s refused revoke changed user_role.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'), 'The 409 wrote an audit row.');
+    }
+
+    /**
+     * **T-1-13 — a grant committed while a deactivation waits is stripped by it** (G4-C1). The holder, under the role lock,
+     * inserts a `user_role` row for the person (the row `AssignRole`'s grant writes); the waiting
+     * `UpdateUser` switch-off re-reads every grant under the lock and strips both. The other order is shipped behaviour:
+     * `AssignRole` refuses an inactive subject (§5.2.4). Either way no inactive person is left holding a role.
+     */
+    #[Test]
+    public function aGrantCommittedWhileADeactivationWaitsIsStrippedByIt(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $granted = $this->grantableRole();
+        $this->actAsRole(DefaultRoles::ADMIN);
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)', [self::TENANT_A, $subject, $granted]],
+        ], request: fn () => $this->send('PATCH', '/users/'.$subject, ['is_active' => false]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]),
+            'An inactive person still holds a role: the deactivation decided on grants read before the lock.');
+        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_REVOKED]));
+
+        // The other order: switched off first, a grant is refused.
+        $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $granted], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]));
+    }
+
+    /**
+     * **M-1-12's race (first RED M-3, final RED L-1): the switch-off decides on the row as committed under the lock.** The
+     * holder, as `erp_app` under the role lock, switches the person off by SQL (G-12's route) and leaves their role. The
+     * waiting `UpdateUser` `{is_active: false}` then finds an INACTIVE person: no transition, so no `user.deactivated` row —
+     * only the strip of the leftover grant (D-16). A pre-lock read of the person (mutation M-1-12, planted in code) would see
+     * them active and record a deactivation that did not happen through the API; the unconditional `refresh()` is what keeps
+     * this green with the plant in place, and dropping it too turns it red.
+     */
+    #[Test]
+    public function aSwitchOffDecidesOnThePersonAsCommittedUnderTheLock(): void
+    {
+        $subject = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $this->actAsRole(DefaultRoles::ADMIN);
+        $this->assertTheRequestConnectionIsReadCommitted();
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$subject]],
+        ], request: fn () => $this->send('PATCH', '/users/'.$subject, ['is_active' => false]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::USER_DEACTIVATED]),
+            'A user.deactivated row records a transition the API did not make: the decision read the person before the lock.');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE event_type = ?', [AuditEvent::ROLE_REVOKED]));
     }
 
     /**
@@ -3480,6 +3571,43 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame(['RoleAssignment', 'RoleGrantProposalConfirmation'], $callersIn($sources),
             'GrantRules::insert() has a caller other than RoleAssignment and RoleGrantProposalConfirmation: give that path its own case in everyRoleWritePath() '
             .'(and its operation in ROLE_LOCK_FIRST_CHECKED) before it may write user_role.');
+    }
+
+    /**
+     * **`UserLiveness`'s writers (`strip()`, `lapse()`) are reached only from lock-first-checked paths** (G4-C1;
+     * `ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`'s two entries). The class is injected by its callers, so a caller is a file
+     * in `src/` that declares a `UserLiveness` parameter or property; today exactly `UserUpdate` (`UpdateUser`, positional case
+     * in `everyRoleWritePath()`). C2 `DeleteUser` and C3 `RestoreUser` join this pin with their own cases. Planted control: a
+     * planted caller is seen, a comment is not.
+     */
+    #[Test]
+    public function userLivenessWritersAreCalledOnlyFromLockFirstCheckedPaths(): void
+    {
+        $callersIn = static function (array $sources): array {
+            $callers = [];
+            foreach ($sources as $file => $source) {
+                if (1 === preg_match('/\bUserLiveness\s+\$\w+/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) $source))) {
+                    $callers[] = basename((string) $file, '.php');
+                }
+            }
+            sort($callers);
+
+            return $callers;
+        };
+
+        self::assertSame(['Planted'], $callersIn(['Planted.php' => '<?php function f(private UserLiveness $liveness) {}', 'Comment.php' => '<?php // UserLiveness $x']),
+            'The caller scan does not see a planted caller, or reads a comment as one.');
+
+        $sources = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(\dirname(__DIR__, 2).'/src', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file instanceof \SplFileInfo && 'php' === $file->getExtension() && 'UserLiveness.php' !== $file->getFilename()) {
+                $sources[$file->getPathname()] = (string) file_get_contents($file->getPathname());
+            }
+        }
+
+        self::assertSame(['UserUpdate'], $callersIn($sources),
+            'UserLiveness has a caller other than UserUpdate: give that path its own case in everyRoleWritePath() (and its operation in '
+            .'ROLE_LOCK_FIRST_CHECKED) before it may strip roles or lapse proposals.');
     }
 
     /**
@@ -4043,7 +4171,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         foreach (['UPDATE roles SET x = 1', 'UPDATE role_grant_proposal_x SET x = 1', 'SELECT 1 FROM user_role'] as $statement) {
             self::assertDoesNotMatchRegularExpression(self::ROLE_ADMIN_SCAN['sql'], $statement, 'The role scan over-matches: '.$statement);
         }
-        self::assertSame(['deactivate', 'delete'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the two the scan was written for.');
+        // G4-C1: `reactivate()` joined (it assigns `isActive`); `rename()` assigns neither property, so it is not one.
+        self::assertSame(['deactivate', 'delete', 'reactivate'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the three the scan was written for.');
 
         self::assertSame(self::PLANTED_ROLE_WRITERS_EXPECTED, array_keys(self::writersAmong([self::PLANTED_ROLE_WRITERS], self::ROLE_ADMIN_SCAN)),
             'The role scan does not find exactly the planted role-administration writers (and none of the credential-shaped '
@@ -4111,10 +4240,22 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'DeleteRole' => 'RoleDeletion::delete',
         // G2: one transaction writes `role` (`deleted_at = NULL`) and `role.restored`.
         'RestoreRole' => 'RoleRestoration::restore',
+        // G4-C1: one transaction writes `user_role` (E-15g's strip, `UserLiveness::strip()`), `role_grant_proposal` (the lapse,
+        // `UserLiveness::lapse()`), `app_user` (the `deactivate()` / `reactivate()` flush — the mutator arm derives this
+        // method) and the audit rows.
+        'UpdateUser' => 'UserUpdate::update',
     ];
 
-    /** Empty, and kept: a future entry is a reviewed line, with its reason. */
-    private const ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [];
+    /**
+     * A reviewed line each, with its reason. G4-C1: E-15g's shared mechanics are public (C2 `DeleteUser` and C3 `RestoreUser`
+     * reuse them), so the scan derives them as writers of their own; each is reached only after the lock, from a method that
+     * HAS a positional case (`UpdateUser`), and `userLivenessWritersAreCalledOnlyFromLockFirstCheckedPaths` holds their
+     * callers to that set (`GrantRules::insert()`'s shape).
+     */
+    private const ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
+        'UserLiveness::strip' => 'DELETE FROM user_role for one person — called only from UserUpdate::update, after the lock (positional case UpdateUser).',
+        'UserLiveness::lapse' => 'UPDATE role_grant_proposal … AND status = \'pending\' for and by one person — called only from UserUpdate::update, after the lock.',
+    ];
 
     /** Empty, and kept: no role-administration writer is exempt from the lock (§5.2.5 names none). */
     private const ROLE_ALLOWED_WITHOUT_A_LOCK = [];

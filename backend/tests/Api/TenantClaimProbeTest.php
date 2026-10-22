@@ -247,6 +247,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // role, which holds every declared code and so spans every split — PC-4 on the result would refuse it), re-described.
         // A supplied tenant id that moved the write would edit B's role, which the digest names.
         'UpdateRole' => ['vars' => ['id' => 'revoke_role'], 'body' => ['description' => 'Probe edited']],
+        // G4-C1: the remembered revoke subject, renamed. A supplied tenant id that moved the write would rename B's person,
+        // which the digest names.
+        'UpdateUser' => ['vars' => ['id' => 'revoke_subject'], 'body' => ['display_name' => 'Probe renamed']],
         // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every
         // declared code, `role.assign` included — RED F1-D). A supplied tenant id that moved the write would delete B's role.
         'DeleteRole' => ['vars' => ['id' => 'delete_role']],
