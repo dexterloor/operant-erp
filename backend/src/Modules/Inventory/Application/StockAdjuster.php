@@ -34,8 +34,10 @@ use Symfony\Component\Uid\Uuid;
  *     "this bin showed no row for this item"; an absent key would be an unconditional overwrite);
  *  2. the replay, unlocked: the same key with the same digest is the first request's movement; another digest is 409;
  *  3. the item `FOR KEY SHARE` — unknown or another workspace's → 422 `unknown_reference`; archived → 409
- *     `inventory_item.is_archived` (owner Q4). `KEY SHARE`, the siblings' lock, not `FOR SHARE` (final RED L-2: an archive
- *     racing a count serialises as "count, then archive", a legal order; `FOR SHARE` would buy nothing a test could see);
+ *     `inventory_item.is_archived` (owner Q4). `KEY SHARE`, the siblings' lock, not `FOR SHARE` (final RED L-2). Since
+ *     G5-C2a `DeleteItem` takes the item `FOR UPDATE`, which conflicts with this lock: a count first serialises as "count,
+ *     then archive"; an archive first makes this read wait and then refuse the item as archived
+ *     (`ItemDeleteLockOrderTest`);
  *  4. the bin's `warehouse_id`, unlocked (frozen: `UpdateStorageLocation` refuses it) — unknown → 422; the warehouse
  *     `FOR KEY SHARE` → archived 409; then, **in its own statement**, the bin `FOR KEY SHARE` reading `kind` and
  *     `deleted_at` → archived 409. The bin lock is G-44's release-rule lock clause (`RESIDUAL_GAPS.md` G-44; tested as a decision by

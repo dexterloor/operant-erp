@@ -31,6 +31,12 @@
 // queued at the lock the code meant, not merely somewhere. Additive: callers
 // that read only `waiter_seen` / `committed` are unaffected.
 //
+// Since G5-C2a (2026-10-22) an optional HOLD_REPORT (same shape as HOLD_BEFORE)
+// is run after HOLD_AFTER and before the COMMIT, inside the holder's own
+// transaction, and its rows are printed as `report` (one list per statement):
+// so a race test can compare what the HOLDER wrote with what survives the
+// request (`ItemDeleteTest`: the first delete's archive stamp). Additive too.
+//
 // The deadline in step 3 exists only for the failing case -- a B that never
 // touches the order row -- so the parent is never left hanging. It is not a
 // timing assumption: no passing run depends on how long anything takes.
@@ -42,7 +48,7 @@ use Doctrine\DBAL\Exception\DriverException;
 use Doctrine\DBAL\Tools\DsnParser;
 
 $readyFile = (string) getenv('HOLD_READY_FILE');
-$result = ['waiter_seen' => false, 'committed' => false, 'sqlstate' => null, 'error' => null, 'waiter_locks' => [], 'holder_xid' => null];
+$result = ['waiter_seen' => false, 'committed' => false, 'sqlstate' => null, 'error' => null, 'waiter_locks' => [], 'holder_xid' => null, 'report' => []];
 $conn = null;
 
 try {
@@ -56,6 +62,8 @@ try {
     $before = json_decode((string) getenv('HOLD_BEFORE'), true, flags: JSON_THROW_ON_ERROR);
     /** @var list<array{0: string, 1: list<string>}> $after */
     $after = json_decode((string) getenv('HOLD_AFTER'), true, flags: JSON_THROW_ON_ERROR);
+    /** @var list<array{0: string, 1: list<string>}> $report */
+    $report = json_decode((string) (getenv('HOLD_REPORT') ?: '[]'), true, flags: JSON_THROW_ON_ERROR);
     $deadline = microtime(true) + (float) getenv('HOLD_DEADLINE_SECONDS');
 
     $conn = DriverManager::getConnection($params);
@@ -118,6 +126,9 @@ try {
     if ($result['waiter_seen']) {
         foreach ($after as [$sql, $bind]) {
             $conn->executeStatement($sql, $bind);
+        }
+        foreach ($report as [$sql, $bind]) {
+            $result['report'][] = $conn->fetchAllAssociative($sql, $bind);
         }
 
         $conn->commit();

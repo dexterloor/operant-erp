@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Application;
 
+use App\Modules\AuditLog\Infrastructure\ItemAuditWriter;
 use App\Modules\Inventory\ApiResource\CreateItemInput;
 use App\Modules\Inventory\ApiResource\ItemResource;
 use App\Modules\Inventory\ApiResource\UpdateItemInput;
 use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Connection;
@@ -57,11 +59,49 @@ final readonly class ItemWriter
     /** numeric(19,6) — precision 19, scale 6, so at most 13 digits before the point. */
     private const DECIMAL = '/^-?\d{1,13}(\.\d{1,6})?$/';
 
+    /**
+     * **`DeleteItem`'s row lock — public so a race test's holder runs THIS statement, never a transcription**
+     * (`CustomerWriter::DELETE_LOCK`'s precedent). Taken before every check (G5-C2a, the shipped-defect fix, owner notice
+     * N-8): before it, `archive()` read the row unlocked, so of two concurrent deletes both passed the "already archived"
+     * check and the second's UPDATE, waiting on the first's row lock, then re-matched and moved `deleted_at` forward.
+     * `FOR UPDATE`, not `FOR NO KEY UPDATE`: it also waits for an in-flight stock write's `KEY SHARE` on the item (the
+     * `stock_movement` FK, or `StockAdjuster` / `StockTransferrer`'s explicit item read), so an archive and a stock write
+     * serialise. The single delete reads no stock; the reasons are that an explicit `FOR KEY SHARE` liveness read (the
+     * count, the transfer) is only effective against a lock it conflicts with — a count or transfer racing an archive now
+     * waits and is refused as archived, where before it posted (owner notice, `g5-c2a-red.md` M-2) — parity with the bulk
+     * archival's lock (design R1 M-4), and G-51's eventual stocked-item refusal. It is the ONLY item row lock this operation
+     * takes; the audit INSERT afterwards also takes `KEY SHARE` on the actor's `app_user` row through its FK, which conflicts
+     * with nothing `src/` takes on `app_user` (no `FOR UPDATE` there). So it cannot close a cycle with a multi-line stock
+     * writer (final RED M-3; structural, with the waits and answers measured in `ItemDeleteLockOrderTest`).
+     */
+    public const DELETE_LOCK = 'SELECT deleted_at IS NOT NULL AS archived FROM inventory_item WHERE id = ?::uuid FOR UPDATE';
+
+    /**
+     * **`UpdateItem`'s row lock**, before the archived check (G5-C2a, RED M-1). Its own statement, never `ItemRow::FROM`'s
+     * join, so it locks the item row only. `FOR NO KEY UPDATE`: it conflicts with {@see self::DELETE_LOCK} and with
+     * itself, not with stock writers' `KEY SHARE` (`CustomerWriter::update()`'s lock).
+     */
+    public const EDIT_LOCK = 'SELECT 1 FROM inventory_item WHERE id = ?::uuid FOR NO KEY UPDATE';
+
+    /** The archive, live rows only: 0 rows means another delete committed first (refused, no audit row). */
+    public const ARCHIVE = 'UPDATE inventory_item SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid AND deleted_at IS NULL';
+
+    /**
+     * **`RestoreItem`'s row lock**, before every check. `FOR NO KEY UPDATE` is enough (`CustomerWriter::restore()`'s
+     * reason): it conflicts with itself and with {@see self::DELETE_LOCK}, and a restore need not wait on stock writers.
+     */
+    public const RESTORE_LOCK = 'SELECT deleted_at IS NOT NULL AS archived FROM inventory_item WHERE id = ?::uuid FOR NO KEY UPDATE';
+
+    /** The restore, archived rows only: 0 rows means another restore committed first (refused, no audit row). */
+    public const RESTORE = 'UPDATE inventory_item SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid AND deleted_at IS NOT NULL';
+
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
         private ItemReader $reader,
         private WorkspaceSettings $settings,
+        private RequestIdentity $identities,
+        private ItemAuditWriter $audit,
     ) {
     }
 
@@ -130,6 +170,11 @@ final readonly class ItemWriter
         ));
     }
 
+    /**
+     * Since G5-C2a (RED `g5-c2a-red.md` M-1, a shipped defect of N-8's shape): {@see self::EDIT_LOCK} before the archived
+     * check, and the UPDATE carries `AND deleted_at IS NULL` with a row-count check, so an edit racing a delete waits and is
+     * refused as archived instead of landing on the archived row (ST-9).
+     */
     public function update(string $id, UpdateItemInput $input): ItemResource
     {
         $submitted = $input->submitted();
@@ -139,6 +184,9 @@ final readonly class ItemWriter
             $this->tenant->tenantId(),
             function (EntityManagerInterface $em) use ($id, $submitted): ItemResource {
                 $connection = $em->getConnection();
+                if (Uuid::isValid($id) && false === $connection->fetchOne(self::EDIT_LOCK, [$id])) {
+                    throw ApiProblem::notFound();
+                }
                 $current = $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
 
                 // ST-9: an archived row renders read-only. §5.2a puts the
@@ -155,13 +203,16 @@ final readonly class ItemWriter
                     // The assignment list is built from the DTO's own initialised
                     // properties, so the set of updatable fields is derived from
                     // the class the spec documents rather than restated here.
-                    $connection->executeStatement(
+                    // Live rows only: 0 rows means a delete committed first.
+                    if (1 !== $connection->executeStatement(
                         'UPDATE inventory_item SET '.implode(', ', array_map(
                             static fn (string $property): string => self::COLUMNS[$property].' = '.self::bind($property),
                             array_keys($submitted),
-                        )).', updated_at = now() WHERE id = CAST(:id AS uuid)',
+                        )).', updated_at = now() WHERE id = CAST(:id AS uuid) AND deleted_at IS NULL',
                         [...$submitted, 'id' => $id],
-                    );
+                    )) {
+                        throw self::archived();
+                    }
                 }
 
                 return $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
@@ -169,22 +220,43 @@ final readonly class ItemWriter
         ));
     }
 
-    /** API-21 branch 3 — 204, and no body. */
+    /**
+     * API-21 branch 3 — 204, and no body. In one `TenantContext::run()`: {@see self::DELETE_LOCK} (a non-uuid, absent or
+     * foreign id → 404); archived → 409 `inventory_item.is_archived`; {@see self::ARCHIVE}, whose live-row predicate and
+     * row-count check refuse the same way should the lock ever be weakened; then `inventory_item.deleted`, `{}`, after
+     * the UPDATE, in its transaction — a refusal writes none (G5-C2a).
+     */
     public function archive(string $id): void
     {
-        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $identity = $this->identities->authenticated();
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): void {
             $connection = $em->getConnection();
-            $current = $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
+            // fetchAssociative, never fetchOne: a live row's `false` would read as "no row".
+            $row = $connection->fetchAssociative(self::DELETE_LOCK, [$id]);
+            if (false === $row) {
+                throw ApiProblem::notFound();
+            }
 
             // A repeat delete is told the item is already archived; the
             // update path keeps "can't be changed until it's restored".
-            if (null !== $current->archivedAt) {
+            if (true === $row['archived']) {
                 throw self::alreadyArchived();
             }
 
-            $connection->executeStatement(
-                'UPDATE inventory_item SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid',
-                [$id],
+            if (1 !== $connection->executeStatement(self::ARCHIVE, [$id])) {
+                throw self::alreadyArchived();
+            }
+
+            // After the UPDATE, in its transaction: a refusal above leaves no row.
+            $this->audit->recordDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                itemId: $id,
             );
         });
     }
@@ -199,25 +271,38 @@ final readonly class ItemWriter
      * operation whose repetition a **precondition** refuses needs no key, and a
      * replayed restore hits a live row and is answered `business-rule-violated`,
      * which tells the caller the first one committed.
+     *
+     * Since G5-C2a: {@see self::RESTORE_LOCK} before the check, {@see self::RESTORE} with its archived-row predicate and
+     * row-count check (the second of two concurrent restores is told "not archived" and moves nothing), then
+     * `inventory_item.restored`, `{}`, after the UPDATE — a 23505 on the UPDATE rolls the transaction back first, so a
+     * refused restore writes none.
      */
     public function restore(string $id): ItemResource
     {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+        $identity = $this->identities->authenticated();
+
         return $this->translatingConstraintFailures(fn (): ItemResource => $this->tenants->run(
             $this->tenant->tenantId(),
-            function (EntityManagerInterface $em) use ($id): ItemResource {
+            function (EntityManagerInterface $em) use ($id, $identity): ItemResource {
                 $connection = $em->getConnection();
-                $current = $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
-
-                if (null === $current->archivedAt) {
-                    throw ApiProblem::businessRuleViolated(
-                        'inventory_item.is_not_archived',
-                        'This item is not archived, so there is nothing to restore.',
-                    );
+                $row = $connection->fetchAssociative(self::RESTORE_LOCK, [$id]);
+                if (false === $row) {
+                    throw ApiProblem::notFound();
                 }
 
-                $connection->executeStatement(
-                    'UPDATE inventory_item SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid',
-                    [$id],
+                if (true !== $row['archived'] || 1 !== $connection->executeStatement(self::RESTORE, [$id])) {
+                    throw self::notArchived();
+                }
+
+                // After the UPDATE, in its transaction: a refusal above leaves no row.
+                $this->audit->recordRestored(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    itemId: $id,
                 );
 
                 return $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
@@ -381,6 +466,14 @@ final readonly class ItemWriter
         return ApiProblem::businessRuleViolated(
             'inventory_item.is_archived',
             'This item is archived, so it can\'t be changed until it\'s restored.',
+        );
+    }
+
+    private static function notArchived(): ApiProblem
+    {
+        return ApiProblem::businessRuleViolated(
+            'inventory_item.is_not_archived',
+            'This item is not archived, so there is nothing to restore.',
         );
     }
 

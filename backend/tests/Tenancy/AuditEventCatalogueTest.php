@@ -233,6 +233,11 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         'supplier_product.created',
         'supplier_product.updated',
         'supplier_product.deleted',
+        // Edited by hand 2026-10-22 (G5-C2a) on the `customer.deleted` / `.restored` filing's terms (design §5.5; `SEC` TO
+        // CONFIRM): BUSINESS under PC-11 (4a), subject the item, `{}`, no IP. Their subject is `inventory_item`, so (4c)
+        // does not reach them.
+        'inventory_item.deleted',
+        'inventory_item.restored',
     ];
 
     /**

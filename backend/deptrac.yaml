@@ -94,6 +94,9 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-22 with the item archive trail in the tree (G5-C2a): ONE edge line added, A-5:
+  # `ItemWriter -> ItemAuditWriter` (`inventory_item.deleted` / `.restored`). The three commands and the by-TAG count: see
+  # `docs/session13/g5-c2a-progress.md` (measured there, not restated here). No LAYER edge.)
   # (Re-derived 2026-10-22 with the catalogue trail in the tree (G3-C0): ONE edge line added, A-5:
   # `SupplierProductWriter -> SupplierAuditWriter` (`supplier_product.created` / `.updated` / `.deleted`). The three commands
   # and the by-TAG count: see `docs/session13/g3-c0-progress.md` (measured there, not restated here). No LAYER edge.)
@@ -404,6 +407,9 @@ deptrac:
       - App\Modules\Inventory\ApiResource\ItemResource   # A-7
       - App\Modules\Inventory\ApiResource\UpdateItemInput   # A-7
       - Doctrine\DBAL\Connection   # A-10
+      # G5-C2a, 2026-10-22: `inventory_item.deleted` / `.restored` written synchronously in the archiving / restoring
+      # transaction (`CustomerWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\ItemAuditWriter   # A-5
     App\Modules\Inventory\Infrastructure\Entity\InventoryItem:
       - App\Modules\Suppliers\Infrastructure\Entity\Supplier   # A-12
     App\Modules\Inventory\Infrastructure\Entity\StockLevel:

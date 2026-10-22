@@ -13,6 +13,7 @@ use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\Modules\AuditLog\Infrastructure\FulfilmentAuditWriter;
 use App\Modules\AuditLog\Infrastructure\GoodsReceiptAuditWriter;
 use App\Modules\AuditLog\Infrastructure\InvoiceAuditWriter;
+use App\Modules\AuditLog\Infrastructure\ItemAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
 use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
@@ -175,6 +176,7 @@ final class AuditWriterTest extends PurchaseOrderTestCase
      */
     private const DECLARED_WRITERS = [
         'Modules/AuditLog/Infrastructure/DenialAuditWriter.php',
+        'Modules/AuditLog/Infrastructure/ItemAuditWriter.php',
         'Modules/AuditLog/Infrastructure/PasswordChangeAuditWriter.php',
         // F-2 step 8's writer, added 2026-09-10 with `ApprovePurchaseOrder`. It
         // is the **first business-event writer in the tree**, which is why it is
@@ -431,6 +433,11 @@ final class AuditWriterTest extends PurchaseOrderTestCase
             fields: ['unit_cost']);
         $supplierWriter->recordCatalogueDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierProductId: Uuid::v4()->toRfc4122(),
             supplierId: Uuid::v4()->toRfc4122(), inventoryItemId: Uuid::v4()->toRfc4122());
+        // G5-C2a: `inventory_item.deleted` / `.restored`, BUSINESS (listed AND driven).
+        $itemWriter = self::getContainer()->get(ItemAuditWriter::class);
+        \assert($itemWriter instanceof ItemAuditWriter);
+        $itemWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', itemId: Uuid::v4()->toRfc4122());
+        $itemWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', itemId: Uuid::v4()->toRfc4122());
         // Warehouses slice 1 C2: `warehouse.created` / `warehouse.updated`, BUSINESS (listed AND driven).
         $warehouseWriter = self::getContainer()->get(WarehouseAuditWriter::class);
         \assert($warehouseWriter instanceof WarehouseAuditWriter);

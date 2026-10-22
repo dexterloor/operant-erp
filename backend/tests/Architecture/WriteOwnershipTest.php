@@ -211,7 +211,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // **28 -> 29 on 2026-10-22** (G6-C0), read off this test's run: `ExportAuditWriter::recordCompleted()`'s ONE
         // `INSERT INTO audit_log` for `data.export.completed` (E-16). `Modules\\Inventory` did NOT move: the three export
         // sources issue no statement of their own (they call the Lists' readers).
-        'Modules\\AuditLog' => 29,
+        // **28 -> 29 on 2026-10-22** (G5-C2a), read off this test's run: `ItemAuditWriter::record()`'s ONE `INSERT INTO
+        // audit_log`, shared by `inventory_item.deleted` and `.restored` (PREDICTED; confirmed off this test's run).
+        // **29 -> 30 on 2026-10-22** (LEAD stacking G5-C2a on G6-C0): both ONE-insert writers above, together.
+        'Modules\\AuditLog' => 30,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.

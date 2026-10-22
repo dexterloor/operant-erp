@@ -357,6 +357,14 @@ namespace App\SharedKernel\ValueObject;
  *     generated) plus these three; it supersedes `Version20261022000100`. **Step 6 does not apply.** `PINNED_ALLOWLIST`
  *     edited by hand with three literals.
  *
+ *   - **`INVENTORY_ITEM_DELETED` and `INVENTORY_ITEM_RESTORED`**, 2026-10-22, G5-C2a — a finding of the bulk design
+ *     (`docs/session13/g5-g6-bulk-export-design.md` §1 "Why G5-C2a exists", §5.5): `DeleteItem` and `RestoreItem` wrote
+ *     no audit row, and nothing recorded that an item archive was unattributed. Filed **`BUSINESS`** by the builder on the
+ *     `customer.deleted` / `.restored` filing's terms (subject the item, `{}`; `SEC` to confirm), before the code; steps
+ *     3–5 done **with their writer in the same commit** (`ItemAuditWriter`). Step 5 is `Version20261022010000`, whose
+ *     literal list is the live constraint's fifty-nine members (read off `pg_constraint`, not generated) plus these two;
+ *     it supersedes `Version20261022005000`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -1001,6 +1009,26 @@ final class AuditEvent
     public const SUPPLIER_PRODUCT_DELETED = 'supplier_product.deleted';
 
     /**
+     * **An item archived** — `DeleteItem` (G5-C2a, 2026-10-22; `docs/session13/g5-g6-bulk-export-design.md` §5.5). Subject
+     * `('inventory_item', id)`. **Business** under PC-11 (4a): about the item row's own state; its History is read under
+     * `inventory_item.view` (`RecordHistorySubjects`). No IP, no permission code, `metadata` `{}`: an archive changes only
+     * `deleted_at`, which the row shows as `archived_at` (`customer.deleted`'s shape). Written by
+     * `ItemAuditWriter::recordDeleted()` in `ItemWriter::archive()`'s transaction, after the one-row UPDATE; none on a
+     * refused delete (already archived — including the second of two concurrent deletes — or an unknown id). **Step 6 does
+     * not apply.** `SEC` to confirm.
+     */
+    public const INVENTORY_ITEM_DELETED = 'inventory_item.deleted';
+
+    /**
+     * **An archived item restored** — `RestoreItem` (G5-C2a, 2026-10-22). Subject `('inventory_item', id)`. **Business**
+     * under PC-11 (4a). No IP, no permission code, `metadata` `{}`. Written by `ItemAuditWriter::recordRestored()` in
+     * `ItemWriter::restore()`'s transaction, after the one-row UPDATE; none on a refused restore (not archived — including
+     * the second of two concurrent restores — or a live item took its SKU, whose 23505 rolls the transaction back).
+     * **Step 6 does not apply.** `SEC` to confirm.
+     */
+    public const INVENTORY_ITEM_RESTORED = 'inventory_item.restored';
+
+    /**
      * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
      * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
      * customer is derivable from it while the row lives; once `DeleteCustomerAddress` removes it, the
@@ -1208,6 +1236,8 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_CREATED,
         self::SUPPLIER_PRODUCT_UPDATED,
         self::SUPPLIER_PRODUCT_DELETED,
+        self::INVENTORY_ITEM_DELETED,
+        self::INVENTORY_ITEM_RESTORED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1308,6 +1338,8 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_CREATED,
         self::SUPPLIER_PRODUCT_UPDATED,
         self::SUPPLIER_PRODUCT_DELETED,
+        self::INVENTORY_ITEM_DELETED,
+        self::INVENTORY_ITEM_RESTORED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1400,6 +1432,9 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_CREATED => 'supplier_product',
         self::SUPPLIER_PRODUCT_UPDATED => 'supplier_product',
         self::SUPPLIER_PRODUCT_DELETED => 'supplier_product',
+        // G5-C2a: the item row whose own state changed (`customer.deleted` / `.restored`'s shape).
+        self::INVENTORY_ITEM_DELETED => 'inventory_item',
+        self::INVENTORY_ITEM_RESTORED => 'inventory_item',
         // C5 C4a: the customer row whose own state changed.
         self::CUSTOMER_RESTORED => 'customer',
         // C5 C4b: the customer row whose own state changed.
