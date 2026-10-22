@@ -71,6 +71,10 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
         // Suppliers slice 1 C3 (2026-10-12): the catalogue's cost, served by `ListSupplierProducts` (`supplier_product.view`)
         // and by `CreateSupplierProduct` / `UpdateSupplierProduct`'s 200/201 (`supplier_product.edit`, PC-17).
         'SupplierProduct.unit_cost' => ['supplier_product.unit_cost'],
+        // G3-C1 (2026-10-22): the preferred supplier's catalogue cost, copied into each reorder suggestion and served by
+        // `ListReorderSuggestions` under its six codes (a source reduced away by {@see self::smallest()}). Keyed by the
+        // operation's tag (`ReorderSuggestionCollection` → `ReorderSuggestion`): the item schema is inline.
+        'ReorderSuggestion.unit_cost' => ['supplier_product.unit_cost'],
     ];
 
     /**
@@ -316,9 +320,34 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
         self::assertSame([], $unseen, 'These classified fields are served by no operation any more; remove them.');
 
         return [
-            MarginSources::COST => self::sortedSets(array_values($sources[MarginSources::COST])),
-            MarginSources::SALE => self::sortedSets(array_values($sources[MarginSources::SALE])),
+            MarginSources::COST => self::sortedSets(self::smallest(array_values($sources[MarginSources::COST]))),
+            MarginSources::SALE => self::sortedSets(self::smallest(array_values($sources[MarginSources::SALE]))),
         ];
+    }
+
+    /**
+     * **PC-12 clause 2's "smallest set"** (G3-C1, 2026-10-22; `docs/session13/g3-g7b-red.md` H-1, adopted in the design's
+     * Response to RED and Revision 1 FINAL; final RED F-L2): a derived set that is a STRICT superset of another derived set of
+     * the same class is not a source — every role holding it already holds the smaller one, and `holdsAny` is monotone, so
+     * dropping it changes no exposure. `ListReorderSuggestions`' six codes reduce away because `['purchase_order.view']` and
+     * `['supplier_product.view']` are each a single-code cost source already; if NEITHER is derived, the six-code set comes
+     * back on its own (and then trips {@see self::everyMarginSourceIsOneCode()}, which re-opens G-28 item 1 — correctly).
+     *
+     * @param list<list<string>> $sets
+     *
+     * @return list<list<string>>
+     */
+    private static function smallest(array $sets): array
+    {
+        return array_values(array_filter($sets, static function (array $set) use ($sets): bool {
+            foreach ($sets as $other) {
+                if (\count($other) < \count($set) && [] === array_diff($other, $set)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**

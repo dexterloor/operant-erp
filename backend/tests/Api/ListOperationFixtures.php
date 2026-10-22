@@ -467,6 +467,18 @@ trait ListOperationFixtures
                     return ['filter' => [], 'search' => null, 'views' => ['']];
                 }];
             },
+            'ListReorderSuggestions' => function (): array {
+                // Remaining-ops G3-C1. Bounded (G-60), no query parameter at all. The seed step gives N managed items, each below
+                // its point with no stock (letter-bearing SKUs, CD-3), so each is listed.
+                return ['/forecast/reorder', function (int $rows): array {
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $item = $this->seedItem(self::TENANT_A, 'SKU-ENV-RO-'.$i);
+                        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET reorder_point = 5 WHERE id = ?::uuid', [$item]);
+                    }
+
+                    return ['filter' => [], 'search' => null, 'views' => ['']];
+                }];
+            },
             'ListWarehouses' => function (): array {
                 // Warehouses slice 1 C1, `ListRoles`' entry. Bounded (TB-1c): no filter; TB-5 names `warehouse.code`, so `q` is
                 // probed with the seeded code prefix (letter-bearing, CD-3); one view (§10.2 exclusion 2).

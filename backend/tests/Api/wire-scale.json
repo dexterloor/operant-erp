@@ -257,6 +257,24 @@
     "ListPurchaseOrders $.items[].total_amount": [
         4
     ],
+    "ListReorderSuggestions $.items[].qty_on_hand_total": [
+        6
+    ],
+    "ListReorderSuggestions $.items[].qty_on_order": [
+        6
+    ],
+    "ListReorderSuggestions $.items[].reorder_point": [
+        6
+    ],
+    "ListReorderSuggestions $.items[].reorder_quantity": [
+        6
+    ],
+    "ListReorderSuggestions $.items[].suggested_quantity": [
+        6
+    ],
+    "ListReorderSuggestions $.items[].unit_cost": [
+        4
+    ],
     "ListSalesOrderLines $.items[].quantity": [
         6
     ],

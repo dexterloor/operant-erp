@@ -224,9 +224,16 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
             }
 
             $resource = ResponseShapeTest::resourceOf($rows[$name]['verbResource'], $resources);
-            $table = $softResources[$resource] ?? ContractDocument::derivedResourceTables()[$resource] ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+            $computed = self::computedResources()[$resource] ?? null;
+            $table = $softResources[$resource] ?? ContractDocument::derivedResourceTables()[$resource] ?? $computed ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
             self::assertArrayHasKey($table, SchemaManifest::TABLES, $name.'\'s resource '.$resource.' ties to no SchemaManifest table ('.$table.').');
-            $isSoft = SchemaManifest::SOFT === SchemaManifest::TABLES[$table]['deletion'];
+            // G3-C1: a COMPUTED resource's rows are decided by its computation, so its table's deletion class earns no
+            // `archived` (ContractDocument::computedResourceTables()) — held narrow: bounded, and no query parameter at all.
+            if (null !== $computed) {
+                self::assertTrue($bounded, $name.' is a computed resource but not (bounded): the computed exemption covers bounded lists only.');
+                self::assertSame([], self::declaredParameters($operation), $name.' is a computed resource and declares a query parameter: the computed exemption covers parameterless lists only.');
+            }
+            $isSoft = null === $computed && SchemaManifest::SOFT === SchemaManifest::TABLES[$table]['deletion'];
 
             $earnedByLimb1 = \in_array(true, array_column($limb1, 1), true);
             $earnedByLimb2 = $bounded && $isSoft;
@@ -404,6 +411,37 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
 
     /** Parameters accepted only beside a companion parameter, with the companion's accepted value (G-29 / G-30 part 3). */
     private const COMPANIONS = ['decided_since' => 'adjustment_decided=same'];
+
+    /**
+     * **The computed resources, pinned in code** (remaining-ops G3-C1, 2026-10-22; `docs/session13/g3-c1-red-2.md` M-1): a
+     * resource whose rows are a computation over a table rather than the table's rows (`ContractDocument::computedResourceTables()`),
+     * so API-19c limb 2 and API-19d do not oblige it. Held EQUAL to §4.4.3's "**X is computed from `t`**" sentences, so neither
+     * a doc edit nor a code edit alone widens the exemption; {@see self::computedResources()} also requires each member to
+     * have no table of its own and to be in neither of the other two resource → table lists. `SearchContractTest` reads it.
+     *
+     * @var array<string, string>
+     */
+    public const COMPUTED_RESOURCES = ['ReorderSuggestion' => 'inventory_item'];
+
+    /**
+     * The pinned computed resources, after checking the pin against the document and its own conditions.
+     *
+     * @return array<string, string>
+     */
+    public static function computedResources(): array
+    {
+        self::assertSame(self::COMPUTED_RESOURCES, ContractDocument::computedResourceTables(),
+            '§4.4.3\'s "is computed from" sentences and QueryParameterContractTest::COMPUTED_RESOURCES disagree: move both or neither.');
+        foreach (self::COMPUTED_RESOURCES as $resource => $table) {
+            $own = strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+            self::assertArrayNotHasKey($own, SchemaManifest::TABLES, $resource.' has a table of its own, so it is not a computed resource.');
+            self::assertArrayNotHasKey($resource, ContractDocument::restoreGuardTables(), $resource.' is tied to a table by a Restore guard too.');
+            self::assertArrayNotHasKey($resource, ContractDocument::derivedResourceTables(), $resource.' is also "derived from" a table.');
+            self::assertArrayHasKey($table, SchemaManifest::TABLES, $resource.' is computed from a table SchemaManifest does not hold.');
+        }
+
+        return self::COMPUTED_RESOURCES;
+    }
 
     private function refusalDefect(string $parameter): ?string
     {

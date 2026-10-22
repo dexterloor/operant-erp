@@ -1093,6 +1093,20 @@ trait OperationSuccessRecipes
 
                 return [200, 'change a storage location'];
             }],
+            // Remaining-ops G3-C1: ONE fully populated suggestion — a live preferred supplier with a catalogue entry (so
+            // `unit_cost`, `lead_time_days`, `currency_code` are filled), stock in a pickable bin and an open order line (so both
+            // quantities are non-zero) — so `ResponseShapeTest` and `WireScaleTest` walk every decimal (CD-3). Letter-bearing
+            // codes throughout. The summary counts the same seed.
+            'GetReorderSummary' => [fn (): array => $this->seedRecipeReorder('Recipe Reorder Summary'), function (): array {
+                $this->send('GET', '/forecast/reorder/summary');
+
+                return [200, 'count the items to reorder'];
+            }],
+            'ListReorderSuggestions' => [fn (): array => $this->seedRecipeReorder('Recipe Reorder List'), function (): array {
+                $this->send('GET', '/forecast/reorder');
+
+                return [200, 'list the reorder suggestions'];
+            }],
             'ListSupplierProducts' => [function (): array {
                 $supplier = $this->seedSupplier(self::TENANT_A, 'Recipe Listed Catalogue '.bin2hex(random_bytes(3)));
                 $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-RECIPE-LST-'.bin2hex(random_bytes(3))));
@@ -1394,6 +1408,29 @@ trait OperationSuccessRecipes
         }
 
         return ['actor' => $actor];
+    }
+
+    /**
+     * G3-C1: one listed, fully populated reorder suggestion (see the two recipes). The item sits below its point, with
+     * stock in a pickable bin, an open order line and a live preferred supplier holding a catalogue entry for it.
+     *
+     * @return array<string, string>
+     */
+    private function seedRecipeReorder(string $name): array
+    {
+        $tag = strtoupper(bin2hex(random_bytes(3)));
+        $supplier = $this->seedSupplier(self::TENANT_A, $name.' Supplier '.$tag);
+        $warehouse = $this->seedWarehouse(self::TENANT_A, $name.' Warehouse');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-RECIPE-RO-'.$tag, $supplier);
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET reorder_point = 20, reorder_quantity = 15 WHERE id = ?::uuid', [$item]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 3.5)',
+            [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $item, $this->seedStorageLocation(self::TENANT_A, $warehouse, 'A-01-RO')]);
+        $order = $this->seedOrder(self::TENANT_A, self::freshNumber('PO'), $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $this->seedLine(self::TENANT_A, $order, $item, quantity: '4.250000');
+        $this->seedSupplierProduct(self::TENANT_A, $supplier, $item, leadTimeDays: 9);
+
+        return ['item' => $item];
     }
 
     private function seedRecipeMovements(string $warehouseName): array

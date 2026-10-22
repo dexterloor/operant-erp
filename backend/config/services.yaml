@@ -181,6 +181,13 @@ services:
             # with a private constructor the container would otherwise try to instantiate.
             - '../src/Modules/Warehouses/ApiResource/{CreateStorageLocationInput.php,UpdateStorageLocationInput.php}'
             - '../src/Modules/Warehouses/Application/Contract/LocationKinds.php'
+            # Remaining-ops G3-C1 (2026-10-22): the reorder computation's read models, one per owning module's contract, and the
+            # suggestion's DTO and its two references -- data, not services. `ReorderSuggestionCollection` and
+            # `ReorderSummaryResource` are NOT excluded, for `ItemResource`'s reason.
+            - '../src/Modules/Inventory/Application/Contract/ManagedItem.php'
+            - '../src/Modules/Suppliers/Application/Contract/PreferredTerm.php'
+            - '../src/Modules/Analytics/Application/{ReorderLine.php,ReorderSuggestionView.php}'
+            - '../src/Modules/Analytics/ApiResource/{ReorderSuggestionResource.php,ReorderItemReference.php,ReorderSupplierReference.php}'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
@@ -346,6 +353,13 @@ services:
     # The pick read's candidate bins (sales step 5, commit 3): a read contract, so the rule for what is
     # pickable (owner ruling R2) is written once, in Inventory, beside the depletion that enforces it.
     App\Modules\Inventory\Application\Contract\PickableStock: '@App\Modules\Inventory\Application\PickableStockReader'
+
+    # Remaining-ops G3-C1 (2026-10-22): the reorder computation's three read contracts, one per owning module, consumed by
+    # `Modules\Analytics`' `ReorderSuggester` alone (deptrac: `AnalyticsApplication` reaches each module's Contract, never
+    # its Port). Explicit for the reason `CurrentTenant`'s binding gives.
+    App\Modules\Inventory\Application\Contract\ReorderStock: '@App\Modules\Inventory\Application\ReorderStockReader'
+    App\Modules\Purchasing\Application\Contract\OpenPurchaseSupply: '@App\Modules\Purchasing\Application\OpenPurchaseSupplyReader'
+    App\Modules\Suppliers\Application\Contract\PreferredTerms: '@App\Modules\Suppliers\Application\PreferredTermsReader'
 
     # C5 C2b — `DeleteSupplier` asks Purchasing whether a supplier has open purchase orders (owner ruling Q-S2). An inbound
     # PORT of Suppliers implemented by its one named consumer (`docs/session13/c5-design.md` R1.6; co-signed by `ARCH` 2026-10-14),

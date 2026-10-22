@@ -323,7 +323,11 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (G7b, 2026-10-22):** `UpdateSettings` (PATCH `/settings`, `tenant_settings.edit`) on `SettingsResource`.
         // Its migrations add `tenant_settings.display_name` with `erp_app` column UPDATE (display_name, updated_at) and re-issue
         // the audit catalogue.
-        self::assertCount(120, $checked, 'The route set changed. This slice declares one hundred and twenty operations: '.implode(', ', array_keys($checked)));
+        // **And two more (remaining-ops G3-C1, 2026-10-22):** `GetReorderSummary` (GET `/forecast/reorder/summary`,
+        // `forecast.view`) on `ReorderSummaryResource`, a singleton, and `ListReorderSuggestions` (GET `/forecast/reorder`, six
+        // codes all required) on `ReorderSuggestionCollection` -- the first `Modules\Analytics` classes. Reads only: no
+        // migration, no grant (`erp_app` SELECTs every table they read).
+        self::assertCount(122, $checked, 'The route set changed. This slice declares one hundred and twenty-two operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

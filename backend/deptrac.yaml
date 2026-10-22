@@ -24,10 +24,13 @@
 #         THIS file, so it cannot be enforced by this file. It is
 #         `DeptracRulesetTest::noAllowedEntryUsesAWildcardOrNamesAnUndeclaredLayer`.
 #
-# `Ai` and `Analytics` have layers and rules here and no classes on disk. That
-# is deliberate: §4.0 settled their namespaces as `Modules\Ai` and
-# `Modules\Analytics` (SEC-O-12) and recorded that no check executed against
-# that ruling. These layers are the first that will.
+# `Ai` has layers and rules here and no classes on disk. That is deliberate:
+# §4.0 settled its namespace as `Modules\Ai` (SEC-O-12) and recorded that no
+# check executed against that ruling; these layers are the first that will.
+# `Analytics` had the same status until 2026-10-22, when remaining-ops G3-C1
+# put its first classes on disk (`ReorderSuggester`, the two reorder reads):
+# they reach Inventory, Purchasing and Suppliers through each module's
+# Contract layer only, never a Port (`DeptracRulesetTest::noAiOrAnalyticsClassCanReachAPort`).
 
 deptrac:
   paths:

@@ -97,6 +97,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // G7b: the actor made an owner (the marker on its fixture role, in both tenants: `owner_marker`), so the baseline
         // rename succeeds. `tenant` has no RLS and the write must never reach B's settings row: the digest.
         'UpdateSettings' => ['body' => ['display_name' => 'Probe Renamed'], 'setup' => 'owner_marker'],
+        // Remaining-ops G3-C1: the reorder pair over the catalogued item `seedMirror()` makes managed in every tenant.
+        // The summary carries no id, so B is given one MORE managed item than A (`reorder_b_extra`): a moved read counts 2.
+        'GetReorderSummary' => ['setup' => 'reorder_b_extra'],
+        'ListReorderSuggestions' => [],
         'ChangePassword' => [
             'body' => ['current_password' => self::PASSWORD, 'new_password' => 'a-different-password-of-some-length'],
         ],
@@ -610,6 +614,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
                     [$this->remember($letter, 'second_bin', Uuid::v4()->toRfc4122()), $tenantId, $this->id($letter, 'warehouse')]);
             }
         }
+        if ('reorder_b_extra' === ($recipe['setup'] ?? null)) {
+            $extra = $this->seedItem(self::TENANT_B, 'SKU-REORDER-B');
+            $this->insertAsOwnerForTenant(self::TENANT_B, 'UPDATE inventory_item SET reorder_point = 1000 WHERE id = ?::uuid', [$extra]);
+        }
         if ('paid_invoice' === ($recipe['setup'] ?? null)) {
             $this->seedPaidInvoice('A', self::TENANT_A);
             $this->seedPaidInvoice('B', self::TENANT_B);
@@ -795,6 +803,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
                 (id, tenant_id, supplier_id, inventory_item_id, supplier_sku, lead_time_days, unit_cost, currency_code)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'SP-2', 7, 1.0000, 'EUR')
             SQL, [$this->remember($letter, 'supplier_product', Uuid::v4()->toRfc4122()), $tenantId, $supplier, $catalogued]);
+        // G3-C1: the catalogued item is MANAGED (a reorder point above its stock), so both tenants' reorder reads list it, with
+        // the supplier's terms. A moved list would carry B's item id; the summary's probe gives B one more (`reorder_b_extra`).
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE inventory_item SET reorder_point = 1000, reorder_quantity = 5 WHERE id = ?::uuid', [$catalogued]);
         $this->remember($letter, 'loose_item', $this->seedItem($tenantId, 'SKU-LOOSE'));
         $archived = $this->remember($letter, 'archived_item', $this->seedItem($tenantId, 'SKU-ARCHIVED'));
         $this->insertAsOwnerForTenant($tenantId, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$archived]);

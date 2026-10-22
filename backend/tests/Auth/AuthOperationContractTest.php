@@ -152,6 +152,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\SettingsReadTest::PINNED_SETTINGS_OPERATIONS),
             // G6-C0: the `/exports` path family (`CreateExport`).
             array_keys(\App\Tests\Api\ExportContractTest::PINNED_EXPORT_OPERATIONS),
+            // Remaining-ops G3-C1: the `/forecast` path family (`GetReorderSummary`, `ListReorderSuggestions`).
+            array_keys(\App\Tests\Api\ReorderSuggestionTest::PINNED_REORDER_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

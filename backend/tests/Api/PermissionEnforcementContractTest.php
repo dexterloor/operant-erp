@@ -53,6 +53,11 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'GetSettings' => 'tenant_settings.view',
         // G7b (2026-10-22): §4.2's `UpdateSettings` `Perm` cell — the owner marker (E-15b).
         'UpdateSettings' => 'tenant_settings.edit',
+        // Remaining-ops G3-C1 (2026-10-22): the reorder pair. The summary is `forecast.view` ALONE (the ruling's first
+        // fails-if); the detail list is the first multi-code ALL_OF declaration — six codes, byte order (P-0's form; `g3-g7b-red.md`
+        // H-2 added `purchase_order.view`).
+        'GetReorderSummary' => 'forecast.view',
+        'ListReorderSuggestions' => ['forecast.view', 'inventory_item.view', 'purchase_order.view', 'stock_level.view', 'supplier.view', 'supplier_product.view'],
         // §4.2's `—`, ruled on `PasswordResource`: §3's catalogue is closed at
         // sixty codes and none of them fits. `app_user.edit` is the near miss and
         // is the administrative code behind `UpdateUser`, held by `owner` and

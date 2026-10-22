@@ -443,6 +443,31 @@ final class ContractDocument
     }
 
     /**
+     * Resource → table for a **computed** resource (remaining-ops G3-C1, 2026-10-22: `ReorderSuggestion`), read off §4.4.3's
+     * sentence *"**<Resource> is computed from `<table>`**"*. Like {@see self::derivedResourceTables()} it ties the resource to
+     * a `SchemaManifest` table (the callers still assert the table exists), but its rows are a COMPUTATION over that table, not
+     * the table's rows: the computation's own rule decides which rows appear (an archived item is never a reorder suggestion),
+     * so the table's soft-delete class earns no `archived` view (API-19c limb 2) and its TB-5 columns earn no `q`. **The
+     * exemption is held narrow by its callers:** a computed resource's List must be *(bounded)* and declare NO query parameter
+     * at all, so it cannot shelter a list that filters, searches or pages; and the set is PINNED in code
+     * (`QueryParameterContractTest::COMPUTED_RESOURCES`, held equal to this reading — `g3-c1-red-2.md` M-1), so a doc edit
+     * alone cannot widen it.
+     *
+     * @return array<string, string>
+     */
+    public static function computedResourceTables(): array
+    {
+        preg_match_all('/\*\*([A-Z][A-Za-z]+) is computed from `([a-z_]+)`\*\*/', self::sectionBetween('#### 4.4.3 ', '#### 4.4.4 '), $m, \PREG_SET_ORDER);
+
+        $tables = [];
+        foreach ($m as [, $resource, $table]) {
+            $tables[$resource] = $table;
+        }
+
+        return $tables;
+    }
+
+    /**
      * §15.1's per-row build status, operationId → `built` | `unbuilt`.
      *
      * §15.1 is a **four**-column table (six fields with `-F'|'`), which is why

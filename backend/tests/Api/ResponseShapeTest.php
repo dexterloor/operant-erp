@@ -101,8 +101,13 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * tenant identifier on the wire (API-6, P-6, T-1) and nothing addresses the resource by it. A separate pin with its
      * own ground, never a widening of the no-table-`id` one: {@see self::singletonDefects()} requires every read of a member
      * to be at a path with no `{…}` variable, so the exception cannot be granted to a resource a client addresses by id.
+     *
+     * **Second ground, added 2026-10-22 (remaining-ops G3-C1; `docs/session13/g3-g7b-final-red.md` F-L4): a tableless
+     * per-tenant aggregate addressed by no id** — `ReorderSummary` (`/forecast/reorder/summary`), a count with no row to
+     * identify. The tenant-identifier ground above does not fit it (it has no table); this one does, and the same path check
+     * holds it: a member read at a `{…}` path is refused whichever ground it was admitted on.
      */
-    private const SINGLETON_RESOURCES = ['Settings'];
+    private const SINGLETON_RESOURCES = ['ReorderSummary', 'Settings'];
 
     /**
      * **Owner ruling Q-H (2026-09-30, sales step 7; `API.md` §4.4.3's Q1(d) deferral, discharged as a ruling):** a

@@ -225,8 +225,15 @@ final class SearchContractTest extends PurchaseOrderTestCase
 
         foreach ($this->listOperations() as $name => $operation) {
             $resource = ResponseShapeTest::resourceOf($rows[$name]['verbResource'], $resources);
-            $table = $softResources[$resource] ?? ContractDocument::derivedResourceTables()[$resource] ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
+            $computed = QueryParameterContractTest::computedResources()[$resource] ?? null;
+            $table = $softResources[$resource] ?? ContractDocument::derivedResourceTables()[$resource] ?? $computed ?? strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $resource));
             self::assertArrayHasKey($table, SchemaManifest::TABLES, $name.'\'s resource '.$resource.' ties to no SchemaManifest table ('.$table.').');
+            if (null !== $computed) {
+                // G3-C1: a computed resource is not a search over its table (ContractDocument::computedResourceTables()); it
+                // must offer no `q`, and it is reported under a table key no TB-5 sentence can name.
+                self::assertNotContains('q', self::declaredParameters($operation), $name.' is a computed resource and offers `q`.');
+                $table = 'computed:'.$table;
+            }
 
             $offers = \in_array('q', self::declaredParameters($operation), true);
             $leaves = [];

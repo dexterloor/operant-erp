@@ -56,14 +56,25 @@ use App\Modules\Purchasing\ApiResource\PurchaseOrderLineResource;
  */
 final class PurchaseOrderLineRow
 {
+    /**
+     * **What a line still owes, derived ONCE** (remaining-ops G3-C1, 2026-10-22; design §2.3): this list's
+     * `quantity_outstanding` and `OpenPurchaseSupplyReader`'s on-order supply are both built from it, so the reorder's
+     * *on order* cannot drift from the number a buyer sees on the line. The reorder read floors it at 0 (M-4) — a floor that
+     * is unobservable while `purchase_order_line_not_over_received` stands (see the class docblock).
+     */
+    public const OUTSTANDING = '(pol.quantity_ordered - pol.quantity_received)';
+
     public const COLUMNS = <<<'SQL'
         pol.id, pol.quantity_ordered, pol.quantity_received, pol.unit_cost,
         pol.line_number, pol.deleted_at,
         -- No clamp and no cast: purchase_order_line_not_over_received keeps
         -- received <= ordered, and numeric(19,6) minus numeric(19,6) is already
         -- scale 6, which is the shape S-12 makes a client compare on. See the
-        -- class docblock before adding either back.
-        pol.quantity_ordered - pol.quantity_received AS quantity_outstanding,
+        -- class docblock before adding either back. (The blank line below ends
+        -- this comment before the expression, which is spliced in from OUTSTANDING.)
+
+        SQL.self::OUTSTANDING.<<<'SQL'
+         AS quantity_outstanding,
         i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name
         SQL;
 
