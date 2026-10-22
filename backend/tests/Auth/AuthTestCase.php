@@ -84,6 +84,21 @@ abstract class AuthTestCase extends ApiTestCase
     }
 
     /**
+     * A user with a chosen id, optionally soft-deleted as the owner (G4-C0a). The id is chosen so a test can control
+     * `CredentialLookup`'s `ORDER BY id` — with random ids, a dropped `deleted_at IS NULL` would go red only about half the
+     * time (`g4-users-design.md` §3 T-0a-2). Ids must satisfy `app_user_id_is_uuid_v4`.
+     */
+    protected function seedUserWithId(string $tenantId, string $id, string $email, string $password, bool $deleted): string
+    {
+        $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, is_active, deleted_at)
+            VALUES (?::uuid, ?::uuid, ?, ?, ?, true, CASE WHEN ? THEN now() END)
+            SQL, [$id, $tenantId, mb_strtolower($email), $this->hasher()->hash($password), 'Fixture User', $deleted ? 'true' : 'false']);
+
+        return $id;
+    }
+
+    /**
      * @param array<string, string> $headers
      */
     protected function signIn(string $workspace, string $email, string $password, string $ip = '203.0.113.7', array $headers = []): void

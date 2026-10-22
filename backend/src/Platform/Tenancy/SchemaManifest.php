@@ -344,7 +344,10 @@ final class SchemaManifest
             // close lockout or takeover through it (RESIDUAL_GAPS G-12).
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             'column_grants' => [
-                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active']],
+                // erp_auth: CredentialLookup's one statement (ADR-006 §2). deleted_at joined at G4-C0a
+                // (Version20261022006000) so sign-in excludes a soft-deleted person (`AND deleted_at IS NULL`):
+                // a column privilege is needed for a WHERE reference as much as for the select list.
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at']],
                 DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at']],
             ],
         ],

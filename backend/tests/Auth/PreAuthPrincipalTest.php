@@ -190,10 +190,41 @@ final class PreAuthPrincipalTest extends AuthTestCase
     }
 
     /**
+     * **T-0a-3 (G4-C0a):** a soft-deleted person is the unknown-email miss path on every connection — the same **number of
+     * statements** on `erp_auth` (ADR-006 V-8), on the counters (E-8), and no trail insert (ADR-006 §2.2). The predicate added
+     * a clause, not a statement, and this is what says so. It compares per-connection statement counts, as its siblings in
+     * this class do; the statement text is the same by construction (one `CredentialLookup` statement, no branch).
+     *
+     * *Mutation, run:* resolve a deleted user in PHP (a second `SELECT deleted_at` on `erp_auth`, or a trail row for it) →
+     * the sequences diverge, red.
+     */
+    #[Test]
+    public function aDeletedUserRunsTheUnknownEmailStatementSequence(): void
+    {
+        $unknownEmail = $this->measure(function (): void {
+            $slug = self::SLUG_PREFIX.'unknown';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $this->seedUser($tenantId, self::EMAIL, self::PASSWORD);
+            $this->signIn($slug, 'nobody@example.com', self::PASSWORD);
+        });
+
+        $deleted = $this->measure(function (): void {
+            $slug = self::SLUG_PREFIX.'deleted';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $this->seedUserWithId($tenantId, '00000000-0000-4000-8000-000000000001', self::EMAIL, self::PASSWORD, true);
+            $this->signIn($slug, self::EMAIL, self::PASSWORD);
+        });
+
+        self::assertNotSame([], array_filter($unknownEmail), 'Nothing was recorded, so the comparison below is vacuous.');
+        self::assertSame($unknownEmail, $deleted,
+            "A deleted person's sign-in does not run the unknown-email sequence:\n".print_r(['unknown email' => $unknownEmail, 'deleted' => $deleted], true));
+    }
+
+    /**
      * The console commands allowed to run with a non-application credential present, pinned (`preauth-derived-check-design.md`
      * §3.3). **Hygiene, not a control** — `ServingCredentialGuard`'s own words: anyone who can run the console with the owner
      * DSN can run `psql`. It notices one thing: a command added to that list cooperatively. Such a command runs as the schema
-     * owner and so bypasses the grant check below on `app_user.deleted_at`.
+     * owner and so bypasses every grant check in this suite (`theOwnerProcessConsoleCommandsAreTheReviewedOnes`).
      */
     private const CONSOLE_OWNER_COMMANDS_REVIEWED = [
         'doctrine:migrations:migrate',
@@ -207,36 +238,30 @@ final class PreAuthPrincipalTest extends AuthTestCase
     ];
 
     /**
-     * A finding, pinned so it cannot be shipped past.
+     * A finding, pinned so it cannot be shipped past — **and, since G4-C0a (2026-10-22), in its first branch.**
      *
-     * `erp_auth`'s column grant on `app_user` is `(id, tenant_id, email, password_hash, is_active)` — **`deleted_at` is not
-     * in it**, and Postgres requires the privilege for a reference in `WHERE` as much as in the select list. So
-     * `CredentialLookup` cannot exclude a soft-deleted user, and `app_user` is deletion class `soft`: a soft-deleted
-     * principal's password would still authenticate.
+     * Until G4-C0a `erp_auth`'s column grant on `app_user` was `(id, tenant_id, email, password_hash, is_active)`, and
+     * Postgres requires the privilege for a reference in `WHERE` as much as in the select list, so `CredentialLookup` could
+     * not exclude a soft-deleted user: a soft-deleted principal's password would still have authenticated. G4-C0a
+     * (`Version20261022006000`) granted `SELECT (deleted_at)` and added `AND deleted_at IS NULL`, so the server now answers
+     * the premise `true` and the method takes branch 1.
      *
-     * **What keeps it unreachable is a grant fact the live server reports** (roles C0, 2026-10-03,
-     * `docs/session13/preauth-derived-check-design.md` FINAL block): while `erp_auth` cannot `SELECT app_user.deleted_at`,
-     * **no role on the server but the schema owner, superusers and Postgres's `pg_*` roles can `UPDATE` or `INSERT` that
-     * column.** The domain is read from `pg_roles`, never from `DatabaseRoles` alone; `has_column_privilege` counts a
-     * table-level grant, a `PUBLIC` grant and an inherited membership, so every ordinary route to the write is covered
-     * whatever the code that would issue it looks like — an entity loaded by a repository, DQL, DBAL `update()`, a framework
-     * processor: each, run as an application role, meets `42501`. `DeleteUser` cannot ship without granting
-     * `UPDATE (deleted_at)`, and that grant is what turns this red — so the `erp_auth` grant and the lookup predicate must come
-     * first, which is the order the old check enforced.
+     * **Branch 1 (live since G4-C0a):** `CredentialLookup` must carry a `deleted_at IS NULL` SQL literal. That literal check
+     * is **not** the evidence on its own — a literal such as `OR deleted_at IS NULL` satisfies the regex — it is backed by
+     * the behaviour tests `TokenEndpointIndistinguishabilityTest::aDeletedUsersPasswordNoLongerSignsIn` and
+     * `::aLiveUserWithADeletedNamesakeSignsInAsThemselves` (T-0a-1/T-0a-2).
      *
-     * **Routes this cannot see, and what holds them:** a write run with the owner's rights — through a view, a materialized
-     * view's refresh, a rule or a referential action (`SchemaGuardTest::theSchemaContainsNoOwnerPrivilegedIndirection`), or a
-     * `SECURITY DEFINER` function (`SchemaGuardTest::theSchemaContainsNoSecurityDefinerObjects`). Owner-process writers
-     * (migrations; later, provisioning) are outside it; `CONSOLE_OWNER_COMMANDS_REVIEWED` notices a console command added to
-     * the owner list, which is hygiene, not a control. Superusers are outside every check by design. **Measured on the local
-     * cluster only**: on a hosted cluster a provider role (`neon_superuser`, not `rolsuper`) may hold the write, and this is
-     * then expected to go red — that is G-3's measurement arriving, not a reason to narrow the domain.
+     * **The else branch now retires, it does not guard.** It is the server-derived sweep (roles C0, 2026-10-03,
+     * `docs/session13/preauth-derived-check-design.md` FINAL block): while `erp_auth` cannot `SELECT app_user.deleted_at`, no
+     * role but the schema owner, superusers and `pg_*` may `UPDATE` or `INSERT` that column, with a planted `erp_ratelimit`
+     * grant as its positive control. After G4-C0a it no longer runs, **correctly**: its premise (a deleted user can sign in)
+     * has ended, and T-0a-1/T-0a-2 hold what it held. It is kept, not deleted, because it is exactly what must run again if
+     * G4-C0a is ever reverted — and from G4-C2 `DeleteUser` holds `UPDATE (deleted_at)`, so a revert of the grant without
+     * the writer turns it red at once. Routes it never saw (owner-rights writes through views, rules, referential actions or
+     * `SECURITY DEFINER`) stay with `SchemaGuardTest`; superusers are outside every check by design.
      *
-     * **Superseded:** until roles C0 this read `/users` paths from the operation registry, with `RevokeRole` and `AssignRole`
-     * exempted by name — a proxy too strict for reads (`GetUser`) and too weak for an exempted operation that later called
-     * `AppUser::delete()`. Its two recorded mutations (add a `/users` delete operation; add `deleted_at` to the manifest's
-     * `erp_auth` grant) are replaced by the design's §4 table, run in C0 and recorded in
-     * `docs/session13/roles-s3-build-progress.md`.
+     * The console-commands pin that used to end this method lives in `theOwnerProcessConsoleCommandsAreTheReviewedOnes`, so
+     * it runs under every grant state (M-2).
      */
     #[Test]
     public function noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt(): void
@@ -308,11 +333,31 @@ final class PreAuthPrincipalTest extends AuthTestCase
             $owner->rollBack();
         }
         self::assertSame([], $holders(), 'The planted grant survived the rollback.');
+    }
 
+    /**
+     * The owner-process console commands, pinned in a test of their own so the pin runs **whatever the grant state**
+     * (G4-C0a, `g4-users-design.md` R1.2 M-2 / D-14; message reworded per `g4-users-final-red.md` L-4).
+     *
+     * Until G4-C0a this assertion sat at the end of
+     * `noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt`, after that method's branch-1
+     * `return` — so the moment `erp_auth` could read `deleted_at` it would have silently stopped running. The assertion is
+     * unchanged byte for byte; only its home and its message moved. **Its job now is owner-process hygiene:** a command on
+     * `ServingCredentialGuard::CONSOLE_OWNER_COMMANDS` runs application code on the schema-owner connection, outside every
+     * grant check this suite makes. G8's owner-set-password command (`remaining-ops-final-red.md` L-6) relies on this pin to
+     * be noticed when it is added. Hygiene, not a control: anyone who can run the console with the owner DSN can run `psql`.
+     *
+     * *Mutation M-0a-4, run:* add a command to `ServingCredentialGuard::CONSOLE_OWNER_COMMANDS` → red.
+     */
+    #[Test]
+    public function theOwnerProcessConsoleCommandsAreTheReviewedOnes(): void
+    {
         self::assertSame(self::CONSOLE_OWNER_COMMANDS_REVIEWED, ServingCredentialGuard::CONSOLE_OWNER_COMMANDS,
-            'An owner-process command was added to ServingCredentialGuard::CONSOLE_OWNER_COMMANDS; it runs as the schema owner '
-            .'and bypasses the grant check on app_user.deleted_at. Before it ships, either it writes no deleted_at, or erp_auth '
-            .'can read it (and CredentialLookup excludes deleted users). Then add it here.');
+            'An owner-process command was added to ServingCredentialGuard::CONSOLE_OWNER_COMMANDS. It runs application code as '
+            .'the schema owner, outside every grant check in this suite (it can write any column of any table, app_user '
+            .'included). Before it ships: SEC reviews what it writes and which audit row records it (G8: an owner-set password '
+            .'needs its own auth.-family event, remaining-ops-final-red.md L-6), and the MAC key stays out of the serving '
+            .'env. Then add it here.');
     }
 
     /** The premise branch, matched on `CredentialLookup`'s SQL literals so a docblock or comment cannot satisfy it. */

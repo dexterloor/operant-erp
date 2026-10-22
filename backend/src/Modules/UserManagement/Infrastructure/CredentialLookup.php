@@ -13,7 +13,7 @@ use Doctrine\DBAL\Connection;
  *
  * `BEGIN` → `SELECT id, status FROM tenant WHERE slug = ?` → on a miss the
  * **sentinel** row → `set_config('app.tenant_id', ?, true)` →
- * `SELECT … FROM app_user WHERE email = ?` → `COMMIT`. Identical statement
+ * `SELECT … FROM app_user WHERE email = ? AND deleted_at IS NULL` → `COMMIT`. Identical statement
  * sequence on every path, which is ADR-006 V-8 and the half of E-7 no response
  * assertion can see.
  *
@@ -28,22 +28,27 @@ use Doctrine\DBAL\Connection;
  * `App\Modules\UserManagement\Application\SignIn` never asks a status question about it.
  *
  * ---------------------------------------------------------------------------
- * Read-only by grant, and the two columns that are not granted
+ * Read-only by grant, and a deleted person is not a principal
  * ---------------------------------------------------------------------------
- * ADR-006 §2: `GRANT SELECT (id, tenant_id, email, password_hash, is_active) ON
- * app_user TO erp_auth`, and nothing else anywhere. A write here is not
- * code-gated, it is `permission denied`.
+ * ADR-006 §2: `GRANT SELECT (id, tenant_id, email, password_hash, is_active,
+ * deleted_at) ON app_user TO erp_auth`, and nothing else anywhere. A write here
+ * is not code-gated, it is `permission denied`.
  *
- * **`deleted_at` is not among them, and a Postgres column privilege is required
- * for a reference in `WHERE` as much as in the select list.** So this query
- * cannot exclude a soft-deleted user, and `app_user_tenant_email_live` is
- * *partial* — unique only over live rows — so a re-issued address can legitimately
- * produce two rows. Both halves of that are stated rather than papered over, and
- * the guard that keeps it unreachable is
- * `PreAuthPrincipalTest::noShippedOperationCanSoftDeleteAnAppUserWhileTheAuthPrincipalCannotReadDeletedAt`:
- * no operation in the registry addresses `/users`, so nothing this wave ships can
- * create the state. The fix is a grant plus a predicate and is `SEC` + `DATA`'s,
- * not something to take inside a login path — routed in `API.md` §14.2.
+ * **G4-C0a (2026-10-22, `Version20261022006000`): `deleted_at` joined the grant
+ * and the statement excludes a soft-deleted user.** A Postgres column privilege
+ * is required for a reference in `WHERE` as much as in the select list, so the
+ * grant and the predicate shipped together. A deleted person's email is now the
+ * **unknown-email miss path**: the KDF runs on the dummy hash, no
+ * `auth.login.failure` row is written (ADR-006 §2.2, *"the principal does not
+ * exist"* — `SEC` accepted the lost signal, `SECURITY_MODEL.md` pre-auth), the
+ * lockout pair still accrues, and the client sees the same constant 401.
+ *
+ * `app_user_tenant_email_live` is partial on `deleted_at IS NULL`, so with the
+ * predicate at most one row can match. `ORDER BY id LIMIT 1` is now redundant
+ * against that unique and is **kept**: it costs nothing and defends a future
+ * case-variant unique. Pinned by
+ * `TokenEndpointIndistinguishabilityTest::aDeletedUsersPasswordNoLongerSignsIn`
+ * and `::aLiveUserWithADeletedNamesakeSignsInAsThemselves`.
  */
 final readonly class CredentialLookup
 {
@@ -67,12 +72,12 @@ final readonly class CredentialLookup
 
             $this->tenants->establishOn($this->auth, $tenantId);
 
-            // ORDER BY id so the row this returns is a function of the data and
-            // not of the plan. LIMIT 1 rather than a uniqueness assumption: the
-            // live-email uniqueness is partial and this principal cannot see the
-            // predicate it is partial on (class docblock).
+            // A deleted person is not a principal (G4-C0a). ORDER BY id so the row
+            // this returns is a function of the data and not of the plan; LIMIT 1
+            // is redundant against the live-only email unique and kept on purpose
+            // (class docblock).
             $user = $this->auth->fetchAssociative(
-                'SELECT id, password_hash, is_active, email FROM app_user WHERE email = ? ORDER BY id LIMIT 1',
+                'SELECT id, password_hash, is_active, email FROM app_user WHERE email = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
                 [$email],
             );
 

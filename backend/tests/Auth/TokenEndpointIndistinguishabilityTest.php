@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
+use App\Platform\Security\AccessTokenVerifier;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
@@ -257,6 +258,61 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
     }
 
     /**
+     * **T-0a-1 (G4-C0a):** a soft-deleted person's right password is the constant refusal — byte-identical to a wrong
+     * password — and, like an unknown email, writes **no** trail row (ADR-006 §2.2, *"the principal does not exist"*;
+     * `SEC` accepted the lost signal, `g4-users-design.md` Response to RED L-5). The lockout pair still accrues.
+     *
+     * *Mutation M-0a-1, run:* drop `AND deleted_at IS NULL` from `CredentialLookup` → the deleted user signs in (200), red.
+     */
+    #[Test]
+    public function aDeletedUsersPasswordNoLongerSignsIn(): void
+    {
+        $live = $this->seedTenant(self::SLUG_PREFIX.'live', Tenant::STATUS_ACTIVE);
+        $this->seedUser($live, self::EMAIL, self::PASSWORD, true);
+        $this->signIn(self::SLUG_PREFIX.'live', self::EMAIL, 'wrong');
+        $wrongPassword = $this->observable();
+
+        $deleted = $this->seedTenant(self::SLUG_PREFIX.'deleted', Tenant::STATUS_ACTIVE);
+        $this->seedUserWithId($deleted, '00000000-0000-4000-8000-000000000001', self::EMAIL, self::PASSWORD, true);
+        $this->signIn(self::SLUG_PREFIX.'deleted', self::EMAIL, self::PASSWORD);
+
+        self::assertSame($wrongPassword, $this->observable(),
+            "A soft-deleted person's right password is not the constant refusal, so a deleted user can still sign in.");
+        self::assertSame([], $this->trailRows($deleted),
+            'A sign-in against a deleted person wrote a trail row; it must look exactly like an unknown email (ADR-006 §2.2).');
+        self::assertSame(['failure_count' => 1, 'locked' => false], $this->lockoutFor(self::SLUG_PREFIX.'deleted', self::EMAIL),
+            'E-8: the lockout counter must still accrue on a deleted person, as on any miss.');
+    }
+
+    /**
+     * **T-0a-2 (G4-C0a):** once an email is reused, the live person signs in as themselves. The deleted row's id sorts
+     * **first** and the live row's **last**, so `ORDER BY id LIMIT 1` without the predicate would land on the deleted row
+     * every time — the id choice is what makes M-0a-1 deterministic (`g4-users-design.md` §3, ids per Response to RED L-3).
+     *
+     * *Mutation M-0a-1, run:* drop the predicate → the live password answers 401 (the deleted row's hash) and the deleted
+     * password answers 200, red twice.
+     */
+    #[Test]
+    public function aLiveUserWithADeletedNamesakeSignsInAsThemselves(): void
+    {
+        $tenantId = $this->seedTenant(self::SLUG_PREFIX.'reused', Tenant::STATUS_ACTIVE);
+        $this->seedUserWithId($tenantId, '00000000-0000-4000-8000-000000000001', self::EMAIL, 'the deleted one\'s password', true);
+        $liveId = $this->seedUserWithId($tenantId, 'ffffffff-ffff-4fff-bfff-ffffffffffff', self::EMAIL, self::PASSWORD, false);
+
+        $this->signIn(self::SLUG_PREFIX.'reused', self::EMAIL, self::PASSWORD, '203.0.113.8');
+        self::assertSame(200, $this->httpStatus(), 'The live person could not sign in beside a deleted namesake.');
+        $body = $this->json();
+        $verifier = self::getContainer()->get('test.auth.token_verifier');
+        \assert($verifier instanceof AccessTokenVerifier);
+        $claims = $verifier->verify((string) $body['access_token']);
+        self::assertNotNull($claims, 'The issued token does not verify, so the sub check below reads nothing.');
+        self::assertSame($liveId, $claims['sub'], "The token was issued for the deleted namesake's row, not the live person's.");
+
+        $this->signIn(self::SLUG_PREFIX.'reused', self::EMAIL, 'the deleted one\'s password', '203.0.113.9');
+        self::assertSame(401, $this->httpStatus(), "The deleted namesake's password still signs in.");
+    }
+
+    /**
      * The observable half of E-7, as a comparable value.
      *
      * `date` is dropped because it is a clock, and the profiler's
@@ -354,6 +410,15 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
             $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
             $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
             $this->signIn($slug, 'nobody@example.com', self::PASSWORD);
+        };
+
+        // G4-C0a (`g4-c0a-red.md` L-1): a soft-deleted person is a third miss path, so it joins the byte-identity set and
+        // the exactly-one-KDF set (ADR-006 V-8 (iii), "including both miss paths" — now three).
+        $cases['deleted-user'] = function (): void {
+            $slug = self::SLUG_PREFIX.'deleted-kdf';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $this->seedUserWithId($tenantId, '00000000-0000-4000-8000-000000000001', self::EMAIL, self::PASSWORD, true);
+            $this->signIn($slug, self::EMAIL, self::PASSWORD);
         };
 
         $cases['unknown-workspace'] = function (): void {
