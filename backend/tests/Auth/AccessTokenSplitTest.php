@@ -58,10 +58,13 @@ final class AccessTokenSplitTest extends KernelTestCase
         $verifier = self::getContainer()->get('test.auth.token_verifier');
         \assert($verifier instanceof AccessTokenVerifier);
 
-        $token = $issuer->issue(self::TENANT, self::USER, new \DateTimeImmutable());
+        $issuedAt = new \DateTimeImmutable();
+        $token = $issuer->issue(self::TENANT, self::USER, $issuedAt);
 
+        // G4-C0: `verify()` returns `iat` as well, so `IdentityReader` can refuse a token minted at or before
+        // `app_user.sessions_valid_after` (T-0-4; both keys and the algorithm are still what this pins).
         self::assertSame(
-            ['tenant_id' => self::TENANT, 'sub' => self::USER],
+            ['tenant_id' => self::TENANT, 'sub' => self::USER, 'iat' => $issuedAt->getTimestamp()],
             $verifier->verify($token->jwt),
             'A token the application issued is not verified by the application. After API-O-26 the issuer '
             .'and the verifier are two classes, and nothing but this check holds them to one key and one '
@@ -148,7 +151,7 @@ final class AccessTokenSplitTest extends KernelTestCase
             ['sub' => self::USER, 'tenant_id' => self::TENANT] + $claims, self::KEY_A, AccessTokenVerifier::ALGORITHM,
         );
 
-        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER], $verifier->verify($sign(['iat' => $now, 'exp' => $now + 60])),
+        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER, 'iat' => $now], $verifier->verify($sign(['iat' => $now, 'exp' => $now + 60])),
             'The positive control did not verify, so the refusals below prove nothing.');
 
         foreach ([
@@ -191,7 +194,7 @@ final class AccessTokenSplitTest extends KernelTestCase
             ['sub' => self::USER, 'tenant_id' => self::TENANT] + $claims, self::KEY_A, AccessTokenVerifier::ALGORITHM,
         );
 
-        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER],
+        self::assertSame(['tenant_id' => self::TENANT, 'sub' => self::USER, 'iat' => $now],
             $verifier->verify($sign(['iat' => $now, 'exp' => $now + $eightHours])),
             'exp = iat + 8h is E-20 exactly and must verify, or the refusals below prove nothing.');
 

@@ -223,8 +223,12 @@ final class RoleDeleteTest extends ApiTestCase
 
     /**
      * **`UX` copy #1 on `DeleteRole` (RED B-L2: no test drove an inactive ACTOR here — `:127`'s deactivates a HOLDER).** An
-     * actor holding `role.delete` and `role.assign` whose account is not active → 409 `user_role.actor_is_inactive` with
-     * the role-definition sentence, after the permission re-check and before the role is read; nothing written.
+     * actor holding `role.delete` and `role.assign` whose account is not active is refused before the role is read; nothing
+     * written. Until G4-C0 that was the 409 `user_role.actor_is_inactive` after the permission re-check.
+     * **G4-C0 (2026-10-22): API-O-22 CLOSED (a)** — `IdentityReader` refuses an inactive principal, so this actor-side
+     * request is the constant 401 at the edge (`authentication-failed`). The under-lock `user_role.actor_is_inactive`
+     * backstop is kept, reachable only when `is_active` is cleared outside `UpdateUser` (SQL) while the request waits on
+     * the lock (G4-C1's race test).
      */
     #[Test]
     public function anInactiveActorCannotDeleteARole(): void
@@ -236,7 +240,7 @@ final class RoleDeleteTest extends ApiTestCase
 
         $this->delete($role);
 
-        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change, delete or restore roles.'], $this->refusal());
+        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null]);
         $this->assertUntouched($role, $before);
     }
 

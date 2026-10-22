@@ -105,7 +105,7 @@ final readonly class AuthenticationGate
         }
 
         $this->identities->set(
-            $this->reader->read($claims['tenant_id'], $claims['sub']) ?? throw ApiProblem::authenticationFailed(),
+            $this->reader->read($claims['tenant_id'], $claims['sub'], $claims['iat']) ?? throw ApiProblem::authenticationFailed(),
         );
     }
 

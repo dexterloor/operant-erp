@@ -24,7 +24,9 @@ use Doctrine\ORM\EntityManagerInterface;
  *     it out of `TenantContext::run()`, the transaction commits having written nothing else (A.3), and the 403 is thrown
  *     outside. Never thrown across `run()` (the EM closes and the row is lost — S2-M1′).
  *  2. **An inactive actor** → 409 `user_role.actor_is_inactive`, no row — AFTER the permission re-check, so an actor both
- *     inactive and without the code gets the 403 and its row (`SEC` §2.4). When API-O-22 is ruled this takes its status.
+ *     inactive and without the code gets the 403 and its row (`SEC` §2.4). API-O-22 closed (a) at G4-C0: `IdentityReader`
+ *     refuses an inactive principal at the edge (401), so this is an under-lock backstop, reachable only when `is_active` is
+ *     cleared outside `UpdateUser` (SQL) while the request waits on the lock (G4-C1's race test).
  *
  * Returns the actor's lock-time codes on success — the set every later decision of the operation reads.
  *

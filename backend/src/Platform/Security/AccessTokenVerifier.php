@@ -93,7 +93,11 @@ final readonly class AccessTokenVerifier
         }
     }
 
-    /** @return array{tenant_id: string, sub: string}|null null for every failure, indistinguishably */
+    /**
+     * @return array{tenant_id: string, sub: string, iat: int}|null null for every failure, indistinguishably. `iat` is
+     *                                                              returned since G4-C0 so `IdentityReader` can refuse a token
+     *                                                              minted at or before `app_user.sessions_valid_after`.
+     */
     public function verify(string $jwt): ?array
     {
         try {
@@ -117,6 +121,6 @@ final readonly class AccessTokenVerifier
             return null;
         }
 
-        return ['tenant_id' => $tenantId, 'sub' => $subject];
+        return ['tenant_id' => $tenantId, 'sub' => $subject, 'iat' => $claims['iat']];
     }
 }

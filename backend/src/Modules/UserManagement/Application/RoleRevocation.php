@@ -29,7 +29,8 @@ use Symfony\Component\Uid\Uuid;
  *     {@see LockTimeDenial} is RETURNED, the transaction commits having written nothing else, and the 403 is thrown
  *     outside `run()`. Never thrown across `run()` (P13: the EM closes and the row is lost).
  *  3. **An inactive actor** → 409 `user_role.actor_is_inactive`, no row — AFTER step 2, so an actor both inactive and
- *     without the code gets the 403 and its row (`SEC` §2.4). When API-O-22 is ruled this refusal takes its status.
+ *     without the code gets the 403 and its row (`SEC` §2.4). Since G4-C0 (API-O-22 closed (a)) an inactive actor is the
+ *     401 at the edge; this is the under-lock backstop, reachable only by an SQL deactivation while the request waits.
  *  4. **The subject:** `{id}` not a uuid, absent, another workspace's or soft-deleted → 404; `{roleId}` not a uuid, or no
  *     grant `(user, role)` → 404. An archived role's grant is revocable.
  *  5. **E-15a:** nobody revokes their own role → 409 `user_role.actor_is_subject` (this is also how the last owner is kept).

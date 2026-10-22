@@ -56,8 +56,10 @@ final readonly class CurrentUserReader
         /** @var CurrentUserResource|null */
         return $this->tenants->run($tenantId, function () use ($userId): ?CurrentUserResource {
             // RLS supplies the tenant predicate. `deleted_at IS NULL` is the
-            // application's, and it belongs here: a soft-deleted principal
-            // holding a live token is not a principal.
+            // application's: a soft-deleted principal is not a principal. The
+            // liveness check (is_active, sessions_valid_after) is the gate's,
+            // `IdentityReader` (G4-C0), not this profile read's: /me is
+            // unreachable for an inactive or stamped-out principal.
             $user = $this->app->fetchAssociative(
                 'SELECT id, email, display_name FROM app_user WHERE id = ?::uuid AND deleted_at IS NULL',
                 [$userId],

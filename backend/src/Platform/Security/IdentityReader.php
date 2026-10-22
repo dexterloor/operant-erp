@@ -38,19 +38,36 @@ use Symfony\Component\Uid\Uuid;
  * E-7's argument generalises here: a client that could tell *"expired"* from
  * *"deleted user"* would eventually be told which users exist.
  *
- * **`deleted_at IS NULL` and nothing more, matching `CurrentUserReader`.**
- * `app_user.is_active` is the sign-in path's branch (`API.md` §7.6) and adding
- * it here would change `/me`'s behaviour, which is not this slice's to change.
- * Named rather than left implicit: a live token held by a **deactivated but not
- * deleted** principal still authenticates — probed, not inferred: with
- * `is_active` set false and read back, an authenticated request answers 200,
- * while setting `deleted_at` answers 401.
+ * ---------------------------------------------------------------------------
+ * Liveness is decided HERE, for every authenticated request (G4-C0, 2026-10-22)
+ * ---------------------------------------------------------------------------
+ * The `app_user` statement refuses, in one predicate and so as the same `null`:
+ * a soft-deleted principal; an **inactive** one (`AND is_active` — closes
+ * `API.md` §14.1 API-O-22 option (a): a deactivated person's live token stops
+ * working on their next request instead of living out E-20's eight hours); and a
+ * token minted **at or before** `sessions_valid_after` (`?::numeric >
+ * extract(epoch FROM sessions_valid_after)`, strict). NULL = no restriction.
  *
- * Whether §7.6's sign-in ruling is meant to extend to a session that already
- * exists is **`API.md` §14.1 API-O-22**, owner `SEC`. This docblock previously
- * said the question was *"raised as a §14.1 item"* when §14.1 ended at API-O-19
- * and no such item had been filed — the citation named nothing, which is the
- * failure mode this project records as error #1. It names the row now.
+ * - **Strict, and `floor` is unnecessary:** for an integer `iat` and a real `s`,
+ *   `iat > s` holds exactly when `iat > floor(s)`, so a mutation adding or
+ *   removing `floor` cannot go red — a review check, not evidence.
+ * - **No database clock appears.** Both operands are PHP values: the token's `iat`
+ *   (the host PSR clock at sign-in, `SignIn`) and the stamp the writers bind from
+ *   the same injected clock. Never `now()` here — the erp2 guest DB clock is
+ *   stepped by the Lima host agent. Named residual: with more than one app host
+ *   the hosts' PHP clocks could differ; there is one host today.
+ * - **Whole-second stamps:** written through the ORM the stamp loses its
+ *   sub-second part (`AppUser::$sessionsValidAfter`); by the equivalence above
+ *   that changes nothing here.
+ * - The stamp is written at every liveness transition from G4-C1 on; until then
+ *   only the owner sets it. The named cost: a sign-in in the same wall-clock second
+ *   as a re-enable gets a token refused on its first use (200, then 401 once).
+ *
+ * **`CurrentUserReader` does not repeat this predicate, and is not meant to:** the
+ * gate refuses an inactive or stamped-out principal before `/me` is reached. This
+ * reader is the liveness check; that one is the profile read.
+ * `PermissionEnforcementTest::theSetTheApiEnforcesIsTheSetMeAdvertises` pins the
+ * two readers' **permission derivation**, not the `app_user` predicate.
  */
 final readonly class IdentityReader
 {
@@ -58,7 +75,7 @@ final readonly class IdentityReader
     {
     }
 
-    public function read(string $tenantId, string $userId): ?Identity
+    public function read(string $tenantId, string $userId, int $issuedAt): ?Identity
     {
         // The claims arrive as strings off a signed token and reach `::uuid`
         // casts and `TenantContext::run` below, both of which raise on anything
@@ -69,13 +86,16 @@ final readonly class IdentityReader
         }
 
         /** @var Identity|null */
-        return $this->tenants->run($tenantId, function () use ($tenantId, $userId): ?Identity {
-            // RLS supplies the tenant predicate. `deleted_at IS NULL` is the
-            // application's: a soft-deleted principal holding a live token is
-            // not a principal.
-            $user = $this->app->fetchAssociative(
-                'SELECT id, display_name FROM app_user WHERE id = ?::uuid AND deleted_at IS NULL',
-                [$userId],
+        return $this->tenants->run($tenantId, function () use ($tenantId, $userId, $issuedAt): ?Identity {
+            // RLS supplies the tenant predicate. The rest is the application's
+            // liveness rule (class docblock): deleted, inactive, or a token minted
+            // at or before sessions_valid_after is not a principal.
+            $user = $this->app->fetchAssociative(<<<'SQL'
+                SELECT id, display_name FROM app_user
+                 WHERE id = ?::uuid AND deleted_at IS NULL AND is_active
+                   AND (sessions_valid_after IS NULL OR ?::numeric > extract(epoch FROM sessions_valid_after))
+                SQL,
+                [$userId, $issuedAt],
             );
 
             if (!\is_array($user)) {

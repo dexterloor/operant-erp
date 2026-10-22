@@ -221,7 +221,15 @@ final class OfferedRoleListTest extends ApiTestCase
         }
     }
 
-    /** The inactive actor (RED-2 M-1): 409 `actor_is_inactive` on both paths, the same body for an absent and a real id. */
+    /**
+     * The inactive actor (RED-2 M-1): refused on both paths, the same body for an absent and a real id (until G4-C0: 409
+     * `actor_is_inactive`). `OfferedRoleReader`'s own whole-request inactive refusal is a read under no lock, so after G4-C0
+     * no test reaches it; it stays as a defence-in-depth branch (its docblock).
+     * **G4-C0 (2026-10-22): API-O-22 CLOSED (a)** — `IdentityReader` refuses an inactive principal, so this actor-side
+     * request is the constant 401 at the edge (`authentication-failed`). The under-lock `user_role.actor_is_inactive`
+     * backstop is kept, reachable only when `is_active` is cleared outside `UpdateUser` (SQL) while the request waits on
+     * the lock (G4-C1's race test).
+     */
     #[Test]
     public function anInactiveActorIsRefusedForTheWholeRequest(): void
     {
@@ -233,12 +241,11 @@ final class OfferedRoleListTest extends ApiTestCase
         $bodies = [];
         foreach (['absent' => Uuid::v4()->toRfc4122(), 'real' => $this->seedPrincipal(self::TENANT_A, [])] as $case => $id) {
             $this->send('GET', '/users/'.$id.'/offered-roles');
-            self::assertSame(409, $this->httpStatus(), $case);
-            self::assertSame('user_role.actor_is_inactive', $this->json()['rule'] ?? null, $case);
+            self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], $case);
             $bodies[] = (string) $this->client()->getResponse()->getContent();
 
             $this->send('POST', '/users/'.$id.'/roles', ['role_id' => $role], $this->key());
-            self::assertSame('user_role.actor_is_inactive', $this->json()['rule'] ?? null, $case.' (AssignRole)');
+            self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], $case.' (AssignRole)');
         }
         self::assertSame($bodies[0], $bodies[1], 'The inactive actor\'s refusal differs for an absent and a real id.');
     }

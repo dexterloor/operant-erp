@@ -21,7 +21,9 @@ use Symfony\Component\Uid\Uuid;
  *     never the token (`SEC` V-3).
  *  2. **An inactive caller is refused for the whole request**, before the subject is resolved: 409
  *     `user_role.actor_is_inactive`, the same body for an absent id and a real one — `AssignRole`'s order (RED-2 M-1), and
- *     `RoleAdministrationActor::isInactive()`, the one predicate.
+ *     `RoleAdministrationActor::isInactive()`, the one predicate. **Since G4-C0 no test reaches it:** `IdentityReader`
+ *     refuses an inactive principal at the edge, and this read takes no lock, so no race can clear `is_active` between the
+ *     gate and here in a way a test can hold. Kept as a defence-in-depth branch (`g4-users-design.md` §4.4 item 5).
  *  3. **The subject:** `{id}` not a uuid, absent or another workspace's → 404 (RLS).
  *  4. **The body, ONE statement** ({@see self::BODY}): the caller's live codes, the subject's state, its grant rows (live
  *     or archived roles — phase 3's input) and the codes of its grants on LIVE roles (phase 4's), every live role with its

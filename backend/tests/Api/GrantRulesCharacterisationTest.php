@@ -32,9 +32,15 @@ final class GrantRulesCharacterisationTest extends ApiTestCase
 {
     use RoleGrantFixtures;
 
-    private const INACTIVE_ACTOR = 'Your account is not active, so you can\'t change anyone\'s roles.';
-
-    /** An inactive actor holding `role.assign`: the whole request is refused before the (absent) subject is read. */
+    /**
+     * An inactive actor holding `role.assign`: the whole request is refused before the (absent) subject or proposal is read.
+     * Until G4-C0 that was the 409 `user_role.actor_is_inactive` with the grant family's sentence (`INACTIVE_ACTOR`, now
+     * reachable only by the race below).
+     * **G4-C0 (2026-10-22): API-O-22 CLOSED (a)** — `IdentityReader` refuses an inactive principal, so this actor-side
+     * request is the constant 401 at the edge (`authentication-failed`). The under-lock `user_role.actor_is_inactive`
+     * backstop is kept, reachable only when `is_active` is cleared outside `UpdateUser` (SQL) while the request waits on
+     * the lock (G4-C1's race test).
+     */
     #[Test]
     public function anInactiveActorIsRefusedBeforeAnAbsentSubjectOrProposalIsRead(): void
     {
@@ -53,8 +59,7 @@ final class GrantRulesCharacterisationTest extends ApiTestCase
             $this->actAsUser(self::TENANT_A, $actor);
             $request();
 
-            $this->assertRefused('user_role.actor_is_inactive', $case);
-            self::assertSame(self::INACTIVE_ACTOR, $this->json()['detail'] ?? null, $case);
+            self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], $case);
         }
     }
 

@@ -338,8 +338,12 @@ final class RoleCreateTest extends ApiTestCase
 
     /**
      * **`UX` copy #1 on `CreateRole` (RED B-L2: no test drove an inactive ACTOR here).** An actor holding `role.create` whose
-     * account is not active → 409 `user_role.actor_is_inactive` with the role-definition sentence, not the grant family's;
-     * nothing written. (`IdentityReader` ignores `is_active`, API-O-22, so the request reaches the processor.)
+     * account is not active is refused, and nothing is written. Until G4-C0 that was the 409 `user_role.actor_is_inactive`
+     * with the role-definition sentence, because `IdentityReader` ignored `is_active`.
+     * **G4-C0 (2026-10-22): API-O-22 CLOSED (a)** — `IdentityReader` refuses an inactive principal, so this actor-side
+     * request is the constant 401 at the edge (`authentication-failed`). The under-lock `user_role.actor_is_inactive`
+     * backstop is kept, reachable only when `is_active` is cleared outside `UpdateUser` (SQL) while the request waits on
+     * the lock (G4-C1's race test).
      */
     #[Test]
     public function anInactiveActorCannotCreateARole(): void
@@ -348,8 +352,7 @@ final class RoleCreateTest extends ApiTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$this->actorId]);
         $this->create('Stock clerk', ['inventory_item.view']);
 
-        self::assertSame([409, 'user_role.actor_is_inactive', 'Your account is not active, so you can\'t create, change, delete or restore roles.'],
-            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null]);
         $this->assertNothingWritten();
     }
 

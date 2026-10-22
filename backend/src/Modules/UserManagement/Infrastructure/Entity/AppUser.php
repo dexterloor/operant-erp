@@ -82,6 +82,22 @@ class AppUser
     #[ORM\Column(name: 'deleted_at', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $deletedAt = null;
 
+    /**
+     * G4-C0 (`Version20261022007000`): a token whose `iat` is not strictly after this instant is refused by
+     * `App\Platform\Security\IdentityReader`; NULL = no restriction. **Mapped read-only at C0** — no mutator writes it
+     * until G4-C1's liveness transitions (monotone `max(existing, $at)` from the injected PSR clock, design R1.3 D-2), and
+     * `erp_app` holds no `UPDATE (sessions_valid_after)` until then. An ORM flush writes only changed fields, so
+     * `recordLogin()` and `replacePasswordHash()` stay inside H0's column list.
+     *
+     * **Whole-second on write** (`g4-users-final-red.md` L-6, verified): DBAL's Postgres platform formats `datetimetz` as
+     * `'Y-m-d H:i:sO'`, and the house `TimestampTzImmutableType` replaces the read side only. That is harmless here —
+     * `iat > s ⇔ iat > floor(s)` for an integer `iat` — so a monotone compare against a fractional SQL seed that writes the
+     * lower whole second is not a regression. The same truncation reaches `deleted_at` and `updated_at`: **a time-ordering
+     * CHECK on these columns needs `TimestampTzMicrosecondsImmutableType` and a single clock first.**
+     */
+    #[ORM\Column(name: 'sessions_valid_after', type: Types::DATETIMETZ_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $sessionsValidAfter = null;
+
     public function __construct(
         Uuid $id,
         Uuid $tenantId,

@@ -294,10 +294,14 @@ final class RoleRevokeTest extends ApiTestCase
     }
 
     /**
-     * `SEC` §2.4: an inactive actor holding `role.assign` → 409 `actor_is_inactive`, no row. An inactive actor WITHOUT it →
-     * the lock-time 403 and its row, which pins the order (the permission re-check comes first) — that half needs the code
-     * lost between the gate and the lock, so it is a race: `PurchaseOrderRowLockTest::anInactiveActorDemotedWhileWaitingGetsThe403First`.
-     * `IdentityReader` ignores `is_active` (API-O-22), so an inactive actor reaches the processor.
+     * `SEC` §2.4: an inactive actor holding `role.assign` is refused with no row (until G4-C0: 409 `actor_is_inactive`,
+     * because `IdentityReader` ignored `is_active`). The order half — an inactive actor WITHOUT the code gets the lock-time
+     * 403 first — is a race: `PurchaseOrderRowLockTest::anInactiveActorDemotedWhileWaitingGetsThe403First`, which returns to
+     * its race shape at G4-C1.
+     * **G4-C0 (2026-10-22): API-O-22 CLOSED (a)** — `IdentityReader` refuses an inactive principal, so this actor-side
+     * request is the constant 401 at the edge (`authentication-failed`). The under-lock `user_role.actor_is_inactive`
+     * backstop is kept, reachable only when `is_active` is cleared outside `UpdateUser` (SQL) while the request waits on
+     * the lock (G4-C1's race test).
      */
     #[Test]
     public function anInactiveActorIsRefusedAfterThePermissionReCheck(): void
@@ -309,7 +313,7 @@ final class RoleRevokeTest extends ApiTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$admin]);
         $this->actAsUser(self::TENANT_A, $admin);
         $this->send('DELETE', '/users/'.$subject.'/roles/'.$role);
-        $this->assertRefused('user_role.actor_is_inactive', 'an inactive admin');
+        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], 'an inactive admin');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'));
     }
 
@@ -338,7 +342,8 @@ final class RoleRevokeTest extends ApiTestCase
 
         $identity = self::getContainer()->get(\App\Platform\Security\IdentityReader::class);
         \assert($identity instanceof \App\Platform\Security\IdentityReader);
-        self::assertSame($union, $identity->read(self::TENANT_A, $user)?->permissionCodes);
+        // G4-C0: `read()` takes the token's `iat` (no stamp is set here, so any second reads the live principal).
+        self::assertSame($union, $identity->read(self::TENANT_A, $user, time())?->permissionCodes);
 
         $this->actAsUser(self::TENANT_A, $user);
         $this->send('GET', '/me');

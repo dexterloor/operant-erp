@@ -208,7 +208,8 @@ final class LiveGrantReader
     /**
      * **The ONE "live holder" predicate** (`SEC` D-7.4, `roles-s4-sec-data.md`; roles slice 4 C2): a holder of a role is ANY
      * `user_role` row for it, whatever the user's `is_active` / `deleted_at` — fail closed (E-15h). A deactivated user's row
-     * is a privilege-in-waiting (E-15g's strip is unbuilt; `IdentityReader` ignores `is_active`, API-O-22), so an edit
+     * is a privilege-in-waiting (E-15g's strip is unbuilt until G4-C1; since G4-C0 `IdentityReader` refuses the inactive user's
+     * token, but a reactivation would bring the row back into force), so an edit
      * changes what it would restore. Read by `UpdateRole`'s `X(admin)`-on-held-role clause and `DeleteRole`'s E-15h
      * refusal (C3, `role.has_holders`). NOT the last-owner floor's predicate, which counts ACTIVE, undeleted marker holders ({@see self::ACTIVE_MARKER_HOLDERS}):
      * that one answers "is an owner left", this one "who would be affected". `GetRole`'s `holder_count` (soft-deleted users

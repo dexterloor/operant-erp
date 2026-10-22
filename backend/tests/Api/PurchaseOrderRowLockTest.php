@@ -3263,6 +3263,14 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     /**
      * `SEC` §2.4's order: an actor who is inactive AND loses `role.assign` while waiting gets the 403 and its row, not the
      * inactive 409 — the permission re-check is first.
+     *
+     * **At G4-C0 this is a plain 401 test, deliberately, outside the race helper** (`g4-users-design.md` §4.4 item 3,
+     * Response to RED M-5). The actor was set inactive as the owner BEFORE the request, so after API-O-22 closed (a) the
+     * request is the constant 401 at the gate and never reaches the lock — the holder was never waited on (step (a)'s red:
+     * *"The request never waited on the holder"*). An inactive actor that still reaches the lock needs `is_active` cleared
+     * WHILE the request waits, and an `erp_app` holder can do that only once `UpdateUser` grants `UPDATE (is_active)` at
+     * **G4-C1, where this returns to its race shape** (§5.7 T-1-12: the holder deactivates the actor and removes
+     * `role.assign` inside `before:`). Until then the 403-first order is unreachable through the API and untested here.
      */
     #[Test]
     public function anInactiveActorDemotedWhileWaitingGetsThe403First(): void
@@ -3272,13 +3280,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]);
         $this->actAsUser(self::TENANT_A, $actor);
 
-        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
-            ['DELETE FROM user_role WHERE user_id = ?::uuid', [$actor]],
-        ], request: fn () => $this->send('DELETE', '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject)), table: 'role_administration');
+        $this->send('DELETE', '/users/'.$subject.'/roles/'.$this->onlyRoleOf($subject));
 
-        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
-        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertCount(1, $this->denialRows());
+        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertCount(0, $this->denialRows(), 'A 401 at the edge writes no denial row.');
     }
 
     /**

@@ -340,7 +340,10 @@ final class SchemaManifest
             // UPDATE (is_active, deleted_at), (e)-cred adds UPDATE (password_mac),
             // each to this list and to its own migration. A 42501 from such a
             // writer is fixed by granting that column, never by restoring
-            // table-level UPDATE. password_hash stays writable, so H0 does not
+            // table-level UPDATE. sessions_valid_after (G4-C0, Version20261022007000) is
+            // such a column: IdentityReader reads it through the table SELECT, and
+            // nobody writes it until G4-C1 grants UPDATE (sessions_valid_after) with
+            // UpdateUser. password_hash stays writable, so H0 does not
             // close lockout or takeover through it (RESIDUAL_GAPS G-12).
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             'column_grants' => [

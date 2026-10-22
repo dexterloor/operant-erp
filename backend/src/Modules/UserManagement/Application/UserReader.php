@@ -28,7 +28,7 @@ use Symfony\Component\Uid\Uuid;
  *
  * **`roles[]` reports what the user holds now** (§2.1): grants on live roles only (`role.deleted_at IS NULL`), and `[]`
  * for a soft-deleted user, because a removed principal holds nothing and cannot authenticate (`LiveGrantReader::
- * rolesHeldBy`, `IdentityReader`). An INACTIVE user's grants ARE listed: its live token still authenticates (API-O-22).
+ * rolesHeldBy`, `IdentityReader`). An INACTIVE user's grants ARE listed (stored rows; a deactivation strips them from G4-C1), though since G4-C0 its token no longer authenticates (API-O-22 closed (a), `IdentityReader`).
  * A grant written directly by SQL (G-10) is displayed exactly as a real one — this read is not a detector, and nobody may
  * cite it as one (`SEC` E-3). `user_role.inserted_by` is never read. No pending or proposal state: `role_grant_proposal`
  * is never named here (owner ruling Q-1, 2026-10-01).

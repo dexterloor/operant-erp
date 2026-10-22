@@ -127,7 +127,8 @@ final class UserReadTest extends ApiTestCase
     /**
      * Mutation 9 / `SEC` §4: a soft-deleted user is read as a record (`archived_at` set, API-13a) and holds nothing —
      * its stored `user_role` rows confer nothing while it is deleted. An INACTIVE user's grants are listed (`SEC` §4's
-     * contrast: its live token still authenticates, API-O-22).
+     * contrast). *(Text only, G4-C0: until then "its live token still authenticates, API-O-22"; since API-O-22 closed (a)
+     * the token is refused at the edge, and the rows are what a reactivation would bring back into force.)*
      */
     #[Test]
     public function aRemovedUserHoldsNothingAndAnInactiveOneKeepsItsRoles(): void

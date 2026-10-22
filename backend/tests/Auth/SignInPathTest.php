@@ -28,7 +28,9 @@ final class SignInPathTest extends AuthTestCase
         $tenantId = $this->seedTenant(self::SLUG_PREFIX.'live', Tenant::STATUS_ACTIVE);
         $userId = $this->seedUser($tenantId, 'Alice@Example.com', self::PASSWORD);
 
+        $before = time();
         $this->signIn(self::SLUG_PREFIX.'live', 'alice@example.com', self::PASSWORD);
+        $after = time();
 
         self::assertSame(200, $this->httpStatus());
         self::assertStringContainsString('application/json', $this->contentType());
@@ -40,12 +42,19 @@ final class SignInPathTest extends AuthTestCase
         $tokens = self::getContainer()->get('test.auth.token_verifier');
         \assert($tokens instanceof AccessTokenVerifier);
 
+        $claims = $tokens->verify((string) $body['access_token']);
+        self::assertNotNull($claims, 'The minted token does not verify.');
         self::assertSame(
             ['tenant_id' => $tenantId, 'sub' => $userId],
-            $tokens->verify((string) $body['access_token']),
+            ['tenant_id' => $claims['tenant_id'], 'sub' => $claims['sub']],
             'The minted token does not carry the resolved tenant and user. ADR-005 D-5 makes tenant_id a '
             .'signed claim read server-side, and nothing else on any later request supplies it.',
         );
+        // G4-C0: `verify()` also returns `iat`, the sign-in's own PSR-clock second (`SignIn`), which `IdentityReader`
+        // compares with `app_user.sessions_valid_after`.
+        self::assertSame(['tenant_id', 'sub', 'iat'], array_keys($claims));
+        self::assertGreaterThanOrEqual($before, $claims['iat']);
+        self::assertLessThanOrEqual($after, $claims['iat']);
     }
 
     /**
