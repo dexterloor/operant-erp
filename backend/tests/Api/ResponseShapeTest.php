@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\Ignore;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -741,11 +742,24 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
 
         // Lists read what the other fixtures seeded, so a list page is not empty.
+        // G6-C0 (`g6-c0-red.md` H-2): an operation whose DECLARED success content holds no JSON (`CreateExport`, text/csv)
+        // is skipped by that declaration -- its body must be non-empty and of the declared type -- and every other success
+        // except a 204 must carry a JSON body, so an empty body can never pass as "skipped" by accident.
+        $nonJson = GeneratedSpec::nonJsonSuccessOperations(GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('booted')));
         $bodies = [];
         foreach ($recipes as $name => [, $drive]) {
             [$status, $label] = $drive($prepared[$name]);
-            $content = (string) $this->client()->getResponse()->getContent();
+            $content = $this->responseContent();
             self::assertSame($status, $this->httpStatus(), \sprintf('%s (%s) was not driven to success: %s', $name, $label, substr($content, 0, 300)));
+            if (\array_key_exists($name, $nonJson)) {
+                self::assertNotSame('', $content, $name.' declares a non-JSON success and answered an empty body.');
+                self::assertContains(strtok($this->contentType(), ';'), $nonJson[$name], $name.' answered a type it does not declare.');
+                $bodies[$name] = null;
+                continue;
+            }
+            if (204 !== $status) {
+                self::assertNotSame('', $content, $name.' answered '.$status.' with an empty body; only a 204 has none.');
+            }
             $bodies[$name] = '' === $content ? null : json_decode($content, true, flags: \JSON_THROW_ON_ERROR);
 
             // A list that pages is read once more at one row a page, so a body

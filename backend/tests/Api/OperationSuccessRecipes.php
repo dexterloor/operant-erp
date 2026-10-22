@@ -120,6 +120,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'list'];
             }],
+            // G6-C0 (2026-10-22): the first DERIVED operation -- its body names a resource (G5-D0 carry (3)), and its success
+            // is text/csv (API-25), so it asks for that; every consumer that reads a JSON body skips it by content type.
+            'CreateExport' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-EXPORT')], function (): array {
+                // Narrowed to its own item: the other recipes' fixtures share the tenant, and the suite's cap is low.
+                $this->send('POST', '/exports', ['resource' => 'inventory_item', 'filters' => ['q' => 'SKU-EXPORT']], [], 'text/csv');
+
+                return [200, 'export'];
+            }],
             'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
                 $this->send('GET', '/items/'.$c['item']);
 

@@ -240,6 +240,20 @@ abstract class ApiTestCase extends TenancyTestCase
         return (string) $this->client()->getResponse()->headers->get('Content-Type');
     }
 
+    /**
+     * The body the client received. A `StreamedResponse` (`CreateExport`'s CSV) reports `getContent() === false`, so its
+     * body is read from the browser's internal response, where the kernel browser captured the streamed bytes
+     * (`g6-c0-red.md` H-2: a sweep reading `getContent()` would otherwise see an empty body by accident).
+     */
+    protected function responseContent(): string
+    {
+        $response = $this->client()->getResponse();
+
+        return $response instanceof \Symfony\Component\HttpFoundation\StreamedResponse
+            ? (string) $this->client()->getInternalResponse()->getContent()
+            : (string) $response->getContent();
+    }
+
     /** @return array<string, mixed> */
     protected function json(): array
     {

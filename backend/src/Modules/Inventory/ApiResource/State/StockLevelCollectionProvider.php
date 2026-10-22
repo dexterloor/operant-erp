@@ -34,6 +34,28 @@ final readonly class StockLevelCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
+        [$scope, $id] = self::scopeFrom($query);
+        $read = $this->reader->list($scope, $id);
+
+        return new StockLevelCollection(
+            items: array_map(StockLevelResource::fromView(...), $read['items']),
+            // §4.4.2: a bounded list carries both cursors null always.
+            nextCursor: null,
+            previousCursor: null,
+            tenantHasRows: $read['tenantHasRows'],
+        );
+    }
+
+    /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C0, design Response M-5): exactly one of the two
+     * scopes, refused as the list refuses it. Both the provider and {@see StockLevelExportSource} call this.
+     *
+     * @param array<string, mixed> $query
+     *
+     * @return array{0: string, 1: string} the scope parameter and its value
+     */
+    public static function scopeFrom(array $query): array
+    {
         $given = array_values(array_filter(
             [StockLevelReader::SCOPE_LOCATION, StockLevelReader::SCOPE_ITEM],
             static fn (string $scope): bool => isset($query[$scope]) && '' !== $query[$scope],
@@ -48,14 +70,7 @@ final readonly class StockLevelCollectionProvider implements ProviderInterface
         }
 
         $scope = $given[0];
-        $read = $this->reader->list($scope, \is_string($query[$scope]) ? $query[$scope] : '');
 
-        return new StockLevelCollection(
-            items: array_map(StockLevelResource::fromView(...), $read['items']),
-            // §4.4.2: a bounded list carries both cursors null always.
-            nextCursor: null,
-            previousCursor: null,
-            tenantHasRows: $read['tenantHasRows'],
-        );
+        return [$scope, \is_string($query[$scope]) ? $query[$scope] : ''];
     }
 }

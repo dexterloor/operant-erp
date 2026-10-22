@@ -317,7 +317,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // already SELECTs -- no migration, no grant.
         // **And one more (remaining-ops G2, 2026-10-22):** `RestoreRole` (POST `/roles/{id}/restoration`, `role.delete`;
         // branch 5, 200) on `RoleResource`. No grant (the column UPDATE on `role` already holds `deleted_at`, measured).
-        self::assertCount(118, $checked, 'The route set changed. This slice declares one hundred and eighteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G6-C0, 2026-10-22):** `CreateExport` (POST `/exports`, `*(derived)*` -- the List's declared code) on
+        // `ExportRequest`, the one operation whose success is `text/csv` (API-25). No migration, no grant: it reads what the
+        // Lists read and writes `data.export.completed`, an existing catalogue member, under `erp_app`'s audit INSERT.
+        self::assertCount(119, $checked, 'The route set changed. This slice declares one hundred and nineteen operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

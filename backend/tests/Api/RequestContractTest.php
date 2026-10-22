@@ -127,11 +127,16 @@ final class RequestContractTest extends PurchaseOrderTestCase
                 : [];
 
             $before = $this->tenantFingerprint();
+            // G6-C0: ask for what the operation DECLARES it answers (its first output mime type) -- `CreateExport` offers only
+            // text/csv, so `Accept: application/json` is a 406 before the body is read, which would pre-empt this probe.
+            $outputs = $operation->getOutputFormats();
+            $accept = \is_array($outputs) && [] !== $outputs ? (string) ((array) reset($outputs))[0] : 'application/json';
             $this->send(
                 (string) $operation->getMethod(),
                 $paths[$name],
                 [...$fields, self::UNDECLARED => 'x'],
                 $headers,
+                $accept,
             );
             $driven[] = $name;
             $after = $this->tenantFingerprint();

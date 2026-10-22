@@ -84,7 +84,7 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
      * template's variables and supplies the body. `@name` is replaced by the
      * acting tenant's fixture id of that name.
      *
-     * @var array<string, array{vars?: array<string, string>, query?: array<string, string>, body?: array<string, mixed>|null, setup?: string, authenticated?: bool}>
+     * @var array<string, array{vars?: array<string, string>, query?: array<string, string>, body?: array<string, mixed>|null, setup?: string, authenticated?: bool, accept?: string}>
      */
     private const RECIPES = [
         'IssueToken' => [
@@ -98,6 +98,10 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['current_password' => self::PASSWORD, 'new_password' => 'a-different-password-of-some-length'],
         ],
         'ListItems' => [],
+        // G6-C0 (2026-10-22): the export of the items every tenant holds, asked for as text/csv (its only output format).
+        // The CSV is read whole and walked by the same leak check: a supplied tenant id that moved the read would render
+        // B's items, whose ids normalise to `B.*`. `g6-c0-red.md` H-1/H-2.
+        'CreateExport' => ['body' => ['resource' => 'inventory_item'], 'accept' => 'text/csv'],
         // Roles slice 1 (2026-09-23). The vocabulary is global -- no tenant column, no RLS -- so a supplied tenant
         // id has nothing to move; the fourth assertion (no response names one of tenant B's rows) holds trivially.
         'ListPermissions' => [],
@@ -634,11 +638,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             };
         }
 
-        $this->send((string) $operation->getMethod(), $path, $body, $headers);
+        $this->send((string) $operation->getMethod(), $path, $body, $headers, $recipe['accept'] ?? 'application/json');
         ++$this->requestsSent;
 
         $response = $this->client()->getResponse();
-        $content = (string) $response->getContent();
+        $content = $this->responseContent();
         $decoded = '' === $content ? null : json_decode($content, true);
 
         $outcome = [

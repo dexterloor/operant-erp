@@ -46,26 +46,34 @@ final readonly class StockLevelReader
      * The one statement each scope runs, public so `SchemaQueryPlanTest` explains the real query, never a hand copy of it
      * (customers slice 1 L-4).
      */
-    public static function listStatement(string $scope): string
+    public static function listStatement(string $scope, bool $limited = false): string
     {
+        // `$limited` (G6-C0, `CreateExport`'s cap; `g6-c0-red.md` L-4): the same statement with `LIMIT ?` appended, from this
+        // one source, so the export never runs a hand-built variant.
         return match ($scope) {
             self::SCOPE_LOCATION => self::SELECT.' WHERE sl.storage_location_id = ?::uuid ORDER BY i.sku, sl.id',
             self::SCOPE_ITEM => self::SELECT.' WHERE sl.inventory_item_id = ?::uuid ORDER BY loc.code, sl.id',
-        };
+        }.($limited ? ' LIMIT ?' : '');
     }
 
     /**
+     * `$limit` is `CreateExport`'s cap (G6-C0, design M-7: "bounded lists also read `LIMIT CAP+1`"), never the wire's:
+     * when given, the statement is the list's own with `LIMIT limit + 1` appended, so the export learns in the same
+     * statement whether the view is over the cap. The list itself passes none and reads the whole bounded view.
+     *
      * @param self::SCOPE_* $scope
      *
      * @return array{items: list<StockLevelView>, tenantHasRows: bool}
      */
-    public function list(string $scope, string $id): array
+    public function list(string $scope, string $id, ?int $limit = null): array
     {
-        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($scope, $id): array {
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($scope, $id, $limit): array {
             $connection = $em->getConnection();
 
+            $statement = self::listStatement($scope, null !== $limit);
+            $parameters = null === $limit ? [] : [$limit + 1];
             $rows = Uuid::isValid($id)
-                ? $connection->fetchAllAssociative(self::listStatement($scope), [Uuid::fromString($id)->toRfc4122()])
+                ? $connection->fetchAllAssociative($statement, [Uuid::fromString($id)->toRfc4122(), ...$parameters])
                 : [];
 
             return [

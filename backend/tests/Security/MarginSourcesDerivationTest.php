@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Security;
 
+use App\Modules\AuditLog\Application\ExportPermission;
+use App\Modules\AuditLog\Application\ExportSources;
 use App\Modules\UserManagement\Application\OfferedRoleEvaluator;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\GrantConflict;
@@ -11,7 +13,9 @@ use App\Modules\UserManagement\Domain\MarginExposure;
 use App\Modules\UserManagement\Domain\MarginSources;
 use App\Modules\UserManagement\Domain\RoleCompanions;
 use App\Modules\UserManagement\Domain\RoleDefinitionRules;
+use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Tenancy\TenancyTestCase;
@@ -302,6 +306,12 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
             }
         }
 
+        foreach ($this->derivedArm($permissions, $money) as $class => $sets) {
+            foreach ($sets as $set) {
+                $sources[$class][implode(',', $set)] = $set;
+            }
+        }
+
         $unseen = array_values(array_diff(array_keys(self::WIRE_FIELDS), array_keys($seen)));
         self::assertSame([], $unseen, 'These classified fields are served by no operation any more; remove them.');
 
@@ -309,6 +319,93 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
             MarginSources::COST => self::sortedSets(array_values($sources[MarginSources::COST])),
             MarginSources::SALE => self::sortedSets(array_values($sources[MarginSources::SALE])),
         ];
+    }
+
+    /**
+     * The reviewed `resource → List operationId` pairing of every export family (G6-C0: the Inventory family). Written by
+     * hand on purpose — the derived arm's independent anchor (`g6-c0-red.md` M-5); see {@see self::derivedArm()}.
+     */
+    private const EXPORTED_THROUGH = [
+        'inventory_item' => 'ListItems',
+        'stock_level' => 'ListStockLevels',
+        'stock_movement' => 'ListStockMovements',
+    ];
+
+    /**
+     * **The DERIVED arm (G6-C0; `g5-g6-final-red.md` M-4; PC-12 cl. 2 bullet 2, "the code it resolves", per resource).**
+     *
+     * A derived operation's money cannot be seen on its own wire: `CreateExport` answers `text/csv`, which has no schema.
+     * So it is classified PER RESOURCE, through the List it renders: for each `(resource, code)` of the export resolver's
+     * map, the List operation that resource's `ExportSource` names must be gated on exactly that ONE code (a single-code
+     * source — never the union of the map, which is a disjunction), and the export's money classes for that code are that
+     * List's. They are added as sources of the same class, so the committed `MarginSources` stays what the List side
+     * already derives. Any OTHER derived operation (the bulk ones) must serve no money on its own wire: asserted, never
+     * skipped. *Mutation:* the resolver returns another code for a resource → it is not the code its List is gated on → red.
+     * **Independent anchor (`g6-c0-red.md` M-5):** `ExportPermission` reads its codes off the very List each source names,
+     * so the code comparison alone cannot see a source pointed at a DIFFERENT List. {@see self::EXPORTED_THROUGH} is the
+     * reviewed `resource → List` pairing, written here and never read from a source: the List a source names must be the
+     * one this map pairs with its resource. *Mutation:* point `ItemExportSource` at another List → red here (as well as in
+     * `ExportPermissionTest::PINNED_MAP`, `ExportContractTest::theExportRowSetEqualsTheListRowSet` and
+     * `ExportCsvTest::theHeaderEqualsTheListItemSchemasLeaves`). A new export family adds its pairs here deliberately.
+     *
+     * @param array<string, PermissionRequirement>      $permissions operation name → requirement
+     * @param array<string, array<string, true>>        $money       operationId → the money fields it serves
+     *
+     * @return array{cost: list<list<string>>, sale: list<list<string>>}
+     */
+    private function derivedArm(array $permissions, array $money): array
+    {
+        $requirements = self::getContainer()->get(PermissionRequirements::class);
+        $sources = self::getContainer()->get(ExportSources::class);
+        \assert($requirements instanceof PermissionRequirements && $sources instanceof ExportSources);
+
+        $classes = [MarginSources::COST => [], MarginSources::SALE => []];
+        $derivedOperations = 0;
+        $visited = 0;
+        $paired = [];
+        foreach ($permissions as $name => $requirement) {
+            if (PermissionRequirement::DERIVED !== $requirement->kind()) {
+                continue;
+            }
+            ++$derivedOperations;
+
+            if (ExportPermission::class !== $requirement->resolver()) {
+                self::assertSame([], $money[$name] ?? [], $name.' is derived and serves money on its own wire; wire its per-resource classification here before it ships.');
+                continue;
+            }
+
+            foreach ($requirements->codesByResource($requirement) as $resource => $code) {
+                ++$visited;
+                $paired[] = $resource;
+                $list = $sources->get($resource)->listOperationName();
+                self::assertSame(self::EXPORTED_THROUGH[$resource] ?? null, $list, \sprintf(
+                    '%s exports %s through %s; the reviewed pairing (EXPORTED_THROUGH) says %s. Pair a new family here deliberately.',
+                    $name, $resource, $list, self::EXPORTED_THROUGH[$resource] ?? '(none)'));
+                $listRequirement = $permissions[$list] ?? null;
+                self::assertNotNull($listRequirement, $name.' exports '.$resource.' through '.$list.', which the registry does not hold.');
+                self::assertSame([PermissionRequirement::ALL_OF, [$code]], [$listRequirement->kind(), $listRequirement->codes()],
+                    \sprintf('%s resolves %s to %s, but %s is gated on %s: the export is not classified as its List is (PC-12 cl. 2 bullet 2).',
+                        $name, $resource, $code, $list, $listRequirement->describe()));
+
+                foreach (array_keys($money[$list] ?? []) as $field) {
+                    foreach (self::WIRE_FIELDS[$field] ?? [] as $column) {
+                        $class = MarginSources::columns()[$column];
+                        if (MarginSources::NEITHER !== $class) {
+                            $classes[$class][$code] = [$code];
+                        }
+                    }
+                }
+            }
+        }
+
+        self::assertGreaterThan(0, $derivedOperations, 'No derived operation is in the registry, so the DERIVED arm holds over nothing (`'.PermissionGate::DERIVED.'`).');
+        self::assertGreaterThan(0, $visited, 'The export arm compared no (resource, code) pair, so it holds over nothing.');
+        sort($paired, \SORT_STRING);
+        $pinned = array_keys(self::EXPORTED_THROUGH);
+        sort($pinned, \SORT_STRING);
+        self::assertSame($pinned, $paired, 'EXPORTED_THROUGH pairs a resource the export no longer serves, or misses one it does.');
+
+        return [MarginSources::COST => array_values($classes[MarginSources::COST]), MarginSources::SALE => array_values($classes[MarginSources::SALE])];
     }
 
     /** @return list<string> the leaf names a money field is recognised by */

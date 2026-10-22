@@ -208,7 +208,10 @@ final class WriteOwnershipTest extends KernelTestCase
         // `INSERT INTO audit_log` for `sales_order.restored`, `recordDeleted()`'s statement with one event name changed.
         // **27 -> 28 on 2026-10-22** (order restores C3), read off this test's run: `PurchaseOrderAuditWriter::recordRestored()`'s
         // `INSERT INTO audit_log` for `purchase_order.restored`.
-        'Modules\\AuditLog' => 28,
+        // **28 -> 29 on 2026-10-22** (G6-C0), read off this test's run: `ExportAuditWriter::recordCompleted()`'s ONE
+        // `INSERT INTO audit_log` for `data.export.completed` (E-16). `Modules\\Inventory` did NOT move: the three export
+        // sources issue no statement of their own (they call the Lists' readers).
+        'Modules\\AuditLog' => 29,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -827,6 +830,13 @@ final class WriteOwnershipTest extends KernelTestCase
             'ruling' => 'not a release: a sales return evidences the stock, into any live bin (G-44 "Not stopped", R-3′)',
             'tests' => [],
         ],
+        // G6-C0 (2026-10-22): the scan sees the bare table name `stock_level` -- `CreateExport`'s resource vocabulary word
+        // (D-19) -- and the class issues no statement at all (the read is `StockLevelReader::list()`). `SEC` TO CONFIRM the
+        // filing; it can be no other answer while the class writes nothing.
+        \App\Modules\Inventory\ApiResource\State\StockLevelExportSource::class => [
+            'ruling' => 'not a release: it writes nothing -- \'stock_level\' is CreateExport\'s resource name, and its read is ListStockLevels\' own (G6-C0)',
+            'tests' => [],
+        ],
         StockTransferrer::class => [
             'ruling' => 'a release when it moves stock out of a quarantine bin into a non-quarantine one: refuses a non-owner, '
                 .'stock_level.release_needs_owner (owner Q-T2, 2026-10-19); into quarantine and quarantine to quarantine are open',
@@ -1165,6 +1175,9 @@ final class WriteOwnershipTest extends KernelTestCase
      */
     private const STOCK_MOVEMENT_NAME_HOLDERS = [
         'src/Modules/AuditLog/Application/RecordHistorySubjects.php',
+        // G6-C0 (2026-10-22), reviewed: `StockMovementExportSource::resource()` names the table as `CreateExport`'s resource
+        // vocabulary word (D-19) and issues no statement -- the read is `StockMovementReader`'s.
+        'src/Modules/Inventory/ApiResource/State/StockMovementExportSource.php',
         'src/Modules/Inventory/Infrastructure/Entity/StockMovement.php',
         'src/Platform/Tenancy/SchemaManifest.php',
         'src/SharedKernel/ValueObject/AuditEvent.php',

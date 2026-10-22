@@ -227,6 +227,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // request's IP (E-3; `audit_log_ip_address_scope` admits one for `role.*`). Listed AND driven below — and
         // `role.assigned` (C3, `AssignRole`) through the same writer, also driven.
         'Modules/AuditLog/Infrastructure/RoleAuditWriter.php',
+        // Added 2026-10-22 with `CreateExport` (G6-C0): `data.export.completed`, a SECURITY event (E-16), so it carries the
+        // request's IP; it is subjectless. Listed AND driven below, inside a tenancy transaction (it refuses outside one).
+        'Modules/AuditLog/Infrastructure/ExportAuditWriter.php',
         'Modules/UserManagement/Infrastructure/AuthTrailWriter.php',
     ];
 
@@ -485,6 +488,13 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Roles slice 3, C1: E-15e's proposal events, the same SECURITY shape through the same private statement.
         $roleWriter->recordProposed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), supersedesProposalId: null, ipAddress: self::PROBE_IP);
         $roleWriter->recordLapsed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, roleId: Uuid::v4()->toRfc4122(), proposalId: Uuid::v4()->toRfc4122(), lapseReason: 'expired', ipAddress: self::PROBE_IP);
+        // G6-C0: E-16's export row, SECURITY, IP-bearing, subjectless; written only inside the export's tenancy transaction.
+        $exportWriter = self::getContainer()->get(\App\Modules\AuditLog\Infrastructure\ExportAuditWriter::class);
+        \assert($exportWriter instanceof \App\Modules\AuditLog\Infrastructure\ExportAuditWriter);
+        $this->tenantContext()->run(self::TENANT_A, static function () use ($exportWriter, $actor): void {
+            $exportWriter->recordCompleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', resource: 'inventory_item',
+                filters: ['q' => true], sort: null, rowCount: 0, ipAddress: self::PROBE_IP);
+        });
 
         $withIp = [];
         $written = [];

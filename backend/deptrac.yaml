@@ -382,6 +382,11 @@ deptrac:
       # Audit reads C2, 2026-10-21: E-5's second check writes its E-3 row through the gate's own writer (design §4.1.3;
       # `RoleAdministrationActor -> DenialAuditWriter` is the A-5 precedent from another module). `ARCH` TO CONFIRM the tag.
       - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-7
+    App\Modules\AuditLog\Application\ExportRunner:
+      # G6-C0, 2026-10-22: `CreateExport` writes E-16's `data.export.completed` inside its tenancy transaction through the
+      # module's own writer (design §6.7) -- `AuditRecordAccess -> DenialAuditWriter`'s shape, within AuditLog. `ARCH` TO
+      # CONFIRM the tag.
+      - App\Modules\AuditLog\Infrastructure\ExportAuditWriter   # A-7
     App\Modules\AuditLog\Infrastructure\DenialAuditWriter:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry:

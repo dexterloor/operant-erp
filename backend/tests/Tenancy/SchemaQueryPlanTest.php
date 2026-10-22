@@ -1006,6 +1006,11 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             self::assertStringContainsString('WHERE sl.'.$scope.' = ?::uuid', $sql, 'The statement explained is not the '.$scope.' scope.');
 
             $this->assertPlanOn('stock_level', 'Inventory — /stock, '.$label.' (the reader\'s statement)', $this->plan($sql, [$id]), $index);
+
+            // G6-C0 (`g6-c0-red.md` L-4): `CreateExport` runs the same statement with its cap's `LIMIT ?` appended.
+            $limited = StockLevelReader::listStatement($scope, true);
+            self::assertSame($sql.' LIMIT ?', $limited, 'The export\'s stock-level statement is no longer the list\'s plus LIMIT.');
+            $this->assertPlanOn('stock_level', 'Inventory — /stock, '.$label.' (CreateExport, LIMIT cap + 1)', $this->plan($limited, [$id, 11]), $index);
         }
     }
 

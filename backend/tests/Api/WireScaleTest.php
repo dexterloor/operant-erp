@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -130,12 +131,20 @@ final class WireScaleTest extends PurchaseOrderTestCase
         $moneyInMetadata = [];
         $bodiesRead = 0;
 
+        // G6-C0 (`g6-c0-red.md` H-2): skip by the DECLARED success content (CreateExport's text/csv has no scale to walk),
+        // and refuse any other non-204 success without a JSON body, so nothing is skipped by accident.
+        $nonJson = GeneratedSpec::nonJsonSuccessOperations(GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('booted')));
         foreach ($recipes as $name => [, $drive]) {
-            $drive($prepared[$name]);
+            [$status] = $drive($prepared[$name]);
 
-            $body = json_decode((string) $this->client()->getResponse()->getContent(), true);
+            if (\array_key_exists($name, $nonJson)) {
+                self::assertNotSame('', $this->responseContent(), $name.' declares a non-JSON success and answered an empty body.');
+                continue;
+            }
+            $body = json_decode($this->responseContent(), true);
             if (!\is_array($body)) {
-                continue; // A 204 has no body; §4.4.1 branch 3.
+                self::assertSame(204, $status, $name.' answered a success with no JSON body; only a 204 has none (§4.4.1 branch 3).');
+                continue;
             }
             ++$bodiesRead;
 

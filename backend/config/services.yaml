@@ -42,6 +42,12 @@ parameters:
     # matches no password by construction — so it is here rather than in the
     # environment; hiding a non-secret makes the real ones harder to find
     # (Standing Rule 10).
+    # G6-C0 (2026-10-22, `g5-g6-bulk-export-design.md` §6.5, Response M-7): the most rows one `CreateExport` renders.
+    # A PROPOSAL pending measurement -- `PO`/`DATA` set the final figure from the largest family's peak memory, measured
+    # inside the transaction (final RED item 13; `docs/session13/g6-c0-progress.md`). Lowered under `when@test` below so
+    # a fixture need not seed 10,001 rows; `ExportCapTest` pins this production value.
+    app.export.row_cap: 10000
+
     app.auth.dummy_password_hash: '$argon2id$v=19$m=65536,t=4,p=1$S1F6OVZrRTBnS2lkd3ZhMg$m0ZB1phEShmbpBMRp34kto63MuUEw8yUM3BmLe07MT0'
 
 services:
@@ -97,6 +103,10 @@ services:
             # excluded, for `ItemResource`'s reason.
             - '../src/Modules/AuditLog/Application/{AuditRecordView.php,AuditRecordPage.php,AuditRecordCriteria.php,RecordHistorySubjects.php}'
             - '../src/Modules/AuditLog/ApiResource/State/AuditListParameters.php'
+            # G6-C0 (2026-10-22): the export's request body, and what an export source returns plus the pure cell rule --
+            # data, not services. `ExportRequest` is NOT excluded, for `ItemResource`'s reason.
+            - '../src/Modules/AuditLog/ApiResource/CreateExportInput.php'
+            - '../src/Platform/Http/Export/{ExportedRows.php,CsvCell.php}'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one
             # function-only class with a private constructor the container would
@@ -493,4 +503,8 @@ when@test:
         # The gap the short-circuit check needs survives the reduction: 2.19 ms
         # of KDF against 0.000 ms of short-circuit is still four orders of
         # magnitude.
+        # G6-C0: the export row cap, lowered so `ExportCapTest` can seed cap and cap + 1 rows. The production figure is
+        # the parameter above, pinned by `ExportCapTest::theProductionCapIsTheProposedFigure`.
+        app.export.row_cap: 10
+
         app.auth.dummy_password_hash: '$argon2id$v=19$m=1024,t=3,p=1$VHI3bmJZZUIudFF3MDB4Sg$eewE/E8Yvk7d/WPEVdqbJVmrVw4AyOKiQ0W4FudFr4o'

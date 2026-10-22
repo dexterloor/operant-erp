@@ -59,6 +59,8 @@ final class PermissionRequirementReadScanTest extends TestCase
         // G5-D0 (2026-10-22): the derived arm is proven on planted operations until G5-C2 ships a derived one.
         'tests/Api/DerivedPermissionTest.php',
         'tests/Api/PermissionSweepCasesTest.php',
+        // G6-C0 (2026-10-22): the export's admissible-set derivation is proven on a planted registry (design L-8's shape).
+        'tests/Api/ExportAdmissibleSetTest.php',
     ];
 
     #[Test]

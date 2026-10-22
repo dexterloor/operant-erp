@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\AuditLog\Application\ExportPermission;
+use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\PermissionCell;
@@ -279,6 +281,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // `SELECT code FROM permission WHERE code LIKE 'sales_order%'` returns
         // cancel, confirm, create, delete, edit, view.
         'UpdateSalesOrder' => 'sales_order.edit',
+        // G6-C0 (2026-10-22): the first DERIVED operation. §4.2's `Perm` cell is `*(derived — see below)*`: the body's
+        // `resource` resolves to the code its `List*` is declared with (`ExportPermission`, pinned below).
+        'CreateExport' => PermissionGate::DERIVED,
     ];
 
     /**
@@ -287,9 +292,14 @@ final class PermissionEnforcementContractTest extends ApiTestCase
      * G5-D0 ships a derived operation. Every pin read goes through {@see self::pinnedRequirement()}, so G5-D0 adds a row
      * here and edits no consumer.
      *
+     * G6-C0 (2026-10-22): `CreateExport` is the first. Its resolver's MAP is pinned by name in
+     * `ExportPermissionTest::eachExportableResourceResolvesToItsListsDeclaredCode` (each code against its List's own cell).
+     *
      * @var array<string, string>
      */
-    public const PINNED_RESOLVERS = [];
+    public const PINNED_RESOLVERS = [
+        'CreateExport' => ExportPermission::class,
+    ];
 
     /** One pin, normalised through the same parser as the registry. */
     public static function pinnedRequirement(string $operationId): PermissionRequirement

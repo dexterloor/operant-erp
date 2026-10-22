@@ -67,15 +67,23 @@ final readonly class ItemCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        return $this->reader->list($this->criteria($query));
+        return $this->reader->list(self::criteriaFrom($query));
     }
 
-    /** @param array<string, mixed> $query */
-    private function criteria(array $query): ItemListCriteria
+    /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C0, design Response M-5): the provider and
+     * {@see ItemExportSource} both call this, so an export's filters are validated, combined and refused exactly as the
+     * list's are — by construction, not by a second copy (TB-7). `$limit` is the export's cap, an explicit argument the wire
+     * never reaches (`limit` is not an export filter; API-14a): when given it replaces the parsed page size, unbounded by
+     * {@see self::MAXIMUM_LIMIT}, and the reader's `LIMIT limit + 1` reports whether the view is over it.
+     *
+     * @param array<string, mixed> $query
+     */
+    public static function criteriaFrom(array $query, ?int $limit = null): ItemListCriteria
     {
         $errors = [];
 
-        $limit = self::DEFAULT_LIMIT;
+        $limit ??= self::DEFAULT_LIMIT;
         if (isset($query['limit'])) {
             $raw = $query['limit'];
             if (!\is_string($raw) || 1 !== preg_match('/^\d+$/', $raw) || (int) $raw < 1 || (int) $raw > self::MAXIMUM_LIMIT) {
@@ -136,8 +144,8 @@ final readonly class ItemCollectionProvider implements ProviderInterface
             $errors[] = self::error('after', 'mutually_exclusive', 'Send at most one of after and before.');
         }
 
-        $after = $this->cursor($query, 'after', $archived, $errors);
-        $before = $this->cursor($query, 'before', $archived, $errors);
+        $after = self::cursor($query, 'after', $archived, $errors);
+        $before = self::cursor($query, 'before', $archived, $errors);
 
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
@@ -157,7 +165,7 @@ final readonly class ItemCollectionProvider implements ProviderInterface
      * @param array<string, mixed>                                        $query
      * @param list<array{pointer: string, code: string, message: string}> $errors
      */
-    private function cursor(array $query, string $name, bool $archived, array &$errors): ?Cursor
+    private static function cursor(array $query, string $name, bool $archived, array &$errors): ?Cursor
     {
         if (!isset($query[$name]) || '' === $query[$name]) {
             return null;

@@ -39,7 +39,7 @@ final readonly class StockMovementCollectionProvider implements ProviderInterfac
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        $page = $this->reader->list($this->criteria($query));
+        $page = $this->reader->list(self::criteriaFrom($query));
 
         return new StockMovementCollection(
             items: array_map(StockMovementResource::fromView(...), $page->items),
@@ -49,12 +49,19 @@ final readonly class StockMovementCollectionProvider implements ProviderInterfac
         );
     }
 
-    /** @param array<string, mixed> $query */
-    private function criteria(array $query): StockMovementListCriteria
+    /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C0, design Response M-5): the provider and
+     * {@see StockMovementExportSource} both call this. `$limit` is the export's cap (never the wire's; `limit` is not an
+     * export filter): when given it replaces the page size, unbounded by `MAXIMUM_LIMIT`, and the reader's `LIMIT limit + 1`
+     * reports whether the view is over it.
+     *
+     * @param array<string, mixed> $query
+     */
+    public static function criteriaFrom(array $query, ?int $limit = null): StockMovementListCriteria
     {
         $errors = [];
 
-        $limit = StockMovementListCriteria::DEFAULT_LIMIT;
+        $limit ??= StockMovementListCriteria::DEFAULT_LIMIT;
         if (isset($query['limit'])) {
             $raw = $query['limit'];
             if (!\is_string($raw) || 1 !== preg_match('/^\d+$/', $raw) || (int) $raw < 1 || (int) $raw > StockMovementListCriteria::MAXIMUM_LIMIT) {

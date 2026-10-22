@@ -6,6 +6,8 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -289,16 +291,28 @@ final class ErrorContractTest extends PurchaseOrderTestCase
             ? [IdempotencyKeyGuard::HEADER => 'c5-error-contract-'.Uuid::v4()->toRfc4122()]
             : [];
 
+        // The DERIVED arm (G6-C0; G5-D0's carry (3)): a derived gate reads the body's `resource` BEFORE the decision, so `[]`
+        // is refused 422 `not_an_object` ahead of every row this probe exists to reach. A derived operation is therefore
+        // probed with a body naming the first resource of its map (byte-sorted) -- the smallest body the gate passes --
+        // and the "unacceptable Accept" probe sends it too, so it reaches the 406 rather than the gate's `malformed_body`.
+        $body = $hasBody ? [] : null;
+        $requirement = PermissionRequirement::of($operation);
+        if (PermissionRequirement::DERIVED === $requirement->kind()) {
+            $requirements = self::getContainer()->get(PermissionRequirements::class);
+            \assert($requirements instanceof PermissionRequirements);
+            $body = ['resource' => (string) array_key_first($requirements->codesByResource($requirement))];
+        }
+
         $types = [];
 
-        $this->send($method, $path, $hasBody ? [] : null, $key);
+        $this->send($method, $path, $body, $key);
         $types['missing row, empty body'] = $this->problemType();
 
-        $this->send($method, $path, null, $key, 'application/xml');
+        $this->send($method, $path, PermissionRequirement::DERIVED === $requirement->kind() ? $body : null, $key, 'application/xml');
         $types['unacceptable Accept'] = $this->problemType();
 
         $this->actAsNobody();
-        $this->send($method, $path, $hasBody ? [] : null, $key);
+        $this->send($method, $path, $body, $key);
         $types['no token'] = $this->problemType();
         $this->actAs(self::TENANT_A);
 

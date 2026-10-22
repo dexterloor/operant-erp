@@ -86,4 +86,32 @@ final class GeneratedSpec
 
         return $operations;
     }
+
+    /**
+     * **The operations whose declared success answers hold no `application/json`** (G6-C0; `g6-c0-red.md` H-2): today
+     * `CreateExport` (`text/csv`, API-25). A registry sweep that reads JSON bodies skips exactly these, by what the spec
+     * DECLARES -- never by name, and never because a body happened to be empty.
+     *
+     * @param array<string, mixed> $spec
+     *
+     * @return array<string, list<string>> operationId => its declared 2xx content types
+     */
+    public static function nonJsonSuccessOperations(array $spec): array
+    {
+        $nonJson = [];
+        foreach (self::operations($spec) as $data) {
+            $types = [];
+            foreach ($data['operation']['responses'] ?? [] as $status => $response) {
+                if ((int) $status >= 200 && (int) $status <= 299) {
+                    array_push($types, ...array_map('strval', array_keys($response['content'] ?? [])));
+                }
+            }
+            if ([] !== $types && !\in_array('application/json', $types, true)) {
+                $nonJson[(string) ($data['operation']['operationId'] ?? '')] = $types;
+            }
+        }
+        ksort($nonJson);
+
+        return $nonJson;
+    }
 }
