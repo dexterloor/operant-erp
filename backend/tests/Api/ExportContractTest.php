@@ -6,12 +6,15 @@ namespace App\Tests\Api;
 
 use App\Modules\AuditLog\Application\ExportRunner;
 use App\Modules\AuditLog\Application\ExportSources;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Export\CsvCell;
 use App\Platform\Http\Export\CsvExportRenderer;
 use App\Platform\Http\Export\ExportSource;
 use App\Platform\Http\Export\ListDeclarations;
 use App\Platform\Security\PermissionRequirements;
 use App\Tests\Support\GeneratedSpec;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\ControllerEvent;
@@ -23,9 +26,12 @@ use Symfony\Component\Uid\Uuid;
  *
  * - `onlyTheExportOperationReturnsANonJsonSuccessBody` — domain = the generated spec, every operation's success content.
  * - `everyExportErrorIsProblemJson` — 403, 422 unknown filter, 422 unknown resource, 409 over the cap.
- * - `theExportRowSetEqualsTheListRowSet` — TB-7, per source, over filter sets that include `archived`: the export equals
- *   the List, cell by cell, after the documented escape is applied FORWARD to the List (`escape(list) == export`, design
- *   §6.6 — `escape` is not injective, so it is never reversed).
+ * - `theExportRowSetEqualsTheListRowSet` (the Inventory family, G6-C0) and `eachFamilyExportsTheListsView` (every family
+ *   G6-C1 added) — TB-7, per source, over filter sets that include `archived`, `status`, the id filters, `q` and every
+ *   `sort` a fixture view names: the export equals the List, cell by cell, after the documented escape is applied FORWARD
+ *   to the List (`escape(list) == export`, design §6.6 — `escape` is not injective, so it is never reversed). Each family's
+ *   fixture holds a formula-led text cell and a null reference wherever the row class allows one (design R1.2 G6-C1).
+ *   `everySourceHasATb7Drive` holds the two drives' resources equal, two-way, to the export registry.
  * - `filterMembersAreTheListOperationsQueryParameters` (API-14a, both directions, from the registry) and
  *   `noQueryParameterIsNamedId` (API-10 at the expanded `filters`).
  * - `aBodyReadTwoWaysIsAServerErrorNotAnExport` — G5-D0 carry (1), a planted mismatched `_derived_permission`.
@@ -33,6 +39,7 @@ use Symfony\Component\Uid\Uuid;
 final class ExportContractTest extends PurchaseOrderTestCase
 {
     use ExportTestSupport;
+    use ListOperationFixtures;
 
     /** The `/exports` path family (joined into `AuthOperationContractTest`'s shipped-surface union). */
     public const PINNED_EXPORT_OPERATIONS = [
@@ -167,16 +174,303 @@ final class ExportContractTest extends PurchaseOrderTestCase
             'stock_movement' => [[], ['inventory_item_id' => $w['itemA']]],
         ];
 
-        $driven = [];
-        foreach ($this->sources()->all() as $resource => $source) {
-            self::assertArrayHasKey($resource, $cases, \sprintf('The export source "%s" has no TB-7 case here.', $resource));
-            foreach ($cases[$resource] as $filters) {
-                $this->assertExportEqualsList($source, $filters);
-                $driven[] = $resource;
+        self::assertSame(self::INVENTORY_FAMILY, array_keys($cases));
+        foreach ($cases as $resource => $filterSets) {
+            foreach ($filterSets as $filters) {
+                $this->assertExportEqualsList($this->sources()->get($resource), $filters);
             }
         }
+    }
 
-        self::assertSame(array_keys($cases), array_values(array_unique($driven)), 'A TB-7 case was written for a source that no longer exists.');
+    /** The resources {@see self::theExportRowSetEqualsTheListRowSet()} drives with hand-written cases (G6-C0). */
+    private const INVENTORY_FAMILY = ['inventory_item', 'stock_level', 'stock_movement'];
+
+    /**
+     * The resources {@see self::eachFamilyExportsTheListsView()} drives (G6-C1), each through its List's shared fixture in
+     * {@see ListOperationFixtures} — the same rows `ListEnvelopeTest`, `PaginationContractTest` and `SearchContractTest`
+     * seed — plus a formula-led text cell ({@see self::plantAFormula()}).
+     */
+    private const FAMILIES = [
+        'app_user' => 'ListUsers',
+        'credit_note' => 'ListCreditNotes',
+        'customer' => 'ListCustomers',
+        'fulfilment' => 'ListFulfilments',
+        'goods_receipt' => 'ListGoodsReceipts',
+        'invoice' => 'ListInvoices',
+        'permission' => 'ListPermissions',
+        'purchase_order' => 'ListPurchaseOrders',
+        'role' => 'ListRoles',
+        'sales_order' => 'ListSalesOrders',
+        'sales_return' => 'ListSalesReturns',
+        'supplier' => 'ListSuppliers',
+        'warehouse' => 'ListWarehouses',
+    ];
+
+    /**
+     * `permission` is the one family no fixture can give a formula-led cell: the catalogue is global and seeded by the
+     * owner's migration, never by a tenant (IA §6.2). The escape is still applied forward to its List, cell by cell.
+     */
+    private const NO_TENANT_WRITTEN_TEXT = ['permission'];
+
+    /** @return iterable<string, array{string, string}> */
+    public static function families(): iterable
+    {
+        foreach (self::FAMILIES as $resource => $list) {
+            yield $resource => [$resource, $list];
+        }
+    }
+
+    /** Two-way: every export source is driven by exactly one TB-7 test here, and no drive names a source that is gone. */
+    #[Test]
+    public function everySourceHasATb7Drive(): void
+    {
+        $driven = [...self::INVENTORY_FAMILY, ...array_keys(self::FAMILIES)];
+        sort($driven, \SORT_STRING);
+
+        self::assertSame(array_keys($this->sources()->all()), $driven, 'An export source has no TB-7 drive here, or a drive names a resource no source serves.');
+    }
+
+    /**
+     * TB-7 for every family G6-C1 added, one family per run (a fresh database each). The List's shared fixture seeds two
+     * rows (and, where the List has one, an Archived view); the filter sets are: none; each fixture view (a query string,
+     * its `sort` moved into the body); each id/flag filter the fixture names, alone; and the fixture's `q` prefix. Every
+     * set is compared cell by cell; a set may be empty (an id no row carries), but at least one must not be.
+     *
+     * Fixture obligations, asserted rather than trusted (design R1.2 G6-C1, "TB-7, null-reference and escaping fixtures"):
+     * - **Escaping:** the actor's display name (every `…_by` reference and `ListUsers`' own row) and one text cell per
+     *   family start like a formula, and some exported cell must carry the escape (`'` then a trigger). No G6-C1 family
+     *   serves a signed decimal that can hold a negative, so the plain-number exemption is exercised by C0's movements.
+     * - **Null references:** every reference the row class declares nullable (a `?…Ref` property: `created_by`,
+     *   `received_by`, `invoice`, `credit_target`, `paid_by`, `sales_return`) is null on some exported row, all of its
+     *   leaves empty cells, while the row stays as wide as the header.
+     */
+    #[Test]
+    #[DataProvider('families')]
+    public function eachFamilyExportsTheListsView(string $resource, string $list): void
+    {
+        $source = $this->sources()->get($resource);
+        self::assertSame($list, $source->listOperationName());
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET display_name = ? WHERE id = ?::uuid',
+            ['=HYPERLINK("http://x","actor")', (string) $this->actorId]);
+        [, $seed] = ($this->listFixtures()[$list])();
+        $given = $seed(2);
+        $this->plantAFormula($resource, $given);
+        $given['views'] = [...$given['views'], ...$this->plantOutsiders($resource)];
+        $this->assertTheCapReplacesThePageSize($source);
+
+        $sets = [[[], null]];
+        foreach ($given['views'] as $view) {
+            parse_str($view, $query);
+            $sort = isset($query['sort']) ? (string) $query['sort'] : null;
+            unset($query['sort']);
+            $sets[] = [array_map('strval', $query), $sort];
+        }
+        foreach ($given['filter'] as $name => $value) {
+            $sets[] = [[$name => $value], null];
+        }
+        if (null !== $given['search']) {
+            $sets[] = [['q' => $given['search']], null];
+        }
+
+        $rows = [];
+        $views = [];
+        foreach ($sets as [$filters, $sort]) {
+            $exported = $this->assertExportEqualsList($source, $filters, $sort, allowEmpty: true);
+            $views[] = json_encode($exported, \JSON_THROW_ON_ERROR);
+            array_push($rows, ...$exported);
+        }
+        self::assertNotSame([], $rows, $resource.': every filter set exported nothing, so TB-7 held over nothing.');
+        if (!\in_array($resource, self::NO_TENANT_WRITTEN_TEXT, true)) {
+            // `g6-c1-red.md` M-1: some filter set must select a different row set from another, or a source that dropped
+            // its filters would stay green. `permission` declares no filter at all.
+            self::assertGreaterThan(1, \count(array_unique($views)), $resource.': every filter set exported the same rows, so no filter was shown to reach the read.');
+        }
+
+        $header = $this->renderer()->header($source->rowClass());
+        if (!\in_array($resource, self::NO_TENANT_WRITTEN_TEXT, true)) {
+            $escaped = array_filter(array_merge(...$rows), static fn (string $cell): bool => 1 === preg_match("/^'[=+\\-@\t\r\n]/", $cell));
+            self::assertNotSame([], $escaped, $resource.': no exported cell carries the formula escape, so the fixture never exercised it.');
+        }
+        foreach (self::nullableReferences($source->rowClass()) as $reference) {
+            $leaves = array_keys(array_filter($header, static fn (string $leaf): bool => str_starts_with($leaf, $reference.'.')));
+            self::assertNotSame([], $leaves, $resource.': the nullable reference '.$reference.' has no columns.');
+            $nullRows = array_filter($rows, static fn (array $row): bool => [] === array_filter(array_map(static fn (int $i): string => $row[$i], $leaves), static fn (string $c): bool => '' !== $c));
+            self::assertNotSame([], $nullRows, \sprintf('%s: no exported row holds a null %s, so the fixture never exercised a null reference.', $resource, $reference));
+        }
+        foreach ($rows as $row) {
+            self::assertCount(\count($header), $row, $resource.': a rendered row is not as wide as the header.');
+        }
+    }
+
+    /**
+     * **A caller-dependent column is served as the List serves it** (final RED M-5; design R1.2 G6-C0/C1). `ListSalesReturns`
+     * serves `credit_blocked_by_payment` and `adjustment_decision_owed` only to an `invoice.view` holder and leaves the keys
+     * ABSENT otherwise (`SalesReturnResource`, `SKIP_NULL_VALUES`). The export runs the list's reader for the same caller, so
+     * for a holder those cells carry the value, and for a caller without `invoice.view` they are EMPTY — the header names
+     * the same columns either way (they are in the public schema), every row is as wide as the header, the export still
+     * equals that caller's List cell for cell, and the invoice-only filter is refused as the list refuses it, re-pointed.
+     * `ListCreditNotes`' caller-dependent members (`return_decisions[]`) cannot be observed this way: the List — and so its
+     * export — is gated on `invoice.view` itself, so a caller without it is refused before any row (403 naming that code).
+     * *Mutation:* the source reads as an `invoice.view` holder regardless of the caller → the cells are not empty → red.
+     */
+    #[Test]
+    public function aCallerDependentColumnIsServedAsTheListServesIt(): void
+    {
+        [, $seed] = ($this->listFixtures()['ListSalesReturns'])();
+        $seed(2);
+        $source = $this->sources()->get('sales_return');
+        $header = $this->renderer()->header($source->rowClass());
+        $withheld = array_keys(array_intersect($header, ['credit_blocked_by_payment', 'adjustment_decision_owed']));
+        self::assertCount(2, $withheld, 'The header no longer names both invoice-only columns.');
+
+        $rows = $this->assertExportEqualsList($source, []);
+        foreach ($rows as $row) {
+            self::assertSame(['false', 'false'], [$row[$withheld[0]], $row[$withheld[1]]], 'An invoice.view holder is not served the invoice-only cells.');
+        }
+
+        $this->actAs(self::TENANT_A, ['sales_return.view']);
+        $rows = $this->assertExportEqualsList($source, []);
+        self::assertSame($header, $this->exportRows()[0], 'The header changed with the caller.');
+        self::assertCount(2, $rows);
+        foreach ($rows as $row) {
+            self::assertCount(\count($header), $row);
+            self::assertSame(['', ''], [$row[$withheld[0]], $row[$withheld[1]]], 'A caller without invoice.view was served an invoice-only cell.');
+        }
+
+        $this->export(['resource' => 'sales_return', 'filters' => ['credit_blocked_by_payment' => 'true']]);
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame([['pointer' => '/filters/credit_blocked_by_payment', 'code' => 'not_permitted',
+            'message' => 'This filter needs the permission to read invoices (invoice.view).']], $this->json()['errors']);
+
+        $this->export(['resource' => 'credit_note']);
+        self::assertSame(403, $this->httpStatus());
+        self::assertSame('invoice.view', $this->json()['required_permission']);
+    }
+
+    /**
+     * The properties of `$rowClass` that are a nullable reference — a single class type (not an enum, not a date) that
+     * allows null. The renderer flattens each into dotted columns.
+     *
+     * @param class-string $rowClass
+     *
+     * @return list<string> their serialized names
+     */
+    private static function nullableReferences(string $rowClass): array
+    {
+        $names = [];
+        foreach ((new \ReflectionClass($rowClass))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            $type = $property->getType();
+            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin() || !$type->allowsNull() || $property->isStatic()) {
+                continue;
+            }
+            $class = $type->getName();
+            if (enum_exists($class) || is_a($class, \DateTimeInterface::class, true)) {
+                continue;
+            }
+            $attribute = $property->getAttributes(\Symfony\Component\Serializer\Attribute\SerializedName::class)[0] ?? null;
+            $names[] = null === $attribute ? $property->getName() : (string) $attribute->newInstance()->serializedName;
+        }
+
+        return $names;
+    }
+
+    /**
+     * `g6-c1-red.md` M-1: a row OUTSIDE each filter, for the families whose fixture filters select every seeded row, and an
+     * archived row (with its `archived=true` view) for the three bounded families whose reader SQL this commit changed.
+     *
+     * @return list<string> extra fixture views (query strings)
+     */
+    private function plantOutsiders(string $resource): array
+    {
+        $uuid = static fn (): string => Uuid::v4()->toRfc4122();
+        switch ($resource) {
+            case 'warehouse':
+                $this->insertAsOwnerForTenant(self::TENANT_A, "INSERT INTO warehouse (id, tenant_id, code, name, country_code) VALUES (?::uuid, ?::uuid, 'ZZ-OUT', 'Outside the search', 'DE')", [$uuid(), self::TENANT_A]);
+                $this->insertAsOwnerForTenant(self::TENANT_A, "INSERT INTO warehouse (id, tenant_id, code, name, country_code, deleted_at) VALUES (?::uuid, ?::uuid, 'WH-ENV-GONE', 'Archived warehouse', 'DE', '2026-10-01 10:00:00+00')", [$uuid(), self::TENANT_A]);
+
+                return ['archived=true'];
+            case 'role':
+                $this->insertAsOwnerForTenant(self::TENANT_A, "INSERT INTO role (id, tenant_id, name, deleted_at) VALUES (?::uuid, ?::uuid, 'ROLE-ENV-GONE', '2026-10-01 10:00:00+00')", [$uuid(), self::TENANT_A]);
+
+                return ['archived=true'];
+            case 'app_user':
+                $this->insertAsOwnerForTenant(self::TENANT_A, "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, deleted_at) VALUES (?::uuid, ?::uuid, 'user-env-gone@example.test', 'not-a-hash', 'Archived user', '2026-10-01 10:00:00+00')", [$uuid(), self::TENANT_A]);
+
+                return ['archived=true'];
+            case 'fulfilment':
+                $order = $this->seedSalesOrder(self::TENANT_A, 'SO-155900', null, null, SalesOrder::STATUS_CONFIRMED, '2026-01-01T00:00:00+00:00');
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO fulfilment (id, tenant_id, sales_order_id, warehouse_id, fulfilment_number, shipped_by_user_id,
+                                            idempotency_key, request_digest)
+                    SELECT ?::uuid, so.tenant_id, so.id, so.warehouse_id, 'FUL-600001', ?::uuid,
+                           encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+                      FROM sales_order so WHERE so.id = ?::uuid
+                    SQL, [$uuid(), (string) $this->actorId, $order]);
+
+                return [];
+            case 'goods_receipt':
+                $order = $this->seedOrder(self::TENANT_A, 'PO-335900', $this->seedSupplier(self::TENANT_A, 'Outside Receipts'),
+                    $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Outside Receipts'), status: PurchaseOrder::STATUS_ORDERED);
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO goods_receipt (id, tenant_id, purchase_order_id, warehouse_id, receipt_number, received_at,
+                                               idempotency_key, request_digest)
+                    VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 'GR-600001', '2026-02-01T00:00:00+00:00',
+                            encode(sha256(gen_random_uuid()::text::bytea), 'hex'), encode(sha256(gen_random_uuid()::text::bytea), 'hex'))
+                    SQL, [$uuid(), self::TENANT_A, $order, $warehouse]);
+
+                return [];
+            default:
+                return [];
+        }
+    }
+
+    /**
+     * The cap replaces the List's page size, exactly, for every source (paged or bounded): read through `prepare()` with a
+     * cap far above any List's `MAXIMUM_LIMIT` (so the parse must not bound it — `g6-c1-red.md` L-4), then with the view's
+     * exact size (not over) and one less (over, holding the cap's rows). *Mutation:* a provider's `$limit ??=` → `$limit =`
+     * (the default page size wins) → the first read is over → red; a bounded reader's `$limit + 1` → `$limit` → the read
+     * one under the size is not over → red. Read before any request, while the non-HTTP identity `actAs()` set is current.
+     */
+    private function assertTheCapReplacesThePageSize(ExportSource $source): void
+    {
+        $read = fn (int $cap): \App\Platform\Http\Export\ExportedRows => $this->tenantContext()->run(self::TENANT_A,
+            static fn (): \App\Platform\Http\Export\ExportedRows => ($source->prepare([], $cap))());
+
+        $whole = $read(10000);
+        self::assertFalse($whole->overCap, $source->resource().': a cap of 10,000 is over a fixture-sized view, so the parse bounded the cap.');
+        $size = \count($whole->rows);
+        self::assertGreaterThanOrEqual(2, $size, $source->resource().': the fixture view is too small to test the cap.');
+
+        $at = $read($size);
+        self::assertSame([false, $size], [$at->overCap, \count($at->rows)], $source->resource().': a cap equal to the view is over, or short.');
+        $under = $read($size - 1);
+        self::assertSame([true, $size - 1], [$under->overCap, \count($under->rows)], $source->resource().': a cap one under the view is not over.');
+    }
+
+    /**
+     * One formula-led text cell per family, on a row its fixture seeded (a name the List serves, or the receiver of one
+     * receipt). The families whose only text is a `…_by` reference get it from the actor's display name instead.
+     *
+     * @param array{filter: array<string, string>, search: ?string, views: list<string>} $given
+     */
+    private function plantAFormula(string $resource, array $given): void
+    {
+        $sql = match ($resource) {
+            'purchase_order' => ['UPDATE supplier SET name = ? WHERE id = ?::uuid', ['=SUM(1,1)', $given['filter']['supplier_id'] ?? '']],
+            'sales_order', 'invoice' => ['UPDATE customer SET name = ? WHERE id = ?::uuid', ['=SUM(1,1)', $given['filter']['customer_id'] ?? '']],
+            'goods_receipt' => ["UPDATE goods_receipt SET received_by_user_id = ?::uuid WHERE receipt_number = 'GR-900001'", [(string) $this->actorId]],
+            'warehouse' => ["UPDATE warehouse SET name = ? WHERE code = 'WH-ENV-1'", ['@Warehouse']],
+            'supplier' => ["UPDATE supplier SET name = ? WHERE name = 'SUP-ENV-2'", ['-2+3 Supplies']],
+            'customer' => ["UPDATE customer SET name = ? WHERE name = 'CUS-ENV-2'", ['+44 Customer']],
+            // A role name may hold no control character (`role_name_shape`), so its formula starts with `=`, not a TAB.
+            'role' => ["UPDATE role SET name = ? WHERE name = 'ROLE-ENV-2'", ['=ROLE(1)']],
+            // The actor's display name already reaches these families' `…_by` columns (and `ListUsers`' own row).
+            'fulfilment', 'sales_return', 'credit_note', 'app_user', 'permission' => null,
+        };
+        if (null !== $sql) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, $sql[0], $sql[1]);
+        }
     }
 
     /** API-14a, both directions: `filters` members are exactly the List's declared query parameters minus paging/sort. */
@@ -277,14 +571,16 @@ final class ExportContractTest extends PurchaseOrderTestCase
 
     /**
      * @param array<string, string> $filters
+     *
+     * @return list<list<string>> the exported data rows (header dropped)
      */
-    private function assertExportEqualsList(ExportSource $source, array $filters): void
+    private function assertExportEqualsList(ExportSource $source, array $filters, ?string $sort = null, bool $allowEmpty = false): array
     {
         $resource = $source->resource();
         $path = $this->declarations()->path($source);
 
-        $items = $this->listAll($path, $filters);
-        $this->export(['resource' => $resource] + ([] === $filters ? [] : ['filters' => $filters]));
+        $items = $this->listAll($path, $filters + (null === $sort ? [] : ['sort' => $sort]));
+        $this->export(['resource' => $resource] + ([] === $filters ? [] : ['filters' => $filters]) + (null === $sort ? [] : ['sort' => $sort]));
         $rows = $this->exportRows();
 
         $header = $this->renderer()->header($source->rowClass());
@@ -295,8 +591,12 @@ final class ExportContractTest extends PurchaseOrderTestCase
             $header,
         ), $items);
 
-        self::assertSame($expected, \array_slice($rows, 1), \sprintf('%s %s: the export is not the List\'s view.', $resource, json_encode($filters)));
-        self::assertNotSame([], $items, \sprintf('%s %s: the fixture left this view empty, so the comparison holds over nothing.', $resource, json_encode($filters)));
+        self::assertSame($expected, \array_slice($rows, 1), \sprintf('%s %s %s: the export is not the List\'s view.', $resource, json_encode($filters), $sort ?? ''));
+        if (!$allowEmpty) {
+            self::assertNotSame([], $items, \sprintf('%s %s: the fixture left this view empty, so the comparison holds over nothing.', $resource, json_encode($filters)));
+        }
+
+        return \array_slice($rows, 1);
     }
 
     /**

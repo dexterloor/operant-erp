@@ -30,7 +30,8 @@ final readonly class RoleCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        $read = $this->reader->list(self::archived($query), self::search($query));
+        [$archived, $search] = self::parse($query);
+        $read = $this->reader->list($archived, $search);
 
         return new RoleCollection(
             array_map(static fn (RoleView $view): RoleResource => RoleResource::fromView($view), $read['items']),
@@ -38,6 +39,20 @@ final readonly class RoleCollectionProvider implements ProviderInterface
             null,
             $read['tenantHasRows'],
         );
+    }
+
+    /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C1; `g6-c1-red.md` L-1): `archived` then `q`, in
+     * that order, as `ListRoles` and `ListUsers` both run it — so `RoleExportSource` and `UserExportSource` call this rather
+     * than re-composing the two by hand.
+     *
+     * @param array<string, mixed> $query
+     *
+     * @return array{0: bool, 1: ?string} archived, and the search (null when none)
+     */
+    public static function parse(array $query): array
+    {
+        return [self::archived($query), self::search($query)];
     }
 
     /**

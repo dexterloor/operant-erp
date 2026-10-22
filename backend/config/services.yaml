@@ -518,7 +518,9 @@ when@test:
         # of KDF against 0.000 ms of short-circuit is still four orders of
         # magnitude.
         # G6-C0: the export row cap, lowered so `ExportCapTest` can seed cap and cap + 1 rows. The production figure is
-        # the parameter above, pinned by `ExportCapTest::theProductionCapIsTheProposedFigure`.
-        app.export.row_cap: 10
+        # the parameter above, pinned by `ExportCapTest::theProductionCapIsTheProposedFigure`. G6-C1 (2026-10-23) raised it
+        # from 10 to 100: `ListPermissions` exports the global catalogue (64 codes today), which a tenant cannot shrink, so
+        # under 10 it could only ever be refused; `ExportCapTest::theTestCapLetsTheGlobalCatalogueExport` holds it above.
+        app.export.row_cap: 100
 
         app.auth.dummy_password_hash: '$argon2id$v=19$m=1024,t=3,p=1$VHI3bmJZZUIudFF3MDB4Sg$eewE/E8Yvk7d/WPEVdqbJVmrVw4AyOKiQ0W4FudFr4o'

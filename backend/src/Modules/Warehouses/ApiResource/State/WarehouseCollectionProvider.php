@@ -26,7 +26,8 @@ final readonly class WarehouseCollectionProvider implements ProviderInterface
 
     public function provide(Operation $operation, array $uriVariables = [], array $context = []): WarehouseCollection
     {
-        $read = $this->reader->list(self::archived($context), self::search($context));
+        [$archived, $search] = self::parse(self::query($context));
+        $read = $this->reader->list($archived, $search);
 
         return new WarehouseCollection(
             array_map(WarehouseResource::fromView(...), $read['items']),
@@ -37,6 +38,20 @@ final readonly class WarehouseCollectionProvider implements ProviderInterface
     }
 
     /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C1, design Response M-5): the provider and
+     * `WarehouseExportSource` both call this, so `archived` and `q` are refused exactly as the list refuses them, in the
+     * same order (TB-7).
+     *
+     * @param array<string, mixed> $query
+     *
+     * @return array{0: bool, 1: ?string} archived, and the search (null when none)
+     */
+    public static function parse(array $query): array
+    {
+        return [self::archivedIn($query), self::searchIn($query)];
+    }
+
+    /**
      * `RoleCollectionProvider::archived()`'s parsing (another module, so not imported): `true`/`1`/`false`/`0`, anything
      * else refused rather than coerced. Shared with `ListStorageLocations` (one module).
      *
@@ -44,7 +59,12 @@ final readonly class WarehouseCollectionProvider implements ProviderInterface
      */
     public static function archived(array $context): bool
     {
-        $query = self::query($context);
+        return self::archivedIn(self::query($context));
+    }
+
+    /** @param array<string, mixed> $query */
+    private static function archivedIn(array $query): bool
+    {
         if (!isset($query['archived'])) {
             return false;
         }
@@ -63,11 +83,10 @@ final readonly class WarehouseCollectionProvider implements ProviderInterface
     /**
      * `RoleCollectionProvider::search()`'s handling: a non-string `q` is refused; an empty one is no search.
      *
-     * @param array<string, mixed> $context
+     * @param array<string, mixed> $query
      */
-    private static function search(array $context): ?string
+    private static function searchIn(array $query): ?string
     {
-        $query = self::query($context);
         if (!isset($query['q'])) {
             return null;
         }

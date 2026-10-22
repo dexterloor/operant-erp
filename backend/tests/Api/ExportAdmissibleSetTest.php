@@ -16,13 +16,13 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * An operation is exportable iff it is (1) a GET named `List*`, (2) declaring exactly one permission code, (3) on a path
  * with no path parameter (a nested List is a section of a parent page — Departure 8, a recorded Low gap), and (4) not
- * excluded pending `SEC` ({@see self::PENDING_SEC}). Rule (2) is what keeps `ListReorderSuggestions` (all-of five codes)
- * out, once it is built.
+ * excluded pending `SEC` ({@see self::PENDING_SEC}). Rule (2) is what keeps `ListReorderSuggestions` (all-of several codes)
+ * out; it is built (G3-C1), so the test now asserts it is not derived.
  *
- * Two-way: the derived set equals the export sources' Lists plus {@see self::OWED_TO_G6_C1}, the flat Lists this commit
- * deliberately leaves to G6-C1 (G6-C0 ships the Inventory family). The owed list shrinks to empty in G6-C1, which then
- * deletes it; until then a NEW flat List is red here — it is neither a source nor owed — so TB-7's "every table" cannot rot
- * silently. *Mutation:* remove `ItemExportSource` (or its tag) → `ListItems` is derived and unserved → red.
+ * Two-way: the derived set equals the export sources' Lists, exactly. G6-C0 shipped the Inventory family and listed the
+ * other flat Lists as owed to G6-C1; G6-C1 (2026-10-23) shipped all of them and deleted that list, so a NEW flat
+ * single-code List is red here until it is given an `ExportSource` — TB-7's "every table" cannot rot silently.
+ * *Mutation:* remove `CustomerExportSource` (or its tag) → `ListCustomers` is derived and unserved → red (design §6.1).
  */
 final class ExportAdmissibleSetTest extends ApiTestCase
 {
@@ -33,17 +33,13 @@ final class ExportAdmissibleSetTest extends ApiTestCase
         'ListRoleGrantProposals' => 'privilege history gated on role.assign (§5.2.3), Departure 2; SEC to confirm or strike',
     ];
 
-    /** The flat single-code Lists G6-C1 owes a source for (design R1.1: "remaining flat families"). Derived each run. */
-    public const OWED_TO_G6_C1 = [
-        'ListCreditNotes', 'ListCustomers', 'ListFulfilments', 'ListGoodsReceipts', 'ListInvoices', 'ListPermissions',
-        'ListPurchaseOrders', 'ListRoles', 'ListSalesOrders', 'ListSalesReturns', 'ListSuppliers', 'ListUsers', 'ListWarehouses',
-    ];
-
     #[Test]
     public function theExportableListsAreExactlyTheDerivedSet(): void
     {
         $derived = self::derive(TransactionBoundaryTest::contractOperations());
         self::assertContains('ListItems', $derived, 'Positive control: ListItems is not derived, so the derivation is blind.');
+        self::assertArrayHasKey('ListReorderSuggestions', TransactionBoundaryTest::contractOperations(), 'Control: ListReorderSuggestions is not in the registry, so its exclusion below holds over nothing.');
+        self::assertNotContains('ListReorderSuggestions', $derived, 'Rule (2): ListReorderSuggestions is gated on several codes (all-of), so it is not exportable.');
 
         $served = [];
         foreach ($this->sources()->all() as $source) {
@@ -51,12 +47,7 @@ final class ExportAdmissibleSetTest extends ApiTestCase
         }
         sort($served);
 
-        self::assertSame([], array_values(array_intersect($served, self::OWED_TO_G6_C1)), 'A List is both served and listed as owed: delete it from the owed list.');
-
-        $expected = [...$served, ...self::OWED_TO_G6_C1];
-        sort($expected);
-
-        self::assertSame($expected, $derived, 'The exportable Lists (derived from the registry) and the export sources plus the owed G6-C1 list differ. A new flat single-code List needs an ExportSource (TB-7); a served one must leave the owed list.');
+        self::assertSame($served, $derived, 'The exportable Lists (derived from the registry) and the export sources differ. A new flat single-code List needs an ExportSource (TB-7); a source must name a List the rules admit.');
     }
 
     /** Each exclusion is LIVE: the excluded List exists and would otherwise be derived — or it is not an exclusion at all. */

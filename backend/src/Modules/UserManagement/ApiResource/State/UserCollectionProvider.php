@@ -29,7 +29,8 @@ final readonly class UserCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        $read = $this->reader->list(RoleCollectionProvider::archived($query), RoleCollectionProvider::search($query));
+        [$archived, $search] = RoleCollectionProvider::parse($query);
+        $read = $this->reader->list($archived, $search);
 
         return new UserCollection(
             array_map(static fn (UserView $view): UserResource => UserResource::fromView($view), $read['items']),

@@ -25,12 +25,32 @@ final class ExportPermissionTest extends ApiTestCase
 {
     use ExportTestSupport;
 
-    /** The review copy of the export map at G6-C0 (the Inventory family). G6-C1 adds the remaining flat families. */
+    /**
+     * The review copy of the export map: the Inventory family (G6-C0) and the remaining flat families (G6-C1). Two entries
+     * are NOT `<resource>.view`, and they are the reason the map is read off each List rather than concatenated:
+     * `credit_note → invoice.view` (`ListCreditNotes`) and `permission → role.view` (`ListPermissions`).
+     */
     private const PINNED_MAP = [
+        'app_user' => 'app_user.view',
+        'credit_note' => 'invoice.view',
+        'customer' => 'customer.view',
+        'fulfilment' => 'fulfilment.view',
+        'goods_receipt' => 'goods_receipt.view',
         'inventory_item' => 'inventory_item.view',
+        'invoice' => 'invoice.view',
+        'permission' => 'role.view',
+        'purchase_order' => 'purchase_order.view',
+        'role' => 'role.view',
+        'sales_order' => 'sales_order.view',
+        'sales_return' => 'sales_return.view',
         'stock_level' => 'stock_level.view',
         'stock_movement' => 'stock_movement.view',
+        'supplier' => 'supplier.view',
+        'warehouse' => 'warehouse.view',
     ];
+
+    /** The two exceptions, by name (design §6.1: "A test pins each exception by name against the registry"). */
+    private const NOT_THE_RESOURCES_OWN_VIEW = ['credit_note' => 'ListCreditNotes', 'permission' => 'ListPermissions'];
 
     #[Test]
     public function eachExportableResourceResolvesToItsListsDeclaredCode(): void
@@ -51,7 +71,15 @@ final class ExportPermissionTest extends ApiTestCase
             self::assertSame($code, PermissionEnforcementContractTest::PINNED_PERMISSIONS[$list] ?? null,
                 \sprintf('%s exports under %s, and its List %s is pinned on something else.', $resource, $code, $list));
         }
-        self::assertSame(array_values(array_unique(array_values(self::PINNED_MAP))), $requirements->possibleCodes($requirement));
+        $possible = array_values(array_unique(array_values(self::PINNED_MAP)));
+        sort($possible, \SORT_STRING);
+        self::assertSame($possible, $requirements->possibleCodes($requirement));
+
+        foreach (self::NOT_THE_RESOURCES_OWN_VIEW as $resource => $list) {
+            self::assertSame($list, $sources->get($resource)->listOperationName());
+            self::assertNotSame($resource.'.view', $map[$resource], $resource.' resolves to its own .view: the exception is gone, so the map was concatenated.');
+            self::assertSame(PermissionEnforcementContractTest::PINNED_PERMISSIONS[$list], $map[$resource]);
+        }
         self::assertSame(PermissionGate::DERIVED, PermissionEnforcementContractTest::PINNED_PERMISSIONS['CreateExport']);
     }
 

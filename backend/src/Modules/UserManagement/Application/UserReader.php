@@ -91,11 +91,15 @@ final readonly class UserReader
      * `email LIKE lower(?)` is case-insensitive. Ordered `email, id` (both NOT NULL: no nullable-sort-key trap). *(bounded)*,
      * so no cursor. `tenant_has_rows` is probed only on an empty page, against `app_user` with no filter predicate (API-22).
      *
+     * `$limit` is `CreateExport`'s cap (G6-C1, design M-7: "bounded lists also read `LIMIT CAP+1`"), never the wire's: when
+     * given, the statement is the list's own with `LIMIT limit + 1` appended, so the export learns in the same statement
+     * whether the view is over the cap. The list itself passes none and reads the whole bounded view.
+     *
      * @return array{items: list<UserView>, tenantHasRows: bool}
      */
-    public function list(bool $archived, ?string $search): array
+    public function list(bool $archived, ?string $search, ?int $limit = null): array
     {
-        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($archived, $search): array {
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($archived, $search, $limit): array {
             $connection = $em->getConnection();
             $where = ['u.deleted_at IS '.($archived ? 'NOT NULL' : 'NULL')];
             $parameters = [];
@@ -104,7 +108,7 @@ final readonly class UserReader
                 $parameters[] = addcslashes($search, '%_\\').'%';
             }
 
-            $rows = $connection->fetchAllAssociative(self::SELECT.' WHERE '.implode(' AND ', $where).' ORDER BY u.email, u.id', $parameters);
+            $rows = $connection->fetchAllAssociative(self::SELECT.' WHERE '.implode(' AND ', $where).' ORDER BY u.email, u.id'.(null === $limit ? '' : ' LIMIT ?'), null === $limit ? $parameters : [...$parameters, $limit + 1]);
             $tenantHasRows = [] !== $rows || (bool) $connection->fetchOne('SELECT EXISTS (SELECT 1 FROM app_user)');
 
             return ['items' => array_map(self::view(...), $rows), 'tenantHasRows' => $tenantHasRows];

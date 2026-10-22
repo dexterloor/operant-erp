@@ -39,12 +39,21 @@ final readonly class PermissionReader
     ) {
     }
 
-    /** @return array{items: list<PermissionView>, tenantHasRows: bool} */
-    public function list(): array
+    /**
+     * `$limit` is `CreateExport`'s cap (G6-C1, design M-7: "bounded lists also read `LIMIT CAP+1`"), never the wire's: when
+     * given, the statement is the list's own with `LIMIT limit + 1` appended, so the export learns in the same statement
+     * whether the view is over the cap. The list itself passes none and reads the whole bounded view.
+     *
+     * @return array{items: list<PermissionView>, tenantHasRows: bool}
+     */
+    public function list(?int $limit = null): array
     {
-        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em): array {
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($limit): array {
             $connection = $em->getConnection();
-            $rows = $connection->fetchAllAssociative('SELECT code, module, description FROM permission ORDER BY code');
+            $rows = $connection->fetchAllAssociative(
+                'SELECT code, module, description FROM permission ORDER BY code'.(null === $limit ? '' : ' LIMIT ?'),
+                null === $limit ? [] : [$limit + 1],
+            );
 
             // API-22: the probe runs only on an empty page. This page is never empty — the catalogue is
             // global and seeded — so the branch below is implemented for uniformity and is unreachable;

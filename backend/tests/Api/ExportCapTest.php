@@ -33,6 +33,21 @@ final class ExportCapTest extends PurchaseOrderTestCase
             'The suite is meant to run on a lowered cap; it is running on the production one.');
     }
 
+    /**
+     * G6-C1: the lowered cap must still let `ListPermissions` export — the catalogue is global (IA §6.2), so no fixture can
+     * make it smaller than it is, and a cap below it would leave that family refusable only. Derived from the server.
+     */
+    #[Test]
+    public function theTestCapLetsTheGlobalCatalogueExport(): void
+    {
+        $catalogue = (int) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) AS n FROM permission', [])[0]['n'];
+        self::assertGreaterThan(0, $catalogue, 'The catalogue is empty, so this holds over nothing.');
+        self::assertGreaterThanOrEqual($catalogue, $this->cap(), 'The test cap is below the global permission catalogue, so ListPermissions can never export in the suite.');
+
+        $this->export(['resource' => 'permission']);
+        self::assertCount(1 + $catalogue, $this->exportRows());
+    }
+
     #[Test]
     public function aPagedListAtTheCapExportsAndOneMoreIsRefused(): void
     {

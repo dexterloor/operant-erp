@@ -41,7 +41,7 @@ final readonly class GoodsReceiptCollectionProvider implements ProviderInterface
         $request = $context['request'] ?? null;
         $query = $request instanceof Request ? $request->query->all() : [];
 
-        $page = $this->reader->list($this->criteria($query));
+        $page = $this->reader->list(self::criteriaFrom($query));
 
         return new GoodsReceiptCollection(
             items: array_map(GoodsReceiptResource::fromView(...), $page->items),
@@ -51,12 +51,20 @@ final readonly class GoodsReceiptCollectionProvider implements ProviderInterface
         );
     }
 
-    /** @param array<string, mixed> $query */
-    private function criteria(array $query): GoodsReceiptListCriteria
+    /**
+     * **The list's whole pre-read parse, shared with `CreateExport`** (G6-C1, design Response M-5): the provider and {@see GoodsReceiptExportSource} both call this, so an
+     * export's filters are validated, combined and refused exactly as the list's are — by construction, not by a second copy
+     * (TB-7). `$limit` is the export's cap, an explicit argument the wire never reaches (`limit` is not an export filter;
+     * API-14a): when given it replaces the parsed page size, unbounded by `MAXIMUM_LIMIT`, and the reader's `LIMIT limit + 1`
+     * reports whether the view is over it.
+     *
+     * @param array<string, mixed> $query
+     */
+    public static function criteriaFrom(array $query, ?int $limit = null): GoodsReceiptListCriteria
     {
         $errors = [];
 
-        $limit = self::DEFAULT_LIMIT;
+        $limit ??= self::DEFAULT_LIMIT;
         if (isset($query['limit'])) {
             $raw = $query['limit'];
             if (!\is_string($raw) || 1 !== preg_match('/^\d+$/', $raw) || (int) $raw < 1 || (int) $raw > self::MAXIMUM_LIMIT) {

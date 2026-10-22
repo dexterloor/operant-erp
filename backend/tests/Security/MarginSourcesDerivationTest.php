@@ -351,13 +351,26 @@ final class MarginSourcesDerivationTest extends TenancyTestCase
     }
 
     /**
-     * The reviewed `resource → List operationId` pairing of every export family (G6-C0: the Inventory family). Written by
+     * The reviewed `resource → List operationId` pairing of every export family (G6-C0: Inventory; G6-C1: the rest). Written by
      * hand on purpose — the derived arm's independent anchor (`g6-c0-red.md` M-5); see {@see self::derivedArm()}.
      */
     private const EXPORTED_THROUGH = [
+        'app_user' => 'ListUsers',
+        'credit_note' => 'ListCreditNotes',
+        'customer' => 'ListCustomers',
+        'fulfilment' => 'ListFulfilments',
+        'goods_receipt' => 'ListGoodsReceipts',
         'inventory_item' => 'ListItems',
+        'invoice' => 'ListInvoices',
+        'permission' => 'ListPermissions',
+        'purchase_order' => 'ListPurchaseOrders',
+        'role' => 'ListRoles',
+        'sales_order' => 'ListSalesOrders',
+        'sales_return' => 'ListSalesReturns',
         'stock_level' => 'ListStockLevels',
         'stock_movement' => 'ListStockMovements',
+        'supplier' => 'ListSuppliers',
+        'warehouse' => 'ListWarehouses',
     ];
 
     /**
