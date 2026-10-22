@@ -75,10 +75,13 @@ use Symfony\Component\Uid\Uuid;
  * *"The permission is checked once, on the action; a caller lacking it is refused
  * wholesale before any id is examined."* That is what this class does for every
  * operation, single-row and bulk alike, because the decision is taken from the
- * operation and the caller and never from the request body. No bulk operation
- * ships this wave — §4.2's three are blocked on API-O-1's key store — so E-14 has
- * no subject to be tested against yet; what it will inherit is a gate that
- * already cannot see an id list.
+ * operation and the caller and never from an id in the request body. *(G5-D0,
+ * 2026-10-22: a derived operation's one code is resolved from the body's
+ * top-level `resource` -- a kind of record, not an id -- by
+ * `PermissionRequirements`, which reads no other field and no row;
+ * `DerivedPermissionTest::oneDecisionBeforeAnyIdIsRead`.)* No bulk operation
+ * ships yet, so E-14 is tested against a planted derived operation; what the
+ * bulk operations inherit is a gate that cannot see an id list.
  */
 #[AsEventListener(event: ControllerEvent::class, priority: self::PRIORITY)]
 final readonly class PermissionGate
@@ -98,11 +101,13 @@ final readonly class PermissionGate
      * **P-0 (2026-10-22): the sentinel an operation declares as its {@see self::OPERATION_PERMISSION} when its one code is
      * resolved from the request** (G5-D0, `g5-g6-bulk-export-design.md` §5.1a). Never a real code: it is not §3-shaped, so
      * no principal can hold it. It is only meaningful beside {@see self::DERIVED_PERMISSION}. Parsed by
-     * {@see PermissionRequirement}; resolved by nothing yet -- a derived operation fails closed until G5-D0.
+     * {@see PermissionRequirement}; resolved since G5-D0 (2026-10-22) by {@see PermissionRequirements::demandedBy()} into
+     * the ONE code the body's `resource` names, so this gate still takes exactly one decision per request and its denial row
+     * names that code -- never this sentinel -- with subject `(null, null)` (a derived path names no id).
      */
     public const DERIVED = '(derived)';
 
-    /** P-0: the extra property naming a derived requirement's resolver service id (G5-D0). */
+    /** P-0: the extra property naming a derived requirement's resolver service id -- a {@see DerivedPermission} (G5-D0). */
     public const DERIVED_PERMISSION = 'derived_permission';
 
     /**
@@ -137,7 +142,8 @@ final readonly class PermissionGate
         }
 
         // P-0: the declaration is read in ONE place. An absent key is still a LogicException with the same text, and a
-        // malformed one is too; the kinds are matched inside PermissionRequirements, never here.
+        // malformed one is too; the kinds are matched inside PermissionRequirements, never here. G5-D0: a derived
+        // operation's 422 (unreadable body, missing/unknown `resource`) is raised there, before the decision below.
         $required = $this->requirements->demandedBy(PermissionRequirement::of($operation), $event->getRequest());
 
         if ([] === $required) {

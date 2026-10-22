@@ -7,6 +7,8 @@ namespace App\Tests\Api;
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\UserManagement\Application\CurrentUserReader;
 use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
+use App\Tests\Support\PermissionSweepCases;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Uid\Uuid;
@@ -152,31 +154,33 @@ final class PermissionEnforcementTest extends ApiTestCase
         $drove = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $requirement = PermissionRequirement::of($operation);
+            // G5-D0: one case per ALL_OF operation and one per key of a DERIVED operation's map (every key, byte order,
+            // body `{"resource": key}`), from ONE helper -- never a silent skip. An empty-handed caller is refused naming
+            // the FIRST code in byte order (F-M2, F-L1), or the resolved one.
+            $cases = PermissionSweepCases::for($operation, self::requirements());
 
-            if (PermissionRequirement::NONE === $requirement->kind()) {
+            if ([] === $cases) {
                 continue;
             }
 
-            // codes() throws on a derived operation: G5-D0 must say how this loop drives one (an empty body names no
-            // resource), rather than the loop skipping it in silence. An empty-handed caller is refused naming the
-            // FIRST code in byte order (F-M2, F-L1).
-            $required = $requirement->codes()[0];
-
-            ++$examined;
             $drove[] = (string) $name;
+            $requirement = PermissionRequirement::of($operation);
+            if (PermissionRequirement::DERIVED === $requirement->kind()) {
+                // Positive control (`g5-d0-red.md` L-4): every key of the map is driven, not the first.
+                self::assertCount(\count(self::requirements()->codesByResource($requirement)), $cases, $name.': not every key was driven.');
+            }
 
-            $this->send(
-                (string) $operation->getMethod(),
-                $this->concretePathFor($operation),
-                \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
-            );
+            foreach ($cases as $case) {
+                ++$examined;
 
-            self::assertSame(403, $this->httpStatus(),
-                $name.' did not refuse a caller who holds no permission. Body: '
-                .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
-            self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $name);
-            self::assertSame($required, $this->json()['required_permission'], $name);
+                $this->send((string) $operation->getMethod(), $this->concretePathFor($operation), $case['body']);
+
+                self::assertSame(403, $this->httpStatus(),
+                    $case['label'].' did not refuse a caller who holds no permission. Body: '
+                    .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
+                self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $case['label']);
+                self::assertSame($case['required'][0], $this->json()['required_permission'], $case['label']);
+            }
         }
 
         self::assertGreaterThan(0, $examined,
@@ -206,30 +210,24 @@ final class PermissionEnforcementTest extends ApiTestCase
         $examined = 0;
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $requirement = PermissionRequirement::of($operation);
+            foreach (PermissionSweepCases::for($operation, self::requirements()) as $case) {
+                ++$examined;
 
-            if (PermissionRequirement::NONE === $requirement->kind()) {
-                continue;
+                $this->send(
+                    (string) $operation->getMethod(),
+                    $this->concretePathFor($operation),
+                    $case['body'],
+                    // The idempotent operations need their header here, or the 428
+                    // would mask what this is asking about.
+                    true === ($operation->getExtraProperties()['idempotency_key_required'] ?? null)
+                        ? ['Idempotency-Key' => Uuid::v4()->toRfc4122()]
+                        : [],
+                );
+
+                self::assertNotSame(403, $this->httpStatus(),
+                    $case['label'].' still refuses a caller who holds '.implode(' + ', $case['required']).'. Body: '
+                    .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
             }
-
-            $required = implode(' + ', $requirement->codes());
-
-            ++$examined;
-
-            $this->send(
-                (string) $operation->getMethod(),
-                $this->concretePathFor($operation),
-                \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
-                // The idempotent operations need their header here, or the 428
-                // would mask what this is asking about.
-                true === ($operation->getExtraProperties()['idempotency_key_required'] ?? null)
-                    ? ['Idempotency-Key' => Uuid::v4()->toRfc4122()]
-                    : [],
-            );
-
-            self::assertNotSame(403, $this->httpStatus(),
-                $name.' still refuses a caller who holds '.$required.'. Body: '
-                .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
         }
 
         self::assertGreaterThan(0, $examined, 'The loop had no subject.');
@@ -283,15 +281,10 @@ final class PermissionEnforcementTest extends ApiTestCase
         $aSiblingCodeWasHeld = 0;
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            $requirement = PermissionRequirement::of($operation);
-
-            if (PermissionRequirement::NONE === $requirement->kind()) {
-                continue;
-            }
-
             // Every code but ONE of the required ones, for each required one in turn (an all-of requirement must be
-            // refused whichever code is missing, naming that code).
-            foreach ($requirement->codes() as $required) {
+            // refused whichever code is missing, naming that code); a derived operation, for each key's resolved code.
+            foreach (PermissionSweepCases::for($operation, self::requirements()) as $case) {
+            foreach ($case['required'] as $required) {
                 ++$examined;
 
                 $held = array_values(array_diff($everyCode, [$required]));
@@ -307,17 +300,14 @@ final class PermissionEnforcementTest extends ApiTestCase
 
                 $this->actAs(self::TENANT_A, $held);
 
-                $this->send(
-                    (string) $operation->getMethod(),
-                    $this->concretePathFor($operation),
-                    \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null,
-                );
+                $this->send((string) $operation->getMethod(), $this->concretePathFor($operation), $case['body']);
 
                 self::assertSame(403, $this->httpStatus(),
-                    $name.' did not refuse a caller who holds every declared code except '.$required.'. Body: '
+                    $case['label'].' did not refuse a caller who holds every declared code except '.$required.'. Body: '
                     .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
-                self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $name);
-                self::assertSame($required, $this->json()['required_permission'], $name);
+                self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $case['label']);
+                self::assertSame($required, $this->json()['required_permission'], $case['label']);
+            }
             }
         }
 
@@ -639,5 +629,13 @@ final class PermissionEnforcementTest extends ApiTestCase
         $path = (string) $operation->getUriTemplate();
 
         return str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+    }
+
+    private static function requirements(): PermissionRequirements
+    {
+        $requirements = self::getContainer()->get(PermissionRequirements::class);
+        \assert($requirements instanceof PermissionRequirements);
+
+        return $requirements;
     }
 }

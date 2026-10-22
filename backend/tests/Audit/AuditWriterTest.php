@@ -22,11 +22,12 @@ use App\Modules\AuditLog\Infrastructure\StorageLocationAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
-use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Api\OperationSuccessRecipes;
 use App\Tests\Api\PurchaseOrderTestCase;
 use App\Tests\Api\TransactionBoundaryTest;
+use App\Tests\Support\PermissionSweepCases;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -940,19 +941,18 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         }
 
         $this->actAs(self::TENANT_A, []);
+        $requirements = self::getContainer()->get(PermissionRequirements::class);
+        \assert($requirements instanceof PermissionRequirements);
         foreach ($registry as $name => $operation) {
-            // P-0: NONE is skipped by kind. A derived operation is NOT skipped: it fails here until G5-D0 decides how an
-            // empty-handed caller drives it (the old `\is_string()` filter would have dropped it in silence).
-            $kind = PermissionRequirement::of($operation)->kind();
-            if (PermissionRequirement::NONE === $kind) {
-                continue;
-            }
-            self::assertSame(PermissionRequirement::ALL_OF, $kind, $name.' declares a derived permission; G5-D0 owes this sweep its arm.');
-            $this->send((string) $operation->getMethod(),
-                (string) preg_replace_callback('/\{[^}]+\}/', static fn (): string => Uuid::v4()->toRfc4122(), (string) $operation->getUriTemplate()),
-                \in_array($operation->getMethod(), ['POST', 'PATCH'], true) ? [] : null);
-            if (403 !== $this->httpStatus()) {
-                $failed[] = $name.' (no permission) answered '.$this->httpStatus().', not 403';
+            // P-0: NONE yields no case. G5-D0: a derived operation is driven over EVERY key of its map with body
+            // `{"resource": key}` (`PermissionSweepCases`), never skipped -- the old `\is_string()` filter dropped it.
+            foreach (PermissionSweepCases::for($operation, $requirements) as $case) {
+                $this->send((string) $operation->getMethod(),
+                    (string) preg_replace_callback('/\{[^}]+\}/', static fn (): string => Uuid::v4()->toRfc4122(), (string) $operation->getUriTemplate()),
+                    $case['body']);
+                if (403 !== $this->httpStatus()) {
+                    $failed[] = $case['label'].' (no permission) answered '.$this->httpStatus().', not 403';
+                }
             }
         }
 

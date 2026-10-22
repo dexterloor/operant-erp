@@ -62,6 +62,13 @@ final readonly class FrameworkProblemTranslator
 {
     private const VENDOR_UPDATE_REFUSAL = 'Update is not allowed for this operation.';
 
+    /**
+     * The deserializer's refusal of a body it cannot read. Public and single-sourced (G5-D0): `PermissionRequirements`
+     * reads a derived operation's `resource` BEFORE the deserializer runs and must refuse an unreadable body with exactly
+     * this body, so a caller cannot tell which of the two read it.
+     */
+    public const MALFORMED_BODY_MESSAGE = 'The request body could not be read as the declared JSON shape.';
+
     public function __construct(
         #[Autowire('%app.api_base_path%')]
         private string $basePath,
@@ -146,7 +153,7 @@ final readonly class FrameworkProblemTranslator
             $e instanceof NotEncodableValueException => ApiProblem::validationFailed([[
                 'pointer' => '',
                 'code' => 'malformed_body',
-                'message' => 'The request body could not be read as the declared JSON shape.',
+                'message' => self::MALFORMED_BODY_MESSAGE,
             ]]),
             // API Platform's own client-supplied-id refusal, which fires in
             // `ItemNormalizer::denormalize` before `allow_extra_attributes`

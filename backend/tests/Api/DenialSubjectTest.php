@@ -8,11 +8,16 @@ use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
+use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\Platform\Tenancy\SchemaManifest;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Support\PermissionSweepCases;
+use App\Tests\Support\PlantedDerivedPermission;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -39,6 +44,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class DenialSubjectTest extends PurchaseOrderTestCase
 {
+    use PlantedOperationGate;
+
     /**
      * The four shipped operations the spar derived from the live router as mislabelled (`roles-s2-spar.md` P15) — a
      * pin on the domain, so a derivation that silently loses one is red rather than green over less.
@@ -88,6 +95,75 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      */
     private const PATH_SEGMENT_OVERRIDES = [];
 
+    /**
+     * **G5-D0 / final RED M-1: a derived denial row is `(null, null)` with `permission_code` = the RESOLVED code** -- never
+     * the sentinel, and never `($resource, null)`, which `audit_log_subject_pair` refuses and `DenialAuditWriter` collapses.
+     * The code already names the resource (`customer.delete`); `SEC` to confirm (a resource on the row would go in
+     * `metadata`, a separate `SEC` call).
+     *
+     * Two halves. The registry's: every DERIVED operation, driven over EVERY key of its map (L-4), by an empty-handed caller
+     * over HTTP, with a per-operation count control -- none ships until G5-C2, so this half has no subject yet (both sides of
+     * the control are empty), never a skip. The
+     * planted one, which always runs: the real gate and denial writer on a planted derived operation, every key.
+     * *Mutation:* the gate records `PermissionGate::DERIVED` as the code → red.
+     */
+    #[Test]
+    public function aDerivedDenialNamesTheResolvedCode(): void
+    {
+        $requirements = self::getContainer()->get(PermissionRequirements::class);
+        \assert($requirements instanceof PermissionRequirements);
+
+        $derivedOperations = [];
+        $driven = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $requirement = PermissionRequirement::of($operation);
+            if (PermissionRequirement::DERIVED !== $requirement->kind()) {
+                continue;
+            }
+            $derivedOperations[(string) $name] = \count($requirements->codesByResource($requirement));
+            self::assertSame(0, preg_match('/\{[^}]+\}/', self::templateOf($operation)),
+                $name.' is derived and its path names a variable: its denial would record an id the derivation above skips.');
+
+            foreach (PermissionSweepCases::for($operation, $requirements) as $case) {
+                $driven[(string) $name] = ($driven[(string) $name] ?? 0) + 1;
+                $this->actAs(self::TENANT_A, []);
+                $this->send((string) $operation->getMethod(), self::templateOf($operation), $case['body']);
+                self::assertSame(403, $this->httpStatus(), $case['label'].' did not refuse a caller who holds nothing.');
+                self::assertSame([['subject_type' => null, 'subject_id' => null, 'permission_code' => $case['required'][0]]],
+                    $this->denialRowsOfTheActor(), $case['label'].'\'s denial row is not (null, null) + the resolved code.');
+            }
+        }
+
+        // Positive control (`g5-d0-red.md` L-4): every derived operation driven, over every key of its map.
+        self::assertSame($derivedOperations, $driven, 'A derived operation, or one of its keys, was not driven.');
+
+        $map = ['credit_note' => 'invoice.view', 'customer' => 'customer.delete', 'inventory_item' => 'inventory_item.delete'];
+        $planted = PlantedDerivedPermission::requirements(new PlantedDerivedPermission($map));
+        foreach ($map as $resource => $code) {
+            $this->actAs(self::TENANT_A, []);
+            $this->identities()->set(new Identity(self::TENANT_A, (string) $this->actorId, 'Fixture Actor', []));
+            $problem = $this->plantedDecision(
+                DerivedPermissionTest::DERIVED,
+                Request::create('/planted', 'POST', server: ['CONTENT_TYPE' => 'application/json'], content: (string) json_encode(['resource' => $resource])),
+                $planted,
+            );
+            self::assertSame($code, $problem?->getRequiredPermission(), $resource);
+            self::assertSame([['subject_type' => null, 'subject_id' => null, 'permission_code' => $code]], $this->denialRowsOfTheActor(),
+                'The planted derived denial for '.$resource.' is not (null, null) + the resolved code.');
+        }
+        // The registry half has no subject until G5-C2 ships a derived operation; that is a fact about the registry, not
+        // a skip -- an operation declared DERIVED is driven above with no edit here.
+    }
+
+    /** @return list<array{subject_type: ?string, subject_id: ?string, permission_code: ?string}> */
+    private function denialRowsOfTheActor(): array
+    {
+        /** @var list<array{subject_type: ?string, subject_id: ?string, permission_code: ?string}> */
+        return $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT subject_type, subject_id::text AS subject_id, permission_code FROM audit_log WHERE actor_user_id = ?::uuid AND event_type = ? ORDER BY occurred_at, id',
+            [$this->actorId, AuditEvent::AUTHZ_PERMISSION_DENIED]);
+    }
+
     #[Test]
     public function everyDenialNamesTheTypeOfTheResourceItsRecordedPathVariableAddresses(): void
     {
@@ -101,9 +177,11 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             // P-0: an empty-handed caller is refused naming the FIRST code (byte order), and the denial row's derived type
-            // reads that code -- so the first code is the one the derivation below is about. codes() throws on DERIVED.
+            // reads that code -- so the first code is the one the derivation below is about. G5-D0: a DERIVED operation is
+            // path-less (its code comes from the body) and is held by aDerivedDenialNamesTheResolvedCode, which also
+            // refuses a derived operation whose path names a variable -- so skipping it here hides nothing.
             $requirement = PermissionRequirement::of($operation);
-            $required = PermissionRequirement::NONE === $requirement->kind() ? null : $requirement->codes()[0];
+            $required = PermissionRequirement::ALL_OF === $requirement->kind() ? $requirement->codes()[0] : null;
             $template = self::templateOf($operation);
 
             if (null === $required || 0 === preg_match_all('/\{([^}]+)\}/', $template, $variables)) {
@@ -393,7 +471,9 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $template = self::templateOf($operation);
             $requirement = PermissionRequirement::of($operation);
-            $required = PermissionRequirement::NONE === $requirement->kind() ? null : $requirement->codes()[0];
+            // G5-D0: an item GET is never derived (a derived code comes from a body); aDerivedDenialNamesTheResolvedCode
+            // refuses a derived operation that addresses a path variable.
+            $required = PermissionRequirement::ALL_OF === $requirement->kind() ? $requirement->codes()[0] : null;
             if ('GET' !== $operation->getMethod() || !str_ends_with($template, '}') || null === $required) {
                 continue;
             }

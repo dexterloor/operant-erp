@@ -460,6 +460,19 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      *
      * @var array<string, string>
      */
+    /**
+     * **G5-D0 (2026-10-22): the carries the derived permission arm leaves for its first operations** (`g5-d0-red.md` M-1,
+     * M-2, L-5). The arm is built and proven on planted operations; these obligations need a real one, so they sit here and
+     * go red on arrival rather than in a list somebody has to remember.
+     *
+     * @var array<string, string>
+     */
+    private const OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES = [
+        'CreateBulkArchival' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
+        'CreateBulkRestoration' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
+        'CreateExport' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
+    ];
+
     private const OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE = [
         'UpdateSettings' => 'GetSettings (`SettingsReader`) reads `display_name` from `tenant.name`; in the same commit add '
             .'`tenant_settings.display_name` backfilled from `tenant.name`, move the read to it, grant `erp_app` column UPDATE on '
@@ -1821,6 +1834,27 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
         self::assertSame([], $arrived, \sprintf('%s has been built: %s Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)), implode(' ', $arrived)));
+    }
+
+    /**
+     * **G5-D0's carries** -- red the moment `CreateBulkArchival`, `CreateBulkRestoration` or `CreateExport` is in the
+     * generated spec. Controls as the siblings': the positive control, a non-empty map, a planted built key reported.
+     */
+    #[Test]
+    public function noDerivedOperationShipsWithoutTheDerivedArmsCarries(): void
+    {
+        $built = $this->builtOperationIds();
+
+        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
+            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
+        self::assertNotSame([], self::OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES, 'The derived-arm map is empty, so it holds over nothing.');
+        self::assertSame(['GetSettings' => 'x'], array_intersect_key(['GetSettings' => 'x', 'NoSuchOperation' => 'y'], $built),
+            'A planted owing operation that IS built was not reported: the intersection is blind.');
+
+        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES, $built);
+
+        self::assertSame([], $arrived, \sprintf('%s has been built, and %s Do not hand-edit this pin to green.',
+            implode(', ', array_keys($arrived)), implode(' ', array_unique($arrived))));
     }
 
     /**

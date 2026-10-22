@@ -56,6 +56,9 @@ final class PermissionRequirementReadScanTest extends TestCase
     private const DECLARATION_FIXTURES = [
         'tests/Platform/Security/PermissionRequirementTest.php',
         'tests/Api/PermissionGateRequirementTest.php',
+        // G5-D0 (2026-10-22): the derived arm is proven on planted operations until G5-C2 ships a derived one.
+        'tests/Api/DerivedPermissionTest.php',
+        'tests/Api/PermissionSweepCasesTest.php',
     ];
 
     #[Test]

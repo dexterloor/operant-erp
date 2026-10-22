@@ -4,39 +4,31 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
-use ApiPlatform\Metadata\ApiResource;
-use ApiPlatform\Metadata\Get;
-use ApiPlatform\Metadata\Operations;
-use ApiPlatform\Metadata\Resource\Factory\ResourceMetadataCollectionFactoryInterface;
-use ApiPlatform\Metadata\Resource\ResourceMetadataCollection;
-use App\Modules\AuditLog\Infrastructure\DenialAuditWriter;
-use App\Platform\Http\Problem\ApiProblem;
-use App\Platform\Security\CurrentOperation;
 use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
 use App\Platform\Security\PermissionRequirements;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Support\PlantedDerivedPermission;
 use PHPUnit\Framework\Attributes\Test;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpKernel\Event\ControllerEvent;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
  * **P-0's positive controls for the gate's arms** (`g3-g7b-final-red.md` F-H1, F-L1, F-L7).
  *
- * No shipped operation declares an all-of list or a derived permission yet (G3-C1 and G5-D0 add them), so the HTTP sweeps
+ * No shipped operation declares an all-of list or a derived permission yet (G3-C1 and G5-C2 add them), so the HTTP sweeps
  * cannot reach those arms. This drives the REAL gate -- its real identity, denial writer and requirement service from the
  * container -- against a synthetic operation, so each arm is shown deciding:
  *
  *  - all-of: holding nothing names the FIRST code in byte order; holding the first names the second; holding both passes;
  *    the denial row records the code the 403 names;
- *  - derived: fails closed (LogicException), never a pass and never a 403 that implies somebody was asked;
+ *  - derived with an unwired resolver: fails closed (LogicException); the wired arm is `DerivedPermissionTest` (G5-D0);
  *  - none: passes with no identity at all;
  *  - undeclared: the gate's long-standing LogicException text.
  */
 final class PermissionGateRequirementTest extends ApiTestCase
 {
+    use PlantedOperationGate;
+
     #[Test]
     public function anAllOfRequirementNamesTheFirstMissingCodeAndPassesWhenEveryCodeIsHeld(): void
     {
@@ -67,15 +59,19 @@ final class PermissionGateRequirementTest extends ApiTestCase
         self::assertNull($this->refusalFor($declared, ['inventory_item.view']));
     }
 
+    /**
+     * G5-D0: a derived operation whose resolver id no tagged service provides is still a wiring error -- fails closed,
+     * never a pass and never a 403 that implies somebody was asked. (The wired arm: `DerivedPermissionTest`.)
+     */
     #[Test]
-    public function aDerivedRequirementFailsClosedUntilG5D0WiresIt(): void
+    public function aDerivedRequirementWithAnUnwiredResolverFailsClosed(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('G5-D0 adds the DERIVED arm');
+        $this->expectExceptionMessage('which no service tagged "app.derived_permission" provides');
 
         $this->refusalFor([
             PermissionGate::OPERATION_PERMISSION => PermissionGate::DERIVED,
-            PermissionGate::DERIVED_PERMISSION => 'app.planted_resolver',
+            PermissionGate::DERIVED_PERMISSION => 'app.unwired_resolver',
         ], ['forecast.view', 'stock_level.view', 'inventory_item.view']);
     }
 
@@ -97,8 +93,9 @@ final class PermissionGateRequirementTest extends ApiTestCase
     }
 
     /**
-     * F-H1 point 3: the container-aware half. NONE has no codes, ALL_OF its own, and DERIVED throws until G5-D0 adds the
-     * arm -- so `everyDeclaredPermission()` and the catalogue check cannot silently drop a derived operation.
+     * F-H1 point 3: the container-aware half. NONE has no codes, ALL_OF its own, DERIVED its resolver's values -- unique and
+     * byte-sorted, a DISJUNCTION (G5-D0) -- so `everyDeclaredPermission()` and the catalogue check cannot silently drop a
+     * derived operation; an unwired resolver still throws.
      */
     #[Test]
     public function thePossibleCodesOfEachKind(): void
@@ -110,9 +107,48 @@ final class PermissionGateRequirementTest extends ApiTestCase
         self::assertSame(['a.view'], $requirements->possibleCodes(PermissionRequirement::fromDeclaration('a.view')));
         self::assertSame(['a.view', 'b.view'], $requirements->possibleCodes(PermissionRequirement::fromDeclaration(['a.view', 'b.view'])));
 
+        $planted = PlantedDerivedPermission::requirements(new PlantedDerivedPermission([
+            'zeta' => 'zeta.delete', 'credit_note' => 'invoice.view', 'invoice' => 'invoice.view', 'alpha' => 'alpha.delete',
+        ]));
+        $derived = PermissionRequirement::fromDeclaration(PermissionGate::DERIVED, PlantedDerivedPermission::ID);
+        self::assertSame(['alpha.delete', 'invoice.view', 'zeta.delete'], $planted->possibleCodes($derived),
+            'A derived requirement\'s possible codes are its resolver\'s values, de-duplicated and byte-sorted.');
+        self::assertSame(['alpha', 'credit_note', 'invoice', 'zeta'], array_keys($planted->codesByResource($derived)),
+            'The map is served keys byte-sorted, so "every key, in order" is defined (L-4).');
+
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('which no tagged service provides');
+        $this->expectExceptionMessage('which no service tagged "app.derived_permission" provides');
         $requirements->possibleCodes(PermissionRequirement::fromDeclaration(PermissionGate::DERIVED, 'app.planted_resolver'));
+    }
+
+    /** G5-D0: a resolver's map is checked against the contract, not trusted. */
+    #[Test]
+    public function aResolverOutsideTheContractIsAWiringError(): void
+    {
+        $derived = PermissionRequirement::fromDeclaration(PermissionGate::DERIVED, PlantedDerivedPermission::ID);
+        $violations = [
+            'empty' => [],
+            'sentinel' => ['item' => PermissionGate::DERIVED],
+            'not a code' => ['item' => 'Item.Delete'],
+            'empty resource' => ['' => 'a.delete'],
+            'integer resource' => [7 => 'a.delete'],
+            'non-string code' => ['item' => ['a.delete']],
+        ];
+        foreach ($violations as $label => $map) {
+            try {
+                PlantedDerivedPermission::requirements(new PlantedDerivedPermission($map))->possibleCodes($derived);
+                self::fail('A resolver map that is '.$label.' was accepted.');
+            } catch (\LogicException $e) {
+                self::assertStringContainsString(PlantedDerivedPermission::ID, $e->getMessage(), $label);
+            }
+        }
+
+        $notAResolver = new PermissionRequirements(new \Symfony\Component\DependencyInjection\ServiceLocator([
+            PlantedDerivedPermission::ID => static fn (): object => new \stdClass(),
+        ]));
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('is not a');
+        $notAResolver->possibleCodes($derived);
     }
 
     /**
@@ -135,40 +171,6 @@ final class PermissionGateRequirementTest extends ApiTestCase
      */
     private function decide(array $extra): ?string
     {
-        $operation = new Get(name: 'PlantedOperation', extraProperties: $extra);
-        $factory = new class($operation) implements ResourceMetadataCollectionFactoryInterface {
-            public function __construct(private readonly Get $operation)
-            {
-            }
-
-            public function create(string $resourceClass): ResourceMetadataCollection
-            {
-                return new ResourceMetadataCollection($resourceClass, [
-                    (new ApiResource())->withOperations(new Operations(['PlantedOperation' => $this->operation])),
-                ]);
-            }
-        };
-
-        $container = self::getContainer();
-        $denials = $container->get(DenialAuditWriter::class);
-        $requirements = $container->get(PermissionRequirements::class);
-        \assert($denials instanceof DenialAuditWriter && $requirements instanceof PermissionRequirements);
-
-        $gate = new PermissionGate(new CurrentOperation($factory), $this->identities(), $denials, $requirements);
-
-        $request = Request::create('/planted');
-        $request->attributes->set('_api_resource_class', self::class);
-        $request->attributes->set('_api_operation_name', 'PlantedOperation');
-        $request->attributes->set('_route_params', []);
-        $kernel = self::$kernel;
-        \assert($kernel instanceof HttpKernelInterface);
-
-        try {
-            $gate(new ControllerEvent($kernel, static fn (): null => null, $request, HttpKernelInterface::MAIN_REQUEST));
-        } catch (ApiProblem $problem) {
-            return $problem->getRequiredPermission();
-        }
-
-        return null;
+        return $this->plantedDecision($extra)?->getRequiredPermission();
     }
 }

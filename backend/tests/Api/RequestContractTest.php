@@ -6,6 +6,8 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Security\PermissionRequirement;
+use App\Platform\Security\PermissionRequirements;
 use App\Platform\Tenancy\SchemaManifest;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -220,6 +222,16 @@ final class RequestContractTest extends PurchaseOrderTestCase
                 'bool' => false,
                 default => 'x',
             };
+        }
+
+        // G5-D0 (`g5-d0-red.md` M-1): a derived operation's gate reads `resource` before the deserializer, and refuses `'x'`
+        // as 422 `unknown_resource` -- which would pre-empt the probe-field refusal this test demands. Name a resource the
+        // resolver holds (the first key, byte order), so the body reaches the deserializer.
+        $requirement = PermissionRequirement::of($operation);
+        if (PermissionRequirement::DERIVED === $requirement->kind()) {
+            $requirements = static::getContainer()->get(PermissionRequirements::class);
+            \assert($requirements instanceof PermissionRequirements);
+            $body[PermissionRequirements::RESOURCE_FIELD] = array_key_first($requirements->codesByResource($requirement));
         }
 
         return $body;
