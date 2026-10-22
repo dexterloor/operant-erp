@@ -27,15 +27,28 @@ use Symfony\Component\Uid\Uuid;
  * fields. **Never values.** `recordRestored()` (C5 C2a) and `recordDeleted()` (C5 C2b, `DeleteSupplier`) take no metadata
  * (`{}`).
  *
+ * **The catalogue trail** (G3-C0, 2026-10-22; `RESIDUAL_GAPS.md` G-41's closing work): `recordCatalogueCreated()`,
+ * `recordCatalogueUpdated()` and `recordCatalogueDeleted()` write `supplier_product.*`, subject the catalogue entry (never
+ * the supplier, design D-C0-1), business, no IP. Created/deleted carry only the two bare ids `{supplier_id,
+ * inventory_item_id}` (the entry is hard-deleted, so the ids keep its chain findable); updated carries only the **names** of
+ * the changed fields, from {@see self::CATALOGUE_FIELDS}. **Never a value: `unit_cost` is money (PC-12).** Who changes a
+ * catalogue cost is the vendor-fraud shape again — `buyer` holds `supplier_product.edit` and `purchase_order.create`.
+ *
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_CREATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_UPDATED
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_RESTORED
  * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_DELETED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_PRODUCT_CREATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_PRODUCT_UPDATED
+ * @see \App\SharedKernel\ValueObject\AuditEvent::SUPPLIER_PRODUCT_DELETED
  */
 final readonly class SupplierAuditWriter
 {
     /** The only names `supplier.updated` may carry: `UpdateSupplier`'s five accepted wire fields (§4.2). */
     private const FIELDS = ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'];
+
+    /** The only names `supplier_product.updated` may carry: `UpdateSupplierProduct`'s four accepted wire fields (§4.2). */
+    private const CATALOGUE_FIELDS = ['lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'];
 
     public function __construct(private TenantContext $tenants)
     {
@@ -82,9 +95,52 @@ final readonly class SupplierAuditWriter
         $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_DELETED, $supplierId, '{}');
     }
 
-    private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $supplierId, string $metadata): void
+    /**
+     * `supplier_product.created` — `CreateSupplierProduct` (G3-C0), after its INSERT, in its transaction:
+     * `{"supplier_id", "inventory_item_id"}`, two bare ids, never a value.
+     */
+    public function recordCatalogueCreated(string $tenantId, string $actorUserId, string $actorLabel, string $supplierProductId, string $supplierId, string $inventoryItemId): void
     {
-        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $event, $supplierId, $metadata): void {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_PRODUCT_CREATED, $supplierProductId,
+            json_encode(['supplier_id' => $supplierId, 'inventory_item_id' => $inventoryItemId], \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `supplier_product.updated` — `UpdateSupplierProduct` (G3-C0), after its UPDATE, in its transaction: `{"fields": [...]}`,
+     * the wire names whose submitted value differs from the locked entry (numerically at column scale), sorted, never values.
+     *
+     * @param list<string> $fields
+     */
+    public function recordCatalogueUpdated(string $tenantId, string $actorUserId, string $actorLabel, string $supplierProductId, array $fields): void
+    {
+        if ([] === $fields) {
+            throw new \LogicException('supplier_product.updated names the fields that changed; an update that changed nothing writes no row.');
+        }
+        foreach ($fields as $field) {
+            if (!\in_array($field, self::CATALOGUE_FIELDS, true)) {
+                throw new \LogicException(\sprintf('"%s" is not a field UpdateSupplierProduct accepts, so supplier_product.updated cannot name it.', $field));
+            }
+        }
+        $fields = array_values(array_unique($fields));
+        sort($fields);
+
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_PRODUCT_UPDATED, $supplierProductId,
+            json_encode(['fields' => $fields], \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * `supplier_product.deleted` — `DeleteSupplierProduct` (G3-C0), after a one-row DELETE, in its transaction:
+     * `{"supplier_id", "inventory_item_id"}` — the row is gone, so these keep its chain findable.
+     */
+    public function recordCatalogueDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $supplierProductId, string $supplierId, string $inventoryItemId): void
+    {
+        $this->record($tenantId, $actorUserId, $actorLabel, AuditEvent::SUPPLIER_PRODUCT_DELETED, $supplierProductId,
+            json_encode(['supplier_id' => $supplierId, 'inventory_item_id' => $inventoryItemId], \JSON_THROW_ON_ERROR));
+    }
+
+    private function record(string $tenantId, string $actorUserId, string $actorLabel, string $event, string $subjectId, string $metadata): void
+    {
+        $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($tenantId, $actorUserId, $actorLabel, $event, $subjectId, $metadata): void {
             $em->getConnection()->executeStatement(<<<'SQL'
                 INSERT INTO audit_log
                     (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
@@ -99,7 +155,7 @@ final readonly class SupplierAuditWriter
                     $actorLabel,
                     // Read off the catalogue: `audit_log_subject_pair` requires the pair to arrive together.
                     AuditEvent::SUBJECT_TYPES[$event],
-                    $supplierId,
+                    $subjectId,
                     $metadata,
                 ]);
         });

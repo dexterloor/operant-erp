@@ -94,6 +94,9 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-22 with the catalogue trail in the tree (G3-C0): ONE edge line added, A-5:
+  # `SupplierProductWriter -> SupplierAuditWriter` (`supplier_product.created` / `.updated` / `.deleted`). The three commands
+  # and the by-TAG count: see `docs/session13/g3-c0-progress.md` (measured there, not restated here). No LAYER edge.)
   # (Re-derived 2026-10-22 with `RestoreRole` in the tree (remaining-ops G2): the three commands return **155 / 91 / 37** --
   # ONE edge line added, A-5: `RoleRestoration -> RoleAuditWriter` (`role.restored`, `RoleDeletion`'s shape). By TAG (every
   # `skip_violations` entry line, by its trailing `# A-n`, counted with awk) **161: A-1 1, A-5 35, A-7 90, A-10 10, A-12 25** (counted on `49bf62c`; stacked on G5-C0 the A-10 tag is **11**, LEAD 2026-10-22) --
@@ -667,6 +670,11 @@ deptrac:
     App\Modules\Suppliers\Application\SupplierWriter:
       # Suppliers slice 1 C2, 2026-10-12: `supplier.created` / `supplier.updated` written synchronously in the writing
       # transaction (owner Q-S5; `CustomerWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\SupplierAuditWriter   # A-5
+    App\Modules\Suppliers\Application\SupplierProductWriter:
+      # G3-C0, 2026-10-22 (`RESIDUAL_GAPS.md` G-41's closing work): `supplier_product.created` / `.updated` / `.deleted`
+      # written synchronously in the writing transaction through the supplier writer's own audit writer (`SupplierWriter`'s
+      # shape). Raw SQL for the writes, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\SupplierAuditWriter   # A-5
     App\Modules\Warehouses\Application\WarehouseWriter:
       # Warehouses slice 1 C2, 2026-10-13: `warehouse.created` / `warehouse.updated` written synchronously in the writing

@@ -227,6 +227,12 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // `storage_location.restored` (C2) and `storage_location.deleted` (C3, `DeleteStorageLocation`; `SEC` S-1).
         'storage_location.restored',
         'storage_location.deleted',
+        // Edited by hand 2026-10-22 (G3-C0, G-41's closing work) on the `supplier.*` filing's terms (design §1.2 D-C0-1/-2;
+        // `SEC` TO CONFIRM the catalogue block): BUSINESS under PC-11 (4a), subject the catalogue entry, field names never
+        // values (PC-12: `unit_cost` is money), no IP. Their subject is `supplier_product`, so (4c) does not reach them.
+        'supplier_product.created',
+        'supplier_product.updated',
+        'supplier_product.deleted',
     ];
 
     /**

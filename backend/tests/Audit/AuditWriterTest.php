@@ -420,6 +420,14 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $supplierWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122(), fields: ['name']);
         // C5 C2a: `supplier.restored`, BUSINESS (listed AND driven).
         $supplierWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierId: Uuid::v4()->toRfc4122());
+        // G3-C0 (G-41's closing work): `supplier_product.created` / `.updated` / `.deleted`, BUSINESS, through the same writer
+        // (listed AND driven).
+        $supplierWriter->recordCatalogueCreated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierProductId: Uuid::v4()->toRfc4122(),
+            supplierId: Uuid::v4()->toRfc4122(), inventoryItemId: Uuid::v4()->toRfc4122());
+        $supplierWriter->recordCatalogueUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierProductId: Uuid::v4()->toRfc4122(),
+            fields: ['unit_cost']);
+        $supplierWriter->recordCatalogueDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', supplierProductId: Uuid::v4()->toRfc4122(),
+            supplierId: Uuid::v4()->toRfc4122(), inventoryItemId: Uuid::v4()->toRfc4122());
         // Warehouses slice 1 C2: `warehouse.created` / `warehouse.updated`, BUSINESS (listed AND driven).
         $warehouseWriter = self::getContainer()->get(WarehouseAuditWriter::class);
         \assert($warehouseWriter instanceof WarehouseAuditWriter);

@@ -348,6 +348,15 @@ namespace App\SharedKernel\ValueObject;
  *     generated) plus this one; it supersedes `Version20261020000500`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited
  *     by hand with one literal.
  *
+ *   - **`SUPPLIER_PRODUCT_CREATED`, `SUPPLIER_PRODUCT_UPDATED` and `SUPPLIER_PRODUCT_DELETED`**, 2026-10-22, G3-C0 —
+ *     `RESIDUAL_GAPS.md` G-41's closing work (owner Q-S5's condition for any screen that copies a catalogue cost;
+ *     `docs/session13/g3-g7b-reorder-settings-design.md` §1, Revision 1 FINAL), filed **`BUSINESS`** by the builder on the
+ *     `supplier.*` filing's terms (design D-C0-1/-2; `SEC` to confirm the catalogue block), before the code; steps 3–5 done
+ *     **with their writer in the same commit** (`SupplierAuditWriter::recordCatalogue*()`). Step 5 is
+ *     `Version20261022005000`, whose literal list is the live constraint's fifty-six members (read off `pg_constraint`, not
+ *     generated) plus these three; it supersedes `Version20261022000100`. **Step 6 does not apply.** `PINNED_ALLOWLIST`
+ *     edited by hand with three literals.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -957,6 +966,41 @@ final class AuditEvent
     public const SUPPLIER_DELETED = 'supplier.deleted';
 
     /**
+     * **An item added to a supplier's catalogue** — `CreateSupplierProduct` (G3-C0, 2026-10-22; `RESIDUAL_GAPS.md` G-41's
+     * closing work). Subject `('supplier_product', id)` — the catalogue entry, never the supplier (design D-C0-1: a
+     * supplier-subject row would show catalogue changes in the supplier's History to a `supplier.view` holder who lacks
+     * `supplier_product.view`, a PC-9 widening; History is read under `supplier_product.view`). **Business** under PC-11 (4a):
+     * about the entry row's own state. No IP, no permission code. `metadata` `{"supplier_id", "inventory_item_id"}` — bare ids,
+     * allowed (`API.md` §4.4.3), never a value. **A named deviation from `customer_contact.created`'s `{}`** (RED L-6): the
+     * entry is HARD-deleted, so once it is gone these ids are what makes its chain findable through `ListAuditLogEntries`.
+     * Written by `SupplierAuditWriter::recordCatalogueCreated()` in `SupplierProductWriter::create()`'s transaction, after the
+     * INSERT; a refused create (the duplicate 409, an archived supplier, a malformed body, a 404) writes none. **Step 6 does
+     * not apply.** `SEC` to confirm.
+     */
+    public const SUPPLIER_PRODUCT_CREATED = 'supplier_product.created';
+
+    /**
+     * **A catalogue entry's terms changed** — `UpdateSupplierProduct` (G3-C0, 2026-10-22; G-41). Subject
+     * `('supplier_product', id)`. **Business** under PC-11 (4a). No IP, no permission code, `metadata` `{"fields": [...]}` —
+     * the wire names of the changed fields among `unit_cost`, `lead_time_days`, `minimum_order_quantity`, `supplier_sku`,
+     * sorted, **never values: `unit_cost` is a money amount, and `AuditLogEntry.metadata` never carries one (PC-12)**; lead
+     * time and MOQ follow `supplier.updated`'s names-only shape. **No row when nothing changed**: the diff is taken under the
+     * entry's row lock (`FOR NO KEY UPDATE`, after the parent's `FOR KEY SHARE`) and compares numerically at column scale.
+     * Written by `SupplierAuditWriter::recordCatalogueUpdated()` in `SupplierProductWriter::update()`'s transaction, after the
+     * UPDATE. **Step 6 does not apply.** `SEC` to confirm.
+     */
+    public const SUPPLIER_PRODUCT_UPDATED = 'supplier_product.updated';
+
+    /**
+     * **An item removed from a supplier's catalogue** — `DeleteSupplierProduct` (G3-C0, 2026-10-22; G-41). Subject
+     * `('supplier_product', id)` — the row that is gone; its History stays readable by id (G-52's precedent). **Business**
+     * under PC-11 (4a). No IP, no permission code, `metadata` `{"supplier_id", "inventory_item_id"}` (as `.created`, for the
+     * same reason). Written by `SupplierAuditWriter::recordCatalogueDeleted()` after a one-row DELETE, in its transaction;
+     * none on a 0-row DELETE (404) or a refusal. **Step 6 does not apply.** `SEC` to confirm.
+     */
+    public const SUPPLIER_PRODUCT_DELETED = 'supplier_product.deleted';
+
+    /**
      * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
      * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
      * customer is derivable from it while the row lives; once `DeleteCustomerAddress` removes it, the
@@ -1161,6 +1205,9 @@ final class AuditEvent
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
         self::SUPPLIER_DELETED,
+        self::SUPPLIER_PRODUCT_CREATED,
+        self::SUPPLIER_PRODUCT_UPDATED,
+        self::SUPPLIER_PRODUCT_DELETED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1258,6 +1305,9 @@ final class AuditEvent
         self::SUPPLIER_UPDATED,
         self::SUPPLIER_RESTORED,
         self::SUPPLIER_DELETED,
+        self::SUPPLIER_PRODUCT_CREATED,
+        self::SUPPLIER_PRODUCT_UPDATED,
+        self::SUPPLIER_PRODUCT_DELETED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1346,6 +1396,10 @@ final class AuditEvent
         self::SUPPLIER_RESTORED => 'supplier',
         // C5 C2b: the supplier row whose own state changed.
         self::SUPPLIER_DELETED => 'supplier',
+        // G3-C0 (G-41): the catalogue entry, never the supplier (D-C0-1; `supplier_product` keeps its own `.view`).
+        self::SUPPLIER_PRODUCT_CREATED => 'supplier_product',
+        self::SUPPLIER_PRODUCT_UPDATED => 'supplier_product',
+        self::SUPPLIER_PRODUCT_DELETED => 'supplier_product',
         // C5 C4a: the customer row whose own state changed.
         self::CUSTOMER_RESTORED => 'customer',
         // C5 C4b: the customer row whose own state changed.

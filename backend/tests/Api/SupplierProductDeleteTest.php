@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -17,17 +18,20 @@ use Symfony\Component\Uid\Uuid;
  * Pinned here: another supplier's entry under this path is not found and survives (the pair predicate); an archived
  * supplier's catalogue cannot lose an entry; re-adding a removed item is a fresh create (no key to replay); removing every
  * entry lets the supplier's currency change again (owner Q-S4 (ii) — the path the refusal's own sentence names, end to end
- * through the API); a placed purchase-order line keeps its snapshot while a new line for the item is refused; and no audit
- * row is written (G-41 covers removal).
+ * through the API); a placed purchase-order line keeps its snapshot while a new line for the item is refused; and — since
+ * G3-C0 (2026-10-22, G-41 closed) — exactly one `supplier_product.deleted` `{supplier_id, inventory_item_id}` row on the entry
+ * (never on the supplier), and the removed entry's History stays readable by id to `supplier_product.view` holders.
+ * *(Until G3-C0 this read "and no audit row is written (G-41 covers removal)"; the pin was flipped deliberately.)*
  */
 final class SupplierProductDeleteTest extends PurchaseOrderTestCase
 {
-    /** 204, no body; the row is gone; a repeat is the same 404 as an unknown id; no audit row (G-41). */
+    /** 204, no body; the row is gone; a repeat is the same 404 as an unknown id; one `supplier_product.deleted` row (G3-C0). */
     #[Test]
     public function aBuyerRemovesAnItemFromASuppliersCatalogue(): void
     {
         $supplier = $this->seedSupplier(self::TENANT_A, 'Delisting Supplier');
-        $entry = $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-DEL-1'));
+        $item = $this->seedItem(self::TENANT_A, 'SKU-DEL-1');
+        $entry = $this->seedSupplierProduct(self::TENANT_A, $supplier, $item);
         $kept = $this->seedSupplierProduct(self::TENANT_A, $supplier, $this->seedItem(self::TENANT_A, 'SKU-DEL-2'));
         $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::BUYER));
 
@@ -37,14 +41,59 @@ final class SupplierProductDeleteTest extends PurchaseOrderTestCase
         self::assertSame('', (string) $this->client()->getResponse()->getContent(), 'A 204 carried a body.');
         self::assertSame([['id' => $kept]], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id::text AS id FROM supplier_product'),
             'The entry was not removed, or another entry went with it.');
-        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE subject_id IN (?::uuid, ?::uuid)', [$entry, $supplier]),
-            'A catalogue removal left an audit row: G-41 records removal as a gap, not an event.');
+        // G3-C0 (G-41 closed): the entry half flipped from "no row" to exactly one row, deliberately; the supplier half stays
+        // "no row" (the subject is the entry, D-C0-1).
+        self::assertSame([array_replace($this->businessRow(AuditEvent::SUPPLIER_PRODUCT_DELETED, 'supplier_product', $entry), [
+            'metadata' => (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m',
+                [json_encode(['supplier_id' => $supplier, 'inventory_item_id' => $item], \JSON_THROW_ON_ERROR)])[0]['m'],
+        ])], $this->auditRowsOf(AuditEvent::SUPPLIER_PRODUCT_DELETED), 'A catalogue removal must write exactly one supplier_product.deleted row on the entry.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log WHERE subject_id = ?::uuid', [$supplier]),
+            'A catalogue removal wrote a row on the supplier: the subject is the entry (D-C0-1).');
 
         $this->delete($supplier, $entry);
         $repeat = [$this->httpStatus(), (string) $this->client()->getResponse()->getContent()];
         $this->delete($supplier, Uuid::v4()->toRfc4122());
         self::assertSame([404, $repeat[1]], [$repeat[0], (string) $this->client()->getResponse()->getContent()],
             'A repeated delete is not the same 404 as an unknown entry.');
+        self::assertCount(1, $this->auditRowsOf(AuditEvent::SUPPLIER_PRODUCT_DELETED), 'A delete that removed nothing (404) wrote a row.');
+    }
+
+    /**
+     * **A removed entry's History is still readable by id** (G-52's precedent, code-level H-3 (ii); design §1.2 D-C0-1): added,
+     * changed and removed through the API, its three rows are served newest first to a `supplier_product.view` holder. The
+     * 403 seat (RED L-3) holds `audit_log.view_record` and `supplier.view` and lacks only `supplier_product.view`, so the
+     * refusal can come from no other code. Mutations M-C0-3 (subject the supplier) and M-C0-5 (drop the map entry) → red.
+     */
+    #[Test]
+    public function aRemovedEntrysHistoryIsStillReadableById(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'History Supplier');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-HIST');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::BUYER));
+        $this->send('POST', '/suppliers/'.$supplier.'/products', ['inventory_item_id' => $item, 'supplier_sku' => 'SP-HIST', 'unit_cost' => '2',
+            'lead_time_days' => 3], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $entry = (string) $this->json()['id'];
+        $this->send('PATCH', '/suppliers/'.$supplier.'/products/'.$entry, ['unit_cost' => '3']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->delete($supplier, $entry);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM supplier_product WHERE id = ?::uuid', [$entry]), 'Control: the entry is not gone.');
+
+        $this->actAs(self::TENANT_A, ['audit_log.view_record', 'supplier_product.view']);
+        $this->send('GET', '/audit-log/records?subject_type=supplier_product&subject_id='.$entry);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([AuditEvent::SUPPLIER_PRODUCT_DELETED, AuditEvent::SUPPLIER_PRODUCT_UPDATED, AuditEvent::SUPPLIER_PRODUCT_CREATED],
+            array_column($this->json()['items'], 'event_type'), 'A removed catalogue entry\'s History must stay readable by id to supplier_product.view holders.');
+
+        $this->actAs(self::TENANT_A, ['audit_log.view_record', 'supplier.view']);
+        $this->send('GET', '/audit-log/records?subject_type=supplier_product&subject_id='.$entry);
+        self::assertSame(403, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('supplier_product.view', $this->json()['required_permission'] ?? null, 'The 403 must name supplier_product.view, the subject type\'s own code.');
+
+        $this->send('GET', '/audit-log/records?subject_type=supplier&subject_id='.$supplier);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([], $this->json()['items'], 'The supplier\'s History shows its catalogue edits: the subject is the entry (new Low gap, G-53\'s twin).');
     }
 
     /** ST-5: another supplier's entry under this supplier's path is not found and survives (the pair names the row). */

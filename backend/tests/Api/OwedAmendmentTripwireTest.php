@@ -446,13 +446,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     ];
 
     /**
-     * **`RESIDUAL_GAPS.md` G-41's hard trigger, mechanised** (suppliers slice 1 C3, 2026-10-12; owner Q-S5, design L-7): the
-     * catalogue writes record no actor, accepted only while no suggestion or document reads a catalogue value. The first
-     * operation that does owes the trail. Keyed by `operationId` (the pick-read precedent, `1076ba3`). A PIN, red on arrival.
-     *
-     * @var array<string, string>
-     */
-    /**
      * **`GetSettings` reads `display_name` from `tenant.name` until `UpdateSettings` moves it** (remaining-ops G7a,
      * 2026-10-21; owner ruling RO-S1, `docs/session13/remaining-ops-ruling.md`; fresh RED M-3, `cursor-g7a-red.md`). The
      * plan's shipped-behaviour notice — *"GetSettings' `display_name` source moves from `tenant.name` to `tenant_settings`,
@@ -482,10 +475,25 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'moves; the value shown does not change).',
     ];
 
+    /**
+     * **`RESIDUAL_GAPS.md` G-41's hard trigger, mechanised** (suppliers slice 1 C3, 2026-10-12; owner Q-S5, design L-7) —
+     * keyed by `operationId` (the pick-read precedent, `1076ba3`), a PIN, red on arrival. **Reworded deliberately 2026-10-22
+     * (G3-C0, design §1.5 + RED M-4):** the catalogue trail exists since G3-C0 (`supplier_product.created` / `.updated` /
+     * `.deleted`; G-41 CLOSED), so the entry and the failure message carry ONLY the remaining obligation, the archived-supplier
+     * clause. The map cannot be emptied (the anti-vacuity line), so it retires whole, with its method, in the commit that
+     * builds `ListReorderSuggestions` (G3-C1). *(Until G3-C0 this docblock read "the catalogue writes record no actor,
+     * accepted only while no suggestion or document reads a catalogue value. The first operation that does owes the trail",
+     * and this docblock had been separated from its map by the G7a block above; the entry read "serves `unit_cost` and
+     * `lead_time_days` copied from `supplier_product` into a suggestion; and (C5 C2b, design §6.3) an item's preferred
+     * supplier may be archived …: do not suggest ordering from an archived supplier.")*
+     *
+     * @var array<string, string>
+     */
     private const OPERATIONS_OWING_THE_CATALOGUE_TRAIL = [
-        'ListReorderSuggestions' => 'serves `unit_cost` and `lead_time_days` copied from `supplier_product` into a suggestion; '
-            .'and (C5 C2b, design §6.3) an item\'s preferred supplier may be archived (`DeleteSupplier` keeps the reference and '
-            .'the catalogue): do not suggest ordering from an archived supplier.',
+        'ListReorderSuggestions' => 'the catalogue trail exists since G3-C0, so the copied `unit_cost` and `lead_time_days` are '
+            .'attributable; but (C5 C2b, design §6.3) an item\'s preferred supplier may be archived (`DeleteSupplier` keeps the '
+            .'reference and the catalogue): do not suggest ordering from an archived preferred supplier. Retire this map and '
+            .'its method in the commit that builds `ListReorderSuggestions` with `anArchivedPreferredSupplierIsNeverSuggested`.',
     ];
 
     // **RETIRED 2026-10-19 (customers slice 2 C3): `OPERATIONS_OWING_THE_PARENT_LOCK` and its arrival pin
@@ -1326,7 +1334,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * **G-41's trigger** (suppliers slice 1 C3). Red the moment any key of {@see self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL}
+     * **G-41's trigger** (suppliers slice 1 C3) — **since G3-C0 (2026-10-22) only its archived-supplier clause**: the trail
+     * G-41 owed is built and G-41 is CLOSED, so the message no longer asks for it (RED M-4: rewording only the map would leave
+     * C1 red demanding work C0 already did). Red the moment any key of {@see self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL}
      * is in the generated spec. **Controls, same test:** the positive control every sibling uses; a non-empty map; and the
      * intersection over a literal map naming a BUILT operation (`ListSupplierProducts`) must report it. Mutation: plant
      * `ListSupplierProducts` as a key → red naming it.
@@ -1347,10 +1357,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_CATALOGUE_TRAIL, $built);
 
         self::assertSame([], $arrived, \sprintf(
-            '%s has been built and %s RESIDUAL_GAPS.md G-41 is owed in THIS COMMIT: who changed a catalogue cost, lead time or '
-            .'minimum order is not recorded (owner Q-S5, 2026-10-12). Mint `supplier_product.created` / `.updated` / `.deleted` '
-            .'(field names, never values; `SEC` files them under PC-11 (4a)) with their writers in one catalogue re-issue, or '
-            .'have `SEC` re-rate G-41 with this reader in view. Do not hand-edit this pin to green.',
+            '%s has been built: %s It must never suggest ordering from an archived preferred supplier — test '
+            .'`anArchivedPreferredSupplierIsNeverSuggested` in THIS COMMIT, then retire this map and method with a retirement '
+            .'comment. (G-41 itself is CLOSED since G3-C0: the catalogue trail exists.) Do not hand-edit this pin to green.',
             implode(', ', array_keys($arrived)),
             implode(' ', $arrived),
         ));

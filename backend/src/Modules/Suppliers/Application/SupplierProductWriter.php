@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Suppliers\Application;
 
+use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -44,16 +46,23 @@ use Symfony\Component\Uid\Uuid;
  *     by constraint name **outside** `TenantContext::run()` (the failed statement aborted the transaction). The
  *     `Idempotency-Key` header is demanded (API-14) and unused, `CreateSupplier`'s precedent. Any other 23505 is rethrown.
  *
- * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C2b; 404) → the pair `(supplier, product)` (404 for another supplier's entry, ST-5) → archived 409 →
- * shape (`null` on any field refused, all four are NOT NULL) → `UPDATE … SET <submitted>, updated_at WHERE id = ? AND
- * supplier_id = ?`. An empty PATCH issues no statement.
+ * **Update:** the parent, read {@see self::PARENT_KEY_SHARE} (C5 C2b; 404) → the pair `(supplier, product)`, read
+ * {@see self::ENTRY_LOCK} (G3-C0; 404 for another supplier's entry, ST-5) → archived 409 → shape (`null` on any field
+ * refused, all four are NOT NULL) → the diff against the locked row → `UPDATE … SET <changed>, updated_at WHERE id = ? AND
+ * supplier_id = ?` → `supplier_product.updated`. **A PATCH that changes nothing issues no UPDATE and writes no row**, and
+ * `updated_at` does not move (G3-C0, owner notice N-1 — until then every submitted column was set and `updated_at` moved
+ * on a no-op PATCH); an empty PATCH is the same. Lock order supplier → entry, as create (`FOR SHARE`, then the INSERT) and
+ * delete (`FOR KEY SHARE`, then the DELETE).
  *
  * **No statement touches `purchase_order*`:** a placed order line holds a snapshot of the lead time and its own cost
  * (`PurchaseOrderLine`), so an edit here moves no order; only a line added later reads the new lead time.
  *
- * **No audit row** (owner Q-S5, 2026-10-12): who changed a catalogue cost is a recorded gap, `RESIDUAL_GAPS.md` G-41, keyed
- * by `OwedAmendmentTripwireTest` on the first operation that copies a catalogue cost into a suggestion or document
- * (`ListReorderSuggestions`). Copy for the three archived refusals is `UX`'s final (`owed-ux-c5.md` FINAL (a2), "until it's restored").
+ * **The trail** (G3-C0, 2026-10-22; `RESIDUAL_GAPS.md` G-41 CLOSED): each write records its row through
+ * {@see SupplierAuditWriter} in its own transaction — `supplier_product.created` after the INSERT, `.updated` after an UPDATE
+ * that changed something (field names, never values: `unit_cost` is money, PC-12), `.deleted` after a one-row DELETE —
+ * subject the entry, never the supplier (design D-C0-1). A refusal rolls the transaction back, so it writes none. *(Until
+ * G3-C0 this paragraph read "No audit row (owner Q-S5, 2026-10-12): who changed a catalogue cost is a recorded gap,
+ * G-41".)* Copy for the three archived refusals is `UX`'s final (`owed-ux-c5.md` FINAL (a2), "until it's restored").
  */
 final readonly class SupplierProductWriter
 {
@@ -72,6 +81,15 @@ final readonly class SupplierProductWriter
      * Public so the race tests name this statement (mutation M15: drop the lock → `SupplierDeleteTest`'s catalogue races red).
      */
     public const PARENT_KEY_SHARE = 'SELECT deleted_at IS NOT NULL AS archived FROM supplier WHERE id = ?::uuid FOR KEY SHARE';
+
+    /**
+     * The entry read `UpdateSupplierProduct` takes AFTER {@see self::PARENT_KEY_SHARE} (G3-C0): it is the pair check (no row
+     * for another supplier's entry → 404) AND the row lock the diff is taken under, so `supplier_product.updated` names exactly
+     * what this request changed — a concurrent PATCH waits here and diffs against the committed row (mutation M-C0-6: drop
+     * `FOR NO KEY UPDATE` → `SupplierProductWriteTest::aConcurrentTermsEditNamesOnlyItsOwnChange` red). `FOR NO KEY UPDATE`,
+     * the lock the UPDATE would take anyway; legal for `erp_app`, which holds column UPDATE on the entry (A4.3 constraint 1).
+     */
+    public const ENTRY_LOCK = 'SELECT supplier_sku, unit_cost, lead_time_days, min_order_quantity FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid FOR NO KEY UPDATE';
 
     public const ARCHIVED_ON_CREATE = 'This supplier is archived, so nothing can be added to its catalogue until it\'s restored.';
 
@@ -123,6 +141,8 @@ final readonly class SupplierProductWriter
     public function __construct(
         private TenantContext $tenants,
         private CurrentTenant $tenant,
+        private RequestIdentity $identities,
+        private SupplierAuditWriter $audit,
     ) {
     }
 
@@ -136,9 +156,11 @@ final readonly class SupplierProductWriter
         }
         $supplierId = Uuid::fromString($supplierId)->toRfc4122();
         $tenantId = $this->tenant->tenantId();
+        $identity = $this->identities->authenticated();
+        $audit = $this->audit;
 
         try {
-            return $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($supplierId, $values, $tenantId): SupplierProductView {
+            return $this->tenants->run($tenantId, static function (EntityManagerInterface $em) use ($supplierId, $values, $tenantId, $identity, $audit): SupplierProductView {
                 $connection = $em->getConnection();
 
                 $parent = $connection->fetchAssociative(self::PARENT_LOCK, [$supplierId]);
@@ -169,6 +191,16 @@ final readonly class SupplierProductWriter
                     $parameters,
                 );
 
+                // After the INSERT, in its transaction: a 23505 above leaves no row.
+                $audit->recordCatalogueCreated(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    supplierProductId: $id,
+                    supplierId: $supplierId,
+                    inventoryItemId: $itemId,
+                );
+
                 return SupplierProductReader::readInside($em, $supplierId, $id)
                     ?? throw new \LogicException('The catalogue entry just inserted is not readable.');
             });
@@ -191,8 +223,10 @@ final readonly class SupplierProductWriter
         }
         $supplierId = Uuid::fromString($supplierId)->toRfc4122();
         $productId = Uuid::fromString($productId)->toRfc4122();
+        $identity = $this->identities->authenticated();
+        $audit = $this->audit;
 
-        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId, $submitted): SupplierProductView {
+        return $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId, $submitted, $identity, $audit): SupplierProductView {
             $connection = $em->getConnection();
 
             // `fetchAssociative`, not `fetchOne`: a live supplier's `false` would be indistinguishable from "no row". Locked
@@ -201,8 +235,11 @@ final readonly class SupplierProductWriter
             if (false === $parent) {
                 throw ApiProblem::notFound();
             }
-            // The pair: another supplier's entry under this path is the same 404 as a random id (ST-5).
-            if (null === SupplierProductReader::readInside($em, $supplierId, $productId)) {
+            // The pair: another supplier's entry under this path is the same 404 as a random id (ST-5). The same read is the
+            // entry's row lock (G3-C0): the diff below is taken against a row no concurrent update can move until this
+            // transaction ends.
+            $stored = $connection->fetchAssociative(self::ENTRY_LOCK, [$productId, $supplierId]);
+            if (false === $stored) {
                 throw ApiProblem::notFound();
             }
             if (true === $parent['archived']) {
@@ -211,21 +248,29 @@ final readonly class SupplierProductWriter
 
             self::refuseMalformed($submitted, []);
 
-            $set = [];
-            $parameters = [];
-            foreach (self::UPDATABLE as $field) {
-                if (\array_key_exists($field, $submitted)) {
+            $changed = self::changedFields($stored, $submitted);
+            if ([] !== $changed) {
+                $set = [];
+                $parameters = [];
+                foreach ($changed as $field) {
                     $set[] = self::COLUMNS[$field].' = ?';
                     $parameters[] = $submitted[$field];
                 }
-            }
-            if ([] !== $set) {
                 $set[] = 'updated_at = now()';
                 $parameters[] = $productId;
                 $parameters[] = $supplierId;
                 $connection->executeStatement(
                     'UPDATE supplier_product SET '.implode(', ', $set).' WHERE id = ?::uuid AND supplier_id = ?::uuid',
                     $parameters,
+                );
+
+                // After the UPDATE, in its transaction.
+                $audit->recordCatalogueUpdated(
+                    tenantId: $identity->tenantId,
+                    actorUserId: $identity->userId,
+                    actorLabel: $identity->actorLabel,
+                    supplierProductId: $productId,
+                    fields: $changed,
                 );
             }
 
@@ -254,7 +299,8 @@ final readonly class SupplierProductWriter
      * no key to replay. Once a supplier has no entries its currency may change again (Q-S4 (ii)). **Race with
      * `CreatePurchaseOrderLine`, recorded, not guarded:** its lead-time read is unlocked, so a delete committing between that
      * read and the line's INSERT yields a line snapshotting terms that no longer exist — harmless, snapshot semantics.
-     * **No audit row** (G-41 covers removal as well as change).
+     * **`supplier_product.deleted`** (G3-C0) after a DELETE that removed one row, `{supplier_id, inventory_item_id}`: the row
+     * is gone, so these ids keep its chain findable. *(Until G3-C0: "No audit row (G-41 covers removal as well as change)".)*
      */
     public function delete(string $supplierId, string $productId): void
     {
@@ -263,8 +309,10 @@ final readonly class SupplierProductWriter
         }
         $supplierId = Uuid::fromString($supplierId)->toRfc4122();
         $productId = Uuid::fromString($productId)->toRfc4122();
+        $identity = $this->identities->authenticated();
+        $audit = $this->audit;
 
-        $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId): void {
+        $this->tenants->run($this->tenant->tenantId(), static function (EntityManagerInterface $em) use ($supplierId, $productId, $identity, $audit): void {
             $connection = $em->getConnection();
 
             // Locked `FOR KEY SHARE` against `DeleteSupplier` (C5 C2b, {@see self::PARENT_KEY_SHARE}).
@@ -272,7 +320,8 @@ final readonly class SupplierProductWriter
             if (false === $parent) {
                 throw ApiProblem::notFound();
             }
-            if (false === $connection->fetchOne('SELECT 1 FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid', [$productId, $supplierId])) {
+            $itemId = $connection->fetchOne('SELECT inventory_item_id FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid', [$productId, $supplierId]);
+            if (false === $itemId) {
                 throw ApiProblem::notFound();
             }
             if (true === $parent['archived']) {
@@ -282,7 +331,52 @@ final readonly class SupplierProductWriter
             if (0 === (int) $connection->executeStatement(self::DELETE, [$productId, $supplierId])) {
                 throw ApiProblem::notFound();
             }
+
+            // After a DELETE that removed one row, in its transaction.
+            $audit->recordCatalogueDeleted(
+                tenantId: $identity->tenantId,
+                actorUserId: $identity->userId,
+                actorLabel: $identity->actorLabel,
+                supplierProductId: $productId,
+                supplierId: $supplierId,
+                inventoryItemId: (string) $itemId,
+            );
         });
+    }
+
+    /**
+     * The wire names whose submitted value differs from the locked entry, sorted ascending — **numerically at column scale**
+     * for the two decimals (`bccomp` at scale 4 for `unit_cost`, `numeric(19,4)`; scale 6 for `minimum_order_quantity`,
+     * `numeric(19,6)`: `"10.50"` is the stored `10.5000`), as an integer for `lead_time_days`, as an exact string for
+     * `supplier_sku` (stored as sent). Runs after {@see self::refuseMalformed()}, so every submitted value is the right shape.
+     *
+     * @param array<string, mixed> $stored    the {@see self::ENTRY_LOCK} row (column names)
+     * @param array<string, mixed> $submitted
+     *
+     * @return list<string>
+     */
+    private static function changedFields(array $stored, array $submitted): array
+    {
+        $changed = [];
+        foreach (self::UPDATABLE as $field) {
+            if (!\array_key_exists($field, $submitted)) {
+                continue;
+            }
+            $was = $stored[self::COLUMNS[$field]];
+            $now = $submitted[$field];
+            $differs = match ($field) {
+                'unit_cost' => 0 !== bccomp((string) $was, (string) $now, 4),
+                'minimum_order_quantity' => 0 !== bccomp((string) $was, (string) $now, 6),
+                'lead_time_days' => (int) $was !== (int) $now,
+                default => (string) $was !== (string) $now,
+            };
+            if ($differs) {
+                $changed[] = $field;
+            }
+        }
+        sort($changed);
+
+        return $changed;
     }
 
     /**

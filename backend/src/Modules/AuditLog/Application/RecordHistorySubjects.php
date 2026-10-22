@@ -44,6 +44,10 @@ final class RecordHistorySubjects
         'stock_movement' => 'stock_movement.view',
         'storage_location' => 'storage_location.view',
         'supplier' => 'supplier.view',
+        // G3-C0 (G-41, 2026-10-22): the catalogue entry keeps its own `.view` (`SECURITY_MODEL.md` PC-9's exception), so its
+        // History is read under `supplier_product.view`, never the supplier's code (design D-C0-1). A removed entry's History
+        // stays readable by id (G-52's precedent).
+        'supplier_product' => 'supplier_product.view',
         'warehouse' => 'warehouse.view',
     ];
 
@@ -55,7 +59,7 @@ final class RecordHistorySubjects
      */
     public const TYPES = ['app_user', 'credit_note', 'customer', 'customer_address', 'customer_contact', 'fulfilment',
         'goods_receipt', 'inventory_item', 'invoice', 'purchase_order', 'role', 'sales_order', 'sales_return', 'stock_movement',
-        'storage_location', 'supplier', 'warehouse'];
+        'storage_location', 'supplier', 'supplier_product', 'warehouse'];
 
     /** Not instantiable: a map, not a service. */
     private function __construct()
