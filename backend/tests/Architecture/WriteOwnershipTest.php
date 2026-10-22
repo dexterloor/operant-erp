@@ -180,7 +180,8 @@ final class WriteOwnershipTest extends KernelTestCase
         // `SalesOrderAuditWriter::recordConfirmed`/`recordDeleted`, `PurchaseOrderAuditWriter::recordDeleted`), each
         // `metadata` '{}'. Predicted by the design and confirmed off this test's run.
         // **14 -> 15 on 2026-09-29** (roles slice 2, C2): `RoleAuditWriter::recordRevoked()`'s `INSERT INTO audit_log` for
-        // `role.revoked`, `occurred_at = clock_timestamp()`, metadata `jsonb_build_object(?, ?)` keyed by `RoleEventMetadata`.
+        // `role.revoked`, `occurred_at = clock_timestamp()` (raised, if behind the trail, by the audit-order trigger,
+        // `Version20261022004000`), metadata `jsonb_build_object(?, ?)` keyed by `RoleEventMetadata`.
         // **15 -> 16 on 2026-10-01** (sales step 7 R2): `SalesReturnAuditWriter::recordCreated()`'s `INSERT INTO audit_log`
         // for `sales_return.created`, metadata `jsonb_build_object('reason', ?, 'deducts', ?)`.
         // **16 -> 17 on 2026-10-01** (sales step 7 C1): `CreditNoteAuditWriter::recordIssued()`'s `INSERT INTO audit_log`.

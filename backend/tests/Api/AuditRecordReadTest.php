@@ -28,7 +28,8 @@ use Symfony\Component\Uid\Uuid;
  *  - **R-7:** a credit note's History under `invoice.view` (N2); a contact's under `customer.view`;
  *  - **the allowlist:** a denial and a sign-in naming the subject never appear (N3, N5); `role.*` on a user → empty page;
  *  - **the bound:** both halves of the subject pair (N7); another tenant's id → empty; an unknown id → empty, not 404;
- *  - newest first, a tie group walked at `limit=1` both ways (C1's M2/M3 on this read);
+ *  - newest first, a tie group walked at `limit=1` both ways (C1's M2/M3 on this read); and newest first across a backward
+ *    clock step (T-H, `audit_log_monotonic_occurred_at`);
  *  - **H-3 (ii), code-level:** a hard-deleted contact's History is served to `customer.view` holders (N16; `RESIDUAL_GAPS.md`
  *    G-52 trigger (a)); a deleted draft order's History is its deletion row only (N18; G-52 trigger (b)); an archived
  *    customer's History is served.
@@ -352,6 +353,69 @@ final class AuditRecordReadTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **T-H — History stays in the order things happened when the database clock steps back** (`Version20261022004000`;
+     * `docs/session13/audit-order-clock-design.md` R1.3; Move 702). A contact is created; the owner then plants an update row
+     * 5 s in the database's future — what the last row looks like to the next writer after a backward step — and the contact is
+     * changed over HTTP. The change's row must come FIRST (raised to just after the planted one), then the planted row, then
+     * the creation; and a `limit=1` walk forward and back gives the same sequence with no repeat or skip across the raised
+     * pair. Red without the trigger (M1): the change sorts below the planted row.
+     */
+    #[Test]
+    public function historyStaysInOrderWhenTheClockStepsBack(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Order Customer');
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::SALES_REP));
+        $this->send('POST', '/customers/'.$customer.'/contacts', ['name' => 'Grace Hopper', 'email' => 'grace@example.test', 'phone' => null, 'is_primary' => false],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $contact = (string) $this->json()['id'];
+        $created = $this->rowOf(AuditEvent::CUSTOMER_CONTACT_CREATED, $contact);
+
+        $planted = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, event_type, actor_label, subject_type, subject_id, occurred_at)
+            VALUES (?::uuid, ?::uuid, ?, 'Ahead', 'customer_contact', ?::uuid, clock_timestamp() + interval '5 seconds')
+            SQL, [$planted, self::TENANT_A, AuditEvent::CUSTOMER_CONTACT_UPDATED, $contact]);
+
+        $this->send('PATCH', '/customers/'.$customer.'/contacts/'.$contact, ['name' => 'Grace B. Hopper']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $changed = array_values(array_diff(array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::CUSTOMER_CONTACT_UPDATED, $contact]), 'id'), [$planted]));
+        self::assertCount(1, $changed);
+
+        $expected = [$changed[0], $planted, $created];
+        $path = '/audit-log/records?subject_type=customer_contact&subject_id='.$contact;
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $this->send('GET', $path);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($expected, array_column($this->json()['items'], 'id'),
+            'History is out of order: the change made after the clock stepped back sorts below the event it followed.');
+
+        $seen = [];
+        $cursor = null;
+        $pages = 0;
+        do {
+            $this->send('GET', $path.'&limit=1'.(null === $cursor ? '' : '&after='.urlencode($cursor)));
+            self::assertSame(200, $this->httpStatus());
+            $body = $this->json();
+            $seen = [...$seen, ...array_column($body['items'], 'id')];
+            $cursor = $body['next_cursor'];
+        } while (null !== $cursor && ++$pages < 10);
+        self::assertSame($expected, $seen, 'A forward walk repeated or skipped a row across the raised pair.');
+
+        $backward = array_column($body['items'], 'id');
+        $cursor = $body['previous_cursor'];
+        $pages = 0;
+        while (null !== $cursor && $pages++ < 10) {
+            $this->send('GET', $path.'&limit=1&before='.urlencode($cursor));
+            self::assertSame(200, $this->httpStatus());
+            $backward = [...array_column($this->json()['items'], 'id'), ...$backward];
+            $cursor = $this->json()['previous_cursor'];
+        }
+        self::assertSame($expected, $backward, 'A backward walk repeated or skipped a row across the raised pair.');
+    }
+
+    /**
      * `RESIDUAL_GAPS.md` G-52 trigger (b)'s pin: a deleted draft sales order's History is exactly its deletion row — no
      * `sales_order.created`/`.updated` event exists. Mutation N18 (mint and write a `sales_order.created`) → red here.
      */
@@ -413,6 +477,16 @@ final class AuditRecordReadTest extends PurchaseOrderTestCase
             SQL, [$id, $tenant, $eventType, $actor, $label, $subjectType, $subjectId, $metadata, $ip, $occurredAt]);
 
         return $id;
+    }
+
+    /** The id of the one `$eventType` row on `$subjectId`. */
+    private function rowOf(string $eventType, string $subjectId): string
+    {
+        $rows = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id::text AS id FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid',
+            [$eventType, $subjectId]);
+        self::assertCount(1, $rows);
+
+        return (string) $rows[0]['id'];
     }
 
     /** @return list<array{pointer: string, code: string}> */

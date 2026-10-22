@@ -40,7 +40,10 @@ use Symfony\Component\Uid\Uuid;
  *  - **D — `unaccounted_permission` / `phantom_permission` / `pre_event_role`** (G-10 condition (1): *"`role_permission`
  *    against the edit event"*; roles slice 4 C1, design §7 — shipped with the first writer of `role_permission`, a
  *    detection one commit later than its writer being a window). For every NON-system role, the set of `role_permission` rows
- *    must equal the fold, in `occurred_at` order, of that role's `role.permissions_changed` events (`added` − `removed`). A row
+ *    must equal the fold, in `occurred_at` order, of that role's `role.permissions_changed` events (`added` − `removed`) —
+ *    an order a backward clock step cannot reverse, because the trigger `audit_log_monotonic_occurred_at`
+ *    (`Version20261022004000`) raises each in-app row to just after the tenant's newest visible row, within 60 s (arms A/B's
+ *    "latest event" relies on the same; `RESIDUAL_GAPS.md` G-54 bounds it). A row
  *    the fold lacks is `unaccounted_permission` (an INSERT nobody audited); a fold code with no row is `phantom_permission`
  *    (an audited code that is gone, or an event that lies). A role created before {@see self::ARM_D_BASELINE} (the arm's
  *    commit date; no event could exist for it) whose rows differ from the fold is reported ONCE as `pre_event_role`, never

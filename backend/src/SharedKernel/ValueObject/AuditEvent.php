@@ -766,7 +766,8 @@ final class AuditEvent
     // B-4a (roles slice 2, C1, 2026-09-29): the five carries `DELIVERY_LEDGER.md` B-4a reconciled on 2026-09-22,
     // each minted WITH its writer in shipped code. Filed by `SEC` before the code (`docs/session13/roles-s2-sec.md`
     // §3): all five **business**, `metadata` `{}`, no IP, `occurred_at = now()` (the business-writer precedent;
-    // the `clock_timestamp()` rule is for role events). **Step 6 does not apply to any of them.**
+    // the `clock_timestamp()` rule is for role events; either stamp may be raised by the audit-order trigger,
+    // `Version20261022004000`). **Step 6 does not apply to any of them.**
     // ---------------------------------------------------------------------
 
     /**

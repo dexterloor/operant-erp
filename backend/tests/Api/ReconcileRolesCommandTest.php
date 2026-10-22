@@ -397,6 +397,67 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         self::assertStringNotContainsString($viaApiWithdrawn, $out, 'The API withdrawal was reported.');
     }
 
+    /**
+     * **T-R — a backward clock step must not make the command report a removal that was audited** (`Version20261022004000`;
+     * `docs/session13/audit-order-clock-design.md` §1.4 item 2, R1.3). A role is granted through the API; the owner plants a
+     * second `role.assigned` for the pair 5 s in the database's future — what the grant's row looks like to the revoke after a
+     * backward step — keyed as `RoleAuditWriter` keys it, so arm C is quiet; the grant is revoked through the API. The revoke's
+     * row is raised to just after the planted one, so the pair's latest event is the revoke and arm B is silent. Red without
+     * the trigger (M1): the latest event read "assigned" with no grant held — a false `unaccounted_removal`.
+     */
+    #[Test]
+    public function aClockStepBetweenAGrantAndItsRevokeIsNotReportedAsAnUnauditedRemoval(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $subject = $this->seedPrincipal(self::TENANT_A, []);
+        $role = $this->roleWith('role.view');
+        $this->actAsUser(self::TENANT_A, $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('POST', '/users/'.$subject.'/roles', ['role_id' => $role], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+            VALUES (gen_random_uuid(), ?::uuid, clock_timestamp() + interval '5 seconds', 'role.assigned', NULL, 'Ahead', 'app_user', ?::uuid, NULL,
+                    jsonb_build_object('role_id', ?::text))
+            SQL, [self::TENANT_A, $subject, $role]);
+
+        $this->send('DELETE', '/users/'.$subject.'/roles/'.$role);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertStringNotContainsString($subject, $out, 'A grant revoked through the API, after a clock step, was reported: '.$out);
+        self::assertSame(0, $code, $out);
+    }
+
+    /**
+     * **T-R′ — the same for arm D's fold.** A role composed through the API with two codes; the owner plants a
+     * `role.permissions_changed` adding one of them 5 s in the database's future; the code is then removed through the API.
+     * The removal's row is raised to just after the planted one, so the fold (in `occurred_at` order) ends without the code
+     * and arm D is silent. Red without the trigger (M1): the fold ran remove-then-add and reported a false `phantom_permission`.
+     */
+    #[Test]
+    public function aClockStepBetweenTwoDefinitionChangesIsNotReportedAsAPhantomPermission(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $this->actAsUser(self::TENANT_A, $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('POST', '/roles', ['name' => 'Stepped role', 'permission_codes' => ['role.view', 'invoice.view']], ['Idempotency-Key' => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $role = (string) $this->json()['id'];
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, subject_type, subject_id, ip_address, metadata)
+            VALUES (gen_random_uuid(), ?::uuid, clock_timestamp() + interval '5 seconds', 'role.permissions_changed', NULL, 'Ahead', 'role', ?::uuid, NULL,
+                    jsonb_build_object('role_id', ?::text, 'added', '["invoice.view"]'::jsonb, 'removed', '[]'::jsonb))
+            SQL, [self::TENANT_A, $role, $role]);
+
+        $this->send('PATCH', '/roles/'.$role, ['permission_codes' => ['role.view']]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertStringNotContainsString($role, $out, 'A code removed through the API, after a clock step, was reported: '.$out);
+        self::assertSame(0, $code, $out);
+    }
+
     /** The controls refuse with exit 2 and print no finding: a tenant with no user (a wrong id) and a non-uuid. */
     #[Test]
     public function aFailedControlPrintsNoFindings(): void

@@ -318,6 +318,62 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
+     * The principals that write `audit_log` without being able to read it, each with its reason. The audit-order trigger
+     * (`Version20261022004000`) skips them — its `WHEN` asks `has_table_privilege('public.audit_log', 'SELECT')` — so their
+     * rows keep their plain transaction start and can sort out of place under a clock step (`RESIDUAL_GAPS.md` G-54 clause (i)).
+     */
+    private const UNCLAMPED_AUDIT_WRITERS = [
+        'erp_authlog' => 'G-54 (i): the pre-authentication sign-in writer (`AuthTrailWriter`), INSERT-only by design — it may not read the trail.',
+    ];
+
+    /**
+     * **Every principal that can INSERT into `audit_log` is either raised by the audit-order trigger (it holds table-level
+     * SELECT) or named in {@see self::UNCLAMPED_AUDIT_WRITERS}** (`docs/session13/audit-order-clock-design.md` Response to
+     * RED H-1 step 2; final RED F-5). A new INSERT-only writer — `erp_worker` at Mail-C1 — cannot arrive unnamed: its rows
+     * would silently keep an unraised stamp, and that is G-54's hard trigger.
+     *
+     * The domain is derived from the server (`pg_roles`), never from `DatabaseRoles`: a role made by SQL before anyone edits
+     * a constant is exactly the one to catch. Excluded: superusers, the table's owner (migrations, fixtures), and the
+     * predefined `pg_*` roles (`pg_write_all_data` answers INSERT true and SELECT false; `pg_` names are reserved). Measured
+     * 2026-10-22: the domain is `{erp_app, erp_authlog}`. Controls in the same method: `erp_app` in the domain and raised,
+     * `erp_authlog` in the domain and unraised; and every named entry is still an INSERT-only member (a stale or rotted entry
+     * fails). EXECUTE on the trigger function is not checked at fire time (measured: an INSERT with it revoked still fired),
+     * so no `has_function_privilege` assertion is owed.
+     *
+     * Mutations (run): M10 drop the SELECT branch → red on `erp_app`; M11 remove `erp_authlog` → red naming it; M14 a bogus
+     * key `erp_ghost` → red naming it.
+     */
+    #[Test]
+    public function everyAuditWriterIsClampedOrNamedUnclamped(): void
+    {
+        $domain = [];
+        foreach ($this->owner()->fetchAllAssociative(<<<'SQL'
+            SELECT r.rolname AS role, has_table_privilege(r.oid, 'public.audit_log', 'SELECT') AS reads
+              FROM pg_roles r
+             WHERE has_table_privilege(r.oid, 'public.audit_log', 'INSERT')
+               AND NOT r.rolsuper
+               AND r.rolname !~ '^pg_'
+               AND r.oid <> (SELECT c.relowner FROM pg_class c WHERE c.oid = 'public.audit_log'::regclass)
+             ORDER BY 1
+            SQL) as $row) {
+            $domain[(string) $row['role']] = (bool) $row['reads'];
+        }
+
+        self::assertTrue($domain['erp_app'] ?? false, 'Control: erp_app is not an audit writer that reads the trail, so the rule below proves nothing.');
+        self::assertFalse($domain['erp_authlog'] ?? true, 'Control: erp_authlog is not an INSERT-only audit writer, so the unraised branch has no evidence.');
+
+        $unnamed = array_keys(array_filter($domain, static fn (bool $reads, string $role): bool => !$reads && !\array_key_exists($role, self::UNCLAMPED_AUDIT_WRITERS), \ARRAY_FILTER_USE_BOTH));
+        self::assertSame([], $unnamed,
+            'An audit writer that cannot read the trail is not named: '.implode(', ', $unnamed).'. The audit-order trigger skips it, so its '
+            .'rows keep an unraised stamp (RESIDUAL_GAPS.md G-54). Name it in UNCLAMPED_AUDIT_WRITERS with its reason, or grant it SELECT.');
+
+        $stale = array_keys(array_filter(self::UNCLAMPED_AUDIT_WRITERS, static fn (string $reason, string $role): bool => ($domain[$role] ?? true), \ARRAY_FILTER_USE_BOTH));
+        self::assertSame([], $stale,
+            'Named as an unraised audit writer but no longer an INSERT-only member of the domain: '.implode(', ', $stale).'. Remove the entry '
+            .'(and narrow G-54) or find out why the role changed.');
+    }
+
+    /**
      * ADR-001 check 3 (T-5), which was specified and only partly implemented.
      *
      * Stated precisely, because the first version of this docblock said "nothing

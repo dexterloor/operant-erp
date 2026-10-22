@@ -18,8 +18,12 @@ use Doctrine\ORM\EntityManagerInterface;
  * `Connection` (the schema owner).
  *
  * **Order: newest first**, `occurred_at DESC, id DESC`, in all three views. Every writer stamps `occurred_at` with `now()`,
- * the TRANSACTION start instant, so every row one transaction writes shares it — a transfer's two
- * `stock_movement.adjusted` rows, a bulk assignment's N `role.assigned` rows — and nothing bounds such a TIE GROUP. The
+ * the TRANSACTION start instant (role events `clock_timestamp()` after their lock), and the trigger
+ * `audit_log_monotonic_occurred_at` (`Version20261022004000`) then raises a row stamped behind the tenant's newest visible
+ * row to 1 µs after it (≤ 60 s ahead; only for principals that can read the trail — `RESIDUAL_GAPS.md` G-54). So the order
+ * is insert order for causally related writes, a backward clock step included. Every row one UNRAISED transaction writes
+ * shares its stamp — a transfer's two `stock_movement.adjusted` rows, a bulk assignment's N `role.assigned` rows — and
+ * nothing bounds such a TIE GROUP; a raised transaction's rows split. The
  * keyset is therefore the pair, as ONE row comparison `(a.occurred_at, a.id) < (?::timestamptz, ?::uuid)` (forward; `>`
  * backward, reversed in PHP), served by `audit_log_tenant_occurred_id_idx` / `…_actor_occurred_id_idx` /
  * `…_event_occurred_id_idx`, which end `(occurred_at, id)` so the whole comparison is an index condition and `LIMIT` stops
@@ -37,8 +41,9 @@ use Doctrine\ORM\EntityManagerInterface;
  * millisecond rendering: audit rows carry `now()`'s microseconds, so a millisecond key would skip or repeat rows. The
  * provider refuses a cursor whose key is not such a timestamp (`malformed_cursor`) before the cast can raise.
  *
- * **What a forward walk can miss (L-8, inherent, stated not fixed):** `now()` is the transaction START, so a transaction
- * that began before a reader's page and committed after it lands BEHIND the cursor with an earlier instant. **And what
+ * **What a forward walk can miss (L-8, inherent, stated not fixed):** a row's stamp is fixed when it is INSERTED (its
+ * transaction start, or just after the newest row then visible), not when it commits, so a transaction that inserted
+ * before a reader's page and committed after it lands BEHIND the cursor with an earlier instant. **And what
  * the rows prove (A-3's shape):** `erp_app` holds `INSERT` on `audit_log`, so SQL running as `erp_app` can write a row this
  * read serves as genuine. The trail is evidence against an in-app actor, not against the database.
  *

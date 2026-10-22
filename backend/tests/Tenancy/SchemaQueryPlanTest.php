@@ -69,7 +69,8 @@ final class SchemaQueryPlanTest extends TenancyTestCase
 
     /**
      * Audit reads C1 (design §5.4 T-1/T-2): a TIE GROUP of trail rows at one instant, per tenant — what one transaction's
-     * writes produce (every writer stamps `now()`, the transaction start), unbounded in size. All by the seeded user, all of
+     * writes produce (every writer stamps `now()`, the transaction start — unless the transaction was raised by
+     * `audit_log_monotonic_occurred_at`, which splits it), unbounded in size. All by the seeded user, all of
      * one event type, so the whole-trail, the actor and the event-type views each page inside the same group.
      */
     private const AUDIT_TIE = 5000;
@@ -789,6 +790,51 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             $this->plan('SELECT id, event_type FROM audit_log ORDER BY occurred_at DESC LIMIT 50'),
             // Audit reads C1: renamed, deliberately, with the rebuild (`Version20261021000100`); was `audit_log_tenant_occurred_idx`.
             'audit_log_tenant_occurred_id_idx');
+    }
+
+    /**
+     * **T-P — the audit-order trigger's probe is one backward index probe** (`Version20261022004000`;
+     * `docs/session13/audit-order-clock-design.md` R1.3, RED L-6). Every audited write runs it once per row, so a plan that
+     * reads the tenant's trail would tax every write. Measured as plpgsql runs it: a GENERIC plan
+     * (`plan_cache_mode = force_generic_plan`, `PREPARE` / `EXPLAIN EXECUTE`), as `erp_app` with the tenant GUC set, so the RLS
+     * qual is in the plan (measured 2026-10-22: a One-Time Filter on a `Result` above the scan). The statement text is the
+     * function's probe, which `AuditLogOrderTest::theTriggerAndItsFunctionAreAsDeclared()` pins by its tenant predicate.
+     */
+    #[Test]
+    public function theAuditOrderProbeIsOneBackwardIndexProbe(): void
+    {
+        $this->seedWorld();
+
+        // A generic plan, as plpgsql settles on one: `plan_cache_mode = force_generic_plan`, `PREPARE`, `EXPLAIN EXECUTE`. The
+        // arguments are literals (a utility statement takes no bind parameters; the tenant id is this class's constant). A
+        // prepared statement is SESSION state on the pooled backend every later test shares, so it carries a unique name and
+        // is deallocated whether or not the plan was read.
+        $name = 'audit_order_probe_'.bin2hex(random_bytes(4));
+        try {
+            $plan = $this->tenantContext()->run(self::TENANT_A, function () use ($name): string {
+                $c = $this->app();
+                $c->executeStatement('SET LOCAL plan_cache_mode = force_generic_plan');
+                $c->executeStatement(<<<SQL
+                    PREPARE $name (uuid, timestamptz) AS
+                    SELECT max(a.occurred_at) FROM public.audit_log a
+                     WHERE a.tenant_id = \$1 AND a.occurred_at <= \$2 + interval '60 seconds'
+                    SQL);
+
+                return implode("\n", $c->fetchFirstColumn(\sprintf("EXPLAIN (COSTS OFF) EXECUTE %s ('%s'::uuid, now())", $name, self::TENANT_A)));
+            });
+        } finally {
+            $this->app()->executeStatement('DEALLOCATE '.$name);
+        }
+        fwrite(STDERR, "\n  [EXPLAIN] AuditLog — the audit-order trigger's probe (generic plan)\n    ".str_replace("\n", "\n    ", $plan)."\n");
+
+        self::assertMatchesRegularExpression('/Index (Only )?Scan Backward using audit_log_tenant_occurred_id_idx/', $plan,
+            "The probe is not a backward scan of audit_log_tenant_occurred_id_idx:\n$plan");
+        self::assertStringContainsString('Limit', $plan, "The probe reads more than the newest row:\n$plan");
+        self::assertMatchesRegularExpression('/Index Cond: \(\(tenant_id = \$1\) AND \(occurred_at <= /', $plan,
+            "The tenant and the 60 s bound are not both index conditions:\n$plan");
+        self::assertStringContainsString("current_setting('app.tenant_id'", $plan, "The RLS qual is not in the plan:\n$plan");
+        self::assertStringNotContainsString('Seq Scan', $plan);
+        self::assertStringNotContainsString('Sort', $plan);
     }
 
     /** AuditLog / ADR-006 §2.2: "every failed login", which is why event_type is indexed at all. */

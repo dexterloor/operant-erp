@@ -27,7 +27,8 @@ use Doctrine\ORM\EntityManagerInterface;
  * "is the row still openable" filter — a deleted record's History is served by id to its type's code holders
  * (`RESIDUAL_GAPS.md` G-52; mutation N16).
  *
- * **Order, keyset, statement shape: `AuditLogEntryReader`'s exactly** — newest first, `(occurred_at, id)` as one row
+ * **Order, keyset, statement shape: `AuditLogEntryReader`'s exactly** (including what a stamp means under the
+ * audit-order trigger, `Version20261022004000`) — newest first, `(occurred_at, id)` as one row
  * comparison, the page cut from `audit_log` alone, then `LEFT JOIN app_user` for the live name. Served by
  * `audit_log_tenant_subject_occurred_id_idx (tenant_id, subject_type, subject_id, occurred_at, id)` (C2's migration,
  * `Version20261021000200`), so a tie group pages without a sort; the allowlist is a `Filter`, discarding only security

@@ -32,7 +32,10 @@ use Symfony\Component\Uid\Uuid;
  *    the role's name and codes are the role row's, and PC-15 condition 6 / PC-16 condition 3 forbid display data.
  *  - **`occurred_at` is `clock_timestamp()`, in the `INSERT`'s own SQL** (q7-spar §2.2, Q-11; spar §5 item 7): the
  *    instant the row is written, after the role-administration lock was taken — never `now()`, which is the start of a
- *    transaction that may have waited on the lock, and never a PHP clock.
+ *    transaction that may have waited on the lock, and never a PHP clock. Role writes are serialised by that lock, so
+ *    consecutive role events are causally ordered; a backward clock step could still reverse their stamps, and the
+ *    trigger `audit_log_monotonic_occurred_at` (`Version20261022004000`) raises such a row to 1 µs after the tenant's newest
+ *    visible row (≤ 60 s ahead), which keeps `app:roles:reconcile`'s folds true (`RESIDUAL_GAPS.md` G-54).
  *
  * `TenantContext::run()` is re-entrant for the same tenant, so a call from inside the locked transaction **joins** it: the
  * `DELETE` and the row that records it commit together or not at all. A failed write is a failed request (API.md §9.2).

@@ -21,8 +21,10 @@ use Symfony\Component\Uid\Uuid;
  *  - the `/audit-log` paths are exactly {@see self::PINNED_AUDIT_OPERATIONS}, joined into
  *    `AuthOperationContractTest::theShippedSurfaceIsExactlyTheOperationsThisWaveHasPinned`'s union;
  *  - the entry's members, and its inline wire schema equal to them;
- *  - newest first, `occurred_at DESC, id DESC`; a TIE GROUP (one transaction's rows share `now()`) walked at `limit=1`
- *    both ways and a large one at `limit=50`, every row exactly once (M2, M3); two rows inside one millisecond in order;
+ *  - newest first, `occurred_at DESC, id DESC`; a TIE GROUP (one transaction's rows share `now()` — unless the transaction
+ *    was raised by `audit_log_monotonic_occurred_at`, which splits it) walked at `limit=1` both ways and a large one at
+ *    `limit=50`, every row exactly once (M2, M3); two rows inside one millisecond in order; newest first across a backward
+ *    clock step (T-H′);
  *  - each filter narrows; both together are 422 `one_filter_at_a_time` on both pointers; an `event_type` outside the
  *    catalogue is refused; `?sort` is undeclared (§14.2 item 30); a foreign cursor is `malformed_cursor`, never a 500;
  *  - `actor` is the LIVE name, `actor_label` the name as recorded (M6); a row with no actor serves `actor: null` (M5);
@@ -455,6 +457,55 @@ final class AuditLogReadTest extends PurchaseOrderTestCase
     private function ids(array $among): array
     {
         return array_values(array_filter(array_column($this->json()['items'], 'id'), static fn (string $id): bool => \in_array($id, $among, true)));
+    }
+
+    /**
+     * **T-H′ — the trail stays in the order things happened when the database clock steps back** (`Version20261022004000`;
+     * `docs/session13/audit-order-clock-design.md` R1.3; Move 702), over `ListAuditLogEntries`. A customer is created; the
+     * owner plants an update row 5 s in the database's future (what the last row looks like to the next writer after a
+     * backward step); the customer is changed over HTTP. Newest first: the change (raised to just after the planted row),
+     * the planted row, the creation — and a `limit=1` walk forward and back sees each row once, in that order. Red without
+     * the trigger (M1).
+     */
+    #[Test]
+    public function theTrailStaysInOrderWhenTheClockStepsBack(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $customer = $this->createCustomer('C-ORDER', 30);
+        [$created] = array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::CUSTOMER_CREATED, $customer]), 'id');
+
+        $planted = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO audit_log (id, tenant_id, event_type, actor_label, subject_type, subject_id, occurred_at)
+            VALUES (?::uuid, ?::uuid, ?, 'Ahead', 'customer', ?::uuid, clock_timestamp() + interval '5 seconds')
+            SQL, [$planted, self::TENANT_A, AuditEvent::CUSTOMER_UPDATED, $customer]);
+        $this->patchCustomer($customer, ['payment_terms_days' => 45]);
+        $changed = array_values(array_diff(array_column($this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT id::text AS id FROM audit_log WHERE event_type = ? AND subject_id = ?::uuid', [AuditEvent::CUSTOMER_UPDATED, $customer]), 'id'), [$planted]));
+        self::assertCount(1, $changed);
+        $expected = [$changed[0], $planted, $created];
+
+        $this->send('GET', '/audit-log');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame($expected, $this->ids($expected),
+            'The trail is out of order: the change made after the clock stepped back sorts below the event it followed.');
+
+        [$seen, $last] = $this->walk('/audit-log', 1);
+        self::assertSame(array_unique($seen), $seen, 'A forward walk repeated a row.');
+        self::assertSame($expected, array_values(array_filter($seen, static fn (string $id): bool => \in_array($id, $expected, true))),
+            'A forward walk skipped or reordered a row across the raised pair.');
+
+        $backward = array_column($last['items'], 'id');
+        $cursor = $last['previous_cursor'];
+        $pages = 0;
+        while (null !== $cursor && $pages++ < 500) {
+            $this->send('GET', '/audit-log?limit=1&before='.urlencode($cursor));
+            self::assertSame(200, $this->httpStatus());
+            $backward = [...array_column($this->json()['items'], 'id'), ...$backward];
+            $cursor = $this->json()['previous_cursor'];
+        }
+        self::assertSame($seen, $backward, 'A backward walk did not retrace the forward walk.');
     }
 
     /**
