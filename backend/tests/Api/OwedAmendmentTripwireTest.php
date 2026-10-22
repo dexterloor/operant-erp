@@ -445,14 +445,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         ],
     ];
 
-    /**
-     * **`GetSettings` reads `display_name` from `tenant.name` until `UpdateSettings` moves it** (remaining-ops G7a,
-     * 2026-10-21; owner ruling RO-S1, `docs/session13/remaining-ops-ruling.md`; fresh RED M-3, `cursor-g7a-red.md`). The
-     * plan's shipped-behaviour notice — *"GetSettings' `display_name` source moves from `tenant.name` to `tenant_settings`,
-     * backfilled"* — is a sentence; this is its mechanism. Keyed by `operationId`. A PIN, red on arrival.
-     *
-     * @var array<string, string>
-     */
+    // RETIRED 2026-10-22 with its work (G7b `UpdateSettings`): `OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE` held RO-S1's source
+    // move (G7a, 2026-10-21; `cursor-g7a-red.md` M-3) keyed on `UpdateSettings`. The commit that built `UpdateSettings` added
+    // `tenant_settings.display_name` backfilled from `tenant.name` (`Version20261022020000`), moved `SettingsReader` to it,
+    // granted `erp_app` UPDATE (display_name, updated_at) only — never on `tenant` — edited `SchemaManifest`, split
+    // `TenantSettingsStorageTest`'s write pin, built `SettingsContractTest::everyDeclaredSettingsFieldHasAColumn` and gave the
+    // notice. The map and `noSettingsWriteShipsWithoutMovingTheNameItReads` were removed in that commit, not hand-edited green.
+
     /**
      * **G5-D0 (2026-10-22): the carries the derived permission arm leaves for its first operations** (`g5-d0-red.md` M-1,
      * M-2, L-5). The arm is built and proven on planted operations; these obligations need a real one, so they sit here and
@@ -469,15 +468,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // `*(derived — see below)*` cell, `ExportPermission` (a `DerivedPermission`); (3) `ErrorContractTest`'s derived arm and a
         // `CreateExport` recipe in `OperationSuccessRecipes`; (4) `MarginSourcesDerivationTest::derivedArm()`, per resource
         // through each List. Its first-DERIVED wording stays on the two bulk entries, which inherit carries (1)-(3).
-    ];
-
-    private const OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE = [
-        'UpdateSettings' => 'GetSettings (`SettingsReader`) reads `display_name` from `tenant.name`; in the same commit add '
-            .'`tenant_settings.display_name` backfilled from `tenant.name`, move the read to it, grant `erp_app` column UPDATE on '
-            .'that one column only (never on `tenant`, which has no RLS) and edit `SchemaManifest`\'s `tenant_settings` grants + '
-            .'`TenantSettingsStorageTest::theApplicationPrincipalCannotWriteTheSettingsRowAtAll`, build '
-            .'`SettingsContractTest::everyDeclaredSettingsFieldHasAColumn` (API.md §4.3b), and give the RO-S1 notice (the source '
-            .'moves; the value shown does not change).',
     ];
 
     /**
@@ -1826,28 +1816,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return $found;
-    }
-
-    /**
-     * **RO-S1's source move** — red the moment `UpdateSettings` is in the generated spec. Controls in the same test: the
-     * positive control every sibling uses, a non-empty map, and a planted BUILT key (`GetSettings`) reported.
-     */
-    #[Test]
-    public function noSettingsWriteShipsWithoutMovingTheNameItReads(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertArrayHasKey('GetSettings', $built, 'The reader whose source this pin moves is not built.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE, 'The settings map is empty, so it holds over nothing.');
-        self::assertSame(['GetSettings' => 'x'], array_intersect_key(['GetSettings' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_SETTINGS_NAME_MOVE, $built);
-
-        self::assertSame([], $arrived, \sprintf('%s has been built: %s Do not hand-edit this pin to green.',
-            implode(', ', array_keys($arrived)), implode(' ', $arrived)));
     }
 
     /**

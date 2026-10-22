@@ -238,6 +238,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // does not reach them.
         'inventory_item.deleted',
         'inventory_item.restored',
+        // Edited by hand 2026-10-22 (G7b `UpdateSettings`, owner ruling RO-S1; design R1.2 M-5; `SEC` TO CONFIRM): BUSINESS
+        // under PC-11 (4a), subject the settings row, `{"fields": ["display_name"], "to": …}`, no IP — the settings row's own
+        // state, `supplier.updated`'s reasoning. Its subject is `tenant_settings`, so (4c) does not reach it.
+        'tenant_settings.updated',
     ];
 
     /**

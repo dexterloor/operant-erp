@@ -11,16 +11,19 @@ use PHPUnit\Framework\Attributes\Test;
 /**
  * `GetSettings` (G7a, 2026-10-21; `docs/session13/remaining-ops-plan.md` Revision 1 FINAL §R1.2, final RED L-3).
  *
- * §4.4.3's Settings row: `display_name` (from `tenant.name`), `workspace` (from `tenant.slug`) and `default_currency_code`
- * (from `tenant_settings`) — and nothing else. **`tenant` has no RLS** (`SchemaManifest`: `'tenant' => false`), so the only
- * thing keeping another workspace's name out of this response is the reader's own predicate on the caller's tenant, which
- * comes from the signed token and never from the request (L-3). These tests are that predicate's evidence.
+ * §4.4.3's Settings row: `display_name` (from `tenant_settings` since G7b; from `tenant.name` until then), `workspace` (from
+ * `tenant.slug`) and `default_currency_code` (from `tenant_settings`) — and nothing else. **`tenant` has no RLS**
+ * (`SchemaManifest`: `'tenant' => false`), so the only thing keeping another workspace's handle out of this response is the
+ * reader's own predicate on the caller's tenant, which comes from the signed token and never from the request (L-3). These
+ * tests are that predicate's evidence. `UpdateSettings`' own tests are `SettingsWriteTest`.
  */
 final class SettingsReadTest extends ApiTestCase
 {
     /** @var array<string, array{method: string, path: string, idem: bool}> */
     public const PINNED_SETTINGS_OPERATIONS = [
         'GetSettings' => ['method' => 'GET', 'path' => '/settings', 'idem' => false],
+        // G7b (2026-10-22): `Idem` `no` — setting a name to a value is idempotent.
+        'UpdateSettings' => ['method' => 'PATCH', 'path' => '/settings', 'idem' => false],
     ];
 
     #[Test]
@@ -58,7 +61,18 @@ final class SettingsReadTest extends ApiTestCase
     #[Test]
     public function anotherWorkspacesSettingsNeverAppear(): void
     {
+        // The registry is not truncated between tests (`TenancyTestCase` re-seeds it `ON CONFLICT DO NOTHING`), so this
+        // rename is undone at the end: left in place, every later test saw tenant B as `bravo-holdings` (found by G7b).
         $this->owner()->executeStatement("UPDATE tenant SET name = 'Bravo Holdings', slug = 'bravo-holdings' WHERE id = ?::uuid", [self::TENANT_B]);
+        try {
+            $this->assertAnotherWorkspacesSettingsNeverAppear();
+        } finally {
+            $this->owner()->executeStatement("UPDATE tenant SET name = 'Tenant B', slug = 'tenant-b' WHERE id = ?::uuid", [self::TENANT_B]);
+        }
+    }
+
+    private function assertAnotherWorkspacesSettingsNeverAppear(): void
+    {
         $this->seedTenantSettings(self::TENANT_B, 'USD');
 
         foreach (['/settings', '/settings?tenant_id='.self::TENANT_B, '/settings?workspace=bravo-holdings'] as $path) {
@@ -76,6 +90,22 @@ final class SettingsReadTest extends ApiTestCase
         $this->send('GET', '/settings');
         self::assertSame(200, $this->httpStatus());
         self::assertSame(['display_name' => 'Bravo Holdings', 'workspace' => 'bravo-holdings', 'default_currency_code' => 'USD'], $this->json());
+    }
+
+    /**
+     * **G7b moved the source** (RO-S1; design §3.5): the name served is the settings row's, never the registry's. A registry
+     * name and a settings name that differ, and the settings one is served — reverting `SettingsReader` to `t.name` is red.
+     */
+    #[Test]
+    public function theDisplayNameIsTheSettingsRowsNotTheRegistrys(): void
+    {
+        $this->seedTenantSettings(self::TENANT_A, 'EUR', 'Acme Trading');
+
+        $this->send('GET', '/settings');
+
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame('Acme Trading', $this->json()['display_name']);
+        self::assertSame('Tenant A', $this->owner()->fetchOne('SELECT name FROM tenant WHERE id = ?::uuid', [self::TENANT_A]), 'Control: the registry name differs.');
     }
 
     /** The request cannot name a tenant: an undeclared parameter is refused (API-19), never read. */

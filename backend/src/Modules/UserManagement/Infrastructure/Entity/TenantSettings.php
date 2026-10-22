@@ -94,17 +94,27 @@ class TenantSettings
     #[ORM\JoinColumn(name: 'default_currency_code', referencedColumnName: 'code', nullable: false)]
     private Currency $defaultCurrency;
 
+    /**
+     * The workspace's display name (G7b, 2026-10-22; owner ruling RO-S1) — kept here, never in the registry's `tenant.name`,
+     * which has no RLS and which no application principal writes. Backfilled from `btrim(tenant.name)` by
+     * `Version20261022020000`; `NOT NULL`, no default, `tenant_settings_display_name_shape` (`role_name_shape`'s predicate).
+     * Written only by `SettingsWriter` (raw SQL under `erp_app`'s column grant), never through this entity.
+     */
+    #[ORM\Column(name: 'display_name', type: Types::TEXT)]
+    private string $displayName;
+
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;
 
     #[ORM\Column(name: 'updated_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $updatedAt;
 
-    public function __construct(Uuid $id, Uuid $tenantId, Currency $defaultCurrency)
+    public function __construct(Uuid $id, Uuid $tenantId, Currency $defaultCurrency, string $displayName)
     {
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->defaultCurrency = $defaultCurrency;
+        $this->displayName = $displayName;
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = $this->createdAt;
     }
@@ -122,5 +132,10 @@ class TenantSettings
     public function getDefaultCurrency(): Currency
     {
         return $this->defaultCurrency;
+    }
+
+    public function getDisplayName(): string
+    {
+        return $this->displayName;
     }
 }

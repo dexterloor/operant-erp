@@ -229,17 +229,21 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'E4-3 / ROADMAP F-11 / E9-1. The workspace\'s own configuration, and today exactly one field: the functional currency the item writer stamps on a standard cost. It exists because `app.inventory.default_currency_code` was an INSTANCE-WIDE container parameter supplying a PER-TENANT business value -- every tenant on the deployment priced in euros by construction, and unreachable by every check this project has, because a PHP constant never touches the database and so sits above the isolation boundary. It also defeated a guarantee the schema had deliberately established: Version20260906000100 dropped inventory_item.currency_code\'s default precisely so a row could not be created "with no stated currency and be silently priced in euros", and a constant one layer up did exactly that. The column therefore carries NO default, and there is no trigger provisioning the row, because either one would relocate the same defect rather than remove it. Ownership was NOT obvious and the ruleset settled it: ARCHITECTURE Section 4 names no owner for tenant-wide configuration, and Platform\\Tenancy -- semantically the best fit, sitting beside the registry -- is refused by Section 5.1, because an L0 entity may not reference SharedKernel\\Reference\\Currency and the foreign key into the seeded currency list is worth more than the placement. Modules\\UserManagement is where IA.md routes Administration > Settings, beside Users and Roles, and is the module tenant_settings.edit already belongs to through SECURITY_MODEL E-15b. Inventory reads the value through UserManagement\\Application\\Contract, which is A-2\'s sanctioned cross-module channel. Deletion class none: a settings row is never removed while its tenant exists, and removing one would silently restore the "no stated currency" state.',
-            // SELECT and nothing else, and each omission is a decision.
-            // INSERT: the registry's own reasoning (S-10 / V-10) -- erp_app
-            // cannot create a workspace, so it must not create a workspace's
-            // settings. UPDATE: `UpdateSettings` is not shippable (API.md
-            // Section 4.3b, API-O-14), and a privilege with no user is the
-            // grant-side of an index with no query; the pass that ships the
-            // operation issues the grant and edits this line in the same
-            // commit. DELETE/TRUNCATE: excluded by the deletion class above,
-            // and asserted by theDeletionClassDeterminesTheGrantFootprint.
-            // erp_ai: no NL query needs the functional currency today.
+            // SELECT, plus one COLUMN-level UPDATE, and each omission is a
+            // decision. INSERT: the registry's own reasoning (S-10 / V-10) --
+            // erp_app cannot create a workspace, so it must not create a
+            // workspace's settings. UPDATE: `UpdateSettings` (G7b, 2026-10-22,
+            // Version20261022020000; owner ruling RO-S1) writes exactly
+            // (display_name, updated_at) -- `updated_at` beside RO-S1's one
+            // column is a stated deviation (design M-6). default_currency_code
+            // stays UNWRITABLE: the currency is read-only, and that half is
+            // pinned at the database (TenantSettingsStorageTest). A NEW COLUMN
+            // HERE INHERITS SELECT BUT NO UPDATE. DELETE/TRUNCATE: excluded by
+            // the deletion class above, and asserted by
+            // theDeletionClassDeterminesTheGrantFootprint. erp_ai: no NL query
+            // needs the workspace's settings today.
             'grants' => [DatabaseRoles::APP => ['SELECT']],
+            'column_grants' => [DatabaseRoles::APP => ['UPDATE' => ['display_name', 'updated_at']]],
         ],
 
         // ------------------------------------------------------------------

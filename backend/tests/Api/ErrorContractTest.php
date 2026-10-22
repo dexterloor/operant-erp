@@ -305,8 +305,15 @@ final class ErrorContractTest extends PurchaseOrderTestCase
 
         $types = [];
 
+        // Past the permission gate on every operation (G7b, RED of the default-actor decision): the rig's default actor
+        // leaves out the owner marker (`ApiTestCase::actAs()`), so an operation gated on it (`UpdateSettings`) would answer
+        // only the universal `permission-denied` and this walk would be blind to every type it returns beyond the gate.
+        $this->actAs(self::TENANT_A, self::everyDeclaredPermission());
         $this->send($method, $path, $body, $key);
         $types['missing row, empty body'] = $this->problemType();
+        if (PermissionRequirement::NONE !== $requirement->kind()) {
+            self::assertNotSame('permission-denied', $types['missing row, empty body'], (string) $operation->getName().': the probe did not get past the permission gate, so its Errors cell is not under test.');
+        }
 
         $this->send($method, $path, PermissionRequirement::DERIVED === $requirement->kind() ? $body : null, $key, 'application/xml');
         $types['unacceptable Accept'] = $this->problemType();
@@ -314,7 +321,7 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         $this->actAsNobody();
         $this->send($method, $path, $body, $key);
         $types['no token'] = $this->problemType();
-        $this->actAs(self::TENANT_A);
+        $this->actAs(self::TENANT_A, self::everyDeclaredPermission());
 
         return array_filter($types, static fn (?string $type): bool => null !== $type);
     }

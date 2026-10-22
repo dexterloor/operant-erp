@@ -75,14 +75,20 @@ abstract class TenancyTestCase extends KernelTestCase
         $this->seedTenantSettings(self::TENANT_B);
     }
 
-    /** Replaces the workspace's settings row, so a test may re-state the currency. */
-    protected function seedTenantSettings(string $tenantId, string $currencyCode = 'EUR'): void
+    /**
+     * Replaces the workspace's settings row, so a test may re-state the currency (and, since G7b, the display name).
+     *
+     * `display_name` is NOT NULL with no default (`Version20261022020000`): with none given, the row takes the registry's
+     * `btrim(name)` — what the migration backfills, so a fixture workspace looks as a migrated one does.
+     */
+    protected function seedTenantSettings(string $tenantId, string $currencyCode = 'EUR', ?string $displayName = null): void
     {
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO tenant_settings (id, tenant_id, default_currency_code)
-            VALUES (?::uuid, ?::uuid, ?)
-            ON CONFLICT (tenant_id) DO UPDATE SET default_currency_code = EXCLUDED.default_currency_code
-            SQL, [Uuid::v4()->toRfc4122(), $tenantId, $currencyCode]);
+            INSERT INTO tenant_settings (id, tenant_id, default_currency_code, display_name)
+            SELECT ?::uuid, t.id, ?, COALESCE(?::text, btrim(t.name)) FROM tenant t WHERE t.id = ?::uuid
+            ON CONFLICT (tenant_id) DO UPDATE SET default_currency_code = EXCLUDED.default_currency_code,
+                                                  display_name = EXCLUDED.display_name
+            SQL, [Uuid::v4()->toRfc4122(), $currencyCode, $displayName, $tenantId]);
     }
 
     /**

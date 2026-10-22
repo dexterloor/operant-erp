@@ -540,7 +540,7 @@ trait OperationSuccessRecipes
             // walker sees is the POST-REVERSAL shape: `issued`, `paid_at` and `paid_by` null (RED-3 N-6: without this
             // recipe that shape is never observed). The rig's actor is NOT switched: later recipes (`ChangePassword`,
             // `IssueToken`) were prepared against it, and switching it reddened both (measured on the first run).
-            'ReverseInvoicePayment' => [fn (): array => $stockedSalesWorkspace('SO-166000') + ['payer' => $this->seedPrincipal(self::TENANT_A, self::everyDeclaredPermission())], function (array $c) use ($raiseConfirmAndFulfil, $key): array {
+            'ReverseInvoicePayment' => [fn (): array => $stockedSalesWorkspace('SO-166000') + ['payer' => $this->seedPrincipal(self::TENANT_A, self::everyDeclaredPermissionButTheOwnerMarker())], function (array $c) use ($raiseConfirmAndFulfil, $key): array {
                 $raiseConfirmAndFulfil($c);
                 $this->send('POST', (string) $this->client()->getResponse()->headers->get('Location').'/invoices', null, $key());
                 $invoice = (string) $this->client()->getResponse()->headers->get('Location');
@@ -1236,7 +1236,8 @@ trait OperationSuccessRecipes
             }],
             // Roles slice 3, C2: a pending proposal of a composed X(admin) role (`invoice.pay`, `role.view`, both held by the
             // actor, so E-15c passes) for a user holding nothing, by a proposer who still holds `role.assign` (C9). The
-            // actor holds every declared code and never the marker (no built operation declares it), so — Q-6 (c′) — the
+            // actor holds every declared code but never the marker (`ApiTestCase::actAs()` leaves it out since G7b's `UpdateSettings`
+            // declared it; before, no built operation did), so — Q-6 (c′) — the
             // request step makes it an owner for this one request and takes the marker back afterwards: every other
             // recipe, before and after, still runs as a non-owner (`CreateRoleGrantProposal`'s needs exactly that).
             'ConfirmRoleGrantProposal' => [function (): array {
@@ -1322,6 +1323,22 @@ trait OperationSuccessRecipes
                 $this->send('GET', '/settings');
 
                 return [200, 'read'];
+            }],
+            // G7b: the caller's own workspace renamed. The rig actor is never an owner (`ApiTestCase::actAs()`), so — as
+            // Confirm's recipe does — the request step makes it one for this one request and takes the marker back.
+            'UpdateSettings' => [$none, function (): array {
+                $marker = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                    INSERT INTO role_permission (id, tenant_id, role_id, permission_code)
+                    SELECT ?::uuid, ur.tenant_id, ur.role_id, 'tenant_settings.edit' FROM user_role ur WHERE ur.user_id = ?::uuid LIMIT 1
+                    SQL, [$marker, $this->actorId]);
+                try {
+                    $this->send('PATCH', '/settings', ['display_name' => 'Recipe Workspace']);
+                } finally {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, 'DELETE FROM role_permission WHERE id = ?::uuid', [$marker]);
+                }
+
+                return [200, 'rename the workspace'];
             }],
             // Last two, in this order: the sign-in presents the password the
             // change just set, so both writers on the credential path run.

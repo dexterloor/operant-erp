@@ -45,8 +45,12 @@ final class RoleDefinitionFields
     /** The Unicode `White_Space` set the name is trimmed of (the CHECK's `btrim` covers ASCII space only). */
     private const EDGE_SPACE = '/^[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+|[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+$/u';
 
-    /** `role_name_shape`'s two character classes (`DATA` D-10.1), as one PCRE class. Mirrors the CHECK exactly. */
-    private const NAME_FORBIDDEN = '/[\x{0}-\x{1F}\x{7F}-\x{9F}\x{AD}\x{61C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{2064}\x{2066}-\x{206F}\x{FEFF}]/u';
+    /**
+     * `role_name_shape`'s two character classes (`DATA` D-10.1), as one PCRE class. Mirrors the CHECK exactly. Public since
+     * G7b (2026-10-22): `SettingsWriter` refuses the workspace display name on the same set, because
+     * `tenant_settings_display_name_shape` is `role_name_shape`'s predicate byte for byte (design L-8) — one copy, not two.
+     */
+    public const NAME_FORBIDDEN = '/[\x{0}-\x{1F}\x{7F}-\x{9F}\x{AD}\x{61C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{2064}\x{2066}-\x{206F}\x{FEFF}]/u';
 
     /** `role_description_shape`: controls but tab, newline, carriage return. */
     private const DESCRIPTION_FORBIDDEN = '/[\x{0}-\x{8}\x{B}\x{C}\x{E}-\x{1F}\x{7F}-\x{9F}]/u';

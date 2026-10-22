@@ -214,7 +214,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // **28 -> 29 on 2026-10-22** (G5-C2a), read off this test's run: `ItemAuditWriter::record()`'s ONE `INSERT INTO
         // audit_log`, shared by `inventory_item.deleted` and `.restored` (PREDICTED; confirmed off this test's run).
         // **29 -> 30 on 2026-10-22** (LEAD stacking G5-C2a on G6-C0): both ONE-insert writers above, together.
-        'Modules\\AuditLog' => 30,
+        // **30 -> 31 on 2026-10-22** (G7b `UpdateSettings`), read off this test's run: `SettingsAuditWriter::recordUpdated()`'s
+        // ONE `INSERT INTO audit_log` for `tenant_settings.updated` (PREDICTED; confirmed off this test's run).
+        'Modules\\AuditLog' => 31,
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -347,7 +349,9 @@ final class WriteOwnershipTest extends KernelTestCase
         // delete), read off this test's failure. `Modules\\AuditLog` does NOT move: `role.deleted` goes through `RoleAuditWriter::record()`.
         // **14 -> 15 on 2026-10-22** (G2), read off this test's run: `RoleRestoration::restore()`'s `UPDATE role SET
         // deleted_at = NULL` (`RestoreRole`; the table is UserManagement's).
-        'Modules\\UserManagement' => 15,
+        // **15 -> 16 on 2026-10-22** (G7b `UpdateSettings`), read off this test's run: `SettingsWriter::RENAME`, the one `UPDATE
+        // tenant_settings SET display_name, updated_at` (the table is UserManagement's; the row lock is excluded).
+        'Modules\\UserManagement' => 16,
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.

@@ -48,6 +48,10 @@ final class RecordHistorySubjects
         // History is read under `supplier_product.view`, never the supplier's code (design D-C0-1). A removed entry's History
         // stays readable by id (G-52's precedent).
         'supplier_product' => 'supplier_product.view',
+        // G7b (2026-10-22): `tenant_settings.updated` is BUSINESS, so the domain derivation forces this entry. The History it
+        // opens is UNREACHABLE from the product: the Settings singleton serves no id, and `ListAuditRecords` requires one
+        // (final RED F-M4, `RESIDUAL_GAPS.md`). The read code is the singleton's own (`GetSettings`).
+        'tenant_settings' => 'tenant_settings.view',
         'warehouse' => 'warehouse.view',
     ];
 
@@ -59,7 +63,7 @@ final class RecordHistorySubjects
      */
     public const TYPES = ['app_user', 'credit_note', 'customer', 'customer_address', 'customer_contact', 'fulfilment',
         'goods_receipt', 'inventory_item', 'invoice', 'purchase_order', 'role', 'sales_order', 'sales_return', 'stock_movement',
-        'storage_location', 'supplier', 'supplier_product', 'warehouse'];
+        'storage_location', 'supplier', 'supplier_product', 'tenant_settings', 'warehouse'];
 
     /** Not instantiable: a map, not a service. */
     private function __construct()

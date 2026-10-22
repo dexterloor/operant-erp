@@ -365,6 +365,16 @@ namespace App\SharedKernel\ValueObject;
  *     literal list is the live constraint's fifty-nine members (read off `pg_constraint`, not generated) plus these two;
  *     it supersedes `Version20261022005000`. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with two literals.
  *
+ *   - **`TENANT_SETTINGS_UPDATED`**, 2026-10-22, G7b `UpdateSettings` — owner ruling RO-S1 (`docs/session13/
+ *     remaining-ops-ruling.md`), designed in `g3-g7b-reorder-settings-design.md` Revision 1 FINAL (R1.2 M-5). Filed
+ *     **`BUSINESS`** by the builder under PC-11 (4a) (`SEC` to confirm): about the settings row's own state, the
+ *     `supplier.updated` reasoning. Its History is read under `tenant_settings.view` (`RecordHistorySubjects`) and is
+ *     **unreachable from the product**: the singleton serves no id, so no screen can ask `ListAuditRecords` for it (final RED
+ *     F-M4; `RESIDUAL_GAPS.md`); `ListAuditLogEntries` (owner / admin) shows it. Steps 3–5 done **with its writer in the same
+ *     commit** (`SettingsAuditWriter`). Step 5 is `Version20261022020100`: the live constraint's sixty-one members (read off
+ *     `pg_constraint`, not generated) plus this one; it supersedes `Version20261022010000`. **Step 6 does not apply.**
+ *     `PINNED_ALLOWLIST` edited by hand with one literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -1029,6 +1039,19 @@ final class AuditEvent
     public const INVENTORY_ITEM_RESTORED = 'inventory_item.restored';
 
     /**
+     * **The workspace's display name changed** — `UpdateSettings` (G7b, 2026-10-22; owner ruling RO-S1). Subject
+     * `('tenant_settings', id)`, the settings row whose own state changed. **Business** under PC-11 (4a) (`SEC` to confirm):
+     * its History is read under `tenant_settings.view`, and no screen can ask for it (the singleton serves no id; final RED
+     * F-M4). No IP, no permission code. `metadata` `{"fields": ["display_name"], "to": <the stored name>}` — the NEW value
+     * only, no `from` (design M-5): the chain is reconstructed from the value the migration backfilled from `tenant.name`,
+     * which RO-S1 never rewrites. A workspace name is not personal data and not money. Written by
+     * `SettingsAuditWriter::recordUpdated()` in `SettingsWriter::rename()`'s transaction, after the one-row UPDATE and under
+     * the settings row lock, so two concurrent renames write two rows in commit order; none on a rename that changes nothing
+     * or is refused. **Step 6 does not apply.**
+     */
+    public const TENANT_SETTINGS_UPDATED = 'tenant_settings.updated';
+
+    /**
      * **A customer address added** — `CreateCustomerAddress` (suppliers slice 1 C2b, 2026-10-12; owner ruling F-12 / S4,
      * `docs/session13/suppliers-s1-ruling.md`). Subject `('customer_address', id)` — the row whose own state changed; the
      * customer is derivable from it while the row lives; once `DeleteCustomerAddress` removes it, the
@@ -1238,6 +1261,7 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_DELETED,
         self::INVENTORY_ITEM_DELETED,
         self::INVENTORY_ITEM_RESTORED,
+        self::TENANT_SETTINGS_UPDATED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1340,6 +1364,7 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_DELETED,
         self::INVENTORY_ITEM_DELETED,
         self::INVENTORY_ITEM_RESTORED,
+        self::TENANT_SETTINGS_UPDATED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
         self::CUSTOMER_ADDRESS_CREATED,
@@ -1435,6 +1460,8 @@ final class AuditEvent
         // G5-C2a: the item row whose own state changed (`customer.deleted` / `.restored`'s shape).
         self::INVENTORY_ITEM_DELETED => 'inventory_item',
         self::INVENTORY_ITEM_RESTORED => 'inventory_item',
+        // G7b: the settings row whose own state changed (`supplier.updated`'s shape).
+        self::TENANT_SETTINGS_UPDATED => 'tenant_settings',
         // C5 C4a: the customer row whose own state changed.
         self::CUSTOMER_RESTORED => 'customer',
         // C5 C4b: the customer row whose own state changed.

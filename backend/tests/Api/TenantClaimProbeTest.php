@@ -94,6 +94,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'GetCurrentUser' => [],
         // Remaining-ops G7a (final RED L-3): `tenant` has no RLS, so this probe is the one a tenant id could move.
         'GetSettings' => [],
+        // G7b: the actor made an owner (the marker on its fixture role, in both tenants: `owner_marker`), so the baseline
+        // rename succeeds. `tenant` has no RLS and the write must never reach B's settings row: the digest.
+        'UpdateSettings' => ['body' => ['display_name' => 'Probe Renamed'], 'setup' => 'owner_marker'],
         'ChangePassword' => [
             'body' => ['current_password' => self::PASSWORD, 'new_password' => 'a-different-password-of-some-length'],
         ],
@@ -587,6 +590,14 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('confirmable_proposal' === ($recipe['setup'] ?? null)) {
             $this->seedConfirmableProposal(self::TENANT_A);
             $this->seedConfirmableProposal(self::TENANT_B);
+        }
+        if ('owner_marker' === ($recipe['setup'] ?? null)) {
+            foreach ([self::TENANT_A, self::TENANT_B] as $tenantId) {
+                $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
+                    INSERT INTO role_permission (id, tenant_id, role_id, permission_code)
+                    SELECT gen_random_uuid(), r.tenant_id, r.id, 'tenant_settings.edit' FROM role r WHERE r.tenant_id = ?::uuid AND r.name = 'Fixture Role'
+                    SQL, [$tenantId]);
+            }
         }
         if ('withdrawable_proposal' === ($recipe['setup'] ?? null)) {
             $this->seedWithdrawableProposal(self::TENANT_A, 'A');

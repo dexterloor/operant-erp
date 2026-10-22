@@ -19,6 +19,7 @@ use App\Modules\AuditLog\Infrastructure\PurchaseOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\RoleAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesOrderAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SalesReturnAuditWriter;
+use App\Modules\AuditLog\Infrastructure\SettingsAuditWriter;
 use App\Modules\AuditLog\Infrastructure\StorageLocationAuditWriter;
 use App\Modules\AuditLog\Infrastructure\SupplierAuditWriter;
 use App\Modules\AuditLog\Infrastructure\WarehouseAuditWriter;
@@ -178,6 +179,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'Modules/AuditLog/Infrastructure/DenialAuditWriter.php',
         'Modules/AuditLog/Infrastructure/ItemAuditWriter.php',
         'Modules/AuditLog/Infrastructure/PasswordChangeAuditWriter.php',
+        // G7b `UpdateSettings` (2026-10-22): `tenant_settings.updated`, BUSINESS, no parameter for an address. Listed AND driven.
+        'Modules/AuditLog/Infrastructure/SettingsAuditWriter.php',
         // F-2 step 8's writer, added 2026-09-10 with `ApprovePurchaseOrder`. It
         // is the **first business-event writer in the tree**, which is why it is
         // driven below rather than only listed: every previous writer's rule was
@@ -438,6 +441,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         \assert($itemWriter instanceof ItemAuditWriter);
         $itemWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', itemId: Uuid::v4()->toRfc4122());
         $itemWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', itemId: Uuid::v4()->toRfc4122());
+        // G7b: `tenant_settings.updated`, BUSINESS (listed AND driven).
+        $settingsWriter = self::getContainer()->get(SettingsAuditWriter::class);
+        \assert($settingsWriter instanceof SettingsAuditWriter);
+        $settingsWriter->recordUpdated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', settingsId: Uuid::v4()->toRfc4122(), displayName: 'Probe Workspace');
         // Warehouses slice 1 C2: `warehouse.created` / `warehouse.updated`, BUSINESS (listed AND driven).
         $warehouseWriter = self::getContainer()->get(WarehouseAuditWriter::class);
         \assert($warehouseWriter instanceof WarehouseAuditWriter);

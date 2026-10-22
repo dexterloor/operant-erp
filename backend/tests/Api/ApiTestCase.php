@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\UserManagement\Domain\OwnerMarker;
 use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionRequirement;
@@ -94,19 +95,30 @@ abstract class ApiTestCase extends TenancyTestCase
      * T-1 / API-7: the tenant is never carried by the request as a tenant -- it
      * arrives inside a signed token, which is the only channel §4.2 offers.
      *
+     * **The default actor is never an owner** (G7b, 2026-10-22). Until `UpdateSettings` no built operation declared the owner
+     * marker (`tenant_settings.edit`, E-15b), so "every declared code" never included it, and every shipped test that
+     * relies on the default actor being a NON-owner — the creator ≠ approver exemption (DSoD-1), E-15c's owner-only grants,
+     * the proposal recipes (Q-6 (c′)) — did so silently. `UpdateSettings` declares it, so the default is now every declared
+     * code EXCEPT the marker: the rig keeps its meaning, and a test that needs an owner says so (a marker-holding role, or
+     * `DefaultRoles::codesFor('owner')`). `everyDeclaredPermission()` itself still answers every declared code.
+     * **Rule (RED of this decision, 2026-10-22):** a walker over every operation whose probe must get past the permission gate
+     * acts with `everyDeclaredPermission()` EXPLICITLY (`RequestContractTest`, `ErrorContractTest::probe()`), or it stops at a
+     * 403 on the marker-gated operation and is silently blind beyond it.
+     *
      * @param list<string>|null $permissionCodes null means every code the operation
-     *                                           registry declares; `[]` means a caller who holds nothing
+     *                                           registry declares except the owner marker; `[]` means a caller who holds nothing
      */
     protected function actAs(string $tenantId, ?array $permissionCodes = null): void
     {
-        $this->actorId = $this->seedPrincipal($tenantId, $permissionCodes ?? self::everyDeclaredPermission());
+        $permissionCodes ??= self::everyDeclaredPermissionButTheOwnerMarker();
+        $this->actorId = $this->seedPrincipal($tenantId, $permissionCodes);
         $this->bearer = $this->tokenFor($tenantId, $this->actorId);
 
         // The non-HTTP half. `TransactionBoundaryTest` and friends drive
         // `ItemReader` and `ItemWriter` directly, and those resolve their tenant
         // through the same seam a request does. An HTTP request overwrites this
         // from its own token, so the two cannot silently disagree.
-        $this->identities()->set(new Identity($tenantId, $this->actorId, 'Fixture Actor', $permissionCodes ?? self::everyDeclaredPermission()));
+        $this->identities()->set(new Identity($tenantId, $this->actorId, 'Fixture Actor', $permissionCodes));
     }
 
     /**
@@ -294,6 +306,16 @@ abstract class ApiTestCase extends TenancyTestCase
         sort($codes);
 
         return $codes;
+    }
+
+    /**
+     * {@see self::everyDeclaredPermission()} minus `OwnerMarker::CODE` — the default actor's set ({@see self::actAs()}).
+     *
+     * @return list<string>
+     */
+    protected static function everyDeclaredPermissionButTheOwnerMarker(): array
+    {
+        return array_values(array_diff(self::everyDeclaredPermission(), [OwnerMarker::CODE]));
     }
 
     /**

@@ -96,6 +96,11 @@ final class RequestContractTest extends PurchaseOrderTestCase
 
         self::assertNotSame([], $writes, 'The registry declares no write operation, so there is no domain.');
 
+        // The probe must get past the permission gate on EVERY write, so the actor holds every declared code — the owner
+        // marker included (G7b: `UpdateSettings` declares it, and the rig's default actor leaves it out, `ApiTestCase::actAs()`).
+        // The probe bodies are garbage, so no owner exemption can change what this checks.
+        $this->actAs(self::TENANT_A, self::everyDeclaredPermission());
+
         // Every row is seeded before the first request: a refused request can
         // close the shared entity manager, and a seed after it would error
         // rather than drive the operation.

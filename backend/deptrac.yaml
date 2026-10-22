@@ -94,6 +94,9 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-22 with the workspace rename in the tree (G7b `UpdateSettings`): ONE edge line added, A-5:
+  # `SettingsWriter -> SettingsAuditWriter` (`tenant_settings.updated`). The three commands and the by-TAG count: see
+  # `docs/session13/g7b-progress.md` (measured there, not restated here). No LAYER edge.)
   # (Re-derived 2026-10-22 with the item archive trail in the tree (G5-C2a): ONE edge line added, A-5:
   # `ItemWriter -> ItemAuditWriter` (`inventory_item.deleted` / `.restored`). The three commands and the by-TAG count: see
   # `docs/session13/g5-c2a-progress.md` (measured there, not restated here). No LAYER edge.)
@@ -666,6 +669,10 @@ deptrac:
       # G2 `RestoreRole`, 2026-10-22: `role.restored` written synchronously in the restoring transaction (`RoleDeletion`'s
       # shape). Raw SQL for the write, so no entity edge.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\SettingsWriter:
+      # G7b `UpdateSettings`, 2026-10-22 (owner ruling RO-S1): `tenant_settings.updated` written synchronously in the
+      # renaming transaction, under the settings row lock (`WarehouseWriter`'s shape). Raw SQL for the writes, so no entity edge.
+      - App\Modules\AuditLog\Infrastructure\SettingsAuditWriter   # A-5
     App\Modules\Customers\Application\CustomerContactWriter:
       # Customers slice 2 C1, 2026-10-19: `customer_contact.created` / `customer_contact.updated` written synchronously in
       # the writing transaction (owner Q-2; `CustomerAddressWriter`'s shape). Raw SQL for the writes, so no entity edge.

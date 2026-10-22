@@ -320,7 +320,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (G6-C0, 2026-10-22):** `CreateExport` (POST `/exports`, `*(derived)*` -- the List's declared code) on
         // `ExportRequest`, the one operation whose success is `text/csv` (API-25). No migration, no grant: it reads what the
         // Lists read and writes `data.export.completed`, an existing catalogue member, under `erp_app`'s audit INSERT.
-        self::assertCount(119, $checked, 'The route set changed. This slice declares one hundred and nineteen operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G7b, 2026-10-22):** `UpdateSettings` (PATCH `/settings`, `tenant_settings.edit`) on `SettingsResource`.
+        // Its migrations add `tenant_settings.display_name` with `erp_app` column UPDATE (display_name, updated_at) and re-issue
+        // the audit catalogue.
+        self::assertCount(120, $checked, 'The route set changed. This slice declares one hundred and twenty operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

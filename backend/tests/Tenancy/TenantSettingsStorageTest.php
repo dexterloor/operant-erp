@@ -17,7 +17,7 @@ use Symfony\Component\Uid\Uuid;
  * Nothing here checks that the table has RLS enabled and forced, carries a
  * `USING`/`WITH CHECK` policy pair, pins its primary key to UUIDv4, references
  * the registry, exposes `UNIQUE (tenant_id, id)`, leads every unique index with
- * `tenant_id`, or that `erp_app` holds exactly `SELECT` on it. Every one of
+ * `tenant_id`, or that `erp_app` holds exactly its manifest footprint (since G7b: `SELECT` plus `UPDATE (display_name, updated_at)`). Every one of
  * those is already asserted for **every** table by `SchemaManifestTest`,
  * `SchemaGuardTest`, `SchemaOwnershipTest` and `GrantFootprintTest`, all of
  * which derive their domain from `SchemaManifest::TABLES` and the live
@@ -99,47 +99,49 @@ final class TenantSettingsStorageTest extends TenancyTestCase
     /**
      * The grant footprint as a statement rather than as a catalogue lookup.
      *
-     * `GrantFootprintTest::everyRoleHoldsExactlyTheTablePrivilegesTheManifestDeclares`
-     * asserts `has_table_privilege` is `SELECT` and nothing else, in both
-     * directions, and that is the exhaustive check. This one asserts the thing
-     * a reader actually wants to know — that the three writes *fail* — because
-     * a privilege check and a refused statement have come apart before in this
-     * project (a privilege check written against `information_schema` resolves
-     * neither `PUBLIC` grants nor role inheritance).
+     * `GrantFootprintTest` asserts the table- and column-level privileges against `SchemaManifest` in both directions, and
+     * that is the exhaustive check. This one asserts the thing a reader actually wants to know — which writes *fail* —
+     * because a privilege check and a refused statement have come apart before in this project (a privilege check written
+     * against `information_schema` resolves neither `PUBLIC` grants nor role inheritance).
      *
-     * Each verb gets its own connection, and that is not tidiness. A refused
-     * statement inside `TenantContext::run()` closes the entity manager, so
-     * three verbs sharing one unit of work measure the first refusal and then
-     * an `EntityManagerClosed` — the second and third would report a failure
-     * they never reached, which is a fake-green wearing a red hat. Measured:
-     * the shared-unit-of-work version of this test reported
-     * `EntityManagerClosed` when `UPDATE` was granted, instead of reporting
-     * that `UPDATE` was accepted.
+     * **Split 2026-10-22 by G7b `UpdateSettings`** (was `theApplicationPrincipalCannotWriteTheSettingsRowAtAll`;
+     * `Version20261022020000` granted `UPDATE (display_name, updated_at)`). Since then `erp_app` may rename the workspace
+     * and nothing else: INSERT and DELETE are still refused, and **`UPDATE … SET default_currency_code` is still refused —
+     * the currency's read-only half (owner ruling RO-S1), pinned at the database**, whatever the API layer does.
      *
-     * Mutation, run: `GRANT UPDATE ON tenant_settings TO erp_app` — UPDATE
-     * reads `accepted` and the assertion fails naming it. It also turns
-     * `GrantFootprintTest` red, which is the point of having both.
+     * Each statement gets its own connection, and that is not tidiness. A refused statement inside a transaction aborts it,
+     * so statements sharing one would measure the first refusal and then `25P02` — the later ones would report a failure
+     * they never reached (measured once here as `EntityManagerClosed`).
+     *
+     * Mutations, run: `GRANT UPDATE ON tenant_settings TO erp_app` (whole table) — the currency UPDATE reads `accepted`
+     * and the assertion fails naming it (and `GrantFootprintTest` goes red too); revoking the column grant — the rename
+     * reads `permission denied`.
      */
     #[Test]
-    public function theApplicationPrincipalCannotWriteTheSettingsRowAtAll(): void
+    public function theApplicationPrincipalCanWriteTheDisplayNameAndNothingElse(): void
     {
-        $refusals = [];
+        $outcomes = [];
 
         foreach ([
-            'INSERT' => "INSERT INTO tenant_settings (id, tenant_id, default_currency_code) VALUES ('11111111-1111-4111-8111-11111111aaaa'::uuid, '".self::TENANT_A."'::uuid, 'USD')",
-            'UPDATE' => "UPDATE tenant_settings SET default_currency_code = 'USD'",
+            'INSERT' => "INSERT INTO tenant_settings (id, tenant_id, default_currency_code, display_name) VALUES ('11111111-1111-4111-8111-11111111aaaa'::uuid, '".self::TENANT_A."'::uuid, 'USD', 'Inserted')",
+            'UPDATE default_currency_code' => "UPDATE tenant_settings SET default_currency_code = 'USD'",
+            'UPDATE default_currency_code with display_name' => "UPDATE tenant_settings SET display_name = 'Both', default_currency_code = 'USD'",
+            'UPDATE display_name, updated_at' => "UPDATE tenant_settings SET display_name = 'Renamed', updated_at = now()",
             'DELETE' => 'DELETE FROM tenant_settings',
         ] as $verb => $sql) {
-            $refusals[$verb] = $this->attemptAsApplicationRole($sql);
+            $outcomes[$verb] = $this->attemptAsApplicationRole($sql);
         }
 
-        self::assertSame(
-            ['INSERT' => 'permission denied', 'UPDATE' => 'permission denied', 'DELETE' => 'permission denied'],
-            $refusals,
-            'erp_app can write tenant_settings. It holds SELECT and nothing else by design: it cannot '
-            .'create a workspace (S-10 / V-10) so it must not create a workspace\'s settings; UpdateSettings '
-            .'is not shippable (API-O-14) so UPDATE has no user; and the deletion class is `none`, because '
-            .'removing the row silently restores the "no stated currency" state.');
+        self::assertSame([
+            'INSERT' => 'permission denied',
+            'UPDATE default_currency_code' => 'permission denied',
+            'UPDATE default_currency_code with display_name' => 'permission denied',
+            'UPDATE display_name, updated_at' => 'accepted',
+            'DELETE' => 'permission denied',
+        ], $outcomes,
+            'erp_app\'s write footprint on tenant_settings is not exactly UPDATE (display_name, updated_at). It cannot create a '
+            .'workspace (S-10 / V-10), so it must not create a workspace\'s settings; the currency is read-only (RO-S1); and the '
+            .'deletion class is `none`, because removing the row silently restores the "no stated currency" state.');
     }
 
     /**
