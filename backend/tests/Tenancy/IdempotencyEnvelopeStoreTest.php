@@ -14,15 +14,16 @@ use PHPUnit\Framework\Attributes\Test;
 
 /**
  * `IdempotencyEnvelopeStore` — the `store` mechanism of `API.md` §6.2, tested at service level (remaining-ops G5-C0,
- * 2026-10-22). The HTTP byte-identical test and the two-connection race land in G5-C1 with the first store operation.
+ * 2026-10-22). The HTTP byte-identical test and the two-connection race landed with the first store operation, G5-C2
+ * (`BulkArchivalTest::aReplayIsByteIdenticalOverHttp`, `::aConcurrentDuplicateReplaysTheWinnerByteForByteAndLeavesNoLoserWrites`).
  *
  * **Dated note (2026-10-22, final RED L-7): every test here drives the store on the SCHEMA OWNER's connection**, under
  * `TenantContext::establishOn()`, inside a transaction that is always rolled back. `erp_app` holds SELECT only on
- * `idempotency_key` until G5-C1's migration grants the INSERT column list with its first caller (ADR-002 A4.1), so
- * `record()` cannot run as `erp_app` yet — and without this it would ship unexecuted. The store takes a `Connection`
+ * `idempotency_key` until the first caller's migration (G5-C2, `Version20261022050000`) granted the INSERT column list
+ * (ADR-002 A4.1), so at G5-C0 `record()` could not run as `erp_app` — and without this it would have shipped unexecuted. The store takes a `Connection`
  * precisely so that this is possible. Locally the owner is NOBYPASSRLS and the table is FORCE ROW LEVEL SECURITY, so the
- * tenant context is real and the CHECKs bind exactly as they will for `erp_app`. When G5-C1 lands, the behaviour tests
- * move to `erp_app`'s connection; the CHECK tests may stay on the owner (a constraint binds every role).
+ * tenant context is real and the CHECKs bind exactly as they will for `erp_app`. Since G5-C2 `erp_app`'s own path is exercised
+ * over HTTP (`BulkArchivalTest`); these stay on the owner as written (a constraint binds every role).
  */
 final class IdempotencyEnvelopeStoreTest extends TenancyTestCase
 {
@@ -86,7 +87,7 @@ final class IdempotencyEnvelopeStoreTest extends TenancyTestCase
     /**
      * RO-B1 (a′): an expired key is REFUSED, 422 `key_expired` on `#Idempotency-Key`, and its row is left exactly as it
      * was — never overwritten, never purged. The row is seeded with a backdated `created_at` as the owner (`erp_app` will
-     * not be able to set it: it is outside G5-C1's column grant). A row 23 hours old is still live (the boundary control,
+     * not be able to set it: it is outside the column grant, G5-C2). A row 23 hours old is still live (the boundary control,
      * so an always-expired predicate is red too).
      *
      * Mutations: the `live` predicate dropped (always live) → the 25-hour row replays → red; the window flipped to always

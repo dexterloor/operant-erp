@@ -109,6 +109,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // The CSV is read whole and walked by the same leak check: a supplied tenant id that moved the read would render
         // B's items, whose ids normalise to `B.*`. `g6-c0-red.md` H-1/H-2.
         'CreateExport' => ['body' => ['resource' => 'inventory_item'], 'accept' => 'text/csv'],
+        // G5-C2 (2026-10-22): a bulk archive of an id the baseline cannot know; the probe compares the two outcomes, and a
+        // supplied tenant id that moved the request onto B would archive B's row or change the counts.
+        'CreateBulkArchival' => ['body' => ['resource' => 'inventory_item', 'ids' => ['00000000-0000-4000-8000-0000000000b1']]],
         // Roles slice 1 (2026-09-23). The vocabulary is global -- no tenant column, no RLS -- so a supplied tenant
         // id has nothing to move; the fourth assertion (no response names one of tenant B's rows) holds trivially.
         'ListPermissions' => [],

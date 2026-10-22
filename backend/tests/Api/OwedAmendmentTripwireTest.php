@@ -460,7 +460,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES = [
-        'CreateBulkArchival' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
+        // G5-C2 (2026-10-22): `CreateBulkArchival` LEFT this map deliberately, in the commit that built it with every carry: (1)
+        // `CreateBulkArchivalProcessor` acts only through `resolvedFor()` (`BulkArchivalTest::aBodyReadTwoWaysIsAServerErrorNotAnArchival`
+        // plants the mismatch); (2) `PermissionEnforcementContractTest::PINNED_PERMISSIONS`/`PINNED_RESOLVERS`, §4.2's `*(derived)*`
+        // cell, `BulkArchivalPermission` (a `DerivedPermission`); (3) `ErrorContractTest`'s derived arm already serves it, and a
+        // `CreateBulkArchival` recipe in `OperationSuccessRecipes`; (4) `MarginSourcesDerivationTest::derivedArm()` asserts its
+        // response serves no money. `CreateBulkRestoration` inherits carries (1)-(4) unchanged.
         'CreateBulkRestoration' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
         // G6-C0 (2026-10-22): `CreateExport` LEFT this map deliberately, in the commit that built it with every carry: (1)
         // `CreateExportProcessor` acts only through `resolvedFor()` (`ExportContractTest::aBodyReadTwoWaysIsAServerErrorNotAnExport`
@@ -567,15 +572,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * @var array<string, string>
      */
     private const OPERATIONS_OWING_THE_ARCHIVE_RULES = [
-        'CreateBulkArchival' => 'Parity with each resource\'s single Delete, per member (new gap, stock-transfer-sec.md §5): a member '
-            .'the single Delete would refuse is NOT applied (counted out of `applied`, no per-id reason — E-14). For storage_location '
-            .'(built, wh-loc-delete C3): `warehouse.is_archived` (a location of an archived warehouse), `storage_location.is_archived` '
-            .'and `storage_location.holds_stock` (any stock, any kind, quarantine included) — archiving stocked quarantine would hide '
-            .'held stock from StockAdjuster\'s held read (G-44 bypass by `admin`, who holds .delete and stock_movement.adjust). For '
-            .'warehouse (built, wh-loc-delete C4): `warehouse.is_archived`, `warehouse.has_open_purchase_orders`, '
-            .'`warehouse.has_open_sales_orders` and `warehouse.holds_stock` (any location, live or archived), its live locations left '
-            .'live (owner Q-2 (a)). For every other resource, its own Delete\'s refusals (open work, draft-only, '
-            .'E-15h held roles if `role` is admissible); items: G-51 (an item with stock must not be bulk-archived, or its stock blocks its locations and warehouse). Lock as the single Delete does; one `<table>.deleted` row per member.',
+        // G5-C2 (2026-10-22): `CreateBulkArchival` LEFT this map with its work done: each member runs the single Delete's own
+        // writer method under a savepoint (`BulkArchiveMember`; `BulkArchivalTest::` the per-resource parity cases, incl. the
+        // G-44 bypass `aStockedQuarantineLocationIsNotArchivedInBulk` and `aWarehouseArchiveLeavesItsLiveLocationsLive`), the
+        // bulk-only stocked-item refusal (`aStockedItemIsSkippedWhileTheSingleDeleteStillArchivesIt`, G-51), the single
+        // Delete's own locks, and one `<table>.deleted` row per applied member (`aRefusedMemberLeavesNoWriteAndNoAuditRow`).
         'CreateBulkRestoration' => 'Parity with each resource\'s single Restore, per member (stock-transfer-sec.md §5): its collision '
             .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
             .'Restore would refuse is not applied, with no per-id reason (E-14). For warehouse (built, wh-loc-delete C1): '
@@ -1334,7 +1335,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'The archive-rules map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
         $sortedKeys = array_keys(self::OPERATIONS_OWING_THE_ARCHIVE_RULES);
         sort($sortedKeys);
-        self::assertSame(['CreateBulkArchival', 'CreateBulkRestoration'], $sortedKeys,
+        // G5-C2 (2026-10-22): `CreateBulkArchival` left with its work; the literal moved deliberately, never hand-edited green.
+        self::assertSame(['CreateBulkRestoration'], $sortedKeys,
             'The archive-rules pin no longer names exactly the unbuilt archive operations of API.md §4.2 (final RED L-5). A '
             .'renamed key is never built and guards nothing; an entry leaves only with its work done.');
         self::assertSame(['UpdateStorageLocation' => 'x'],

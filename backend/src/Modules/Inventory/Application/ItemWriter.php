@@ -83,6 +83,16 @@ final readonly class ItemWriter
      */
     public const EDIT_LOCK = 'SELECT 1 FROM inventory_item WHERE id = ?::uuid FOR NO KEY UPDATE';
 
+    /**
+     * The bulk-only stock read (G5-C2, {@see self::archiveUnlessStocked()}): any non-zero on-hand in any location, any kind,
+     * quarantine included — the same "any stock" `storage_location.holds_stock` means. A read of `stock_level`, never a
+     * write, so TB-6's *"anything touching stock_level"* (writes) is not crossed (`UX` to confirm the reading).
+     */
+    public const STOCKED = 'SELECT EXISTS (SELECT 1 FROM stock_level WHERE inventory_item_id = ?::uuid AND qty_on_hand <> 0)';
+
+    /** Never shown: a bulk answers counts only (E-14). Here so the refusal is a named rule like every other. */
+    public const HOLDS_STOCK_IN_BULK = 'This item still holds stock, so it is not archived in bulk.';
+
     /** The archive, live rows only: 0 rows means another delete committed first (refused, no audit row). */
     public const ARCHIVE = 'UPDATE inventory_item SET deleted_at = now(), updated_at = now() WHERE id = ?::uuid AND deleted_at IS NULL';
 
@@ -259,6 +269,44 @@ final readonly class ItemWriter
                 itemId: $id,
             );
         });
+    }
+
+    /**
+     * **The bulk archival's item member** (G5-C2, 2026-10-22; design §5.2's one deliberate divergence, D-13; final RED M-4):
+     * the single {@see self::archive()}, preceded by the stock refusal the single delete does not make (G-51, accepted and
+     * shipped: `DeleteItem` archives a stocked item). Not applying it would hand `admin`, who holds `inventory_item.delete`
+     * and `stock_movement.adjust`, a mass version of G-51.
+     *
+     * {@see self::DELETE_LOCK} FIRST — the item `FOR UPDATE`, which conflicts with every stock writer's `KEY SHARE` on the
+     * item (the `stock_movement` FK, `StockAdjuster` / `StockTransferrer`'s explicit read) — THEN {@see self::STOCKED}, so
+     * the read sees any receipt that got there first (M-4). Point-in-time all the same (RED `g5-c2-red.md` L-7): a receipt
+     * that waits on this lock posts once it is released, against the just-archived item (G-51's measured note), so stock can
+     * still arrive on an item archived in bulk — the same as for `DeleteItem`. Then the single
+     * {@see self::archive()}, which re-takes the same lock in the same transaction and runs every one of its own rules.
+     * Absent or foreign → 404; stocked → 409 `inventory_item.holds_stock`: both are "not applied" to the bulk, which never
+     * says why (E-14), so the sentence is never shown to anyone.
+     *
+     * Pinned two-way by `BulkArchivalTest::aStockedItemIsSkippedWhileTheSingleDeleteStillArchivesIt`: the day G-51's own
+     * closing work makes `DeleteItem` refuse a stocked item, that test reddens and this method folds into {@see self::archive()}.
+     * Runs only inside the bulk's tenancy transaction (it joins it).
+     */
+    public function archiveUnlessStocked(string $id): void
+    {
+        if (!Uuid::isValid($id)) {
+            throw ApiProblem::notFound();
+        }
+
+        $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id): void {
+            $connection = $em->getConnection();
+            if (false === $connection->fetchAssociative(self::DELETE_LOCK, [$id])) {
+                throw ApiProblem::notFound();
+            }
+            if (true === $connection->fetchOne(self::STOCKED, [$id])) {
+                throw ApiProblem::businessRuleViolated('inventory_item.holds_stock', self::HOLDS_STOCK_IN_BULK);
+            }
+        });
+
+        $this->archive($id);
     }
 
     /**

@@ -78,8 +78,10 @@ use Symfony\Component\Uid\Uuid;
  *  - **`⛔ none` is excluded because nothing marked it may ship at all**, and
  *    `IdempotencyContractTest::noBlockedOperationShips` is what enforces that.
  *    An operation that appeared in both sets would be red there first.
- *  - **`store` is excluded because the store has no replay path** (API-O-31) and
- *    the three operations that use it are unbuilt. The same
+ *  - **`store` was excluded until G5-C2 (2026-10-22)** because the store had no replay path; it ships with
+ *    `CreateBulkArchival`, so a shipped store operation is now replayed here (an unshipped one is out by construction).
+ *    *(Was: "`store` is excluded because the store has no replay path (API-O-31) and
+ *    the three operations that use it are unbuilt.")* The same
  *    `noBlockedOperationShips`-shaped guard covers that:
  *    `everyStoreMechanismIsABulkOperationAndNoneShipsWithoutTheReplayPath`.
  *    **The intersection is asserted below rather than described**, so neither
@@ -303,6 +305,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'Order-restores C0: a second restoration of a live purchase line. guard:purchase_order_line.deleted_at '
                 .'-- and the order TOTAL is part of the check, because a restore raises it and a second one would raise it twice.',
         ],
+        'CreateBulkArchival' => [
+            'method' => 'replayCreateBulkArchival',
+            'why' => 'G5-C2: the first store operation. A replay with the same key and body is the stored envelope byte for byte, '
+                .'and does no work: a member restored between the calls stays live, and no second customer.deleted row is written.',
+        ],
         'RestoreSupplier' => [
             'method' => 'replayRestoreSupplier',
             'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
@@ -355,8 +362,10 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 continue;
             }
 
-            if ('no' === $mechanism || '⛔ none' === $mechanism || 'store' === $mechanism) {
-                // The last two are asserted unshippable by IdempotencyContractTest;
+            // G5-C2 (2026-10-22): `store` is no longer excluded -- the replay path ships with `CreateBulkArchival`, so a
+            // shipped store operation is exercisable and must be replayed here like every other mechanism.
+            if ('no' === $mechanism || '⛔ none' === $mechanism) {
+                // The last is asserted unshippable by IdempotencyContractTest;
                 // seeing one here would mean that guard had stopped working, so it
                 // is named rather than skipped.
                 self::assertSame('no', $mechanism, \sprintf(
@@ -1327,6 +1336,24 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT deleted_at, updated_at FROM warehouse WHERE id = ?::uuid', [$id]), $why);
         self::assertNull($after[0]['deleted_at'], 'The first restoration did not restore the row, so the second proves nothing.');
         self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::WAREHOUSE_RESTORED), $why);
+    }
+
+    private function replayCreateBulkArchival(string $why): void
+    {
+        $id = $this->seedCustomer(self::TENANT_A, 'Replayed Bulk');
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/bulk/archivals', ['resource' => 'customer', 'ids' => [$id]], $key);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = (string) $this->client()->getResponse()->getContent();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = NULL WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/bulk/archivals', ['resource' => 'customer', 'ids' => [$id]], $key);
+
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame($first, (string) $this->client()->getResponse()->getContent(), $why);
+        self::assertNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$id])[0]['deleted_at'], $why);
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_DELETED), $why);
     }
 
     private function replayRestoreSupplier(string $why): void

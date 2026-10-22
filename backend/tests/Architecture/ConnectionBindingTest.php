@@ -98,7 +98,7 @@ use Symfony\Component\Yaml\Yaml;
  * `$em->getConnection()`), no constructor injection, nothing to bind — and,
  * unlike `ItemWriter`, nothing here checks which principal a caller passes; the
  * store refuses a bare connection and another tenant's record, and a caller check
- * is owed with its first caller (G5-C1). `Platform\Tenancy` is exempt by
+ * was owed with its first caller and is built since G5-C2 (`EnvelopeStoreCallerConnectionTest`). `Platform\Tenancy` is exempt by
  * A-10's own wording.
  */
 final class ConnectionBindingTest extends KernelTestCase

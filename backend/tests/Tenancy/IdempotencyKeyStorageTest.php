@@ -42,7 +42,7 @@ use PHPUnit\Framework\Attributes\Test;
  * `response_headers` (a closed object of §6.2's normative headers) and a key that
  * must be lower-case hex SHA-256 — and the replay is now `IdempotencyEnvelopeStore`'s,
  * tested in `IdempotencyEnvelopeStoreTest`; the HTTP byte-identical test lands with
- * the first store operation (G5-C1). Every fixture below therefore writes a full
+ * the first store operation (G5-C2, `CreateBulkArchival`; the design expected G5-C1). Every fixture below therefore writes a full
  * envelope and a hashed key (design Response to RED M-2, 2026-10-22).
  */
 final class IdempotencyKeyStorageTest extends TenancyTestCase
@@ -93,32 +93,33 @@ final class IdempotencyKeyStorageTest extends TenancyTestCase
      * message (`permission denied for table`), never by `42501` alone, which an
      * RLS refusal shares (ADR-002 Amendment 4, rule R3). G5-C0 added the envelope
      * columns and the store class and **deliberately granted nothing**: the INSERT
-     * column list ships with its first caller, `CreateBulkRoleAssignment` (G5-C1,
-     * ADR-002 A4.1). **That commit turns this test into `recordsTheNineColumns`**
-     * — `erp_app` INSERTs a row naming exactly the nine granted columns.
+     * column list ships with its first caller (ADR-002 A4.1). **G5-C2 (2026-10-22)
+     * is that commit** — `CreateBulkArchival` shipped before `CreateBulkRoleAssignment`
+     * (`g5-c2-progress.md` CD-A) — **and turned this test into `recordsTheNineColumns`**
+     * as the docblock said it would: `erp_app` INSERTs a row naming exactly the nine
+     * granted columns (`Version20261022050000`). *(Was `theApplicationPrincipalCannotRecordYet`,
+     * asserting the refusal.)*
      *
-     * Mutation, run (V4 batch B7, and again at G5-C0): the revoke absent /
-     * `GRANT INSERT ON idempotency_key TO erp_app` — INSERT reads `accepted`.
+     * Mutation: `Version20261022050000`'s grant absent → reads `permission denied for table`.
      */
     #[Test]
-    public function theApplicationPrincipalCannotRecordYet(): void
+    public function recordsTheNineColumns(): void
     {
-        self::assertSame(self::PRIVILEGE_REFUSED,
+        self::assertSame('accepted',
             $this->attemptAsApplicationRole($this->insertSql(), $this->insertParams(self::TENANT_A, self::OPERATION, 'written-once')),
-            'erp_app recorded a key, and nothing under src/ writes the store until G5-C1 grants its column list.');
+            'erp_app cannot INSERT the nine envelope columns, so IdempotencyEnvelopeStore::record() cannot write (G5-C2\'s grant).');
     }
 
     /**
      * **`erp_app` can never set `created_at`.** The expiry (RO-B1 (a′): 24 h,
      * refused at read) is computed against that column on the database clock, so
      * a principal that could backdate it could make a key replay forever, and one
-     * that could forward-date it could make a key expire early. G5-C1's column
-     * grant leaves `created_at` out, so the row always takes `DEFAULT now()`. Today
-     * the whole INSERT is refused (see above); from G5-C1 this statement is still
-     * refused while the nine-column INSERT is accepted — which is the moment this
-     * test starts carrying weight on its own.
+     * that could forward-date it could make a key expire early. The first caller's column
+     * grant leaves `created_at` out, so the row always takes `DEFAULT now()`. Since
+     * G5-C2 this statement is refused while the nine-column INSERT is accepted
+     * ({@see self::recordsTheNineColumns()}) — so this test now carries weight on its own.
      *
-     * Mutation (to run at G5-C1): `created_at` added to the column grant → reads
+     * Mutation (run at G5-C2): `created_at` added to the column grant → reads
      * `accepted`.
      */
     #[Test]

@@ -822,7 +822,9 @@ final readonly class PurchaseOrderWriter
         // is indistinguishable from one that never existed. That is why
         // it is a `validation-failed` on the *field* rather than a
         // `not-found` on a row the caller never addressed.
-        if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL', [$itemId])) {
+        // G-59 closed (G5-C2, 2026-10-22): `FOR KEY SHARE` waits on an archiving `DeleteItem`/bulk member's `FOR UPDATE`, and
+        // the re-checked `deleted_at IS NULL` then refuses the just-archived item (before, the row was read unlocked and the line landed).
+        if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE', [$itemId])) {
             throw ApiProblem::validationFailed([
                 self::lineError($index, 'inventoryItemId', 'unknown_reference', 'No live inventory item in this workspace has this id.'),
             ]);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\AuditLog\Application\ExportPermission;
+use App\Platform\Http\Bulk\BulkArchivalPermission;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ContractDocument;
@@ -291,6 +292,9 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // G6-C0 (2026-10-22): the first DERIVED operation. §4.2's `Perm` cell is `*(derived — see below)*`: the body's
         // `resource` resolves to the code its `List*` is declared with (`ExportPermission`, pinned below).
         'CreateExport' => PermissionGate::DERIVED,
+        // G5-C2 (2026-10-22): §4.2's `Perm` cell is `*(derived)*`: the body's `resource` resolves to the code its single
+        // `Delete*` is declared with, `<resource>.delete` (ST-9; `BulkArchivalPermission`, pinned below).
+        'CreateBulkArchival' => PermissionGate::DERIVED,
     ];
 
     /**
@@ -306,6 +310,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
      */
     public const PINNED_RESOLVERS = [
         'CreateExport' => ExportPermission::class,
+        // G5-C2: its map is pinned by name in `BulkAdmissibleSetTest::eachResourceResolvesToItsSingleDeletesDeclaredCode`.
+        'CreateBulkArchival' => BulkArchivalPermission::class,
     ];
 
     /** One pin, normalised through the same parser as the registry. */

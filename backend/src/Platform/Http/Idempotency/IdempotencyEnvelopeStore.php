@@ -30,12 +30,12 @@ use Symfony\Component\Uid\Uuid;
  * **Every method takes the `Connection`** (final RED L-7): callers pass the run's `$em->getConnection()`, which is
  * `erp_app`'s. It is never autowired — an unbound `Connection` is the schema owner — so A-10 / `ConnectionBindingTest` see
  * no new binding; and C0's tests can drive `record()` on an owner connection while `erp_app` holds no INSERT (the column
- * grant ships with the first caller, G5-C1: ADR-002 A4.1). **The store cannot see which principal it was handed**
+ * grant ships with the first caller — G5-C2's `CreateBulkArchival`, `Version20261022050000`: ADR-002 A4.1). **The store cannot see which principal it was handed**
  * (deptrac A-10 deviation, registered 2026-10-22 — unlike `ItemWriter`, these are public methods taking a caller-supplied
  * connection), so it refuses what it can check instead: a connection with no open transaction, and a `record()` whose
  * tenant is not the session's; and the lookup names the session's tenant in SQL, so it holds even on a principal that
  * bypasses RLS (the Neon owner, ADR-002 C-1). A check that every caller passes the run's `$em->getConnection()` is owed
- * with the first caller (G5-C1).
+ * with the first caller — built at G5-C2: `EnvelopeStoreCallerConnectionTest` (every call passes the run's `$em->getConnection()`).
  *
  * **Expiry is refused at read, never overwritten, never purged** (RO-B1 (a′)): a key older than {@see self::WINDOW_HOURS}
  * is 422 `key_expired` and its row is left as it is. The age is compared in SQL on the database clock against a

@@ -59,6 +59,9 @@ final class TenantContextContainmentTest extends TestCase
      * of them exist specifically to demonstrate the forbidden forms.
      */
     private const KNOWN_WRITERS_OUTSIDE_SRC = [
+        'tests/Api/BulkArchivalCoordinatorTest.php' =>
+            'G5-C2: a real 55P03 needs a second connection (unpooled) holding a customer FOR UPDATE under the tenant, '
+            .'set_config inside its own transaction, rolled back; it carries the only test that can redden the lock-timeout arm.',
         'tests/Api/PurchaseOrderRowLockTest.php' =>
             'The role-administration lock\'s refusal twins (roles slice 2, C2): set_config to ANOTHER tenant inside a '
             .'bare transaction on the app connection, rolled back, to prove RoleAdministrationLock refuses a mismatched '

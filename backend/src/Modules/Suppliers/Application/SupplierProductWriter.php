@@ -174,7 +174,9 @@ final readonly class SupplierProductWriter
                 }
 
                 $itemId = Uuid::fromString((string) $values['inventory_item_id'])->toRfc4122();
-                if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL', [$itemId])) {
+                // G-59 closed (G5-C2, 2026-10-22): `FOR KEY SHARE` waits on an archiving `DeleteItem`/bulk member's `FOR UPDATE`, and
+                // the re-checked `deleted_at IS NULL` then refuses the just-archived item (before, the row was read unlocked and the line landed).
+                if (false === $connection->fetchOne('SELECT 1 FROM inventory_item WHERE id = ?::uuid AND deleted_at IS NULL FOR KEY SHARE', [$itemId])) {
                     throw ApiProblem::validationFailed([self::error('inventory_item_id', 'unknown_reference', self::ITEM_UNKNOWN)]);
                 }
 

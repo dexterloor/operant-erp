@@ -128,6 +128,13 @@ trait OperationSuccessRecipes
 
                 return [200, 'export'];
             }],
+            // G5-C2 (2026-10-22): the first store operation and the second DERIVED one -- its body names a resource (G5-D0
+            // carry (3)). One item, archived in bulk; the answer is the stored envelope `{requested, applied}`.
+            'CreateBulkArchival' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-BULK')], function (array $c) use ($key): array {
+                $this->send('POST', '/bulk/archivals', ['resource' => 'inventory_item', 'ids' => [$c['item']]], $key());
+
+                return [200, 'bulk archive'];
+            }],
             'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
                 $this->send('GET', '/items/'.$c['item']);
 

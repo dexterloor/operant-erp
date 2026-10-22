@@ -375,6 +375,50 @@ final readonly class StorageLocationWriter
     }
 
     /**
+     * **The bulk archival's lock order for locations** (G5-C2, design §5.3): the ids ordered by `(warehouse_id, id)`, so
+     * each member's {@see self::PARENT_LOCK} is taken in ascending warehouse order and two concurrent bulks over overlapping
+     * locations cannot cycle on the parents. ONE id-only read, no lock, discarded after ordering and never answered; an id
+     * this workspace does not hold (absent, foreign) sorts last, in id order, and its member is then not applied.
+     * Runs only inside the bulk's tenancy transaction (it joins it).
+     *
+     * @param list<string> $locationIds lower-case canonical uuids
+     *
+     * @return list<string>
+     */
+    public function bulkLockOrder(array $locationIds): array
+    {
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($locationIds): array {
+            /** @var list<string> $known */
+            $known = $em->getConnection()->fetchFirstColumn(
+                'SELECT id::text FROM storage_location WHERE id = ANY (?::uuid[]) ORDER BY warehouse_id, id',
+                ['{'.implode(',', $locationIds).'}'],
+            );
+            $unknown = array_values(array_diff($locationIds, $known));
+            sort($unknown, \SORT_STRING);
+
+            return [...$known, ...$unknown];
+        });
+    }
+
+    /**
+     * The warehouse a location belongs to, for the bulk member to call {@see self::delete()} with both path values exactly
+     * as `DeleteStorageLocation` does. An unlocked read: `delete()` then takes the parent and the location locks itself and
+     * refuses a location that is not the warehouse's (`warehouse_id` is never rewritten). Null for an absent or foreign id.
+     */
+    public function warehouseOf(string $locationId): ?string
+    {
+        if (!Uuid::isValid($locationId)) {
+            return null;
+        }
+
+        return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($locationId): ?string {
+            $warehouse = $em->getConnection()->fetchOne('SELECT warehouse_id::text FROM storage_location WHERE id = ?::uuid', [$locationId]);
+
+            return \is_string($warehouse) ? $warehouse : null;
+        });
+    }
+
+    /**
      * **`DeleteStorageLocation`** (warehouse/location delete-restore C3, 2026-10-20; `docs/session13/wh-loc-delete-design.md`
      * §0, §2.2, §3.3, Revision 2; owner Q-1 adopted under delegation, `wh-loc-delete-q-ruling.md`). A soft delete: the
      * location stays readable (`ListStorageLocations?archived=true`) and is restored by {@see self::restore()}. In one

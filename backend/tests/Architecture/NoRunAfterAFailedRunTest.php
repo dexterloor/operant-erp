@@ -137,6 +137,13 @@ final class NoRunAfterAFailedRunTest extends TestCase
             'A method of IdempotencyEnvelopeStore calls run(). Its re-lookup must stay on the caller\'s connection in the '
             .'same transaction (design C-1): a second run() after a failed one is the 309c674 500.');
 
+        // Named control (G5-C2, 2026-10-22; RED `g5-c2-red.md` L-10): the bulk coordinator's contention catch only
+        // translates (`DriverException` → 409 `bulk.contention`), and its lost-duplicate path rolls back to `bulk_work`
+        // inside the ONE run(). It must be scanned, must call run(), and no catch of it may reach a second one.
+        // Mutation: the catch retries `$this->tenants->run(...)` → red (the generic finding below).
+        self::assertArrayHasKey('src/Platform/Http/Bulk/BulkArchival.php', $sources, 'Control: the bulk coordinator was not scanned.');
+        self::assertContains('BulkArchival::run', $real['runners'], 'Control: the scan no longer sees BulkArchival::run calling run().');
+
         self::assertSame([], $real['findings'],
             "A catch or finally body starts a second run(). The first run() closed the EntityManager when the exception left\n"
             ."wrapInTransaction(), so the second one fails at its flush() with \"The EntityManager is closed.\" (HTTP 500) whenever\n"

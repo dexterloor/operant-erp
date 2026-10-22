@@ -1182,10 +1182,14 @@ final class IdempotencyContractTest extends TenancyTestCase
      * `idempotency_key` holds the response envelope and `IdempotencyEnvelopeStore`
      * the lookup / record / same-transaction re-read protocol — but no OPERATION uses
      * it yet and `erp_app` still holds no INSERT, so the second half is unchanged and
-     * still true: none of the three ships. It moves with G5-C1, the first store
+     * still true: none of the three ships. It moves with the first store
      * operation. The store's own operation list is tied to this cell set here, so
      * the class cannot serve a fourth operation the contract does not name.
      * Mutation: `'CreateGoodsReceipt'` added to `IdempotencyEnvelopeStore::OPERATIONS` → red.
+     *
+     * **Dated note, 2026-10-22 (G5-C2):** the second half MOVED — with G5-C2, not G5-C1, because `CreateBulkArchival` shipped
+     * first. It now reads: every shipped store operation reaches the store through its processor and names its replay test.
+     * The method keeps its name so every citation of it still lands; "none ships" is now "none ships without".
      */
     #[Test]
     public function everyStoreMechanismIsABulkOperationAndNoneShipsWithoutTheReplayPath(): void
@@ -1205,13 +1209,60 @@ final class IdempotencyContractTest extends TenancyTestCase
         self::assertSame($store, $storeOperations,
             'IdempotencyEnvelopeStore::OPERATIONS is not the set of operations whose §4.2 Idem cell reads `store`.');
 
-        $shipped = array_keys(TransactionBoundaryTest::contractOperations());
+        // G5-C2 (2026-10-22): the second half REPLACED, deliberately (design R1.2 G5-C1, moved to the first store operation —
+        // `g5-c2-progress.md` CD-A). "None ships" was true while no operation used the store; now every SHIPPED store
+        // operation must reach `IdempotencyEnvelopeStore` through its processor's constructor dependencies, and must name the
+        // test that replays it byte for byte over HTTP ({@see self::STORE_REPLAY_TESTS}), which must exist. An unshipped one
+        // must not be in the map (it would be a replay test of nothing). Mutation: drop the store from `BulkArchival`'s
+        // constructor → red; rename the replay test → red.
+        $registry = TransactionBoundaryTest::contractOperations();
+        $shippedStore = array_values(array_intersect($store, array_keys($registry)));
+        self::assertContains('CreateBulkArchival', $shippedStore, 'Positive control: the first store operation is not seen as shipped.');
 
-        foreach ($store as $operationId) {
-            self::assertNotContains($operationId, $shipped,
-                $operationId.' is shipped and its mechanism is `store`, but nothing reads or writes '
-                .'`idempotency_key`. It would advertise a replay contract the system cannot honour.');
+        $replayTests = array_keys(self::STORE_REPLAY_TESTS);
+        sort($replayTests);
+        self::assertSame($shippedStore, $replayTests,
+            'STORE_REPLAY_TESTS must name exactly the SHIPPED store operations, each with its byte-identical replay test.');
+
+        foreach ($shippedStore as $operationId) {
+            [$class, $method] = self::STORE_REPLAY_TESTS[$operationId];
+            self::assertTrue(method_exists($class, $method), $operationId.'\'s replay test '.$class.'::'.$method.' does not exist.');
+
+            $processor = $registry[$operationId]->getProcessor();
+            self::assertIsString($processor, $operationId.' declares no processor class.');
+            self::assertTrue(self::dependsOn($processor, IdempotencyEnvelopeStore::class, 3),
+                $operationId.' is shipped and its mechanism is `store`, but its processor never reaches IdempotencyEnvelopeStore '
+                .'through its constructor dependencies. It would advertise a replay contract the system cannot honour.');
         }
+    }
+
+    /**
+     * Every shipped `store` operation ⇒ the HTTP test that replays it byte for byte (design R1.2: the second half of
+     * {@see self::everyStoreMechanismIsABulkOperationAndNoneShipsWithoutTheReplayPath}).
+     *
+     * @var array<string, array{0: class-string, 1: string}>
+     */
+    public const STORE_REPLAY_TESTS = [
+        'CreateBulkArchival' => [BulkArchivalTest::class, 'aReplayIsByteIdenticalOverHttp'],
+    ];
+
+    /** Whether `$class` reaches `$target` through constructor parameter types, at most `$depth` hops (no autowiring guess). */
+    private static function dependsOn(string $class, string $target, int $depth): bool
+    {
+        if ($class === $target) {
+            return true;
+        }
+        if (0 === $depth || !class_exists($class)) {
+            return false;
+        }
+        foreach ((new \ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
+            $type = $parameter->getType();
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && self::dependsOn($type->getName(), $target, $depth - 1)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

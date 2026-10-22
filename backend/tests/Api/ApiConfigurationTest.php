@@ -92,11 +92,14 @@ final class ApiConfigurationTest extends ApiTestCase
             // `/suppliers/{id}/products[/{productId}]` and §4.2 declares no `GetSupplierProduct` (a bounded sub-list). Read off
             // `debug:router` before the test ran (the vendor's route order puts it after `sales_order_lines`).
             '_api_/supplier_products/{id}{._format}_get' => \App\Modules\Suppliers\ApiResource\SupplierProductResource::class,
-            '_api_/.well-known/genid/{id}{._format}_get' => \App\Modules\UserManagement\ApiResource\TokenResource::class,
             // **2026-10-13, warehouses slice 1 C3**, the same case and permanent: `StorageLocation` has built writes at
             // `/warehouses/{id}/locations[/{locationId}]` and §4.2 declares no `GetStorageLocation` (a bounded sub-list).
             // Read off the failing run: the vendor's route order puts it after `.well-known/genid`.
             '_api_/storage_locations/{id}{._format}_get' => \App\Modules\Warehouses\ApiResource\StorageLocationResource::class,
+            // **2026-10-22, G5-C2:** the ONE skolem route is minted once and attributed to whichever item-GET-less resource the
+            // vendor meets last; `BulkArchivalRequest` (`Platform\Http\Bulk`, no row, no id) is now that resource, where
+            // `Token` was. Still one route, the same vendor behaviour -- read off this test's failure, not predicted (the vendor's route order puts it last).
+            '_api_/.well-known/genid/{id}{._format}_get' => \App\Platform\Http\Bulk\ApiResource\BulkArchivalRequest::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
 
@@ -327,7 +330,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `forecast.view`) on `ReorderSummaryResource`, a singleton, and `ListReorderSuggestions` (GET `/forecast/reorder`, six
         // codes all required) on `ReorderSuggestionCollection` -- the first `Modules\Analytics` classes. Reads only: no
         // migration, no grant (`erp_app` SELECTs every table they read).
-        self::assertCount(122, $checked, 'The route set changed. This slice declares one hundred and twenty-two operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G5-C2, 2026-10-22):** `CreateBulkArchival` (POST `/bulk/archivals`, `*(derived)*` -- each resource's
+        // single `Delete*` code, `<resource>.delete`) on `BulkArchivalRequest`, the first `store` operation. Its migration grants
+        // `erp_app` INSERT on the nine `idempotency_key` envelope columns (never `created_at`).
+        self::assertCount(123, $checked, 'The route set changed. This slice declares one hundred and twenty-three operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

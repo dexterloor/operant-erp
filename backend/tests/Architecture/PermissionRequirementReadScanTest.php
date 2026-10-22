@@ -61,6 +61,8 @@ final class PermissionRequirementReadScanTest extends TestCase
         'tests/Api/PermissionSweepCasesTest.php',
         // G6-C0 (2026-10-22): the export's admissible-set derivation is proven on a planted registry (design L-8's shape).
         'tests/Api/ExportAdmissibleSetTest.php',
+        // G5-C2 (2026-10-22): the bulk admissible-set derivation, proven on a planted registry the same way.
+        'tests/Api/BulkAdmissibleSetTest.php',
     ];
 
     #[Test]
