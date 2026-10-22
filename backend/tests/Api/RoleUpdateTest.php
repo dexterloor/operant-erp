@@ -467,6 +467,29 @@ final class RoleUpdateTest extends ApiTestCase
     }
 
     /**
+     * **U-C0 (2026-10-23, V2-R-25): a composed role that can add people must be able to see them — and a role made
+     * before the row is not rewritten.** A role written by SQL holding `app_user.create` without `app_user.view` (the
+     * shape the row now refuses at composition) is refused on ANY edit that keeps the shape, a rename included — the
+     * shipped behaviour that changes for such a legacy role (owner notice) — and the edit that adds the view is accepted.
+     * Mutation: drop the `app_user.create` row from `RoleCompanions` → the rename is a 200, red.
+     */
+    #[Test]
+    public function aRoleThatCanAddPeopleButNotSeeThemCannotBeKeptThatWay(): void
+    {
+        $role = $this->composedRole(['app_user.create']);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $before = $this->snapshot($role);
+
+        $this->patch($role, ['name' => 'Recruiter']);
+        self::assertSame([409, 'role.missing_companion_view', 'Some permissions in this role only work alongside others it doesn\'t have: adding people needs seeing people. Add the missing ones, or leave out the ones that need them.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        $this->assertUnchanged($role, $before);
+
+        $this->patch($role, ['permission_codes' => ['app_user.create', 'app_user.view']]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
      * **Pending proposals are NOT written to (E-15f; tripwire `OPERATIONS_OWING_PROPOSAL_HANDLING['UpdateRole']`).** A role
      * with a pending proposal LOSES its `X(admin)` code: the proposal keeps its snapshot and stays pending; an owner's
      * confirmation is then refused `role_changed`; and a non-owner who could now give the role directly meets AssignRole's

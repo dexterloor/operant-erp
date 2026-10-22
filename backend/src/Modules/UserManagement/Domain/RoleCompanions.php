@@ -31,6 +31,14 @@ namespace App\Modules\UserManagement\Domain;
  *    `stale-record`'s `current` and the matching-count refusal. Affects no default role (`owner`, `admin` and
  *    `warehouse_operator` hold both). `stock_movement.adjust` → `stock_movement.view` is REFUSED (PC-17 serves the 201 body
  *    to the write's holder) and → `storage_location.view` DECLINED (`kind` disclosure accepted, Low), both `SEC` §4.
+ *  - **V2-R-25** `app_user.create` → `app_user.view` (U-C0, 2026-10-23; `docs/session13/cred-mail-user-design.md` §5.1,
+ *    ratified with the credential/email/`CreateUser` group, `remaining-ops-ruling.md` addendum of Move 664): `CreateUser`
+ *    refuses a live email with 409 `app_user.email_is_taken`, so a seat that can add people but cannot see them would learn,
+ *    one guess at a time, which addresses already belong to this workspace. With the row, every API-composed seat that can
+ *    meet that refusal can already read the list it reveals. Affects no default role (only `owner` and `admin` hold
+ *    `app_user.create`, and both hold `app_user.view`). Built BEFORE `CreateUser`, so no seat can hold the oracle on its
+ *    first day; a composed role made before this row and shaped this way is not rewritten, and the next edit or restore of
+ *    it is refused until the view is added (a fresh install has none; 0 measured on erp2 2026-10-23).
  *  - `role.assign` → `role.view` is deliberately NOT a row: §5.2.11 records that exposure as accepted (design §4.4, F-7).
  *
  * **Per role, not per union** (R-3): the same blind seat is reachable by granting two clean roles and revoking the one with
@@ -53,6 +61,7 @@ final class RoleCompanions
         ['holding' => 'role.delete', 'requires' => 'role.assign', 'ruling' => 'D-6'],
         ['holding' => 'role.assign', 'requires' => 'app_user.view', 'ruling' => 'Q-U3'],
         ['holding' => 'stock_movement.adjust', 'requires' => 'stock_level.view', 'ruling' => 'SA-1'],
+        ['holding' => 'app_user.create', 'requires' => 'app_user.view', 'ruling' => 'V2-R-25'],
     ];
 
     /** Not instantiable: a table, not a service. */

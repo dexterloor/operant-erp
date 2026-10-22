@@ -104,6 +104,8 @@ final readonly class RoleCreation
         'role.assign' => ['app_user.view' => 'giving roles to people and taking them away needs seeing people'],
         // Stock count C1 (2026-10-16), `SEC` SA-1. PLACEHOLDER — UX TO CONFIRM (no clause was drafted in stock-adjustment-ux.md).
         'stock_movement.adjust' => ['stock_level.view' => 'counting stock needs seeing stock levels'],
+        // U-C0 (2026-10-23), V2-R-25. PLACEHOLDER — UX TO CONFIRM (the house work-words: "people", as Q-U3's clause).
+        'app_user.create' => ['app_user.view' => 'adding people needs seeing people'],
     ];
 
     /** Step 9 — the column list IS the column INSERT grant (`Version20261007000100`). */

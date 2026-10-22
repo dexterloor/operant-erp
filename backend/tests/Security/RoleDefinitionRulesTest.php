@@ -98,6 +98,8 @@ final class RoleDefinitionRulesTest extends TestCase
             'role.assign -> app_user.view (Q-U3)',
             // Stock count C1: `SEC` SA-1 (2026-10-16).
             'stock_movement.adjust -> stock_level.view (SA-1)',
+            // U-C0 (2026-10-23): V2-R-25's CreateUser email oracle, answered before CreateUser ships.
+            'app_user.create -> app_user.view (V2-R-25)',
         ], $pairs);
         foreach (RoleCompanions::rows() as $row) {
             self::assertTrue(PermissionCatalogue::has($row['holding']), $row['holding'].' is not in the catalogue.');
@@ -121,6 +123,9 @@ final class RoleDefinitionRulesTest extends TestCase
         // Stock count C1 (`SEC` SA-1): a count needs the level read, and NOT the movement history (PC-17) nor the locations.
         self::assertSame(['stock_level.view'], array_column(RoleCompanions::missingFrom(['stock_movement.adjust']), 'requires'));
         self::assertSame([], RoleCompanions::missingFrom(['stock_movement.adjust', 'stock_level.view']));
+        // U-C0 (V2-R-25): adding people needs seeing people — and nothing else (not role.view, not role.assign).
+        self::assertSame(['app_user.view'], array_column(RoleCompanions::missingFrom(['app_user.create']), 'requires'));
+        self::assertSame([], RoleCompanions::missingFrom(['app_user.create', 'app_user.view']));
     }
 
     #[Test]
