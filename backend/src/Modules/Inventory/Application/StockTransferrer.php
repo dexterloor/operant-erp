@@ -65,7 +65,9 @@ use Symfony\Component\Uid\Uuid;
  *
  * **Disclosed residuals.** (L-1) A count and a transfer sent concurrently under ONE `Idempotency-Key` can deadlock (the
  * count holds its level and waits on the key; the transfer holds the key and waits on the level); Postgres aborts one with
- * `40P01`, which surfaces as a 500. Client misuse (one key, two operations); not translated. (L-4) A transfer whose source
+ * `40P01`, which since G-65's closing work (2026-10-23) answers 409 `transaction.contention`, nothing saved (it was a 500).
+ * Client misuse (one key, two operations): the loser's retry under the same key meets the winner's key with a different
+ * request digest and is still refused, so nothing is ever applied twice. (L-4) A transfer whose source
  * is short **and** whose destination would overflow gets the refusal of whichever level comes first in uuid order —
  * shortage if the source id sorts first, overflow otherwise.
  */

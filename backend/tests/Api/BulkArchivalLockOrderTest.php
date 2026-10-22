@@ -10,6 +10,7 @@ use App\Modules\Warehouses\Application\StorageLocationWriter;
 use App\Modules\Warehouses\Application\WarehouseWriter;
 use App\Platform\Http\Bulk\BulkArchival;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Problem\TransactionContention;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -28,7 +29,8 @@ use Symfony\Component\Uid\Uuid;
  *    deadlock check; under load either may fire first — LEAD gate run 2, 2026-10-23, aborted the bulk where run 1 had
  *    aborted the receipt), so the cases assert only what is guaranteed ({@see self::assertExactlyOneSideAborted()}): one
  *    side aborts, the other commits, nothing is half-applied, and the victim answers as specified — the bulk 409
- *    `bulk.contention`, nothing done; a SHIPPED writer today's untranslated 500 (`RESIDUAL_GAPS.md` G-65). The victim of
+ *    `bulk.contention`, nothing done; a SHIPPED writer 409 `transaction.contention`, nothing saved (G-65's closing work,
+ *    2026-10-23; it was an untranslated 500; the deterministic proof is `TransactionContentionTest`). The victim of
  *    each run is printed as data.
  */
 final class BulkArchivalLockOrderTest extends PurchaseOrderTestCase
@@ -132,7 +134,7 @@ final class BulkArchivalLockOrderTest extends PurchaseOrderTestCase
      * M-3, the bulk first (its item `FOR UPDATE` on A, then on B after the receipt waits): a real two-line receipt over HTTP
      * with lines `[B, A]` takes `KEY SHARE` on B and waits on A; the bulk then wants B — a cycle; PostgreSQL aborts one
      * side (either may be chosen). Final RED M-3: do NOT reorder the receipt's lines here (a shipped W-5 change for a
-     * bulk-only reason); the shipped side's 500 when chosen is G-65.
+     * bulk-only reason); the shipped side, when chosen, answers 409 `transaction.contention` (G-65 closed).
      */
     #[Test]
     public function aReceiptCyclingWithABulkItemArchiveAbortsExactlyOneSide(): void
@@ -277,7 +279,7 @@ final class BulkArchivalLockOrderTest extends PurchaseOrderTestCase
      * fixed — every waiter runs its own deadlock check after `deadlock_timeout`, and under load either may fire first; run 1
      * aborted the shipped writer, run 2 the bulk). Asserted: the cycle formed (the request waited on the holder); EXACTLY one
      * side was aborted; an aborted holder failed with `40P01`; an aborted request answers as specified — the bulk 409
-     * `bulk.contention`, a shipped writer today's untranslated 500 (`RESIDUAL_GAPS.md` G-65); the surviving request's work
+     * `bulk.contention`, a shipped writer 409 `transaction.contention` (G-65 closed 2026-10-23; it was a 500); the surviving request's work
      * is whole and the aborted request's is absent (nothing half-applied; the holder's statements are locks only). Which side
      * was chosen is DATA, written to STDERR, never an assertion.
      *
@@ -289,16 +291,16 @@ final class BulkArchivalLockOrderTest extends PurchaseOrderTestCase
         $body = $this->responseContent();
         self::assertTrue($holder['waiter_seen'], $what.': no cycle formed. '.json_encode($holder).' response: '.$status.' '.$body);
 
-        $requestAborted = $requestIsBulk ? 409 === $status : 500 === $status;
+        // G-65 closed (2026-10-23): either victim now answers 409 — the bulk `bulk.contention`, a shipped writer
+        // `transaction.contention` (one listener arm) — never a 500. Keyed on the rule, so another 409 is not an abort.
+        self::assertNotSame(500, $status, $what.': an aborted request answered 500 — the G-65 contention arm is missing. '.$body);
+        $abortRule = $requestIsBulk ? BulkArchival::CONTENTION_RULE : TransactionContention::RULE;
+        $requestAborted = 409 === $status && $abortRule === ($this->json()['rule'] ?? null);
         fwrite(\STDERR, \sprintf("\n[G5-C2 deadlock measurement] %s: victim = %s\n", $what, $requestAborted ? 'the request' : 'the holder'));
 
         if ($requestAborted) {
             self::assertTrue($holder['committed'], $what.': the request was aborted, so the holder must have committed. '.json_encode($holder));
-            if ($requestIsBulk) {
-                self::assertSame(BulkArchival::CONTENTION_RULE, $this->json()['rule'] ?? null, $body);
-            } else {
-                self::assertStringNotContainsString('bulk.contention', $body, $what.' (G-65): the shipped side answers today\'s untranslated 500; if it now answers otherwise, update G-65.');
-            }
+            self::assertSame($requestIsBulk ? BulkArchival::CONTENTION_MESSAGE : TransactionContention::MESSAGE, $this->json()['detail'] ?? null, $body);
             self::assertTrue($requestAbsent(), $what.': the aborted request left work behind.');
 
             return;

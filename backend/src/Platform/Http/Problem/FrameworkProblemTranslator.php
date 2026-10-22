@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\HttpOperation;
 use ApiPlatform\Metadata\Resource\Factory\ResourceMetadataCollectionFactoryInterface;
 use ApiPlatform\Validator\Exception\ValidationException;
 use App\Platform\Domain\IllegalTransition;
+use Doctrine\DBAL\Exception\DriverException;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -129,6 +130,16 @@ final readonly class FrameworkProblemTranslator
 
             // --- API-15, the one application refusal translated here ---------
             $e instanceof IllegalTransition => ApiProblem::businessRuleViolated($e->rule(), $e->clientMessage()),
+
+            // --- G-65's closing work (2026-10-23): a transaction that lost a lock cycle or a lock wait ----------------
+            // Every API write, by construction (`docs/session13/g65-design.md` §2): PostgreSQL has already rolled the whole
+            // transaction back, so "nothing was saved; try again" is true and a 500 was not. Keyed on the contention
+            // SQLSTATEs only; any other driver failure falls through to the 500 path.
+            $e instanceof DriverException && TransactionContention::is($e) => ApiProblem::contention(
+                TransactionContention::RULE,
+                TransactionContention::MESSAGE,
+                $e,
+            ),
 
             // --- the catalogue's framework-produced rows ---------------------
             $e instanceof MethodNotAllowedHttpException => ApiProblem::methodNotAllowed(

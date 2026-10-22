@@ -407,6 +407,7 @@ final class SalesOrderRestoreTest extends PurchaseOrderTestCase
         self::assertTrue($holder['waiter_seen'], json_encode($holder));
         self::assertTrue($holder['committed'], json_encode($holder));
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertNotSame(\App\Platform\Http\Problem\TransactionContention::RULE, $this->json()['rule'] ?? null, 'A lost lock cycle, not the create path\'s answer (G-65 sweep, RED g65 F-5).');
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A,
             'SELECT count(*) FROM sales_order_line WHERE inventory_item_id = ?::uuid AND deleted_at IS NULL', [$item]),
             'Two live lines on one retry key, or the revived line is gone.');

@@ -164,8 +164,10 @@ final class ItemDeleteLockOrderTest extends PurchaseOrderTestCase
         $body = (string) $this->client()->getResponse()->getContent();
         self::assertTrue($holder['waiter_seen'], 'The request never waited on the holder, so nothing here was a race. '.json_encode($holder));
         self::assertTrue($holder['committed'], 'The holder did not commit (a deadlock would abort one side): '.json_encode($holder));
-        self::assertNotSame(500, $this->httpStatus(), 'The request failed with a 500 (a 40P01 surfaces as one): '.$body);
+        self::assertNotSame(500, $this->httpStatus(), 'The request failed with a 500: '.$body);
+        // Since G-65's closing work (2026-10-23) a 40P01 answers 409 `transaction.contention`, no longer a 500 (RED g65 F-4).
         self::assertStringNotContainsString('40P01', $body);
+        self::assertNotSame(\App\Platform\Http\Problem\TransactionContention::RULE, json_decode($body, true)['rule'] ?? null, 'A deadlock where none should form: '.$body);
         self::assertSame($status, $this->httpStatus(), $body);
     }
 

@@ -9,11 +9,10 @@ use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\Replay;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Http\Problem\ProblemType;
+use App\Platform\Http\Problem\TransactionContention;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
-use Doctrine\DBAL\Exception\DeadlockException;
 use Doctrine\DBAL\Exception\DriverException;
-use Doctrine\DBAL\Exception\LockWaitTimeoutException;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -145,7 +144,7 @@ final readonly class BulkArchival
                 throw $failure;
             }
 
-            throw ApiProblem::businessRuleViolated(self::CONTENTION_RULE, self::CONTENTION_MESSAGE);
+            throw ApiProblem::contention(self::CONTENTION_RULE, self::CONTENTION_MESSAGE, $failure);
         }
     }
 
@@ -156,8 +155,8 @@ final readonly class BulkArchival
      */
     public static function isContention(DriverException $failure): bool
     {
-        return $failure instanceof DeadlockException || $failure instanceof LockWaitTimeoutException
-            || \in_array($failure->getSQLState(), ['40P01', '55P03'], true);
+        // One predicate (G-65's closing work, 2026-10-23): the listener's `transaction.contention` arm asks the same one.
+        return TransactionContention::is($failure);
     }
 
     /** The two refusals a single delete answers for a record it will not archive (design L-3); any other is a 500. */

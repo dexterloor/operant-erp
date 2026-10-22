@@ -64,8 +64,9 @@ final class ApiProblem extends \RuntimeException implements ProblemExceptionInte
         private readonly ?array $current = null,
         private readonly ?string $allow = null,
         private readonly array $headers = [],
+        ?\Throwable $previous = null,
     ) {
-        parent::__construct($problem->title());
+        parent::__construct($problem->title(), 0, $previous);
     }
 
     /** @param list<array{pointer: string, code: string, message: string}> $errors */
@@ -77,6 +78,17 @@ final class ApiProblem extends \RuntimeException implements ProblemExceptionInte
     public static function businessRuleViolated(string $rule, string $message): self
     {
         return new self(ProblemType::BusinessRuleViolated, $message, rule: $rule, ruleMessage: $message);
+    }
+
+    /**
+     * `business-rule-violated` for a transaction that lost a lock cycle or a lock wait (G-65's closing work, 2026-10-23;
+     * {@see TransactionContention}). The driver failure is CHAINED (RED `g65-red.md` F-1): the wire body is the rule and
+     * its message only, but whatever logs the exception keeps PostgreSQL's SQLSTATE and deadlock detail — the evidence a
+     * lock-order defect between two shipped writers would need.
+     */
+    public static function contention(string $rule, string $message, \Throwable $cause): self
+    {
+        return new self(ProblemType::BusinessRuleViolated, $message, rule: $rule, ruleMessage: $message, previous: $cause);
     }
 
     public static function permissionDenied(string $requiredPermission): self
