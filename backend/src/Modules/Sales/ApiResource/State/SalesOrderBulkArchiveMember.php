@@ -42,4 +42,15 @@ final readonly class SalesOrderBulkArchiveMember implements BulkArchiveMember
     {
         $this->writer->archive($id);
     }
+
+    public function restoreOperationName(): string
+    {
+        return 'RestoreSalesOrder';
+    }
+
+    /** G5-C3 (2026-10-23): exactly what `RestoreSalesOrder`'s processor runs — one copy of every restore rule and collision translation. */
+    public function restore(string $id): void
+    {
+        $this->writer->restore($id);
+    }
 }

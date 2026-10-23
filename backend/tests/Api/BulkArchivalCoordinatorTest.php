@@ -84,6 +84,37 @@ final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
         self::assertSame([$other], array_column($this->auditRowsOf('customer.deleted'), 'subject_id'), 'The refused member\'s audit row stood.');
     }
 
+    /**
+     * G5-C3: {@see BulkArchival::restore()} runs the SAME engine, each member through `restore()` (never `archive()`), the
+     * envelope under `CreateBulkRestoration` — a refusal after a write is rolled back to its savepoint there too.
+     * *Mutation:* `restore()` passes the archival's apply → the planted archive throws → red.
+     */
+    #[Test]
+    public function theRestorationRoutesEachMemberThroughItsRestoreUnderItsOwnOperation(): void
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Cus RRT');
+        $other = $this->seedCustomer(self::TENANT_A, 'Cus RRT2');
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = now() WHERE id IN (?::uuid, ?::uuid)', [$customer, $other]);
+        $plant = $this->member(
+            static fn (string $id): never => throw new \LogicException('The restoration ran a member\'s archive.'),
+            function (string $id) use ($customer): void {
+                $this->customers()->restore($id);
+                if ($id === $customer) {
+                    throw ApiProblem::businessRuleViolated('planted.refusal', 'Refused after writing.');
+                }
+            },
+        );
+        $key = Uuid::v4()->toRfc4122();
+
+        $replay = $this->coordinator($plant)->restore('planted_thing', [$customer, $other], $key, (string) $this->actorId);
+
+        self::assertSame('{"requested":2,"applied":1}', $replay->body);
+        self::assertNotNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$customer])[0]['deleted_at'], 'The refused member\'s restore stood.');
+        self::assertNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$other])[0]['deleted_at']);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM idempotency_key WHERE operation_id = ?', [BulkArchival::RESTORATION_OPERATION]));
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM idempotency_key WHERE operation_id = ?', [BulkArchival::OPERATION]));
+    }
+
     #[Test]
     public function anUnknownBugIsAServerErrorNotNotApplied(): void
     {
@@ -206,11 +237,14 @@ final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
         return new BulkArchival($tenants, $tenant, $store, new BulkArchiveMembers([$member]));
     }
 
-    /** @param \Closure(string): void $archive */
-    private function member(\Closure $archive): BulkArchiveMember
+    /**
+     * @param \Closure(string): void      $archive
+     * @param (\Closure(string): void)|null $restore G5-C3: the restoration entry point routes here
+     */
+    private function member(\Closure $archive, ?\Closure $restore = null): BulkArchiveMember
     {
-        return new class($archive) implements BulkArchiveMember {
-            public function __construct(private readonly \Closure $archive)
+        return new class($archive, $restore) implements BulkArchiveMember {
+            public function __construct(private readonly \Closure $archive, private readonly ?\Closure $restore)
             {
             }
 
@@ -237,6 +271,16 @@ final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
             public function archive(string $id): void
             {
                 ($this->archive)($id);
+            }
+
+            public function restoreOperationName(): string
+            {
+                return 'RestorePlantedThing';
+            }
+
+            public function restore(string $id): void
+            {
+                ($this->restore ?? throw new \LogicException('The restoration routed to a member with no restore.'))($id);
             }
         };
     }

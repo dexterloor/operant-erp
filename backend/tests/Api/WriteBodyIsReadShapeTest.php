@@ -39,6 +39,7 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
         'ChangePassword' => 'returns a confirmation of a credential change; a password is never read',
         // G5-C2 (2026-10-22): §4.4.1 branch 5 -- the body is counts, never a resource, and E-14 forbids it from naming one.
         'CreateBulkArchival' => 'returns {requested, applied} (§4.4.1 branch 5): counts over many records, never one resource (E-14)',
+        'CreateBulkRestoration' => 'returns {requested, applied} (§4.4.1 branch 5): counts over many records, never one resource (E-14)',
     ];
 
     /**

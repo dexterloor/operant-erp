@@ -42,4 +42,15 @@ final readonly class CustomerBulkArchiveMember implements BulkArchiveMember
     {
         $this->writer->delete($id);
     }
+
+    public function restoreOperationName(): string
+    {
+        return 'RestoreCustomer';
+    }
+
+    /** G5-C3 (2026-10-23): exactly what `RestoreCustomer`'s processor runs — one copy of every restore rule and collision translation. */
+    public function restore(string $id): void
+    {
+        $this->writer->restore($id);
+    }
 }

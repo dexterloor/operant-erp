@@ -13,6 +13,7 @@ use ApiPlatform\Metadata\QueryParameter;
 use App\Platform\Http\Bulk\BulkArchivalPermission;
 use App\Platform\Http\Bulk\BulkArchiveMembers;
 use App\Platform\Http\Bulk\BulkExclusions;
+use App\Platform\Http\Bulk\BulkRestorationPermission;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
 use PHPUnit\Framework\Attributes\Test;
@@ -129,6 +130,75 @@ final class BulkAdmissibleSetTest extends ApiTestCase
             self::assertSame([$map[$resource]], PermissionRequirement::of($registry[$member->deleteOperationName()])->codes(),
                 $resource.': the resolver and the single Delete\'s own cell disagree.');
         }
+    }
+
+    /**
+     * G5-C3 (2026-10-23): the restoration's resolver map, by name -- each resource resolves to its single `Restore*`'s
+     * declared code, and each member names that `Restore<X>` (the operation the derivation required to admit it).
+     */
+    #[Test]
+    public function eachResourceResolvesToItsSingleRestoresDeclaredCode(): void
+    {
+        $permission = self::getContainer()->get(BulkRestorationPermission::class);
+        \assert($permission instanceof BulkRestorationPermission);
+        $map = $permission->codesByResource();
+        ksort($map);
+
+        $archival = self::getContainer()->get(BulkArchivalPermission::class);
+        \assert($archival instanceof BulkArchivalPermission);
+        self::assertSame($archival->codesByResource(), $map, 'ST-9: a record is restored in bulk under the code that archived it.');
+
+        $registry = TransactionBoundaryTest::contractOperations();
+        foreach ($this->members()->all() as $resource => $member) {
+            self::assertSame('Restore'.substr($member->deleteOperationName(), \strlen('Delete')), $member->restoreOperationName(), $resource);
+            self::assertSame([$map[$resource]], PermissionRequirement::of($registry[$member->restoreOperationName()])->codes(),
+                $resource.': the resolver and the single Restore\'s own cell disagree.');
+        }
+    }
+
+    /**
+     * **API-O-11, derived closed (G5-C3; RED M-2).** Every BUILT `Restore<X>` in the registry -- not only the admissible ones,
+     * which needed an archived list to get in -- has a `List<X>s` declaring `archived`, so no restore (single or bulk) is
+     * reachable only by a caller who already holds an archived id. *Planted negative:* a `Restore` whose list declares no
+     * `archived` is reported. *Positive control:* the built set is non-empty and includes `RestoreItem`.
+     */
+    #[Test]
+    public function everyBuiltRestoreHasAnArchivedList(): void
+    {
+        $registry = TransactionBoundaryTest::contractOperations();
+        $restores = self::restoresWithoutAnArchivedList($registry);
+        self::assertArrayHasKey('RestoreItem', array_filter($registry, static fn ($op, $name): bool => str_starts_with((string) $name, 'Restore'), \ARRAY_FILTER_USE_BOTH), 'Positive control: no built Restore was found.');
+        self::assertSame([], $restores, 'A built Restore has no list that can produce an archived row\'s id (API-O-11 re-opened).');
+
+        $planted = [
+            'RestoreThing' => new Post(uriTemplate: '/things/{id}/restoration', name: 'RestoreThing'),
+            'ListThings' => new Get(uriTemplate: '/things', name: 'ListThings'),
+        ];
+        self::assertSame(['RestoreThing'], self::restoresWithoutAnArchivedList($planted), 'The derivation cannot see a Restore without an archived list.');
+    }
+
+    /**
+     * @param array<string, HttpOperation> $registry
+     *
+     * @return list<string>
+     */
+    private static function restoresWithoutAnArchivedList(array $registry): array
+    {
+        $missing = [];
+        foreach ($registry as $name => $operation) {
+            if (!str_starts_with((string) $name, 'Restore')) {
+                continue;
+            }
+            $x = substr((string) $name, \strlen('Restore'));
+            // A line restore's list is its parent's lines list (`RestoreSalesOrderLine` → `ListSalesOrderLines`).
+            $list = $registry['List'.$x.'s'] ?? null;
+            if (null === $list || !self::declaresArchived($list)) {
+                $missing[] = (string) $name;
+            }
+        }
+        sort($missing);
+
+        return $missing;
     }
 
     /**

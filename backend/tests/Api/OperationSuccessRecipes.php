@@ -135,6 +135,17 @@ trait OperationSuccessRecipes
 
                 return [200, 'bulk archive'];
             }],
+            // G5-C3 (2026-10-23): the restoration twin -- one ARCHIVED item, restored in bulk (G5-C3 RED L-2).
+            'CreateBulkRestoration' => [function (): array {
+                $item = $this->seedItem(self::TENANT_A, 'SKU-BULK-RS');
+                $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$item]);
+
+                return ['item' => $item];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/bulk/restorations', ['resource' => 'inventory_item', 'ids' => [$c['item']]], $key());
+
+                return [200, 'bulk restore'];
+            }],
             'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
                 $this->send('GET', '/items/'.$c['item']);
 

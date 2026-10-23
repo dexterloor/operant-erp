@@ -51,4 +51,17 @@ final readonly class StorageLocationBulkArchiveMember implements BulkArchiveMemb
 
         $this->writer->delete($warehouse, $id);
     }
+
+    public function restoreOperationName(): string
+    {
+        return 'RestoreStorageLocation';
+    }
+
+    /** G5-C3 (2026-10-23): exactly what `RestoreStorageLocation`'s processor runs — one copy of every restore rule and collision translation. */
+    public function restore(string $id): void
+    {
+        $warehouse = $this->writer->warehouseOf($id) ?? throw ApiProblem::notFound();
+
+        $this->writer->restore($warehouse, $id);
+    }
 }

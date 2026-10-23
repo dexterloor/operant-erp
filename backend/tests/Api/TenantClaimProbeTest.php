@@ -112,6 +112,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // G5-C2 (2026-10-22): a bulk archive of an id the baseline cannot know; the probe compares the two outcomes, and a
         // supplied tenant id that moved the request onto B would archive B's row or change the counts.
         'CreateBulkArchival' => ['body' => ['resource' => 'inventory_item', 'ids' => ['00000000-0000-4000-8000-0000000000b1']]],
+        // G5-C3 (2026-10-23): the restoration twin, the same reasoning.
+        'CreateBulkRestoration' => ['body' => ['resource' => 'inventory_item', 'ids' => ['00000000-0000-4000-8000-0000000000b2']]],
         // Roles slice 1 (2026-09-23). The vocabulary is global -- no tenant column, no RLS -- so a supplied tenant
         // id has nothing to move; the fourth assertion (no response names one of tenant B's rows) holds trivially.
         'ListPermissions' => [],

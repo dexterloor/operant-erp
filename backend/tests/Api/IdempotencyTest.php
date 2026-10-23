@@ -310,6 +310,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'G5-C2: the first store operation. A replay with the same key and body is the stored envelope byte for byte, '
                 .'and does no work: a member restored between the calls stays live, and no second customer.deleted row is written.',
         ],
+        'CreateBulkRestoration' => [
+            'method' => 'replayCreateBulkRestoration',
+            'why' => 'G5-C3: the restoration twin of the first store operation. A replay with the same key and body is the stored '
+                .'envelope byte for byte and does no work: a member archived again between the calls stays archived, and no second '
+                .'customer.restored row is written.',
+        ],
         'RestoreSupplier' => [
             'method' => 'replayRestoreSupplier',
             'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
@@ -1354,6 +1360,25 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame($first, (string) $this->client()->getResponse()->getContent(), $why);
         self::assertNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$id])[0]['deleted_at'], $why);
         self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_DELETED), $why);
+    }
+
+    private function replayCreateBulkRestoration(string $why): void
+    {
+        $id = $this->seedCustomer(self::TENANT_A, 'Replayed Bulk Restore');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = now() WHERE id = ?::uuid', [$id]);
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/bulk/restorations', ['resource' => 'customer', 'ids' => [$id]], $key);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = (string) $this->client()->getResponse()->getContent();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET deleted_at = now() WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/bulk/restorations', ['resource' => 'customer', 'ids' => [$id]], $key);
+
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame($first, (string) $this->client()->getResponse()->getContent(), $why);
+        self::assertNotNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$id])[0]['deleted_at'], $why);
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_RESTORED), $why);
     }
 
     private function replayRestoreSupplier(string $why): void

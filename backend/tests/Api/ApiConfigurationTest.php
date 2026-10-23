@@ -99,7 +99,8 @@ final class ApiConfigurationTest extends ApiTestCase
             // **2026-10-22, G5-C2:** the ONE skolem route is minted once and attributed to whichever item-GET-less resource the
             // vendor meets last; `BulkArchivalRequest` (`Platform\Http\Bulk`, no row, no id) is now that resource, where
             // `Token` was. Still one route, the same vendor behaviour -- read off this test's failure, not predicted (the vendor's route order puts it last).
-            '_api_/.well-known/genid/{id}{._format}_get' => \App\Platform\Http\Bulk\ApiResource\BulkArchivalRequest::class,
+            // **2026-10-23, G5-C3:** and now `BulkRestorationRequest`, met after `BulkArchivalRequest` -- read off the failure again.
+            '_api_/.well-known/genid/{id}{._format}_get' => \App\Platform\Http\Bulk\ApiResource\BulkRestorationRequest::class,
         ], $notExposed,
             'A route was excluded from the count as "not exposed" that is not one of the API Platform mints listed here.');
 
@@ -334,7 +335,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // single `Delete*` code, `<resource>.delete`) on `BulkArchivalRequest`, the first `store` operation. Its migration grants
         // `erp_app` INSERT on the nine `idempotency_key` envelope columns (never `created_at`).
         // **And one more (G4-C1, 2026-10-23):** `UpdateUser` (PATCH `/users/{id}`, `app_user.edit`).
-        self::assertCount(124, $checked, 'The route set changed. This slice declares one hundred and twenty-four operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G5-C3, 2026-10-23):** `CreateBulkRestoration` (POST `/bulk/restorations`, `*(derived)*` -- each
+        // resource's single `Restore*` code, `<resource>.delete`) on `BulkRestorationRequest`, through the same coordinator. No
+        // migration, no grant (the envelope INSERT grant shipped with G5-C2).
+        self::assertCount(125, $checked, 'The route set changed. This slice declares one hundred and twenty-five operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

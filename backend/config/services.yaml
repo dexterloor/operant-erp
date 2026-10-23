@@ -110,6 +110,8 @@ services:
             # G5-C2 (2026-10-22): the bulk archival's request body, and the ruled exclusions (constants only, private
             # constructor) -- data, not services. `BulkArchivalRequest` is NOT excluded, for `ItemResource`'s reason.
             - '../src/Platform/Http/Bulk/ApiResource/CreateBulkArchivalInput.php'
+            # G5-C3 (2026-10-23): the restoration's body, the same reason.
+            - '../src/Platform/Http/Bulk/ApiResource/CreateBulkRestorationInput.php'
             - '../src/Platform/Http/Bulk/BulkExclusions.php'
             # Data, not services, on the Output 4 §7 side: request/response DTOs
             # and read models the serializer or a named factory builds, plus one

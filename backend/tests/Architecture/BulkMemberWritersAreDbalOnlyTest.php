@@ -48,6 +48,8 @@ final class BulkMemberWritersAreDbalOnlyTest extends KernelTestCase
         self::assertGreaterThanOrEqual(14, \count($reached), 'Anti-vacuity: the walk reached too few methods to mean anything.');
         self::assertArrayHasKey('inventory_item → ItemWriter::archive', $reached, 'Positive control: the item member\'s single-delete method was not reached.');
         self::assertArrayHasKey('storage_location → StorageLocationWriter::delete', $reached);
+        self::assertArrayHasKey('inventory_item → ItemWriter::restore', $reached, 'Positive control: the item member\'s single-restore method was not reached.');
+        self::assertArrayHasKey('purchase_order → PurchaseOrderWriter::restore', $reached);
 
         foreach ($reached as $key => $calls) {
             self::assertSame([], array_values(array_intersect($calls, self::ORM_CALLS)), $key.' calls an ORM method; a bulk member must issue DBAL statements only.');
@@ -87,7 +89,8 @@ final class BulkMemberWritersAreDbalOnlyTest extends KernelTestCase
         }
 
         $reached = [];
-        foreach (['archive', 'lockOrder'] as $entry) {
+        // G5-C3 (2026-10-23, RED L-2): `restore` too -- the restoration's members run the single Restore's writer method.
+        foreach (['archive', 'restore', 'lockOrder'] as $entry) {
             $source = self::methodSource($member, $entry);
             preg_match_all('/\$this->(\w+)->(\w+)\(/', $source, $m, \PREG_SET_ORDER);
             foreach ($m as [, $property, $method]) {

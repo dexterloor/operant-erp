@@ -1244,6 +1244,7 @@ final class IdempotencyContractTest extends TenancyTestCase
      */
     public const STORE_REPLAY_TESTS = [
         'CreateBulkArchival' => [BulkArchivalTest::class, 'aReplayIsByteIdenticalOverHttp'],
+        'CreateBulkRestoration' => [BulkRestorationTest::class, 'aReplayIsByteIdenticalOverHttp'],
     ];
 
     /** Whether `$class` reaches `$target` through constructor parameter types, at most `$depth` hops (no autowiring guess). */

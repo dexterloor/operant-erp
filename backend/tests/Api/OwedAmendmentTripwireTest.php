@@ -452,28 +452,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     // `TenantSettingsStorageTest`'s write pin, built `SettingsContractTest::everyDeclaredSettingsFieldHasAColumn` and gave the
     // notice. The map and `noSettingsWriteShipsWithoutMovingTheNameItReads` were removed in that commit, not hand-edited green.
 
-    /**
-     * **G5-D0 (2026-10-22): the carries the derived permission arm leaves for its first operations** (`g5-d0-red.md` M-1,
-     * M-2, L-5). The arm is built and proven on planted operations; these obligations need a real one, so they sit here and
-     * go red on arrival rather than in a list somebody has to remember.
-     *
-     * @var array<string, string>
-     */
-    private const OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES = [
-        // G5-C2 (2026-10-22): `CreateBulkArchival` LEFT this map deliberately, in the commit that built it with every carry: (1)
-        // `CreateBulkArchivalProcessor` acts only through `resolvedFor()` (`BulkArchivalTest::aBodyReadTwoWaysIsAServerErrorNotAnArchival`
-        // plants the mismatch); (2) `PermissionEnforcementContractTest::PINNED_PERMISSIONS`/`PINNED_RESOLVERS`, §4.2's `*(derived)*`
-        // cell, `BulkArchivalPermission` (a `DerivedPermission`); (3) `ErrorContractTest`'s derived arm already serves it, and a
-        // `CreateBulkArchival` recipe in `OperationSuccessRecipes`; (4) `MarginSourcesDerivationTest::derivedArm()` asserts its
-        // response serves no money. `CreateBulkRestoration` inherits carries (1)-(4) unchanged.
-        'CreateBulkRestoration' => 'the first DERIVED operation ships its carries (G5-D0, `g5-g6-final-red.md` H-1/M-4; `g5-d0-red.md` M-1/M-2/L-5): (1) its processor acts ONLY through `PermissionRequirements::resolvedFor($request, $dto->resource)` (M-3: a body read two ways is a 500, never an action under an unchecked code) and a test plants a mismatched attribute; (2) add `PINNED_RESOLVERS` and §4.2 `*(derived)*` pins, and the resolver service (implementing `DerivedPermission`, so `DerivedPermissionWiringTest` sees it both ways); (3) the registry sweeps the gate now pre-empts: `ErrorContractTest` sends `[]` to every write, which a derived gate refuses 422 `not_an_object` before the 406/415 rows -- give it a derived arm; every `OperationSuccessRecipes` consumer (`ClientChosenIdTest`, `ResponseShapeTest`, `ResponseStatusTest`, `WireScaleTest`, `QueryParameterContractTest`, `TenantClaimProbeTest`, `AuditWriterTest`) needs a recipe whose body names a resource; (4) `MarginSourcesDerivationTest`\'s DERIVED arm: a bulk operation serves no money -- assert its response has none rather than skipping; `CreateExport` builds the per-resource arm in G6-C0 (final RED M-4) -- its DERIVED `fail` cannot fire for an operation with no money on the wire.',
-        // G6-C0 (2026-10-22): `CreateExport` LEFT this map deliberately, in the commit that built it with every carry: (1)
-        // `CreateExportProcessor` acts only through `resolvedFor()` (`ExportContractTest::aBodyReadTwoWaysIsAServerErrorNotAnExport`
-        // plants the mismatch); (2) `PermissionEnforcementContractTest::PINNED_PERMISSIONS`/`PINNED_RESOLVERS`, §4.2's
-        // `*(derived — see below)*` cell, `ExportPermission` (a `DerivedPermission`); (3) `ErrorContractTest`'s derived arm and a
-        // `CreateExport` recipe in `OperationSuccessRecipes`; (4) `MarginSourcesDerivationTest::derivedArm()`, per resource
-        // through each List. Its first-DERIVED wording stays on the two bulk entries, which inherit carries (1)-(3).
-    ];
+    // **RETIRED 2026-10-23 (G5-C3): `OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES` and its arrival pin
+    // `noDerivedOperationShipsWithoutTheDerivedArmsCarries`** (G5-D0, 2026-10-22). Its last key, `CreateBulkRestoration`, LEFT
+    // with every carry built: (1) `CreateBulkRestorationProcessor` acts only through `resolvedFor()`
+    // (`BulkRestorationTest::aBodyReadTwoWaysIsAServerErrorNotARestoration` plants the mismatch); (2)
+    // `PermissionEnforcementContractTest::PINNED_PERMISSIONS`/`PINNED_RESOLVERS`, §4.2's `*(derived)*` cell,
+    // `BulkRestorationPermission` (a `DerivedPermission`); (3) `ErrorContractTest`'s derived arm and a `CreateBulkRestoration`
+    // recipe in `OperationSuccessRecipes`; (4) `MarginSourcesDerivationTest::derivedArm()` asserts its response serves no
+    // money. With no derived operation left unbuilt the map held over nothing, so it was removed, not hand-edited green.
 
     // **RETIRED 2026-10-22 (G3-C1): `OPERATIONS_OWING_THE_CATALOGUE_TRAIL` and its arrival pin
     // `noCatalogueCostReachesASuggestionWithoutItsTrail`** (suppliers slice 1 C3, 2026-10-12; reworded at G3-C0). The pin was
@@ -558,37 +544,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         ],
     ];
 
-    /**
-     * **What the archive operations owe, mechanised** (warehouses-s1 §4.7, C3 2026-10-13; bulk parity:
-     * `docs/session13/stock-transfer-sec.md` §5, 2026-10-20). Slice 1 ships no archive: `DeleteWarehouse` waits on API-O-34
-     * and G-7, `DeleteStorageLocation` on G-27 (its entry left with wh-loc-delete C3, 2026-10-20: G-27 narrowed, the stock
-     * refusal, `FOR UPDATE`, `storage_location.deleted`, all built — `StorageLocationDeleteTest`; `DeleteWarehouse`'s left with C4, 2026-10-20: API-O-34's three legs, `FOR UPDATE`,
-     * `warehouse.deleted`, the C0 locks' races R-W1…R-W5 — `WarehouseDeleteTest`); `CreateBulkArchival` /
-     * `CreateBulkRestoration` owe parity with each
-     * resource's single Delete / Restore (the bulk-parity gap in `RESIDUAL_GAPS.md`). Keyed by `operationId` (the pick-read
-     * precedent, `1076ba3`). A PIN, red on arrival; an entry leaves only in the commit that does its work. The key set is
-     * pinned by literal too (final RED L-5), so a key cannot drift to a name that is never built.
-     *
-     * @var array<string, string>
-     */
-    private const OPERATIONS_OWING_THE_ARCHIVE_RULES = [
-        // G5-C2 (2026-10-22): `CreateBulkArchival` LEFT this map with its work done: each member runs the single Delete's own
-        // writer method under a savepoint (`BulkArchiveMember`; `BulkArchivalTest::` the per-resource parity cases, incl. the
-        // G-44 bypass `aStockedQuarantineLocationIsNotArchivedInBulk` and `aWarehouseArchiveLeavesItsLiveLocationsLive`), the
-        // bulk-only stocked-item refusal (`aStockedItemIsSkippedWhileTheSingleDeleteStillArchivesIt`, G-51), the single
-        // Delete's own locks, and one `<table>.deleted` row per applied member (`aRefusedMemberLeavesNoWriteAndNoAuditRow`).
-        'CreateBulkRestoration' => 'Parity with each resource\'s single Restore, per member (stock-transfer-sec.md §5): its collision '
-            .'translations (V2-R-12b family), its liveness rules and one `<table>.restored` row per member; a member the single '
-            .'Restore would refuse is not applied, with no per-id reason (E-14). For warehouse (built, wh-loc-delete C1): '
-            .'`warehouse.is_not_archived` and `warehouse.code_is_unique_per_workspace`; the warehouse\'s locations are left as '
-            .'they are (owner Q-2 (a)). For storage_location (built, wh-loc-delete C2): `warehouse.is_archived` (a location of '
-            .'an archived warehouse), `storage_location.is_not_archived` and `storage_location.code_is_unique_per_warehouse`. '
-            .'For sales_order (built, order restores C2; SEC to confirm): `sales_order.is_not_archived`, '
-            .'`sales_order.warehouse_is_live` then `sales_order.customer_is_live` (both parents read FOR KEY SHARE under the '
-            .'order lock), and the collision translations `sales_order.retry_key_is_held_by_a_live_order`, '
-            .'`sales_order.line_retry_key_is_held_by_another_order` and `sales_order.line_number_is_taken_on_this_order`; '
-            .'no recompute (the stored total is the revived lines\' sum).',
-    ];
+    // **RETIRED 2026-10-23 (G5-C3): `OPERATIONS_OWING_THE_ARCHIVE_RULES` and its arrival pin
+    // `noArchiveOfAWarehouseOrLocationShipsWithoutItsRules`** (warehouses-s1 §4.7; bulk parity `stock-transfer-sec.md` §5).
+    // Its last key, `CreateBulkRestoration`, LEFT with its work done: each member runs exactly its single `Restore*` writer
+    // method under a savepoint (`BulkArchiveMember::restore()`), so every liveness rule and collision translation is
+    // inherited; a refused member is not applied with no per-id reason (E-14); one `<table>.restored` row per applied
+    // member (`BulkRestorationTest`'s seven parity cases and `aCollidingMemberIsNotAppliedAndTheRestStand`). G-50 CLOSED.
 
     // The G-44 release pin (OPERATIONS_THAT_CAN_RELEASE_HELD_STOCK / THE_RELEASE_RULE) was DELETED at CreateStockTransfer's C1
     // (2026-10-20; SEC docs/session13/stock-transfer-sec.md §4): both stock_movement.adjust operations apply the rule
@@ -1318,42 +1279,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             .'moved (then move the implication with it, deliberately) or the line was edited away.');
     }
 
-    /**
-     * **What the archive operations owe** (warehouses-s1 §4.7; bulk parity: stock-transfer-sec.md §5). Red the moment
-     * `CreateBulkArchival` or `CreateBulkRestoration` is in the generated spec (`DeleteStorageLocation` left at
-     * wh-loc-delete C3, `DeleteWarehouse` at C4).
-     * **Controls, same test:** the positive control every sibling uses; a non-empty map; the key set by literal (final RED
-     * L-5; mutation M-T1: rename a key → red); and the intersection over a literal map naming a BUILT operation
-     * (`UpdateStorageLocation`) must report it. Mutation M9: rename the positive control → red.
-     */
-    #[Test]
-    public function noArchiveOfAWarehouseOrLocationShipsWithoutItsRules(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_ARCHIVE_RULES,
-            'The archive-rules map is empty, so it holds over nothing. Its entries leave only with the work their message lists.');
-        $sortedKeys = array_keys(self::OPERATIONS_OWING_THE_ARCHIVE_RULES);
-        sort($sortedKeys);
-        // G5-C2 (2026-10-22): `CreateBulkArchival` left with its work; the literal moved deliberately, never hand-edited green.
-        self::assertSame(['CreateBulkRestoration'], $sortedKeys,
-            'The archive-rules pin no longer names exactly the unbuilt archive operations of API.md §4.2 (final RED L-5). A '
-            .'renamed key is never built and guards nothing; an entry leaves only with its work done.');
-        self::assertSame(['UpdateStorageLocation' => 'x'],
-            array_intersect_key(['UpdateStorageLocation' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_ARCHIVE_RULES, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built. The archive operations owe these (warehouses-s1 §4.7; bulk parity: stock-transfer-sec.md §5), IN THIS COMMIT:\n  %s\n"
-            .'Do not hand-edit this pin to green.',
-            implode(', ', array_keys($arrived)),
-            implode("\n  ", array_map(static fn (string $op, string $owed): string => $op.': '.$owed, array_keys($arrived), $arrived)),
-        ));
-    }
 
     /**
      * **Every built customer child write names its parent-lock carriers** (customers slice 2 C1; see
@@ -1777,26 +1702,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         return $found;
     }
 
-    /**
-     * **G5-D0's carries** -- red the moment `CreateBulkArchival` or `CreateBulkRestoration` is in the generated spec
-     * (`CreateExport` left the map in G6-C0, built with its carries; see the map). Controls as the siblings': the positive control, a non-empty map, a planted built key reported.
-     */
-    #[Test]
-    public function noDerivedOperationShipsWithoutTheDerivedArmsCarries(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES, 'The derived-arm map is empty, so it holds over nothing.');
-        self::assertSame(['GetSettings' => 'x'], array_intersect_key(['GetSettings' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_THE_DERIVED_ARM_CARRIES, $built);
-
-        self::assertSame([], $arrived, \sprintf('%s has been built, and %s Do not hand-edit this pin to green.',
-            implode(', ', array_keys($arrived)), implode(' ', array_unique($arrived))));
-    }
 
     /**
      * The `operationId`s the generated spec carries, as a set. Every pin in this

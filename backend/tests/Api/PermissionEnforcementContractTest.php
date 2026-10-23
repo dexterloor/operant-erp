@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\AuditLog\Application\ExportPermission;
 use App\Platform\Http\Bulk\BulkArchivalPermission;
+use App\Platform\Http\Bulk\BulkRestorationPermission;
 use App\Platform\Security\PermissionGate;
 use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ContractDocument;
@@ -297,6 +298,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         // G5-C2 (2026-10-22): §4.2's `Perm` cell is `*(derived)*`: the body's `resource` resolves to the code its single
         // `Delete*` is declared with, `<resource>.delete` (ST-9; `BulkArchivalPermission`, pinned below).
         'CreateBulkArchival' => PermissionGate::DERIVED,
+        // G5-C3 (2026-10-23): the single `Restore*`'s declared code, `<resource>.delete` (ST-9; `BulkRestorationPermission`).
+        'CreateBulkRestoration' => PermissionGate::DERIVED,
     ];
 
     /**
@@ -314,6 +317,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'CreateExport' => ExportPermission::class,
         // G5-C2: its map is pinned by name in `BulkAdmissibleSetTest::eachResourceResolvesToItsSingleDeletesDeclaredCode`.
         'CreateBulkArchival' => BulkArchivalPermission::class,
+        // G5-C3: pinned by name in `BulkAdmissibleSetTest::eachResourceResolvesToItsSingleRestoresDeclaredCode`.
+        'CreateBulkRestoration' => BulkRestorationPermission::class,
     ];
 
     /** One pin, normalised through the same parser as the registry. */

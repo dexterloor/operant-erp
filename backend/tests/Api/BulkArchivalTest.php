@@ -41,6 +41,7 @@ final class BulkArchivalTest extends PurchaseOrderTestCase
     /** The `/bulk` path family (joined into `AuthOperationContractTest`'s shipped-surface union). */
     public const PINNED_BULK_OPERATIONS = [
         'CreateBulkArchival' => ['method' => 'POST', 'path' => '/bulk/archivals', 'idem' => true],
+        'CreateBulkRestoration' => ['method' => 'POST', 'path' => '/bulk/restorations', 'idem' => true],
     ];
 
     // -----------------------------------------------------------------------

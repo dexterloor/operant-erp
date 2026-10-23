@@ -7,7 +7,7 @@ namespace App\Platform\Http\Bulk;
 use Symfony\Component\DependencyInjection\Attribute\AutoconfigureTag;
 
 /**
- * **One admissible resource of `CreateBulkArchival`** (G5-C2, 2026-10-22; `g5-g6-bulk-export-design.md` §5.0/§5.2, D-12).
+ * **One admissible resource of `CreateBulkArchival` and `CreateBulkRestoration`** (G5-C2, 2026-10-22; restore half G5-C3, 2026-10-23, `docs/session13/g5-c3-design.md` D-1 — one set, one interface; `g5-g6-bulk-export-design.md` §5.0/§5.2, D-12).
  *
  * Implemented in the resource's own module — in its `ApiResource\State` beside the single `Delete*` processor, the
  * `ExportSource` precedent (design §9 said `Application`; the member must name its Delete operation's resource class, an
@@ -55,4 +55,17 @@ interface BulkArchiveMember
 
     /** The single `Delete*`'s own writer method for one id. Throws `ApiProblem` (404 / 409) to refuse. */
     public function archive(string $id): void;
+
+    /**
+     * The single `Restore*` operation's name (= its `operationId`; G5-C3, 2026-10-23), declared on
+     * {@see self::deleteResourceClass()}, whose declared code `CreateBulkRestoration` demands ({@see BulkRestorationPermission}).
+     */
+    public function restoreOperationName(): string;
+
+    /**
+     * The single `Restore*`'s own writer method for one id (G5-C3): every restore rule and collision translation inherited,
+     * translated INSIDE that method (its `run()` joins the bulk's), so a collision is a 409 the coordinator rolls back to the
+     * member's savepoint. A collision a writer does NOT translate is a raw 23505 and turns the whole bulk into a 500 (L-4).
+     */
+    public function restore(string $id): void;
 }

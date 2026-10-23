@@ -53,6 +53,9 @@ final readonly class BulkArchival
 {
     public const OPERATION = 'CreateBulkArchival';
 
+    /** G5-C3 (2026-10-23): the restoration twin runs through this same engine ({@see self::restore()}). */
+    public const RESTORATION_OPERATION = 'CreateBulkRestoration';
+
     /** Final RED M-2: cap + 1 (`bulk_work`) must stay below PostgreSQL's 64 cached subxids. */
     public const MAXIMUM_MEMBERS = 50;
 
@@ -80,6 +83,28 @@ final readonly class BulkArchival
      */
     public function run(string $resource, array $ids, string $idempotencyKey, string $actorUserId): Replay
     {
+        return $this->perform(self::OPERATION, static fn (BulkArchiveMember $member, string $id) => $member->archive($id), $resource, $ids, $idempotencyKey, $actorUserId);
+    }
+
+    /**
+     * **`CreateBulkRestoration`** (G5-C3, 2026-10-23; `docs/session13/g5-c3-design.md` D-2): the same engine, each member
+     * running its single `Restore*`'s own writer method ({@see BulkArchiveMember::restore()}). The envelope is scoped to
+     * {@see self::RESTORATION_OPERATION} (digest and store key), so one key used for an archival and for a restoration is two
+     * requests, never a replay of the other.
+     *
+     * @param list<string> $ids lower-case canonical uuids, distinct, 1..{@see self::MAXIMUM_MEMBERS}
+     */
+    public function restore(string $resource, array $ids, string $idempotencyKey, string $actorUserId): Replay
+    {
+        return $this->perform(self::RESTORATION_OPERATION, static fn (BulkArchiveMember $member, string $id) => $member->restore($id), $resource, $ids, $idempotencyKey, $actorUserId);
+    }
+
+    /**
+     * @param \Closure(BulkArchiveMember, string): void $apply the member's single writer call for one id
+     * @param list<string>                              $ids
+     */
+    private function perform(string $operation, \Closure $apply, string $resource, array $ids, string $idempotencyKey, string $actorUserId): Replay
+    {
         if ([] === $ids || \count($ids) > self::MAXIMUM_MEMBERS || \count($ids) !== \count(array_unique($ids))) {
             throw new \LogicException('A bulk archival runs over 1 to 50 distinct ids; the processor refuses anything else with a 422.');
         }
@@ -89,14 +114,14 @@ final readonly class BulkArchival
         sort($sorted, \SORT_STRING);
 
         $keyHash = IdempotencyKeyHash::of($idempotencyKey);
-        $digest = IdempotencyEnvelopeStore::requestDigest(self::OPERATION, $actorUserId, ['resource' => $resource, 'ids' => $sorted]);
+        $digest = IdempotencyEnvelopeStore::requestDigest($operation, $actorUserId, ['resource' => $resource, 'ids' => $sorted]);
         $tenantId = $this->tenant->tenantId();
 
         try {
-            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($member, $sorted, $keyHash, $digest, $tenantId): Replay {
+            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($operation, $apply, $member, $sorted, $keyHash, $digest, $tenantId): Replay {
                 $connection = $em->getConnection();
 
-                $replay = $this->store->lookup($connection, self::OPERATION, $keyHash, $digest);
+                $replay = $this->store->lookup($connection, $operation, $keyHash, $digest);
                 if (null !== $replay) {
                     return $replay;
                 }
@@ -114,7 +139,7 @@ final readonly class BulkArchival
                 foreach ($order as $id) {
                     $connection->createSavepoint(self::MEMBER_SAVEPOINT);
                     try {
-                        $member->archive($id);
+                        $apply($member, $id);
                         $connection->releaseSavepoint(self::MEMBER_SAVEPOINT);
                         ++$applied;
                     } catch (ApiProblem $refused) {
@@ -130,13 +155,13 @@ final readonly class BulkArchival
                 $body = json_encode(['requested' => \count($sorted), 'applied' => $applied], \JSON_THROW_ON_ERROR);
                 $headers = ['content-type' => self::CONTENT_TYPE];
 
-                if ($this->store->record($connection, $tenantId, self::OPERATION, $keyHash, $digest, IdempotencyEnvelopeStore::STORED_STATUS, $body, $headers)) {
+                if ($this->store->record($connection, $tenantId, $operation, $keyHash, $digest, IdempotencyEnvelopeStore::STORED_STATUS, $body, $headers)) {
                     return new Replay(IdempotencyEnvelopeStore::STORED_STATUS, $body, $headers);
                 }
 
                 $connection->rollbackSavepoint(self::WORK_SAVEPOINT);
 
-                return $this->store->replayTheWinner($connection, self::OPERATION, $keyHash, $digest);
+                return $this->store->replayTheWinner($connection, $operation, $keyHash, $digest);
             });
         } catch (DriverException $failure) {
             // Outside run(): the transaction is already rolled back and the manager closed; this only translates.
@@ -162,7 +187,9 @@ final readonly class BulkArchival
     /** The two refusals a single delete answers for a record it will not archive (design L-3); any other is a 500. */
     public static function isNotApplied(ApiProblem $problem): bool
     {
-        return \in_array($problem->getType(), [ProblemType::NotFound->uri(), ProblemType::BusinessRuleViolated->uri()], true);
+        // G5-C3 RED L-4: never the two contention rules, which share the type — a lost cycle is never "not applied".
+        return \in_array($problem->getType(), [ProblemType::NotFound->uri(), ProblemType::BusinessRuleViolated->uri()], true)
+            && !\in_array($problem->getRule(), [self::CONTENTION_RULE, TransactionContention::RULE], true);
     }
 
     /**

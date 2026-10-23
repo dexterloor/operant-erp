@@ -142,7 +142,9 @@ final class NoRunAfterAFailedRunTest extends TestCase
         // inside the ONE run(). It must be scanned, must call run(), and no catch of it may reach a second one.
         // Mutation: the catch retries `$this->tenants->run(...)` → red (the generic finding below).
         self::assertArrayHasKey('src/Platform/Http/Bulk/BulkArchival.php', $sources, 'Control: the bulk coordinator was not scanned.');
-        self::assertContains('BulkArchival::run', $real['runners'], 'Control: the scan no longer sees BulkArchival::run calling run().');
+        // G5-C3 (2026-10-23, RED L-1): the ONE run() now lives in `perform()`, the engine both entry points share; moved
+        // deliberately.
+        self::assertContains('BulkArchival::perform', $real['runners'], 'Control: the scan no longer sees BulkArchival::perform calling run().');
 
         self::assertSame([], $real['findings'],
             "A catch or finally body starts a second run(). The first run() closed the EntityManager when the exception left\n"
