@@ -377,7 +377,7 @@ class SalesOrder
      * > orders can conceal lost sales, and **the compensating control is
      * > `audit_log`, not a second pair of hands.**"*
      *
-     * ADR-008 **Amendment 1** — which the project notes compress to *"DSoD-1 extends
+     * ADR-008 **Amendment 1** — which the project's working notes compress to *"DSoD-1 extends
      * to cancellation as `canceller != creator`"* — is **purchase-only**, and its
      * own predicate says so by column: *"`purchase_order.cancel` is refused when
      * `purchase_order.created_by_user_id` equals the caller's `app_user.id`."*

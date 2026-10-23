@@ -1702,7 +1702,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * The pointer goes in the failure message, not in a list somebody has to
-     * remember to read. Owner ruling 2026-09-18: the project's read-before list
+     * remember to read. Owner ruling 2026-09-18: the project's working notes' read-before list
      * is load-bearing *because* it is short, so a new obligation earns its place
      * at the point of use instead.
      *

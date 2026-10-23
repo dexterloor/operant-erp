@@ -264,7 +264,7 @@ final class TransitionGuardTest extends TestCase
      *
      * `refusing` is what gives it one. With `$liveLineCount = 0` **both** guards
      * inside `place()` have something to say, and which of them speaks is D-C's
-     * shipped ruling (the project notes, step 6a): **status first, then the line
+     * shipped ruling (the project's working notes, step 6a): **status first, then the line
      * guard** — a cancelled empty draft is told *"wrong status"*, not *"add a
      * line"*, because adding a line is advice it cannot follow, line writes
      * requiring `draft`. `theStatusGuardRefusesBeforeAnyPreconditionDoes` is
