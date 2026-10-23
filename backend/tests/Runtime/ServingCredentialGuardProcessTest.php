@@ -219,6 +219,39 @@ final class ServingCredentialGuardProcessTest extends KernelTestCase
     }
 
     /**
+     * **W2 (Mail-C0): the worker command is refused beside the owner DSN**, like every non-migration command (H1) — the
+     * mail worker runs through `bin/console`, which already calls the guard (`RESIDUAL_GAPS.md` G-1.3). The in-memory DSN
+     * is supplied only so that, under mutation M15 (`messenger:consume` added to `CONSOLE_OWNER_COMMANDS`), the command
+     * would get far enough to show it ran.
+     */
+    #[Test]
+    public function w2TheWorkerCommandRefusesTheOwnerDsn(): void
+    {
+        $run = self::runChild([\PHP_BINARY, 'bin/console', 'messenger:consume', 'async', '--limit=1', '--time-limit=1'], [
+            'DATABASE_URL' => 'postgresql://'.self::owner().':x@127.0.0.1:1/erp?serverVersion=17&charset=utf8',
+            'MESSENGER_TRANSPORT_DSN' => 'in-memory://default',
+        ]);
+
+        $this->assertRefused($run, 'DATABASE_URL', 'case W2');
+        self::assertStringContainsString('messenger:consume may not run', $run['stderr'], 'case W2: the refusal names the worker command');
+    }
+
+    /**
+     * **W1 (Mail-C0) — a forward pin, green today for a reason that is not yet its own.** A worker DSN in the web process
+     * must be refused. At Mail-C0 `erp_worker` does not exist (owner Q-2: it is created at Mail-C1), so it is refused as
+     * a non-application login, not by a web subset. It becomes the real web-subset test at Mail-C1, when `erp_worker`
+     * joins `DatabaseRoles::APPLICATION_ROLES` and the web process must still refuse it; its mutation (drop the subset →
+     * 200 → red) runs then (plan §R10 item 2).
+     */
+    #[Test]
+    public function w1AWorkerDsnInTheWebProcessIsRefused(): void
+    {
+        $run = $this->web(['WORKER_DATABASE_URL' => 'postgresql://erp_worker:x@127.0.0.1:1/erp?serverVersion=17&charset=utf8']);
+
+        $this->assertRefused($run, 'WORKER_DATABASE_URL', 'case W1');
+    }
+
+    /**
      * @param array{exit: int, stdout: string, stderr: string} $run
      */
     private function assertRefused(array $run, string $name, string $case): void

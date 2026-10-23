@@ -86,7 +86,9 @@ final class RateLimitResponseTest extends AuthTestCase
      * than an omission: E-21's budgets live in `auth_ip_budget` and
      * `auth_attempt`, which only `erp_ratelimit` can reach, and the component's
      * storage abstraction names a cache pool no pre-authentication principal has
-     * — `ARCHITECTURE.md` rules out Redis and `cache.adapter.doctrine_dbal` names
+     * — `ARCHITECTURE.md` rules out a Redis cache (Redis exists from Mail-C0, 2026-10-23,
+     * as the MAIL QUEUE only — ADR-005 Amendment 4 — and it is not a budget store)
+     * and `cache.adapter.doctrine_dbal` names
      * a table that is in neither the manifest nor `backend/config/` (SEC-O-16).
      *
      * *Mutation, run:* `composer require symfony/rate-limiter`; red, and

@@ -138,11 +138,18 @@ final class GrantPropagationTest extends TenancyTestCase
      * worker code execution by another name, and the grant reached `erp_app`
      * from the blanket `ALTER DEFAULT PRIVILEGES` rather than from a decision.
      *
-     * `symfony/messenger` is not installed -- 14 packages in composer.json,
-     * nothing in vendor/symfony, no messenger.yaml -- so nothing dispatches and
-     * nothing consumes. The grant was dead, which is what made it cheap to
-     * close and expensive to defer: deferring means it ships by default the
-     * moment Messenger is installed.
+     * When this was written `symfony/messenger` was not installed -- 14
+     * packages in composer.json, nothing in vendor/symfony, no messenger.yaml --
+     * so nothing dispatched and nothing consumed. The grant was dead, which is
+     * what made it cheap to close and expensive to defer: deferring would have
+     * shipped it by default the moment Messenger was installed.
+     *
+     * (Mail-C0, 2026-10-23: Messenger IS installed now, for mail only, and its
+     * transport is not Doctrine -- `symfony/doctrine-messenger` is absent and
+     * `MessengerConfigurationTest` refuses a `doctrine://` transport in every
+     * environment. So `messenger_messages` is still written and read by nothing,
+     * and B-1 action 2 below has not fired: it fires again only if a message is
+     * ever routed to a Doctrine transport. API.md §11.3.)
      *
      * Whatever replaces it is B-1 action 2 and is deliberately not built here:
      * a `SECURITY DEFINER` dispatch function owned by the schema owner, with

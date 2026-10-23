@@ -124,7 +124,7 @@ final class ServingCredentialGuardTest extends TestCase
 
     /**
      * U21 — mutation: remove the `PWD`/`OLDPWD` exclusion (red on `PWD`), or empty ALLOWED_NAMES. The second is vacuous
-     * today: none of the four reviewed application secrets matches a credential rule, so ALLOWED_NAMES excludes nothing.
+     * today: none of the six reviewed application secrets matches a credential rule, so ALLOWED_NAMES excludes nothing.
      */
     #[Test]
     public function u21ShellAndApplicationNamesAreAllowed(): void

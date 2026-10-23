@@ -43,6 +43,9 @@ final class EnvProcessorPinTest extends TestCase
     private const PINNED = [
         'config/packages/doctrine.yaml' => ['resolve:DATABASE_URL', 'resolve:APP_DATABASE_URL', 'resolve:AI_DATABASE_URL', 'resolve:AUTH_DATABASE_URL', 'resolve:AUTHLOG_DATABASE_URL', 'resolve:RATELIMIT_DATABASE_URL'],
         'config/packages/framework.yaml' => ['APP_SECRET'],
+        // Mail-C0: the worker's mailer (`.env.worker` only) and the queue (both transports read one DSN).
+        'config/packages/mailer.yaml' => ['MAILER_DSN', 'MAILER_FROM'],
+        'config/packages/messenger.yaml' => ['MESSENGER_TRANSPORT_DSN', 'MESSENGER_TRANSPORT_DSN'],
         'config/packages/routing.yaml' => ['DEFAULT_URI'],
         // Cred-C1: AUTH_CREDENTIAL_MAC_KEY, bound once to CredentialSeal (decoded in PHP, so no `base64:` processor).
         'config/services.yaml' => ['AUTH_EMAIL_HASH_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_CREDENTIAL_MAC_KEY'],

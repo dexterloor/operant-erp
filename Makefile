@@ -6,10 +6,11 @@
 # `make reset` destroyed one database while the suite tested another for a
 # whole session. Override it if your engine differs; do not remove it.
 DOCKER_CONTEXT ?= colima
-# Three env files, split by who may read them (V3-1(i), V4 batch B2b-1, 2026-09-16):
-#   .env.infra  compose bootstrap passwords (owner, superuser, roles) -- read by compose ONLY
+# Four env files, split by who may read them (V3-1(i), V4 batch B2b-1, 2026-09-16; .env.worker from Mail-C0, 2026-10-23):
+#   .env.infra  compose bootstrap passwords (owner, superuser, roles) and local ports -- read by compose ONLY
 #   .env        application DSNs and secrets -- read by every Symfony kernel
 #   .env.test   the schema owner's DSN -- read by the suite, `migrate` and `reset` only
+#   .env.worker the mail worker's mailer settings -- read by `make worker` only, never by the web process
 COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env.infra -f infra/docker-compose.yml
 
 # `.env.test` is loaded through PHP Dotenv by the runtime for this one command,
@@ -20,16 +21,20 @@ COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env.infra 
 # `doctrine:migrations:generate` / `dump-schema` are refused under OWNER_RUNTIME
 # too, and `list` / `help` are refused on purpose.
 OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
+# The worker's own settings, loaded the same way for its one command. It consumes `async` ONLY: `failed` is parked mail
+# an operator inspects, never re-run automatically (mail-c0-red.md M-2).
+WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop
 
-env:                ## create .env, .env.infra and .env.test from the templates (then fill in every CHANGE_ME)
+env:                ## create .env, .env.infra, .env.test and .env.worker from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
 	@test -f .env.infra || cp .env.infra.example .env.infra
 	@test -f .env.test || cp .env.test.example .env.test
-	@for f in .env .env.infra .env.test; do grep -q CHANGE_ME_ $$f && echo "  $$f still contains placeholders -- edit it before continuing" || true; done
+	@test -f .env.worker || cp .env.worker.example .env.worker
+	@for f in .env .env.infra .env.test .env.worker; do grep -q CHANGE_ME_ $$f && echo "  $$f still contains placeholders -- edit it before continuing" || true; done
 
-up:                 ## postgres + pgbouncer (pool_mode=transaction, default_pool_size=1)
+up:                 ## postgres + pgbouncer (pool_mode=transaction, default_pool_size=1) + the local mail catcher
 	$(COMPOSE) up -d
 
 down:
@@ -55,3 +60,10 @@ deptrac:            ## ARCHITECTURE.md §5's module boundaries (also gated by De
 	cd backend && php tools/deptrac/vendor/bin/deptrac analyse
 
 verify: up migrate test
+
+worker:             ## the mail worker: consumes `async` for an hour or 128 MB, then exits (Mail-C1 onward)
+	cd backend && $(WORKER_RUNTIME) php bin/console messenger:consume async --time-limit=3600 --memory-limit=128M
+
+# One refused queue entry stops `messenger:consume` (RESIDUAL_GAPS.md G-1.3, mail-c0-red.md M-3); this restarts it.
+worker-loop:        ## `make worker`, restarted whenever it exits (Ctrl-C twice to stop)
+	@while true; do $(MAKE) worker; echo "worker exited ($$?); restarting in 5 s"; sleep 5; done

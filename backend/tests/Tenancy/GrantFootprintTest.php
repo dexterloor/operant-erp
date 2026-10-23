@@ -11,6 +11,7 @@ use App\Modules\UserManagement\Infrastructure\CredentialSeal;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\CountingSeal;
+use App\Tests\Support\DeployArtefacts;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Yaml\Yaml;
@@ -2337,17 +2338,8 @@ final class GrantFootprintTest extends TenancyTestCase
     // `RESIDUAL_GAPS.md` G-10 and G-12).
     // -----------------------------------------------------------------------
 
-    /** The compose services the local stack is pinned to; any other service is a deploy artefact by this rule. */
-    private const LOCAL_COMPOSE_SERVICES = ['pgbouncer', 'postgres'];
-
-    /**
-     * Platform-config and container file names, disclosed — **name-shaped by design**: a guess about the future, and a
-     * dashboard-configured deploy leaves no file at all.
-     */
-    private const DEPLOY_ARTEFACT_NAMES = [
-        '/^Dockerfile/', '/^fly\.toml$/', '/^render\.yaml$/', '/^railway\.json$/', '/^vercel\.json$/', '/^app\.yaml$/',
-        '/^Procfile$/', '/^netlify\.toml$/', '/^heroku\.yml$/', '/^\.platform\.app\.yaml$/', '#^\.github/workflows/.*deploy#',
-    ];
+    // The local-service list, the artefact names and the L-2 compose-file rule moved to `tests/Support/DeployArtefacts`
+    // at Mail-C0 (2026-10-23), so H5, `ComposeLocalServiceTest` and T-G75-1 read one copy.
 
     /**
      * **H5: no role or credential write may leave the laptop before its closing work.** Red while BOTH hold:
@@ -2355,12 +2347,12 @@ final class GrantFootprintTest extends TenancyTestCase
      *  (i) `erp_app` holds any write on `user_role`, `role_permission` or `role` (table **or** column level), **or** can
      *      update `app_user.password_hash` with no `app_user.password_mac` column (G-12 — `has_column_privilege`, because
      *      after H0 a table-level check never fires);
-     *  (ii) the tree carries a deploy artefact (a `Dockerfile*`, a compose service outside the local pair, a file named in
-     *      {@see self::DEPLOY_ARTEFACT_NAMES}), **or** `SchemaManifest` gives `erp_ai` any write.
+     *  (ii) the tree carries a deploy artefact (a `Dockerfile*`, a compose service outside the local services, a file
+     *      {@see DeployArtefacts::isArtefact()} names — incl. any compose file but the local one, final RED L-2), **or** `SchemaManifest` gives `erp_ai` any write.
      *
      * (i) became true through `password_hash` at H0 and through `DELETE ON user_role` at C2 — asserted below, so the
      * tripwire is armed rather than green over nothing. (ii) is false today (measured: no Dockerfile or platform config,
-     * compose holds `postgres` and `pgbouncer`), so it ships green.
+     * compose holds `postgres`, `pgbouncer` and, from Mail-C0, the local `mailpit`), so it ships green.
      *
      * **Name-shaped, and these have no code signal at all (spar T-3):** a first non-demo tenant, hosted (Neon) credentials
      * and a dashboard-configured deploy. Those triggers stay prose in G-10. Planted controls, same test: a file list with a
@@ -2373,15 +2365,19 @@ final class GrantFootprintTest extends TenancyTestCase
         self::assertNotSame([], $roleWrite, 'Operand (i) is false, so this tripwire can never fire. Since C2 erp_app holds '
             .'DELETE on user_role and (G-12) UPDATE on app_user.password_hash; if both closed, re-read G-10/G-12 and retire H5 on purpose.');
 
-        $files = self::filesUnderTheRepository();
-        $services = array_keys(self::composeServices());
+        $files = DeployArtefacts::filesUnderTheRepository();
+        $services = array_keys(DeployArtefacts::composeServices());
+        $local = DeployArtefacts::LOCAL_COMPOSE_SERVICES;
 
         // Planted controls through the same decision.
-        self::assertNotSame([], self::leavesTheLaptop($roleWrite, ['backend/Dockerfile'], self::LOCAL_COMPOSE_SERVICES, false), 'A Dockerfile did not arm H5.');
-        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], [...self::LOCAL_COMPOSE_SERVICES, 'app'], false), 'A compose app service did not arm H5.');
-        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], self::LOCAL_COMPOSE_SERVICES, true), 'erp_ai gaining a write did not arm H5.');
-        self::assertSame([], self::leavesTheLaptop([], ['backend/Dockerfile'], self::LOCAL_COMPOSE_SERVICES, true), 'H5 fired with operand (i) false.');
-        self::assertContains('infra/docker-compose.yml', $files, 'The tree walk does not see the compose file, so it sees nothing.');
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, ['backend/Dockerfile'], $local, false), 'A Dockerfile did not arm H5.');
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], [...$local, 'app'], false), 'A compose app service did not arm H5.');
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, [], $local, true), 'erp_ai gaining a write did not arm H5.');
+        self::assertSame([], self::leavesTheLaptop([], ['backend/Dockerfile'], $local, true), 'H5 fired with operand (i) false.');
+        // Final RED L-2 (Mail-C0): a second compose file arms H5; the local one alone does not.
+        self::assertNotSame([], self::leavesTheLaptop($roleWrite, ['backend/compose.yaml'], $local, false), 'A second compose file did not arm H5.');
+        self::assertSame([], self::leavesTheLaptop($roleWrite, [DeployArtefacts::LOCAL_COMPOSE_FILE], $local, false), 'The local compose file alone armed H5.');
+        self::assertContains(DeployArtefacts::LOCAL_COMPOSE_FILE, $files, 'The tree walk does not see the compose file, so it sees nothing.');
 
         // Cred-C1: the credential clause, through the same decision. Today all four signals hold, so it does not fire; each
         // one falsified in turn must re-arm it (L-1's planted controls), and none fires without the hash grant.
@@ -2399,7 +2395,8 @@ final class GrantFootprintTest extends TenancyTestCase
             "H5 (G-10, G-12): a role or credential write is about to leave the laptop.\n  ".implode("\n  ", $fired)
             ."\nBefore this ships: run `bin/console app:roles:reconcile --tenant=<id>` for every tenant and paste the output into "
             ."the record (G-10 condition (2)); the owner chooses (b) erp_roleadmin or (e)-roles, or re-accepts G-10 in so many "
-            ."words (condition (3)); and G-12's (e)-cred (a password_mac the application cannot forge) is owed.");
+            ."words (condition (3)); G-12's `(e)-cred` landed at Cred-C1 (`800645b`); G-75's release gate (`check-key` in every "
+            ."key-holding environment, T-G75-1) and the OPS key-custody runbook are owed before the first deploy.");
     }
 
     /** @return list<string> operand (i)'s evidence, empty when false */
@@ -2506,14 +2503,12 @@ final class GrantFootprintTest extends TenancyTestCase
         }
         $artefacts = [];
         foreach ($files as $file) {
-            foreach (self::DEPLOY_ARTEFACT_NAMES as $pattern) {
-                if (1 === preg_match($pattern, basename($file)) || 1 === preg_match($pattern, $file)) {
-                    $artefacts[] = 'deploy artefact: '.$file;
-                }
+            if (DeployArtefacts::isArtefact($file)) {
+                $artefacts[] = 'deploy artefact: '.$file;
             }
         }
-        foreach (array_diff($services, self::LOCAL_COMPOSE_SERVICES) as $service) {
-            $artefacts[] = 'compose service outside the local pair: '.$service;
+        foreach (array_diff($services, DeployArtefacts::LOCAL_COMPOSE_SERVICES) as $service) {
+            $artefacts[] = 'compose service outside the local services: '.$service;
         }
         if ($agentWrites) {
             $artefacts[] = 'SchemaManifest gives erp_ai a write';
@@ -2536,32 +2531,5 @@ final class GrantFootprintTest extends TenancyTestCase
         }
 
         return false;
-    }
-
-    /** @return list<string> every file under the repository root, relative, skipping vendored and generated trees */
-    private static function filesUnderTheRepository(): array
-    {
-        $root = \dirname(__DIR__, 3);
-        $files = [];
-        $iterator = new \RecursiveIteratorIterator(new \RecursiveCallbackFilterIterator(
-            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
-            static fn (\SplFileInfo $f): bool => !($f->isDir() && \in_array($f->getFilename(), ['.git', 'vendor', 'var', 'node_modules', 'docs'], true)),
-        ));
-        foreach ($iterator as $file) {
-            \assert($file instanceof \SplFileInfo);
-            $files[] = ltrim(substr($file->getPathname(), \strlen($root)), '/');
-        }
-
-        return $files;
-    }
-
-    /** @return array<string, mixed> */
-    private static function composeServices(): array
-    {
-        $parsed = Yaml::parseFile(\dirname(__DIR__, 3).'/infra/docker-compose.yml');
-        self::assertIsArray($parsed);
-        self::assertIsArray($parsed['services'] ?? null);
-
-        return $parsed['services'];
     }
 }

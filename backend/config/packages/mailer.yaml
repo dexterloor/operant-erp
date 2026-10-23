@@ -1,0 +1,21 @@
+# Mail-C0 (2026-10-23; `docs/session13/mail-c0-build-plan.md` Revision 1 FINAL §R3).
+#
+# `message_bus: false` -- the mailer SENDS, it never dispatches. Without it FrameworkExtension wires `messenger.default_bus`
+# into `mailer.mailer`, and a `send()` from a request would put a `SendEmailMessage` on the bus (MessengerConfigurationTest
+# `theMailerSendsSynchronouslyAndNeverDispatches`). Mail leaves the request path because the WORKER sends it, from Mail-C1.
+#
+# No default for the DSN: a default `null://null` would let a misconfigured worker drop every mail silently. The DSN and the
+# sender live in `.env.worker` only, so the web process holds no SMTP credential.
+framework:
+    mailer:
+        dsn: '%env(MAILER_DSN)%'
+        message_bus: false
+        envelope:
+            sender: '%env(MAILER_FROM)%'
+
+when@test:
+    framework:
+        mailer:
+            dsn: 'null://null'
+            envelope:
+                sender: 'no-reply@erp.local'

@@ -523,6 +523,9 @@ when@test:
         test.auth.credential_seal: {alias: 'App\Modules\UserManagement\Domain\SealsCredentials', public: true}
         test.auth.budgets: {alias: 'App\Modules\UserManagement\Infrastructure\PreAuthBudgets', public: true}
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
+        # Mail-C0: nothing sends mail before Mail-C1, so the mailer is removed at compile time unless aliased; the
+        # interface id is aliased, so the production binding (`message_bus: false`) is the thing under test.
+        test.mailer: {alias: 'Symfony\Component\Mailer\MailerInterface', public: true}
 
     parameters:
         # A second Argon2id dummy at m=1024 KiB, t=3, p=1. The production

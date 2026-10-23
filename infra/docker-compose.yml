@@ -94,5 +94,43 @@ services:
       timeout: 3s
       retries: 30
 
+  # Mail-C0 (2026-10-23): the mail queue (owner Q-1: Redis, confirmed 2026-10-23; ADR-005 D-4 amended). Password-protected,
+  # loopback-bound, LOCAL in `DeployArtefacts::LOCAL_COMPOSE_SERVICES` (ComposeLocalServiceTest). Memory is capped with
+  # `noeviction`: when full, a new message is REFUSED loudly (XADD errors) rather than an old one silently evicted -- queued
+  # mail is never dropped by Redis itself. `appendonly yes` (fsync every second): queued mail survives a restart, losing at
+  # most the last second. Redis 7.4 is RSALv2/SSPLv1 (source-available, internal use permitted; mail-c0-red.md L-4 owner
+  # notice) -- 7.2.x or Valkey are the BSD alternatives, same protocol. `make reset` wipes this volume with the database.
+  redis:
+    image: redis:7.4.11-alpine
+    container_name: erp_redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.infra}",
+              "--maxmemory", "64mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    environment:
+      # For the healthcheck only (REDISCLI_AUTH keeps it off the redis-cli command line).
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.infra}
+    volumes:
+      - erp_redisdata:/data
+    ports:
+      - "127.0.0.1:${REDIS_PORT:?set REDIS_PORT in .env.infra}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Mail-C0 (2026-10-23): a local mail catcher. Every email the worker sends in development lands here -- including,
+  # from Mail-C1, password-reset links -- and nowhere else. LOCAL ONLY: both ports are bound to the loopback, it holds
+  # no application credential, and it is in `DeployArtefacts::LOCAL_COMPOSE_SERVICES` (ComposeLocalServiceTest holds it
+  # to all three). Ports fail loudly when `.env.infra` lacks them (`:?`), rather than publishing on a random one.
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    container_name: erp_mailpit
+    environment:
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:?set MAILPIT_SMTP_PORT in .env.infra}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:?set MAILPIT_UI_PORT in .env.infra}:8025"
+
 volumes:
   erp_pgdata:
+  erp_redisdata:

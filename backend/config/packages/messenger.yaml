@@ -1,0 +1,46 @@
+# Mail-C0 (2026-10-23; `docs/session13/mail-c0-build-plan.md` Revision 1 FINAL §R3). The bus exists for MAIL ONLY.
+#
+# - Never PHP-native, for EVERY transport including one added later: `default_serializer` is pinned as well as each
+#   transport's own, because its fallback is `messenger.transport.native_php_serializer` (MessengerConfigurationTest
+#   `theSerializerIsNeverPhpNative`).
+# - `doctrine_transaction` is NOT on the bus (API.md §11.1 O-2; `doctrineTransactionIsNotOnTheBus`), and no transport is
+#   Doctrine in any environment -- `symfony/doctrine-messenger` is not installed (`theDoctrineTransportPackageIsNotInstalled`).
+# - Routing is EXACTLY `MessageCatalogue::ALL`, all to `async` -- empty at Mail-C0 because no message exists yet.
+#   `SendEmailMessage` is never routed and never catalogued: the mailer sends synchronously (`mailer.yaml`).
+# - No env read appears in a comment here: `EnvProcessorPinTest` reads comments too.
+framework:
+    messenger:
+        serializer:
+            default_serializer: App\Platform\Messaging\AllowlistSerializer
+        failure_transport: failed
+        buses:
+            messenger.bus.default:
+                default_middleware: true
+                middleware:
+                    - App\Platform\Messaging\MessageClassAllowlistMiddleware
+                    - App\Platform\Messaging\TenantStampMiddleware
+        transports:
+            # Redis (owner Q-1, confirmed 2026-10-23). The DSN carries NO path and no `stream`/`group` query: in the bridge a
+            # DSN path overrides `options.stream`, so a path would put both transports on one stream (mail-c0-red.md M-1;
+            # `asyncAndFailedUseDistinctStreams`). `lazy`: nothing connects until a message is sent or consumed, so the web
+            # process boots without the queue.
+            async:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                serializer: App\Platform\Messaging\AllowlistSerializer
+                options: { stream: messages, delete_after_ack: true, lazy: true }
+                retry_strategy: { max_retries: 3, delay: 2000, multiplier: 3, max_delay: 60000 }
+            failed:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                serializer: App\Platform\Messaging\AllowlistSerializer
+                options: { stream: failed, lazy: true }
+        routing: []
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                # Not bare `in-memory://`: `parse_url()` refuses it, so `ServingCredentialGuard` would refuse it as a malformed
+                # DSN (plan §12 F-1). Here rather than in `.env.test`, so no gitignored file can point the suite at a live queue.
+                # `serialize=true`: every envelope goes through `AllowlistSerializer` in the suite too.
+                async: { dsn: 'in-memory://default?serialize=true', serializer: App\Platform\Messaging\AllowlistSerializer }
+                failed: { dsn: 'in-memory://default?serialize=true', serializer: App\Platform\Messaging\AllowlistSerializer }

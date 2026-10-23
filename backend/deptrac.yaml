@@ -97,6 +97,10 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-23 with the mail bus in the tree (Mail-C0): NO edge line added -- nothing in `src/` depends on the new
+  # `PlatformMessaging` layer, and its own classes reach only Doctrine (the entity manager) and Symfony. A NEW LAYER, not an
+  # edge: `PlatformMessaging` (allowed `Doctrine`, `PlatformTenancy`), named in no `allowed` list. Measured in
+  # `docs/session13/mail-c0-progress.md`. Re-derive; never restate.)
   # (Re-derived 2026-10-23 with `RestoreUser` in the tree (G4-C3): TWO edge lines added — A-5 `UserRestoration -> UserAuditWriter`,
   # A-7 `UserRestoration -> Entity\AppUser`. Measured in `docs/session13/g4-c2c3-progress.md`. No LAYER edge.)
   # (Re-derived 2026-10-23 with `DeleteUser` in the tree (G4-C2): TWO edge lines added — A-5 `UserDeletion -> UserAuditWriter`,
@@ -341,7 +345,8 @@ deptrac:
   # `PasswordChangeAuditWriter` — and every one has the same cause: an
   # `ApiResource` read model returned from `Application` (A-7), an entity's
   # `STATUS_*` constants read by the code that guards on them (A-7), and a
-  # synchronous audit call because `symfony/messenger` is not installed (A-5).
+  # synchronous audit call because `symfony/messenger` was not installed (A-5;
+  # from Mail-C0 it is, for mail only, and audit stays synchronous by rule -- see A-5 below).
   # Recorded here rather than repaired for the reason the whole register exists:
   # repairing them is a design change to the slice shape Output 4 shipped, and
   # it is the same design change for all of them.
@@ -366,9 +371,14 @@ deptrac:
   #                   `UserManagement\Infrastructure\AccessTokenIssuer` — and
   #                   the edge is gone rather than registered.
   #   A-5  (4 edges at Output 5; 31 at 2026-10-15, recount below)  Something depends on `AuditLog`. A-5's stated mechanism is
-  #                   dispatching `Platform\Messaging\Event\AuditableAction`,
-  #                   and symfony/messenger is not installed, so the audit path
-  #                   is a direct synchronous call by necessity. One of them
+  #                   dispatching `Platform\Messaging\Event\AuditableAction`.
+  #                   Until Mail-C0 symfony/messenger was not installed, so the
+  #                   audit path was a direct synchronous call by necessity.
+  #                   From Mail-C0 (2026-10-23) Messenger is installed for MAIL
+  #                   ONLY; the audit path stays a direct synchronous call
+  #                   because audit is never asynchronous (ARCHITECTURE.md §6.4
+  #                   M-4), so the deviation stands for a reason of rule, not of
+  #                   absence (ARCH to confirm). One of them
   #                   is also A-1 (`PermissionGate` is Platform).
   #   A-7  (47 edges when written; 87 at 2026-10-15, recount below) A module's `Application` layer depends "up" — on its own
   #                   `ApiResource` (read models: `ItemResource`, `ItemCollection`,
@@ -851,6 +861,14 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Platform\\Tenancy\\#'
+    # Mail-C0 (2026-10-23): the mail bus's own pieces -- the message catalogue, the allow-listed serializer, the two
+    # middlewares, the tenant stamp and the two marker interfaces. At Mail-C0 no layer's `allowed` list names it (no
+    # consumer yet); a module's Application/Infrastructure gains the edge with its first dispatcher or handler (Mail-C1).
+    # Symfony Messenger is not a layer here, so its imports are unconstrained. ARCH to confirm the name.
+    - name: PlatformMessaging
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Platform\\Messaging\\#'
     # V3-1(i), V4 batch B2b-2 (2026-09-16): the front-controller credential guard. It runs in
     # `public/index.php` and `bin/console` before any kernel exists, so it may depend only on
     # DBAL's DSN parser and driver list (`Doctrine`) and on `DatabaseRoles` (`PlatformTenancy`),
@@ -1227,6 +1245,10 @@ deptrac:
       - PlatformPersistence
       - PlatformSecurity
     PlatformRuntime:
+      - Doctrine
+      - PlatformTenancy
+    # Mail-C0: `TenantStampMiddleware` reads the tenancy through the entity manager (A-10: never a typed `Connection`).
+    PlatformMessaging:
       - Doctrine
       - PlatformTenancy
     AppKernel: ~
