@@ -652,11 +652,13 @@ final class GrantFootprintTest extends TenancyTestCase
      *   UserUpdate     -> AppUser::deactivate() / reactivate() -> is_active, sessions_valid_after, updated_at
      *                     AppUser::rename()                      -> display_name, updated_at
      *                     (G4-C1, `Version20261023000100`; E-15g, owner ruling RO-U1 (a))
+     *   UserDeletion   -> AppUser::delete()                 -> deleted_at, sessions_valid_after, updated_at
+     *                     (G4-C2, `Version20261023000300`)
      *
      * Every SET list was measured from the statement at build, not inferred (G4-C1's: the recorded `UPDATE app_user` in
      * `UserUpdateTest::aDeactivationStripsEveryRoleAndRecordsEachOne`).
      */
-    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['display_name', 'is_active', 'last_login_at', 'password_hash', 'sessions_valid_after', 'updated_at'];
+    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['deleted_at', 'display_name', 'is_active', 'last_login_at', 'password_hash', 'sessions_valid_after', 'updated_at'];
 
     /**
      * **H0: `erp_app` can UPDATE exactly the `app_user` columns its callers write — proved by running the
@@ -756,8 +758,8 @@ final class GrantFootprintTest extends TenancyTestCase
             .'so the refusals in this test prove nothing about the privilege.');
 
         // Anti-vacuity: the routes still closed are in the domain and are refused. G4-C1 re-opened `is_active` and
-        // `display_name` with `UpdateUser` (G-12's reach records it); `deleted_at` stays closed until G4-C2's `DeleteUser`.
-        foreach (['email', 'deleted_at', 'id', 'tenant_id', 'created_at'] as $closed) {
+        // `display_name` with `UpdateUser`, and G4-C2 `deleted_at` with `DeleteUser` (G-12's reach records both).
+        foreach (['email', 'id', 'tenant_id', 'created_at'] as $closed) {
             self::assertSame('refused', $outcomes[$closed] ?? null,
                 "erp_app must not write app_user.{$closed}, and the probe did not see it refused.");
         }

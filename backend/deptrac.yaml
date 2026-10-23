@@ -97,6 +97,8 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-23 with `DeleteUser` in the tree (G4-C2): TWO edge lines added — A-5 `UserDeletion -> UserAuditWriter`,
+  # A-7 `UserDeletion -> Entity\AppUser`. Measured in `docs/session13/g4-c2c3-progress.md`. No LAYER edge.)
   # (Re-derived 2026-10-23 with `UpdateUser` in the tree (G4-C1): FOUR edge lines added — A-5 `UserUpdate -> UserAuditWriter`,
   # A-7 `UserUpdate -> Entity\AppUser`, A-5 `UserLiveness -> RoleAuditWriter`, A-7 `UserLiveness -> Entity\AppUser`. The three commands and the by-TAG count: see
   # `docs/session13/g4-c1-progress.md` (measured there, not restated here). No LAYER edge.)
@@ -741,6 +743,11 @@ deptrac:
       # G4-C1 `UpdateUser`, 2026-10-23: `user.deactivated` / `.reactivated` / `.updated` written synchronously in the
       # updating transaction (`RoleUpdate`'s shape); the `AppUser` liveness mutators called on the entity `UserLiveness`
       # loads, the class named so the role lock-first scan derives this method as a writer (deviation D-3).
+      - App\Modules\AuditLog\Infrastructure\UserAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\UserDeletion:
+      # G4-C2 `DeleteUser`, 2026-10-23: `user.deleted` written synchronously in the deleting transaction; `AppUser::delete()`
+      # on the entity `UserLiveness` loads, the class named so the role lock-first scan derives this method (G4-C1 D-3).
       - App\Modules\AuditLog\Infrastructure\UserAuditWriter   # A-5
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
     App\Modules\UserManagement\Application\UserLiveness:

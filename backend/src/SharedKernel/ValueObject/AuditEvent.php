@@ -385,6 +385,11 @@ namespace App\SharedKernel\ValueObject;
  *     `audit_log_ip_address_scope` (sixteen + three, superseding `Version20261022000100`'s IP list). `PINNED_ALLOWLIST` was
  *     **not** touched.
  *
+ *   - **`USER_DELETED`**, 2026-10-23, G4-C2 `DeleteUser` — `SEC`'s filing in `g4-users-design.md` §6: **`SECURITY`**, subject
+ *     `('app_user', id)`, `{}`. Steps 3–5 with its writer in the same commit (`UserAuditWriter::recordDeleted()`); step 5 is
+ *     `Version20261023000400` (the live sixty-five plus this one; supersedes `Version20261023000200`). **Step 6 applies, both
+ *     halves** (`PINNED_IP_BEARING_EVENTS` + the IP-scope re-issue in the same migration). `PINNED_ALLOWLIST` not touched.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -631,6 +636,14 @@ final class AuditEvent
      * bars an `app_user` subject from the business allowlist; IP-bearing.
      */
     public const USER_UPDATED = 'user.updated';
+
+    /**
+     * G4-C2 (`DeleteUser`, 2026-10-23; `docs/session13/g4-users-design.md` §6): a person soft-deleted — `deleted_at` set. Subject
+     * `('app_user', id)`; `metadata` `{}`. Written FIRST in its transaction, before the strip's `role.revoked` rows
+     * (`revoke_reason: subject_removed`) and the lapse rows. `is_active` is not changed (D-6). SECURITY (PC-11 (4a): ending a
+     * principal is privilege history); IP-bearing.
+     */
+    public const USER_DELETED = 'user.deleted';
 
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
@@ -1316,6 +1329,7 @@ final class AuditEvent
         self::USER_DEACTIVATED,
         self::USER_REACTIVATED,
         self::USER_UPDATED,
+        self::USER_DELETED,
     ];
 
     /**
@@ -1353,6 +1367,7 @@ final class AuditEvent
         self::USER_DEACTIVATED,
         self::USER_REACTIVATED,
         self::USER_UPDATED,
+        self::USER_DELETED,
     ];
 
     /**
@@ -1550,6 +1565,8 @@ final class AuditEvent
         self::USER_DEACTIVATED => 'app_user',
         self::USER_REACTIVATED => 'app_user',
         self::USER_UPDATED => 'app_user',
+        // G4-C2: the person removed.
+        self::USER_DELETED => 'app_user',
     ];
 
     /**

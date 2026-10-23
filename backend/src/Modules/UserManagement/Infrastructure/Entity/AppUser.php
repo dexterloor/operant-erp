@@ -260,9 +260,18 @@ class AppUser
         return null !== $this->deletedAt;
     }
 
-    public function delete(): void
+    /**
+     * **G4-C2 `DeleteUser`: soft-delete the person** (E-15g; `docs/session13/g4-users-design.md` §6). Sets `deleted_at = $at`,
+     * raises the session stamp to `$at` (monotone) and moves `updated_at`. **`is_active` is left alone** (D-6): a restore brings
+     * the person back as they were. One caller, `UserDeletion`, under the role-administration lock, on an entity re-read
+     * `FOR UPDATE` after the lock; `erp_app` holds `UPDATE (deleted_at)` since `Version20261023000300`. The stamp is not what
+     * stops a deleted person's tokens — `IdentityReader`'s `deleted_at IS NULL` does — it is what keeps them dead after a
+     * restore (C3).
+     */
+    public function delete(\DateTimeImmutable $at): void
     {
-        $this->deletedAt = new \DateTimeImmutable();
-        $this->updatedAt = $this->deletedAt;
+        $this->deletedAt = $at;
+        $this->raiseSessionStamp($at);
+        $this->updatedAt = $at;
     }
 }

@@ -592,8 +592,11 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     // The double-credit pin (G-28 / G-32) was DELETED at the stock count's C1 (2026-10-16, `SEC`
     // `docs/session13/stock-adjustment-sec.md` §1): its last entry, `CreateStockAdjustment`, left with path (iii) tested, and
     // no unbuilt operation composes a role through the API (`RestoreRole`, built at G2, revives no grant: it refuses any
-    // holder and any pending proposal, and an archived role cannot be granted). Bulk's AssignRole parity is carried below, on its own entry.
-    private const OPERATIONS_OWING_PROPOSAL_HANDLING = [
+    // holder and any pending proposal, and an archived role cannot be granted).
+    //
+    // The proposal-handling pin (roles slice 3's hand-forward, C1 2026-10-04) was DELETED at G4-C2 (2026-10-23): its last two
+    // entries, `CreateBulkRoleAssignment` (G5-C1) and `DeleteUser` (G4-C2), left with their work done, the same day, so the map
+    // would hold over nothing (the double-credit pin's precedent above). Every entry's record, kept:
         // `UpdateUser` LEFT 2026-10-23 (G4-C1), its work done: the role lock is its first statement, unconditionally (positional
         // case `PurchaseOrderRowLockTest::theRoleAdministrationLockIsTheFirstStatementOfTheWritingTransaction` 'UpdateUser');
         // a deactivation lapses every pending proposal FOR the user (`subject_removed`) and BY the user (`proposer_removed`),
@@ -602,9 +605,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // sessions_valid_after)` granted with its caller (`Version20261023000100`, G-12 reach recorded); and E-15g's strip
         // removes every `user_role` row, so `LiveGrantReader::holderRowCount` stops counting a switched-off person
         // (`UserUpdateTest::aDeactivationStripsEveryRoleAndRecordsEachOne`).
-        'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0); '
-            .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
-            .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
+        // `DeleteUser` LEFT 2026-10-23 (G4-C2), its work done: the role lock first (positional case 'DeleteUser'); every
+        // pending proposal for and by the person lapses (`UserLiveness::lapse()`); `UPDATE (deleted_at)` granted with its
+        // caller (`Version20261023000300`); the strip removes every `user_role` row, so `LiveGrantReader::holderRowCount` stops
+        // counting a deleted person and `DeleteRole` of their former role succeeds (`UserDeleteTest`).
         // `CreateBulkRoleAssignment` LEFT 2026-10-23 (G5-C1), its work done: it never proposes — E-15e routing, E-15b's
         // marker, E-15c and an archived role are judged once, before any member id is read
         // (`BulkRoleAssignmentTest::aNonOwnersBulkOfAnXAdminRoleIsRefusedBeforeAnyMemberIsRead`,
@@ -628,7 +632,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // `RoleUpdateTest::aRoleThatLosesAnAdminExcludedCodeLeavesItsPendingProposalUntouched`; G-10 arm D shipped one commit
         // EARLIER, at C1 (`0bd4a97`, design §7's recommendation: the first writer of `role_permission`), with a fixed
         // cut-off date (C1 deviation 2), and C2's code-set edits write the `role.permissions_changed` rows it folds.
-    ];
 
     /** The corrections an issued invoice owes (OI-2: *"nothing issued is edited"*). */
     private const THE_INVOICE_CORRECTIONS = ['ReverseInvoicePayment', 'VoidInvoice'];
@@ -1602,37 +1605,6 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."`FOR NO KEY UPDATE`, no row on a no-op or a refusal. Restore the test, or move its obligation to another named test\n"
             ."here, before removing it. Record: docs/session13/suppliers-s1-build-progress.md C2b.",
             implode("\n", $missing),
-        ));
-    }
-
-    /**
-     * **Roles slice 3's hand-forward, carried by a mechanism** (C1, 2026-10-04; design §11). Red the moment any key of
-     * {@see self::OPERATIONS_OWING_PROPOSAL_HANDLING} is in the generated spec, printing each arrived operation's
-     * obligation. **Controls, same test:** the positive control every sibling uses; a non-empty map; and the intersection
-     * over a literal map naming a BUILT operation (`CreateRoleGrantProposal`) must report it. Mutation: plant a built
-     * `operationId` as a key → red naming it.
-     */
-    #[Test]
-    public function noOperationOwingProposalHandlingHasBeenBuilt(): void
-    {
-        $built = $this->builtOperationIds();
-
-        self::assertArrayHasKey(self::AN_OPERATION_ID_KNOWN_TO_BE_BUILT, $built,
-            'Positive control: the generated spec no longer carries `operationId` the way this pin reads it.');
-        self::assertNotSame([], self::OPERATIONS_OWING_PROPOSAL_HANDLING,
-            'The proposal-handling map is empty, so it holds over nothing. Its entries leave only with the work they list.');
-        self::assertSame(['CreateRoleGrantProposal' => 'x'],
-            array_intersect_key(['CreateRoleGrantProposal' => 'x', 'NoSuchOperation' => 'y'], $built),
-            'A planted owing operation that IS built was not reported: the intersection is blind.');
-
-        $arrived = array_intersect_key(self::OPERATIONS_OWING_PROPOSAL_HANDLING, $built);
-
-        self::assertSame([], $arrived, \sprintf(
-            "%s has been built, and E-15e's proposals (roles slice 3) are owed handling by it:\n\n%s\n\n"
-            ."DO THE WORK IN THIS COMMIT, then clear the entry deliberately. Do not hand-edit this pin to green. "
-            ."Record: docs/session13/roles-s3-design.md §11; SECURITY_MODEL.md §5.2.",
-            implode(', ', array_keys($arrived)),
-            implode("\n\n", array_map(static fn (string $id, string $owed): string => $id.': '.$owed, array_keys($arrived), $arrived)),
         ));
     }
 

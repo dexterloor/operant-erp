@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Modules\UserManagement\ApiResource;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\DeleteUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UpdateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UserProvider;
 use App\Modules\UserManagement\Application\UserView;
@@ -63,6 +65,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             read: false,
             processor: UpdateUserProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.edit'],
+        ),
+        // G4-C2 (2026-10-23): soft delete (E-15g strip + lapse; `docs/session13/g4-users-design.md` §6). API-21 branch 3: 204.
+        // §4.2's `Idem` is `no`: a repeat meets a deleted person, 409 `app_user.is_archived`. `read: false` (final RED L-2).
+        // The denial subject is the default derivation, `('app_user', {id})`.
+        new Delete(
+            uriTemplate: '/users/{id}',
+            name: 'DeleteUser',
+            status: 204,
+            openapi: new OpenApiOperation(operationId: 'DeleteUser'),
+            read: false,
+            processor: DeleteUserProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.delete'],
         ),
     ],
 )]

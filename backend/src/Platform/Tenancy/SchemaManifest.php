@@ -340,7 +340,9 @@ final class SchemaManifest
             //   UserUpdate     -> deactivate() / reactivate() / rename()
             //                     is_active, sessions_valid_after, display_name, updated_at
             //                     (G4-C1, Version20261023000100; E-15g)
-            // Nothing else in `src/` writes a user, and nothing creates or deletes
+            //   UserDeletion   -> delete()              deleted_at, sessions_valid_after, updated_at
+            //                     (G4-C2, Version20261023000300; a SOFT delete)
+            // Nothing else in `src/` writes a user, and nothing creates or hard-deletes
             // one -- CreateUser and provisioning grant INSERT when they are built.
             // A NEW COLUMN HERE INHERITS SELECT BUT NO UPDATE: the table-level ACL
             // no longer carries UPDATE. So a writer grants its own columns with
@@ -355,14 +357,15 @@ final class SchemaManifest
             // close lockout or takeover through it (RESIDUAL_GAPS G-12); and since G4-C1
             // is_active / display_name / sessions_valid_after are writable too, which
             // re-opens two lockout routes and the relabel route H0 had closed (G-12).
-            // deleted_at stays refused until G4-C2's DeleteUser grants it.
+            // deleted_at was granted with G4-C2's DeleteUser (soft delete; clearing it by SQL
+            // brings a removed member back — G-10 / G-12 reach).
             'grants' => [DatabaseRoles::APP => ['SELECT']],
             'column_grants' => [
                 // erp_auth: CredentialLookup's one statement (ADR-006 §2). deleted_at joined at G4-C0a
                 // (Version20261022006000) so sign-in excludes a soft-deleted person (`AND deleted_at IS NULL`):
                 // a column privilege is needed for a WHERE reference as much as for the select list.
                 DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at']],
-                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after']],
+                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at']],
             ],
         ],
         'role' => [

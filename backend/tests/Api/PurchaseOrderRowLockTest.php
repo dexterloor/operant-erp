@@ -3056,6 +3056,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // row (and the envelope, which is not a role table).
             'CreateBulkRoleAssignment' => $this->send('POST', '/bulk/role-assignments', ['role_id' => $grantable, 'user_ids' => [$subject]],
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
+            // G4-C2: `admin` deletes the viewer — the strip writes `user_role`, then the `app_user` flush and the audit rows.
+            'DeleteUser' => $this->send('DELETE', '/users/'.$subject),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -3084,6 +3086,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'RestoreRole' => ['RestoreRole', 200];
         yield 'UpdateUser' => ['UpdateUser', 200];
         yield 'CreateBulkRoleAssignment' => ['CreateBulkRoleAssignment', 200];
+        yield 'DeleteUser' => ['DeleteUser', 204];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3582,8 +3585,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
     /**
      * **`UserLiveness`'s writers (`strip()`, `lapse()`) are reached only from lock-first-checked paths** (G4-C1;
      * `ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`'s two entries). The class is injected by its callers, so a caller is a file
-     * in `src/` that declares a `UserLiveness` parameter or property; today exactly `UserUpdate` (`UpdateUser`, positional case
-     * in `everyRoleWritePath()`). C2 `DeleteUser` and C3 `RestoreUser` join this pin with their own cases. Planted control: a
+     * in `src/` that declares a `UserLiveness` parameter or property; today `UserUpdate` (`UpdateUser`) and, since G4-C2, `UserDeletion`
+     * (`DeleteUser`), each with a positional case in `everyRoleWritePath()`. C3 `RestoreUser` joins it with its own case. Planted control: a
      * planted caller is seen, a comment is not.
      */
     #[Test]
@@ -3611,8 +3614,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
         }
 
-        self::assertSame(['UserUpdate'], $callersIn($sources),
-            'UserLiveness has a caller other than UserUpdate: give that path its own case in everyRoleWritePath() (and its operation in '
+        self::assertSame(['UserDeletion', 'UserUpdate'], $callersIn($sources),
+            'UserLiveness has a caller other than UserUpdate and UserDeletion: give that path its own case in everyRoleWritePath() (and its operation in '
             .'ROLE_LOCK_FIRST_CHECKED) before it may strip roles or lapse proposals.');
     }
 
@@ -4256,6 +4259,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // derived writer and the accounting below de-duplicates; `grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths` names
         // the new caller.
         'CreateBulkRoleAssignment' => 'GrantRules::insert',
+        // G4-C2: one transaction writes `user_role` (strip), `role_grant_proposal` (lapse), `app_user` (`delete()`) and the rows.
+        'DeleteUser' => 'UserDeletion::delete',
     ];
 
     /**
@@ -4265,8 +4270,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * callers to that set (`GrantRules::insert()`'s shape).
      */
     private const ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
-        'UserLiveness::strip' => 'DELETE FROM user_role for one person — called only from UserUpdate::update, after the lock (positional case UpdateUser).',
-        'UserLiveness::lapse' => 'UPDATE role_grant_proposal … AND status = \'pending\' for and by one person — called only from UserUpdate::update, after the lock.',
+        'UserLiveness::strip' => 'DELETE FROM user_role for one person — called only from UserUpdate::update and UserDeletion::delete, after the lock (positional cases UpdateUser, DeleteUser).',
+        'UserLiveness::lapse' => 'UPDATE role_grant_proposal … AND status = \'pending\' for and by one person — called only from UserUpdate::update and UserDeletion::delete, after the lock.',
     ];
 
     /** Empty, and kept: no role-administration writer is exempt from the lock (§5.2.5 names none). */

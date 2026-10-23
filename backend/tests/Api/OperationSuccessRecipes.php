@@ -755,6 +755,13 @@ trait OperationSuccessRecipes
 
                 return [200, 'rename a person'];
             }],
+            // G4-C2: a person holding nothing, deleted by the actor (who holds `app_user.delete`, never the marker): nothing to
+            // strip or lapse, no E-15b, not the actor. One `user.deleted` row. 204.
+            'DeleteUser' => [fn (): array => ['user' => $this->seedPrincipal(self::TENANT_A, [])], function (array $c): array {
+                $this->send('DELETE', '/users/'.$c['user']);
+
+                return [204, 'delete a person'];
+            }],
             // Roles slice 4, C3: an unheld one-code composed role (`role.view`, seeded as the owner) with no proposal, deleted
             // by the actor, who holds `role.delete` and `role.assign` (every declared code — `roles-s4-sec-data-red.md` F1-D).
             'DeleteRole' => [function (): array {

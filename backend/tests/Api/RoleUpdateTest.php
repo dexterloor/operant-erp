@@ -490,7 +490,7 @@ final class RoleUpdateTest extends ApiTestCase
     }
 
     /**
-     * **Pending proposals are NOT written to (E-15f; tripwire `OPERATIONS_OWING_PROPOSAL_HANDLING['UpdateRole']`).** A role
+     * **Pending proposals are NOT written to (E-15f; formerly carried by the proposal-handling tripwire, retired at G4-C2).** A role
      * with a pending proposal LOSES its `X(admin)` code: the proposal keeps its snapshot and stays pending; an owner's
      * confirmation is then refused `role_changed`; and a non-owner who could now give the role directly meets AssignRole's
      * gap B, `user_role.proposal_pending` (design §5 change 2, RED L-8).

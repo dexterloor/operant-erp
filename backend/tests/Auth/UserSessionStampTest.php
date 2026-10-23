@@ -95,6 +95,28 @@ final class UserSessionStampTest extends AuthTestCase
             'The reactivation lowered the session stamp.');
     }
 
+    /**
+     * **T-2-2 (G4-C2)** — a deleted person's token is 401 at once, and their password answers the constant sign-in refusal
+     * (G4-C0a end to end). Real clock; one failed sign-in, the last request of the test.
+     */
+    #[Test]
+    public function aDeletedPersonsTokenAndPasswordStopWorking(): void
+    {
+        [$slug, $tenant, $subject, $email] = $this->workspace('deleted');
+        $token = $this->signedIn($slug, $email);
+        self::assertSame(200, $this->me($token), 'Control: the token did not read /me.');
+
+        $this->actAsUser($tenant, $this->seedPrincipal($tenant, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('DELETE', '/users/'.$subject);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsNobody();
+
+        self::assertSame(401, $this->me($token), "A deleted person's live token still authenticates.");
+        $this->signIn($slug, $email, self::PASSWORD);
+        self::assertSame([401, 'urn:erp:problem:authentication-failed'], [$this->httpStatus(), $this->json()['type'] ?? null],
+            "A deleted person's password still signs in.");
+    }
+
     // ---------------------------------------------------------------------
 
     /** @return array{0: string, 1: string, 2: string, 3: string} slug, tenant id, subject id, subject email */

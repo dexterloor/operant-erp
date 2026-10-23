@@ -255,6 +255,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // G4-C1: the remembered revoke subject, renamed. A supplied tenant id that moved the write would rename B's person,
         // which the digest names.
         'UpdateUser' => ['vars' => ['id' => 'revoke_subject'], 'body' => ['display_name' => 'Probe renamed']],
+        // G4-C2: the remembered revoke subject, deleted. A supplied tenant id that moved the write would delete B's person.
+        'DeleteUser' => ['vars' => ['id' => 'revoke_subject']],
         // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every
         // declared code, `role.assign` included — RED F1-D). A supplied tenant id that moved the write would delete B's role.
         'DeleteRole' => ['vars' => ['id' => 'delete_role']],
