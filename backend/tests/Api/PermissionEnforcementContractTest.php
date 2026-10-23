@@ -115,6 +115,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'UpdateUser' => 'app_user.edit',
         // G4-C2.
         'DeleteUser' => 'app_user.delete',
+        // G4-C3: undoing a delete is the authority that makes one.
+        'RestoreUser' => 'app_user.delete',
         // Roles slice 4 C3: re-derived under the lock with its own code; the `role.assign` backstop after it is a 409, never
         // a second permission gate (`roles-s4-sec-data-red.md` item 1).
         'DeleteRole' => 'role.delete',

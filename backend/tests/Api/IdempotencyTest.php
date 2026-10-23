@@ -331,6 +331,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'why' => 'Warehouse/location delete-restore C2: a second restoration of a live location. guard:storage_location.deleted_at '
                 .'— the guard refuses its own repeat and writes nothing (no second storage_location.restored row).',
         ],
+        'RestoreUser' => [
+            'method' => 'replayRestoreUser',
+            'why' => 'G4-C3: a second restoration of a live person. guard:app_user.deleted_at — the guard refuses its own repeat '
+                .'and writes nothing (no second user.restored row).',
+        ],
         'RestoreRole' => [
             'method' => 'replayRestoreRole',
             'why' => 'G2: a second restoration of a live role. guard:role.deleted_at — the guard refuses its own repeat and '
@@ -1328,6 +1333,25 @@ final class IdempotencyTest extends PurchaseOrderTestCase
             'SELECT deleted_at, updated_at FROM role WHERE id = ?::uuid', [$id]), $why);
         self::assertNull($after[0]['deleted_at'], 'The first restoration did not restore the row, so the second proves nothing.');
         self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::ROLE_RESTORED), $why);
+    }
+
+    private function replayRestoreUser(string $why): void
+    {
+        $id = $this->seedPrincipal(self::TENANT_A, []);
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET deleted_at = now() WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/users/'.$id.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $after = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at, updated_at, sessions_valid_after FROM app_user WHERE id = ?::uuid', [$id]);
+
+        $this->send('POST', '/users/'.$id.'/restoration');
+
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('app_user.is_not_archived', $this->json()['rule']);
+        self::assertSame($after, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT deleted_at, updated_at, sessions_valid_after FROM app_user WHERE id = ?::uuid', [$id]), $why);
+        self::assertNull($after[0]['deleted_at'], 'The first restoration did not restore the row, so the second proves nothing.');
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::USER_RESTORED), $why);
     }
 
     private function replayRestoreWarehouse(string $why): void

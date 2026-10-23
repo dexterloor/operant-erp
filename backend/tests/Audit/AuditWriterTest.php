@@ -169,6 +169,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'user.updated',
         // G4-C2 (2026-10-23): a person deleted, SECURITY, IP-bearing; `Version20261023000400` re-issues the scope with it.
         'user.deleted',
+        // G4-C3 (2026-10-23): a person restored, SECURITY, IP-bearing; `Version20261023000500` re-issues the scope with it.
+        'user.restored',
     ];
 
     /**
@@ -519,6 +521,7 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         $userWriter->recordReactivated(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
         $userWriter->recordRenamed(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
         $userWriter->recordDeleted(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
+        $userWriter->recordRestored(tenantId: self::TENANT_A, actorUserId: $actor, actorLabel: 'Probe Actor', subjectUserId: $actor, ipAddress: self::PROBE_IP);
         // G6-C0: E-16's export row, SECURITY, IP-bearing, subjectless; written only inside the export's tenancy transaction.
         $exportWriter = self::getContainer()->get(\App\Modules\AuditLog\Infrastructure\ExportAuditWriter::class);
         \assert($exportWriter instanceof \App\Modules\AuditLog\Infrastructure\ExportAuditWriter);

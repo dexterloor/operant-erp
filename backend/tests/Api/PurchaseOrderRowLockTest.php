@@ -3024,6 +3024,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // G2: the same kind of role, archived by owner SQL before the recorder starts.
             $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE role SET deleted_at = now() WHERE id = ?::uuid', [$editable]);
         }
+        if ('RestoreUser' === $case) {
+            // G4-C3: the viewer, soft-deleted by owner SQL (leaving its grant, a database edit) before the recorder starts.
+            $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET deleted_at = now() WHERE id = ?::uuid', [$subject]);
+        }
         $this->recorder()->start();
         match ($case) {
             'RevokeRole' => $this->send('DELETE', '/users/'.$subject.'/roles/'.$role),
@@ -3058,6 +3062,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
                 [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
             // G4-C2: `admin` deletes the viewer — the strip writes `user_role`, then the `app_user` flush and the audit rows.
             'DeleteUser' => $this->send('DELETE', '/users/'.$subject),
+            // G4-C3: `admin` restores the viewer, deleted by owner SQL before the recorder — the lapse statement runs (on no rows)
+            // and the leftover grant is stripped, then the flush and the rows.
+            'RestoreUser' => $this->send('POST', '/users/'.$subject.'/restoration'),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -3087,6 +3094,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'UpdateUser' => ['UpdateUser', 200];
         yield 'CreateBulkRoleAssignment' => ['CreateBulkRoleAssignment', 200];
         yield 'DeleteUser' => ['DeleteUser', 204];
+        yield 'RestoreUser' => ['RestoreUser', 200];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3586,7 +3594,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * **`UserLiveness`'s writers (`strip()`, `lapse()`) are reached only from lock-first-checked paths** (G4-C1;
      * `ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN`'s two entries). The class is injected by its callers, so a caller is a file
      * in `src/` that declares a `UserLiveness` parameter or property; today `UserUpdate` (`UpdateUser`) and, since G4-C2, `UserDeletion`
-     * (`DeleteUser`), each with a positional case in `everyRoleWritePath()`. C3 `RestoreUser` joins it with its own case. Planted control: a
+     * (`DeleteUser`) and, since G4-C3, `UserRestoration` (`RestoreUser`), each with a positional case in `everyRoleWritePath()`. Planted control: a
      * planted caller is seen, a comment is not.
      */
     #[Test]
@@ -3614,8 +3622,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
         }
 
-        self::assertSame(['UserDeletion', 'UserUpdate'], $callersIn($sources),
-            'UserLiveness has a caller other than UserUpdate and UserDeletion: give that path its own case in everyRoleWritePath() (and its operation in '
+        self::assertSame(['UserDeletion', 'UserRestoration', 'UserUpdate'], $callersIn($sources),
+            'UserLiveness has a caller other than UserUpdate, UserDeletion and UserRestoration: give that path its own case in everyRoleWritePath() (and its operation in '
             .'ROLE_LOCK_FIRST_CHECKED) before it may strip roles or lapse proposals.');
     }
 
@@ -4180,8 +4188,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         foreach (['UPDATE roles SET x = 1', 'UPDATE role_grant_proposal_x SET x = 1', 'SELECT 1 FROM user_role'] as $statement) {
             self::assertDoesNotMatchRegularExpression(self::ROLE_ADMIN_SCAN['sql'], $statement, 'The role scan over-matches: '.$statement);
         }
-        // G4-C1: `reactivate()` joined (it assigns `isActive`); `rename()` assigns neither property, so it is not one.
-        self::assertSame(['deactivate', 'delete', 'reactivate'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the three the scan was written for.');
+        // G4-C1: `reactivate()` joined (it assigns `isActive`); `rename()` assigns neither property, so it is not one. G4-C3:
+        // `restore()` joined (it assigns `deletedAt`).
+        self::assertSame(['deactivate', 'delete', 'reactivate', 'restore'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the four the scan was written for.');
 
         self::assertSame(self::PLANTED_ROLE_WRITERS_EXPECTED, array_keys(self::writersAmong([self::PLANTED_ROLE_WRITERS], self::ROLE_ADMIN_SCAN)),
             'The role scan does not find exactly the planted role-administration writers (and none of the credential-shaped '
@@ -4261,6 +4270,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'CreateBulkRoleAssignment' => 'GrantRules::insert',
         // G4-C2: one transaction writes `user_role` (strip), `role_grant_proposal` (lapse), `app_user` (`delete()`) and the rows.
         'DeleteUser' => 'UserDeletion::delete',
+        // G4-C3: one transaction writes `role_grant_proposal` (the lapse), `user_role` (any leftover), `app_user` (`restore()`).
+        'RestoreUser' => 'UserRestoration::restore',
     ];
 
     /**
@@ -4270,8 +4281,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * callers to that set (`GrantRules::insert()`'s shape).
      */
     private const ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN = [
-        'UserLiveness::strip' => 'DELETE FROM user_role for one person — called only from UserUpdate::update and UserDeletion::delete, after the lock (positional cases UpdateUser, DeleteUser).',
-        'UserLiveness::lapse' => 'UPDATE role_grant_proposal … AND status = \'pending\' for and by one person — called only from UserUpdate::update and UserDeletion::delete, after the lock.',
+        'UserLiveness::strip' => 'DELETE FROM user_role for one person — called only from UserUpdate::update, UserDeletion::delete and UserRestoration::restore, after the lock (positional cases UpdateUser, DeleteUser, RestoreUser).',
+        'UserLiveness::lapse' => 'UPDATE role_grant_proposal … AND status = \'pending\' for and by one person — called only from UserUpdate::update, UserDeletion::delete and UserRestoration::restore, after the lock.',
     ];
 
     /** Empty, and kept: no role-administration writer is exempt from the lock (§5.2.5 names none). */

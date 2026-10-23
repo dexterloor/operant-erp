@@ -390,6 +390,10 @@ namespace App\SharedKernel\ValueObject;
  *     `Version20261023000400` (the live sixty-five plus this one; supersedes `Version20261023000200`). **Step 6 applies, both
  *     halves** (`PINNED_IP_BEARING_EVENTS` + the IP-scope re-issue in the same migration). `PINNED_ALLOWLIST` not touched.
  *
+ *   - **`USER_RESTORED`**, 2026-10-23, G4-C3 `RestoreUser` — **`SECURITY`**, subject `('app_user', id)`, `{}`
+ *     (`g4-users-design.md` §7). Steps 3–5 with its writer (`UserAuditWriter::recordRestored()`); step 5 is
+ *     `Version20261023000500` (the live sixty-six plus this one; supersedes `Version20261023000400`); step 6 both halves.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -644,6 +648,14 @@ final class AuditEvent
      * principal is privilege history); IP-bearing.
      */
     public const USER_DELETED = 'user.deleted';
+
+    /**
+     * G4-C3 (`RestoreUser`, 2026-10-23; `docs/session13/g4-users-design.md` §7): a deleted person brought back — `deleted_at`
+     * cleared, no role restored, the session stamp raised so no earlier token revives. Subject `('app_user', id)`; `metadata`
+     * `{}`. Written FIRST, before any leftover strip / lapse rows. SECURITY (privilege history, `user.reactivated`'s ground);
+     * IP-bearing.
+     */
+    public const USER_RESTORED = 'user.restored';
 
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
@@ -1330,6 +1342,7 @@ final class AuditEvent
         self::USER_REACTIVATED,
         self::USER_UPDATED,
         self::USER_DELETED,
+        self::USER_RESTORED,
     ];
 
     /**
@@ -1368,6 +1381,7 @@ final class AuditEvent
         self::USER_REACTIVATED,
         self::USER_UPDATED,
         self::USER_DELETED,
+        self::USER_RESTORED,
     ];
 
     /**
@@ -1567,6 +1581,8 @@ final class AuditEvent
         self::USER_UPDATED => 'app_user',
         // G4-C2: the person removed.
         self::USER_DELETED => 'app_user',
+        // G4-C3: the person brought back.
+        self::USER_RESTORED => 'app_user',
     ];
 
     /**

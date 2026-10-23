@@ -257,6 +257,8 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'UpdateUser' => ['vars' => ['id' => 'revoke_subject'], 'body' => ['display_name' => 'Probe renamed']],
         // G4-C2: the remembered revoke subject, deleted. A supplied tenant id that moved the write would delete B's person.
         'DeleteUser' => ['vars' => ['id' => 'revoke_subject']],
+        // G4-C3: the remembered deleted person (B's is another id, so a moved restore 404s).
+        'RestoreUser' => ['vars' => ['id' => 'restore_user']],
         // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every
         // declared code, `role.assign` included — RED F1-D). A supplied tenant id that moved the write would delete B's role.
         'DeleteRole' => ['vars' => ['id' => 'delete_role']],
@@ -752,6 +754,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // G2: `RestoreRole`'s role — composed, archived, unheld, no proposal, so the baseline restores it.
         $this->insertAsOwnerForTenant($tenantId, "INSERT INTO role (id, tenant_id, name, deleted_at) VALUES (?::uuid, ?::uuid, 'Restorable Role', now())",
             [$this->remember($letter, 'restore_role', Uuid::v4()->toRfc4122()), $tenantId]);
+        // G4-C3: `RestoreUser`'s person — soft-deleted, holding nothing, an email no live person uses, so the baseline restores it.
+        $restoreUser = $this->remember($letter, 'restore_user', Uuid::v4()->toRfc4122());
+        $this->insertAsOwnerForTenant($tenantId,
+            "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, deleted_at) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Restorable Person', now())",
+            [$restoreUser, $tenantId, 'restore-'.$restoreUser.'@example.test']);
         // Roles slice 2, C3: `AssignRole`'s subject — active, holding nothing.
         $assignSubject = $this->remember($letter, 'assign_subject', Uuid::v4()->toRfc4122());
         $this->insertAsOwnerForTenant($tenantId,

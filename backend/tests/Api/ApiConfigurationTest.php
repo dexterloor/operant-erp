@@ -341,7 +341,8 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (G5-C1, 2026-10-23):** `CreateBulkRoleAssignment` (POST `/bulk/role-assignments`, `role.assign`) on
         // `BulkRoleAssignmentRequest`, the second `store` operation. No migration, no grant (G5-C2 carried the envelope grant).
         // **And one more (G4-C2, 2026-10-23):** `DeleteUser` (DELETE `/users/{id}`, `app_user.delete`).
-        self::assertCount(127, $checked, 'The route set changed. This slice declares one hundred and twenty-seven operations: '.implode(', ', array_keys($checked)));
+        // **And one more (G4-C3, 2026-10-23):** `RestoreUser` (POST `/users/{id}/restoration`, `app_user.delete`).
+        self::assertCount(128, $checked, 'The route set changed. This slice declares one hundred and twenty-eight operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

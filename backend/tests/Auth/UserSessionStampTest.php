@@ -117,6 +117,67 @@ final class UserSessionStampTest extends AuthTestCase
             "A deleted person's password still signs in.");
     }
 
+    /**
+     * **T-3-2 (G4-C3)** — a restore revives no earlier token. At mocked second R: sign in (T1), delete (stamp R), a race token
+     * minted at R+1 (a sign-in that read the person before the delete committed), advance 5 s, restore (stamp R+5). T1 and the
+     * race token stay 401; a token minted after the restore reads. Mutation M-3-1 (no stamp on restore) → the race token reads,
+     * red. **M-2-2 (no stamp on delete) cannot go red here**: the restore's own stamp kills T1 as well — a review check (C2's
+     * own T-2-1 stamp assertion is what catches it).
+     */
+    #[Test]
+    public function aRestoreRevivesNoEarlierToken(): void
+    {
+        [$slug, $tenant, $subject, $email] = $this->workspace('restore');
+        $r = time() - 10;
+        $clock = $this->mockAt($r);
+
+        $t1 = $this->signedIn($slug, $email);
+        $this->deleteAsAdmin($tenant, $subject);
+        $race = $this->mintAt($tenant, $subject, $r + 1);
+        $clock->sleep(5);
+        $this->restoreAsAdmin($tenant, $subject);
+
+        self::assertSame(401, $this->me($t1), 'A token minted before the delete came back with the restore.');
+        self::assertSame(401, $this->me($race), 'The race token (minted after the delete stamp) revived with the restore.');
+        self::assertSame(200, $this->me($this->mintAt($tenant, $subject, $r + 6)), 'Control: a token minted after the restore is refused.');
+    }
+
+    /**
+     * **T-3-5** `aRestoredPersonSignsInWithTheirOldPassword` — pins today's behaviour (an API restore is meant to bring the
+     * account back) and names cred-final-RED M-3: the SQL variant of this (clear `deleted_at` as `erp_app`, then G-10) is the
+     * residual recorded in G-10 / G-12, closed only by G-10's closing work. The clock is advanced one second past the restore:
+     * a sign-in in the restore's own second is refused once (the named cost, owner notice 3) — measured, the first draft of
+     * this test signed in within that second and was refused.
+     */
+    #[Test]
+    public function aRestoredPersonSignsInWithTheirOldPassword(): void
+    {
+        [$slug, $tenant, $subject, $email] = $this->workspace('restored-signin');
+        $clock = $this->mockAt(time() - 10);
+        $this->deleteAsAdmin($tenant, $subject);
+        $this->restoreAsAdmin($tenant, $subject);
+        $clock->sleep(1);
+
+        $this->me($this->signedIn($slug, $email));
+        self::assertSame(200, $this->httpStatus(), 'A restored person cannot sign in with their old password.');
+    }
+
+    private function deleteAsAdmin(string $tenant, string $subject): void
+    {
+        $this->actAsUser($tenant, $this->seedPrincipal($tenant, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('DELETE', '/users/'.$subject);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsNobody();
+    }
+
+    private function restoreAsAdmin(string $tenant, string $subject): void
+    {
+        $this->actAsUser($tenant, $this->seedPrincipal($tenant, DefaultRoles::codesFor(DefaultRoles::ADMIN)));
+        $this->send('POST', '/users/'.$subject.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->actAsNobody();
+    }
+
     // ---------------------------------------------------------------------
 
     /** @return array{0: string, 1: string, 2: string, 3: string} slug, tenant id, subject id, subject email */

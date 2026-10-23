@@ -32,6 +32,7 @@ use Symfony\Component\Uid\Uuid;
  * @see AuditEvent::USER_REACTIVATED
  * @see AuditEvent::USER_UPDATED
  * @see AuditEvent::USER_DELETED
+ * @see AuditEvent::USER_RESTORED
  */
 final readonly class UserAuditWriter
 {
@@ -58,6 +59,12 @@ final readonly class UserAuditWriter
     public function recordDeleted(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, ?string $ipAddress): void
     {
         $this->record(AuditEvent::USER_DELETED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $ipAddress, '{}');
+    }
+
+    /** `user.restored` — `RestoreUser` (G4-C3), after its flush, in its locked transaction. `{}`. */
+    public function recordRestored(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::USER_RESTORED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $ipAddress, '{}');
     }
 
     /** `user.updated` — a rename, `{"fields": ["display_name"]}`, never a value. */

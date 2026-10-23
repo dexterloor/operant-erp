@@ -8,8 +8,10 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\DeleteUserProcessor;
+use App\Modules\UserManagement\ApiResource\State\RestoreUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UpdateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UserProvider;
 use App\Modules\UserManagement\Application\UserView;
@@ -76,6 +78,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             openapi: new OpenApiOperation(operationId: 'DeleteUser'),
             read: false,
             processor: DeleteUserProcessor::class,
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.delete'],
+        ),
+        // G4-C3 (2026-10-23): bring a deleted person back, with no roles and no old sessions (`g4-users-design.md` §7). API-21
+        // branch 5: 200 + the person, no `Location` (`RestoreRole`'s shape). §4.2: `app_user.delete`, `guard:app_user.deleted_at`
+        // — a replay meets a live person, 409 `app_user.is_not_archived`; no `Idempotency-Key`. `read: false` (final RED L-2).
+        // E9-3 does not block it: `ListUsers` declares `archived`. The denial subject is the default derivation.
+        new Post(
+            uriTemplate: '/users/{id}/restoration',
+            name: 'RestoreUser',
+            status: 200,
+            openapi: new OpenApiOperation(operationId: 'RestoreUser'),
+            input: false,
+            deserialize: false,
+            read: false,
+            processor: RestoreUserProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.delete'],
         ),
     ],

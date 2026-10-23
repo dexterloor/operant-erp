@@ -43,6 +43,8 @@ final class RoleRevokeTest extends ApiTestCase
         'CreateRoleGrantProposal' => ['method' => 'POST', 'path' => '/users/{id}/role-grant-proposals', 'idem' => true],
         // Users slice 1, C3 (owner ruling Q-U2): the F-7 picker's data, a read under `role.assign`.
         'ListOfferedRoles' => ['method' => 'GET', 'path' => '/users/{id}/offered-roles', 'idem' => false],
+        // G4-C3. `idem`: §4.2's `guard:app_user.deleted_at` (no header; a replay meets a live person).
+        'RestoreUser' => ['method' => 'POST', 'path' => '/users/{id}/restoration', 'idem' => false],
     ];
 
     /**

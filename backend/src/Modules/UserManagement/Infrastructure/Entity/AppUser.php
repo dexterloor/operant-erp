@@ -255,6 +255,19 @@ class AppUser
         }
     }
 
+    /**
+     * **G4-C3 `RestoreUser`: bring a deleted person back** (`docs/session13/g4-users-design.md` §7). Clears `deleted_at`, raises the
+     * session stamp to `$at` (monotone) so no token minted before the restore second revives — including one minted after the
+     * delete's stamp from a read taken before the delete committed — and moves `updated_at`. `is_active` is whatever it was
+     * (D-6); no role comes back. One caller, `UserRestoration`, which loads the entity with the soft-delete filter off.
+     */
+    public function restore(\DateTimeImmutable $at): void
+    {
+        $this->deletedAt = null;
+        $this->raiseSessionStamp($at);
+        $this->updatedAt = $at;
+    }
+
     public function isDeleted(): bool
     {
         return null !== $this->deletedAt;

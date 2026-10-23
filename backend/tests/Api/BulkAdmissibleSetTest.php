@@ -33,13 +33,14 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * *Mutations:* register a member for `supplier_product` → red (its Delete is gated on `supplier_product.delete` but it has
  * no Restore, and its member would also fail `BulkArchivalPermission`); drop the `role` exclusion → red (role is derivable
- * since G2 `RestoreRole`); drop the `app_user` exclusion → the not-yet-derivable branch names G4's `DeleteUser` trigger.
+ * since G2 `RestoreRole`); drop the `app_user` exclusion → red (app_user is derivable since G4-C3 `RestoreUser`).
  */
 final class BulkAdmissibleSetTest extends ApiTestCase
 {
     /** Each exclusion that is not yet derivable names what makes it derivable (so it cannot sit dead unnoticed). */
     private const NOT_YET_DERIVABLE_TRIGGERS = [
-        'app_user' => 'G4 C1–C3 build `DeleteUser` and `RestoreUser` at `app_user.delete` over `ListUsers?archived`',
+        // `app_user` LEFT 2026-10-23 (G4-C3): `DeleteUser` and `RestoreUser` are built at `app_user.delete` over
+        // `ListUsers?archived`, so `app_user` is derivable and RO-B2's exclusion of it is now LIVE.
     ];
 
     #[Test]

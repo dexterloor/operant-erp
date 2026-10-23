@@ -50,6 +50,8 @@ final class RoleAdministrationActorCallerTest extends TestCase
         'RoleUpdate' => 'role.edit',
         // G4-C2: `DeleteUser`'s own §4.2 code.
         'UserDeletion' => 'app_user.delete',
+        // G4-C3: `RestoreUser`'s own §4.2 code (undoing a delete).
+        'UserRestoration' => 'app_user.delete',
         // G4-C1: `UpdateUser`'s own §4.2 code (passed as `self::REQUIRED_PERMISSION`).
         'UserUpdate' => 'app_user.edit',
     ];

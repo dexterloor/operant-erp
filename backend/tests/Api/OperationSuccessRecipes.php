@@ -762,6 +762,17 @@ trait OperationSuccessRecipes
 
                 return [204, 'delete a person'];
             }],
+            // G4-C3: a soft-deleted person holding nothing (owner SQL), restored by the actor (who holds `app_user.delete`). 200.
+            'RestoreUser' => [function (): array {
+                $user = $this->seedPrincipal(self::TENANT_A, []);
+                $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET deleted_at = now() WHERE id = ?::uuid', [$user]);
+
+                return ['user' => $user];
+            }, function (array $c): array {
+                $this->send('POST', '/users/'.$c['user'].'/restoration');
+
+                return [200, 'restore a person'];
+            }],
             // Roles slice 4, C3: an unheld one-code composed role (`role.view`, seeded as the owner) with no proposal, deleted
             // by the actor, who holds `role.delete` and `role.assign` (every declared code — `roles-s4-sec-data-red.md` F1-D).
             'DeleteRole' => [function (): array {
