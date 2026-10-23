@@ -86,6 +86,9 @@ final readonly class AuthTrailWriter
     /** The server-set `metadata` key the marker row carries. */
     public const SUPPRESSION_STARTED = 'suppression_started';
 
+    /** E-12's capped members: the wrong password, the non-active tenant, and (Cred-C1) the seal that did not verify. */
+    public const CAPPED = [AuditEvent::AUTH_LOGIN_FAILURE, AuditEvent::AUTH_LOGIN_TENANT_INACTIVE, AuditEvent::AUTH_LOGIN_CREDENTIAL_MISMATCH];
+
     public function __construct(private Connection $authLog, private TenantContext $tenants)
     {
     }
@@ -94,19 +97,25 @@ final readonly class AuthTrailWriter
      * Step 8 on the two capped branches: one row while `$attemptToday` is within
      * the ceiling, the marker row at `DAILY_CEILING + 1`, and nothing after.
      *
-     * @param int $attemptToday `LockoutAccrual::$suppressionCount` from this request's step-7 upsert
+     * **Cred-C1:** `auth.login.credential_mismatch` (the KDF passed, the seal did not) is the third capped member, through
+     * the same statements, so a wrong key on a server writes at most C + 1 rows per pair per day and the branch adds no
+     * statement (E-7). `$flags` is server-set only — today `SealsCredentials::UNKNOWN_KEY_ID` on that event (final RED
+     * M-1) — and the marker row keeps it beside `suppression_started`.
+     *
+     * @param int                $attemptToday `LockoutAccrual::$suppressionCount` from this request's step-7 upsert
+     * @param array<string, true> $flags       server-set metadata flags, never client input
      */
-    public function recordFailure(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress, int $attemptToday): void
+    public function recordFailure(string $eventType, string $tenantId, string $actorUserId, string $actorLabel, ?string $ipAddress, int $attemptToday, array $flags = []): void
     {
-        if (AuditEvent::AUTH_LOGIN_FAILURE !== $eventType && AuditEvent::AUTH_LOGIN_TENANT_INACTIVE !== $eventType) {
-            throw new \InvalidArgumentException(sprintf('E-12: "%s" is not one of the two capped login-failure events.', $eventType));
+        if (!\in_array($eventType, self::CAPPED, true)) {
+            throw new \InvalidArgumentException(sprintf('E-12: "%s" is not one of the three capped login-failure events.', $eventType));
         }
 
         if ($attemptToday > self::DAILY_CEILING + 1) {
             return;
         }
 
-        $metadata = self::DAILY_CEILING + 1 === $attemptToday ? [self::SUPPRESSION_STARTED => true] : [];
+        $metadata = self::DAILY_CEILING + 1 === $attemptToday ? [...$flags, self::SUPPRESSION_STARTED => true] : $flags;
 
         $this->write($eventType, $tenantId, $actorUserId, $actorLabel, $ipAddress, $metadata);
     }

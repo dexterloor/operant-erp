@@ -1,0 +1,50 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Support;
+
+use App\Modules\UserManagement\Domain\SealCheck;
+use App\Modules\UserManagement\Domain\SealsCredentials;
+
+/**
+ * Cred-C1 T-C4: counts `check()` calls on the credential seal, so "the MAC is computed on every sign-in path — the hit and
+ * both misses" is an assertion and not a reading (`API.md` §7.3; the `CountingKdf` precedent). `CredentialSeal::check()`
+ * computes the expected MAC before it inspects the stored value, so one call is one HMAC; a caller that skipped the call on
+ * a miss path would read 0 here. Registered `when@test` only; production decorates nothing.
+ */
+final class CountingSeal implements SealsCredentials
+{
+    private int $checks = 0;
+
+    public function __construct(private readonly SealsCredentials $inner)
+    {
+    }
+
+    public function seal(string $tenantId, string $userId, string $passwordHash): string
+    {
+        return $this->inner->seal($tenantId, $userId, $passwordHash);
+    }
+
+    public function check(string $tenantId, string $userId, string $passwordHash, ?string $stored): SealCheck
+    {
+        ++$this->checks;
+
+        return $this->inner->check($tenantId, $userId, $passwordHash, $stored);
+    }
+
+    public function keyId(): string
+    {
+        return $this->inner->keyId();
+    }
+
+    public function checks(): int
+    {
+        return $this->checks;
+    }
+
+    public function reset(): void
+    {
+        $this->checks = 0;
+    }
+}

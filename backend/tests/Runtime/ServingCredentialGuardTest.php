@@ -124,12 +124,12 @@ final class ServingCredentialGuardTest extends TestCase
 
     /**
      * U21 — mutation: remove the `PWD`/`OLDPWD` exclusion (red on `PWD`), or empty ALLOWED_NAMES. The second is vacuous
-     * today: none of the three reviewed application secrets matches a credential rule, so ALLOWED_NAMES excludes nothing.
+     * today: none of the four reviewed application secrets matches a credential rule, so ALLOWED_NAMES excludes nothing.
      */
     #[Test]
     public function u21ShellAndApplicationNamesAreAllowed(): void
     {
-        $names = ['PWD', 'OLDPWD', 'GIT_ASKPASS', 'SSH_ASKPASS', 'APP_SECRET', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_EMAIL_HASH_KEY', 'DEFAULT_URI'];
+        $names = ['PWD', 'OLDPWD', 'GIT_ASKPASS', 'SSH_ASKPASS', 'APP_SECRET', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_EMAIL_HASH_KEY', 'AUTH_CREDENTIAL_MAC_KEY', 'DEFAULT_URI'];
 
         self::assertSame([], ServingCredentialGuard::offendingNames(array_fill_keys($names, '/tmp'), [], []));
     }

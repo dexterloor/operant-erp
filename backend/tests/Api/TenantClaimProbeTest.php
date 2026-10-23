@@ -727,7 +727,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // A real hash, so `IssueToken` and `ChangePassword` can succeed; and one
         // role name, because `seedPrincipal()` puts part of a random id in it.
         $this->passwordHash ??= $this->kdf()->hash(self::PASSWORD);
-        $this->insertAsOwnerForTenant($tenantId, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$this->passwordHash, $actor]);
+        // Cred-C1: the seal is per (tenant, user), so it is computed per actor even though the hash is shared.
+        $this->insertAsOwnerForTenant($tenantId, 'UPDATE app_user SET password_hash = ?, password_mac = ? WHERE id = ?::uuid',
+            [$this->passwordHash, $this->sealFor($tenantId, $actor, $this->passwordHash), $actor]);
         $this->insertAsOwnerForTenant($tenantId, "UPDATE role SET name = 'Fixture Role'");
         foreach ($this->fetchAsOwnerForTenant($tenantId, 'SELECT id::text AS id FROM role') as $row) {
             $this->remember($letter, 'role', (string) $row['id']);

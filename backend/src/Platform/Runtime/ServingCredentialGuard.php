@@ -89,10 +89,13 @@ final class ServingCredentialGuard
     ];
 
     /**
-     * Reviewed application secrets exempt from rule 2 (E-8). Adding a name is a reviewed edit. None of the three matches
+     * Reviewed application secrets exempt from rule 2 (E-8). Adding a name is a reviewed edit. None of the four matches
      * a credential rule today, so the list excludes nothing yet; it is where an exemption would have to be written.
+     * `AUTH_CREDENTIAL_MAC_KEY` joined at Cred-C1 (`(e)-cred`, the password seal; `RESIDUAL_GAPS.md` G-12), recorded here
+     * because G-1.1's future per-service allowlist must carry it. A re-seal command, when built, adds
+     * `AUTH_CREDENTIAL_MAC_KEY_PREVIOUS` here in its own commit (final RED L-11).
      */
-    public const ALLOWED_NAMES = ['APP_SECRET', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_EMAIL_HASH_KEY'];
+    public const ALLOWED_NAMES = ['APP_SECRET', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_EMAIL_HASH_KEY', 'AUTH_CREDENTIAL_MAC_KEY'];
 
     /** E-1′ (a): the only top-level keys a DBAL-shaped DSN may carry after `DsnParser::parse()`. Adding one is a reviewed edit. */
     public const DSN_KEYS = ['driver', 'host', 'port', 'user', 'password', 'dbname', 'serverVersion', 'charset'];

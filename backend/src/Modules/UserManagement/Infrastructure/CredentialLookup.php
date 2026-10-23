@@ -31,7 +31,7 @@ use Doctrine\DBAL\Connection;
  * Read-only by grant, and a deleted person is not a principal
  * ---------------------------------------------------------------------------
  * ADR-006 §2: `GRANT SELECT (id, tenant_id, email, password_hash, is_active,
- * deleted_at) ON app_user TO erp_auth`, and nothing else anywhere. A write here
+ * deleted_at, password_mac) ON app_user TO erp_auth`, and nothing else anywhere. A write here
  * is not code-gated, it is `permission denied`.
  *
  * **G4-C0a (2026-10-22, `Version20261022006000`): `deleted_at` joined the grant
@@ -49,6 +49,10 @@ use Doctrine\DBAL\Connection;
  * case-variant unique. Pinned by
  * `TokenEndpointIndistinguishabilityTest::aDeletedUsersPasswordNoLongerSignsIn`
  * and `::aLiveUserWithADeletedNamesakeSignsInAsThemselves`.
+ *
+ * **Cred-C1 (`(e)-cred`): `password_mac` joined the grant and the select list** — in the one existing statement, so V-8's
+ * statement sequence is unchanged. `SignIn` step 5 checks it beside the KDF; a column privilege is needed in the select
+ * list, so the grant and the column shipped together (`SELECT (… , password_mac)` to `erp_auth`).
  */
 final readonly class CredentialLookup
 {
@@ -77,7 +81,7 @@ final readonly class CredentialLookup
             // is redundant against the live-only email unique and kept on purpose
             // (class docblock).
             $user = $this->auth->fetchAssociative(
-                'SELECT id, password_hash, is_active, email FROM app_user WHERE email = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
+                'SELECT id, password_hash, password_mac, is_active, email FROM app_user WHERE email = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
                 [$email],
             );
 
@@ -94,6 +98,7 @@ final readonly class CredentialLookup
             tenantResolved: \is_array($tenant),
             userId: \is_array($user) ? (string) $user['id'] : null,
             passwordHash: \is_array($user) ? (string) $user['password_hash'] : null,
+            passwordMac: \is_array($user) && null !== $user['password_mac'] ? (string) $user['password_mac'] : null,
             userIsActive: \is_array($user) ? (bool) $user['is_active'] : false,
             storedEmail: \is_array($user) ? (string) $user['email'] : null,
         );

@@ -131,6 +131,9 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'auth.login.success',
         'auth.login.failure',
         'auth.login.tenant_inactive',
+        // Cred-C1 (2026-10-23): the password verified and its seal did not, SECURITY, IP-bearing, subjectless (design §3.5);
+        // `Version20261023000700` re-issues the scope with it.
+        'auth.login.credential_mismatch',
         // E4-1 clause (5) / API-O-18's sixth step, added 2026-09-09 with E-23's
         // `AUTH_PASSWORD_CHANGED`. `SEC` ruled `ip_address: yes` (§5.1.4) --
         // "the source address of a credential change is the forensic question

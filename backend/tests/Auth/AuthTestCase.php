@@ -74,11 +74,13 @@ abstract class AuthTestCase extends ApiTestCase
     protected function seedUser(string $tenantId, string $email, string $password, bool $isActive = true): string
     {
         $id = Uuid::v4()->toRfc4122();
+        $hash = $this->hasher()->hash($password);
 
+        // Cred-C1: hash and seal together (`CredentialFixtures`), so the user signs in as a real one does.
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, is_active)
-            VALUES (?::uuid, ?::uuid, ?, ?, ?, ?)
-            SQL, [$id, $tenantId, mb_strtolower($email), $this->hasher()->hash($password), 'Fixture User', $isActive ? 'true' : 'false']);
+            INSERT INTO app_user (id, tenant_id, email, password_hash, password_mac, display_name, is_active)
+            VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            SQL, [$id, $tenantId, mb_strtolower($email), $hash, $this->sealFor($tenantId, $id, $hash), 'Fixture User', $isActive ? 'true' : 'false']);
 
         return $id;
     }
@@ -90,10 +92,11 @@ abstract class AuthTestCase extends ApiTestCase
      */
     protected function seedUserWithId(string $tenantId, string $id, string $email, string $password, bool $deleted): string
     {
+        $hash = $this->hasher()->hash($password);
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
-            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, is_active, deleted_at)
-            VALUES (?::uuid, ?::uuid, ?, ?, ?, true, CASE WHEN ? THEN now() END)
-            SQL, [$id, $tenantId, mb_strtolower($email), $this->hasher()->hash($password), 'Fixture User', $deleted ? 'true' : 'false']);
+            INSERT INTO app_user (id, tenant_id, email, password_hash, password_mac, display_name, is_active, deleted_at)
+            VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, true, CASE WHEN ? THEN now() END)
+            SQL, [$id, $tenantId, mb_strtolower($email), $hash, $this->sealFor($tenantId, $id, $hash), 'Fixture User', $deleted ? 'true' : 'false']);
 
         return $id;
     }

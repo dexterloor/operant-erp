@@ -7,6 +7,7 @@ namespace App\Tests\Auth;
 use App\Platform\Security\AccessTokenVerifier;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Support\CountingSeal;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 
@@ -72,9 +73,9 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
             $responses[$label] = $this->observable();
         }
 
-        self::assertGreaterThanOrEqual(14, \count($responses),
+        self::assertGreaterThanOrEqual(16, \count($responses),
             'The derived case set collapsed. Tenant::STATUS_* × app_user.is_active plus the five '
-            .'credential cases is fourteen refusals; fewer means the derivation found less than it should '
+            .'credential cases and Cred-C1\'s two tamper cases is sixteen refusals; fewer means the derivation found less than it should '
             .'and every comparison below would be a comparison of almost nothing.');
 
         $distinct = array_unique(array_map(
@@ -131,6 +132,38 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
         self::assertNotSame([], $counts);
         self::assertSame([1], array_values(array_unique($counts)),
             "The KDF did not run exactly once on every path:\n".print_r($counts, true));
+    }
+
+    /**
+     * **T-C4 (Cred-C1): the seal is computed exactly once on every path** — the hit, both tamper shapes, every refusal and
+     * all three miss paths (unknown email, deleted user, unknown workspace) — against the row on a hit and the fixed dummy
+     * tuple on a miss, as the KDF is. Counted at the port (`CountingSeal`); `CredentialSeal::check()` computes the MAC
+     * before it looks at the stored value, so one call is one HMAC.
+     *
+     * *Mutation:* skip the seal check when nothing resolved (`if ($hit)` around it) → the three miss paths read 0 → red.
+     */
+    #[Test]
+    public function theSealIsComputedExactlyOnceOnEveryPath(): void
+    {
+        $seal = self::getContainer()->get('test.auth.credential_seal');
+        \assert($seal instanceof CountingSeal);
+        $counts = [];
+
+        foreach ($this->refusalCases() as $label => $case) {
+            $seal->reset();
+            $case();
+            $counts[$label] = $seal->checks();
+        }
+        $tenantId = $this->seedTenant(self::SLUG_PREFIX.'seal-hit', Tenant::STATUS_ACTIVE);
+        $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
+        $seal->reset();
+        $this->signIn(self::SLUG_PREFIX.'seal-hit', self::EMAIL, self::PASSWORD);
+        self::assertSame(200, $this->httpStatus());
+        $counts['hit'] = $seal->checks();
+
+        self::assertArrayHasKey('unknown-workspace', $counts);
+        self::assertSame([1], array_values(array_unique($counts)),
+            "The seal was not computed exactly once on every path:\n".print_r($counts, true));
     }
 
     /**
@@ -423,6 +456,26 @@ final class TokenEndpointIndistinguishabilityTest extends AuthTestCase
 
         $cases['unknown-workspace'] = function (): void {
             $this->signIn(self::SLUG_PREFIX.'no-such-workspace-at-all', self::EMAIL, self::PASSWORD);
+        };
+
+        // Cred-C1 (T-C5): the two tamper shapes, written by the owner here because the subject is the response, not the
+        // principal (`CredentialTransplantTest` writes them as `erp_app`). The password is right; the seal is not — NULL,
+        // and a well-shaped seal under another key id. Both must be byte-identical to a wrong password, and the KDF and the
+        // seal must each run exactly once (`theSealIsComputedExactlyOnceOnEveryPath`).
+        $cases['null-seal'] = function (): void {
+            $slug = self::SLUG_PREFIX.'null-seal';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $userId = $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
+            $this->executeAsOwnerForTenant($tenantId, 'UPDATE app_user SET password_mac = NULL WHERE id = ?::uuid', [$userId]);
+            $this->signIn($slug, self::EMAIL, self::PASSWORD);
+        };
+
+        $cases['foreign-key-id'] = function (): void {
+            $slug = self::SLUG_PREFIX.'foreign-key-id';
+            $tenantId = $this->seedTenant($slug, Tenant::STATUS_ACTIVE);
+            $userId = $this->seedUser($tenantId, self::EMAIL, self::PASSWORD, true);
+            $this->executeAsOwnerForTenant($tenantId, "UPDATE app_user SET password_mac = 'v1.' || CASE WHEN substr(password_mac, 4, 8) = 'deadbeef' THEN 'feedface' ELSE 'deadbeef' END || substr(password_mac, 12) WHERE id = ?::uuid", [$userId]);
+            $this->signIn($slug, self::EMAIL, self::PASSWORD);
         };
 
         return $cases;

@@ -318,6 +318,15 @@ services:
     # so a test decorator can count KDF invocations (T-6, E-7).
     App\Modules\UserManagement\Domain\VerifiesPasswords: '@App\Modules\UserManagement\Infrastructure\PasswordVerifier'
 
+    # Cred-C1 (`(e)-cred`, RESIDUAL_GAPS G-12): the credential seal, bound ONCE, by name, to its one secret (Standing Rule
+    # 10; the AccessTokenSplitTest precedent). `SignIn`, `ChangePassword` and `app:credentials:check-key` take the port, so a
+    # test decorator can count MAC computations (E-7, `API.md` §7.3). Never echo the key.
+    App\Modules\UserManagement\Infrastructure\CredentialSeal:
+        arguments:
+            $key: '%env(AUTH_CREDENTIAL_MAC_KEY)%'
+
+    App\Modules\UserManagement\Domain\SealsCredentials: '@App\Modules\UserManagement\Infrastructure\CredentialSeal'
+
     # E4-3 / A-2 — the first `Application\Contract` binding in this tree.
     # `Inventory`'s item writer takes the interface, never the implementation:
     # the deptrac ruleset lets `InventoryApplication` reach
@@ -496,6 +505,13 @@ when@test:
             arguments: ['@.inner']
             public: true
 
+        # Cred-C1 (T-C4): the seal's computation count, which no response and no SQL log carries — "the MAC is computed on
+        # every path", hit and both misses, as the KDF is. Production never sees this class.
+        App\Tests\Support\CountingSeal:
+            decorates: App\Modules\UserManagement\Infrastructure\CredentialSeal
+            arguments: ['@.inner']
+            public: true
+
         # Aliases rather than redefinitions: a `public: true` on the real
         # definition would restate its arguments here, and a second copy of a
         # connection binding or an env-var name is the drift these tests exist to
@@ -504,6 +520,7 @@ when@test:
         test.auth.token_issuer: {alias: 'App\Modules\UserManagement\Infrastructure\AccessTokenIssuer', public: true}
         test.auth.token_verifier: {alias: 'App\Platform\Security\AccessTokenVerifier', public: true}
         test.auth.password_verifier: {alias: 'App\Modules\UserManagement\Infrastructure\PasswordVerifier', public: true}
+        test.auth.credential_seal: {alias: 'App\Modules\UserManagement\Domain\SealsCredentials', public: true}
         test.auth.budgets: {alias: 'App\Modules\UserManagement\Infrastructure\PreAuthBudgets', public: true}
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
 

@@ -23,6 +23,8 @@ final readonly class CredentialRow
         public bool $tenantResolved,
         public ?string $userId,
         public ?string $passwordHash,
+        /** Cred-C1: the stored seal, or null (no row, or a row nobody sealed — refused either way). */
+        public ?string $passwordMac,
         public bool $userIsActive,
         /** The address as `app_user` stores it — never the one the client sent. */
         public ?string $storedEmail,

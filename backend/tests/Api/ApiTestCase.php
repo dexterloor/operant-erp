@@ -10,6 +10,7 @@ use App\Platform\Security\Identity;
 use App\Platform\Security\PermissionRequirement;
 use App\Platform\Security\PermissionRequirements;
 use App\Platform\Security\RequestIdentity;
+use App\Tests\Support\CredentialFixtures;
 use App\Tests\Support\OwnerRequestWindow;
 use App\Tests\Support\SqlRecorder;
 use App\Tests\Tenancy\TenancyTestCase;
@@ -55,6 +56,8 @@ use Symfony\Component\Uid\Uuid;
  */
 abstract class ApiTestCase extends TenancyTestCase
 {
+    use CredentialFixtures;
+
     protected const BASE = '/api/v1';
 
     private ?KernelBrowser $client = null;

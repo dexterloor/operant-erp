@@ -103,6 +103,7 @@ final class ProdContainerCredentialTest extends TestCase
             'APP_SECRET' => str_repeat('s', 32),
             'AUTH_TOKEN_SIGNING_KEY' => str_repeat('k', 32),
             'AUTH_EMAIL_HASH_KEY' => str_repeat('e', 32),
+            'AUTH_CREDENTIAL_MAC_KEY' => base64_encode(str_repeat('c', 32)),
             'DEFAULT_URI' => 'http://localhost',
             'APP_DATABASE_URL' => $dsn(DatabaseRoles::APP),
             'AI_DATABASE_URL' => $dsn(DatabaseRoles::AI),

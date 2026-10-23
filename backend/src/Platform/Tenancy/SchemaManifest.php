@@ -336,7 +336,8 @@ final class SchemaManifest
             // Version20260922000300). The columns are the union of the ORM
             // flushes that write this table:
             //   LoginRecorder  -> recordLogin()         last_login_at, updated_at
-            //   ChangePassword -> replacePasswordHash() password_hash, updated_at
+            //   ChangePassword -> replaceCredential()   password_hash, password_mac, updated_at
+            //                     (password_mac: Cred-C1, Version20261023000600; the seal SQL cannot compute)
             //   UserUpdate     -> deactivate() / reactivate() / rename()
             //                     is_active, sessions_valid_after, display_name, updated_at
             //                     (G4-C1, Version20261023000100; E-15g)
@@ -347,7 +348,7 @@ final class SchemaManifest
             // A NEW COLUMN HERE INHERITS SELECT BUT NO UPDATE: the table-level ACL
             // no longer carries UPDATE. So a writer grants its own columns with
             // itself (A4.4 duty 1): E-15g's deactivate/delete add
-            // UPDATE (is_active, deleted_at), (e)-cred adds UPDATE (password_mac),
+            // UPDATE (is_active, deleted_at), (e)-cred added UPDATE (password_mac) (Cred-C1),
             // each to this list and to its own migration. A 42501 from such a
             // writer is fixed by granting that column, never by restoring
             // table-level UPDATE. sessions_valid_after (G4-C0, Version20261022007000) is
@@ -363,9 +364,10 @@ final class SchemaManifest
             'column_grants' => [
                 // erp_auth: CredentialLookup's one statement (ADR-006 §2). deleted_at joined at G4-C0a
                 // (Version20261022006000) so sign-in excludes a soft-deleted person (`AND deleted_at IS NULL`):
-                // a column privilege is needed for a WHERE reference as much as for the select list.
-                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at']],
-                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at']],
+                // a column privilege is needed for a WHERE reference as much as for the select list. password_mac joined at
+                // Cred-C1 (Version20261023000600): SignIn step 5 checks the seal read in the same one statement.
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at', 'password_mac']],
+                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at', 'password_mac']],
             ],
         ],
         'role' => [

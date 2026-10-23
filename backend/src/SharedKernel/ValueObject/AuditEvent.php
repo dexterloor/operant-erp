@@ -394,6 +394,11 @@ namespace App\SharedKernel\ValueObject;
  *     (`g4-users-design.md` §7). Steps 3–5 with its writer (`UserAuditWriter::recordRestored()`); step 5 is
  *     `Version20261023000500` (the live sixty-six plus this one; supersedes `Version20261023000400`); step 6 both halves.
  *
+ *   - **`AUTH_LOGIN_CREDENTIAL_MISMATCH`**, 2026-10-23, Cred-C1 (`(e)-cred`) — **`SECURITY`**, **subjectless** (E-13, an
+ *     `auth.login.*` event about a principal), `{}` or `{"unknown_key_id": true}` (`cred-mail-user-design.md` §3.5, D-C2;
+ *     final RED M-1). Steps 3–5 with its writer (`AuthTrailWriter::recordFailure()`, the third E-12-capped member); step 5 is
+ *     `Version20261023000700` (the live sixty-seven plus this one; supersedes `Version20261023000500`); step 6 both halves.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -435,6 +440,15 @@ final class AuditEvent
      * daily cap on the same key, so the two branches fall silent together.
      */
     public const AUTH_LOGIN_TENANT_INACTIVE = 'auth.login.tenant_inactive';
+
+    /**
+     * Cred-C1 (`(e)-cred`, design D-C2; final RED M-1): the password **verified** but the stored seal `password_mac` did
+     * not — on a resolved pair that happens only when the credential was written outside the application (a copied or
+     * transplanted `password_hash`, a NULLed or forged seal) or the server holds the wrong key. Written via `erp_authlog`
+     * through the same statements as `auth.login.failure`, under the same E-12 cap; `metadata` is `{}` or, when the row's
+     * key id is not the configured one, `{"unknown_key_id": true}` (server-set). The response is the ordinary refusal.
+     */
+    public const AUTH_LOGIN_CREDENTIAL_MISMATCH = 'auth.login.credential_mismatch';
 
     /**
      * E-3 (`SECURITY_MODEL.md` §5): every permission denial that reaches the API. Capped
@@ -1279,6 +1293,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1364,6 +1379,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1605,6 +1621,7 @@ final class AuditEvent
         self::AUTH_LOGIN_SUCCESS,
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
+        self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::DATA_EXPORT_COMPLETED,
     ];

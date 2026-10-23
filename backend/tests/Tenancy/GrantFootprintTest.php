@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace App\Tests\Tenancy;
 
+use App\Modules\UserManagement\Application\ChangePassword;
+use App\Modules\UserManagement\Application\SignIn;
+use App\Modules\UserManagement\Domain\SealsCredentials;
+use App\Modules\UserManagement\Infrastructure\CredentialSeal;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\SchemaManifest;
+use App\Tests\Support\CountingSeal;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Yaml\Yaml;
@@ -648,7 +653,8 @@ final class GrantFootprintTest extends TenancyTestCase
      * `SchemaManifest` — see the method's docblock for why that matters.
      *
      *   LoginRecorder  -> AppUser::recordLogin()         -> last_login_at, updated_at
-     *   ChangePassword -> AppUser::replacePasswordHash() -> password_hash, updated_at
+     *   ChangePassword -> AppUser::replaceCredential()   -> password_hash, password_mac, updated_at
+     *                     (Cred-C1, `Version20261023000600`: the seal is written with the hash it seals)
      *   UserUpdate     -> AppUser::deactivate() / reactivate() -> is_active, sessions_valid_after, updated_at
      *                     AppUser::rename()                      -> display_name, updated_at
      *                     (G4-C1, `Version20261023000100`; E-15g, owner ruling RO-U1 (a))
@@ -658,7 +664,7 @@ final class GrantFootprintTest extends TenancyTestCase
      * Every SET list was measured from the statement at build, not inferred (G4-C1's: the recorded `UPDATE app_user` in
      * `UserUpdateTest::aDeactivationStripsEveryRoleAndRecordsEachOne`).
      */
-    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['deleted_at', 'display_name', 'is_active', 'last_login_at', 'password_hash', 'sessions_valid_after', 'updated_at'];
+    private const APP_USER_COLUMNS_THE_CALLERS_WRITE = ['deleted_at', 'display_name', 'is_active', 'last_login_at', 'password_hash', 'password_mac', 'sessions_valid_after', 'updated_at'];
 
     /**
      * **H0: `erp_app` can UPDATE exactly the `app_user` columns its callers write — proved by running the
@@ -2377,6 +2383,17 @@ final class GrantFootprintTest extends TenancyTestCase
         self::assertSame([], self::leavesTheLaptop([], ['backend/Dockerfile'], self::LOCAL_COMPOSE_SERVICES, true), 'H5 fired with operand (i) false.');
         self::assertContains('infra/docker-compose.yml', $files, 'The tree walk does not see the compose file, so it sees nothing.');
 
+        // Cred-C1: the credential clause, through the same decision. Today all four signals hold, so it does not fire; each
+        // one falsified in turn must re-arm it (L-1's planted controls), and none fires without the hash grant.
+        $signals = $this->credentialSignals();
+        self::assertSame(['appUpdatesHash' => true, 'authSelectsMac' => true, 'shapeCheck' => true, 'appInsertsMac' => false, 'sealedPaths' => true], $signals,
+            'The password seal is not fully in force (G-12, Cred-C1): one of the four signals of the credential clause is false.');
+        self::assertFalse(self::credentialClauseFires(...$signals), 'The credential clause fired with every signal in force.');
+        foreach (['authSelectsMac' => false, 'shapeCheck' => false, 'appInsertsMac' => true, 'sealedPaths' => false] as $signal => $planted) {
+            self::assertTrue(self::credentialClauseFires(...[...$signals, $signal => $planted]), "Planting $signal = ".var_export($planted, true).' did not re-arm the credential clause.');
+        }
+        self::assertFalse(self::credentialClauseFires(...[...$signals, 'appUpdatesHash' => false, 'sealedPaths' => false]), 'The credential clause fired without the password_hash grant.');
+
         $fired = self::leavesTheLaptop($roleWrite, $files, $services, self::manifestGivesTheAgentAWrite());
         self::assertSame([], $fired,
             "H5 (G-10, G-12): a role or credential write is about to leave the laptop.\n  ".implode("\n  ", $fired)
@@ -2397,13 +2414,82 @@ final class GrantFootprintTest extends TenancyTestCase
                 }
             }
         }
-        $mac = (bool) $this->owner()->fetchOne(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'app_user'::regclass AND attname = 'password_mac' AND NOT attisdropped)");
-        if (!$mac && (bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'password_hash', 'UPDATE')", [DatabaseRoles::APP])) {
-            $found[] = DatabaseRoles::APP.' can update app_user.password_hash and no password_mac exists (G-12)';
+        $credential = $this->credentialSignals();
+        if (self::credentialClauseFires(...$credential)) {
+            $found[] = DatabaseRoles::APP.' can update app_user.password_hash and the password seal is not in force (G-12): '
+                .json_encode($credential, \JSON_THROW_ON_ERROR);
         }
 
         return $found;
+    }
+
+    /**
+     * **H5's credential clause, after Cred-C1 (`(e)-cred`).** Until Cred-C1 it was armed while `erp_app` could update
+     * `password_hash` and no `password_mac` column existed. Existence alone is too weak (the design's final RED L-1): a
+     * column nobody reads closes nothing. And the grant cannot be the signal either — `erp_app` MUST hold
+     * `UPDATE (password_mac)` (`ChangePassword` writes it), so keying on that would keep H5 armed for ever over a closed
+     * route. **The closure is the key, so the clause is armed unless all four hold** (design Response to RED, L-1):
+     *  (a) `erp_auth` can SELECT `app_user.password_mac` (sign-in reads the seal — server-derived);
+     *  (b) `app_user_password_mac_shape` is in `pg_constraint` (only `v1.<kid8>.<mac>` or NULL can be stored);
+     *  (c) `erp_app` holds no INSERT on `password_mac` (an inserted, pre-sealed credential is the one write that must
+     *      never exist — U-C1's own clause re-checks it with `identity_mac`);
+     *  (d) `SignIn` and `ChangePassword` take `SealsCredentials` (reflection on the constructors) **and** that port is wired
+     *      to the real `CredentialSeal`: `services.yaml` aliases it there, and the test kernel's instance is the counting
+     *      decorator around a `CredentialSeal`. *(Deviation from L-1's literal "take `CredentialSeal`", Cred-C1 RED D-2: the
+     *      port is the counting seam, and a type check on the port alone would pass a stub that always verifies — so the
+     *      wiring is the half that carries the weight.)*
+     * Each is planted false in turn in {@see self::noRoleOrCredentialWriteLeavesTheLaptopBeforeItsClosingWork()}.
+     *
+     * @return array{appUpdatesHash: bool, authSelectsMac: bool, shapeCheck: bool, appInsertsMac: bool, sealedPaths: bool}
+     */
+    private function credentialSignals(): array
+    {
+        $mac = (bool) $this->owner()->fetchOne(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'app_user'::regclass AND attname = 'password_mac' AND NOT attisdropped)");
+        $column = fn (string $role, string $privilege): bool => $mac
+            && (bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'password_mac', ?)", [$role, $privilege]);
+
+        return [
+            'appUpdatesHash' => (bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'password_hash', 'UPDATE')", [DatabaseRoles::APP]),
+            'authSelectsMac' => $column(DatabaseRoles::AUTH, 'SELECT'),
+            'shapeCheck' => (bool) $this->owner()->fetchOne(
+                "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'app_user'::regclass AND contype = 'c' AND conname = 'app_user_password_mac_shape')"),
+            'appInsertsMac' => $column(DatabaseRoles::APP, 'INSERT'),
+            'sealedPaths' => self::takesTheSeal(SignIn::class) && self::takesTheSeal(ChangePassword::class) && self::theSealIsTheRealOne(),
+        ];
+    }
+
+    private static function credentialClauseFires(bool $appUpdatesHash, bool $authSelectsMac, bool $shapeCheck, bool $appInsertsMac, bool $sealedPaths): bool
+    {
+        return $appUpdatesHash && !($authSelectsMac && $shapeCheck && !$appInsertsMac && $sealedPaths);
+    }
+
+    private static function theSealIsTheRealOne(): bool
+    {
+        $services = Yaml::parseFile(\dirname(__DIR__, 2).'/config/services.yaml');
+        \assert(\is_array($services));
+        if ('@'.CredentialSeal::class !== ($services['services'][SealsCredentials::class] ?? null)) {
+            return false;
+        }
+        $instance = self::getContainer()->get('test.auth.credential_seal');
+        if (!$instance instanceof CountingSeal) {
+            return false;
+        }
+
+        return (new \ReflectionProperty(CountingSeal::class, 'inner'))->getValue($instance) instanceof CredentialSeal;
+    }
+
+    /** @param class-string $class */
+    private static function takesTheSeal(string $class): bool
+    {
+        foreach ((new \ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
+            $type = $parameter->getType();
+            if ($type instanceof \ReflectionNamedType && SealsCredentials::class === $type->getName()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

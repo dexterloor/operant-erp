@@ -99,12 +99,12 @@ final class PasswordChangeTest extends AuthTestCase
      * audit row and forgot the `UPDATE` would satisfy every row-shaped assertion
      * in this file, so the new credential is driven back through `IssueToken` and
      * the old one is driven through it too — which is also the only place the
-     * suite can see that `AppUser::replacePasswordHash()` reached the database.
+     * suite can see that `AppUser::replaceCredential()` reached the database.
      *
      * *Mutation, run:* delete the `$this->trail->record(...)` call from
      * `ChangePassword`; the row count goes to zero and **five** methods in this
      * file are red — measured — because four others read the trail as well.
-     * *Second mutation, run:* delete `$user->replacePasswordHash($hash)` and keep
+     * *Second mutation, run:* delete `$user->replaceCredential($hash, $mac)` and keep
      * the audit write; the row assertions all still hold and the sign-in half
      * goes red — which is what tells you the two halves are checking different
      * things.
@@ -137,6 +137,48 @@ final class PasswordChangeTest extends AuthTestCase
 
         $this->signIn(self::SLUG, self::EMAIL, self::PASSWORD);
         self::assertSame(401, $this->httpStatus(), 'The old password still authenticates.');
+    }
+
+    /**
+     * **T-C6 (Cred-C1): a change writes the new hash AND its seal**, and the seal is exactly what the key makes for this
+     * (tenant, user, new hash) — so the next sign-in verifies it rather than meeting a transplanted-looking row.
+     *
+     * *Mutation:* write the hash without the seal (`replaceCredential($hash, $oldMac)`) → the stored seal is not the
+     * recomputed one and the next sign-in is 401 → red.
+     */
+    #[Test]
+    public function aChangeReseals(): void
+    {
+        $this->changePassword(self::PASSWORD, 'a-completely-different-secret');
+        self::assertSame(200, $this->httpStatus(), $this->bodyForFailure());
+
+        $row = $this->fetchAsOwnerForTenant($this->tenantId, 'SELECT password_hash, password_mac FROM app_user WHERE id = ?::uuid', [$this->userId])[0];
+        self::assertSame($this->sealFor($this->tenantId, $this->userId, (string) $row['password_hash']), $row['password_mac'],
+            'The change did not seal the new hash.');
+        $this->signIn(self::SLUG, self::EMAIL, 'a-completely-different-secret');
+        self::assertSame(200, $this->httpStatus(), 'The re-sealed credential does not sign in.');
+    }
+
+    /**
+     * **T-C6 (Cred-C1): a stored credential whose seal does not verify cannot be changed**, even with the right current
+     * password — the ordinary `current_password_invalid` (design §3.3: the caller is this principal, so no distinct trail
+     * and no third party to tell). Here the seal is NULLed by the owner; `CredentialTransplantTest` does it as `erp_app`.
+     * Nothing changes and no credential row is written.
+     *
+     * *Mutation:* drop `&& $sealed` from `ChangePassword` step 3 → 200 → red.
+     */
+    #[Test]
+    public function aTamperedCredentialCannotBeChanged(): void
+    {
+        $this->executeAsOwnerForTenant($this->tenantId, 'UPDATE app_user SET password_mac = NULL WHERE id = ?::uuid', [$this->userId]);
+
+        $this->changePassword(self::PASSWORD, 'a-completely-different-secret');
+
+        self::assertSame(422, $this->httpStatus(), $this->bodyForFailure());
+        self::assertContains(ChangePassword::CURRENT_PASSWORD_INVALID, array_column((array) ($this->json()['errors'] ?? []), 'code'));
+        self::assertSame([], $this->credentialTrail(), 'A refused change wrote a credential-change row.');
+        self::assertNull($this->fetchAsOwnerForTenant($this->tenantId, 'SELECT password_mac FROM app_user WHERE id = ?::uuid', [$this->userId])[0]['password_mac'],
+            'A refused change wrote a seal.');
     }
 
     /**

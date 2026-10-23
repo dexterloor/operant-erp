@@ -6,7 +6,6 @@ namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
-use App\Tests\Support\CountingKdf;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -1413,9 +1412,7 @@ trait OperationSuccessRecipes
             // Last two, in this order: the sign-in presents the password the
             // change just set, so both writers on the credential path run.
             'ChangePassword' => [function () use ($password): array {
-                $hasher = self::getContainer()->get(CountingKdf::class);
-                \assert($hasher instanceof CountingKdf);
-                $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$hasher->hash($password), $this->actorId]);
+                $this->setPassword(self::TENANT_A, $this->actorId, $password);
 
                 return [];
             }, function () use ($password): array {

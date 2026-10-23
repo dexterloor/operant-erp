@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\UserManagement\Application;
 
 use App\Modules\UserManagement\Domain\PreAuthKeys;
+use App\Modules\UserManagement\Domain\SealCheck;
+use App\Modules\UserManagement\Domain\SealsCredentials;
 use App\Modules\UserManagement\Domain\VerifiesPasswords;
 use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
@@ -16,6 +18,7 @@ use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * `API.md` §7.1 — the sign-in sequence, with one collaborator per database
@@ -28,7 +31,7 @@ use Psr\Clock\ClockInterface;
  *  2  consume the `(ip_prefix)` budget, then `(slug, ip)`  — **erp_ratelimit**
  *  3  read `auth_lockout` by primary key; decide nothing   — **erp_ratelimit**
  *  4  tenant → set_config → app_user, one transaction      — **erp_auth**
- *  5  verify the password, always, exactly once            — no statement
+ *  5  verify the password and its seal, always, once each  — no statement
  * 6b  emit `sign-in-paused` if step 3's lock is live       — no statement
  *  6  `Tenant::permitsLogin()` on the status read at 4     — **no statement**
  * 6a  `is_active` on the value read at 4                   — **no statement**
@@ -93,6 +96,8 @@ final readonly class SignIn
         private AccessTokenIssuer $tokens,
         private LoginRecorder $loginRecorder,
         private ClockInterface $clock,
+        private SealsCredentials $seals,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -125,6 +130,15 @@ final readonly class SignIn
 
         // --- 5 ------------------------------------------------------------
         $verified = $this->passwords->verify($row->passwordHash, $command->password);
+        // Cred-C1: the seal, on every path — against the row on a hit, against the fixed dummy tuple on either miss — so
+        // the HMAC's cost is the same everywhere, as the KDF's is. Never short-circuited on $verified.
+        $hit = null !== $row->userId && null !== $row->passwordHash;
+        $seal = $this->seals->check(
+            $hit ? $row->tenantId : SealsCredentials::DUMMY_TENANT_ID,
+            $hit ? (string) $row->userId : SealsCredentials::DUMMY_USER_ID,
+            $hit ? (string) $row->passwordHash : SealsCredentials::DUMMY_HASH,
+            $hit ? $row->passwordMac : null,
+        );
 
         // --- 6b -----------------------------------------------------------
         // After the KDF, and ahead of every other refusal. See the deviation
@@ -136,7 +150,18 @@ final readonly class SignIn
             return SignInResult::paused();
         }
 
-        $eventType = $this->classify($row, $verified);
+        $eventType = $this->classify($row, $verified, $seal);
+
+        // Final RED M-1: an unknown key id on a correct password is still a tamper signal, flagged; the operator line says
+        // which key the row names, so a wrong key on this server is told apart from a planted value (check-key).
+        $flags = [];
+        if (AuditEvent::AUTH_LOGIN_CREDENTIAL_MISMATCH === $eventType && SealCheck::UnknownKey === $seal) {
+            $flags = [SealsCredentials::UNKNOWN_KEY_ID => true];
+            $this->logger->warning('A stored password seal names a key id that is not the configured one. Run app:credentials:check-key: either AUTH_CREDENTIAL_MAC_KEY is wrong on this server or the row was tampered with.', [
+                'tenant_id' => $row->tenantId,
+                'configured_key_id' => $this->seals->keyId(),
+            ]);
+        }
 
         if (AuditEvent::AUTH_LOGIN_SUCCESS !== $eventType) {
             // --- 7 --------------------------------------------------------
@@ -147,7 +172,7 @@ final readonly class SignIn
             // --- 8 --------------------------------------------------------
             // E-12's cap, decided on the count step 7 returned: no read.
             if (null !== $eventType) {
-                $this->trail->recordFailure($eventType, $row->tenantId, (string) $row->userId, (string) $row->storedEmail, $command->ipAddress, $accrual->suppressionCount);
+                $this->trail->recordFailure($eventType, $row->tenantId, (string) $row->userId, (string) $row->storedEmail, $command->ipAddress, $accrual->suppressionCount, $flags);
             }
 
             return SignInResult::refused();
@@ -173,7 +198,7 @@ final readonly class SignIn
      *                     trail — *"there is no tenant to own the event"* and
      *                     *"the principal does not exist"*
      */
-    private function classify(CredentialRow $row, bool $verified): ?string
+    private function classify(CredentialRow $row, bool $verified, SealCheck $seal): ?string
     {
         // The sentinel is decided here, with the unresolved slug, and never
         // reaches the status question below (ST-7.3). `Tenant::permitsLogin()`
@@ -185,6 +210,15 @@ final readonly class SignIn
 
         if (!$verified) {
             return AuditEvent::AUTH_LOGIN_FAILURE;
+        }
+
+        // Cred-C1 (D-C2): the KDF passed and the seal did not. On a resolved pair that happens only on a row whose
+        // credential was written outside the application — a copied or transplanted hash, a NULLed or forged seal, or a
+        // wrong key on this server — so it is its own trail member, the one signal G-12 had no way to see. The response is
+        // the ordinary refusal and step 7 upserts as for a wrong password. Ahead of the status questions: a tampered row
+        // in a suspended workspace is still a tampered row.
+        if (SealCheck::Verified !== $seal) {
+            return AuditEvent::AUTH_LOGIN_CREDENTIAL_MISMATCH;
         }
 
         // Step 6 — X-2 / ADR-006 V-11, on the status already in memory.

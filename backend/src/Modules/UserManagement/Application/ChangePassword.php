@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\UserManagement\Application;
 
 use App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter;
+use App\Modules\UserManagement\Domain\SealCheck;
+use App\Modules\UserManagement\Domain\SealsCredentials;
 use App\Modules\UserManagement\Domain\VerifiesPasswords;
 use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Platform\Tenancy\TenantContext;
@@ -20,8 +22,8 @@ use Symfony\Component\Uid\Uuid;
  * The sequence, and which of it is inside a transaction
  * ===========================================================================
  *  1  throttle probe: E-23's bound on the action     — `erp_app`, txn A (read)
- *  2  read this principal's stored hash              — `erp_app`, txn B (read)
- *  3  verify the current password, always, once      — **no statement, no txn**
+ *  2  read this principal's stored hash and seal     — `erp_app`, txn B (read)
+ *  3  verify the current password and the seal       — **no statement, no txn**
  *  4  the new-password checks                        — no statement
  *  5  refuse on either, with every applicable pointer— no statement
  *  6  hash the new password                          — **no statement, no txn**
@@ -164,6 +166,7 @@ final readonly class ChangePassword
         private PasswordChangeThrottle $throttle,
         private PasswordChangeAuditWriter $trail,
         private ClockInterface $clock,
+        private SealsCredentials $seals,
     ) {
     }
 
@@ -178,7 +181,7 @@ final readonly class ChangePassword
         }
 
         // --- 2 ------------------------------------------------------------
-        $stored = $this->storedHashFor($command->tenantId, $command->actorUserId);
+        [$stored, $storedMac] = $this->storedCredentialFor($command->tenantId, $command->actorUserId);
 
         // --- 3 ------------------------------------------------------------
         // Always, exactly once, and never behind step 4. `null` is reachable —
@@ -186,6 +189,16 @@ final readonly class ChangePassword
         // verifier runs the dummy hash for it rather than short-circuiting,
         // which is the same rule §7.1 step 5 applies on the miss paths.
         $verified = $this->passwords->verify($stored, $command->currentPassword);
+        // Cred-C1: a stored credential whose seal does not verify — a hash copied or transplanted by SQL, a NULLed or forged
+        // seal — cannot be changed: the ordinary `current_password_invalid`, with no distinct trail (design §3.3; the
+        // caller is this principal, so there is no third party to tell). Computed on every path, never short-circuited.
+        $sealed = SealCheck::Verified === $this->seals->check(
+            $command->tenantId,
+            null === $stored ? SealsCredentials::DUMMY_USER_ID : $command->actorUserId,
+            $stored ?? SealsCredentials::DUMMY_HASH,
+            $storedMac,
+        );
+        $verified = $verified && $sealed;
 
         // --- 4 and 5 ------------------------------------------------------
         $errors = $this->newPasswordErrors($command->newPassword);
@@ -207,10 +220,11 @@ final readonly class ChangePassword
 
         // --- 6 ------------------------------------------------------------
         $hash = $this->passwords->hash($command->newPassword);
+        $mac = $this->seals->seal($command->tenantId, $command->actorUserId, $hash);
 
         // --- 7 ------------------------------------------------------------
         $at = $this->clock->now();
-        $this->tenants->run($command->tenantId, function (EntityManagerInterface $em) use ($command, $hash): void {
+        $this->tenants->run($command->tenantId, function (EntityManagerInterface $em) use ($command, $hash, $mac): void {
             $user = $em->find(AppUser::class, Uuid::fromString($command->actorUserId));
 
             // Step 2 already resolved a hash for this principal inside this
@@ -227,7 +241,7 @@ final readonly class ChangePassword
                 );
             }
 
-            $user->replacePasswordHash($hash);
+            $user->replaceCredential($hash, $mac);
             $em->flush();
 
             // Inside this transaction, by re-entrancy. §9.2: audit is synchronous
@@ -283,16 +297,17 @@ final readonly class ChangePassword
         return [];
     }
 
-    private function storedHashFor(string $tenantId, string $actorUserId): ?string
+    /** @return array{0: ?string, 1: ?string} the stored hash and seal, or `[null, null]` when the row has gone */
+    private function storedCredentialFor(string $tenantId, string $actorUserId): array
     {
-        $hash = $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($actorUserId): ?string {
+        $stored = $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($actorUserId): array {
             $user = $em->find(AppUser::class, Uuid::fromString($actorUserId));
 
-            return $user instanceof AppUser ? $user->getPasswordHash() : null;
+            return $user instanceof AppUser ? [$user->getPasswordHash(), $user->getPasswordMac()] : [null, null];
         });
 
-        \assert(null === $hash || \is_string($hash));
+        \assert(\is_array($stored));
 
-        return $hash;
+        return $stored;
     }
 }

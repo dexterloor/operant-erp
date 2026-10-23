@@ -90,9 +90,9 @@ final class UndeclaredQueryParameterRefusalTest extends PurchaseOrderTestCase
     #[Test]
     public function aSignInCarryingAnUndeclaredParameterIsRefusedBeforeAnyCredentialWork(): void
     {
+        $this->setPassword(self::TENANT_A, $this->actorId, self::PASSWORD);
         $hasher = self::getContainer()->get(CountingKdf::class);
         \assert($hasher instanceof CountingKdf);
-        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$hasher->hash(self::PASSWORD), $this->actorId]);
         $email = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT email FROM app_user WHERE id = ?::uuid', [$this->actorId])[0]['email'];
         $body = ['workspace' => 'tenant-a', 'email' => $email, 'password' => self::PASSWORD];
 
@@ -115,9 +115,7 @@ final class UndeclaredQueryParameterRefusalTest extends PurchaseOrderTestCase
     #[Test]
     public function aPasswordChangeCarryingAnUndeclaredParameterChangesNothing(): void
     {
-        $hasher = self::getContainer()->get(CountingKdf::class);
-        \assert($hasher instanceof CountingKdf);
-        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE app_user SET password_hash = ? WHERE id = ?::uuid', [$hasher->hash(self::PASSWORD), $this->actorId]);
+        $this->setPassword(self::TENANT_A, $this->actorId, self::PASSWORD);
         $before = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT password_hash FROM app_user WHERE id = ?::uuid', [$this->actorId])[0]['password_hash'];
 
         $this->send('POST', '/me/password?c5=1', ['current_password' => self::PASSWORD, 'new_password' => self::PASSWORD.'-changed']);

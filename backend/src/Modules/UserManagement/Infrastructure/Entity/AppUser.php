@@ -64,6 +64,15 @@ class AppUser
     #[ORM\Column(name: 'password_hash', type: Types::TEXT)]
     private string $passwordHash;
 
+    /**
+     * Cred-C1 (`(e)-cred`): the keyed seal over `(tenant_id, id, password_hash)` (`CredentialSeal`). Nullable on purpose, and
+     * NULL is **refused** at sign-in and at `ChangePassword`, never skipped (design D-C3, owner notice). Written only by
+     * {@see self::replaceCredential()}, always with the hash it seals; `erp_app` holds `UPDATE (password_mac)` for that
+     * caller alone (`Version20261023000600`). Shape held by `app_user_password_mac_shape`.
+     */
+    #[ORM\Column(name: 'password_mac', type: Types::TEXT, nullable: true)]
+    private ?string $passwordMac = null;
+
     #[ORM\Column(name: 'display_name', type: Types::TEXT)]
     private string $displayName;
 
@@ -87,7 +96,7 @@ class AppUser
      * `App\Platform\Security\IdentityReader`; NULL = no restriction. Mapped read-only at C0; **written since G4-C1** by
      * {@see self::deactivate()} and {@see self::reactivate()} only (monotone `max(existing, $at)` from the injected PSR clock,
      * design R1.3 D-2; `erp_app` holds `UPDATE (sessions_valid_after)` from `Version20261023000100`). An ORM flush writes only
-     * changed fields, so `recordLogin()` and `replacePasswordHash()` stay inside H0's column list.
+     * changed fields, so `recordLogin()` and `replaceCredential()` stay inside H0's column list (as widened by Cred-C1).
      *
      * **Whole-second on write** (`g4-users-final-red.md` L-6, verified): DBAL's Postgres platform formats `datetimetz` as
      * `'Y-m-d H:i:sO'`, and the house `TimestampTzImmutableType` replaces the read side only. That is harmless here —
@@ -136,6 +145,11 @@ class AppUser
         return $this->passwordHash;
     }
 
+    public function getPasswordMac(): ?string
+    {
+        return $this->passwordMac;
+    }
+
     public function getDisplayName(): string
     {
         return $this->displayName;
@@ -147,9 +161,11 @@ class AppUser
     }
 
     /**
-     * The single writer of `password_hash` after construction. **It has one
+     * The single writer of `password_hash` and `password_mac` after construction. **It has one
      * caller: `ChangePassword` (E-23)** — the password changes, and the change is
-     * audited. The method replaces the stored digest and moves `updated_at`.
+     * audited. The method replaces the stored digest **and its seal, together** (Cred-C1: a hash
+     * written without its seal refuses the next sign-in) and moves `updated_at`. *(It was
+     * `replacePasswordHash(string)` until Cred-C1.)*
      *
      * **Rehash on login (ADR-006) is NOT built.** This docblock named it as a
      * first caller until 2026-09-22, and that was a sentence without a
@@ -171,9 +187,10 @@ class AppUser
      * `AuthenticationGate` and costs the current password as well; a rehash, if
      * one is ever built, must run only after the credential has verified.
      */
-    public function replacePasswordHash(string $passwordHash): void
+    public function replaceCredential(string $passwordHash, string $passwordMac): void
     {
         $this->passwordHash = $passwordHash;
+        $this->passwordMac = $passwordMac;
         $this->updatedAt = new \DateTimeImmutable();
     }
 

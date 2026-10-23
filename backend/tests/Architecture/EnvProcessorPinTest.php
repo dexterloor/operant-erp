@@ -44,7 +44,8 @@ final class EnvProcessorPinTest extends TestCase
         'config/packages/doctrine.yaml' => ['resolve:DATABASE_URL', 'resolve:APP_DATABASE_URL', 'resolve:AI_DATABASE_URL', 'resolve:AUTH_DATABASE_URL', 'resolve:AUTHLOG_DATABASE_URL', 'resolve:RATELIMIT_DATABASE_URL'],
         'config/packages/framework.yaml' => ['APP_SECRET'],
         'config/packages/routing.yaml' => ['DEFAULT_URI'],
-        'config/services.yaml' => ['AUTH_EMAIL_HASH_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_TOKEN_SIGNING_KEY'],
+        // Cred-C1: AUTH_CREDENTIAL_MAC_KEY, bound once to CredentialSeal (decoded in PHP, so no `base64:` processor).
+        'config/services.yaml' => ['AUTH_EMAIL_HASH_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_CREDENTIAL_MAC_KEY'],
     ];
 
     private const FORBIDDEN_PROCESSORS = ['base64', 'json', 'file', 'require', 'query_string', 'key', 'csv'];
