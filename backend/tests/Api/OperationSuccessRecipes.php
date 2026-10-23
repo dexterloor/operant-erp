@@ -1426,6 +1426,12 @@ trait OperationSuccessRecipes
 
                 return [200, 'sign in with the changed password'];
             }],
+            // Mail-C1: queued, not performed — 202, no body, whatever the address (§4.4.1 branch 6).
+            'CreatePasswordReset' => [$none, function (): array {
+                $this->send('POST', '/auth/password-resets', ['workspace' => 'tenant-a', 'email' => 'someone@example.test']);
+
+                return [202, 'ask for a password link'];
+            }],
         ];
     }
 

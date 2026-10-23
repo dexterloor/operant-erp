@@ -91,6 +91,12 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['workspace' => 'tenant-a', 'email' => '@actor_email', 'password' => self::PASSWORD],
             'authenticated' => false,
         ],
+        // Mail-C1: pre-authentication and queued — a supplied tenant id must change neither the 202 nor the empty body
+        // (the workspace is named by slug in the body; nothing is read on the request path).
+        'CreatePasswordReset' => [
+            'body' => ['workspace' => 'tenant-a', 'email' => '@actor_email'],
+            'authenticated' => false,
+        ],
         'GetCurrentUser' => [],
         // Remaining-ops G7a (final RED L-3): `tenant` has no RLS, so this probe is the one a tenant id could move.
         'GetSettings' => [],

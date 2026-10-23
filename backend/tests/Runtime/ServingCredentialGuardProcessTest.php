@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Runtime;
 
+use App\Modules\UserManagement\Infrastructure\CredentialSeal;
+use App\Modules\UserManagement\Infrastructure\Http\CredentialKeyBootCheck;
 use App\Platform\Runtime\ServingCredentialGuard;
 use App\Platform\Tenancy\DatabaseRoles;
 use PHPUnit\Framework\Attributes\Test;
@@ -237,11 +239,11 @@ final class ServingCredentialGuardProcessTest extends KernelTestCase
     }
 
     /**
-     * **W1 (Mail-C0) — a forward pin, green today for a reason that is not yet its own.** A worker DSN in the web process
-     * must be refused. At Mail-C0 `erp_worker` does not exist (owner Q-2: it is created at Mail-C1), so it is refused as
-     * a non-application login, not by a web subset. It becomes the real web-subset test at Mail-C1, when `erp_worker`
-     * joins `DatabaseRoles::APPLICATION_ROLES` and the web process must still refuse it; its mutation (drop the subset →
-     * 200 → red) runs then (plan §R10 item 2).
+     * **W1 — a worker DSN in the web process is refused by the web SUBSET** (Mail-C0 forward pin, made real at Mail-C1):
+     * `erp_worker` is now an application role (`DatabaseRoles::APPLICATION_ROLES`), so this is refused only because
+     * `public/index.php` passes `DatabaseRoles::SERVING_WEB_ROLES`. Mutation MU-24 (pass `APPLICATION_ROLES`) → the kernel
+     * boots and answers 404 → red. The console keeps every application role, so the worker itself still starts (W2's
+     * neighbour: `WorkerKeyCheckTest`).
      */
     #[Test]
     public function w1AWorkerDsnInTheWebProcessIsRefused(): void
@@ -249,6 +251,30 @@ final class ServingCredentialGuardProcessTest extends KernelTestCase
         $run = $this->web(['WORKER_DATABASE_URL' => 'postgresql://erp_worker:x@127.0.0.1:1/erp?serverVersion=17&charset=utf8']);
 
         $this->assertRefused($run, 'WORKER_DATABASE_URL', 'case W1');
+    }
+
+    /**
+     * **T-S2b (Mail-C1, RED M-1; G-75 T-G75-2's serving half): production refuses to serve without a matching
+     * `AUTH_CREDENTIAL_MAC_KEY_ID`.** No id → 503 and the boot check's marker; a wrong id → the same; the correct id is
+     * case B (404). Mutation MU-32 (remove `CredentialKeyBootCheck`) → the kernel answers 404 → red.
+     */
+    #[Test]
+    public function s2bProductionRefusesToServeWithoutAMatchingKeyId(): void
+    {
+        foreach (['no id' => '', 'wrong id' => 'deadbeef' === self::keyId() ? 'feedface' : 'deadbeef'] as $case => $id) {
+            $run = $this->web(['AUTH_CREDENTIAL_MAC_KEY_ID' => $id]);
+            self::assertStringContainsString(CredentialKeyBootCheck::MARKER, $run['stderr'], "case S2b ($case): the boot check's marker (stderr tail: ".self::tail($run['stderr']).')');
+            self::assertStringContainsString('AUTH_CREDENTIAL_MAC_KEY_ID', $run['stderr'], "case S2b ($case): the variable is named");
+            $body = json_decode($run['stdout'], true);
+            self::assertSame(503, \is_array($body) ? ($body['status'] ?? null) : null, "case S2b ($case): not a 503 (stdout: ".substr($run['stdout'], 0, 300).')');
+            self::assertStringNotContainsString(base64_encode(str_repeat('c', 32)), $run['stdout'].$run['stderr'], "case S2b ($case): the key was echoed");
+        }
+    }
+
+    /** The id `app:credentials:check-key` prints for the base environment's dummy key. */
+    private static function keyId(): string
+    {
+        return (new CredentialSeal(base64_encode(str_repeat('c', 32))))->keyId();
     }
 
     /**
@@ -320,6 +346,10 @@ final class ServingCredentialGuardProcessTest extends KernelTestCase
             'AUTH_TOKEN_SIGNING_KEY' => str_repeat('k', 32),
             'AUTH_EMAIL_HASH_KEY' => str_repeat('e', 32),
             'AUTH_CREDENTIAL_MAC_KEY' => base64_encode(str_repeat('c', 32)),
+            // Mail-C1: production now refuses to serve without the matching id (CredentialKeyBootCheck), and the web
+            // process dispatches (the queue DSN is lazy: nothing connects on a 404).
+            'AUTH_CREDENTIAL_MAC_KEY_ID' => self::keyId(),
+            'MESSENGER_TRANSPORT_DSN' => 'redis://:x@127.0.0.1:1',
             'DEFAULT_URI' => 'http://localhost',
             'APP_DATABASE_URL' => $dsn(DatabaseRoles::APP),
             'AI_DATABASE_URL' => $dsn(DatabaseRoles::AI),

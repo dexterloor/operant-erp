@@ -342,7 +342,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // `BulkRoleAssignmentRequest`, the second `store` operation. No migration, no grant (G5-C2 carried the envelope grant).
         // **And one more (G4-C2, 2026-10-23):** `DeleteUser` (DELETE `/users/{id}`, `app_user.delete`).
         // **And one more (G4-C3, 2026-10-23):** `RestoreUser` (POST `/users/{id}/restoration`, `app_user.delete`).
-        self::assertCount(128, $checked, 'The route set changed. This slice declares one hundred and twenty-eight operations: '.implode(', ', array_keys($checked)));
+        // **And one more (Mail-C1, 2026-10-23):** `CreatePasswordReset` (POST `/auth/password-resets`, `—`) on
+        // `PasswordResetResource`: 202, no body. Its migrations add `password_reset_token`, `app_user.identity_mac`, the
+        // `erp_worker` grants and the worker's restrictive audit INSERT policy, and re-issue the audit catalogue.
+        self::assertCount(129, $checked, 'The route set changed. This slice declares one hundred and twenty-nine operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

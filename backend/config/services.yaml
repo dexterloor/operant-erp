@@ -48,6 +48,12 @@ parameters:
     # a fixture need not seed 10,001 rows; `ExportCapTest` pins this production value.
     app.export.row_cap: 10000
 
+    # Mail-C1: the reset mail's sender and the link base -- worker settings (`.env.worker`); declared empty so the web
+    # kernel, which never sends, compiles without them. The handler refuses an empty value at its first send.
+    env(APP_PUBLIC_URL): ''
+    app.mail.from: '%env(MAILER_FROM)%'
+    app.public_url: '%env(APP_PUBLIC_URL)%'
+
     app.auth.dummy_password_hash: '$argon2id$v=19$m=65536,t=4,p=1$S1F6OVZrRTBnS2lkd3ZhMg$m0ZB1phEShmbpBMRp34kto63MuUEw8yUM3BmLe07MT0'
 
 services:
@@ -127,6 +133,11 @@ services:
             - '../src/Modules/UserManagement/ApiResource/{IssueTokenInput.php,ChangePasswordInput.php,RoleReference.php}'
             - '../src/Modules/UserManagement/Application/{SignInCommand.php,SignInResult.php,ChangePasswordCommand.php,ChangePasswordResult.php,ChangePasswordOutcome.php}'
             - '../src/Modules/UserManagement/Infrastructure/{CredentialRow.php,IssuedToken.php}'
+            # Mail-C1: the reset request's value objects, message, command and result -- data, never services.
+            - '../src/Modules/UserManagement/Domain/{WorkspaceSlug.php,EmailAddress.php,ClientIp.php,MessageId.php}'
+            - '../src/Modules/UserManagement/Application/Contract/Message/'
+            - '../src/Modules/UserManagement/Application/{PasswordResetRequestCommand.php,PasswordResetRequestResult.php,PasswordResetRequestOutcome.php}'
+            - '../src/Modules/UserManagement/ApiResource/CreatePasswordResetInput.php'
             # The Purchasing slice's data classes. Same rule as the two blocks
             # above: request/response DTOs and read models the serializer or a
             # named factory builds, plus two function-only classes the container
@@ -269,6 +280,19 @@ services:
         arguments:
             $auth: '@doctrine.dbal.auth_connection'
 
+    # Mail-C1 (owner Q-2): the mail worker's three collaborators on `erp_worker`, explicit for the reason the bindings above
+    # give. The handler sends through `mailer.transports` (TransportInterface), never MailerInterface (H-2).
+    App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler:
+        arguments:
+            $worker: '@doctrine.dbal.worker_connection'
+            $mailer: '@mailer.transports'
+            $from: '%app.mail.from%'
+            $publicUrl: '%app.public_url%'
+
+    App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter:
+        arguments:
+            $worker: '@doctrine.dbal.worker_connection'
+
     App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
         arguments:
             $authLog: '@doctrine.dbal.authlog_connection'
@@ -321,11 +345,26 @@ services:
     # Cred-C1 (`(e)-cred`, RESIDUAL_GAPS G-12): the credential seal, bound ONCE, by name, to its one secret (Standing Rule
     # 10; the AccessTokenSplitTest precedent). `SignIn`, `ChangePassword` and `app:credentials:check-key` take the port, so a
     # test decorator can count MAC computations (E-7, `API.md` §7.3). Never echo the key.
+    # Mail-C1 (G-75 T-G75-2, M-7): built by `configured()`, which enforces AUTH_CREDENTIAL_MAC_KEY_ID (empty when unset;
+    # required when the kernel environment is prod). These arguments are on THIS service only -- never a global `bind:`
+    # -- so the PREVIOUS key's seal (`PreviousSealFactory`, check-key only) never inherits the production requirement.
     App\Modules\UserManagement\Infrastructure\CredentialSeal:
+        factory: ['App\Modules\UserManagement\Infrastructure\CredentialSeal', 'configured']
         arguments:
             $key: '%env(AUTH_CREDENTIAL_MAC_KEY)%'
+            $declaredKeyId: '%env(default::AUTH_CREDENTIAL_MAC_KEY_ID)%'
+            $environment: '%kernel.environment%'
+
+    # Mail-C1 (T-G75-5, M-7): check-key builds the current seal lazily (a service closure, declared on the constructor),
+    # so a refused key id is its exit 3 rather than a container error, and reads PREVIOUS as a plain string for
+    # `PreviousSealFactory` -- no shared arguments.
+    App\Modules\UserManagement\Infrastructure\Console\CheckCredentialKeyCommand:
+        arguments:
+            $previousKey: '%env(default::AUTH_CREDENTIAL_MAC_KEY_PREVIOUS)%'
 
     App\Modules\UserManagement\Domain\SealsCredentials: '@App\Modules\UserManagement\Infrastructure\CredentialSeal'
+    # Mail-C1: the identity seal and the token verifier MAC (D-3). The worker takes this port, never SealsCredentials.
+    App\Modules\UserManagement\Domain\SealsIdentities: '@App\Modules\UserManagement\Infrastructure\CredentialSeal'
 
     # E4-3 / A-2 — the first `Application\Contract` binding in this tree.
     # `Inventory`'s item writer takes the interface, never the implementation:
@@ -463,6 +502,10 @@ when@test:
         test.sql_recorder.auth: {class: App\Tests\Support\SqlRecorder, public: true}
         test.sql_recorder.authlog: {class: App\Tests\Support\SqlRecorder, public: true}
         test.sql_recorder.ratelimit: {class: App\Tests\Support\SqlRecorder, public: true}
+        # Mail-C1 (T-M2): the reset request path touches erp_ratelimit only -- these two make "and nothing on erp_ai or the
+        # worker's login" assertable per connection.
+        test.sql_recorder.ai: {class: App\Tests\Support\SqlRecorder, public: true}
+        test.sql_recorder.worker: {class: App\Tests\Support\SqlRecorder, public: true}
         # V3-1(i) item (5), V4 batch B2b-3: the schema owner's statements, recorded
         # only while a main request is served (App\Tests\Support\OwnerRequestWindow).
         # ApiTestCase::tearDown fails any HTTP test in which one was issued.
@@ -484,6 +527,14 @@ when@test:
             class: App\Tests\Support\RecordingMiddleware
             arguments: ['@test.sql_recorder.ratelimit']
             tags: [{name: 'doctrine.middleware', connection: 'ratelimit'}]
+        test.recording_middleware.ai:
+            class: App\Tests\Support\RecordingMiddleware
+            arguments: ['@test.sql_recorder.ai']
+            tags: [{name: 'doctrine.middleware', connection: 'ai'}]
+        test.recording_middleware.worker:
+            class: App\Tests\Support\RecordingMiddleware
+            arguments: ['@test.sql_recorder.worker']
+            tags: [{name: 'doctrine.middleware', connection: 'worker'}]
         test.recording_middleware.owner:
             class: App\Tests\Support\RecordingMiddleware
             arguments: ['@test.sql_recorder.owner']
@@ -523,6 +574,10 @@ when@test:
         test.auth.credential_seal: {alias: 'App\Modules\UserManagement\Domain\SealsCredentials', public: true}
         test.auth.budgets: {alias: 'App\Modules\UserManagement\Infrastructure\PreAuthBudgets', public: true}
         test.doctrine.dbal.ratelimit_connection: {alias: 'doctrine.dbal.ratelimit_connection', public: true}
+        test.doctrine.dbal.worker_connection: {alias: 'doctrine.dbal.worker_connection', public: true}
+        test.mail.reset_handler: {alias: 'App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler', public: true}
+        test.mail.reset_audit_writer: {alias: 'App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter', public: true}
+        test.auth.identity_seal: {alias: 'App\Modules\UserManagement\Domain\SealsIdentities', public: true}
         # Mail-C0: nothing sends mail before Mail-C1, so the mailer is removed at compile time unless aliased; the
         # interface id is aliased, so the production binding (`message_bus: false`) is the thing under test.
         test.mailer: {alias: 'Symfony\Component\Mailer\MailerInterface', public: true}
@@ -548,5 +603,9 @@ when@test:
         # from 10 to 100: `ListPermissions` exports the global catalogue (64 codes today), which a tenant cannot shrink, so
         # under 10 it could only ever be refused; `ExportCapTest::theTestCapLetsTheGlobalCatalogueExport` holds it above.
         app.export.row_cap: 100
+
+        # Mail-C1: the suite has no `.env.worker`; the mailer is `null://null` (mailer.yaml when@test).
+        app.mail.from: 'no-reply@erp.local'
+        app.public_url: 'http://127.0.0.1:5173'
 
         app.auth.dummy_password_hash: '$argon2id$v=19$m=1024,t=3,p=1$VHI3bmJZZUIudFF3MDB4Sg$eewE/E8Yvk7d/WPEVdqbJVmrVw4AyOKiQ0W4FudFr4o'

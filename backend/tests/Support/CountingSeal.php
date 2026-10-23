@@ -6,6 +6,7 @@ namespace App\Tests\Support;
 
 use App\Modules\UserManagement\Domain\SealCheck;
 use App\Modules\UserManagement\Domain\SealsCredentials;
+use App\Modules\UserManagement\Domain\SealsIdentities;
 
 /**
  * Cred-C1 T-C4: counts `check()` calls on the credential seal, so "the MAC is computed on every sign-in path — the hit and
@@ -13,11 +14,11 @@ use App\Modules\UserManagement\Domain\SealsCredentials;
  * computes the expected MAC before it inspects the stored value, so one call is one HMAC; a caller that skipped the call on
  * a miss path would read 0 here. Registered `when@test` only; production decorates nothing.
  */
-final class CountingSeal implements SealsCredentials
+final class CountingSeal implements SealsCredentials, SealsIdentities
 {
     private int $checks = 0;
 
-    public function __construct(private readonly SealsCredentials $inner)
+    public function __construct(private readonly SealsCredentials&SealsIdentities $inner)
     {
     }
 
@@ -36,6 +37,27 @@ final class CountingSeal implements SealsCredentials
     public function keyId(): string
     {
         return $this->inner->keyId();
+    }
+
+    /** Mail-C1: the identity half is delegated uncounted — the counted cost is the sign-in path's (E-7). */
+    public function sealIdentity(string $tenantId, string $userId, string $email): string
+    {
+        return $this->inner->sealIdentity($tenantId, $userId, $email);
+    }
+
+    public function checkIdentity(string $tenantId, string $userId, string $email, ?string $stored): SealCheck
+    {
+        return $this->inner->checkIdentity($tenantId, $userId, $email, $stored);
+    }
+
+    public function macVerifier(string $tenantId, string $userId, string $purpose, string $selector, int $expiresAtUnixSeconds, string $verifierHex): string
+    {
+        return $this->inner->macVerifier($tenantId, $userId, $purpose, $selector, $expiresAtUnixSeconds, $verifierHex);
+    }
+
+    public function verifierMatches(string $tenantId, string $userId, string $purpose, string $selector, int $expiresAtUnixSeconds, string $verifierHex, string $stored): bool
+    {
+        return $this->inner->verifierMatches($tenantId, $userId, $purpose, $selector, $expiresAtUnixSeconds, $verifierHex, $stored);
     }
 
     public function checks(): int

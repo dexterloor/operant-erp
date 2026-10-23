@@ -399,6 +399,12 @@ namespace App\SharedKernel\ValueObject;
  *     final RED M-1). Steps 3–5 with its writer (`AuthTrailWriter::recordFailure()`, the third E-12-capped member); step 5 is
  *     `Version20261023000700` (the live sixty-seven plus this one; supersedes `Version20261023000500`); step 6 both halves.
  *
+ *   - **`AUTH_PASSWORD_RESET_ISSUED`** and **`AUTH_CREDENTIAL_IDENTITY_MISMATCH`**, 2026-10-23, Mail-C1 — both
+ *     **`SECURITY`**, **subjectless** (E-13), IP-bearing (the request IP the queued message carried), written by the mail
+ *     worker on `erp_worker` (`PasswordResetAuditWriter`; the restrictive INSERT policy admits these two and nothing else).
+ *     Steps 3–5 with their writer; step 5 is `Version20261023000900` (the live sixty-eight plus these two; supersedes
+ *     `Version20261023000700`); step 6 both halves. *SEC TO CONFIRM the names.*
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -449,6 +455,21 @@ final class AuditEvent
      * key id is not the configured one, `{"unknown_key_id": true}` (server-set). The response is the ordinary refusal.
      */
     public const AUTH_LOGIN_CREDENTIAL_MISMATCH = 'auth.login.credential_mismatch';
+
+    /**
+     * Mail-C1: a password-reset link was minted and mailed to the account's STORED email. Written by the mail worker on
+     * `erp_worker`, in the transaction that inserts the token and sends the mail; subjectless, actor = the user, IP = the
+     * request's, `metadata` `{"purpose":"reset","message_id":…,"requested_by":"anonymous"}` (L-11: nobody signed in asked).
+     * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token`. Never the token or link.
+     */
+    public const AUTH_PASSWORD_RESET_ISSUED = 'auth.password_reset.issued';
+
+    /**
+     * Mail-C1 (D-M7): a reset was asked for an account whose stored email no longer matches its keyed identity seal
+     * (`app_user.identity_mac`) — the address was changed outside the application. No mail is sent. Written by the mail
+     * worker at most once per user per UTC day (a read-back on the trail); subjectless, actor = the user, IP = the request's.
+     */
+    public const AUTH_CREDENTIAL_IDENTITY_MISMATCH = 'auth.credential.identity_mismatch';
 
     /**
      * E-3 (`SECURITY_MODEL.md` §5): every permission denial that reaches the API. Capped
@@ -1294,6 +1315,8 @@ final class AuditEvent
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
+        self::AUTH_PASSWORD_RESET_ISSUED,
+        self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1380,6 +1403,8 @@ final class AuditEvent
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
+        self::AUTH_PASSWORD_RESET_ISSUED,
+        self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1622,6 +1647,8 @@ final class AuditEvent
         self::AUTH_LOGIN_FAILURE,
         self::AUTH_LOGIN_TENANT_INACTIVE,
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
+        self::AUTH_PASSWORD_RESET_ISSUED,
+        self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
         self::AUTH_PASSWORD_CHANGED,
         self::DATA_EXPORT_COMPLETED,
     ];

@@ -41,8 +41,10 @@ use Doctrine\DBAL\Tools\DsnParser;
  * ---------------------------------------------------------------------------
  * It trusts `DatabaseRoles::APPLICATION_ROLES`: adding a role there silently widens it. That constant is held by
  * `SchemaGuardTest::neitherApplicationRoleCarriesBypassRlsOrSuperuser` and `::theRoleListCoversEveryLoginRoleInTheDatabase`.
- * The set includes `erp_ai`, which C-3 keeps out of the API kernel; at Output 7 a SERVING_WEB_ROLES subset (application
- * roles minus AI) becomes this guard's set (worklist carry V3-5).
+ * The set is a parameter (Mail-C1): `public/index.php` passes `DatabaseRoles::SERVING_WEB_ROLES` (the application roles
+ * minus `erp_worker`), so the mail worker's DSN in the web environment is refused; `bin/console` keeps every application
+ * role, because the worker runs through it. The web set still includes `erp_ai`, which C-3 keeps out of the API kernel;
+ * at Output 7 it loses AI too (worklist carry V3-5).
  *
  * Plain PHP with static methods and no container: it runs before any `src/` service exists. It handles variable NAMES
  * and never returns, logs or formats a value (Standing Rule 10).
@@ -98,7 +100,8 @@ final class ServingCredentialGuard
      * today (dc3-g75 Rev 3, L-1).
      *
      * G-1.1's serving allowlist must also carry the mail settings when it is built: `MESSENGER_TRANSPORT_DSN` (web and
-     * worker, from Mail-C1) and `MAILER_DSN` / `MAILER_FROM` (worker only).
+     * worker — in the web env since Mail-C1, which dispatches the password-reset request; a `redis://` DSN is not
+     * DBAL-shaped, so rule 1 does not examine it) and `MAILER_DSN` / `MAILER_FROM` / `APP_PUBLIC_URL` (worker only).
      */
     public const ALLOWED_NAMES = ['APP_SECRET', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_EMAIL_HASH_KEY', 'AUTH_CREDENTIAL_MAC_KEY',
         'AUTH_CREDENTIAL_MAC_KEY_PREVIOUS', 'AUTH_CREDENTIAL_MAC_KEY_ID'];
@@ -146,14 +149,15 @@ final class ServingCredentialGuard
      * @param array<array-key, mixed> $env    `$_ENV`
      * @param array<array-key, mixed> $server `$_SERVER`, filtered here (E-3)
      * @param array<array-key, mixed> $getenv `getenv()`
+     * @param list<string>            $roles  the logins this process may hold (`DatabaseRoles::SERVING_WEB_ROLES` for the web)
      *
      * @return list<string>
      */
-    public static function offendingNames(array $env, array $server, array $getenv): array
+    public static function offendingNames(array $env, array $server, array $getenv, array $roles = DatabaseRoles::APPLICATION_ROLES): array
     {
         $names = [];
         foreach ([[$env, false], [$server, true], [$getenv, false]] as [$source, $isServer]) {
-            foreach (self::offendingNamesIn($source, $isServer) as $name) {
+            foreach (self::offendingNamesIn($source, $isServer, $roles) as $name) {
                 $names[$name] = true;
             }
         }
@@ -163,10 +167,11 @@ final class ServingCredentialGuard
 
     /**
      * @param array<array-key, mixed> $source
+     * @param list<string>            $roles
      *
      * @return list<string>
      */
-    private static function offendingNamesIn(array $source, bool $isServer): array
+    private static function offendingNamesIn(array $source, bool $isServer, array $roles): array
     {
         $names = [];
         foreach ($source as $name => $value) {
@@ -183,7 +188,7 @@ final class ServingCredentialGuard
             if (!\is_string($value)) {
                 continue;
             }
-            if (self::isCredentialName($name) || self::isCredentialValue($value)) {
+            if (self::isCredentialName($name) || self::isCredentialValue($value, $roles)) {
                 $names[] = $name;
             }
         }
@@ -222,16 +227,20 @@ final class ServingCredentialGuard
         return \in_array($upper, self::PG_CREDENTIAL_NAMES, true);
     }
 
-    /** Rule 1 (E-1′). Each applicable shape is examined; any refusal refuses. */
-    private static function isCredentialValue(string $value): bool
+    /**
+     * Rule 1 (E-1′). Each applicable shape is examined; any refusal refuses.
+     *
+     * @param list<string> $roles
+     */
+    private static function isCredentialValue(string $value, array $roles): bool
     {
-        if (self::isUrlShaped($value) && self::urlRefuses($value)) {
+        if (self::isUrlShaped($value) && self::urlRefuses($value, $roles)) {
             return true;
         }
-        if (1 === preg_match(self::PDO_SHAPE, $value) && self::userOccurrencesRefuse($value)) {
+        if (1 === preg_match(self::PDO_SHAPE, $value) && self::userOccurrencesRefuse($value, $roles)) {
             return true;
         }
-        if (1 === preg_match(self::KEYWORD_SHAPE, $value) && self::userOccurrencesRefuse($value)) {
+        if (1 === preg_match(self::KEYWORD_SHAPE, $value) && self::userOccurrencesRefuse($value, $roles)) {
             return true;
         }
 
@@ -255,8 +264,12 @@ final class ServingCredentialGuard
         return \is_array($parts) && isset($parts['query']);
     }
 
-    /** Rule 1(a), on DBAL's own effective, double-decoded parameters. */
-    private static function urlRefuses(string $value): bool
+    /**
+     * Rule 1(a), on DBAL's own effective, double-decoded parameters.
+     *
+     * @param list<string> $roles
+     */
+    private static function urlRefuses(string $value, array $roles): bool
     {
         try {
             $params = (new DsnParser(self::SCHEME_MAP))->parse($value);
@@ -286,7 +299,7 @@ final class ServingCredentialGuard
             }
         }
 
-        return !isset($params['user']) || !\in_array($params['user'], DatabaseRoles::APPLICATION_ROLES, true);
+        return !isset($params['user']) || !\in_array($params['user'], $roles, true);
     }
 
     /**
@@ -312,8 +325,10 @@ final class ServingCredentialGuard
     /**
      * Rules 1(b) and 1(c) (E-1′ (d)): refused unless EVERY `user=` occurrence, unquoted and trimmed, is an application
      * role and at least one is present. libpq takes the last duplicate.
+     *
+     * @param list<string> $roles
      */
-    private static function userOccurrencesRefuse(string $value): bool
+    private static function userOccurrencesRefuse(string $value, array $roles): bool
     {
         preg_match_all(self::USER_OCCURRENCE, $value, $matches);
         if ([] === $matches[1]) {
@@ -324,7 +339,7 @@ final class ServingCredentialGuard
             if (\strlen($user) >= 2 && str_starts_with($user, "'") && str_ends_with($user, "'")) {
                 $user = str_replace("\\'", "'", substr($user, 1, -1));
             }
-            if (!\in_array($user, DatabaseRoles::APPLICATION_ROLES, true)) {
+            if (!\in_array($user, $roles, true)) {
                 return true;
             }
         }

@@ -129,15 +129,18 @@ final class PoolConfigurationTest extends TenancyTestCase
     }
 
     /**
-     * Five application roles is the ceiling (V3-6). A sixth is a new database
-     * principal, which ARCHITECTURE.md §3.3 PR-5 gives to the user, not to a code
-     * change. Mutation, run at build: a sixth name in `APPLICATION_ROLES` -> red.
+     * Six application roles is the ceiling (V3-6). A new database principal is
+     * ARCHITECTURE.md §3.3 PR-5's, given to the user, not to a code change. The
+     * sixth, `erp_worker`, was the user's (Mail-C1; ROADMAP remaining-ops-ruling
+     * Addendum 2, Move 671: *"Q-2 seventh login: yes, `erp_worker`"* — the seventh
+     * login counting the schema owner). Mutation: a seventh name in
+     * `APPLICATION_ROLES` -> red.
      */
     #[Test]
-    public function fiveApplicationRolesIsTheCeiling(): void
+    public function sixApplicationRolesIsTheCeiling(): void
     {
-        self::assertCount(5, DatabaseRoles::APPLICATION_ROLES,
-            'A sixth application role is a new database principal and requires the user -- ARCHITECTURE.md §3.3 PR-5.');
+        self::assertCount(6, DatabaseRoles::APPLICATION_ROLES,
+            'A seventh application role is a new database principal and requires the user -- ARCHITECTURE.md §3.3 PR-5.');
     }
 
     /**

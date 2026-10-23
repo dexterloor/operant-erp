@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Architecture;
 
+use App\Modules\UserManagement\Infrastructure\CredentialSeal;
 use App\Platform\Tenancy\DatabaseRoles;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -104,6 +105,10 @@ final class ProdContainerCredentialTest extends TestCase
             'AUTH_TOKEN_SIGNING_KEY' => str_repeat('k', 32),
             'AUTH_EMAIL_HASH_KEY' => str_repeat('e', 32),
             'AUTH_CREDENTIAL_MAC_KEY' => base64_encode(str_repeat('c', 32)),
+            // Mail-C1: supplied although the warm-up builds no seal, so a later boot path that does cannot fail here
+            // mysteriously (production now requires the matching id: CredentialKeyBootCheck).
+            'AUTH_CREDENTIAL_MAC_KEY_ID' => (new CredentialSeal(base64_encode(str_repeat('c', 32))))->keyId(),
+            'MESSENGER_TRANSPORT_DSN' => 'redis://:x@127.0.0.1:1',
             'DEFAULT_URI' => 'http://localhost',
             'APP_DATABASE_URL' => $dsn(DatabaseRoles::APP),
             'AI_DATABASE_URL' => $dsn(DatabaseRoles::AI),

@@ -63,6 +63,19 @@ final class GrantFootprintTest extends TenancyTestCase
             }
         }
 
+        // Mail-C1 (owed from Mail-C0, item 5; DELIVERY_LEDGER B-1 action 4): the mail worker holds NOTHING on the queue
+        // table. Its column SELECT on `tenant` is deliberate (the handler resolves the slug), so only the queue half applies.
+        foreach (SchemaManifest::TABLE_PRIVILEGES as $priv) {
+            self::assertFalse((bool) $this->owner()->fetchOne(
+                'SELECT has_table_privilege(?, ?, ?)', [DatabaseRoles::WORKER, 'messenger_messages', $priv]),
+                "erp_worker holds $priv on messenger_messages.");
+        }
+        foreach (SchemaManifest::COLUMN_PRIVILEGES as $priv) {
+            self::assertFalse((bool) $this->owner()->fetchOne(
+                'SELECT has_any_column_privilege(?, ?, ?)', [DatabaseRoles::WORKER, 'messenger_messages', $priv]),
+                "erp_worker holds column $priv on messenger_messages.");
+        }
+
         // And the positive half, so the test cannot pass because the roles are
         // simply absent: erp_auth really can read the three registry columns.
         foreach (['id', 'slug', 'status'] as $column) {
@@ -330,6 +343,7 @@ final class GrantFootprintTest extends TenancyTestCase
      */
     private const UNCLAMPED_AUDIT_WRITERS = [
         'erp_authlog' => 'G-54 (i): the pre-authentication sign-in writer (`AuthTrailWriter`), INSERT-only by design — it may not read the trail.',
+        'erp_worker' => 'G-54 (i): the mail worker (`PasswordResetAuditWriter`, Mail-C1), INSERT-only at table level with column SELECT on four trail columns for the identity-mismatch read-back; the audit-order trigger skips it.',
     ];
 
     /**
@@ -2531,5 +2545,101 @@ final class GrantFootprintTest extends TenancyTestCase
         }
 
         return false;
+    }
+
+    /**
+     * **T-M7 (Mail-C1): no HTTP principal can mint a reset token.** Per column from `pg_attribute`, none of `erp_app`,
+     * `erp_auth`, `erp_authlog`, `erp_ratelimit`, `erp_ai` holds INSERT or UPDATE (Mail-C2 will admit `erp_app UPDATE
+     * (used_at)` — move this deliberately then), and no application role holds DELETE. Control: `erp_worker` can insert
+     * `selector` and cannot write `used_at`. Mutation MU-21 (`GRANT INSERT ON password_reset_token TO erp_app`) → red.
+     */
+    #[Test]
+    public function noHttpPrincipalCanMintAResetToken(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(
+            "SELECT attname FROM pg_attribute WHERE attrelid = 'password_reset_token'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum");
+        self::assertContains('verifier_mac', $columns, 'The column walk sees nothing.');
+        $held = [];
+        foreach ([DatabaseRoles::APP, DatabaseRoles::AUTH, DatabaseRoles::AUTH_LOG, DatabaseRoles::RATE_LIMIT, DatabaseRoles::AI] as $role) {
+            foreach ($columns as $column) {
+                foreach (['INSERT', 'UPDATE'] as $priv) {
+                    if ((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [$role, 'password_reset_token', $column, $priv])) {
+                        $held[] = "$role $priv ($column)";
+                    }
+                }
+            }
+        }
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+            if ((bool) $this->owner()->fetchOne('SELECT has_table_privilege(?, ?, ?)', [$role, 'password_reset_token', 'DELETE'])) {
+                $held[] = "$role DELETE";
+            }
+        }
+        self::assertSame([], $held, 'An HTTP principal can write a reset token: '.implode(', ', $held));
+        self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'password_reset_token', 'selector', 'INSERT']),
+            'Control: the worker cannot insert a token, so the absences above prove nothing.');
+        self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'password_reset_token', 'used_at', 'INSERT']),
+            'The worker can write used_at: a token could be minted already used, or never.');
+    }
+
+    /**
+     * **T-M7b (Mail-C1): nobody can UPDATE the identity seal** — `app_user.identity_mac` for every application role.
+     * Control: the worker can read it. Mutation MU-22 (`GRANT UPDATE (identity_mac) ON app_user TO erp_app`) → red.
+     */
+    #[Test]
+    public function nobodyCanUpdateTheIdentitySeal(): void
+    {
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+            self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [$role, 'app_user', 'identity_mac', 'UPDATE']),
+                "$role can UPDATE app_user.identity_mac: an email changed by SQL could be re-sealed and mailed.");
+        }
+        self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'app_user', 'identity_mac', 'SELECT']),
+            'Control: the worker cannot read the seal it checks.');
+    }
+
+    /**
+     * **T-M15 (Mail-C1): the worker reads neither a password nor its seal, nor the display name** (FA-6: granted with
+     * their callers, if ever). Control: it reads `email`. Mutation MU-23 (`GRANT SELECT (password_hash) … TO erp_worker`) → red.
+     */
+    #[Test]
+    public function theWorkerReadsNeitherPasswordNorPasswordHash(): void
+    {
+        foreach (['password_hash', 'password_mac', 'display_name', 'last_login_at', 'sessions_valid_after'] as $column) {
+            self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'app_user', $column, 'SELECT']),
+                "erp_worker can read app_user.$column.");
+        }
+        self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'app_user', 'email', 'SELECT']),
+            'Control: the worker cannot read the email it mails.');
+    }
+
+    /**
+     * **T-P2 (Mail-C1, RED L-1): the worker can write only its two events.** As `erp_worker`, in a tenant context, an
+     * `auth.login.success` row is refused (42501, the restrictive policy) while `auth.password_reset.issued` is accepted —
+     * so a leaked worker DSN cannot forge a sign-in or a revocation to fool `app:credentials:check-key`'s wipe check.
+     * Both in transactions that are rolled back. Mutation MU-37 (drop the policy) → the first insert succeeds → red.
+     */
+    #[Test]
+    public function theWorkerCanWriteOnlyItsTwoEvents(): void
+    {
+        $worker = self::getContainer()->get('test.doctrine.dbal.worker_connection');
+        \assert($worker instanceof \Doctrine\DBAL\Connection);
+        $insert = static function (string $event) use ($worker): ?string {
+            $worker->beginTransaction();
+            try {
+                (self::getContainer()->get(\App\Platform\Tenancy\TenantContext::class))->establishOn($worker, self::TENANT_A);
+                $worker->executeStatement(
+                    "INSERT INTO audit_log (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label, metadata) VALUES (?::uuid, ?::uuid, now(), ?, NULL, 'probe', '{}'::jsonb)",
+                    [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), self::TENANT_A, $event]);
+
+                return null;
+            } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+                return (string) $e->getSQLState();
+            } finally {
+                $worker->rollBack();
+            }
+        };
+
+        self::assertSame('42501', $insert(\App\SharedKernel\ValueObject\AuditEvent::AUTH_LOGIN_SUCCESS), 'The worker wrote a sign-in row.');
+        self::assertNull($insert(\App\SharedKernel\ValueObject\AuditEvent::AUTH_PASSWORD_RESET_ISSUED), 'Control: the worker cannot write its own event.');
+        self::assertNull($insert(\App\SharedKernel\ValueObject\AuditEvent::AUTH_CREDENTIAL_IDENTITY_MISMATCH), 'Control: the worker cannot write its own event.');
     }
 }

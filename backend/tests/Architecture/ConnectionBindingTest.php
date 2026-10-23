@@ -120,6 +120,8 @@ final class ConnectionBindingTest extends KernelTestCase
         'auth' => DatabaseRoles::AUTH,
         'authlog' => DatabaseRoles::AUTH_LOG,
         'ratelimit' => DatabaseRoles::RATE_LIMIT,
+        // Mail-C1 (owner Q-2): the mail worker's login. The handler, the token store and the reset audit writer bind it.
+        'worker' => DatabaseRoles::WORKER,
     ];
 
     #[Test]

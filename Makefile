@@ -8,9 +8,10 @@
 DOCKER_CONTEXT ?= colima
 # Four env files, split by who may read them (V3-1(i), V4 batch B2b-1, 2026-09-16; .env.worker from Mail-C0, 2026-10-23):
 #   .env.infra  compose bootstrap passwords (owner, superuser, roles) and local ports -- read by compose ONLY
-#   .env        application DSNs and secrets -- read by every Symfony kernel
-#   .env.test   the schema owner's DSN -- read by the suite, `migrate` and `reset` only
-#   .env.worker the mail worker's mailer settings -- read by `make worker` only, never by the web process
+#   .env        application DSNs and secrets, and (Mail-C1) the mail queue DSN -- read by every Symfony kernel
+#   .env.test   the schema owner's DSN, and (Mail-C1) the mail worker's WORKER_DATABASE_URL -- read by the suite, `migrate` and `reset` only
+#   .env.worker the mail worker's mailer settings, WORKER_DATABASE_URL and APP_PUBLIC_URL -- read by `make worker` only,
+#               never by the web process (which refuses to serve while it can see the worker's login)
 COMPOSE = DOCKER_CONTEXT=$(DOCKER_CONTEXT) docker compose --env-file .env.infra -f infra/docker-compose.yml
 
 # `.env.test` is loaded through PHP Dotenv by the runtime for this one command,
@@ -62,7 +63,7 @@ deptrac:            ## ARCHITECTURE.md §5's module boundaries (also gated by De
 verify: up migrate test
 
 worker:             ## the mail worker: consumes `async` for an hour or 128 MB, then exits (Mail-C1 onward)
-	cd backend && $(WORKER_RUNTIME) php bin/console messenger:consume async --time-limit=3600 --memory-limit=128M
+	cd backend && $(WORKER_RUNTIME) php -d zend.exception_ignore_args=1 bin/console messenger:consume async --time-limit=3600 --memory-limit=128M
 
 # One refused queue entry stops `messenger:consume` (RESIDUAL_GAPS.md G-1.3, mail-c0-red.md M-3); this restarts it.
 worker-loop:        ## `make worker`, restarted whenever it exits (Ctrl-C twice to stop)

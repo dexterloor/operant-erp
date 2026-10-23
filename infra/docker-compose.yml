@@ -33,6 +33,8 @@ services:
       ERP_AUTHLOG_PASSWORD: ${ERP_AUTHLOG_PASSWORD}
       ERP_RATELIMIT_USER: ${ERP_RATELIMIT_USER}
       ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
+      ERP_WORKER_USER: ${ERP_WORKER_USER}
+      ERP_WORKER_PASSWORD: ${ERP_WORKER_PASSWORD}
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - erp_pgdata:/var/lib/postgresql/data
@@ -62,6 +64,8 @@ services:
       ERP_AUTHLOG_PASSWORD: ${ERP_AUTHLOG_PASSWORD}
       ERP_RATELIMIT_USER: ${ERP_RATELIMIT_USER}
       ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
+      ERP_WORKER_USER: ${ERP_WORKER_USER}
+      ERP_WORKER_PASSWORD: ${ERP_WORKER_PASSWORD}
       # No owner or superuser variable here, and no userlist line for either
       # (ARCHITECTURE.md C-4; V3-12, V4 batch B6, 2026-09-16). This service serves
       # every pooled request; migrations run direct, as the owner, on the postgres
@@ -81,6 +85,7 @@ services:
           printf '"%s" "%s"\n' "$$ERP_AUTH_USER"      "$$ERP_AUTH_PASSWORD"
           printf '"%s" "%s"\n' "$$ERP_AUTHLOG_USER"   "$$ERP_AUTHLOG_PASSWORD"
           printf '"%s" "%s"\n' "$$ERP_RATELIMIT_USER" "$$ERP_RATELIMIT_PASSWORD"
+          printf '"%s" "%s"\n' "$$ERP_WORKER_USER"    "$$ERP_WORKER_PASSWORD"
         } > /run/pgbouncer/userlist.txt
         exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     tmpfs:

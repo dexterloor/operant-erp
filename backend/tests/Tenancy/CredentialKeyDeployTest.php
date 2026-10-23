@@ -60,6 +60,16 @@ final class CredentialKeyDeployTest extends KernelTestCase
         self::assertNotSame([], self::obligations([], [], $full, array_values(array_diff($allowed, [self::KEY.'_ID']))), '(d): ALLOWED_NAMES without _KEY_ID was not refused.');
         self::assertNotSame([], self::obligations([], [], $full, array_values(array_diff($allowed, [self::KEY.'_PREVIOUS']))), '(d): ALLOWED_NAMES without _PREVIOUS was not refused.');
         self::assertSame([], self::obligations(['Dockerfile' => 'CMD php-fpm'], [], $commands, $allowed), 'An artefact that holds no key armed the gate.');
+        // Mail-C1 (RED M-6): the mail worker is a key-holding artefact from its first deploy — it holds the root key and the
+        // only token INSERT — so a worker service running `messenger:consume` must run check-key too (today on `erp_app`,
+        // which the worker keeps only until G-1.3's split; `RESIDUAL_GAPS.md` G-1.3). Mutation MU-39 → red.
+        $worker = 'command: php bin/console messenger:consume async'."\n".'environment: {'.self::KEY.': x}';
+        self::assertNotSame([], self::obligations([], ['worker' => $worker], $full, $allowed), '(a): a key-holding worker service without check-key was not refused.');
+        self::assertSame([], self::obligations([], ['worker' => $worker."\nentrypoint: php bin/console app:credentials:check-key"], $full, $allowed), '(a): check-key did not satisfy the worker.');
+        // A compose service is caught by the service clause whatever it runs, so only a worker in a deploy FILE proves the
+        // `messenger:consume` token itself (MU-39 was green against the compose plant alone).
+        $procfile = 'worker: '.self::KEY.'=x php bin/console messenger:consume async';
+        self::assertNotSame([], self::obligations(['Procfile' => $procfile], [], $full, $allowed), '(a): a key-holding worker deploy file without check-key was not refused.');
 
         [$files, $services] = self::realArtefacts();
         $owed = self::obligations($files, $services, $commands, $allowed);

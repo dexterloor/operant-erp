@@ -41,14 +41,16 @@ final class EnvProcessorPinTest extends TestCase
 {
     /** `file => list of "processor:…:NAME"` (a bare NAME when there is no processor), in file order. */
     private const PINNED = [
-        'config/packages/doctrine.yaml' => ['resolve:DATABASE_URL', 'resolve:APP_DATABASE_URL', 'resolve:AI_DATABASE_URL', 'resolve:AUTH_DATABASE_URL', 'resolve:AUTHLOG_DATABASE_URL', 'resolve:RATELIMIT_DATABASE_URL'],
+        'config/packages/doctrine.yaml' => ['resolve:DATABASE_URL', 'resolve:APP_DATABASE_URL', 'resolve:AI_DATABASE_URL', 'resolve:AUTH_DATABASE_URL', 'resolve:AUTHLOG_DATABASE_URL', 'resolve:RATELIMIT_DATABASE_URL', 'resolve:WORKER_DATABASE_URL'],
         'config/packages/framework.yaml' => ['APP_SECRET'],
         // Mail-C0: the worker's mailer (`.env.worker` only) and the queue (both transports read one DSN).
         'config/packages/mailer.yaml' => ['MAILER_DSN', 'MAILER_FROM'],
         'config/packages/messenger.yaml' => ['MESSENGER_TRANSPORT_DSN', 'MESSENGER_TRANSPORT_DSN'],
         'config/packages/routing.yaml' => ['DEFAULT_URI'],
         // Cred-C1: AUTH_CREDENTIAL_MAC_KEY, bound once to CredentialSeal (decoded in PHP, so no `base64:` processor).
-        'config/services.yaml' => ['AUTH_EMAIL_HASH_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_CREDENTIAL_MAC_KEY'],
+        // Mail-C1: the reset mail's sender and link base (worker settings; APP_PUBLIC_URL declared empty for the web), the
+        // declared key id (`default::` — empty when unset) and check-key's PREVIOUS key (`default::`, check-key only).
+        'config/services.yaml' => ['MAILER_FROM', 'APP_PUBLIC_URL', 'AUTH_EMAIL_HASH_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_TOKEN_SIGNING_KEY', 'AUTH_CREDENTIAL_MAC_KEY', 'default::AUTH_CREDENTIAL_MAC_KEY_ID', 'default::AUTH_CREDENTIAL_MAC_KEY_PREVIOUS'],
     ];
 
     private const FORBIDDEN_PROCESSORS = ['base64', 'json', 'file', 'require', 'query_string', 'key', 'csv'];
@@ -109,7 +111,7 @@ final class EnvProcessorPinTest extends TestCase
             }
         }
 
-        self::assertSame(6, $connectionsSeen, 'the pin must see the six connections of doctrine.yaml');
+        self::assertSame(7, $connectionsSeen, 'the pin must see the seven connections of doctrine.yaml (Mail-C1 added worker)');
     }
 
     #[Test]

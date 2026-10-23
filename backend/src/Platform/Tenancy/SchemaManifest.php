@@ -175,7 +175,11 @@ final class SchemaManifest
             // writes are the V-10 half: nothing that serves an unauthenticated
             // request may mutate the registry, so no application role holds one.
             'grants' => [DatabaseRoles::APP => ['SELECT']],
-            'column_grants' => [DatabaseRoles::AUTH => ['SELECT' => ['id', 'slug', 'status']]],
+            // Mail-C1: the mail worker resolves the slug a queued reset names, exactly as erp_auth does at sign-in.
+            'column_grants' => [
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'slug', 'status']],
+                DatabaseRoles::WORKER => ['SELECT' => ['id', 'slug', 'status']],
+            ],
         ],
         'auth_attempt' => [
             'module' => 'Modules\\UserManagement',
@@ -208,7 +212,7 @@ final class SchemaManifest
             'module' => 'Platform\\Messaging',
             'tenant' => false,
             'deletion' => self::NA,
-            'why' => 'ARCHITECTURE S-8. A worker must select the next message before it knows the tenant, so a policy would make the queue unreadable. Tenancy travels as a TenantIdStamp. This is the one place isolation rests on a code rule (M-2) rather than on Postgres — which is exactly why no pre-authentication principal is allowed to reach it. B-1: erp_app holds SELECT and no write. An INSERT here is worker code execution by another name, and symfony/messenger was not installed, so the write half of this grant served nothing and was withdrawn by Version20260907000100 rather than left to ship by default the moment it was. Mail-C0 (2026-10-23) installed Messenger for mail only, on a transport that is not Doctrine, so this table is still used by nothing; whether to drop it is for DATA and ARCH to decide, not Mail-C0. The remaining SELECT does NOT preserve consumption — the transport consumes with UPDATE and DELETE (DELIVERY_LEDGER.md:113) — it is a declared residual: a cross-tenant read of serialized payloads on a table with no RLS, pinned here so it cannot drift, and left to B-1 action 4 where the worker principal is decided.',
+            'why' => 'ARCHITECTURE S-8. A worker must select the next message before it knows the tenant, so a policy would make the queue unreadable. Tenancy travels as a TenantIdStamp. This is the one place isolation rests on a code rule (M-2) rather than on Postgres — which is exactly why no pre-authentication principal is allowed to reach it. B-1: erp_app holds SELECT and no write. An INSERT here is worker code execution by another name, and symfony/messenger was not installed, so the write half of this grant served nothing and was withdrawn by Version20260907000100 rather than left to ship by default the moment it was. Mail-C0 (2026-10-23) installed Messenger for mail only, on a transport that is not Doctrine, so this table is still used by nothing; whether to drop it is for DATA and ARCH to decide, not Mail-C0. The remaining SELECT does NOT preserve consumption — the transport consumes with UPDATE and DELETE (DELIVERY_LEDGER.md:113) — it is a declared residual: a cross-tenant read of serialized payloads on a table with no RLS, pinned here so it cannot drift, and left to B-1 action 4 where the worker principal is decided. Mail-C1 (2026-10-23) decided it: erp_worker, which holds NOTHING here (GrantFootprintTest); this erp_app SELECT stays the named residual.',
             'grants' => [DatabaseRoles::APP => ['SELECT']],
         ],
         'doctrine_migration_versions' => [
@@ -368,7 +372,21 @@ final class SchemaManifest
                 // Cred-C1 (Version20261023000600): SignIn step 5 checks the seal read in the same one statement.
                 DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at', 'password_mac']],
                 DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at', 'password_mac']],
+                // Mail-C1 (Version20261023000800): the mail worker's one user lookup — never password_hash, password_mac or
+                // display_name (FA-6). identity_mac (the keyed seal over tenant, id and email) is updatable by NO principal:
+                // erp_app reads it through its table SELECT; U-C1 grants erp_app INSERT (…, identity_mac) with CreateUser.
+                DatabaseRoles::WORKER => ['SELECT' => ['id', 'tenant_id', 'email', 'is_active', 'deleted_at', 'identity_mac']],
             ],
+        ],
+        'password_reset_token' => [
+            'module' => 'Modules\\UserManagement',
+            'tenant' => true,
+            'deletion' => self::NA,
+            'why' => 'Mail-C1 (`docs/session13/mail-c1-build-plan.md` R1.2; design §4.2): one row per mailed reset link (and, from U-C1, invitation). It stores a keyed MAC of the token (verifier_mac, under k_tok, which no database principal holds), never the token, so a row read by SQL is not a working link and a row written by SQL without the key does not verify at redeem (Mail-C2). The mail worker is its only writer (column INSERT, no used_at); Mail-C2 grants the redeem path SELECT and UPDATE (used_at). Deletion class n/a, idempotency_key\'s reasoning: infrastructure the domain never loads (DBAL only, no ORM entity, like auth_lockout) and nothing deletes -- a link is a security record; the plan said "none", which SchemaOwnershipTest correlates with an entity (Mail-C1 deviation D-8). No DELETE grant either way. Growth is a residual (RESIDUAL_GAPS.md G-80 item 1; no purge principal exists).',
+            // Explicit, never TENANT_READ_DEFAULT (which would give erp_ai SELECT): the worker alone, SELECT for its
+            // 3-links-per-user-per-24-h cap, and a column INSERT without used_at.
+            'grants' => [DatabaseRoles::WORKER => ['SELECT']],
+            'column_grants' => [DatabaseRoles::WORKER => ['INSERT' => ['id', 'tenant_id', 'user_id', 'purpose', 'selector', 'verifier_mac', 'message_id', 'created_at', 'expires_at']]],
         ],
         'role' => [
             'module' => 'Modules\\UserManagement',
@@ -442,7 +460,11 @@ final class SchemaManifest
             'tenant' => true,
             'deletion' => self::NONE,
             'why' => 'ARCHITECTURE S-9: append-only at the database level. Append-only enforced by a grant is a control; enforced by a convention is a hope.',
-            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AUTH_LOG => ['INSERT']],
+            // Mail-C1: erp_worker INSERTs like erp_authlog (table level; a restrictive policy admits only its two events) and
+            // reads back four columns for the once-a-day identity-mismatch row. It cannot read actor_label, ip_address or
+            // metadata. Not raised by the audit-order trigger (INSERT-only at table level): RESIDUAL_GAPS.md G-54 (i).
+            'grants' => [DatabaseRoles::APP => ['SELECT', 'INSERT'], DatabaseRoles::AUTH_LOG => ['INSERT'], DatabaseRoles::WORKER => ['INSERT']],
+            'column_grants' => [DatabaseRoles::WORKER => ['SELECT' => ['tenant_id', 'actor_user_id', 'event_type', 'occurred_at']]],
         ],
 
         // ------------------------------------------------------------------

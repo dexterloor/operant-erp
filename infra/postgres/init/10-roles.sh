@@ -1,5 +1,6 @@
 #!/bin/bash
-# ADR-002 §1 as amended by A1.3 / ADR-006 — the five principals, plus a sixth.
+# ADR-002 §1 as amended by A1.3 / ADR-006 — the five principals, plus a sixth, plus the mail worker's seventh login
+# (Mail-C1; owner Q-2, Move 671: "Q-2 seventh login: yes, `erp_worker`").
 #
 # The two ADR-006 roles (erp_auth, erp_authlog) bound the authority of the
 # pre-authentication path by making it a grant fact rather than a code rule.
@@ -37,6 +38,10 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     CREATE ROLE "${ERP_AUTHLOG_USER}"   LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_AUTHLOG_PASSWORD}';
     CREATE ROLE "${ERP_RATELIMIT_USER}" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_RATELIMIT_PASSWORD}';
 
+    -- Mail-C1: the mail worker. Never reached by an HTTP request; never named by ALTER DEFAULT PRIVILEGES. Its
+    -- footprint is granted column by column by the migration that ships its caller (ADR-002 A4.1).
+    CREATE ROLE "${ERP_WORKER_USER}"    LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_WORKER_PASSWORD}';
+
     -- The owner role owns the database and the schema, so migrations run as a
     -- non-superuser exactly as they will on Neon.
     ALTER DATABASE "${POSTGRES_DB}" OWNER TO "${DB_OWNER}";
@@ -57,5 +62,6 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- backend a temp table shadows a public table for every later client.
     REVOKE CREATE ON SCHEMA public FROM PUBLIC;
     GRANT USAGE ON SCHEMA public TO "${ERP_APP_USER}", "${ERP_AI_USER}",
-                                    "${ERP_AUTH_USER}", "${ERP_AUTHLOG_USER}", "${ERP_RATELIMIT_USER}";
+                                    "${ERP_AUTH_USER}", "${ERP_AUTHLOG_USER}", "${ERP_RATELIMIT_USER}",
+                                    "${ERP_WORKER_USER}";
 EOSQL

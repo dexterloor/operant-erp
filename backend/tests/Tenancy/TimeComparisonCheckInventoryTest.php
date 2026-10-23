@@ -9,6 +9,7 @@ use App\Modules\Sales\Application\InvoicePayment;
 use App\Modules\Sales\Application\InvoicePaymentReversal;
 use App\Modules\UserManagement\Application\RoleGrantProposalCreation;
 use App\Modules\UserManagement\Infrastructure\Entity\RoleGrantProposal;
+use App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -42,6 +43,9 @@ final class TimeComparisonCheckInventoryTest extends TenancyTestCase
     private const SAFE = [
         'invoice_due_window' => ['one statement: due_at and issued_at from the same now() in the issuing INSERT', InvoiceIssuer::class, 'issue'],
         'invoice_paid_not_before_issue' => ['clamped: paid_at = max(min(requested, now), issued_at), within 60 s', InvoicePayment::class, 'paidAt'],
+        // Mail-C1: one statement, one clock — the worker binds created_at and expires_at = created_at + 30 min from ONE
+        // ClockInterface reading in the token INSERT; no later transaction writes either.
+        'password_reset_token_window' => ['one statement: created_at and expires_at = created_at + 1800 s from one worker clock reading in the token INSERT', PasswordResetRequestedHandler::class, '__invoke'],
         'invoice_payment_reversed_not_before_issue' => ['clamped: GREATEST(now(), issued_at) in MARK_REVERSED, within 60 s', InvoicePaymentReversal::class, 'reverse'],
         'role_grant_proposal_decided_not_before_proposed' => ['clamped: decided_at = max(at, proposed_at), within 60 s', RoleGrantProposal::class, 'decisionInstant'],
         'role_grant_proposal_expiry_window' => ['one statement: proposed_at and expires_at from one clock_timestamp() in the INSERT', RoleGrantProposalCreation::class, 'propose'],

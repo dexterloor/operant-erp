@@ -51,6 +51,9 @@ final class AuthOperationContractTest extends ApiTestCase
         // decision rather than an omission: a replay refuses itself, because the
         // second call presents a `current_password` that is no longer current.
         'ChangePassword' => ['method' => 'POST', 'path' => '/me/password', 'idem' => false],
+        // Mail-C1, 2026-10-23. `idem: false`: a replay mails at most once more, under the worker's per-person cap; the
+        // envelope store is post-authentication only.
+        'CreatePasswordReset' => ['method' => 'POST', 'path' => '/auth/password-resets', 'idem' => false],
     ];
 
     /** §4.2's `Accepted request fields` for `IssueToken`, which is exhaustive. */

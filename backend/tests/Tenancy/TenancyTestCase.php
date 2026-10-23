@@ -157,6 +157,21 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
+     * Mail-C1 (T-M6b): an unpooled connection as the mail worker's login — the worker's credentials on the direct port
+     * `APP_DIRECT_DATABASE_URL` uses. Through PgBouncer the worker identity has one server connection, so two pooled worker
+     * transactions can never run at once; only unpooled ones can show the per-user lock. Here, not in the test, so the
+     * entry-point scan's list stays this file.
+     */
+    protected function freshUnpooledWorkerClient(): Connection
+    {
+        $parser = new DsnParser(['postgresql' => 'pdo_pgsql', 'postgres' => 'pdo_pgsql']);
+        $worker = $parser->parse($_ENV['WORKER_DATABASE_URL']);
+        $direct = $parser->parse($_ENV['APP_DIRECT_DATABASE_URL']);
+
+        return DriverManager::getConnection(['host' => $direct['host'] ?? '127.0.0.1', 'port' => $direct['port'] ?? null] + $worker);
+    }
+
+    /**
      * Ground truth, read from outside the assertion under test.
      *
      * FORCE ROW LEVEL SECURITY binds the owner too, so the owner cannot be used

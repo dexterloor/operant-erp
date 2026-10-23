@@ -36,7 +36,7 @@ final class DebugBacktraceOffInTestTest extends KernelTestCase
 
         /** @var array<string, string> $connections */
         $connections = $container->getParameter('doctrine.connections');
-        self::assertCount(6, $connections, 'the six connections of doctrine.yaml');
+        self::assertCount(7, $connections, 'the seven connections of doctrine.yaml (Mail-C1 added worker)');
 
         foreach ($connections as $name => $serviceId) {
             $connection = $container->get($serviceId);

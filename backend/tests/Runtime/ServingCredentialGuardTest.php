@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Runtime;
 
 use App\Platform\Runtime\ServingCredentialGuard;
+use App\Platform\Tenancy\DatabaseRoles;
 use Doctrine\Bundle\DoctrineBundle\ConnectionFactory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -164,6 +165,28 @@ final class ServingCredentialGuardTest extends TestCase
     }
 
     /** U26 — mutation: edit the copy. */
+    /**
+     * **T-W1 (Mail-C1): the web subset.** An `erp_worker` DSN is refused under `DatabaseRoles::SERVING_WEB_ROLES` (what
+     * `public/index.php` passes) and accepted under `APPLICATION_ROLES` (what `bin/console` uses — the worker runs through
+     * it). The subset is exactly the application roles minus the worker, written out. A `redis://` queue DSN, which the web
+     * process now holds, is not DBAL-shaped and is accepted under both. Mutation: drop the `$roles` threading (L-10) →
+     * the worker DSN is accepted under the subset → red.
+     */
+    #[Test]
+    public function u31TheWebSubsetRefusesTheWorkerLoginAndTheConsoleAcceptsIt(): void
+    {
+        $worker = ['WORKER_DATABASE_URL' => 'postgresql://erp_worker:x@127.0.0.1:1/erp?serverVersion=17&charset=utf8'];
+        self::assertSame(['WORKER_DATABASE_URL'], ServingCredentialGuard::offendingNames($worker, [], [], DatabaseRoles::SERVING_WEB_ROLES));
+        self::assertSame([], ServingCredentialGuard::offendingNames($worker, [], [], DatabaseRoles::APPLICATION_ROLES));
+        self::assertSame([], ServingCredentialGuard::offendingNames($worker, [], []), 'The default set is not every application role.');
+        $keyword = ['WORKER_PDO' => 'pgsql:host=127.0.0.1;dbname=erp;user=erp_worker'];
+        self::assertSame(['WORKER_PDO'], ServingCredentialGuard::offendingNames($keyword, [], [], DatabaseRoles::SERVING_WEB_ROLES), 'The subset does not reach the PDO/keyword rule.');
+        self::assertSame([DatabaseRoles::WORKER], array_values(array_diff(DatabaseRoles::APPLICATION_ROLES, DatabaseRoles::SERVING_WEB_ROLES)));
+        self::assertSame([], array_diff(DatabaseRoles::SERVING_WEB_ROLES, DatabaseRoles::APPLICATION_ROLES));
+        $queue = ['MESSENGER_TRANSPORT_DSN' => 'redis://:x@127.0.0.1:56379'];
+        self::assertSame([], ServingCredentialGuard::offendingNames($queue, [], [], DatabaseRoles::SERVING_WEB_ROLES), 'The queue DSN the web process holds was refused.');
+    }
+
     #[Test]
     public function u26TheSchemeMapIsDoctrineBundlesOwn(): void
     {

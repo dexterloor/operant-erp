@@ -134,6 +134,10 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         // Cred-C1 (2026-10-23): the password verified and its seal did not, SECURITY, IP-bearing, subjectless (design §3.5);
         // `Version20261023000700` re-issues the scope with it.
         'auth.login.credential_mismatch',
+        // Mail-C1 (2026-10-23): the mail worker's two events, SECURITY, IP-bearing (the request IP the queued message
+        // carried), subjectless; `Version20261023000900` re-issues the scope with both.
+        'auth.password_reset.issued',
+        'auth.credential.identity_mismatch',
         // E4-1 clause (5) / API-O-18's sixth step, added 2026-09-09 with E-23's
         // `AUTH_PASSWORD_CHANGED`. `SEC` ruled `ip_address: yes` (§5.1.4) --
         // "the source address of a credential change is the forensic question
@@ -191,6 +195,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'Modules/AuditLog/Infrastructure/DenialAuditWriter.php',
         'Modules/AuditLog/Infrastructure/ItemAuditWriter.php',
         'Modules/AuditLog/Infrastructure/PasswordChangeAuditWriter.php',
+        // Mail-C1: the mail worker's writer, on erp_worker (both its events are IP-bearing SECURITY members).
+        'Modules/AuditLog/Infrastructure/PasswordResetAuditWriter.php',
         // G7b `UpdateSettings` (2026-10-22): `tenant_settings.updated`, BUSINESS, no parameter for an address. Listed AND driven.
         'Modules/AuditLog/Infrastructure/SettingsAuditWriter.php',
         // F-2 step 8's writer, added 2026-09-10 with `ApprovePurchaseOrder`. It

@@ -762,8 +762,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 $bodies[$name] = null;
                 continue;
             }
-            if (204 !== $status) {
-                self::assertNotSame('', $content, $name.' answered '.$status.' with an empty body; only a 204 has none.');
+            // Mail-C1: §4.4.1 branch 6's queued request (202) has no body either, by contract.
+            if (204 !== $status && 202 !== $status) {
+                self::assertNotSame('', $content, $name.' answered '.$status.' with an empty body; only a 204 or a queued 202 has none.');
             }
             $bodies[$name] = '' === $content ? null : json_decode($content, true, flags: \JSON_THROW_ON_ERROR);
 

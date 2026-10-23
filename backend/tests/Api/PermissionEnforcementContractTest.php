@@ -50,6 +50,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
      */
     public const PINNED_PERMISSIONS = [
         'IssueToken' => null,
+        // Mail-C1: §4.2's `—` — pre-authentication, like `IssueToken`.
+        'CreatePasswordReset' => null,
         'GetCurrentUser' => null,
         // Remaining-ops G7a (2026-10-21): §4.2 :870's `Perm` cell.
         'GetSettings' => 'tenant_settings.view',

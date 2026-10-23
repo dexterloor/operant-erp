@@ -1,4 +1,4 @@
-# ADR-002 §1 as amended by A1.3 / ADR-006 — six principals, six DSNs. Which role a connection uses is a
+# ADR-002 §1 as amended by A1.3 / ADR-006 — seven principals, seven DSNs (Mail-C1 added the worker). Which role a connection uses is a
 # security control, not a convenience:
 #
 #   owner      direct + unpooled, owns the schema, runs migrations, never serves requests
@@ -7,6 +7,7 @@
 #   auth       erp_auth      — pre-auth slug + credential read, no write anywhere
 #   authlog    erp_authlog   — INSERT on audit_log only, cannot read it back
 #   ratelimit  erp_ratelimit — the pre-auth counter tables and nothing else
+#   worker     erp_worker    — the mail worker (Mail-C1, owner Q-2); never serves a request
 #
 # `owner` is the DBAL default purely so that doctrine:migrations picks it up without
 # a flag. The ORM entity manager is pinned to `app`, so no application code can
@@ -20,6 +21,8 @@
 # `EnvProcessorPinTest` pins each connection's keys in every `when@*` block. Pinned off by `DebugBacktraceOffInTestTest`.
 parameters:
     app.doctrine.collect_backtrace: '%kernel.debug%'
+    # Mail-C1: declared empty so the web kernel compiles without the worker's DSN, which it must never hold.
+    env(WORKER_DATABASE_URL): ''
 
 when@test:
     parameters:
@@ -113,6 +116,14 @@ doctrine:
                 # divergence pin with it, since that pin introspects everything.
                 # Mapped to string for reverse engineering only; the columns stay
                 # cidr and inet in the database, where Postgres validates them.
+                mapping_types:
+                    cidr: string
+                    inet: inet
+            # Mail-C1 (owner Q-2): the mail worker. Its DSN is only in the worker's and the suite's env files; the web
+            # kernel declares it empty (parameters above) and never opens it (lazy, like every DBAL connection).
+            worker:
+                url: '%env(resolve:WORKER_DATABASE_URL)%'
+                profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
                 mapping_types:
                     cidr: string
                     inet: inet

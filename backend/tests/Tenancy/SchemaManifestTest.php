@@ -105,11 +105,18 @@ final class SchemaManifestTest extends TenancyTestCase
             FROM pg_policy p
             JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public'
+            WHERE n.nspname = 'public' AND p.polpermissive
             ORDER BY 1
             SQL);
 
+        // PERMISSIVE policies only (Mail-C1, R1.2 item 7): a RESTRICTIVE policy can only narrow, and each one is registered
+        // by name in SchemaGuardTest::RESTRICTIVE_POLICIES, where an unregistered one or a stale entry fails. Restrictive
+        // policies on a non-tenant table are still refused here.
         self::assertSame(SchemaManifest::tenantScopedTables(), array_column($policies, 'tbl'));
+        self::assertSame([], $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT c.relname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public' AND NOT p.polpermissive AND c.relname <> ALL (?::text[])
+            SQL, ['{'.implode(',', SchemaManifest::tenantScopedTables()).'}']), 'A restrictive policy sits on a table that is not tenant-scoped.');
 
         $expected = "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)";
         foreach ($policies as $p) {

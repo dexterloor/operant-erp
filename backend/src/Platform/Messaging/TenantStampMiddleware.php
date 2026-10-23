@@ -20,8 +20,8 @@ use Symfony\Component\Messenger\Stamp\ReceivedStamp;
  * that constant, single-sourcing it is ARCH's call). So it also covers a context set by `TenantContext::establishOn()`
  * on the application connection, which a `TenantContext` accessor would miss. Costs one `SELECT` per `TenantMessage`
  * dispatch (none at Mail-C0; U-C1's statement-count pins must include it). It reads the APPLICATION entity manager's
- * connection only: a pre-authentication message (dispatched on `erp_auth`) is a {@see PreAuthenticationMessage} and
- * carries no stamp.
+ * connection only: a pre-authentication message is a {@see PreAuthenticationMessage}, dispatched with no database
+ * principal at all (Mail-C1 FA-8: `CreatePasswordReset` touches only `erp_ratelimit`, before the dispatch), and carries no stamp.
  *
  *   - dispatched outside a transaction, or in one with no tenant set → refused (`\LogicException`);
  *   - dispatched in a tenancy → every `TenantIdStamp` already attached is REMOVED and the transaction's is added: a

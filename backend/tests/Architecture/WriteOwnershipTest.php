@@ -218,7 +218,7 @@ final class WriteOwnershipTest extends KernelTestCase
         // ONE `INSERT INTO audit_log` for `tenant_settings.updated` (PREDICTED; confirmed off this test's run).
         // **31 -> 32 on 2026-10-23** (G4-C1 `UpdateUser`): `UserAuditWriter::record()`'s one `INSERT INTO audit_log` for
         // `user.deactivated` / `.reactivated` / `.updated` (first RED L-4).
-        'Modules\\AuditLog' => 32,
+        'Modules\\AuditLog' => 33, // +1 Mail-C1: PasswordResetAuditWriter's one shared INSERT INTO audit_log (erp_worker).
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -356,7 +356,7 @@ final class WriteOwnershipTest extends KernelTestCase
         // **16 -> 19 on 2026-10-23** (G4-C1 `UpdateUser`): `UserLiveness`'s E-15g strip (`DELETE FROM user_role`) and its
         // two lapse statements (`UPDATE role_grant_proposal … AND status = 'pending'`, for and by the person), read off this
         // test's failure. The `app_user` writes are an ORM flush, which this scan does not count.
-        'Modules\\UserManagement' => 19,
+        'Modules\\UserManagement' => 20, // +1 Mail-C1: the reset handler's INSERT INTO password_reset_token (erp_worker).
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.
@@ -390,9 +390,10 @@ final class WriteOwnershipTest extends KernelTestCase
     private const REGISTERED_DEVIATIONS = [
         AuthTrailWriter::class => [
             'audit_log' => 'ADR-006 / API.md §7.1 step 8: authentication events are written on the pre-authentication '
-                .'erp_authlog principal, which holds INSERT on audit_log and no SELECT. Every AuditLog writer runs on '
-                .'erp_app, which §7.2 forbids on this path, so the write cannot go through the owning module. Deliberate, '
-                .'owner ruling on API-O-27 (2026-09-14).',
+                .'erp_authlog principal, which holds INSERT on audit_log and no SELECT. Every other AuditLog writer runs on '
+                .'erp_app, or (PasswordResetAuditWriter, Mail-C1) on erp_worker inside the mail worker\'s transaction; neither '
+                .'may run on this path (§7.2), so the write cannot go through the owning module. Deliberate, owner ruling on '
+                .'API-O-27 (2026-09-14).',
         ],
     ];
 

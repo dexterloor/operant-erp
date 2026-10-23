@@ -49,6 +49,15 @@ final class DatabaseRoles
     public const RATE_LIMIT = 'erp_ratelimit';
 
     /**
+     * The mail worker (Mail-C1; owner Q-2, Move 671: *"Q-2 seventh login: yes, `erp_worker`"*; PR-5; `RESIDUAL_GAPS.md`
+     * G-1.3). Column SELECT on the workspace registry and the user columns a reset mail needs, the only INSERT on
+     * `password_reset_token`, and INSERT of its two security events on `audit_log`. **Not pre-authentication:** no HTTP
+     * path reaches it, so it is not in {@see self::PRE_AUTH_ROLES}, and the web process refuses to serve while it can see
+     * its credential ({@see self::SERVING_WEB_ROLES}).
+     */
+    public const WORKER = 'erp_worker';
+
+    /**
      * Every principal the application connects as. The schema owner is
      * deliberately absent: it owns the schema, runs migrations and never serves
      * a request, so the assertions that iterate this list do not apply to it.
@@ -56,6 +65,23 @@ final class DatabaseRoles
      * @var list<string>
      */
     public const APPLICATION_ROLES = [
+        self::APP,
+        self::AI,
+        self::AUTH,
+        self::AUTH_LOG,
+        self::RATE_LIMIT,
+        self::WORKER,
+    ];
+
+    /**
+     * The principals the WEB process may hold a credential for: {@see self::APPLICATION_ROLES} minus {@see self::WORKER}
+     * (Mail-C1). `public/index.php` passes this to `ServingCredentialGuard`, so a worker DSN in the web environment is
+     * refused like an owner DSN. Written out, not computed, so a role added to `APPLICATION_ROLES` is not silently
+     * servable; `ServingCredentialGuardTest` pins the difference to exactly the worker.
+     *
+     * @var list<string>
+     */
+    public const SERVING_WEB_ROLES = [
         self::APP,
         self::AI,
         self::AUTH,

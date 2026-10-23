@@ -260,20 +260,35 @@ final class SchemaGuardTest extends TenancyTestCase
             .'A guard that returns "all clear" against a set it does not cover is worse than no guard.');
     }
 
+    /**
+     * Restrictive policies, each registered by name with its reason (Mail-C1, `mail-c1-build-plan.md` R1.2 item 7; RED L-1).
+     * A restrictive policy is ANDed with the permissive `tenant_isolation`, so it can only narrow — but an unregistered one
+     * is a policy nobody reviewed, and a stale entry is a narrowing that silently went away.
+     */
+    private const RESTRICTIVE_POLICIES = [
+        'audit_log' => [
+            'audit_log_worker_events' => 'Mail-C1 (RED L-1): erp_worker may INSERT only auth.password_reset.issued and auth.credential.identity_mismatch, so a leaked worker DSN cannot forge a sign-in or revocation row (T-D1).',
+        ],
+    ];
+
+    /**
+     * **Exactly one PERMISSIVE policy per tenant-scoped table**, with a USING and a WITH CHECK that do not fail open; and
+     * every RESTRICTIVE policy registered in {@see self::RESTRICTIVE_POLICIES}, INSERT-only, for exactly one application
+     * role, with a WITH CHECK and no sub-SELECT. Amended at Mail-C1 (R1.2 item 7), deliberately: an INSERT-only restrictive
+     * policy has no USING, so the old "one policy per table, every one with a USING" reddened twice for a policy that only
+     * narrows. Controls: the permissive count equals `tenantScopedTables()`; a planted unregistered restrictive policy is
+     * reported (in a rolled-back transaction). Mutation MU-37 drops the worker policy → the stale-entry branch is red.
+     */
     #[Test]
     public function everyTenantScopedTableHasBothAUsingAndAWithCheckPolicy(): void
     {
-        $rows = $this->owner()->fetchAllAssociative(<<<'SQL'
-            SELECT c.relname AS tbl, p.polname,
-                   pg_get_expr(p.polqual,      p.polrelid) AS using_expr,
-                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expr
-            FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public' ORDER BY 1
-            SQL);
+        $rows = $this->policyRows();
+        $permissive = array_values(array_filter($rows, static fn (array $r): bool => (bool) $r['permissive']));
 
-        self::assertCount(\count(SchemaManifest::tenantScopedTables()), $rows);
-        foreach ($rows as $r) {
+        self::assertCount(\count(SchemaManifest::tenantScopedTables()), $permissive);
+        self::assertSame(SchemaManifest::tenantScopedTables(), array_values(array_unique(array_column($permissive, 'tbl'))),
+            'A tenant-scoped table has no permissive policy, or one has two.');
+        foreach ($permissive as $r) {
             self::assertNotNull($r['using_expr'], $r['tbl'].' policy has no USING clause.');
             self::assertNotNull($r['check_expr'], $r['tbl'].' policy has no WITH CHECK clause -- writes are unguarded (ADR-002 §4).');
             // ADR-002 §2: "Never write current_setting(...) IS NULL OR ... -- that fails open."
@@ -281,6 +296,80 @@ final class SchemaGuardTest extends TenancyTestCase
             self::assertStringNotContainsStringIgnoringCase('is null', (string) $r['check_expr'], $r['tbl'].' WITH CHECK clause fails open.');
             self::assertStringNotContainsString('SELECT', (string) $r['using_expr'], 'ADR-002 §5 warns against sub-SELECTs in policies.');
         }
+
+        self::assertSame([], self::restrictiveViolations($rows), implode("\n", self::restrictiveViolations($rows)));
+
+        // Control: a planted, unregistered restrictive policy is reported.
+        $owner = $this->owner();
+        $owner->beginTransaction();
+        try {
+            $owner->executeStatement("CREATE POLICY planted_restrictive ON audit_log AS RESTRICTIVE FOR INSERT TO erp_app WITH CHECK (event_type <> 'x')");
+            self::assertNotSame([], self::restrictiveViolations($this->policyRows()), 'A planted unregistered restrictive policy was not reported.');
+        } finally {
+            $owner->rollBack();
+        }
+    }
+
+    /** @return list<array{tbl: string, polname: string, permissive: bool, cmd: string, roles: list<string>, using_expr: ?string, check_expr: ?string}> */
+    private function policyRows(): array
+    {
+        return array_map(static fn (array $r): array => [
+            'tbl' => (string) $r['tbl'],
+            'polname' => (string) $r['polname'],
+            'permissive' => (bool) $r['permissive'],
+            'cmd' => (string) $r['cmd'],
+            'roles' => '' === (string) $r['roles'] ? [] : explode(',', (string) $r['roles']),
+            'using_expr' => null === $r['using_expr'] ? null : (string) $r['using_expr'],
+            'check_expr' => null === $r['check_expr'] ? null : (string) $r['check_expr'],
+        ], $this->owner()->fetchAllAssociative(<<<'SQL'
+            SELECT c.relname AS tbl, p.polname, p.polpermissive AS permissive, p.polcmd AS cmd,
+                   (SELECT string_agg(CASE WHEN r = 0 THEN 'public' ELSE pg_get_userbyid(r) END, ',' ORDER BY 1)
+                      FROM unnest(p.polroles) AS r) AS roles,
+                   pg_get_expr(p.polqual,      p.polrelid) AS using_expr,
+                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expr
+            FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' ORDER BY 1, 2
+            SQL));
+    }
+
+    /**
+     * @param list<array{tbl: string, polname: string, permissive: bool, cmd: string, roles: list<string>, using_expr: ?string, check_expr: ?string}> $rows
+     *
+     * @return list<string>
+     */
+    private static function restrictiveViolations(array $rows): array
+    {
+        $violations = [];
+        $seen = [];
+        foreach ($rows as $r) {
+            if ($r['permissive']) {
+                continue;
+            }
+            $seen[$r['tbl']][$r['polname']] = true;
+            if (!isset(self::RESTRICTIVE_POLICIES[$r['tbl']][$r['polname']])) {
+                $violations[] = "unregistered restrictive policy {$r['polname']} on {$r['tbl']}";
+                continue;
+            }
+            if ('a' !== $r['cmd']) {
+                $violations[] = "{$r['polname']} is not FOR INSERT";
+            }
+            if (1 !== \count($r['roles']) || !\in_array($r['roles'][0], DatabaseRoles::APPLICATION_ROLES, true)) {
+                $violations[] = "{$r['polname']} is not for exactly one application role";
+            }
+            if (null === $r['check_expr'] || false !== stripos($r['check_expr'], 'is null') || str_contains($r['check_expr'], 'SELECT')) {
+                $violations[] = "{$r['polname']} has no WITH CHECK, fails open or sub-SELECTs";
+            }
+        }
+        foreach (self::RESTRICTIVE_POLICIES as $table => $policies) {
+            foreach (array_keys($policies) as $name) {
+                if (!isset($seen[$table][$name])) {
+                    $violations[] = "registered restrictive policy $name on $table no longer exists (stale entry)";
+                }
+            }
+        }
+
+        return $violations;
     }
 
     /**

@@ -97,6 +97,13 @@ deptrac:
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
   # do not move, because the line names a Doctrine class. No LAYER edge. Re-derive; never restate.)
+  # (Re-derived 2026-10-23 with the password-reset request in the tree (Mail-C1; plan R1.6, RED L-8): FIVE edge lines added --
+  # A-1 `MessageCatalogue -> PasswordResetRequested` (the register's first A-1-only line), A-5 `PasswordResetRequestedHandler
+  # -> PasswordResetAuditWriter`, A-7 `PasswordResetRequest -> PreAuthBudgets`, A-10 `PasswordResetRequestedHandler` and
+  # `PasswordResetAuditWriter -> Doctrine\DBAL\Connection`. By TAG at d56bf74 -> after: A-1 0 -> 1 (plus the one
+  # `A-1 + A-5` line, unchanged), A-5 43 -> 44, A-7 95 -> 96, A-10 11 -> 13, A-12 25 -> 25 (counted with awk over the lines
+  # between `skip_violations:` and `layers:`, by trailing tag). ONE LAYER edge: `UserManagementContract -> PlatformMessaging`.
+  # Measured in `docs/session13/mail-c1-progress.md`. Re-derive; never restate.)
   # (Re-derived 2026-10-23 with the mail bus in the tree (Mail-C0): NO edge line added -- nothing in `src/` depends on the new
   # `PlatformMessaging` layer, and its own classes reach only Doctrine (the entity manager) and Symfony. A NEW LAYER, not an
   # edge: `PlatformMessaging` (allowed `Doctrine`, `PlatformTenancy`), named in no `allowed` list. Measured in
@@ -421,6 +428,9 @@ deptrac:
     App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry:
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-12
     App\Modules\AuditLog\Infrastructure\PasswordChangeAuditWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter:
+      # Mail-C1: the mail worker's audit writer, on the erp_worker connection (bound in services.yaml).
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\Inventory\Application\ItemReader:
       - App\Modules\Inventory\ApiResource\ItemCollection   # A-7
@@ -773,6 +783,9 @@ deptrac:
       # loaded and row-locked under the role lock (`ChangePassword`'s entity edge, final RED M-2(a)).
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\PasswordResetRequest:
+      # Mail-C1: `CreatePasswordReset` consumes sign-in's two budgets (D-M3), `SignIn`'s shape exactly.
+      - App\Modules\UserManagement\Infrastructure\PreAuthBudgets   # A-7
     App\Modules\UserManagement\Application\SignIn:
       - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7
       - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7
@@ -784,6 +797,11 @@ deptrac:
     App\Modules\UserManagement\Application\SignInResult:
       - App\Modules\UserManagement\Infrastructure\IssuedToken   # A-7
     App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler:
+      # Mail-C1: the mail worker writes its two security events through AuditLog's writer, inside its own transaction on
+      # erp_worker (route (ii), M-2) -- `ChangePassword -> PasswordChangeAuditWriter`'s shape. `ARCH` TO CONFIRM the tag.
+      - App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter   # A-5
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\CredentialLookup:
       - Doctrine\DBAL\Connection   # A-10
@@ -797,6 +815,12 @@ deptrac:
     # tests only, and it refuses a bare connection and another tenant's record. A caller check is owed at G5-C1.
     App\Platform\Http\Idempotency\IdempotencyEnvelopeStore:
       - Doctrine\DBAL\Connection   # A-10
+    App\Platform\Messaging\MessageCatalogue:
+      # Mail-C1 (FA-3): the catalogue is the one Platform list that MUST name module messages -- read by the serializer,
+      # the allowlist middleware and MessengerConfigurationTest; a string list would hide the dependency from deptrac
+      # without removing it. Revisit trigger: the third catalogued message, or the first from a module other than
+      # UserManagement -> feed the catalogue from `framework.messenger.routing` through a container parameter. `ARCH` TO CONFIRM.
+      - App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested   # A-1
     App\Platform\Security\IdentityReader:
       - Doctrine\DBAL\Connection   # A-10
     App\Platform\Security\PermissionGate:
@@ -1610,6 +1634,8 @@ deptrac:
       - PlatformConsole
       - PlatformDomain
       - PlatformHttp
+      # Mail-C1 (FA-3): the password-reset message implements `PreAuthenticationMessage`. `ARCH` TO CONFIRM.
+      - PlatformMessaging
       - PlatformPersistence
       - PlatformSecurity
       - PlatformTenancy

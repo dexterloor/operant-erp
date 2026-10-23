@@ -143,7 +143,7 @@ final class WireScaleTest extends PurchaseOrderTestCase
             }
             $body = json_decode($this->responseContent(), true);
             if (!\is_array($body)) {
-                self::assertSame(204, $status, $name.' answered a success with no JSON body; only a 204 has none (§4.4.1 branch 3).');
+                self::assertContains($status, [204, 202], $name.' answered a success with no JSON body; only a 204 (§4.4.1 branch 3) or a queued 202 (branch 6, Mail-C1) has none.');
                 continue;
             }
             ++$bodiesRead;

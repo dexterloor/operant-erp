@@ -481,19 +481,20 @@ final class MessengerConfigurationTest extends KernelTestCase
      * 16. **`async` and `failed` are two streams in every non-test environment** (mail-c0-red.md M-1). In the Redis bridge a
      * DSN path segment overrides `options.stream`, so `redis://…/messages` would put both transports on ONE stream and a
      * retried message would be consumed as failed (and the reverse). Builds each transport's bridge `Connection` from the
-     * committed config's options and `.env.worker.example`'s DSN shape, with an unconnected `\Redis` and `lazy` on — no
+     * committed config's options and `.env.example`'s DSN shape (Mail-C1; `.env.worker.example` before), with an unconnected `\Redis` and `lazy` on — no
      * socket is opened. Planted control: the same DSN with a path collapses the two. Mutation M20 → red.
      */
     #[Test]
     public function asyncAndFailedUseDistinctStreams(): void
     {
         $dsn = null;
-        foreach ((array) file(self::backend().'/../.env.worker.example', \FILE_IGNORE_NEW_LINES) as $line) {
+        // Mail-C1 (FA-10): the DSN moved to the root `.env.example` with the web's first dispatch.
+        foreach ((array) file(self::backend().'/../.env.example', \FILE_IGNORE_NEW_LINES) as $line) {
             if (1 === preg_match('/^MESSENGER_TRANSPORT_DSN=(.+)$/', (string) $line, $m)) {
                 $dsn = trim($m[1], '"\'');
             }
         }
-        self::assertIsString($dsn, '.env.worker.example carries no MESSENGER_TRANSPORT_DSN.');
+        self::assertIsString($dsn, '.env.example carries no MESSENGER_TRANSPORT_DSN.');
         self::assertStringStartsWith('redis://', $dsn);
 
         $blocks = self::configBlocks();

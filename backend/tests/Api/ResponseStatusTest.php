@@ -116,6 +116,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
      * control in the probe exists: a predicate that is never true would leave
      * the count at one everywhere while branch 4 had no members at all.
      *
+     * **Branch 6 (Mail-C1, 2026-10-23) is keyed on `Path`, which API-21's opening sentence already allows** ("Method and,
+     * for POST only, …"): a `POST` at a path in {@see self::QUEUED_PATHS} is queued, not performed — 202, no body, for
+     * every well-formed input — and is excluded from branches 4 and 5, so `POST` stays a partition.
+     *
      * @var array<int, array{method: string, creates: bool|null, status: int}>
      */
     private const BRANCHES = [
@@ -124,7 +128,11 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         3 => ['method' => 'DELETE', 'creates' => null, 'status' => 204],
         4 => ['method' => 'POST', 'creates' => true, 'status' => 201],
         5 => ['method' => 'POST', 'creates' => false, 'status' => 200],
+        6 => ['method' => 'POST', 'creates' => null, 'status' => 202],
     ];
+
+    /** Branch 6's paths, normalised: the requests that are queued, not performed (Mail-C1, `CreatePasswordReset`). */
+    private const QUEUED_PATHS = ['/auth/password-resets'];
 
     /**
      * **Reading (3)'s closed domain** — operation name → the row-level URI template it may declare
@@ -345,6 +353,10 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
                     $wrong[] = \sprintf('%s is branch 4 and its Location is %s, not the row-level URI the branch tested for (%s)',
                         $name, var_export($location, true), implode(' or ', $tested));
                 }
+            }
+
+            if (6 === $branch && '' !== (string) $response->getContent()) {
+                $wrong[] = \sprintf('%s is branch 6 (queued) and returned a body: %s', $name, substr((string) $response->getContent(), 0, 200));
             }
 
             if ('DELETE' === $method) {
@@ -622,8 +634,13 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     {
         $matched = [];
 
+        $queued = 'POST' === $method && \in_array($path, self::QUEUED_PATHS, true);
         foreach (self::BRANCHES as $number => $branch) {
             if ($branch['method'] !== $method) {
+                continue;
+            }
+            // Branch 6 is the queued POSTs; branches 4 and 5 are every other POST.
+            if ('POST' === $method && (202 === $branch['status']) !== $queued) {
                 continue;
             }
             if (null !== $branch['creates'] && self::createsAnAddressableRow($path, $registryPaths, $declaredRowUri) !== $branch['creates']) {
