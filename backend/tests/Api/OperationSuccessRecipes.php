@@ -146,6 +146,19 @@ trait OperationSuccessRecipes
 
                 return [200, 'bulk restore'];
             }],
+            // G5-C1 (2026-10-23): the second store operation. A one-code composed role given to one fresh person; the answer is
+            // the stored envelope `{requested, applied, margin_exposure}`.
+            'CreateBulkRoleAssignment' => [function (): array {
+                $role = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)', [$role, self::TENANT_A, 'Recipe bulk role']);
+                $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)', [self::TENANT_A, $role, 'role.view']);
+
+                return ['role' => $role, 'user' => $this->seedPrincipal(self::TENANT_A, [])];
+            }, function (array $c) use ($key): array {
+                $this->send('POST', '/bulk/role-assignments', ['role_id' => $c['role'], 'user_ids' => [$c['user']]], $key());
+
+                return [200, 'bulk role assignment'];
+            }],
             'GetItem' => [fn (): array => ['item' => $this->seedItem(self::TENANT_A, 'SKU-GET')], function (array $c): array {
                 $this->send('GET', '/items/'.$c['item']);
 

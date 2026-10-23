@@ -316,6 +316,11 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'envelope byte for byte and does no work: a member archived again between the calls stays archived, and no second '
                 .'customer.restored row is written.',
         ],
+        'CreateBulkRoleAssignment' => [
+            'method' => 'replayCreateBulkRoleAssignment',
+            'why' => 'G5-C1: the second store operation. A replay with the same key and body is the stored envelope byte for byte, '
+                .'and does no work: a grant taken away between the calls stays away, and no second role.assigned row is written.',
+        ],
         'RestoreSupplier' => [
             'method' => 'replayRestoreSupplier',
             'why' => 'C5 C2a: a second restoration of a live supplier. guard:supplier.deleted_at — the guard refuses '
@@ -1379,6 +1384,27 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertSame($first, (string) $this->client()->getResponse()->getContent(), $why);
         self::assertNotNull($this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT deleted_at FROM customer WHERE id = ?::uuid', [$id])[0]['deleted_at'], $why);
         self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::CUSTOMER_RESTORED), $why);
+    }
+
+    private function replayCreateBulkRoleAssignment(string $why): void
+    {
+        $role = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)', [$role, self::TENANT_A, 'Replayed bulk role']);
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)', [self::TENANT_A, $role, 'role.view']);
+        $member = $this->seedPrincipal(self::TENANT_A, []);
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+
+        $this->send('POST', '/bulk/role-assignments', ['role_id' => $role, 'user_ids' => [$member]], $key);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $first = (string) $this->client()->getResponse()->getContent();
+        $this->executeAsOwnerForTenant(self::TENANT_A, 'DELETE FROM user_role WHERE user_id = ?::uuid AND role_id = ?::uuid', [$member, $role]);
+
+        $this->send('POST', '/bulk/role-assignments', ['role_id' => $role, 'user_ids' => [$member]], $key);
+
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame($first, (string) $this->client()->getResponse()->getContent(), $why);
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$member]), $why);
+        self::assertCount(1, $this->auditRowsOf(\App\SharedKernel\ValueObject\AuditEvent::ROLE_ASSIGNED), $why);
     }
 
     private function replayRestoreSupplier(string $why): void

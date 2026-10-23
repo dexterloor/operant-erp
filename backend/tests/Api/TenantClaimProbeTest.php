@@ -114,6 +114,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'CreateBulkArchival' => ['body' => ['resource' => 'inventory_item', 'ids' => ['00000000-0000-4000-8000-0000000000b1']]],
         // G5-C3 (2026-10-23): the restoration twin, the same reasoning.
         'CreateBulkRestoration' => ['body' => ['resource' => 'inventory_item', 'ids' => ['00000000-0000-4000-8000-0000000000b2']]],
+        // G5-C1 (2026-10-23): AssignRole's fixtures, in bulk — the one-code (`role.view`) composed role given to the user
+        // holding nothing. A supplied tenant id that moved the request onto B would find B's role and person (the digest).
+        'CreateBulkRoleAssignment' => ['body' => ['role_id' => '@revoke_role', 'user_ids' => ['@assign_subject']]],
         // Roles slice 1 (2026-09-23). The vocabulary is global -- no tenant column, no RLS -- so a supplied tenant
         // id has nothing to move; the fourth assertion (no response names one of tenant B's rows) holds trivially.
         'ListPermissions' => [],

@@ -605,12 +605,15 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         'DeleteUser' => 'E-15g, the same, for `deleted_at`; and GrantFootprintTest\'s app_user deleted_at probe moves (C0); '
             .'and LiveGrantReader::holderRowCount counts this user\'s rows until they are stripped — E-15g\'s strip is what lets '
             .'DeleteRole and E-15f\'s held-role clause stop counting a removed user (SEC D-7.4, roles slice 4 C2).',
-        'CreateBulkRoleAssignment' => 'Bulk never proposes (refused wholesale before any member id is read, keeping E-14\'s '
-            .'no-oracle property); an owner\'s bulk counts a member with a pending same-pair proposal as NOT applied (R-21).'
-            .' And AssignRole parity, per member: GrantRules\' phase verdicts (E-15b marker owner-only, PC-13 SoD, V2-R-6 archived '
-            .'role), one `role.assigned` row per (actor, subject, role), and the role\'s `margin_exposure` on the response (G-28: '
-            .'a change to this response contract is its trigger). G-32\'s Medium seat is composed across a holder\'s roles (R-1); bulk '
-            .'must add no seat a single AssignRole cannot (SEC, stock-adjustment-sec.md §1).',
+        // `CreateBulkRoleAssignment` LEFT 2026-10-23 (G5-C1), its work done: it never proposes — E-15e routing, E-15b's
+        // marker, E-15c and an archived role are judged once, before any member id is read
+        // (`BulkRoleAssignmentTest::aNonOwnersBulkOfAnXAdminRoleIsRefusedBeforeAnyMemberIsRead`,
+        // `::theRoleIsJudgedOnceBeforeAnyMemberIsRead`); an owner's bulk counts a member with a pending same-pair proposal as
+        // not applied (R-21, `::anOwnersBulkSkipsAMemberWithAPendingSamePairProposal`); per member it re-runs GrantRules'
+        // phase verdicts (V2-R-6, E-15a, C12, PC-13 over LIVE roles) and writes exactly AssignRole's `INSERT` and one
+        // `role.assigned` per (actor, subject, role), proven differentially (`::everyMemberVerdictMatchesTheSingleAssignRole`);
+        // the response carries the role's `margin_exposure` (G-28's response-contract trigger fired; clause 3 served, clause 4
+        // cannot be on a bulk body). No seat is added that a single AssignRole cannot add (G-32's R-1, SEC).
         // `DeleteRole` LEFT 2026-10-07 (roles slice 4 C3), its work done: E-15h's pending refusal counts every `pending` row on
         // the role, stale ones included (`LiveGrantReader::pendingProposalCount`, a `status = 'pending'` partial index), and names
         // the count — `RoleDeleteTest::aRoleWithOpenRequestsIsRefusedCountingExpiredOnes`. The OPEN SEC question is answered by

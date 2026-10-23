@@ -3052,6 +3052,10 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // G4-C1 (T-1-14): `admin` switches the viewer off — writes `user_role` (the strip), `app_user` (the flush) and the
             // audit rows, in one transaction whose first statement is the lock.
             'UpdateUser' => $this->send('PATCH', '/users/'.$subject, ['is_active' => false]),
+            // G5-C1: `admin` gives the same one-code composed role to the subject in bulk — writes `user_role` and the audit
+            // row (and the envelope, which is not a role table).
+            'CreateBulkRoleAssignment' => $this->send('POST', '/bulk/role-assignments', ['role_id' => $grantable, 'user_ids' => [$subject]],
+                [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
@@ -3079,6 +3083,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'DeleteRole' => ['DeleteRole', 204];
         yield 'RestoreRole' => ['RestoreRole', 200];
         yield 'UpdateUser' => ['UpdateUser', 200];
+        yield 'CreateBulkRoleAssignment' => ['CreateBulkRoleAssignment', 200];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3568,8 +3573,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             }
         }
 
-        self::assertSame(['RoleAssignment', 'RoleGrantProposalConfirmation'], $callersIn($sources),
-            'GrantRules::insert() has a caller other than RoleAssignment and RoleGrantProposalConfirmation: give that path its own case in everyRoleWritePath() '
+        // G5-C1 (2026-10-23): `BulkRoleAssignment` (`CreateBulkRoleAssignment`), with its own positional case.
+        self::assertSame(['BulkRoleAssignment', 'RoleAssignment', 'RoleGrantProposalConfirmation'], $callersIn($sources),
+            'GrantRules::insert() has a caller other than BulkRoleAssignment, RoleAssignment and RoleGrantProposalConfirmation: give that path its own case in everyRoleWritePath() '
             .'(and its operation in ROLE_LOCK_FIRST_CHECKED) before it may write user_role.');
     }
 
@@ -4184,7 +4190,8 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame(array_keys(iterator_to_array(self::everyRoleWritePath())), array_keys(self::ROLE_LOCK_FIRST_CHECKED),
             'ROLE_LOCK_FIRST_CHECKED must name exactly the cases everyRoleWritePath() runs.');
 
-        $accounted = [...array_values(self::ROLE_LOCK_FIRST_CHECKED), ...array_keys(self::ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN), ...array_keys(self::ROLE_ALLOWED_WITHOUT_A_LOCK)];
+        // array_unique since G5-C1: two positional cases (AssignRole, CreateBulkRoleAssignment) reach one writer.
+        $accounted = array_values(array_unique([...array_values(self::ROLE_LOCK_FIRST_CHECKED), ...array_keys(self::ROLE_LOCKS_FIRST_WITH_NO_PATH_OF_ITS_OWN), ...array_keys(self::ROLE_ALLOWED_WITHOUT_A_LOCK)]));
         sort($accounted);
         $found = array_keys($derived);
         sort($found);
@@ -4244,6 +4251,11 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         // `UserLiveness::lapse()`), `app_user` (the `deactivate()` / `reactivate()` flush — the mutator arm derives this
         // method) and the audit rows.
         'UpdateUser' => 'UserUpdate::update',
+        // G5-C1 (2026-10-23): `CreateBulkRoleAssignment` writes `user_role` only through `GrantRules::insert()` — the writer
+        // AssignRole's case already maps to — after the lock (`BulkRoleAssignment::run()`'s closure), so two cases cover one
+        // derived writer and the accounting below de-duplicates; `grantRulesInsertIsCalledOnlyFromLockFirstCheckedPaths` names
+        // the new caller.
+        'CreateBulkRoleAssignment' => 'GrantRules::insert',
     ];
 
     /**

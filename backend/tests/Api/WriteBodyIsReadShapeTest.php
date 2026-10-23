@@ -40,6 +40,8 @@ final class WriteBodyIsReadShapeTest extends PurchaseOrderTestCase
         // G5-C2 (2026-10-22): §4.4.1 branch 5 -- the body is counts, never a resource, and E-14 forbids it from naming one.
         'CreateBulkArchival' => 'returns {requested, applied} (§4.4.1 branch 5): counts over many records, never one resource (E-14)',
         'CreateBulkRestoration' => 'returns {requested, applied} (§4.4.1 branch 5): counts over many records, never one resource (E-14)',
+        // G5-C1 (2026-10-23).
+        'CreateBulkRoleAssignment' => 'returns {requested, applied, margin_exposure} (§4.4.1 branch 5 as amended): counts over many people, never one resource (E-14)',
     ];
 
     /**

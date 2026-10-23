@@ -100,6 +100,9 @@ deptrac:
   # (Re-derived 2026-10-23 with `UpdateUser` in the tree (G4-C1): FOUR edge lines added — A-5 `UserUpdate -> UserAuditWriter`,
   # A-7 `UserUpdate -> Entity\AppUser`, A-5 `UserLiveness -> RoleAuditWriter`, A-7 `UserLiveness -> Entity\AppUser`. The three commands and the by-TAG count: see
   # `docs/session13/g4-c1-progress.md` (measured there, not restated here). No LAYER edge.)
+  # (Re-derived 2026-10-23 with `CreateBulkRoleAssignment` in the tree (G5-C1): ONE edge line added, A-5:
+  # `BulkRoleAssignment -> RoleAuditWriter` (`role.assigned`, `RoleAssignment`'s shape). The three commands and the by-TAG
+  # count: see `docs/session13/uc0-g5c1-progress.md` (measured there, not restated here). No LAYER edge.)
   # (Re-derived 2026-10-22 with the workspace rename in the tree (G7b `UpdateSettings`): ONE edge line added, A-5:
   # `SettingsWriter -> SettingsAuditWriter` (`tenant_settings.updated`). The three commands and the by-TAG count: see
   # `docs/session13/g7b-progress.md` (measured there, not restated here). No LAYER edge.)
@@ -644,6 +647,9 @@ deptrac:
     App\Modules\UserManagement\Application\RoleAdministrationActor:
       - App\Modules\AuditLog\Infrastructure\DenialAuditWriter   # A-5
     App\Modules\UserManagement\Application\RoleAssignment:
+      - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
+    App\Modules\UserManagement\Application\BulkRoleAssignment:
+      # G5-C1, 2026-10-23: `CreateBulkRoleAssignment` writes `role.assigned` in the granting transaction, as AssignRole does.
       - App\Modules\AuditLog\Infrastructure\RoleAuditWriter   # A-5
     App\Modules\UserManagement\Application\RoleCreation:
       # Roles slice 4 C1, 2026-10-07: `role.permissions_changed` written synchronously in the creating transaction

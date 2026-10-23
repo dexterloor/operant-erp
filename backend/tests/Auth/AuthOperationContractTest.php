@@ -156,6 +156,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\ReorderSuggestionTest::PINNED_REORDER_OPERATIONS),
             // G5-C2: the `/bulk` path family (`CreateBulkArchival`; restoration and role assignment join it).
             array_keys(\App\Tests\Api\BulkArchivalTest::PINNED_BULK_OPERATIONS),
+            // G5-C1: `CreateBulkRoleAssignment` joins the `/bulk` family.
+            array_keys(\App\Tests\Api\BulkRoleAssignmentTest::PINNED_BULK_OPERATIONS),
             array_keys(self::PINNED_AUTH_OPERATIONS),
         );
         sort($expected);

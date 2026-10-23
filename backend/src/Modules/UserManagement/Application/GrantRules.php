@@ -202,20 +202,57 @@ final class GrantRules
         if (!$subject['is_active']) {
             return new GrantVerdict('user_role.subject_is_inactive');
         }
-        if (!$role['live']) {
-            return new GrantVerdict('user_role.role_is_archived');
+        $archived = self::archivedVerdict($role);
+        if (null !== $archived) {
+            return $archived;
         }
 
         if ($subjectId === Uuid::fromString($grantorId)->toRfc4122()) {
             return new GrantVerdict('user_role.actor_is_subject');
         }
 
-        // E-15b / Q5: the same sentence on every route, and it names no route, ever (`roles-s2-ux-copy.md` §3.4).
-        if (OwnerPredicate::holdsMarker($role['codes']) && !OwnerPredicate::holdsMarker($grantorCodes)) {
-            return new GrantVerdict('user_role.marker_needs_owner');
-        }
+        return self::markerVerdict($role, $grantorCodes);
+    }
 
-        return null;
+    /**
+     * **The rules that depend on (grantor, role) ALONE, in phase order** (G5-C1, `CreateBulkRoleAssignment`; design
+     * `g5-g6-bulk-export-design.md` §4.2 step 5: *"split the marker half out of `subjectRoleAndMarkerVerdict`, or call the
+     * role-only parts"*): `role_is_archived`, `marker_needs_owner`, then phase 2's `exceeds_actor_permissions`. A bulk
+     * request applies these ONCE, before any member id is read (E-14), because each answers the same for every member;
+     * each member then re-runs {@see self::firstVerdict()} in full, where these three pass again. Pure, like the others.
+     *
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     * @param list<string>                                                             $grantorCodes
+     */
+    public static function roleVerdict(array $role, array $grantorCodes): ?GrantVerdict
+    {
+        return self::archivedVerdict($role) ?? self::markerVerdict($role, $grantorCodes) ?? self::beyondGrantorVerdict($role, $grantorCodes);
+    }
+
+    /**
+     * V2-R-6's role half: an archived role is given to nobody. ONE copy (G5-C1, `g5-c1-decisions-red.md` L-2), shared by
+     * phase 1 and {@see self::roleVerdict()}.
+     *
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     */
+    private static function archivedVerdict(array $role): ?GrantVerdict
+    {
+        return $role['live'] ? null : new GrantVerdict('user_role.role_is_archived');
+    }
+
+    /**
+     * E-15b / Q5: the same sentence on every route, and it names no route, ever (`roles-s2-ux-copy.md` §3.4). The ONE
+     * place this class asks {@see OwnerPredicate} about a role (G5-C1 extracted it so the bulk route's wholesale check and
+     * phase 1 share it).
+     *
+     * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
+     * @param list<string>                                                             $grantorCodes
+     */
+    private static function markerVerdict(array $role, array $grantorCodes): ?GrantVerdict
+    {
+        return OwnerPredicate::holdsMarker($role['codes']) && !OwnerPredicate::holdsMarker($grantorCodes)
+            ? new GrantVerdict('user_role.marker_needs_owner')
+            : null;
     }
 
     /**

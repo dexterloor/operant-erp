@@ -19,10 +19,12 @@ namespace App\Modules\UserManagement\Domain;
  *    account — and would call it "last owner". An act that cannot reduce the number of active owners (`after === before`)
  *    has nothing to answer to this floor.
  *  - The design's first form, `(roleConfersMarker, subjectIsActiveMarkerHolder, excludingThisGrant)`, is equivalent for one
- *    revoke (spar P1 showed it) but leaves both booleans undefined for a bulk assignment over several users or for E-15g's
- *    deactivation, which removes a user's liveness rather than a role — exactly where a later hand re-derives the rule.
- *    Counts are defined for every caller: **a bulk operation or an E-15g strip computes `$after` over its WHOLE effect,
- *    once**, never per member, or two members each passing alone could remove the last two owners together.
+ *    revoke (spar P1 showed it) but leaves both booleans undefined for E-15g's deactivation, which removes a user's
+ *    liveness rather than a role — exactly where a later hand re-derives the rule. Counts are defined for every caller:
+ *    **an E-15g strip computes `$after` over its WHOLE effect, once**, never per member, or two members each passing
+ *    alone could remove the last two owners together. *(G5-C1, 2026-10-23, V2-R-20 answered by rewording API-20: this
+ *    read "a bulk assignment over several users" and "a bulk operation or an E-15g strip" — vacuous for
+ *    `CreateBulkRoleAssignment`, which only adds grants and so can never lower the active-owner count.)*
  *
  * **Unreachable through `RevokeRole` in a correct build** (design §5.1, stated honestly): the actor must hold the marker to
  * revoke a marker role (E-15b), is not the subject (E-15a), and is re-derived live and active under the lock, so after any

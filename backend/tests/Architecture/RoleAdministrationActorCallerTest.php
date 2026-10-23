@@ -31,6 +31,8 @@ final class RoleAdministrationActorCallerTest extends TestCase
 {
     /** @var array<string, string> calling class (short name) → the code it re-derives under the lock */
     private const PINNED = [
+        // G5-C1: `CreateBulkRoleAssignment`'s own §4.2 code.
+        'BulkRoleAssignment' => 'role.assign',
         'RoleAssignment' => 'role.assign',
         // Roles slice 4 C1: `CreateRole`'s own §4.2 code.
         'RoleCreation' => 'role.create',

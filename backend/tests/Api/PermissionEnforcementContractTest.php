@@ -106,6 +106,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'RevokeRole' => 'role.assign',
         // Roles slice 2, C3: the same code, re-derived under the same lock by the same `RoleAdministrationActor`.
         'AssignRole' => 'role.assign',
+        // G5-C1 (2026-10-23): static, §4.2's cell.
+        'CreateBulkRoleAssignment' => 'role.assign',
         'CreateRole' => 'role.create',
         // Roles slice 4 C2: re-derived under the lock with its own code (`RoleAdministrationActor`, C0's parameter).
         'UpdateRole' => 'role.edit',

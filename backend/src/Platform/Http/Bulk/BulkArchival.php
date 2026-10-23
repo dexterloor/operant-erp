@@ -56,6 +56,11 @@ final readonly class BulkArchival
     /** G5-C3 (2026-10-23): the restoration twin runs through this same engine ({@see self::restore()}). */
     public const RESTORATION_OPERATION = 'CreateBulkRestoration';
 
+    // G5-C1 (2026-10-23; `g5-c1-decisions-red.md` L-7): `MAXIMUM_MEMBERS`, `POSTGRES_CACHED_SUBXIDS`, `CONTENT_TYPE`, the
+    // `CONTENTION_*` pair, the two savepoint names and {@see self::isContention()} are ALSO read by
+    // `UserManagement\Application\BulkRoleAssignment` (`CreateBulkRoleAssignment`): one copy of the bulk protocol's figures.
+    // An edit here changes every bulk operation (archival, restoration, role assignment).
+
     /** Final RED M-2: cap + 1 (`bulk_work`) must stay below PostgreSQL's 64 cached subxids. */
     public const MAXIMUM_MEMBERS = 50;
 
@@ -149,7 +154,7 @@ final readonly class BulkArchival
                         $connection->rollbackSavepoint(self::MEMBER_SAVEPOINT);
                         $connection->releaseSavepoint(self::MEMBER_SAVEPOINT);
                     }
-                    self::refuseAPendingOrmChange($em, $member);
+                    self::refuseAPendingOrmChange($em, 'The bulk member for "'.$member->resource().'"');
                 }
 
                 $body = json_encode(['requested' => \count($sorted), 'applied' => $applied], \JSON_THROW_ON_ERROR);
@@ -195,9 +200,13 @@ final readonly class BulkArchival
     /**
      * Final RED L-6's runtime guard. The members are DBAL-only by contract (and by `BulkMemberWritersAreDbalOnlyTest`);
      * this is what goes red if one ever schedules an ORM change, which the end-of-`run()` flush would otherwise persist
-     * even for a member whose savepoint was rolled back.
+     * even for a member whose savepoint was rolled back. **Public since G5-C1 (2026-10-23):** `CreateBulkRoleAssignment`'s
+     * member path (`UserManagement\Application\BulkRoleAssignment`) calls this one copy, so the planted-member test in
+     * `BulkArchivalCoordinatorTest` proves the guard both bulk families run (`g5-c1-decisions-red.md` L-6).
+     *
+     * @param string $who names the member in the failure message
      */
-    private static function refuseAPendingOrmChange(EntityManagerInterface $em, BulkArchiveMember $member): void
+    public static function refuseAPendingOrmChange(EntityManagerInterface $em, string $who): void
     {
         $unitOfWork = $em->getUnitOfWork();
         $unitOfWork->computeChangeSets();
@@ -207,9 +216,9 @@ final readonly class BulkArchival
             || [] !== $unitOfWork->getScheduledEntityDeletions()
         ) {
             throw new \LogicException(\sprintf(
-                'The bulk member for "%s" left an ORM change scheduled; bulk members issue DBAL statements only, because the end '
+                '%s left an ORM change scheduled; bulk members issue DBAL statements only, because the end '
                 .'of the tenancy transaction flushes whatever a rolled-back member scheduled.',
-                $member->resource(),
+                $who,
             ));
         }
     }
