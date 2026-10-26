@@ -58,8 +58,8 @@ final class CheckCredentialKeyCommand extends Command
 
     public const KEY_ID_MISMATCH = 3;
 
-    /** T-D1: the events that show a credential was in use. Read from here, one list (Mail-C2 adds its redeem member). */
-    public const CREDENTIAL_EVENTS = [AuditEvent::AUTH_LOGIN_SUCCESS, AuditEvent::AUTH_PASSWORD_CHANGED];
+    /** T-D1: the events that show a credential was in use. Read from here, one list (Mail-C2 added its redeem member, carry item 6). */
+    public const CREDENTIAL_EVENTS = [AuditEvent::AUTH_LOGIN_SUCCESS, AuditEvent::AUTH_PASSWORD_CHANGED, AuditEvent::AUTH_PASSWORD_RESET];
 
     /** T-D1: the events after which a missing seal is expected. Empty until Cred-C2's `auth.credential.revoked`. */
     public const REVOCATION_EVENTS = [];

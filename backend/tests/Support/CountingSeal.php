@@ -18,6 +18,11 @@ final class CountingSeal implements SealsCredentials, SealsIdentities
 {
     private int $checks = 0;
 
+    /** Mail-C2 (T-R16): the redeem's two seal computations, counted apart so the sign-in count above does not move. */
+    private int $verifierMatches = 0;
+
+    private int $identityChecks = 0;
+
     public function __construct(private readonly SealsCredentials&SealsIdentities $inner)
     {
     }
@@ -39,7 +44,7 @@ final class CountingSeal implements SealsCredentials, SealsIdentities
         return $this->inner->keyId();
     }
 
-    /** Mail-C1: the identity half is delegated uncounted — the counted cost is the sign-in path's (E-7). */
+    /** Mail-C1: sealing an identity is delegated uncounted; Mail-C2 counts `checkIdentity()` and `verifierMatches()` (T-R16). */
     public function sealIdentity(string $tenantId, string $userId, string $email): string
     {
         return $this->inner->sealIdentity($tenantId, $userId, $email);
@@ -47,6 +52,8 @@ final class CountingSeal implements SealsCredentials, SealsIdentities
 
     public function checkIdentity(string $tenantId, string $userId, string $email, ?string $stored): SealCheck
     {
+        ++$this->identityChecks;
+
         return $this->inner->checkIdentity($tenantId, $userId, $email, $stored);
     }
 
@@ -57,6 +64,8 @@ final class CountingSeal implements SealsCredentials, SealsIdentities
 
     public function verifierMatches(string $tenantId, string $userId, string $purpose, string $selector, int $expiresAtUnixSeconds, string $verifierHex, string $stored): bool
     {
+        ++$this->verifierMatches;
+
         return $this->inner->verifierMatches($tenantId, $userId, $purpose, $selector, $expiresAtUnixSeconds, $verifierHex, $stored);
     }
 
@@ -65,8 +74,20 @@ final class CountingSeal implements SealsCredentials, SealsIdentities
         return $this->checks;
     }
 
+    public function verifierMatchCount(): int
+    {
+        return $this->verifierMatches;
+    }
+
+    public function identityCheckCount(): int
+    {
+        return $this->identityChecks;
+    }
+
     public function reset(): void
     {
         $this->checks = 0;
+        $this->verifierMatches = 0;
+        $this->identityChecks = 0;
     }
 }

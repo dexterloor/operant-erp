@@ -127,6 +127,27 @@ final class UndeclaredQueryParameterRefusalTest extends PurchaseOrderTestCase
     }
 
     /**
+     * **Mail-C2: `CreatePasswordResetRedemption` is not exempt**, and a refused redeem consumes nothing — a fresh link per
+     * request, so the control proves the link was still good. Control: the same body without the parameter redeems it.
+     */
+    #[Test]
+    public function aRedeemCarryingAnUndeclaredParameterConsumesNothing(): void
+    {
+        $token = $this->mintResetLink(self::TENANT_A, $this->actorId);
+        $body = ['token' => $token, 'password' => self::PASSWORD.'-reset'];
+
+        $this->send('POST', '/auth/password-resets/redemption?c5=1', $body);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame('?c5', $this->json()['errors'][0]['pointer'] ?? null);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM password_reset_token WHERE used_at IS NULL'),
+            'A redeem refused for its URL consumed the link.');
+
+        $this->send('POST', '/auth/password-resets/redemption', $body);
+        self::assertSame(200, $this->httpStatus(), 'Control: the same redeem without the parameter did not succeed.');
+    }
+
+    /**
      * **The exemption is API Platform's error operations, decided by what the
      * operation IS, not by what it is called** (V1-S-8, V4 B4b, ⚑ standing rule 1).
      *

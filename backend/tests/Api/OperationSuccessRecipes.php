@@ -1432,8 +1432,16 @@ trait OperationSuccessRecipes
 
                 return [202, 'ask for a password link'];
             }],
+            // Mail-C2: a fresh person, identity sealed, one real keyed link minted as the worker would (owner, tenant set);
+            // the redeem sets the password — 200 `{changed_at}` (API-21 branch 5).
+            'CreatePasswordResetRedemption' => [fn (): array => ['token' => $this->mintResetLink(self::TENANT_A, $this->seedPrincipal(self::TENANT_A, []))], function (array $c): array {
+                $this->send('POST', '/auth/password-resets/redemption', ['token' => $c['token'], 'password' => 'a brand new passphrase']);
+
+                return [200, 'redeem a password link'];
+            }],
         ];
     }
+
 
     /**
      * Stock reads C2: a receipt's two lines sharing one instant and one shipment line, as the owner (no `src/` path inserts a

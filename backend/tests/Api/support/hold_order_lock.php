@@ -9,7 +9,7 @@
 //
 // Sequence, every step decided by the database rather than by a clock:
 //   1. BEGIN; set the tenant; take the row lock on HOLD_TABLE (whitelisted:
-//      `purchase_order`, `sales_order` or `invoice`, defaulting to the first -- or `role_administration`,
+//      `purchase_order`, `sales_order`, `invoice` or `password_reset_token`, defaulting to the first -- or `role_administration`,
 //      the per-tenant advisory lock, by `RoleAdministrationLock::SQL` itself); run HOLD_BEFORE.
 //   2. Write this backend's pid to HOLD_READY_FILE. The parent sends B now.
 //   3. Wait until Postgres reports some backend blocked BY THIS ONE
@@ -78,6 +78,10 @@ try {
     // `invoice` joined with `PayInvoice` (sales step 6, C5): `InvoiceRowLock` is the same `FOR NO KEY UPDATE`, legal for
     // `erp_app` once `Version20260928000400` granted a column UPDATE on the table.
     //
+    // `password_reset_token` joined with Mail-C2's redeem (T-R5b, R1.2): `FOR NO KEY UPDATE` on the link conflicts with 7a's
+    // UPDATE of the non-key `used_at`, and `erp_app` may take it since `Version20261024000100` granted `UPDATE (used_at)` and
+    // `SELECT (id)`. HOLD_ORDER is the link's id.
+    //
     // `role_administration` joined with `RevokeRole` (roles slice 2, C2; spar P4): not a row lock but the per-tenant
     // advisory lock, taken by issuing `RoleAdministrationLock::SQL` ITSELF -- the application's constant, never a
     // transcription -- keyed on HOLD_TENANT, and refused unless it reports the lock taken. HOLD_ORDER is unused there.
@@ -90,7 +94,7 @@ try {
         if (true !== ($locked['locked'] ?? null)) {
             throw new RuntimeException('The holder did not take the role-administration lock.');
         }
-    } elseif (!in_array($table, ['purchase_order', 'sales_order', 'invoice'], true)) {
+    } elseif (!in_array($table, ['purchase_order', 'sales_order', 'invoice', 'password_reset_token'], true)) {
         throw new RuntimeException('HOLD_TABLE names no aggregate this holder locks: '.$table);
     } else {
         $conn->executeStatement(sprintf('SELECT 1 FROM %s WHERE id = ?::uuid FOR NO KEY UPDATE', $table), [getenv('HOLD_ORDER')]);

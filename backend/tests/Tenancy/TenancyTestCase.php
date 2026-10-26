@@ -157,6 +157,64 @@ abstract class TenancyTestCase extends KernelTestCase
     }
 
     /**
+     * Mail-C2 (final RED M-1): a fresh owner client, used by KDF-seam callbacks that change state DURING a request; built
+     * here so `OwnerRequestWindow`, which watches the container's owner service, is not tripped by a test's own fixture
+     * write, and so `EntryPointScanTest`'s one-file list stays true. Callers set the tenant in their own transaction
+     * (FORCE ROW LEVEL SECURITY binds the owner) and assert the affected-row count.
+     */
+    protected function freshOwnerClient(): Connection
+    {
+        // The owner service's own parameters (opening no statement on it), not the owner DSN's env key: EntryPointScanTest
+        // forbids the 'DATABASE_URL' literal in this file (Mail-C2 deviation D-1).
+        return DriverManager::getConnection($this->owner()->getParams());
+    }
+
+    /**
+     * Mail-C2: one committed statement on a caller-held client (e.g. `freshOwnerClient()`) in a workspace's context,
+     * returning the affected-row count — here, not in the test, so `TenantContextContainmentTest`'s list stays this file.
+     *
+     * @param list<mixed> $params
+     */
+    protected function executeOnClientForTenant(Connection $c, string $tenantId, string $sql, array $params = []): int
+    {
+        $c->beginTransaction();
+        try {
+            $c->executeStatement("SELECT set_config('app.tenant_id', ?, true)", [$tenantId]);
+            $n = (int) $c->executeStatement($sql, $params);
+            $c->commit();
+
+            return $n;
+        } catch (\Throwable $e) {
+            $c->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Mail-C2: seal a person's identity and mint one real keyed reset link for them, as the mail worker would (owner, in
+     * the workspace's context), created a second ago and alive for 30 minutes. Returns the mailed token. Shared by the
+     * contract walkers' recipes (`OperationSuccessRecipes`, `TenantClaimProbeTest`) so no recipe hard-codes a token.
+     */
+    protected function mintResetLink(string $tenantId, string $userId): string
+    {
+        $seal = self::getContainer()->get('test.auth.identity_seal');
+        \assert($seal instanceof \App\Modules\UserManagement\Domain\SealsIdentities);
+        $email = (string) $this->fetchAsOwnerForTenant($tenantId, 'SELECT email FROM app_user WHERE id = ?::uuid', [$userId])[0]['email'];
+        $this->executeAsOwnerForTenant($tenantId, 'UPDATE app_user SET identity_mac = ? WHERE id = ?::uuid', [$seal->sealIdentity($tenantId, $userId, $email), $userId]);
+        $selector = bin2hex(random_bytes(16));
+        $verifier = bin2hex(random_bytes(32));
+        $created = time() - 1;
+        $expires = $created + 1800;
+        $this->executeAsOwnerForTenant($tenantId, <<<'SQL'
+            INSERT INTO password_reset_token (id, tenant_id, user_id, purpose, selector, verifier_mac, message_id, created_at, expires_at)
+            VALUES (?::uuid, ?::uuid, ?::uuid, 'reset', ?, ?, ?::uuid, to_timestamp(?), to_timestamp(?))
+            SQL, [\Symfony\Component\Uid\Uuid::v4()->toRfc4122(), $tenantId, $userId, $selector,
+            $seal->macVerifier($tenantId, $userId, 'reset', $selector, $expires, $verifier), \Symfony\Component\Uid\Uuid::v4()->toRfc4122(), $created, $expires]);
+
+        return rtrim(strtr(base64_encode(\Symfony\Component\Uid\Uuid::fromString($tenantId)->toBinary().hex2bin($selector).hex2bin($verifier)), '+/', '-_'), '=');
+    }
+
+    /**
      * Mail-C1 (T-M6b): an unpooled connection as the mail worker's login — the worker's credentials on the direct port
      * `APP_DIRECT_DATABASE_URL` uses. Through PgBouncer the worker identity has one server connection, so two pooled worker
      * transactions can never run at once; only unpooled ones can show the per-user lock. Here, not in the test, so the

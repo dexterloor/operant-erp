@@ -54,6 +54,9 @@ final class AuthOperationContractTest extends ApiTestCase
         // Mail-C1, 2026-10-23. `idem: false`: a replay mails at most once more, under the worker's per-person cap; the
         // envelope store is post-authentication only.
         'CreatePasswordReset' => ['method' => 'POST', 'path' => '/auth/password-resets', 'idem' => false],
+        // Mail-C2, 2026-10-24. `idem: false`: a replay refuses itself (the link is used); the envelope store is
+        // post-authentication only.
+        'CreatePasswordResetRedemption' => ['method' => 'POST', 'path' => '/auth/password-resets/redemption', 'idem' => false],
     ];
 
     /** §4.2's `Accepted request fields` for `IssueToken`, which is exhaustive. */

@@ -370,7 +370,9 @@ final class SchemaManifest
                 // (Version20261022006000) so sign-in excludes a soft-deleted person (`AND deleted_at IS NULL`):
                 // a column privilege is needed for a WHERE reference as much as for the select list. password_mac joined at
                 // Cred-C1 (Version20261023000600): SignIn step 5 checks the seal read in the same one statement.
-                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at', 'password_mac']],
+                // Mail-C2 (Version20261024000100): the redeem's one lookup joins the user and re-checks the identity seal
+                // (identity_mac) and owner Q-3's session floor (sessions_valid_after).
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at', 'password_mac', 'identity_mac', 'sessions_valid_after']],
                 DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at', 'password_mac']],
                 // Mail-C1 (Version20261023000800): the mail worker's one user lookup — never password_hash, password_mac or
                 // display_name (FA-6). identity_mac (the keyed seal over tenant, id and email) is updatable by NO principal:
@@ -382,11 +384,18 @@ final class SchemaManifest
             'module' => 'Modules\\UserManagement',
             'tenant' => true,
             'deletion' => self::NA,
-            'why' => 'Mail-C1 (`docs/session13/mail-c1-build-plan.md` R1.2; design §4.2): one row per mailed reset link (and, from U-C1, invitation). It stores a keyed MAC of the token (verifier_mac, under k_tok, which no database principal holds), never the token, so a row read by SQL is not a working link and a row written by SQL without the key does not verify at redeem (Mail-C2). The mail worker is its only writer (column INSERT, no used_at); Mail-C2 grants the redeem path SELECT and UPDATE (used_at). Deletion class n/a, idempotency_key\'s reasoning: infrastructure the domain never loads (DBAL only, no ORM entity, like auth_lockout) and nothing deletes -- a link is a security record; the plan said "none", which SchemaOwnershipTest correlates with an entity (Mail-C1 deviation D-8). No DELETE grant either way. Growth is a residual (RESIDUAL_GAPS.md G-80 item 1; no purge principal exists).',
+            'why' => 'Mail-C1 (`docs/session13/mail-c1-build-plan.md` R1.2; design §4.2): one row per mailed reset link (and, from U-C1, invitation). It stores a keyed MAC of the token (verifier_mac, under k_tok, which no database principal holds), never the token, so a row read by SQL is not a working link and a row written by SQL without the key does not verify at redeem (Mail-C2). The mail worker is its only minter (column INSERT, no used_at). Mail-C2 (Version20261024000100) built the redeem: erp_auth reads the nine columns its one lookup names (never message_id), erp_app reads the five its step-7a UPDATE references (never selector or verifier_mac) and may UPDATE (used_at) alone -- it marks links used and can mint none (GrantFootprintTest::noHttpPrincipalCanMintAResetToken, moved deliberately). Deletion class n/a, idempotency_key\'s reasoning: infrastructure the domain never loads (DBAL only, no ORM entity, like auth_lockout) and nothing deletes -- a link is a security record; the plan said "none", which SchemaOwnershipTest correlates with an entity (Mail-C1 deviation D-8). No DELETE grant either way. Growth is a residual (RESIDUAL_GAPS.md G-80 item 1; no purge principal exists).',
             // Explicit, never TENANT_READ_DEFAULT (which would give erp_ai SELECT): the worker alone, SELECT for its
             // 3-links-per-user-per-24-h cap, and a column INSERT without used_at.
             'grants' => [DatabaseRoles::WORKER => ['SELECT']],
-            'column_grants' => [DatabaseRoles::WORKER => ['INSERT' => ['id', 'tenant_id', 'user_id', 'purpose', 'selector', 'verifier_mac', 'message_id', 'created_at', 'expires_at']]],
+            'column_grants' => [
+                DatabaseRoles::WORKER => ['INSERT' => ['id', 'tenant_id', 'user_id', 'purpose', 'selector', 'verifier_mac', 'message_id', 'created_at', 'expires_at']],
+                // Mail-C2: PasswordResetTokenLookup's one SELECT (created_at for owner Q-3).
+                DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'user_id', 'purpose', 'selector', 'verifier_mac', 'expires_at', 'used_at', 'created_at']],
+                // Mail-C2: PasswordResetRedemptionWriter step 7a, `UPDATE … SET used_at … WHERE tenant_id, user_id, used_at,
+                // expires_at … RETURNING id` -- SELECT on every column the statement reads, UPDATE on the one it sets.
+                DatabaseRoles::APP => ['SELECT' => ['id', 'tenant_id', 'user_id', 'used_at', 'expires_at'], 'UPDATE' => ['used_at']],
+            ],
         ],
         'role' => [
             'module' => 'Modules\\UserManagement',

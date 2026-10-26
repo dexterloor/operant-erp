@@ -402,9 +402,9 @@ final class IdempotencyContractTest extends TenancyTestCase
      * **2026-10-23 (Mail-C1):** `CreatePasswordReset` added, `Idem` `no` (a replay mails at most once more, under the
      * worker's per-person cap) — 130 → 131 rows; the `no` count moves, the marked counts do not.
      */
-    private const PINNED_ROW_COUNT = 131;
+    private const PINNED_ROW_COUNT = 132; // 131 → 132 at Mail-C2 (`CreatePasswordResetRedemption`, `no`: a replay refuses itself — the link is used).
 
-    private const PINNED_UNMARKED_COUNT = 82; // 81 → 82 at Mail-C1 (`CreatePasswordReset`, `no`).
+    private const PINNED_UNMARKED_COUNT = 83; // 81 → 82 at Mail-C1 (`CreatePasswordReset`, `no`); 83 at Mail-C2 (`CreatePasswordResetRedemption`, `no`).
 
     /**
      * For each `unique:` operation, the index's key columns **less `tenant_id`** —

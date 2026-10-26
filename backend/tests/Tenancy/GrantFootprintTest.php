@@ -2548,9 +2548,10 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
-     * **T-M7 (Mail-C1): no HTTP principal can mint a reset token.** Per column from `pg_attribute`, none of `erp_app`,
-     * `erp_auth`, `erp_authlog`, `erp_ratelimit`, `erp_ai` holds INSERT or UPDATE (Mail-C2 will admit `erp_app UPDATE
-     * (used_at)` — move this deliberately then), and no application role holds DELETE. Control: `erp_worker` can insert
+     * **T-M7 (Mail-C1): no HTTP principal can mint a reset token.** Per column from `pg_attribute`, of `erp_app`,
+     * `erp_auth`, `erp_authlog`, `erp_ratelimit`, `erp_ai` exactly one INSERT-or-UPDATE privilege is held: **`erp_app UPDATE
+     * (used_at)` — moved at Mail-C2 deliberately: redeem marks links used; no HTTP principal can mint one** (no INSERT, no
+     * other UPDATE, nothing for `erp_auth`), and no application role holds DELETE. Control: `erp_worker` can insert
      * `selector` and cannot write `used_at`. Mutation MU-21 (`GRANT INSERT ON password_reset_token TO erp_app`) → red.
      */
     #[Test]
@@ -2574,11 +2575,65 @@ final class GrantFootprintTest extends TenancyTestCase
                 $held[] = "$role DELETE";
             }
         }
-        self::assertSame([], $held, 'An HTTP principal can write a reset token: '.implode(', ', $held));
+        self::assertSame(['erp_app UPDATE (used_at)'], $held, 'An HTTP principal can write a reset token beyond marking it used: '.implode(', ', $held));
         self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'password_reset_token', 'selector', 'INSERT']),
             'Control: the worker cannot insert a token, so the absences above prove nothing.');
         self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'password_reset_token', 'used_at', 'INSERT']),
             'The worker can write used_at: a token could be minted already used, or never.');
+    }
+
+    /**
+     * **Mail-C2 T-R21 — the redeem's 7a needs `SELECT (expires_at)`, and nothing more than the five columns it names.**
+     * Postgres requires SELECT on every column an UPDATE's `WHERE` or `RETURNING` reads; this proves the claim behind
+     * `Version20261024000100`'s `erp_app` column list rather than citing it. 7a's exact statement runs as `erp_app` on a
+     * second client, in the tenant's context, and is rolled back: with the grant → it executes (positive control); with
+     * `SELECT (expires_at)` revoked → `42501 permission denied for table password_reset_token`. The revoke is COMMITTED (an
+     * uncommitted one is invisible to `erp_app`'s session, and the owner cannot `SET ROLE erp_app`) and restored in
+     * `finally`; a crash that skips it fails `everyColumnLevelPrivilegeIsExactlyTheDeclaredSet` on the next run.
+     */
+    #[Test]
+    public function theRedeemsLinkWriteNeedsToReadTheExpiry(): void
+    {
+        $userId = '11111111-1111-4111-8111-0000000000c2';
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)
+            VALUES (?::uuid, ?::uuid, 'c2-probe@example.com', 'x', 'C2 Probe')
+            SQL, [$userId, self::TENANT_A]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO password_reset_token (id, tenant_id, user_id, purpose, selector, verifier_mac, message_id, created_at, expires_at)
+            VALUES ('11111111-1111-4111-8111-0000000000c3', ?::uuid, ?::uuid, 'reset', repeat('a', 32), 'v1.00000000.' || repeat('b', 64),
+                    '11111111-1111-4111-8111-0000000000c4', now() - interval '1 second', now() + interval '30 minutes')
+            SQL, [self::TENANT_A, $userId]);
+
+        $probe = function () use ($userId): string {
+            $connection = $this->secondClient();
+            $connection->beginTransaction();
+            try {
+                $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                $ids = $connection->fetchFirstColumn(<<<'SQL'
+                    UPDATE password_reset_token SET used_at = now()
+                     WHERE tenant_id = ?::uuid AND user_id = ?::uuid AND used_at IS NULL AND expires_at > now()
+                    RETURNING id
+                    SQL, [self::TENANT_A, $userId]);
+
+                return 'accepted:'.\count($ids);
+            } catch (DriverException $e) {
+                return '42501' === $e->getSQLState() && str_contains($e->getMessage(), 'permission denied for table password_reset_token')
+                    ? 'refused'
+                    : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+            } finally {
+                $connection->rollBack();
+                $connection->close();
+            }
+        };
+
+        self::assertSame('accepted:1', $probe(), 'Positive control: erp_app could not run 7a with its declared grants.');
+        try {
+            $this->owner()->executeStatement(sprintf('REVOKE SELECT (expires_at) ON password_reset_token FROM %s', DatabaseRoles::APP));
+            self::assertSame('refused', $probe(), 'erp_app ran 7a without SELECT (expires_at): the grant is not needed, or the probe reads nothing.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('GRANT SELECT (expires_at) ON password_reset_token TO %s', DatabaseRoles::APP));
+        }
     }
 
     /**

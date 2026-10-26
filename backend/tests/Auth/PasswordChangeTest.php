@@ -371,7 +371,7 @@ final class PasswordChangeTest extends AuthTestCase
      * `PasswordVerifier::verify()`. The last two rows report **0** invocations
      * (`CountingKdf` refuses to count them) and this is red on both.
      *
-     * *Mutation, run:* in `ChangePassword`, move the `newPasswordErrors()` call
+     * *Mutation, run:* in `ChangePassword`, move the `newPasswordErrors()` (`PasswordRules::errors()`) call
      * above the `verify()` call and return early when it is non-empty. The three
      * bad-new-password rows go to **0** invocations and this is red naming them.
      * *Second mutation, run — the one that shows the count is not incidental:*
@@ -522,8 +522,8 @@ final class PasswordChangeTest extends AuthTestCase
      * the third case is eleven **two-byte** characters — above the figure in
      * bytes, below it in characters.
      *
-     * *Mutation, run:* replace `mb_strlen($newPassword, 'UTF-8')` with
-     * `\strlen($newPassword)` in `ChangePassword::newPasswordErrors()`; the first
+     * *Mutation, run:* replace `mb_strlen($password, 'UTF-8')` with
+     * `\strlen($password)` in `PasswordRules::errors()`; the first
      * two cases stay red-free and the third is red, which is the whole point of
      * having it.
      * *Second mutation, run:* change `<` to `<=`; the twelve-character case is
@@ -574,8 +574,8 @@ final class PasswordChangeTest extends AuthTestCase
      * close a hole that was already shut. **API-O-24 has been corrected as a
      * stale-claim row and this is the check that keeps the correction honest.**
      *
-     * *Mutation, run:* add `\strlen($newPassword) > 72` to
-     * `ChangePassword::newPasswordErrors()`; the change is refused and this is
+     * *Mutation, run:* add `\strlen($password) > 72` to
+     * `PasswordRules::errors()`; the change is refused and this is
      * red on the first assertion.
      */
     #[Test]

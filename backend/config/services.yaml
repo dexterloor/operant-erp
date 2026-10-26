@@ -280,6 +280,20 @@ services:
         arguments:
             $auth: '@doctrine.dbal.auth_connection'
 
+    # Mail-C2: the redeem's one lookup on the pre-authentication read principal (the CredentialLookup precedent), and its
+    # two writers on `erp_app`, joined to one transaction by `TenantContext` (step 7).
+    App\Modules\UserManagement\Infrastructure\PasswordResetTokenLookup:
+        arguments:
+            $auth: '@doctrine.dbal.auth_connection'
+
+    App\Modules\UserManagement\Infrastructure\PasswordResetRedemptionWriter:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
+
+    App\Modules\AuditLog\Infrastructure\PasswordResetRedemptionAuditWriter:
+        arguments:
+            $app: '@doctrine.dbal.app_connection'
+
     # Mail-C1 (owner Q-2): the mail worker's three collaborators on `erp_worker`, explicit for the reason the bindings above
     # give. The handler sends through `mailer.transports` (TransportInterface), never MailerInterface (H-2).
     App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler:
@@ -558,6 +572,15 @@ when@test:
 
         # Cred-C1 (T-C4): the seal's computation count, which no response and no SQL log carries — "the MAC is computed on
         # every path", hit and both misses, as the KDF is. Production never sees this class.
+        # Mail-C2 (R1.9): one armable KDF seam, outside CountingKdf (lower priority = applied later = outer), firing on
+        # hash() only and doing nothing unless a test arms it. CountingKdf counts verify() and never hash(), so its counts
+        # do not move. Production never sees this class.
+        App\Tests\Support\ArmableKdf:
+            decorates: app.auth.kdf
+            decoration_priority: -10
+            arguments: ['@.inner']
+            public: true
+
         App\Tests\Support\CountingSeal:
             decorates: App\Modules\UserManagement\Infrastructure\CredentialSeal
             arguments: ['@.inner']

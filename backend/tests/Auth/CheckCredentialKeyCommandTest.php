@@ -107,7 +107,8 @@ final class CheckCredentialKeyCommandTest extends AuthTestCase
     #[Test]
     public function aSealRemovedFromAnAccountThatWasInUseIsAPossibleWipe(): void
     {
-        self::assertSame([AuditEvent::AUTH_LOGIN_SUCCESS, AuditEvent::AUTH_PASSWORD_CHANGED], CheckCredentialKeyCommand::CREDENTIAL_EVENTS);
+        // Moved deliberately at Mail-C2: a redeemed reset link is a credential in use (carry item 6).
+        self::assertSame([AuditEvent::AUTH_LOGIN_SUCCESS, AuditEvent::AUTH_PASSWORD_CHANGED, AuditEvent::AUTH_PASSWORD_RESET], CheckCredentialKeyCommand::CREDENTIAL_EVENTS);
         self::assertSame([], CheckCredentialKeyCommand::REVOCATION_EVENTS, 'Cred-C2 added a revocation member: drop the planted one below and use it.');
 
         $tenant = $this->seedTenant(self::SLUG_PREFIX.'key-wipe', Tenant::STATUS_ACTIVE);
@@ -136,6 +137,24 @@ final class CheckCredentialKeyCommandTest extends AuthTestCase
         self::assertSame(0, $count(), 'A revocation after the last sign-in still counted as a wipe.');
         $this->trailRow($tenant, $signedIn, AuditEvent::AUTH_LOGIN_SUCCESS, '2026-10-03 10:00:00+00');
         self::assertSame(1, $count(), 'A sign-in after the revocation was not counted.');
+    }
+
+    /**
+     * **T-R22 (Mail-C2):** a wiped seal on an account whose only credential event is a redeemed reset link is a possible
+     * wipe → 2. Mutation MC-20 (drop the member from `CREDENTIAL_EVENTS`) → red.
+     */
+    #[Test]
+    public function aWipedSealAfterAResetIsFlagged(): void
+    {
+        $tenant = $this->seedTenant(self::SLUG_PREFIX.'key-reset', Tenant::STATUS_ACTIVE);
+        $user = $this->seedUser($tenant, 'reset@example.test', 'password-number-one');
+        $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET password_mac = NULL WHERE id = ?::uuid', [$user]);
+        [$code, $output] = $this->check();
+        self::assertSame(Command::SUCCESS, $code, 'Control: a never-activated account was reported as wiped: '.$output);
+
+        $this->trailRow($tenant, $user, AuditEvent::AUTH_PASSWORD_RESET, '2026-10-01 10:00:00+00');
+        [$code, $output] = $this->check();
+        self::assertSame(CheckCredentialKeyCommand::MIXED_KEYS, $code, 'A wiped seal after a redeemed reset passed: '.$output);
     }
 
     /**

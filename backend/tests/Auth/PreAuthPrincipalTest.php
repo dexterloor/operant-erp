@@ -380,6 +380,36 @@ final class PreAuthPrincipalTest extends AuthTestCase
     }
 
     /**
+     * **Mail-C2 T-R3 — the redeem path issues nothing on `erp_app` until the link verifies** (design §2.5 row E). A real
+     * link's selector with a wrong verifier is the closest refusal to success: it reaches the lookup, computes both seal
+     * checks, and must still stop before the application connection. Positive halves: the budget and the lookup ran on the
+     * refusal, and the success DID reach `erp_app` (7a/7b/7c), so the zero is not an unwired recorder. Mutation MC-9 (consume
+     * at any selector hit) and MC-23 (the lookup on the `app` connection) → red.
+     */
+    #[Test]
+    public function theRedeemPathIssuesNothingOnTheApplicationConnectionUntilTheTokenVerifies(): void
+    {
+        $tenantId = $this->seedTenant(self::SLUG_PREFIX.'redeem', Tenant::STATUS_ACTIVE);
+        $userId = $this->seedUser($tenantId, self::EMAIL, self::PASSWORD);
+        $token = $this->mintResetLink($tenantId, $userId);
+        $wrong = substr($token, 0, 60).('A' === $token[60] ? 'B' : 'A').substr($token, 61);
+
+        $refusal = $this->measure(function () use ($wrong): void {
+            $this->send('POST', '/auth/password-resets/redemption', ['token' => $wrong, 'password' => 'a brand new passphrase']);
+            self::assertSame(401, $this->httpStatus());
+        });
+        self::assertSame(0, $refusal['app'], 'A refused redeem reached erp_app.');
+        self::assertGreaterThan(0, $refusal['auth'], 'The token lookup issued nothing.');
+        self::assertGreaterThan(0, $refusal['ratelimit'], 'The budget issued nothing.');
+
+        $success = $this->measure(function () use ($token): void {
+            $this->send('POST', '/auth/password-resets/redemption', ['token' => $token, 'password' => 'a brand new passphrase']);
+            self::assertSame(200, $this->httpStatus());
+        });
+        self::assertGreaterThan(0, $success['app'], 'Control: the success never reached erp_app, so the zero above proves nothing.');
+    }
+
+    /**
      * @param callable(): void $attempt
      *
      * @return array{app: int, auth: int, authlog: int, ratelimit: int} statements per connection

@@ -405,6 +405,13 @@ namespace App\SharedKernel\ValueObject;
  *     Steps 3–5 with their writer; step 5 is `Version20261023000900` (the live sixty-eight plus these two; supersedes
  *     `Version20261023000700`); step 6 both halves. *SEC TO CONFIRM the names.*
  *
+ *   - **`AUTH_PASSWORD_RESET`**, 2026-10-24, Mail-C2 — **`SECURITY`** (a credential moved, E-23), **subjectless** (E-13),
+ *     IP-bearing, written on `erp_app` inside the redeem's one write transaction (`PasswordResetRedemptionAuditWriter`;
+ *     no restrictive policy binds `erp_app`). Uncapped (E-23: never cap the record of a change); the action is bounded
+ *     upstream by the worker's 3 links per person per 24 h. Grounds include D-M8. Steps 3–5 with its writer; step 5 is
+ *     `Version20261024000200` (the live seventy plus this one; supersedes `Version20261023000900`); step 6 both halves.
+ *     *SEC TO CONFIRM the name.*
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -463,6 +470,15 @@ final class AuditEvent
      * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token`. Never the token or link.
      */
     public const AUTH_PASSWORD_RESET_ISSUED = 'auth.password_reset.issued';
+
+    /**
+     * Mail-C2: a mailed reset link was redeemed and the password set. Written on `erp_app` inside the redeem's one write
+     * transaction (it rolls back with the change); subjectless, actor = the user, `actor_label` = the STORED email (the
+     * label the worker's `auth.password_reset.issued` row carries for the same flow), IP = the request's, `metadata`
+     * `{"purpose":"reset"}` (U-C1 adds `"invitation"`). Never the token, the verifier or anything credential-derived (E-23).
+     * A refused redemption writes nothing (Q-4, `SEC`'s call: recorded as a residual).
+     */
+    public const AUTH_PASSWORD_RESET = 'auth.password.reset';
 
     /**
      * Mail-C1 (D-M7): a reset was asked for an account whose stored email no longer matches its keyed identity seal
@@ -1317,6 +1333,7 @@ final class AuditEvent
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_RESET_ISSUED,
         self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
+        self::AUTH_PASSWORD_RESET,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1405,6 +1422,7 @@ final class AuditEvent
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_RESET_ISSUED,
         self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
+        self::AUTH_PASSWORD_RESET,
         self::AUTH_PASSWORD_CHANGED,
         self::AUTHZ_PERMISSION_DENIED,
         self::DATA_EXPORT_COMPLETED,
@@ -1649,6 +1667,7 @@ final class AuditEvent
         self::AUTH_LOGIN_CREDENTIAL_MISMATCH,
         self::AUTH_PASSWORD_RESET_ISSUED,
         self::AUTH_CREDENTIAL_IDENTITY_MISMATCH,
+        self::AUTH_PASSWORD_RESET,
         self::AUTH_PASSWORD_CHANGED,
         self::DATA_EXPORT_COMPLETED,
     ];

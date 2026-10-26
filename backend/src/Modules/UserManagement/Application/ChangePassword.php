@@ -12,7 +12,6 @@ use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Clock\ClockInterface;
-use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -120,17 +119,19 @@ use Symfony\Component\Uid\Uuid;
  * and therefore the most tempting one to hoist, which is exactly why it is not.
  *
  * ===========================================================================
- * A password change does not kill a live token — consequence, not defect
+ * A password change does not end other sessions — by choice, not impossibility
  * ===========================================================================
- * There is no session store (**API-O-13**) and E-20 makes the access token an
- * absolute eight hours with no revocation, so **the token the caller used to make
- * this change keeps working after it, and so does any other live token for this
- * principal** (**API-O-21** is the same window seen from tenant suspension).
- * Nothing here closes that and nothing here should: revocation needs storage
- * that D-14 declined to ship this wave, and an endpoint that *appeared* to
- * revoke would be the fake-green shape this project has now found seventeen
- * times. It is stated on `PasswordResource`, where a client reads it, and in
- * §4.4.3's additions row.
+ * **The token the caller used to make this change keeps working after it, and so
+ * does any other live token for this principal**, for up to E-20's eight hours.
+ * This docblock used to say revocation "needs storage that D-14 declined"; that
+ * has been false since G4-C0 built `app_user.sessions_valid_after`, which
+ * `IdentityReader` honours on every request. So it is now a choice: this class
+ * does **not** raise that floor, while a redeemed reset link does (Mail-C2,
+ * `PasswordResetRedemption`). The asymmetry is recorded (`RESIDUAL_GAPS.md`
+ * G-84, Mail-C2's R-C2-5; owner notice N-7) — someone who changes a password because
+ * they suspect an intruder keeps that intruder's session — and a later small
+ * commit can raise the floor here too. It is stated on `PasswordResource`, where
+ * a client reads it, and in §4.4.3's additions row.
  *
  * @see SECURITY_MODEL.md §5 E-23, §5.1.4; E-20; API.md §4.2, §4.4.3, §9.2, §12.4
  */
@@ -139,13 +140,13 @@ final readonly class ChangePassword
     /** §5.2's `errors[]` code for the branch that says the current password did not verify. */
     public const CURRENT_PASSWORD_INVALID = 'current_password_invalid';
 
-    /** The two structural new-password codes. See the class docblock. */
-    public const NEW_PASSWORD_EMPTY = 'new_password_empty';
+    /** The two structural new-password codes. See the class docblock. Aliases of `PasswordRules`' (Mail-C2). */
+    public const NEW_PASSWORD_EMPTY = PasswordRules::EMPTY;
 
-    public const NEW_PASSWORD_TOO_LONG = 'new_password_too_long';
+    public const NEW_PASSWORD_TOO_LONG = PasswordRules::TOO_LONG;
 
     /** E-24's code. The figure below is the register's, not this class's. */
-    public const NEW_PASSWORD_TOO_SHORT = 'new_password_too_short';
+    public const NEW_PASSWORD_TOO_SHORT = PasswordRules::TOO_SHORT;
 
     /**
      * `SECURITY_MODEL.md` §5, **E-24** — twelve **characters**, counted as UTF-8
@@ -157,7 +158,7 @@ final readonly class ChangePassword
      * into its own expectation — the fake-green `PreAuthBudgetTest` and
      * `AuthLockoutThresholdTest` shipped with first time.
      */
-    public const MINIMUM_LENGTH = 12;
+    public const MINIMUM_LENGTH = PasswordRules::MINIMUM_LENGTH;
 
     public function __construct(
         private TenantContext $tenants,
@@ -258,43 +259,13 @@ final readonly class ChangePassword
     }
 
     /**
+     * E-24, through the one copy (`PasswordRules`, extracted at Mail-C2 so a reset sets a password under the same rule).
+     *
      * @return list<array{pointer: string, code: string, message: string}>
      */
     private function newPasswordErrors(string $newPassword): array
     {
-        if ('' === $newPassword) {
-            return [[
-                'pointer' => '/new_password',
-                'code' => self::NEW_PASSWORD_EMPTY,
-                'message' => 'The new password must not be empty.',
-            ]];
-        }
-
-        // E-24. Characters, not bytes — `mb_strlen()` rather than `strlen()` —
-        // because "twelve characters" is the rule the register states and the
-        // one the person choosing the password is reading. Counting bytes would
-        // let four emoji satisfy it.
-        if (mb_strlen($newPassword, 'UTF-8') < self::MINIMUM_LENGTH) {
-            return [[
-                'pointer' => '/new_password',
-                'code' => self::NEW_PASSWORD_TOO_SHORT,
-                'message' => \sprintf('The new password must be at least %d characters.', self::MINIMUM_LENGTH),
-            ]];
-        }
-
-        // The bound is the component's, read rather than restated: exceeding it
-        // makes `NativePasswordHasher::hash()` throw, and an invalid request must
-        // not be a 500. Bytes here, deliberately, because bytes is the unit the
-        // component refuses in.
-        if (\strlen($newPassword) > PasswordHasherInterface::MAX_PASSWORD_LENGTH) {
-            return [[
-                'pointer' => '/new_password',
-                'code' => self::NEW_PASSWORD_TOO_LONG,
-                'message' => \sprintf('The new password must be at most %d bytes.', PasswordHasherInterface::MAX_PASSWORD_LENGTH),
-            ]];
-        }
-
-        return [];
+        return PasswordRules::errors($newPassword, '/new_password');
     }
 
     /** @return array{0: ?string, 1: ?string} the stored hash and seal, or `[null, null]` when the row has gone */

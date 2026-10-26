@@ -52,6 +52,8 @@ final class PermissionEnforcementContractTest extends ApiTestCase
         'IssueToken' => null,
         // Mail-C1: §4.2's `—` — pre-authentication, like `IssueToken`.
         'CreatePasswordReset' => null,
+        // Mail-C2: §4.2's `—` — pre-authentication; the link is the credential.
+        'CreatePasswordResetRedemption' => null,
         'GetCurrentUser' => null,
         // Remaining-ops G7a (2026-10-21): §4.2 :870's `Perm` cell.
         'GetSettings' => 'tenant_settings.view',

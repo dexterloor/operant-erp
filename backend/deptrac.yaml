@@ -104,6 +104,13 @@ deptrac:
   # `A-1 + A-5` line, unchanged), A-5 43 -> 44, A-7 95 -> 96, A-10 11 -> 13, A-12 25 -> 25 (counted with awk over the lines
   # between `skip_violations:` and `layers:`, by trailing tag). ONE LAYER edge: `UserManagementContract -> PlatformMessaging`.
   # Measured in `docs/session13/mail-c1-progress.md`. Re-derive; never restate.)
+  # (Re-derived 2026-10-27 with the reset-link redeem in the tree (Mail-C2): NINE edge lines added -- A-5
+  # `PasswordResetRedemption -> PasswordResetRedemptionAuditWriter`; A-7 `PasswordResetRedemption -> EmailHasher`,
+  # `LockoutStore`, `PasswordResetRedemptionWriter`, `PasswordResetTokenLookup`, `PreAuthBudgets`; A-10
+  # `PasswordResetRedemptionAuditWriter`, `PasswordResetRedemptionWriter`, `PasswordResetTokenLookup -> Doctrine\DBAL\Connection`.
+  # By TAG at c4df34c -> after: A-5 44 -> 45, A-7 96 -> 101, A-10 13 -> 16 (A-1, `A-1 + A-5`, A-12 unchanged); the three App-class
+  # commands move by 6 / 5 / 1 (the A-10 lines name a Doctrine class). No LAYER edge. Measured in
+  # `docs/session13/mail-c2-progress.md`. Re-derive; never restate.)
   # (Re-derived 2026-10-23 with the mail bus in the tree (Mail-C0): NO edge line added -- nothing in `src/` depends on the new
   # `PlatformMessaging` layer, and its own classes reach only Doctrine (the entity manager) and Symfony. A NEW LAYER, not an
   # edge: `PlatformMessaging` (allowed `Doctrine`, `PlatformTenancy`), named in no `allowed` list. Measured in
@@ -431,6 +438,9 @@ deptrac:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter:
       # Mail-C1: the mail worker's audit writer, on the erp_worker connection (bound in services.yaml).
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\AuditLog\Infrastructure\PasswordResetRedemptionAuditWriter:
+      # Mail-C2: the redeem's audit writer, on the erp_app connection (bound in services.yaml).
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\Inventory\Application\ItemReader:
       - App\Modules\Inventory\ApiResource\ItemCollection   # A-7
@@ -786,6 +796,15 @@ deptrac:
     App\Modules\UserManagement\Application\PasswordResetRequest:
       # Mail-C1: `CreatePasswordReset` consumes sign-in's two budgets (D-M3), `SignIn`'s shape exactly.
       - App\Modules\UserManagement\Infrastructure\PreAuthBudgets   # A-7
+    App\Modules\UserManagement\Application\PasswordResetRedemption:
+      # Mail-C2: the redeem, `SignIn`'s one-collaborator-per-principal shape; its audit row through AuditLog's writer
+      # inside its own erp_app transaction (`ChangePassword -> PasswordChangeAuditWriter`'s shape).
+      - App\Modules\AuditLog\Infrastructure\PasswordResetRedemptionAuditWriter   # A-5
+      - App\Modules\UserManagement\Infrastructure\EmailHasher   # A-7
+      - App\Modules\UserManagement\Infrastructure\LockoutStore   # A-7
+      - App\Modules\UserManagement\Infrastructure\PasswordResetRedemptionWriter   # A-7
+      - App\Modules\UserManagement\Infrastructure\PasswordResetTokenLookup   # A-7
+      - App\Modules\UserManagement\Infrastructure\PreAuthBudgets   # A-7
     App\Modules\UserManagement\Application\SignIn:
       - App\Modules\UserManagement\Infrastructure\AccessTokenIssuer   # A-7
       - App\Modules\UserManagement\Infrastructure\AuthTrailWriter   # A-7
@@ -804,6 +823,10 @@ deptrac:
       - App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter   # A-5
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\CredentialLookup:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\PasswordResetRedemptionWriter:
+      - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\PasswordResetTokenLookup:
       - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\LockoutStore:
       - Doctrine\DBAL\Connection   # A-10

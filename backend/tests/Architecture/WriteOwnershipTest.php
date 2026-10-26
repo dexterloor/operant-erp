@@ -218,7 +218,7 @@ final class WriteOwnershipTest extends KernelTestCase
         // ONE `INSERT INTO audit_log` for `tenant_settings.updated` (PREDICTED; confirmed off this test's run).
         // **31 -> 32 on 2026-10-23** (G4-C1 `UpdateUser`): `UserAuditWriter::record()`'s one `INSERT INTO audit_log` for
         // `user.deactivated` / `.reactivated` / `.updated` (first RED L-4).
-        'Modules\\AuditLog' => 33, // +1 Mail-C1: PasswordResetAuditWriter's one shared INSERT INTO audit_log (erp_worker).
+        'Modules\\AuditLog' => 34, // +1 Mail-C1: PasswordResetAuditWriter's one shared INSERT INTO audit_log (erp_worker); +1 Mail-C2: PasswordResetRedemptionAuditWriter's INSERT (erp_app).
         // **New key 2026-10-09** (customers slice 1 C2), read off this test's run: `CustomerWriter`'s one `INSERT INTO
         // customer` (column list built from the sent fields, one text) and one `UPDATE customer` (SET built from the changed
         // fields). The row lock is a `FOR NO KEY UPDATE` this scan excludes.
@@ -356,7 +356,7 @@ final class WriteOwnershipTest extends KernelTestCase
         // **16 -> 19 on 2026-10-23** (G4-C1 `UpdateUser`): `UserLiveness`'s E-15g strip (`DELETE FROM user_role`) and its
         // two lapse statements (`UPDATE role_grant_proposal … AND status = 'pending'`, for and by the person), read off this
         // test's failure. The `app_user` writes are an ORM flush, which this scan does not count.
-        'Modules\\UserManagement' => 20, // +1 Mail-C1: the reset handler's INSERT INTO password_reset_token (erp_worker).
+        'Modules\\UserManagement' => 22, // +1 Mail-C1: the reset handler's INSERT INTO password_reset_token (erp_worker); +2 Mail-C2: PasswordResetRedemptionWriter's UPDATE password_reset_token (7a) and UPDATE app_user (7b), PREDICTED.
         // **New key 2026-10-13** (warehouses slice 1 C2), read off this test's run: `WarehouseWriter`'s one `INSERT INTO
         // warehouse` and one `UPDATE warehouse` (SET built from the changed fields). The row lock is a `FOR NO KEY UPDATE`
         // this scan excludes.

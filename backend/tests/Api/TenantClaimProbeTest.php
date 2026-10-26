@@ -97,6 +97,13 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
             'body' => ['workspace' => 'tenant-a', 'email' => '@actor_email'],
             'authenticated' => false,
         ],
+        // Mail-C2: pre-authentication; the tenant is inside the token (a fresh keyed link per request, `reset_link`), never a
+        // body field — a supplied tenant id must change neither the 200 nor which person's password moves.
+        'CreatePasswordResetRedemption' => [
+            'body' => ['token' => '@reset_token', 'password' => 'a brand new passphrase'],
+            'setup' => 'reset_link',
+            'authenticated' => false,
+        ],
         'GetCurrentUser' => [],
         // Remaining-ops G7a (final RED L-3): `tenant` has no RLS, so this probe is the one a tenant id could move.
         'GetSettings' => [],
@@ -627,6 +634,11 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         if ('withdrawable_proposal' === ($recipe['setup'] ?? null)) {
             $this->seedWithdrawableProposal(self::TENANT_A, 'A');
             $this->seedWithdrawableProposal(self::TENANT_B, 'B');
+        }
+        if ('reset_link' === ($recipe['setup'] ?? null)) {
+            foreach (['A' => self::TENANT_A, 'B' => self::TENANT_B] as $letter => $tenantId) {
+                $this->fixture[$letter]['reset_token'] = $this->mintResetLink($tenantId, $this->id($letter, 'actor'));
+            }
         }
         if ('second_bin' === ($recipe['setup'] ?? null)) {
             foreach (['A' => self::TENANT_A, 'B' => self::TENANT_B] as $letter => $tenantId) {

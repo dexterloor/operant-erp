@@ -160,7 +160,8 @@ final readonly class LockoutStore
     }
 
     /**
-     * E-22's reset, and the **only** one: a success for this pair.
+     * E-22's resets: a success for this pair, and (Mail-C2, D-M8) a redeemed password-reset link for this pair — proving
+     * the mailbox is more than a password proves, and the password has just been set. Nothing else clears a pause.
      *
      * `UPDATE` and not `DELETE` — the principal holds no `DELETE` here, and the
      * row carries E-12's `suppression_count`, which a delete would re-arm
