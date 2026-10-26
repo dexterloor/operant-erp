@@ -1,0 +1,40 @@
+import {
+  ArrowLeftRight,
+  Box,
+  Boxes,
+  Building2,
+  FileBadge,
+  FileText,
+  LayoutDashboard,
+  PackageCheck,
+  PackageOpen,
+  Receipt,
+  ScrollText,
+  Settings,
+  Shield,
+  Truck,
+  Users,
+  Warehouse,
+  type LucideIcon,
+} from 'lucide-react';
+import type { NavIconName } from '@/lib/navigation';
+
+/** §4.6 icon map, from the npm package (not the export's SVGs, which carry ~8 KB of C2PA metadata each). */
+export const NAV_ICONS: Record<NavIconName, LucideIcon> = {
+  'layout-dashboard': LayoutDashboard,
+  'file-text': FileText,
+  'package-check': PackageCheck,
+  truck: Truck,
+  box: Box,
+  boxes: Boxes,
+  'arrow-left-right': ArrowLeftRight,
+  warehouse: Warehouse,
+  receipt: Receipt,
+  'package-open': PackageOpen,
+  'file-badge': FileBadge,
+  'building-2': Building2,
+  users: Users,
+  shield: Shield,
+  'scroll-text': ScrollText,
+  settings: Settings,
+};

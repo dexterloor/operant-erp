@@ -1,0 +1,22 @@
+.content {
+  z-index: var(--z-tooltip);
+  max-width: 280px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-raised);
+  color: var(--fg-default);
+  box-shadow: var(--elevation-e2);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  animation: tooltip-in var(--motion-fast) var(--ease-enter);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

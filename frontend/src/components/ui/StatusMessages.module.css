@@ -1,0 +1,83 @@
+.stack {
+  position: fixed;
+  right: var(--space-8);
+  bottom: var(--space-8);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(380px, calc(100vw - 2 * var(--space-6)));
+  pointer-events: none;
+}
+
+.message {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-4) var(--space-5) var(--space-6);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-raised);
+  color: var(--fg-default);
+  box-shadow: var(--elevation-e2);
+  pointer-events: auto;
+  animation: message-in var(--motion-base) var(--ease-enter);
+}
+
+.text {
+  flex: 1;
+  padding-top: 4px;
+}
+
+/* DECISIONS §5.8: a thin 8 s timer bar that pauses on hover and focus. */
+.timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent-solid);
+  transform-origin: left;
+  animation-name: timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.message[data-paused] .timer {
+  animation-play-state: paused;
+}
+
+@keyframes timer {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--motion-distance-toast));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .stack {
+    right: var(--space-6);
+    bottom: var(--space-6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer {
+    display: none;
+  }
+}

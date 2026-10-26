@@ -1,0 +1,29 @@
+.icon {
+  flex: none;
+  animation: erp-spin var(--motion-spin) linear infinite;
+}
+
+.region {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-muted);
+}
+
+.staticText {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon {
+    animation: none;
+  }
+
+  .region .icon {
+    display: none;
+  }
+
+  .region .staticText {
+    display: inline;
+  }
+}
