@@ -442,6 +442,31 @@ final class RoleAssignTest extends ApiTestCase
         self::assertNotSame('erp_app', $this->insertedBy($seeded), 'Control: the owner process reads as the application.');
     }
 
+    /**
+     * **G-91 / BK-11 (case C):** someone who already combines two duties on SoD-4 (`invoice.issue` through a composed role,
+     * shipping through `warehouse_operator`, both seeded by owner SQL) cannot be given `sales_rep`, which adds a NEW pair on
+     * that row (confirm × ship) — the shipped row rule alone admitted it, since the row was already spanned. **Case A in the
+     * same test:** `sales_rep` to an `admin` + `finance` holder adds no new pair and is still 201 (the recorded narrowing,
+     * G-91's open part; `app:roles:reconcile` arm H lists that person).
+     */
+    #[Test]
+    public function someoneWhoAlreadyCombinesTwoDutiesCannotBeGivenANewCombination(): void
+    {
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+
+        $held = $this->holderOf([$this->composedRole(['invoice.issue']), $this->systemRole(DefaultRoles::WAREHOUSE_OPERATOR)]);
+        $this->grant($held, $salesRep);
+        $this->assertRefused('user_role.separation_of_duty', 'case C',
+            'sales_rep '.substr($salesRep, 0, 8).' can\'t be given to this person: with the roles they already have, one person could '
+            .'confirm sales orders or issue invoices and also ship the goods (SoD-4). Choose another role or another person.');
+        self::assertSame(2, $this->grantsOf($held));
+
+        $redundant = $this->holderOf([$this->systemRole(DefaultRoles::ADMIN), $this->systemRole(DefaultRoles::FINANCE)]);
+        $this->grant($redundant, $salesRep);
+        self::assertSame(201, $this->httpStatus(), 'Case A (adds nothing new on SoD-3): '.$this->client()->getResponse()->getContent());
+    }
+
     // -----------------------------------------------------------------------
 
     private function grant(string $userId, string $roleId): void

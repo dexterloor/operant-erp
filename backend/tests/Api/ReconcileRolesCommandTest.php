@@ -489,6 +489,41 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         self::assertSame(0, $code, $out);
     }
 
+    /**
+     * **Arm H (G-91 / BK-11), report-only:** a person whose live roles together span a SoD row that no single one spans is
+     * printed `held_separation_of_duty` with the rows; a person whose violation is hidden by a role spanning the row alone
+     * (`owner` given to a `sales_rep` + `finance` holder) is printed `masked_separation_of_duty` with the masking role.
+     * **Controls in the same run:** an `owner` holder alone and a `purchasing_manager` holder alone (each spans rows alone,
+     * holding every code) print nothing; and nothing is revoked.
+     */
+    #[Test]
+    public function armHListsEveryoneWhoCombinesTwoDutiesAndRevokesNothing(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        [$violator] = $this->holderOfDefaults([DefaultRoles::SALES_REP, DefaultRoles::FINANCE]);
+        [$masked, $maskingOwner] = $this->holderOfDefaults([DefaultRoles::OWNER, DefaultRoles::SALES_REP, DefaultRoles::FINANCE]);
+        [$ownerAlone] = $this->holderOfDefaults([DefaultRoles::OWNER]);
+        [$managerAlone] = $this->holderOfDefaults([DefaultRoles::PURCHASING_MANAGER]);
+        $grants = $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role');
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $lines = array_values(array_filter(explode("\n", trim($out)), static fn (string $l): bool => \in_array(explode(',', $l)[0],
+            [RoleReconciliation::FINDING_HELD_SEPARATION_OF_DUTY, RoleReconciliation::FINDING_MASKED_SEPARATION_OF_DUTY], true)));
+        sort($lines);
+        $expected = [
+            RoleReconciliation::FINDING_HELD_SEPARATION_OF_DUTY.','.$violator.',,,rows=SoD-3',
+            RoleReconciliation::FINDING_MASKED_SEPARATION_OF_DUTY.','.$masked.','.$maskingOwner.',,rows=SoD-3',
+        ];
+        sort($expected);
+        self::assertSame($expected, $lines, 'Arm H did not report exactly the planted violator and the masked one: '.$out);
+        // Arm A names every owner-seeded grant here, so the controls read arm H's lines only.
+        self::assertStringNotContainsString($ownerAlone, implode("\n", $lines), 'An owner holder alone was reported by arm H.');
+        self::assertStringNotContainsString($managerAlone, implode("\n", $lines), 'A purchasing_manager holder alone was reported by arm H.');
+        self::assertSame($grants, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role'), 'Arm H revoked a grant.');
+    }
+
     /** The controls refuse with exit 2 and print no finding: a tenant with no user (a wrong id) and a non-uuid. */
     #[Test]
     public function aFailedControlPrintsNoFindings(): void
@@ -552,6 +587,35 @@ final class ReconcileRolesCommandTest extends ApiTestCase
         $code = $tester->execute('' === $tenant ? [] : ['--tenant' => $tenant]);
 
         return [$code, $tester->getDisplay()];
+    }
+
+    /**
+     * A fresh user holding one composed role per default role named, each with that role's codes (seeded as the owner).
+     *
+     * @param list<string> $defaults
+     *
+     * @return list<string> the user's id, then each role's id in `$defaults`' order
+     */
+    private function holderOfDefaults(array $defaults): array
+    {
+        $user = $this->seedPrincipal(self::TENANT_A, []);
+        $ids = [$user];
+        foreach ($defaults as $default) {
+            $role = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
+                [$role, self::TENANT_A, $default.' '.substr($role, 0, 8)]);
+            foreach (DefaultRoles::codesFor($default) as $code) {
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                    [self::TENANT_A, $role, $code]);
+            }
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+                [self::TENANT_A, $user, $role]);
+            $ids[] = $role;
+        }
+
+        return $ids;
     }
 
     /** @param list<string> $leaveUnaccounted */

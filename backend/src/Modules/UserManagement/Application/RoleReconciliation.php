@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
+use App\Modules\UserManagement\Domain\HeldSpanConflict;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\TenantContext;
 use App\SharedKernel\ValueObject\AuditEvent;
@@ -58,6 +59,16 @@ use Symfony\Component\Uid\Uuid;
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
  *    predicate of API-20's floor, the SAME query (`LiveGrantReader::activeMarkerHolderCount()`). **Attribution and
  *    recovery triage, not detection** (spar T-4): a lockout of every owner announces itself.
+ *  - **H — `held_separation_of_duty` / `masked_separation_of_duty`** (`RESIDUAL_GAPS.md` G-91, BK-11; `SEC`
+ *    `sec-held-conflict.md` R2.4). **Report-only: it revokes nothing.** One statement over `user_role ⋈ role (live) ⋈
+ *    role_permission`, grouped per person and role in PHP: a person whose live roles together span a SoD row that no
+ *    single one spans alone is `held_separation_of_duty` with the rows (PC-13's predicate,
+ *    {@see HeldSpanConflict::violatedRows()}); a row hidden from that predicate by a role spanning it alone and not needed
+ *    for the union to span it (`owner` given to a violator) is `masked_separation_of_duty`, once per masking role
+ *    ({@see HeldSpanConflict::maskedRows()}). The grant routes refuse a NEW combination for such people; arm H lists those
+ *    who already have one — from SQL, owner-process seeding, or a change to `SeparationOfDuty::ROWS` or a default role
+ *    (`OwedAmendmentTripwireTest` pins a fingerprint of both and requires this arm to be run when it moves). **Not seen:** a
+ *    custom role spanning a row alone without every code on it (G-91). Letter E stays reserved for G-10's owner-process arm.
  *
  * **What an empty result means, and the command prints it on every run:** *"an empty result means no careless writer,
  * never no forgery; this runs only when invoked."* SQL running as `erp_app` can forge the matching `role.*` row as easily
@@ -92,6 +103,10 @@ final readonly class RoleReconciliation
     public const FINDING_PRE_EVENT_ROLE = 'pre_event_role';
 
     public const FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS = 'system_role_has_permission_rows';
+
+    public const FINDING_HELD_SEPARATION_OF_DUTY = 'held_separation_of_duty';
+
+    public const FINDING_MASKED_SEPARATION_OF_DUTY = 'masked_separation_of_duty';
 
     /**
      * Arm D's date baseline: the day `role.permissions_changed` was minted (roles slice 4 C1, `Version20261007000200`). A
@@ -213,6 +228,16 @@ final readonly class RoleReconciliation
          ORDER BY a.occurred_at, a.id
         SQL;
 
+    /** Arm H: every live grant's codes, per person and role. Names `user_role`, `role` and `role_permission` only. */
+    private const ARM_H = <<<'SQL'
+        SELECT ur.user_id::text AS user_id, r.id::text AS role_id, rp.permission_code AS code
+          FROM user_role ur
+          JOIN role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id AND r.deleted_at IS NULL
+          JOIN role_permission rp ON rp.tenant_id = r.tenant_id AND rp.role_id = r.id
+         WHERE ur.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+         ORDER BY ur.user_id, r.id, rp.permission_code
+        SQL;
+
     /** Arm G (iv), half one: the pending pairs — names `role_grant_proposal` only (T2). */
     private const PENDING_PAIRS = <<<'SQL'
         SELECT rgp.id::text AS proposal_id, rgp.user_id::text AS user_id, rgp.role_id::text AS role_id, rgp.proposed_at::text AS at
@@ -241,7 +266,7 @@ final readonly class RoleReconciliation
     }
 
     /**
-     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string, permission_code?: string}>}
+     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string, permission_code?: string, rows?: list<string>}>}
      */
     public function run(string $tenantId): array
     {
@@ -328,6 +353,7 @@ final readonly class RoleReconciliation
             }
 
             $findings = [...$findings, ...self::armD($em)];
+            $findings = [...$findings, ...self::armH($em)];
 
             if (0 === LiveGrantReader::activeMarkerHolderCount($em)) {
                 $findings[] = ['finding' => self::FINDING_NO_ACTIVE_OWNER, 'user_id' => null, 'role_id' => null, 'at' => null];
@@ -401,6 +427,32 @@ final readonly class RoleReconciliation
                 foreach (array_keys($set) as $code) {
                     $findings[] = ['finding' => self::FINDING_PHANTOM_PERMISSION, 'user_id' => null, 'role_id' => (string) $id, 'at' => null, 'permission_code' => (string) $code];
                 }
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Arm H (see the class docblock): one read, folded in PHP. Report-only.
+     *
+     * @return list<array{finding: string, user_id: string, role_id: ?string, at: null, rows: list<string>}>
+     */
+    private static function armH(EntityManagerInterface $em): array
+    {
+        $people = [];
+        foreach ($em->getConnection()->fetchAllAssociative(self::ARM_H) as $row) {
+            $people[(string) $row['user_id']][(string) $row['role_id']][] = (string) $row['code'];
+        }
+
+        $findings = [];
+        foreach ($people as $userId => $roles) {
+            $violated = HeldSpanConflict::violatedRows($roles);
+            if ([] !== $violated) {
+                $findings[] = ['finding' => self::FINDING_HELD_SEPARATION_OF_DUTY, 'user_id' => (string) $userId, 'role_id' => null, 'at' => null, 'rows' => $violated];
+            }
+            foreach (HeldSpanConflict::maskedRows($roles) as $roleId => $rows) {
+                $findings[] = ['finding' => self::FINDING_MASKED_SEPARATION_OF_DUTY, 'user_id' => (string) $userId, 'role_id' => (string) $roleId, 'at' => null, 'rows' => $rows];
             }
         }
 

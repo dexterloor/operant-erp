@@ -362,6 +362,21 @@ final class OfferedRoleListTest extends ApiTestCase
         self::assertSame($before, (string) $this->client()->getResponse()->getContent(), 'A pending proposal changed the picker: it serves pending state.');
     }
 
+    /**
+     * **G-91 / BK-11 (case C) in the picker:** for someone who already combines invoicing and shipping (SoD-4, owner SQL),
+     * `sales_rep` carries `separation_of_duty` — the same verdict `AssignRole` gives. Control: for a clean subject it does not.
+     */
+    #[Test]
+    public function thePickerRefusesANewCombinationForSomeoneWhoAlreadyCombinesTwo(): void
+    {
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $held = $this->holderOf([$this->composedRole(['invoice.issue']), $this->systemRole(DefaultRoles::WAREHOUSE_OPERATOR)]);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+
+        self::assertSame('user_role.separation_of_duty', $this->itemFor($held, $salesRep, 'case C')['refusal']);
+        self::assertNull($this->itemFor($this->seedPrincipal(self::TENANT_A, []), $salesRep, 'clean')['refusal']);
+    }
+
     // -----------------------------------------------------------------------
 
     /** @return list<array<string, mixed>> */

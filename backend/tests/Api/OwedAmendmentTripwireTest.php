@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\UserManagement\Domain\DefaultRoles;
+use App\Modules\UserManagement\Domain\DutyCatalogueFingerprint;
+use App\Modules\UserManagement\Domain\SeparationOfDuty;
 use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PhpSourceScan;
@@ -44,6 +47,13 @@ use PHPUnit\Framework\Attributes\Test;
  */
 final class OwedAmendmentTripwireTest extends ApiTestCase
 {
+    /**
+     * G-91 (BK-11): `DutyCatalogueFingerprint::current()` when `app:roles:reconcile` arm H was last required to be run —
+     * at its own commit, 2026-10-27. Moved only by the commit that changes the duty table or a default role, after the
+     * steps in {@see self::theDutyTableAndDefaultRolesAreTheOnesTheHeldConflictReportWasLastRunFor()}'s message.
+     */
+    private const DUTY_CATALOGUE_FINGERPRINT = '138e2395706279cdd7d3616745cd81debf77293326765df2b47f9d350525fd80';
+
     /**
      * **`operationId` => the §4.2 path the row declares (for the reader; the
      * check compares keys only)** — the operations that owe an amendment that
@@ -1677,6 +1687,44 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         return $found;
     }
 
+
+    /**
+     * **`RESIDUAL_GAPS.md` G-91 (BK-11): a change to the separation-of-duty table or a default role can make people who
+     * already hold two roles combine two separated duties, with no database edit** (SoD-5 did that on 2026-10-01 to every
+     * `finance` + `warehouse_operator` holder). The grant routes refuse a new combination for such people, but they exist
+     * until someone looks: this pins a fingerprint of `SeparationOfDuty` + `DefaultRoles::all()`
+     * (`DutyCatalogueFingerprint::current()`), and the failure message carries what must be done before the pin moves.
+     * `admin` and `viewer` are derived from the catalogue, so a catalogue change moves the pin too — correctly.
+     *
+     * **Positive control, same test:** the fingerprint of an in-memory copy with one code removed differs from `current()`.
+     */
+    #[Test]
+    public function theDutyTableAndDefaultRolesAreTheOnesTheHeldConflictReportWasLastRunFor(): void
+    {
+        self::assertSame(self::DUTY_CATALOGUE_FINGERPRINT, DutyCatalogueFingerprint::current(),
+            "SeparationOfDuty::ROWS or a default role (or the catalogue, through admin/viewer) changed. Before moving this pin:\n"
+            ."run app:roles:reconcile --tenant for every non-demo tenant and act on held_separation_of_duty; check whether any\n"
+            ."custom role now spans a row alone without every code on it (arm H cannot see that case; G-91); update G-91 and\n"
+            .'the ledger. Then set DUTY_CATALOGUE_FINGERPRINT to DutyCatalogueFingerprint::current().');
+
+        $rows = [];
+        foreach (SeparationOfDuty::rowIds() as $id) {
+            $rows[$id] = SeparationOfDuty::row($id);
+        }
+        $roles = DefaultRoles::all();
+        self::assertSame(DutyCatalogueFingerprint::current(), DutyCatalogueFingerprint::of($rows, $roles), 'Control: of() over today\'s table is not current().');
+        $reordered = $rows;
+        $reordered['SoD-3']['controlled'] = array_reverse($reordered['SoD-3']['controlled']);
+        self::assertSame(DutyCatalogueFingerprint::current(), DutyCatalogueFingerprint::of(array_reverse($reordered, true), $roles),
+            'Control: typing order moved the fingerprint.');
+        $planted = $rows;
+        $planted['SoD-1']['controlled'] = array_values(array_diff($planted['SoD-1']['controlled'], ['purchase_order.cancel']));
+        self::assertNotSame(DutyCatalogueFingerprint::current(), DutyCatalogueFingerprint::of($planted, $roles),
+            'Control: removing a code from a SoD row did not move the fingerprint, so the pin is not a check.');
+        $roles[DefaultRoles::PURCHASING_MANAGER] = array_values(array_diff($roles[DefaultRoles::PURCHASING_MANAGER], ['purchase_order.cancel']));
+        self::assertNotSame(DutyCatalogueFingerprint::current(), DutyCatalogueFingerprint::of($rows, $roles),
+            'Control: removing a code from a default role did not move the fingerprint.');
+    }
 
     /**
      * The `operationId`s the generated spec carries, as a set. Every pin in this
