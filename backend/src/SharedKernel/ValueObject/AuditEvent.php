@@ -467,7 +467,8 @@ final class AuditEvent
      * Mail-C1: a password-reset link was minted and mailed to the account's STORED email. Written by the mail worker on
      * `erp_worker`, in the transaction that inserts the token and sends the mail; subjectless, actor = the user, IP = the
      * request's, `metadata` `{"purpose":"reset","message_id":…,"requested_by":"anonymous"}` (L-11: nobody signed in asked).
-     * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token`. Never the token or link.
+     * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token` over `purpose = 'reset'` rows only
+     * since U-C1a. Never the token or link.
      */
     public const AUTH_PASSWORD_RESET_ISSUED = 'auth.password_reset.issued';
 
@@ -475,7 +476,8 @@ final class AuditEvent
      * Mail-C2: a mailed reset link was redeemed and the password set. Written on `erp_app` inside the redeem's one write
      * transaction (it rolls back with the change); subjectless, actor = the user, `actor_label` = the STORED email (the
      * label the worker's `auth.password_reset.issued` row carries for the same flow), IP = the request's, `metadata`
-     * `{"purpose":"reset"}` (U-C1 adds `"invitation"`). Never the token, the verifier or anything credential-derived (E-23).
+     * `{"purpose":"reset"}`, or `{"purpose":"invitation"}` when the link was an invitation (U-C1a; one of two literals keyed by
+     * the redeemed row's purpose). Never the token, the verifier or anything credential-derived (E-23).
      * A refused redemption writes nothing (Q-4, `SEC`'s call: recorded as a residual).
      */
     public const AUTH_PASSWORD_RESET = 'auth.password.reset';
@@ -484,6 +486,9 @@ final class AuditEvent
      * Mail-C1 (D-M7): a reset was asked for an account whose stored email no longer matches its keyed identity seal
      * (`app_user.identity_mac`) — the address was changed outside the application. No mail is sent. Written by the mail
      * worker at most once per user per UTC day (a read-back on the trail); subjectless, actor = the user, IP = the request's.
+     * U-C1a: also written when the seal names a key id the worker does not hold (the park path, Mail-C1 carry item 5), with
+     * `{"unknown_key_id": true}`, under the SAME once-a-day allowance (one seal note per person per day, of either kind — M-4 (a),
+     * `SEC` TO CONFIRM); committed before the message is parked in `failed`.
      */
     public const AUTH_CREDENTIAL_IDENTITY_MISMATCH = 'auth.credential.identity_mismatch';
 

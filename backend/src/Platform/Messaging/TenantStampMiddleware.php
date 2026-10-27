@@ -29,9 +29,10 @@ use Symfony\Component\Messenger\Stamp\ReceivedStamp;
  *   - received (`ReceivedStamp`) without exactly one well-formed stamp → `UnrecoverableMessageHandlingException`
  *     (straight to `failed`, never retried).
  *
- * **Not here yet, by design (RED M-5):** the `Tenant::permitsLogin()` gate before the handler and `WorkerTenantStatusTest`
- * land with the first `TenantMessage` (U-C1). `MessengerConfigurationTest::aTenantMessageInTheCatalogueRequiresTheTenantStatusGate`
- * goes red the moment one is catalogued without them.
+ * **The tenant-status gate is the next middleware** ({@see TenantStatusGateMiddleware}, U-C1a, O-8): on a received
+ * workspace message it reads the stamp this class checked and refuses a workspace that does not permit sign-in, before the
+ * handler. `WorkerTenantStatusTest` holds it; `MessengerConfigurationTest::aTenantMessageInTheCatalogueRequiresTheTenantStatusGate`
+ * is its catalogue tripwire.
  */
 final readonly class TenantStampMiddleware implements MiddlewareInterface
 {

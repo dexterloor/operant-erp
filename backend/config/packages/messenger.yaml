@@ -19,6 +19,10 @@ framework:
                 middleware:
                     - App\Platform\Messaging\MessageClassAllowlistMiddleware
                     - App\Platform\Messaging\TenantStampMiddleware
+                    # U-C1a (API.md §11.2 O-8): a received workspace message is handled only while its workspace permits
+                    # sign-in. After the stamp check, before the handler. It takes the worker connection lazily: the web
+                    # process builds this middleware on every dispatch (u-c1-final-red.md C-1).
+                    - App\Platform\Messaging\TenantStatusGateMiddleware
         transports:
             # Redis (owner Q-1, confirmed 2026-10-23). The DSN carries NO path and no `stream`/`group` query: in the bridge a
             # DSN path overrides `options.stream`, so a path would put both transports on one stream (mail-c0-red.md M-1;

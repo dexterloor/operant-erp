@@ -32,9 +32,12 @@ use Symfony\Component\Uid\Uuid;
  *  2  tenant context on this connection (`TenantContext::establishOn`)
  *  3  the user by stored email, live rows only (RLS); a data error (SQLSTATE class 22) is a silent refusal (M-3 depth)
  *  4  silent refusals — no row · inactive · a non-active workspace · an identity seal that does not match (then at most one
- *     `auth.credential.identity_mismatch` per user per UTC day) · a seal under ANOTHER key id: parked in `failed`, never
- *     retried, operator log naming both key ids (T-G75-4)
- *  5  the per-user advisory lock (L-5), then the cap: ≥ 3 links in the trailing 24 h → commit, acknowledge, nothing sent
+ *     `auth.credential.identity_mismatch` per user per UTC day) · a seal under ANOTHER key id: an
+ *     `auth.credential.identity_mismatch` `{"unknown_key_id": true}` row under the same once-a-day read-back (one seal note
+ *     per person per UTC day, of either kind — U-C1a, M-4 (a), SEC TO CONFIRM), COMMITTED, then an operator log naming both
+ *     key ids, then parked in `failed`, never retried (T-G75-4, T-U5c)
+ *  5  the per-user advisory lock (L-5), then the cap: ≥ 3 RESET links in the trailing 24 h → commit, acknowledge, nothing
+ *     sent. Invitations neither count nor are counted (U-C1 D-U7′; `RESIDUAL_GAPS.md` G-78)
  *  6  mint: 16 random bytes of selector, 32 of verifier; `created_at` = the worker's clock **truncated to the second**
  *     (the MAC encodes `expires_at` in whole seconds), `expires_at` = + 30 minutes
  *  7  INSERT the token; a duplicate `message_id` (a redelivery after a lost acknowledgement) → roll back, acknowledge
@@ -62,6 +65,9 @@ final readonly class PasswordResetRequestedHandler
     public const CLASS_ID = 7002;
 
     public const PURPOSE = 'reset';
+
+    /** Who asked, in the trail (L-11): nobody signed in. A literal chosen here, never a message value (U-C1 H-2). */
+    public const REQUESTED_BY = 'anonymous';
 
     public function __construct(
         private Connection $worker,
@@ -138,7 +144,13 @@ final readonly class PasswordResetRequestedHandler
         $seal = $this->seals->checkIdentity($tenantId, $userId, $storedEmail, null === $user['identity_mac'] ? null : (string) $user['identity_mac']);
         if (SealCheck::UnknownKey === $seal) {
             $stored = (string) $user['identity_mac'];
-            $this->worker->rollBack();
+            // U-C1a (Mail-C1 carry item 5): leave a trail row, COMMITTED before the park — an Unrecoverable thrown inside the
+            // transaction would roll it back with everything else.
+            $dayStart = new \DateTimeImmutable('@'.($now->getTimestamp() - ($now->getTimestamp() % 86400)));
+            if (!$this->audit->identityMismatchRecordedSince($userId, $dayStart)) {
+                $this->audit->recordIdentityMismatch($tenantId, $userId, $storedEmail, $ip, $messageId, $now, self::REQUESTED_BY, true);
+            }
+            $this->worker->commit();
             $this->logger->error('A password reset request was parked: the account\'s identity seal was made with another key.', [
                 'message_id' => $messageId,
                 'stored_key_id' => substr($stored, 3, 8),
@@ -150,7 +162,7 @@ final readonly class PasswordResetRequestedHandler
         if (SealCheck::Mismatch === $seal) {
             $dayStart = new \DateTimeImmutable('@'.($now->getTimestamp() - ($now->getTimestamp() % 86400)));
             if (!$this->audit->identityMismatchRecordedSince($userId, $dayStart)) {
-                $this->audit->recordIdentityMismatch($tenantId, $userId, $storedEmail, $ip, $messageId, $now);
+                $this->audit->recordIdentityMismatch($tenantId, $userId, $storedEmail, $ip, $messageId, $now, self::REQUESTED_BY, false);
             }
 
             return;
@@ -160,8 +172,8 @@ final readonly class PasswordResetRequestedHandler
         $this->worker->executeStatement('SELECT pg_advisory_xact_lock(?, hashtext(?::uuid::text))', [self::CLASS_ID, $userId]);
         $since = new \DateTimeImmutable('@'.($now->getTimestamp() - self::CAP_WINDOW_SECONDS));
         $recent = (int) $this->worker->fetchOne(
-            'SELECT count(*) FROM password_reset_token WHERE user_id = ?::uuid AND created_at > ?::timestamptz',
-            [$userId, $since->format('Y-m-d H:i:sP')],
+            'SELECT count(*) FROM password_reset_token WHERE user_id = ?::uuid AND purpose = ? AND created_at > ?::timestamptz',
+            [$userId, self::PURPOSE, $since->format('Y-m-d H:i:sP')],
         );
         if ($recent >= self::LINKS_PER_DAY) {
             return;
@@ -195,7 +207,7 @@ final readonly class PasswordResetRequestedHandler
         }
 
         // --- 8 ------------------------------------------------------------
-        $this->audit->recordIssued($tenantId, $userId, $storedEmail, $ip, $messageId, $now);
+        $this->audit->recordIssued($tenantId, $userId, $storedEmail, $ip, $messageId, $now, self::PURPOSE, self::REQUESTED_BY);
 
         // --- 9 ------------------------------------------------------------
         if ('' === $this->from || '' === $this->publicUrl) {

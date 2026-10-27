@@ -307,6 +307,21 @@ services:
         arguments:
             $worker: '@doctrine.dbal.worker_connection'
 
+    # U-C1a (O-8; u-c1-final-red.md C-1): the tenant-status gate runs on the BUS, which the web process builds on every
+    # dispatch, and the web kernel's worker DSN is empty by design -- building that connection there throws. So the gate
+    # takes the worker connection through a lazy proxy, initialised only when the gate handles a RECEIVED workspace message.
+    # This is exactly the definition `#[Autowire(lazy: true)]` generates, written here because an explicit argument wins over
+    # the attribute and ConnectionBindingTest reads this file (it registers this id deliberately). ARCH TO CONFIRM.
+    app.messaging.lazy_worker_connection:
+        class: Doctrine\DBAL\Connection
+        factory: current
+        arguments: [['@doctrine.dbal.worker_connection']]
+        lazy: true
+
+    App\Platform\Messaging\TenantStatusGateMiddleware:
+        arguments:
+            $worker: '@app.messaging.lazy_worker_connection'
+
     App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
         arguments:
             $authLog: '@doctrine.dbal.authlog_connection'

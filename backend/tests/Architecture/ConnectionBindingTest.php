@@ -120,9 +120,19 @@ final class ConnectionBindingTest extends KernelTestCase
         'auth' => DatabaseRoles::AUTH,
         'authlog' => DatabaseRoles::AUTH_LOG,
         'ratelimit' => DatabaseRoles::RATE_LIMIT,
-        // Mail-C1 (owner Q-2): the mail worker's login. The handler, the token store and the reset audit writer bind it.
+        // Mail-C1 (owner Q-2): the mail worker's login. The handler, the token store and the reset audit writer bind it;
+        // the tenant-status gate binds it lazily (LAZY_BINDINGS, U-C1a).
         'worker' => DatabaseRoles::WORKER,
     ];
+
+    /**
+     * A lazy proxy of a principal's connection, registered DELIBERATELY (U-C1a; `u-c1-final-red.md` C-1, TM-6): service id
+     * => the connection it proxies. The tenant-status gate runs on the bus, which the web process builds on every dispatch,
+     * and the web kernel's worker DSN is empty, so the gate takes the worker connection through this proxy. Each entry must
+     * be a `lazy: true` service in `config/services.yaml` whose only argument is that connection, the held object must still
+     * be UNINITIALISED after the class is built, and once used it must connect as that principal.
+     */
+    private const LAZY_BINDINGS = ['app.messaging.lazy_worker_connection' => 'worker'];
 
     #[Test]
     public function everyConstructorInjectedConnectionIsExplicitlyBoundToAPrincipal(): void
@@ -147,6 +157,27 @@ final class ConnectionBindingTest extends KernelTestCase
         foreach ($injected as $parameter) {
             [$class, $argument] = explode('::', $parameter);
             $bound = $services[$class]['arguments'][$argument] ?? null;
+
+            if (\is_string($bound) && isset(self::LAZY_BINDINGS[substr($bound, 1)])) {
+                $id = substr($bound, 1);
+                $name = self::LAZY_BINDINGS[$id];
+                $definition = $services[$id] ?? [];
+                if (true !== ($definition['lazy'] ?? null) || [['@doctrine.dbal.'.$name.'_connection']] !== ($definition['arguments'] ?? null)) {
+                    $failures[] = \sprintf('  %s binds %s to %s, which is not a lazy proxy of exactly the %s connection.', $class, $argument, $bound, $name);
+                    continue;
+                }
+                $held = (new \ReflectionProperty($class, substr($argument, 1)))->getValue($container->get($class));
+                \assert($held instanceof Connection);
+                if (!(new \ReflectionClass($held))->isUninitializedLazyObject($held)) {
+                    $failures[] = \sprintf('  %s holds an initialised connection for %s: the lazy binding is not lazy.', $class, $argument);
+                    continue;
+                }
+                $role = $held->fetchOne('SELECT current_user');
+                if (self::PRINCIPALS[$name] !== $role) {
+                    $failures[] = \sprintf('  %s\'s lazy %s connection is connected as %s rather than %s.', $class, $name, var_export($role, true), self::PRINCIPALS[$name]);
+                }
+                continue;
+            }
 
             if (!\is_string($bound) || 1 !== preg_match('/^@doctrine\.dbal\.([a-z_]+)_connection$/', $bound, $m)) {
                 $failures[] = \sprintf('  %s has no explicit binding for %s in config/services.yaml (found: %s). An '

@@ -33,6 +33,7 @@ use Symfony\Component\Uid\Uuid;
  *  2  decode the token; anything malformed → the sentinel tenant  — no statement
  *  3  BEGIN · set_config · one SELECT · COMMIT                    — **erp_auth**, identical on every path
  *  4  the checks (a)–(h), all computed on every path              — no statement
+ *     (an `invitation` link also needs the person to have no credential yet — U-C1a)
  *  5  E-24 on the new password → 422 (only after a good link)     — no statement
  *  6  KDF + Cred-C1 seal, outside every transaction               — no statement
  *  7  one transaction: `$at`, 7a consume links, 7b credential +   — **erp_app**
@@ -72,8 +73,11 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class PasswordResetRedemption
 {
-    /** U-C1 adds `'invitation'` deliberately, with its own rule (F-9). */
-    public const REDEEMABLE_PURPOSES = ['reset'];
+    /**
+     * U-C1a (F-9): `invitation` is redeemable with its OWN rule — only while the person has never had a credential
+     * (`password_mac IS NULL`), checked at step 4 and again in 7b's statement. A reset link has no such rule.
+     */
+    public const REDEEMABLE_PURPOSES = ['reset', 'invitation'];
 
     public const TOKEN_LENGTH = 86;
 
@@ -132,6 +136,7 @@ final readonly class PasswordResetRedemption
             && $row->expiresUnix > $now->getTimestamp()
             && !$row->used
             && \in_array($row->purpose, self::REDEEMABLE_PURPOSES, true)
+            && ('reset' === $row->purpose || $row->uncredentialed)
             && $row->userIsActive
             && Tenant::statusPermitsLogin($row->tenantStatus)
             && SealCheck::Verified === $identity
@@ -173,12 +178,12 @@ final readonly class PasswordResetRedemption
                 }
 
                 // 7b — exactly one live, active person whose floor is still older than the link.
-                if (1 !== $this->writer->replaceCredential($row->tenantId, $row->userId, $hash, $mac, $at, $row->createdUnix)) {
+                if (1 !== $this->writer->replaceCredential($row->tenantId, $row->userId, $hash, $mac, $at, $row->createdUnix, $row->purpose)) {
                     throw new PasswordResetRedemptionLost();
                 }
 
                 // 7c — inside the transaction (§9.2): its failure rolls the change back.
-                $this->trail->record($row->tenantId, $row->userId, $row->storedEmail, $command->ipAddress);
+                $this->trail->record($row->tenantId, $row->userId, $row->storedEmail, $command->ipAddress, $row->purpose);
 
                 return $at;
             });

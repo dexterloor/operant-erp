@@ -120,7 +120,9 @@ doctrine:
                     cidr: string
                     inet: inet
             # Mail-C1 (owner Q-2): the mail worker. Its DSN is only in the worker's and the suite's env files; the web
-            # kernel declares it empty (parameters above) and never opens it (lazy, like every DBAL connection).
+            # kernel declares it empty (parameters above). Constructed only by the worker's services: building it with an
+            # empty URL throws, so a web-process service that would construct it must take it lazily (the tenant-status
+            # gate does, U-C1a; WorkerTenantStatusTest::theWebKernelDispatchesWithNoWorkerDsn).
             worker:
                 url: '%env(resolve:WORKER_DATABASE_URL)%'
                 profiling_collect_backtrace: '%app.doctrine.collect_backtrace%'
