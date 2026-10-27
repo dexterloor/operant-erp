@@ -1,4 +1,4 @@
-/* Harbour sign-in: a centred card over the navy shell gradient with aqua and cobalt glows (DECISIONS §7.1). */
+/* Harbour auth card: a centred card over the navy shell gradient with aqua and cobalt glows (DECISIONS §7.1). Shared by sign-in and the three credential pages (L-5). */
 .page {
   position: relative;
   display: flex;
@@ -149,4 +149,83 @@
   min-height: 0;
   padding: var(--space-9) var(--space-6);
   border-radius: var(--radius-lg);
+}
+
+/* ---- Credential pages (B-3a2) ---- */
+.intro {
+  color: var(--fg-muted);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--danger-solid);
+}
+
+.fieldError {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.fieldError svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.toggle {
+  min-height: var(--size-target-min);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-target-min);
+  color: var(--fg-link);
+  text-decoration: underline;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.centered {
+  align-self: center;
+}
+
+/* In-app page (change password): the same card, no backdrop (the app frame owns the page). */
+.inApp {
+  display: flex;
+  justify-content: flex-start;
+  padding: var(--space-8) var(--space-6);
+}
+
+.inApp .card {
+  max-width: 480px;
+  box-shadow: var(--elevation-e1);
 }

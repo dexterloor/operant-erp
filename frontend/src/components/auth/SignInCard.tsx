@@ -4,7 +4,10 @@ import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } 
 import { SIGN_IN } from '@/copy/shell';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
-import styles from './SignInCard.module.css';
+import { PlainLink, type LinkComponent } from '@/components/shell/types';
+import { FORGOT_LINK } from '@/copy/password';
+import { AuthCard } from './AuthCard';
+import styles from './AuthCard.module.css';
 
 /**
  * The ruled sign-in outcomes the card can show (ST-7, ST-8). There is exactly ONE failure state for every cause
@@ -33,10 +36,13 @@ export interface SignInCardProps {
   layout?: 'page' | 'embedded';
   /** Move focus on arrival and after a refusal (§10). Off only where several cards share a page (preview). */
   manageFocus?: boolean;
+  /** The app passes next/link; tests and the preview use a plain anchor. */
+  linkComponent?: LinkComponent;
 }
 
-/** Three fields — Workspace, Email, Password — and one Sign in button (D-10, §7.1). */
-export function SignInCard({ notice = null, attempt = 0, submitting = false, workspace = null, onSubmit, onForgetWorkspace, layout = 'page', manageFocus = true }: SignInCardProps) {
+/** Three fields — Workspace, Email, Password — one Sign in button, and the "Forgot your password?" link (D-10, §7.1;
+ * ux-copy-frontend.md §1.2, which supersedes the brief's "no Forgot password link"). */
+export function SignInCard({ notice = null, attempt = 0, submitting = false, workspace = null, onSubmit, onForgetWorkspace, layout = 'page', manageFocus = true, linkComponent: Link = PlainLink }: SignInCardProps) {
   const ids = { ws: useId(), email: useId(), pw: useId(), wsHint: useId() };
   const [values, setValues] = useState<SignInValues>({ workspace: workspace?.value ?? '', email: '', password: '' });
   const wsRef = useRef<HTMLInputElement>(null);
@@ -76,9 +82,7 @@ export function SignInCard({ notice = null, attempt = 0, submitting = false, wor
   const set = (k: keyof SignInValues) => (e: ChangeEvent<HTMLInputElement>) => setValues((v) => ({ ...v, [k]: e.target.value }));
 
   return (
-    <div className={layout === 'page' ? styles.page : `${styles.page} ${styles.embedded}`}>
-      <div className={styles.card}>
-        <span className={styles.mark} aria-hidden="true" />
+    <AuthCard layout={layout}>
         <h1 className={styles.title}>{SIGN_IN.title}</h1>
 
         {notice === 'failure' ? (
@@ -138,12 +142,15 @@ export function SignInCard({ notice = null, attempt = 0, submitting = false, wor
           <div className={styles.field}>
             <label htmlFor={ids.pw}>{SIGN_IN.passwordLabel}</label>
             <input ref={pwRef} id={ids.pw} name="password" type="password" autoComplete="current-password" value={values.password} onChange={set('password')} />
+            {/* §1.2: carries nothing in the URL — not the workspace, not the email. */}
+            <Link href={FORGOT_LINK.href} className={styles.link}>
+              {FORGOT_LINK.label}
+            </Link>
           </div>
           <Button type="submit" variant="primary" size="lg" loading={submitting} className={styles.submit}>
             {SIGN_IN.submit}
           </Button>
         </form>
-      </div>
-    </div>
+    </AuthCard>
   );
 }

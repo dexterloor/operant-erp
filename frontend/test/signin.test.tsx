@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SignInCard } from '@/components/auth/SignInCard';
@@ -11,14 +11,24 @@ const FAILURE = [
 ];
 
 describe('SignInCard', () => {
-  it('has exactly three fields — Workspace, Email, Password — and a Sign in button; no reset or sign-up link yet', () => {
+  it('has exactly three fields — Workspace, Email, Password — a Sign in button, and one link: "Forgot your password?"', () => {
     render(<SignInCard onSubmit={vi.fn()} />);
     expect(screen.getByLabelText('Workspace')).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
     expect(document.querySelectorAll('input')).toHaveLength(3);
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-    expect(screen.queryByRole('link')).toBeNull();
+    // ux-copy-frontend.md §1.2 (supersedes the brief's "no Forgot password link"); still no sign-up link.
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAccessibleName('Forgot your password?');
+  });
+
+  it('the "Forgot your password?" link carries nothing in the URL — not the workspace, not the email (§1.2)', async () => {
+    const user = userEvent.setup();
+    render(<SignInCard onSubmit={vi.fn()} workspace={{ value: 'acme', source: 'remembered' }} />);
+    await user.type(screen.getByLabelText('Email'), 'e@example.com');
+    expect(screen.getByRole('link', { name: 'Forgot your password?' })).toHaveAttribute('href', '/forgot-password');
   });
 
   it('focuses the first empty field on arrival', () => {
@@ -28,18 +38,23 @@ describe('SignInCard', () => {
   });
 
   it('failure: one message for every cause, word for word; focus to the first field; password cleared', async () => {
-    const user = userEvent.setup();
     const { rerender } = render(<SignInCard onSubmit={vi.fn()} />);
-    await user.type(screen.getByLabelText('Workspace'), 'w');
-    await user.type(screen.getByLabelText('Email'), 'e@example.com');
-    await user.type(screen.getByLabelText('Password'), 'secret');
-    rerender(<SignInCard onSubmit={vi.fn()} notice="failure" attempt={1} />);
+    // fireEvent rather than userEvent here, and the rerender in an awaited act: with userEvent's per-keystroke sync act
+    // followed by this refusal's effects (password clear + focus move), React 19.3 found work still queued after a sync
+    // act and printed "A component suspended inside an `act` scope, but the `act` call was not awaited" (non-failing,
+    // left by B-3a). Typing behaviour is covered by the submit test below; this test is about the refusal.
+    fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'w' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'e@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+    await act(async () => {
+      rerender(<SignInCard onSubmit={vi.fn()} notice="failure" attempt={1} />);
+    });
     const status = screen.getByRole('status');
     for (const s of FAILURE) expect(status).toHaveTextContent(s);
     expect(screen.getByLabelText('Workspace')).toHaveFocus();
     expect(screen.getByLabelText('Workspace')).toHaveValue('w');
     expect(screen.getByLabelText('Email')).toHaveValue('e@example.com');
-    await waitFor(() => expect(screen.getByLabelText('Password')).toHaveValue(''));
+    expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(document.body.textContent).not.toMatch(/attempts? (left|remaining)|minutes? left/i);
   });
 
