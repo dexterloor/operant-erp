@@ -86,6 +86,9 @@ final readonly class RoleAdministrationActor
         return null === $actor || !$actor['is_active'];
     }
 
+    /** U-C1b: the inactive-actor sentence for `CreateUser`. PLACEHOLDER — `UX` to confirm. */
+    public const CREATE_INACTIVE = 'Your account is not active, so you can\'t add anyone.';
+
     /**
      * `actor_is_inactive`'s refusal, keyed on the operation's own §4.2 `Perm` code — the argument
      * {@see self::reCheckUnderTheLock()} already receives (`UX` `roles-s4-ux-copy.md` #1, so no sixth argument and no change
@@ -93,7 +96,7 @@ final readonly class RoleAdministrationActor
      * operations and the picker `ListOfferedRoles`) keeps the shipped slice-2 sentence (`roles-s2-ux-copy.md` §2), pinned
      * literally in `RoleRevokeTest` and `GrantRulesCharacterisationTest` — do not "tidy" it. The role-definition family
      * (`role.create` / `role.edit` / `role.delete`) gets its own, and since G4-C1 the user family (`app_user.edit` —
-     * `UpdateUser`; `app_user.delete` — C2/C3) its own. **No default arm** (RED B-L2): a future caller gated on
+     * `UpdateUser`; `app_user.delete` — C2/C3) its own; since U-C1b `app_user.create` (`CreateUser`) its own. **No default arm** (RED B-L2): a future caller gated on
      * another code (a bulk operation) fails loudly with `\UnhandledMatchError` instead of silently inheriting a
      * sentence that is false for it.
      */
@@ -104,6 +107,8 @@ final readonly class RoleAdministrationActor
             'role.create', 'role.edit', 'role.delete' => 'Your account is not active, so you can\'t create, change, delete or restore roles.',
             // G4-C1 (`UpdateUser`; C2/C3 `DeleteUser` / `RestoreUser` are gated `app_user.delete`). PLACEHOLDER — `UX` to confirm.
             'app_user.edit', 'app_user.delete' => 'Your account is not active, so you can\'t change, switch off, delete or restore anyone\'s account.',
+            // U-C1b (`CreateUser`; spar M-1, T-U13 / T-U14). PLACEHOLDER — `UX` to confirm.
+            'app_user.create' => self::CREATE_INACTIVE,
         });
     }
 }

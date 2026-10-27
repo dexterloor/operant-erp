@@ -307,6 +307,15 @@ services:
         arguments:
             $worker: '@doctrine.dbal.worker_connection'
 
+    # U-C1b: the invitation handler, the reset handler's collaborators on `erp_worker` (A-10). It is a handler, built only
+    # when the worker handles a received `IssueInvitation` -- never by the web process's dispatch (routing sends it).
+    App\Modules\UserManagement\Infrastructure\Messaging\IssueInvitationHandler:
+        arguments:
+            $worker: '@doctrine.dbal.worker_connection'
+            $mailer: '@mailer.transports'
+            $from: '%app.mail.from%'
+            $publicUrl: '%app.public_url%'
+
     # U-C1a (O-8; u-c1-final-red.md C-1): the tenant-status gate runs on the BUS, which the web process builds on every
     # dispatch, and the web kernel's worker DSN is empty by design -- building that connection there throws. So the gate
     # takes the worker connection through a lazy proxy, initialised only when the gate handles a RECEIVED workspace message.

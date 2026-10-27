@@ -107,6 +107,11 @@ deptrac:
   # (Re-derived 2026-10-27 with the tenant-status gate in the tree (U-C1a): ONE edge line added, A-10
   # `TenantStatusGateMiddleware -> Doctrine\DBAL\Connection` (lazily bound, `u-c1-final-red.md` C-1). By TAG A-10 16 -> 17; the
   # App-class commands do not move. No LAYER edge. Measured in `docs/session13/u-c1-progress.md`. Re-derive; never restate.)
+  # (Re-derived 2026-10-27 with CreateUser and the invitation in the tree (U-C1b): FOUR edge lines added -- A-1
+  # `MessageCatalogue -> IssueInvitation`, A-5 `UserCreation -> UserAuditWriter` and `IssueInvitationHandler ->
+  # PasswordResetAuditWriter`, A-10 `IssueInvitationHandler -> Doctrine\DBAL\Connection`. By TAG (awk over the lines between
+  # `skip_violations:` and `layers:`): A-1 1 -> 2, A-5 45 -> 47, A-10 17 -> 18 (`A-1 + A-5` 1, A-7 101, A-12 25 unchanged).
+  # No LAYER edge. Measured in `docs/session13/u-c1-progress.md`. Re-derive; never restate.)
   # (Re-derived 2026-10-27 with the reset-link redeem in the tree (Mail-C2): NINE edge lines added -- A-5
   # `PasswordResetRedemption -> PasswordResetRedemptionAuditWriter`; A-7 `PasswordResetRedemption -> EmailHasher`,
   # `LockoutStore`, `PasswordResetRedemptionWriter`, `PasswordResetTokenLookup`, `PreAuthBudgets`; A-10
@@ -780,6 +785,9 @@ deptrac:
       # loads, the class named so the role lock-first scan derives this method as a writer (deviation D-3).
       - App\Modules\AuditLog\Infrastructure\UserAuditWriter   # A-5
       - App\Modules\UserManagement\Infrastructure\Entity\AppUser   # A-7
+    App\Modules\UserManagement\Application\UserCreation:
+      # U-C1b `CreateUser`, 2026-10-27: `user.created` written synchronously in the create transaction (`UserUpdate`'s shape).
+      - App\Modules\AuditLog\Infrastructure\UserAuditWriter   # A-5
     App\Modules\UserManagement\Application\UserDeletion:
       # G4-C2 `DeleteUser`, 2026-10-23: `user.deleted` written synchronously in the deleting transaction; `AppUser::delete()`
       # on the entity `UserLiveness` loads, the class named so the role lock-first scan derives this method (G4-C1 D-3).
@@ -820,6 +828,11 @@ deptrac:
       - App\Modules\UserManagement\Infrastructure\IssuedToken   # A-7
     App\Modules\UserManagement\Infrastructure\AuthTrailWriter:
       - Doctrine\DBAL\Connection   # A-10
+    App\Modules\UserManagement\Infrastructure\Messaging\IssueInvitationHandler:
+      # U-C1b: the invitation handler, the reset handler's shape -- its two security events through AuditLog's writer, in
+      # its own transaction on erp_worker, explicitly bound in services.yaml. `ARCH` TO CONFIRM the tag.
+      - App\Modules\AuditLog\Infrastructure\PasswordResetAuditWriter   # A-5
+      - Doctrine\DBAL\Connection   # A-10
     App\Modules\UserManagement\Infrastructure\Messaging\PasswordResetRequestedHandler:
       # Mail-C1: the mail worker writes its two security events through AuditLog's writer, inside its own transaction on
       # erp_worker (route (ii), M-2) -- `ChangePassword -> PasswordChangeAuditWriter`'s shape. `ARCH` TO CONFIRM the tag.
@@ -846,6 +859,9 @@ deptrac:
       # the allowlist middleware and MessengerConfigurationTest; a string list would hide the dependency from deptrac
       # without removing it. Revisit trigger: the third catalogued message, or the first from a module other than
       # UserManagement -> feed the catalogue from `framework.messenger.routing` through a container parameter. `ARCH` TO CONFIRM.
+      # U-C1b: the second member, `IssueInvitation` (the revisit trigger -- a THIRD message, or one from another module -- has
+      # not fired).
+      - App\Modules\UserManagement\Application\Contract\Message\IssueInvitation   # A-1
       - App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested   # A-1
     App\Platform\Messaging\TenantStatusGateMiddleware:
       # U-C1a (O-8): reads `tenant.status` on erp_worker for a received workspace message, explicitly bound (LAZILY, final RED

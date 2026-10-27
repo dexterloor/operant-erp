@@ -21,6 +21,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\Middleware\MiddlewareInterface;
 use Symfony\Component\Messenger\Middleware\StackInterface;
+use Symfony\Component\Messenger\Stamp\HandlerArgumentsStamp;
 use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 use Symfony\Component\Uid\Uuid;
 
@@ -73,6 +74,12 @@ final class WorkerTenantStatusTest extends AuthTestCase
 
         self::assertSame(Tenant::statusPermitsLogin($status), $handled, "A workspace in status \"$status\" was ".($handled ? 'handled' : 'refused').'.');
         self::assertCount($handled ? 1 : 0, $this->passed, 'The handler side saw the wrong number of envelopes.');
+        if ($handled) {
+            // U-C1b (final RED M-3): the handler is handed the workspace the gate checked — the stamp's, never the payload's.
+            $arguments = $this->passed[0]->last(HandlerArgumentsStamp::class);
+            self::assertInstanceOf(HandlerArgumentsStamp::class, $arguments, 'The gate did not hand the handler its workspace.');
+            self::assertSame([$tenant], $arguments->getAdditionalArguments());
+        }
     }
 
     /** **T-U7:** a stamp naming no workspace at all is parked; so is a received message without exactly one stamp. */
@@ -154,6 +161,18 @@ final class WorkerTenantStatusTest extends AuthTestCase
             } catch (\Throwable $e) {
                 $out['error'] = $e::class.': '.$e->getMessage();
             }
+            // U-C1b: the first workspace message, dispatched as `CreateUser` dispatches it — inside a tenancy transaction,
+            // so the stamp middleware stamps it (no database statement beyond the transaction's own set_config).
+            try {
+                $c->get(App\Platform\Tenancy\TenantContext::class)->run(App\Platform\Tenancy\SchemaManifest::SENTINEL_TENANT_ID, function () use ($c): void {
+                    $c->get('messenger.default_bus')->dispatch(new App\Modules\UserManagement\Application\Contract\Message\IssueInvitation(
+                        new App\Modules\UserManagement\Domain\UserId(Symfony\Component\Uid\Uuid::v4()->toRfc4122()),
+                        App\Modules\UserManagement\Domain\MessageId::new(),
+                    ));
+                });
+            } catch (\Throwable $e) {
+                $out['error'] = ($out['error'] ?? '').$e::class.': '.$e->getMessage();
+            }
             foreach ($c->get('messenger.transport.async')->getSent() as $envelope) {
                 $out['sent'][] = $envelope->getMessage()::class;
             }
@@ -162,7 +181,10 @@ final class WorkerTenantStatusTest extends AuthTestCase
 
         self::assertNotSame(true, $run['worker_builds'] ?? true, 'Control: the child could build the worker connection, so its DSN is not empty and this test proves nothing.');
         self::assertNull($run['error'], 'A dispatch in a kernel with no worker DSN threw: '.(string) $run['error']);
-        self::assertSame([\App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested::class], $run['sent'], 'The reset request was not queued.');
+        self::assertSame([
+            \App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested::class,
+            \App\Modules\UserManagement\Application\Contract\Message\IssueInvitation::class,
+        ], $run['sent'], 'The reset request and the invitation were not both queued.');
     }
 
     // ------------------------------------------------------------------------------------------------------------------

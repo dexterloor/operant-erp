@@ -10,6 +10,7 @@ use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 use Symfony\Component\Messenger\Middleware\MiddlewareInterface;
 use Symfony\Component\Messenger\Middleware\StackInterface;
+use Symfony\Component\Messenger\Stamp\HandlerArgumentsStamp;
 use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 
 /**
@@ -24,7 +25,8 @@ use Symfony\Component\Messenger\Stamp\ReceivedStamp;
  *
  * **The worker connection is taken LAZILY (`u-c1-final-red.md` C-1).** The bus builds its middleware in order on every
  * dispatch, so the web process constructs this class on its first dispatch; the web kernel's worker DSN is empty by design
- * (`doctrine.yaml`), and building that connection throws `DriverRequired`. `config/services.yaml` therefore binds
+ * (`doctrine.yaml`), and building that connection throws (measured at MU-21: the dispatch
+ * throws `Doctrine\DBAL\ConnectionException`). `config/services.yaml` therefore binds
  * `$worker` to `app.messaging.lazy_worker_connection`, a lazy proxy that is initialised only by the `SELECT` below, i.e.
  * only on a received workspace message. `WorkerTenantStatusTest::theWebKernelDispatchesWithNoWorkerDsn` (T-U7c) and
  * mutation MU-21 (bind the connection eagerly) hold this. *ARCH TO CONFIRM the means and the Platform placement.*
@@ -55,6 +57,10 @@ final readonly class TenantStatusGateMiddleware implements MiddlewareInterface
             throw new UnrecoverableMessageHandlingException('A workspace message was parked: its workspace does not permit sign-in.');
         }
 
-        return $stack->next()->handle($envelope, $stack);
+        // U-C1b (final RED M-3): the handler receives the workspace it was checked for as its second argument, from the one
+        // stamp checked above — never a payload value, which a dispatcher writes. `HandlerArgumentsStamp` is non-sendable (a
+        // retry or a park never writes it to the queue) and `AllowlistSerializer` denies it on decode (a forged one never
+        // arrives). Mutation MU-22 (a constant tenant id here) → T-U2 red.
+        return $stack->next()->handle($envelope->with(new HandlerArgumentsStamp([$stamp->tenantId])), $stack);
     }
 }

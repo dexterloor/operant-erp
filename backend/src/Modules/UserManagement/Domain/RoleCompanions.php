@@ -33,7 +33,7 @@ namespace App\Modules\UserManagement\Domain;
  *    to the write's holder) and → `storage_location.view` DECLINED (`kind` disclosure accepted, Low), both `SEC` §4.
  *  - **V2-R-25** `app_user.create` → `app_user.view` (U-C0, 2026-10-23; `docs/session13/cred-mail-user-design.md` §5.1,
  *    ratified with the credential/email/`CreateUser` group, `remaining-ops-ruling.md` addendum of Move 664): `CreateUser`
- *    refuses a live email with 409 `app_user.email_is_taken`, so a seat that can add people but cannot see them would learn,
+ *    refuses a live email with 409 `app_user.email_taken`, so a seat that can add people but cannot see them would learn,
  *    one guess at a time, which addresses already belong to this workspace. With the row, every API-composed seat that can
  *    meet that refusal can already read the list it reveals. Affects no default role (only `owner` and `admin` hold
  *    `app_user.create`, and both hold `app_user.view`). Built BEFORE `CreateUser`, so no seat can hold the oracle on its

@@ -348,7 +348,10 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (Mail-C2, 2026-10-24):** `CreatePasswordResetRedemption` (POST `/auth/password-resets/redemption`,
         // `—`) on `PasswordResetRedemptionResource`: 200 `{changed_at}`. Its migrations grant the redeem's reads and
         // `UPDATE (used_at)`, and re-issue the audit catalogue (71).
-        self::assertCount(130, $checked, 'The route set changed. This slice declares one hundred and thirty operations: '.implode(', ', array_keys($checked)));
+        // **And one more (U-C1b, 2026-10-27):** `CreateUser` (POST `/users`, `app_user.create`) on `UserResource`: 201 +
+        // `Location`. Its migrations grant `erp_app` INSERT on six `app_user` columns and `erp_worker` SELECT (password_mac),
+        // and re-issue the audit catalogue (72).
+        self::assertCount(131, $checked, 'The route set changed. This slice declares one hundred and thirty-one operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

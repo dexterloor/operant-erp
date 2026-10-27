@@ -67,6 +67,16 @@ final readonly class UserAuditWriter
         $this->record(AuditEvent::USER_RESTORED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $ipAddress, '{}');
     }
 
+    /** The fields `user.created` names (U-C1b, D-U6): never a value. */
+    public const CREATED_FIELDS = ['display_name', 'email'];
+
+    /** `user.created` — `CreateUser` (U-C1b), after the INSERT and its read-back, in its locked transaction. Field names only. */
+    public function recordCreated(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, ?string $ipAddress): void
+    {
+        $this->record(AuditEvent::USER_CREATED, $tenantId, $actorUserId, $actorLabel, $subjectUserId, $ipAddress,
+            json_encode(['fields' => self::CREATED_FIELDS], \JSON_THROW_ON_ERROR));
+    }
+
     /** `user.updated` — a rename, `{"fields": ["display_name"]}`, never a value. */
     public function recordRenamed(string $tenantId, string $actorUserId, string $actorLabel, string $subjectUserId, ?string $ipAddress): void
     {

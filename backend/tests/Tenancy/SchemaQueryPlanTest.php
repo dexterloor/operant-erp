@@ -221,7 +221,7 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                     SQL, [$tenant, self::ORDERS]);
 
                 // Sales step 6 C2 (`Version20260923000100`): an invoice now bills a FULFILMENT and names its ISSUER,
-                // both NOT NULL. One shipper, as the owner -- `app_user` has no `erp_app` INSERT (ADR-002 A4; H0) --
+                // both NOT NULL. One shipper, as the owner -- a fixture (erp_app's `app_user` INSERT, U-C1b, is CreateUser's six columns only) --
                 // with a lower-case email (`app_user_email_normalised`).
                 $this->insertAsOwnerForTenant($tenant, <<<'SQL'
                     INSERT INTO app_user (id, tenant_id, email, password_hash, display_name)

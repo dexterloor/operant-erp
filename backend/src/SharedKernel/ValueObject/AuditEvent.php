@@ -412,6 +412,12 @@ namespace App\SharedKernel\ValueObject;
  *     `Version20261024000200` (the live seventy plus this one; supersedes `Version20261023000900`); step 6 both halves.
  *     *SEC TO CONFIRM the name.*
  *
+ *   - **`USER_CREATED`**, 2026-10-27, U-C1b `CreateUser` — **`SECURITY`** (a principal added; `user.restored`'s ground),
+ *     subject `('app_user', id)`, `{"fields":["display_name","email"]}` (field names only, never a value — D-U6), IP-bearing,
+ *     written on `erp_app` inside the create transaction (`UserAuditWriter::recordCreated()`). Steps 3–5 with its writer;
+ *     step 5 is `Version20261027000200` (the live seventy-one plus this one; supersedes `Version20261024000200`); step 6 both
+ *     halves. *SEC TO CONFIRM the metadata.*
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -712,6 +718,13 @@ final class AuditEvent
      * IP-bearing.
      */
     public const USER_RESTORED = 'user.restored';
+
+    /**
+     * U-C1b (`CreateUser`, 2026-10-27; `docs/session13/u-c1-build-plan.md` Revision 2 FINAL R2.2): a person added, who has no
+     * credential until they redeem the mailed invitation. Subject `('app_user', id)`; `metadata` `{"fields":["display_name",
+     * "email"]}` — names only. Written inside the create transaction, after the INSERT and its read-back. SECURITY; IP-bearing.
+     */
+    public const USER_CREATED = 'user.created';
 
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
@@ -1403,6 +1416,7 @@ final class AuditEvent
         self::USER_UPDATED,
         self::USER_DELETED,
         self::USER_RESTORED,
+        self::USER_CREATED,
     ];
 
     /**
@@ -1446,6 +1460,7 @@ final class AuditEvent
         self::USER_UPDATED,
         self::USER_DELETED,
         self::USER_RESTORED,
+        self::USER_CREATED,
     ];
 
     /**
@@ -1647,6 +1662,7 @@ final class AuditEvent
         self::USER_DELETED => 'app_user',
         // G4-C3: the person brought back.
         self::USER_RESTORED => 'app_user',
+        self::USER_CREATED => 'app_user',
     ];
 
     /**

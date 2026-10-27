@@ -5,7 +5,7 @@
 #   `theSerializerIsNeverPhpNative`).
 # - `doctrine_transaction` is NOT on the bus (API.md §11.1 O-2; `doctrineTransactionIsNotOnTheBus`), and no transport is
 #   Doctrine in any environment -- `symfony/doctrine-messenger` is not installed (`theDoctrineTransportPackageIsNotInstalled`).
-# - Routing is EXACTLY `MessageCatalogue::ALL`, all to `async` -- one message since Mail-C1, the password-reset request.
+# - Routing is EXACTLY `MessageCatalogue::ALL`, all to `async` -- two messages since U-C1b: the password-reset request (Mail-C1) and the invitation.
 #   `SendEmailMessage` is never routed and never catalogued: the mailer sends synchronously (`mailer.yaml`).
 # - No env read appears in a comment here: `EnvProcessorPinTest` reads comments too.
 framework:
@@ -39,6 +39,7 @@ framework:
                 options: { stream: failed, lazy: true }
         routing:
             App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested: async
+            App\Modules\UserManagement\Application\Contract\Message\IssueInvitation: async
 
 when@test:
     framework:
