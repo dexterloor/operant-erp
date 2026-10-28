@@ -1,11 +1,12 @@
 import type { NextConfig } from 'next';
-import { isLoopbackBase } from './src/lib/bff/loopback';
+import { isLoopbackBase, isLoopbackOrigin } from './src/lib/bff/loopback';
 
 /**
  * Deployment guard, build-time half (b3b-design.md §5 item 18; ruling Q-7). This branch may only be built for a local
  * API: loading this file throws on any hosting platform's marker variable, and on an API base URL that is set and not
- * exact-host loopback. An unset base builds (the run-time half in lib/bff/server/apiClient.ts then refuses the first
- * API call). Retired only by the commit that adds the first deployment configuration, which is gated on BK-2/3/4,
+ * exact-host loopback, and on a public origin (APP_PUBLIC_ORIGIN) that is set and not exact-host loopback — a
+ * self-hosted deployment (code RED M-3). An unset base or origin builds (the run-time half in lib/bff/server then
+ * refuses the first API call and every write). Retired only by the commit that adds the first deployment configuration, which is gated on BK-2/3/4,
  * BK-8, BK-9, the idle bound (L3) and the owner's word. There is no marker file.
  */
 const PLATFORM_MARKERS = ['VERCEL', 'VERCEL_ENV', 'NETLIFY', 'CF_PAGES'] as const;
@@ -14,6 +15,8 @@ for (const name of PLATFORM_MARKERS) {
 }
 const apiBase = process.env.ERP_API_BASE_URL;
 if (apiBase !== undefined && !isLoopbackBase(apiBase)) throw new Error('Refusing to build against an API base URL that is not loopback.');
+const publicOrigin = process.env.APP_PUBLIC_ORIGIN;
+if (publicOrigin !== undefined && !isLoopbackOrigin(publicOrigin)) throw new Error('Refusing to build for a public origin that is not loopback.');
 
 /**
  * Response headers for the two password-reset pages (ux-copy-frontend.md §1.3–§1.4, bff-auth-note.md §8 / R1-§8):

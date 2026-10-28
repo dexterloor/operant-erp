@@ -1,6 +1,6 @@
 import 'server-only';
-import { isLoopbackBase } from '../loopback';
-import { bffProblem } from './origin';
+import { isLoopbackBase, isLoopbackOrigin } from '../loopback';
+import { bffProblem, readBodyWithin } from './origin';
 import { serverOperation } from './surface';
 
 // The ONE server-side builder of API URLs and the ONE fetch against the API (bff-auth-note.md R2-1 item 0, R1-D4
@@ -9,11 +9,17 @@ import { serverOperation } from './surface';
 //   encoded; the URL is built with `new URL(base)` plus a pathname, never by concatenating a client string.
 // - Deployment guard, run-time half (ruling Q-7): the base URL is read and checked lazily, on the first call, never at
 //   module scope (`next build` loads every route module). Unset, empty or not exact-host loopback → the call throws,
-//   and no request is made.
-// - 15 s per call, from setTimeout + AbortController; a timeout answers 504 urn:erp:bff:upstream-timeout. Never retries.
+//   and no request is made. The same holds for APP_PUBLIC_ORIGIN (code RED M-3): until the deployment commit the app
+//   may only be served from this machine, so a self-hosted origin makes every API call throw too.
+// - 15 s per call, from setTimeout + AbortController, covering the response headers AND the whole body (code RED M-1):
+//   the body is read inside the timed section and handed back as a buffered Response, so no caller reads an upstream
+//   body after the limit has gone. A timeout at either stage answers 504 urn:erp:bff:upstream-timeout. Never retries.
+//   A body over API_RESPONSE_MAX_BYTES, or a status a Response cannot carry (1xx), answers 502 urn:erp:bff:server-error.
 // - Sends only Accept, Content-Type, Idempotency-Key and, when a token is given, Authorization. `cache: 'no-store'`.
 
 export const API_TIMEOUT_MS = 15_000;
+/** The largest upstream body the BFF buffers (no operation it serves returns a file). */
+export const API_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -28,6 +34,15 @@ function apiBase(): URL {
   const raw = process.env.ERP_API_BASE_URL;
   if (!isLoopbackBase(raw)) throw new Error('The API base URL is unset or not loopback; this build may only call a local API.');
   return new URL(raw as string);
+}
+
+/** The configured API origin (same lazy loopback check as every call). */
+export function apiBaseOrigin(): string {
+  return apiBase().origin;
+}
+
+function publicOriginIsLoopback(): void {
+  if (!isLoopbackOrigin(process.env.APP_PUBLIC_ORIGIN)) throw new Error('The public origin is unset or not loopback; this build may only be served locally.');
 }
 
 function clientIpSource(): void {
@@ -61,7 +76,7 @@ export interface ApiCall {
   readonly query?: URLSearchParams;
   readonly body?: unknown;
   /** A raw body (the proxy forwards the browser's bytes); its Content-Type is passed as given. */
-  readonly rawBody?: { readonly bytes: ArrayBuffer; readonly contentType: string | null };
+  readonly rawBody?: { readonly bytes: ArrayBuffer | Uint8Array<ArrayBuffer>; readonly contentType: string | null };
   readonly idempotencyKey?: string;
 }
 
@@ -71,6 +86,7 @@ export interface ApiCall {
  */
 export async function apiFetch(operationId: string, call: ApiCall = {}): Promise<Response> {
   clientIpSource();
+  publicOriginIsLoopback();
   const op = serverOperation(operationId);
   const url = apiUrl(operationId, call.params ?? {}, call.query);
   const headers = new Headers({ accept: 'application/json' });
@@ -87,7 +103,15 @@ export async function apiFetch(operationId: string, call: ApiCall = {}): Promise
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    return await fetch(url, { method: op.method, headers, body, cache: 'no-store', redirect: 'manual', signal: controller.signal });
+    const upstream = await fetch(url, { method: op.method, headers, body, cache: 'no-store', redirect: 'manual', signal: controller.signal });
+    if (upstream.status < 200 || upstream.status > 599) {
+      void upstream.body?.cancel().catch(() => {});
+      return bffProblem(502, 'urn:erp:bff:server-error');
+    }
+    const bytes = await readBodyWithin(upstream.body, controller.signal, API_RESPONSE_MAX_BYTES);
+    if (bytes === null) return bffProblem(502, 'urn:erp:bff:server-error');
+    const empty = upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+    return new Response(empty ? null : bytes, { status: upstream.status, headers: upstream.headers });
   } catch {
     return controller.signal.aborted ? bffProblem(504, 'urn:erp:bff:upstream-timeout') : bffProblem(502, 'urn:erp:bff:server-error');
   } finally {

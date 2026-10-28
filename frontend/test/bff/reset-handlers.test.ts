@@ -132,3 +132,15 @@ describe('POST /bff/password-resets/redemption', () => {
     }
   });
 });
+
+describe('code RED M-2 — the redemption bound is measured in UTF-8 bytes', () => {
+  it('4096 bytes is forwarded; 1366 three-byte characters (4098 bytes) is refused locally', async () => {
+    stubApi(() => Response.json({ changed_at: '2026-11-01T00:00:00+00:00' }));
+    const { handleResetRedemption } = await handlers();
+    expect((await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password: 'é'.repeat(2048) }))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const r = await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password: '€'.repeat(1366) }));
+    expect(r.status).toBe(422);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});

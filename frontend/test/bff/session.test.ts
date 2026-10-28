@@ -16,8 +16,8 @@ import {
 
 // T-S and T-TK (a) (b3b-design.md §14; bff-auth-note.md §2, R1-§2, R1-§2a L2). Node environment: the seal is WebCrypto.
 
-const KEY_A = Buffer.alloc(32, 1).toString('base64url');
-const KEY_B = Buffer.alloc(32, 2).toString('base64url');
+const KEY_A = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 7 + 1) % 256)).toString('base64url');
+const KEY_B = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 7 + 2) % 256)).toString('base64url');
 const ring = keyringFrom(`a:${KEY_A}`);
 const NOW = 1_800_000_000;
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJlLXNlZ21lbnQtdW5pcXVl';
@@ -124,5 +124,39 @@ describe('T-TK (a) — the client view of a session is exactly {sid, tz}', () =>
     const signature = JWT.split('.')[2]!;
     expect(JSON.stringify(view)).not.toContain(signature);
     expect(JSON.stringify(view)).not.toContain('acme');
+  });
+});
+
+describe('code RED L-7 — key quality', () => {
+  it.each([0, 1, 7, 255])('a key whose 32 bytes are all %i is refused, without printing it', (b) => {
+    const value = Buffer.alloc(32, b).toString('base64url');
+    let message = '';
+    try {
+      keyringFrom(`k:${value}`);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/one repeated byte/i);
+    expect(message).not.toContain(value);
+  });
+
+  it('a standard-base64 key (with + or /) is refused with a message naming base64url, without printing it', () => {
+    const bytes = Buffer.from(Array.from({ length: 32 }, (_, i) => 250 - i));
+    const std = bytes.toString('base64');
+    expect(std).toMatch(/[+/]/);
+    let message = '';
+    try {
+      keyringFrom(`k:${std}`);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/base64url/);
+    expect(message).not.toContain(std);
+  });
+
+  it('a key with two distinct byte values is accepted', () => {
+    const bytes = Buffer.alloc(32, 3);
+    bytes[31] = 4;
+    expect(keyringFrom(`k:${bytes.toString('base64url')}`)).toHaveLength(1);
   });
 });

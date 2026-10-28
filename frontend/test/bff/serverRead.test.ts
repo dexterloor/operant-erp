@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const ID = '0b7c1f9e-3f4a-4c8e-9d2b-5a6e7f8091a2';
 const prob = (status: number, type: string) => new Response(JSON.stringify({ type }), { status, headers: { 'content-type': 'application/problem+json' } });
 
-beforeEach(() => vi.stubEnv('ERP_API_BASE_URL', 'http://127.0.0.1:8082'));
+beforeEach(() => {
+  vi.stubEnv('ERP_API_BASE_URL', 'http://127.0.0.1:8082');
+  vi.stubEnv('APP_PUBLIC_ORIGIN', 'https://localhost:3000');
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -18,7 +21,7 @@ async function reader() {
   vi.resetModules();
   const { serverRead } = await import('@/lib/bff/server/reads');
   const { newSessionPayload, sealSession, unsealSession, keyringFrom } = await import('@/lib/bff/server/session');
-  const ring = keyringFrom(`k1:${Buffer.alloc(32, 7).toString('base64url')}`);
+  const ring = keyringFrom(`k1:${Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 7 + 7) % 256)).toString('base64url')}`);
   const sealed = await sealSession(newSessionPayload({ jwt: 'h.p.s', exp: Date.now() / 1000 + 3600, workspaceTyped: 'w', timeZone: 'UTC' }), ring);
   const session = (await unsealSession(sealed, ring))!;
   return serverRead(session);

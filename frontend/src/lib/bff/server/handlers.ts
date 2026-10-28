@@ -2,7 +2,7 @@ import 'server-only';
 import { safeReturnPath } from '../../session';
 import { DECLARED_ROUTES } from '../../routes';
 import { apiFetch } from './apiClient';
-import { NO_STORE, bffProblem, refuseCrossSiteMutation } from './origin';
+import { NO_STORE, bffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
 import { clearedSessionCookie, newSessionPayload, sealSession, sessionCookie } from './session';
 
 // The named handlers (bff-auth-note.md D-4.1, §4, §5, R1-§4, R1-§6.1; b3b-design.md §5 items 3–7, 15). Each is a
@@ -22,9 +22,15 @@ const SIGN_IN_PASSED_THROUGH: Readonly<Record<number, readonly string[]>> = {
 const serverError = () => bffProblem(502, 'urn:erp:bff:server-error');
 const localRefusal = () => bffProblem(422, 'urn:erp:problem:validation-failed', { errors: [] });
 
-async function jsonBody(request: Request): Promise<Record<string, unknown> | null> {
+/**
+ * The request's JSON object; null when it is not one; a Response (413 / 408) when the body is over the cap or does not
+ * arrive in time (code RED L-2, origin.ts).
+ */
+async function jsonBody(request: Request): Promise<Record<string, unknown> | Response | null> {
+  const read = await readRequestBody(request);
+  if ('refused' in read) return read.refused;
   try {
-    const b: unknown = await request.json();
+    const b: unknown = JSON.parse(new TextDecoder().decode(read.bytes));
     return b && typeof b === 'object' && !Array.isArray(b) ? (b as Record<string, unknown>) : null;
   } catch {
     return null;
@@ -35,6 +41,26 @@ const field = (b: Record<string, unknown>, k: string): string | null => {
   const v = b[k];
   return typeof v === 'string' && v !== '' && v.length <= FIELD_MAX ? v : null;
 };
+
+/**
+ * The API's own password bound (PasswordRules: at most 4096 bytes), so no password the reset flow accepts is refused at
+ * sign-in (code RED M-2). Measured in UTF-8 bytes, as the API measures it.
+ */
+const CREDENTIAL_MAX = 4096;
+const utf8Bytes = (v: string): number => new TextEncoder().encode(v).length;
+
+/** A non-empty string of at most CREDENTIAL_MAX UTF-8 bytes, else null. */
+const credential = (b: Record<string, unknown>, k: string, allowEmpty = false): string | null => {
+  const v = b[k];
+  return typeof v === 'string' && (allowEmpty || v !== '') && utf8Bytes(v) <= CREDENTIAL_MAX ? v : null;
+};
+
+/**
+ * Control and format characters (Unicode Cc / Cf: bidi overrides, zero-width marks, BOM). The typed workspace name is
+ * shown in the top bar (D-9), so one carrying them could read as another workspace's name (code RED L-5). Refused at
+ * sign-in; a name holding them would not resolve at the API either.
+ */
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
 async function problemType(response: Response): Promise<{ type: string | null; errors: unknown }> {
   if (!(response.headers.get('content-type') ?? '').includes('application/problem+json')) return { type: null, errors: undefined };
@@ -61,12 +87,13 @@ export async function handleSignIn(request: Request): Promise<Response> {
   const refused = refuseCrossSiteMutation(request);
   if (refused) return refused;
   const body = await jsonBody(request);
+  if (body instanceof Response) return body;
   if (!body) return localRefusal();
   const workspace = field(body, 'workspace');
   const email = field(body, 'email');
-  const password = field(body, 'password');
+  const password = credential(body, 'password');
   const returnTo = body.return_to;
-  if (workspace === null || email === null || password === null) return localRefusal();
+  if (workspace === null || email === null || password === null || CONTROL_OR_FORMAT.test(workspace)) return localRefusal();
   if (returnTo !== undefined && returnTo !== null && (typeof returnTo !== 'string' || returnTo.length > RETURN_TO_MAX)) return localRefusal();
 
   let upstream: Response;
@@ -117,8 +144,6 @@ export async function handleSignOut(request: Request): Promise<Response> {
   });
 }
 
-const CREDENTIAL_MAX = 4096;
-
 const text = (b: Record<string, unknown>, k: string, max: number): string | null => {
   const v = b[k];
   return typeof v === 'string' && v.length <= max ? v : null;
@@ -153,6 +178,7 @@ export async function handleResetRequest(request: Request): Promise<Response> {
   const refused = refuseCrossSiteMutation(request);
   if (refused) return refused;
   const body = await jsonBody(request);
+  if (body instanceof Response) return body;
   const workspace = body && text(body, 'workspace', FIELD_MAX);
   const email = body && text(body, 'email', FIELD_MAX);
   if (workspace === null || email === null || !body) return localRefusal();
@@ -175,8 +201,9 @@ export async function handleResetRedemption(request: Request): Promise<Response>
   const refused = refuseCrossSiteMutation(request);
   if (refused) return refused;
   const body = await jsonBody(request);
-  const token = body && text(body, 'token', CREDENTIAL_MAX);
-  const password = body && text(body, 'password', CREDENTIAL_MAX);
+  if (body instanceof Response) return body;
+  const token = body && credential(body, 'token', true);
+  const password = body && credential(body, 'password', true);
   if (!token || password === null || !body) return localRefusal();
   let upstream: Response;
   try {

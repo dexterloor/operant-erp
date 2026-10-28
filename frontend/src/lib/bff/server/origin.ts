@@ -1,4 +1,5 @@
 import 'server-only';
+import { isLoopbackOrigin } from '../loopback';
 
 // The one wrapper every mutating BFF handler goes through (bff-auth-note.md §3 + R1-§3; b3b-design.md §5 item 6), and
 // the BFF's own problem answers. Fail closed: Origin must be present and equal APP_PUBLIC_ORIGIN exactly (never derived
@@ -24,10 +25,13 @@ export function isBffProblem(r: Response): boolean {
   return OWN.has(r);
 }
 
-/** The configured public origin, or null when it is missing or not an origin. */
+/**
+ * The configured public origin, or null when it is missing, not an origin, or (deployment guard, run-time half, code
+ * RED M-3) not exact-host loopback: until the deployment commit no write is accepted on any other origin.
+ */
 function publicOrigin(): string | null {
   const raw = process.env.APP_PUBLIC_ORIGIN;
-  if (typeof raw !== 'string' || raw === '') return null;
+  if (typeof raw !== 'string' || raw === '' || !isLoopbackOrigin(raw)) return null;
   try {
     const u = new URL(raw);
     return u.origin === raw.replace(/\/$/, '') ? u.origin : null;
@@ -46,4 +50,74 @@ export function refuseCrossSiteMutation(request: Request): Response | null {
   const type = (request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
   if (type !== 'application/json') return bffProblem(415, 'urn:erp:bff:unsupported-media-type');
   return null;
+}
+
+// Bounded body reads (code RED M-1, L-2). Every body the BFF reads, from the API or from the browser, is read to the end
+// under a time limit and a size cap, so neither a stalled nor an oversized body can hold a handler open.
+
+/** The largest request body the BFF accepts (no operation it serves takes a file). */
+export const REQUEST_MAX_BYTES = 1024 * 1024;
+/** How long the BFF waits for a request body to arrive. */
+export const REQUEST_READ_TIMEOUT_MS = 10_000;
+
+/**
+ * Reads a body to the end while `signal` is live. Rejects when the signal aborts (the reader is cancelled); resolves null
+ * when the body passes `maxBytes` (also cancelled). Used for upstream answers and, by the handlers, for request bodies.
+ */
+export async function readBodyWithin(stream: ReadableStream<Uint8Array> | null, signal: AbortSignal, maxBytes: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (stream === null) return new Uint8Array(0);
+  const reader = stream.getReader();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new DOMException('The time limit passed.', 'AbortError'));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
+  aborted.catch(() => {});
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), aborted]);
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        void reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    void reader.cancel().catch(() => {});
+    throw e;
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
+/**
+ * The browser's request body, or the BFF problem that ends the request: 413 urn:erp:bff:payload-too-large over
+ * REQUEST_MAX_BYTES (a declared Content-Length over it is refused unread), 408 urn:erp:bff:request-timeout when it has not
+ * arrived within REQUEST_READ_TIMEOUT_MS.
+ */
+export async function readRequestBody(request: Request): Promise<{ readonly bytes: Uint8Array<ArrayBuffer> } | { readonly refused: Response }> {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared.trim()) > REQUEST_MAX_BYTES) return { refused: bffProblem(413, 'urn:erp:bff:payload-too-large') };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_READ_TIMEOUT_MS);
+  try {
+    const bytes = await readBodyWithin(request.body, controller.signal, REQUEST_MAX_BYTES);
+    return bytes === null ? { refused: bffProblem(413, 'urn:erp:bff:payload-too-large') } : { bytes };
+  } catch {
+    return { refused: controller.signal.aborted ? bffProblem(408, 'urn:erp:bff:request-timeout') : bffProblem(400, 'urn:erp:bff:request-refused') };
+  } finally {
+    clearTimeout(timer);
+  }
 }

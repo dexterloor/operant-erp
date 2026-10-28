@@ -66,9 +66,13 @@ export function keyringFrom(raw: string | undefined): Keyring {
     const at = entry.indexOf(':');
     const id = entry.slice(0, at).trim();
     const b64 = entry.slice(at + 1).trim();
-    if (at <= 0 || !/^[A-Za-z0-9_-]+$/.test(id) || !/^[A-Za-z0-9_-]+={0,2}$/.test(b64)) throw new Error('The session key is malformed.');
+    if (at <= 0 || !/^[A-Za-z0-9_-]+$/.test(id) || !/^[A-Za-z0-9_-]+={0,2}$/.test(b64)) {
+      throw new Error('The session key is malformed: each entry is <key id>:<base64url of 32 random bytes> (base64url, not standard base64).');
+    }
     const bytes = new Uint8Array(Buffer.from(b64, 'base64url'));
     if (bytes.length !== 32) throw new Error('The session key must be 32 bytes.');
+    // Code RED L-7: a key of one repeated byte (all zeros, say) is a placeholder, not random bytes.
+    if (bytes.every((b) => b === bytes[0])) throw new Error('The session key is one repeated byte; generate 32 random bytes.');
     if (ring.some((k) => k.id === id)) throw new Error('The session key ids must differ.');
     ring.push({ id, bytes });
   }

@@ -1,6 +1,6 @@
 import 'server-only';
-import { apiFetch } from './apiClient';
-import { NO_STORE, bffProblem, isBffProblem, refuseCrossSiteMutation } from './origin';
+import { apiBaseOrigin, apiFetch } from './apiClient';
+import { NO_STORE, bffProblem, isBffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
 import { SESSION_COOKIE, clearedSessionCookie, tokenOf, unsealSession } from './session';
 import { allOperations, proxyAllowlist } from './surface';
 
@@ -17,7 +17,12 @@ import { allOperations, proxyAllowlist } from './surface';
 // Then one apiFetch with the session's bearer. The answer keeps its status, Content-Type, Content-Disposition and body;
 // Set-Cookie / WWW-Authenticate and every other upstream header are dropped; Location is rewritten from /api/v1/… to
 // /bff/api/… (Content-Location dropped). An API 401 becomes 401 session-ended WITHOUT deleting the cookie. A 5xx, or
-// an error whose body is not a problem document, becomes the BFF's generic problem (L-2). Every answer: no-store, private.
+// an error whose body is not a problem document, becomes the BFF's generic problem (L-2). Every answer: no-store, private,
+// X-Content-Type-Options: nosniff (code RED L-3).
+// Code RED hardening: a session key that cannot be read → 502 server-error, zero API calls (L-1); a request body over
+// 1 MiB → 413, one not arrived in 10 s → 408 (L-2, origin.ts); a 1xx or 3xx answer → 502, whatever its body, since the
+// proxy never relays a redirect; 204/205 carry no body (L-4); an absolute Location on the configured API origin is
+// rewritten like a relative one, any other origin dropped (L-6).
 
 const notRoutable = () => bffProblem(404, 'urn:erp:bff:not-routable');
 const refused = () => bffProblem(403, 'urn:erp:bff:request-refused');
@@ -74,6 +79,12 @@ function sessionEnded(deleteCookie: boolean): Response {
 }
 
 export async function handleApiProxy(request: Request): Promise<Response> {
+  const r = await proxied(request);
+  r.headers.set('x-content-type-options', 'nosniff');
+  return r;
+}
+
+async function proxied(request: Request): Promise<Response> {
   const h = request.headers;
   if (h.has('x-middleware-subrequest')) return notRoutable();
   const site = h.get('sec-fetch-site');
@@ -89,18 +100,30 @@ export async function handleApiProxy(request: Request): Promise<Response> {
 
   const value = cookieValue(request);
   if (value === undefined) return sessionEnded(false);
-  const session = await unsealSession(value);
+  let session: Awaited<ReturnType<typeof unsealSession>>;
+  try {
+    session = await unsealSession(value);
+  } catch {
+    // The keyring could not be read (unset or malformed BFF_SESSION_KEY): the BFF's problem, never Next's raw 500.
+    return bffProblem(502, 'urn:erp:bff:server-error');
+  }
   if (session === null) return sessionEnded(true);
   if (h.get('x-erp-session') !== session.sid) return bffProblem(409, 'urn:erp:bff:session-changed');
 
   const key = h.get('idempotency-key');
+  let bytes: Uint8Array<ArrayBuffer> | undefined;
+  if (method !== 'GET') {
+    const read = await readRequestBody(request);
+    if ('refused' in read) return read.refused;
+    bytes = read.bytes;
+  }
   let upstream: Response;
   try {
     upstream = await apiFetch(target.operationId, {
       token: tokenOf(session),
       params: target.params,
       query: new URLSearchParams(url.search),
-      rawBody: method === 'GET' ? undefined : { bytes: await request.arrayBuffer(), contentType: h.get('content-type') },
+      rawBody: bytes === undefined ? undefined : { bytes, contentType: h.get('content-type') },
       idempotencyKey: key === null ? undefined : key,
     });
   } catch {
@@ -118,12 +141,34 @@ function translate(upstream: Response): Response {
     // apiFetch's own 504 / 502 are already BFF problems; any upstream 5xx body is replaced (L-2).
     return isBffProblem(upstream) ? upstream : bffProblem(502, 'urn:erp:bff:server-error');
   }
+  if (status < 200 || (status >= 300 && status < 400)) return bffProblem(502, 'urn:erp:bff:server-error');
   if (status >= 300 && !isProblem) return bffProblem(502, 'urn:erp:bff:server-error');
   const headers = new Headers({ 'cache-control': NO_STORE });
   if (type) headers.set('content-type', type);
   const disposition = upstream.headers.get('content-disposition');
   if (disposition) headers.set('content-disposition', disposition);
-  const location = upstream.headers.get('location');
-  if (location && location.startsWith('/api/v1/') && !location.startsWith('/api/v1/auth/')) headers.set('location', `/bff/api/${location.slice('/api/v1/'.length)}`);
-  return new Response(status === 204 || status === 304 ? null : upstream.body, { status, headers });
+  const location = proxiedLocation(upstream.headers.get('location'));
+  if (location !== null) headers.set('location', location);
+  return new Response(status === 204 || status === 205 ? null : upstream.body, { status, headers });
+}
+
+/** An API Location as a /bff/api/ path: relative `/api/v1/…`, or absolute on the configured API origin; never /auth/. */
+function proxiedLocation(location: string | null): string | null {
+  if (!location) return null;
+  let path: string;
+  if (location.startsWith('/api/v1/')) path = location;
+  else {
+    let u: URL;
+    let base: string;
+    try {
+      u = new URL(location);
+      base = apiBaseOrigin();
+    } catch {
+      return null;
+    }
+    if (u.origin !== base || u.username !== '' || u.password !== '' || !u.pathname.startsWith('/api/v1/')) return null;
+    path = u.pathname + u.search;
+  }
+  if (path.startsWith('/api/v1/auth/')) return null;
+  return `/bff/api/${path.slice('/api/v1/'.length)}`;
 }

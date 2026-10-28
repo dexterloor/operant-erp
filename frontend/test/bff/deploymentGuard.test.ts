@@ -14,7 +14,7 @@ async function loadConfig() {
 afterEach(() => vi.unstubAllEnvs());
 
 function clearAll() {
-  for (const v of [...PLATFORM, 'ERP_API_BASE_URL', 'CI']) vi.stubEnv(v, undefined as unknown as string);
+  for (const v of [...PLATFORM, 'ERP_API_BASE_URL', 'APP_PUBLIC_ORIGIN', 'CI']) vi.stubEnv(v, undefined as unknown as string);
 }
 
 describe('T-DG — the build refuses a hosted build and a non-loopback API', () => {
@@ -41,6 +41,21 @@ describe('T-DG — the build refuses a hosted build and a non-loopback API', () 
   it.each(['http://127.0.0.1:8082', 'http://localhost:8082', 'https://[::1]:9'])('loopback %s → the build passes', async (base) => {
     clearAll();
     vi.stubEnv('ERP_API_BASE_URL', base);
+    await expect(loadConfig()).resolves.toBeDefined();
+  });
+
+  it.each(['https://erp.example.com', 'https://localhost.evil.com', 'https://127.0.0.1.nip.io', 'nonsense'])(
+    'code RED M-3: APP_PUBLIC_ORIGIN=%s set and not loopback → the build throws (a self-hosted deployment)',
+    async (origin) => {
+      clearAll();
+      vi.stubEnv('APP_PUBLIC_ORIGIN', origin);
+      await expect(loadConfig()).rejects.toThrow(/loopback/i);
+    },
+  );
+
+  it.each(['https://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000'])('code RED M-3: APP_PUBLIC_ORIGIN=%s → the build passes', async (origin) => {
+    clearAll();
+    vi.stubEnv('APP_PUBLIC_ORIGIN', origin);
     await expect(loadConfig()).resolves.toBeDefined();
   });
 

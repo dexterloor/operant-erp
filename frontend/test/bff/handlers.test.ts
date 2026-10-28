@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // T-1, T-3, T-5 (route list derived from the route files), T-6, T-7 (sign-in half), T-13 and T-RT's server half.
 
 const ORIGIN = 'https://localhost:3000';
-const KEY = Buffer.alloc(32, 7).toString('base64url');
+const KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 7 + 7) % 256)).toString('base64url');
 const EXPIRES = '2026-11-01T08:00:00+00:00';
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.dW5pcXVlLXNpZ25hdHVyZQ';
 
@@ -123,7 +123,7 @@ describe('sign-in handler — POST /bff/session', () => {
   it.each([
     [{ workspace: '', email: 'e', password: 'p' }],
     [{ workspace: 'w', email: 'e' }],
-    [{ workspace: 'w', email: 'e', password: 'p'.repeat(256) }],
+    [{ workspace: 'w', email: 'e', password: 'p'.repeat(4097) }], // code RED M-2: the bound is the API's 4096 bytes, not 255
     [{ workspace: 1, email: 'e', password: 'p' }],
     [{ workspace: 'w', email: 'e', password: 'p', return_to: 'x'.repeat(2049) }],
     ['not json'],
@@ -228,6 +228,18 @@ describe('T-5 — CSRF on every mutating BFF route (Origin, Sec-Fetch-Site, JSON
     }
   });
 
+  it.each(['https://erp.example.com', 'https://localhost.evil.com'])(
+    'code RED M-3: APP_PUBLIC_ORIGIN=%s (not loopback) refuses every write, even one whose Origin matches it, with no API call',
+    async (origin) => {
+      vi.stubEnv('APP_PUBLIC_ORIGIN', origin);
+      stubApi(() => Response.json({}));
+      const { handleSignIn } = await handlers();
+      const r = await handleSignIn(post('/bff/session', signInBody(), { origin }));
+      expect(r.status).toBe(403);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('an unset APP_PUBLIC_ORIGIN refuses everything (fail closed)', async () => {
     vi.stubEnv('APP_PUBLIC_ORIGIN', '');
     for (const f of files) {
@@ -238,5 +250,74 @@ describe('T-5 — CSRF on every mutating BFF route (Origin, Sec-Fetch-Site, JSON
       expect(r.status, f).toBe(403);
       expect(fetchSpy).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe('code RED M-2 and L-5 — what sign-in refuses locally', () => {
+  const okToken = () => Response.json({ access_token: JWT, token_type: 'Bearer', expires_at: EXPIRES });
+
+  it('M-2: a 300-character password is forwarded (the API takes up to 4096 bytes)', async () => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    const password = 'p'.repeat(300);
+    const r = await handleSignIn(post('/bff/session', signInBody({ password })));
+    expect(r.status).toBe(200);
+    expect(JSON.parse(fetchSpy.mock.calls[0]![1].body).password).toBe(password);
+  });
+
+  it('M-2: exactly 4096 UTF-8 bytes is forwarded; 4097 bytes, or 1366 three-byte characters (4098 bytes), is refused locally', async () => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    expect((await handleSignIn(post('/bff/session', signInBody({ password: 'é'.repeat(2048) })))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    for (const password of ['p'.repeat(4097), '€'.repeat(1366)]) {
+      const r = await handleSignIn(post('/bff/session', signInBody({ password })));
+      expect(r.status).toBe(422);
+      expect((await r.json()).type).toBe('urn:erp:problem:validation-failed');
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('M-2: workspace and email stay bounded at 255', async () => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    expect((await handleSignIn(post('/bff/session', signInBody({ workspace: 'w'.repeat(256) })))).status).toBe(422);
+    expect((await handleSignIn(post('/bff/session', signInBody({ email: `${'e'.repeat(250)}@x.example` })))).status).toBe(422);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['right-to-left override', 'acme‮evil'],
+    ['zero-width space', 'ac​me'],
+    ['bell (Cc)', 'acme\u0007'],
+    ['byte order mark (Cf)', '﻿acme'],
+  ])('L-5: a workspace containing a %s is refused locally, nothing sealed', async (_n, workspace) => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    const r = await handleSignIn(post('/bff/session', signInBody({ workspace })));
+    expect(r.status).toBe(422);
+    expect(r.headers.get('set-cookie')).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('L-5: an ordinary accented workspace name still signs in', async () => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    expect((await handleSignIn(post('/bff/session', signInBody({ workspace: 'Café Ñandú' })))).status).toBe(200);
+  });
+});
+
+describe('code RED L-2 — the named handlers cap the request body', () => {
+  it.each([
+    ['sign-in', 'handleSignIn', '/bff/session'],
+    ['reset request', 'handleResetRequest', '/bff/password-resets'],
+    ['redemption', 'handleResetRedemption', '/bff/password-resets/redemption'],
+  ] as const)('%s: a body over 1 MiB → 413 urn:erp:bff:payload-too-large, zero API calls', async (_n, name, url) => {
+    stubApi(() => Response.json({}));
+    const mod = await handlers();
+    const r = await mod[name](post(url, JSON.stringify({ workspace: 'w', email: 'e', password: 'x'.repeat(1024 * 1024) })));
+    expect(r.status).toBe(413);
+    expect((await r.json()).type).toBe('urn:erp:bff:payload-too-large');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

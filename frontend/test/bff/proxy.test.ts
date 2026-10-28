@@ -7,7 +7,7 @@ import { keyringFrom, newSessionPayload, sealSession } from '@/lib/bff/server/se
 // R1-§6.1, R2-1): T-7, T-11, T-15, T-16, the L-1 header items, L-2, and C-4's "absent template → 404, zero calls".
 
 const ORIGIN = 'https://localhost:3000';
-const KEY = Buffer.alloc(32, 9).toString('base64url');
+const KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 7 + 9) % 256)).toString('base64url');
 const ID = '0b7c1f9e-3f4a-4c8e-9d2b-5a6e7f8091a2';
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.cHJveHktc2lnbmF0dXJl';
 
@@ -279,5 +279,133 @@ describe('T-11 / T-3 — no caching, no logging', () => {
       expect(s).not.toHaveBeenCalled();
       s.mockRestore();
     }
+  });
+});
+
+const problemJson = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/problem+json' } });
+
+describe('code RED L-1 — an unreadable session key is the BFF problem, never a raw 500', () => {
+  it.each([
+    ['unset', undefined],
+    ['malformed', 'not a key'],
+  ])('BFF_SESSION_KEY %s → 502 urn:erp:bff:server-error, zero API calls', async (_n, value) => {
+    vi.stubEnv('BFF_SESSION_KEY', value as string);
+    stubApi(() => json(200, {}));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('code RED L-2 — the request body has a size cap and a read time limit', () => {
+  it('a body over 1 MiB → 413 urn:erp:bff:payload-too-large, zero API calls', async () => {
+    stubApi(() => json(201, {}));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: 'x'.repeat(1024 * 1024 + 1), headers: { 'idempotency-key': 'k' } }));
+    expect(r.status).toBe(413);
+    expect((await r.json()).type).toBe('urn:erp:bff:payload-too-large');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('a declared Content-Length over the cap → 413 without reading, zero API calls', async () => {
+    stubApi(() => json(201, {}));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: '{}', headers: { 'idempotency-key': 'k', 'content-length': String(1024 * 1024 + 1) } }));
+    expect(r.status).toBe(413);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('a body of exactly 1 MiB is forwarded whole', async () => {
+    stubApi(() => json(201, {}));
+    const body = 'x'.repeat(1024 * 1024);
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body, headers: { 'idempotency-key': 'k' } }));
+    expect(r.status).toBe(201);
+    expect(new TextDecoder().decode(fetchSpy.mock.calls[0]![1].body)).toBe(body);
+  });
+
+  it('a body that never finishes → 408 urn:erp:bff:request-timeout at 10 s, zero API calls', async () => {
+    stubApi(() => json(201, {}));
+    const handle = await proxy();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const stalled = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('{"a":')); } });
+      const base = req(`/bff/api/users/${ID}/roles`, { method: 'POST', headers: { 'idempotency-key': 'k' } });
+      const r0 = new Request(base.url, { method: 'POST', headers: base.headers, body: stalled, duplex: 'half' } as RequestInit);
+      const p = handle(r0);
+      let done = false;
+      void p.then(() => (done = true));
+      // Opening the cookie is real WebCrypto work, outside the fake clock.
+      for (let i = 0; i < 50; i++) await new Promise((res) => setImmediate(res));
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const r = await p;
+      expect(r.status).toBe(408);
+      expect((await r.json()).type).toBe('urn:erp:bff:request-timeout');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('code RED L-3 — X-Content-Type-Options: nosniff on every proxy answer', () => {
+  it.each([
+    ['a 200', () => json(200, { id: ID }), `/bff/api/users/${ID}`, {}],
+    ['an API problem', () => problemJson(409, { type: 'urn:erp:problem:x' }), `/bff/api/users/${ID}`, {}],
+    ['an API 401', () => problemJson(401, { type: 'urn:erp:problem:authentication-failed' }), `/bff/api/users/${ID}`, {}],
+    ['an upstream 500', () => problemJson(500, { type: 'x' }), `/bff/api/users/${ID}`, {}],
+    ['a refusal (not routable)', () => json(200, {}), '/bff/api/auth/token', {}],
+    ['a refusal (no session header)', () => json(200, {}), `/bff/api/users/${ID}`, { 'x-erp-session': undefined }],
+  ] as const)('%s', async (_n, answer, path, headers) => {
+    stubApi(answer);
+    const r = await (await proxy())(req(path, { headers }));
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+});
+
+describe('code RED L-4 — status classes the proxy never relays', () => {
+  it('an upstream 205 → 205 with no body (no crash)', async () => {
+    stubApi(() => new Response(null, { status: 205 }));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(205);
+    expect(await r.text()).toBe('');
+  });
+
+  it.each([
+    ['302 with a problem body', () => new Response(JSON.stringify({ type: 'urn:erp:problem:x' }), { status: 302, headers: { 'content-type': 'application/problem+json', location: '/api/v1/users' } })],
+    ['304', () => new Response(null, { status: 304 })],
+    ['307 with a problem body', () => problemJson(307, { type: 'urn:erp:problem:x' })],
+  ])('an upstream %s → 502, never a redirect the browser would follow', async (_n, answer) => {
+    stubApi(answer);
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(502);
+    expect(r.headers.get('location')).toBeNull();
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+  });
+
+  it('an upstream 1xx → 502', async () => {
+    stubApi(() => ({ status: 103, headers: new Headers(), body: null }) as unknown as Response);
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(502);
+  });
+});
+
+describe('code RED L-6 — Location on the configured API origin is rewritten, whatever its form', () => {
+  it.each([
+    ['relative', `/api/v1/users/${ID}/roles/${ID}`, `/bff/api/users/${ID}/roles/${ID}`],
+    ['absolute, on the API origin', `http://127.0.0.1:8082/api/v1/users/${ID}/roles/${ID}`, `/bff/api/users/${ID}/roles/${ID}`],
+    ['absolute, on the API origin, with a query', `http://127.0.0.1:8082/api/v1/users?x=1`, `/bff/api/users?x=1`],
+    ['absolute, another origin', `http://evil.example/api/v1/users/${ID}`, null],
+    ['absolute, another port', `http://127.0.0.1:9999/api/v1/users/${ID}`, null],
+    ['absolute, with credentials', `http://u:p@127.0.0.1:8082/api/v1/users/${ID}`, null],
+    ['absolute, an auth path', 'http://127.0.0.1:8082/api/v1/auth/token', null],
+    ['relative, an auth path', '/api/v1/auth/token', null],
+    ['scheme-relative', `//evil.example/api/v1/users/${ID}`, null],
+    ['outside /api/v1/', 'http://127.0.0.1:8082/other', null],
+  ])('%s', async (_n, location, expected) => {
+    stubApi(() => json(201, { id: ID }, { location }));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: '{}', headers: { 'idempotency-key': 'k' } }));
+    expect(r.status).toBe(201);
+    expect(r.headers.get('location')).toBe(expected);
   });
 });

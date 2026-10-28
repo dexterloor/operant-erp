@@ -15,6 +15,7 @@ const ok = () => new Response('{}', { status: 200, headers: { 'content-type': 'a
 
 beforeEach(() => {
   vi.stubEnv('ERP_API_BASE_URL', 'http://127.0.0.1:8082');
+  vi.stubEnv('APP_PUBLIC_ORIGIN', 'https://localhost:3000');
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -68,6 +69,25 @@ describe('T-DG run-time half and T-12 — the base URL is checked lazily, exact-
       expect(fetchSpy).not.toHaveBeenCalled();
     },
   );
+
+  it.each([undefined, '', 'https://erp.example.com', 'https://localhost.evil.com', 'http://127.0.0.1.nip.io:3000', 'https://10.0.0.5'])(
+    'code RED M-3: APP_PUBLIC_ORIGIN=%s (not exact-host loopback) makes every API call throw, with no request made',
+    async (origin) => {
+      vi.stubEnv('APP_PUBLIC_ORIGIN', origin as string);
+      const mod = await load();
+      const fetchSpy = vi.fn(async () => ok());
+      vi.stubGlobal('fetch', fetchSpy);
+      await expect(mod.apiFetch('GetCurrentUser', { token: 't' })).rejects.toThrow(/loopback/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['https://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'http://localhost'])('code RED M-3: APP_PUBLIC_ORIGIN=%s is accepted', async (origin) => {
+    vi.stubEnv('APP_PUBLIC_ORIGIN', origin);
+    const mod = await load();
+    vi.stubGlobal('fetch', vi.fn(async () => ok()));
+    expect((await mod.apiFetch('GetCurrentUser', { token: 't' })).status).toBe(200);
+  });
 
   it('loading the module refuses NODE_TLS_REJECT_UNAUTHORIZED=0, and BFF_CLIENT_IP_SOURCE=test-header on Vercel', async () => {
     vi.stubEnv('NODE_TLS_REJECT_UNAUTHORIZED', '0');

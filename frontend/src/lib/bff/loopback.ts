@@ -18,3 +18,12 @@ export function isLoopbackBase(raw: string | undefined | null): boolean {
   if (url.pathname !== '/' && url.pathname !== '') return false;
   return LOOPBACK_HOSTS.has(url.hostname);
 }
+
+/**
+ * The same exact-host rule for the web app's own public origin (code RED M-3). Until the deployment commit, the app may
+ * only be served from this machine: a self-hosted deployment beside the API (`next start` on a VPS) would send every
+ * person's sign-in from the loopback address and share one pre-auth budget, so both guard halves refuse it.
+ */
+export function isLoopbackOrigin(raw: string | undefined | null): boolean {
+  return isLoopbackBase(raw);
+}
