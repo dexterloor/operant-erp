@@ -9,6 +9,9 @@ import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { TooltipProvider } from '@/components/ui/Tooltip';
+import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
+import type { User } from '@/lib/api/users';
+import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_SELF, VIEWER_ID } from '@/components/preview/fixtures/people';
 
 // DOM fitness (b4-architecture.md Revision 1 "Tests", RED H-5 item 3) — rendered, never grepped:
 //  1. no element carries the native [disabled] attribute (ST-4e: aria-disabled only);
@@ -176,5 +179,87 @@ describe('DOM fitness — the checker goes red on planted failures', () => {
     expect(tracker.count).toBe(0);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Go' }));
     expect(tracker.check()).toEqual(['region appeared after first render: "Done."']);
+  });
+});
+
+// B-4 step 2: the person surface. The script crosses the delete → archived branch swap and back (restore), with a
+// refusal in between, so the one after-message region must be the same node throughout (R4-4 L-2, RED M-6).
+function PersonSurface({ initial }: { initial: User }) {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [person, setPerson] = useState(initial);
+  const [refuseNext, setRefuseNext] = useState(true);
+  return (
+    <TooltipProvider delayDuration={0}>
+      <h1 ref={h1} tabIndex={-1}>
+        {person.display_name}
+      </h1>
+      <PersonLifecycleActions
+        person={person}
+        viewerId={VIEWER_ID}
+        canDelete
+        canAssign
+        onGiveRole={() => undefined}
+        fallbackFocusRef={h1}
+        timeZone="UTC"
+        deletePerson={async () => {
+          if (refuseNext) {
+            setRefuseNext(false);
+            return DELETE_REFUSALS[0]!;
+          }
+          setPerson((p) => ({ ...p, archived_at: '2026-10-27T03:00:00Z' }));
+          return { kind: 'deleted' };
+        }}
+        restorePerson={async () => {
+          const restored = { ...person, archived_at: null };
+          setPerson(restored);
+          return { kind: 'restored', person: restored };
+        }}
+      />
+    </TooltipProvider>
+  );
+}
+
+async function personScript() {
+  const user = userEvent.setup();
+  const confirm = (name: string) => () => user.click(screen.getAllByRole('button', { name }).at(-1)!);
+  return [
+    () => user.click(screen.getByRole('button', { name: 'Delete person' })),
+    confirm('Delete person'), // refused inside the dialog
+    confirm('Delete person'), // deleted: the branch swaps to the archived banner
+    () => user.click(screen.getByRole('button', { name: 'Restore person' })),
+    confirm('Restore person'), // restored: swaps back
+    () => user.click(screen.getByRole('button', { name: 'Dismiss message' })),
+  ];
+}
+
+describe('DOM fitness — B-4 step 2 person surface', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node across delete → archived → restored${strict ? ' (StrictMode)' : ''}`, async () => {
+      const ui = <PersonSurface initial={PERSON_ACTIVE} />;
+      render(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const seen: string[] = [];
+      for (const step of await personScript()) {
+        await step();
+        failures.push(...tracker.check());
+        seen.push(screen.getByRole('status').textContent ?? '');
+      }
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      expect(seen).toEqual([
+        '',
+        '',
+        "Sample Person was deleted. They're now in the archived people.",
+        "Sample Person was deleted. They're now in the archived people.",
+        'Sample Person was restored. Give them a role so they can work.',
+        '',
+      ]);
+    });
+  }
+
+  it('own page: the aria-disabled Delete person carries no [disabled]', () => {
+    render(<PersonSurface initial={PERSON_SELF} />);
+    expect(trackRegions().firstRender).toEqual([]);
   });
 });

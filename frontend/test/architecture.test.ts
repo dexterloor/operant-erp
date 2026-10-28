@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 //
 // Here: import direction (H-5 item 5 as amended by Revision 2 C-2) and the AST literal backstop (H-5 item 4 + C-2).
 // DOM fitness lives in test/dom-fitness.test.tsx (the binding tree's file). Not yet here, because their subjects are
-// later steps: no-clock expiry and no-identity Withdraw (step 5), the `__FIXTURE_ONLY__` post-build check (L-2, the
-// step that adds fixtures).
+// later steps: no-clock expiry and no-identity Withdraw (step 5). The `__FIXTURE_ONLY__` post-build check (L-2) is
+// `scripts/check-fixtures-absent.mjs`, run by `postbuild` (it reads `.next/static`, which a unit test cannot).
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -176,19 +176,21 @@ function literalViolations(files: readonly SourceFile[], roleNames: readonly str
  * reading more or less than its author thought. B-4 dirs that do not exist yet are 0 here, not missing.
  */
 const EXPECTED_COUNTS: Record<string, number> = {
-  'src/copy': 2,
-  'src/lib': 9,
-  'src/components': 27,
-  'src/lib/api': 0,
+  // Step 2 added: copy/{people,headings}.ts; lib/api/users.ts, lib/people/{results,unwired}.ts; components/people/
+  // {PersonLifecycleActions,DeletePersonDialog,RestorePersonDialog,ArchivedPersonBanner}.tsx; preview/fixtures/people.ts.
+  'src/copy': 4,
+  'src/lib': 12,
+  'src/components': 32,
+  'src/lib/api': 1,
   'src/lib/roles': 0,
   'src/lib/permissions': 0,
   'src/lib/bulk': 0,
-  'src/lib/people': 0,
+  'src/lib/people': 2,
   'src/components/roles': 0,
   'src/components/permissions': 0,
   'src/components/bulk': 0,
-  'src/components/people': 0,
-  [FIXTURE_DIR]: 0,
+  'src/components/people': 4,
+  [FIXTURE_DIR]: 1,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -236,11 +238,19 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
     expect(literalViolations(scanned(), builtInRoleNames())).toEqual([]);
   });
 
-  it('role names come from the fixture header; the fixture folder does not exist yet at step 1', () => {
-    // When step 2 adds src/components/preview/fixtures, this flips: the header must then name the built-in roles.
-    const names = builtInRoleNames();
-    if (existsSync(path.join(ROOT, FIXTURE_DIR))) expect(names.length).toBeGreaterThan(0);
-    else expect(names).toEqual([]);
+  it('role names come from the fixture header, which now exists (step 2)', () => {
+    expect(existsSync(path.join(ROOT, FIXTURE_DIR))).toBe(true);
+    expect(builtInRoleNames().length).toBeGreaterThan(0);
+  });
+
+  it('every fixture file opens with the __FIXTURE_ONLY__ marker and the BUILT_IN_ROLE_NAMES header on line 1 (RED L-1, L-2)', () => {
+    const files = walk(FIXTURE_DIR);
+    expect(files.length).toBeGreaterThan(0);
+    for (const sf of files) {
+      const first = sf.source.split('\n')[0] ?? '';
+      expect(first, sf.file).toContain("'__FIXTURE_ONLY__'");
+      expect(first, sf.file).toMatch(/BUILT_IN_ROLE_NAMES:\s*[a-z_]+/);
+    }
   });
 
   it('positive controls: code-shaped and role-name literals go red; only lib/api declarations and types are exempt', () => {

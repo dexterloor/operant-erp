@@ -12,6 +12,20 @@ import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { StatusMessages, type StatusMessage } from '@/components/ui/StatusMessages';
+import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
+import { PERSON } from '@/copy/people';
+import type { User } from '@/lib/api/users';
+import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
+import {
+  DELETE_REFUSALS,
+  FIXTURE_ONLY,
+  PERSON_ACTIVE,
+  PERSON_DELETED_ACTIVE,
+  PERSON_DELETED_SWITCHED_OFF,
+  PERSON_SELF,
+  RESTORE_REFUSALS,
+  VIEWER_ID,
+} from './fixtures/people';
 import { SignInCard, type SignInNotice } from '@/components/auth/SignInCard';
 import { NotFound, OfflineBanner, PermissionDenied, Refetchable, RegionError, RegionLoading, Skeleton } from '@/components/states/PageStates';
 import styles from './ComponentPreview.module.css';
@@ -163,6 +177,8 @@ export function ComponentPreview() {
 
         <PrimitivesPreview />
 
+        <PeoplePreview />
+
         <section className={styles.section} aria-labelledby="pv-messages">
           <h2 id="pv-messages">Status messages</h2>
           <div className={styles.row}>
@@ -241,6 +257,85 @@ function PrimitivesPreview() {
           Done
         </Button>
       </Dialog>
+    </section>
+  );
+}
+
+const PEOPLE_SCENARIOS: { label: string; person: User }[] = [
+  { label: 'Person page', person: PERSON_ACTIVE },
+  { label: 'Your own page', person: PERSON_SELF },
+  { label: 'Deleted (was active)', person: PERSON_DELETED_ACTIVE },
+  { label: 'Deleted (was switched off)', person: PERSON_DELETED_SWITCHED_OFF },
+];
+
+/** Preview answers: success, each served refusal (fixture), or a lost connection. */
+type PreviewAnswer = 'ok' | 'unreachable' | number;
+
+/** B-4 step 2: delete and restore a person, driven by the one fixture copy. Preview-only labels are not product copy. */
+function PeoplePreview() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [person, setPerson] = useState<User>(PERSON_ACTIVE);
+  const [answer, setAnswer] = useState<PreviewAnswer>('ok');
+  const archived = person.archived_at !== null;
+  const refusals = archived ? RESTORE_REFUSALS : DELETE_REFUSALS;
+  const pick = (p: User) => {
+    setPerson(p);
+    setAnswer('ok');
+  };
+  const deletePerson = async (): Promise<DeletePersonResult> => {
+    if (answer === 'unreachable') return { kind: 'unreachable' };
+    if (typeof answer === 'number') return DELETE_REFUSALS[answer] ?? { kind: 'server-error' };
+    setPerson((p) => ({ ...p, archived_at: '2026-10-27T03:00:00Z', roles: [] }));
+    return { kind: 'deleted' };
+  };
+  const restorePerson = async (): Promise<RestorePersonResult> => {
+    if (answer === 'unreachable') return { kind: 'unreachable' };
+    if (typeof answer === 'number') return RESTORE_REFUSALS[answer] ?? { kind: 'server-error' };
+    const restored = { ...person, archived_at: null };
+    setPerson(restored);
+    return { kind: 'restored', person: restored };
+  };
+  return (
+    <section className={styles.section} aria-labelledby="pv-people" data-fixture={FIXTURE_ONLY}>
+      <h2 id="pv-people">B-4 delete and restore a person</h2>
+      <div className={styles.row}>
+        {PEOPLE_SCENARIOS.map((s) => (
+          <Button key={s.label} size="sm" aria-pressed={person.id === s.person.id} onClick={() => pick(s.person)}>
+            {s.label}
+          </Button>
+        ))}
+      </div>
+      <div className={styles.row}>
+        <Button size="sm" aria-pressed={answer === 'ok'} onClick={() => setAnswer('ok')}>
+          Preview answer: success
+        </Button>
+        {refusals.map((r, i) => (
+          <Button key={r.rule} size="sm" aria-pressed={answer === i} onClick={() => setAnswer(i)}>
+            {`Preview answer: refusal ${i + 1}`}
+          </Button>
+        ))}
+        <Button size="sm" aria-pressed={answer === 'unreachable'} onClick={() => setAnswer('unreachable')}>
+          Preview answer: unreachable
+        </Button>
+      </div>
+      <div className={styles.row}>
+        <h3 ref={h1} tabIndex={-1}>
+          {person.id === VIEWER_ID ? PERSON.ownName(person.display_name) : person.display_name}
+        </h3>
+        {archived ? <Chip tone="neutral">{PERSON.deletedChip}</Chip> : null}
+      </div>
+      <p className={styles.muted}>{person.email}</p>
+      <PersonLifecycleActions
+        person={person}
+        viewerId={VIEWER_ID}
+        canDelete
+        canAssign
+        deletePerson={deletePerson}
+        restorePerson={restorePerson}
+        onGiveRole={() => undefined}
+        fallbackFocusRef={h1}
+        timeZone="UTC"
+      />
     </section>
   );
 }

@@ -6,6 +6,12 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
 import { TooltipProvider } from '@/components/ui/Tooltip';
+import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { User } from '@/lib/api/users';
+import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
+import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_DELETED_ACTIVE, PERSON_DELETED_SWITCHED_OFF, PERSON_SELF, RESTORE_REFUSALS, VIEWER_ID } from '@/components/preview/fixtures/people';
 
 // axe on the component preview in jsdom. Two limits of jsdom, handled explicitly rather than by switching rules off:
 //  - no layout or computed colours → colour-contrast is disabled here; contrast is computed from the tokens instead
@@ -47,5 +53,57 @@ describe('axe — B-4 primitives', () => {
     );
     const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`)).toEqual([]);
+  });
+});
+
+// B-4 step 2: the person surface in each main state, including open dialogs with a banner inside (portalled, so the
+// whole document is checked).
+describe('axe — B-4 person delete/restore', () => {
+  const axeDoc = async () => {
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+  };
+  const surface = (person: User, del: DeletePersonResult = DELETE_REFUSALS[0]!, res: RestorePersonResult = RESTORE_REFUSALS[0]!) => {
+    const ref = { current: null as HTMLElement | null };
+    return (
+      <TooltipProvider>
+        <main>
+          <h1 tabIndex={-1}>{person.display_name}</h1>
+          <PersonLifecycleActions person={person} viewerId={VIEWER_ID} canDelete canAssign onGiveRole={() => undefined} fallbackFocusRef={ref} timeZone="UTC" deletePerson={async () => del} restorePerson={async () => res} />
+        </main>
+      </TooltipProvider>
+    );
+  };
+
+  for (const [label, person] of [['person page', PERSON_ACTIVE], ['own page', PERSON_SELF], ['archived page', PERSON_DELETED_ACTIVE]] as const) {
+    it(`${label}: no violations`, async () => {
+      render(surface(person));
+      expect(await axeDoc()).toEqual([]);
+    });
+  }
+
+  it('the Delete dialog with a refusal inside: no violations', async () => {
+    render(surface(PERSON_ACTIVE));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    await user.click(screen.getAllByRole('button', { name: 'Delete person' }).at(-1)!);
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('the Restore dialog (switched off) with a 403 inside, and the after-message: no violations', async () => {
+    render(surface(PERSON_DELETED_SWITCHED_OFF, { kind: 'deleted' }, { kind: 'forbidden' }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Restore person' }));
+    await user.click(screen.getAllByRole('button', { name: 'Restore person' }).at(-1)!);
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('after a restore of an active person (Give a role, Dismiss message): no violations', async () => {
+    render(surface(PERSON_DELETED_ACTIVE, { kind: 'deleted' }, { kind: 'restored', person: { ...PERSON_DELETED_ACTIVE, archived_at: null } }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Restore person' }));
+    await user.click(screen.getAllByRole('button', { name: 'Restore person' }).at(-1)!);
+    expect(screen.getByRole('button', { name: 'Give a role' })).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
   });
 });
