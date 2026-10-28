@@ -49,7 +49,7 @@ function noticeFor(result: Exclude<SaveRoleResult, { kind: 'saved' }>, id: numbe
     case 'refused':
       return { id, heading: NOT_SAVED, body: result.message !== '' ? result.message : REFUSED_WITHOUT_MESSAGE };
     case 'not-found':
-      return { id, heading: NOT_SAVED, body: `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}` };
+      return { id, heading: NOT_SAVED, body: PAGE_STATES.notFoundInline };
     case 'forbidden':
       return {
         id,

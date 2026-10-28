@@ -4,6 +4,7 @@
   "ConfirmRoleGrantProposal",
   "CreateRoleGrantProposal",
   "DeleteUser",
+  "GetRole",
   "GetUser",
   "ListOfferedRoles",
   "ListPermissions",
@@ -12,5 +13,6 @@
   "ListUsers",
   "RejectRoleGrantProposal",
   "RestoreUser",
-  "RevokeRole"
+  "RevokeRole",
+  "UpdateRole"
 ]

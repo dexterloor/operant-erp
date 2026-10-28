@@ -209,3 +209,34 @@ export const WAITING = {
     withdraw: "We can't tell whether this proposal was withdrawn. If it's still waiting, press Withdraw to try again.",
   },
 } as const;
+
+/**
+ * NEW (ux-copy-b3b.md C7-1, final per its "Summary, per commit"): the `/admin/roles` list. The h1 is the nav noun
+ * (R4-1). `Built-in` is `CHECKLIST.builtInChip` (REUSE), shown from the served `is_system`, never from a name.
+ */
+export const ROLES_LIST = {
+  heading: 'Roles',
+  /** ST-4b's `{resource}` for the roles pages (C7-1 403 row). */
+  resourcePlural: 'roles',
+  archived: 'Archived',
+  name: 'Name',
+  people: 'People',
+  permissions: 'Permissions',
+  archivedOrder: 'Most recently deleted first',
+  searchLabel: 'Search by name',
+  searchPlaceholder: 'Start of a role name',
+  noneLive: 'No roles yet.',
+  noMatch: (q: string) => `No role's name starts with “${q}”.`,
+  noneArchived: 'No archived roles. Roles that are deleted appear here.',
+  noArchivedMatch: (q: string) => `No archived role's name starts with “${q}”.`,
+  clearSearch: 'Clear search',
+  /** ST-1a's settled announcement. Never called with 0: the empty heading is spoken instead (ST-2a). */
+  shown: (n: number, q: string, archived: boolean) =>
+    [n === 1 ? '1 role shown.' : `${n} roles shown.`, q !== '' ? `Name starts with “${q}”.` : null, archived ? 'Archived.' : null].filter(Boolean).join(' '),
+  loadFailed: "The list of roles couldn't be loaded.",
+} as const;
+
+/** NEW (ux-copy-b3b.md C7-2, RED M-4): the role page's read failed after first paint, incl. after a save. */
+export const ROLE_PAGE = {
+  rereadFailed: "We couldn't load this role again, so what's shown may be out of date.",
+} as const;

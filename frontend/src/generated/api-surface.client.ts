@@ -73,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.delete'],
     },
   },
+  GetRole: {
+    method: 'GET',
+    template: '/api/v1/roles/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.view'],
+    },
+  },
   GetUser: {
     method: 'GET',
     template: '/api/v1/users/{id}',
@@ -161,6 +171,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.assign'],
+    },
+  },
+  UpdateRole: {
+    method: 'PATCH',
+    template: '/api/v1/roles/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.edit'],
     },
   },
 };
