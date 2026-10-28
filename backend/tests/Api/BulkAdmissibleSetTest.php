@@ -220,7 +220,7 @@ final class BulkAdmissibleSetTest extends ApiTestCase
             }
             $x = substr((string) $name, \strlen('Delete'));
             $restore = $registry['Restore'.$x] ?? null;
-            $list = $registry['List'.$x.'s'] ?? null;
+            $list = $registry[self::listNameOf((string) $name)] ?? null;
             if (null === $restore || $code !== self::singleCode($restore) || null === $list || !self::declaresArchived($list)) {
                 continue;
             }
@@ -234,6 +234,15 @@ final class BulkAdmissibleSetTest extends ApiTestCase
         sort($derived);
 
         return $derived;
+    }
+
+    /**
+     * The archived List a bulk-archivable resource's Delete pairs with: `Delete<X>` → `List<X>s` (the naming rule above).
+     * One spelling, read by the derivation here and by `ContractArtefactTest` when it names each bulk resource's List.
+     */
+    public static function listNameOf(string $deleteOperationName): string
+    {
+        return 'List'.substr($deleteOperationName, \strlen('Delete')).'s';
     }
 
     private static function singleCode(HttpOperation $operation): ?string
