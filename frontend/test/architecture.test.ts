@@ -198,7 +198,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 41,
+  'src/lib': 46,
   'src/components': 49,
   'src/lib/api': 5,
   'src/lib/roles': 9,
@@ -216,9 +216,11 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C2 added: lib/bff/{loopback,transport,authCalls}.ts, lib/bff/server/{session,origin,apiClient,handlers}.ts,
   // lib/routes.ts; app/bff/session/{route,sign-out/route}.ts, app/(auth)/login/{page,LoginRoute}.tsx, app/(app)/page.tsx
   // (replacing app/page.tsx); components/shell/{StartPage,DocumentArrival}.tsx.
-  'src/lib/bff': 9,
-  'src/lib/bff/server': 5,
-  'src/app': 14,
+  // B-3b C3 added: lib/bff/{paths,problem,deadline,apiCall}.ts, lib/bff/server/apiProxy.ts; app/bff/api/[...path]/route.ts,
+  // app/(app)/{layout,BffProvider,AppShell}.tsx, app/(app)/currentViewer.ts.
+  'src/lib/bff': 14,
+  'src/lib/bff/server': 6,
+  'src/app': 19,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -734,8 +736,10 @@ function envViolations(files: readonly SourceFile[]): Violation[] {
 }
 
 /**
- * T-TK (c): in a server file under src/app, an identifier bound to `readSession(…)` / `unsealSession(…)` may reach a JSX
- * prop only as `clientSessionView(<it>)`; `tokenOf(…)` never reaches JSX.
+ * T-TK (c): in a server file under src/app, an identifier bound to the session — `readSession(…)` / `unsealSession(…)`,
+ * or the `session` member destructured from `currentViewer()` — may reach a JSX prop only as `clientSessionView(<it>)`,
+ * or as `<it>.workspaceTyped`: the one named exception, the workspace name the person typed, which the top bar shows
+ * (bff-auth-note.md §9, D14; deviation D-9, TO CONFIRM — SEC). `tokenOf(…)` never reaches JSX.
  */
 function sessionPropViolations(files: readonly SourceFile[]): Violation[] {
   const out: Violation[] = [];
@@ -744,7 +748,15 @@ function sessionPropViolations(files: readonly SourceFile[]): Violation[] {
     const tree = parse(sf);
     const bound = new Set<string>();
     const collect = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && /\b(readSession|unsealSession)\s*\(/.test(node.initializer.getText(tree))) bound.add(node.name.text);
+      if (ts.isVariableDeclaration(node) && node.initializer && /\b(readSession|unsealSession|currentViewer)\s*\(/.test(node.initializer.getText(tree))) {
+        if (ts.isIdentifier(node.name)) bound.add(node.name.text);
+        else if (ts.isObjectBindingPattern(node.name)) {
+          for (const el of node.name.elements) {
+            const key = el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : ts.isIdentifier(el.name) ? el.name.text : '';
+            if (key === 'session' && ts.isIdentifier(el.name)) bound.add(el.name.text);
+          }
+        }
+      }
       ts.forEachChild(node, collect);
     };
     collect(tree);
@@ -757,14 +769,16 @@ function sessionPropViolations(files: readonly SourceFile[]): Violation[] {
       v(e);
       return hit;
     };
-    const isView = (e: ts.Expression) =>
-      ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === 'clientSessionView' && e.arguments.length === 1 && ts.isIdentifier(e.arguments[0]!) && bound.has((e.arguments[0] as ts.Identifier).text);
+    const isBound = (e: ts.Node) => ts.isIdentifier(e) && bound.has(e.text);
+    const allowed = (e: ts.Expression) =>
+      (ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === 'clientSessionView' && e.arguments.length === 1 && isBound(e.arguments[0]!)) ||
+      (ts.isPropertyAccessExpression(e) && isBound(e.expression) && e.name.text === 'workspaceTyped');
     const visit = (node: ts.Node) => {
       if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression) {
         const e = node.initializer.expression;
-        if (mentions(e) && !isView(e)) out.push({ file: sf.file, detail: `prop ${node.name.getText(tree)}={${e.getText(tree)}}` });
+        if (mentions(e) && !allowed(e)) out.push({ file: sf.file, detail: `prop ${node.name.getText(tree)}={${e.getText(tree)}}` });
       }
-      if (ts.isJsxSpreadAttribute(node) && mentions(node.expression) && !isView(node.expression)) out.push({ file: sf.file, detail: `spread {...${node.expression.getText(tree)}}` });
+      if (ts.isJsxSpreadAttribute(node) && mentions(node.expression) && !allowed(node.expression)) out.push({ file: sf.file, detail: `spread {...${node.expression.getText(tree)}}` });
       ts.forEachChild(node, visit);
     };
     visit(tree);
@@ -868,6 +882,24 @@ describe('architecture — T-TK (c): a server component passes the session only 
       },
     ];
     expect(sessionPropViolations(planted).map((v) => v.detail)).toEqual(['prop a={session}', 'prop b={session.tz}', 'spread {...session}', 'prop c={tokenOf(other)}']);
+    const destructured: SourceFile[] = [
+      {
+        file: 'src/app/(app)/layout.tsx',
+        source: [
+          'export default async function L() {',
+          '  const { session: s, viewer } = await currentViewer();',
+          '  return (<>',
+          '    <P a={s} />',
+          '    <P b={{ x: s.sid }} />',
+          '    <P w={s.workspaceTyped} />',
+          '    <P v={viewer} />',
+          '    <P ok={clientSessionView(s)} />',
+          '  </>);',
+          '}',
+        ].join('\n'),
+      },
+    ];
+    expect(sessionPropViolations(destructured).map((v) => v.detail)).toEqual(['prop a={s}', 'prop b={{ x: s.sid }}']);
   });
 });
 
@@ -892,5 +924,58 @@ describe('architecture — T-AL: the server-only alias is a test-only setting', 
     expect(vitest).toMatch(/'server-only':\s*'next\/dist\/compiled\/server-only\/empty\.js'/);
     expect(readFileSync(path.join(ROOT, 'next.config.ts'), 'utf8')).not.toMatch(/server-only/);
     for (const sf of walk('src')) expect(sf.source, sf.file).not.toMatch(/compiled\/server-only/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-3b C3 (A-8 G-1): network access only in the two fetch modules — the browser's in lib/bff/transport.ts, the server's in
+// lib/bff/server/apiClient.ts — over the whole of src, and no Node HTTP client imported anywhere else.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const FETCH_HOMES = ['src/lib/bff/transport.ts', 'src/lib/bff/server/apiClient.ts'];
+const HTTP_PACKAGES = ['undici', 'http', 'https', 'node:http', 'node:https'];
+
+function fetchHomeViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (FETCH_HOMES.includes(sf.file)) continue;
+    for (const spec of specifiersOf(sf)) if (HTTP_PACKAGES.some((p) => spec === p || spec.startsWith(`${p}/`))) out.push({ file: sf.file, detail: `imports '${spec}'` });
+    const tree = parse(sf);
+    const local = boundNames(tree);
+    const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && NETWORK_GLOBALS.includes(node.text) && !local.has(node.text) && isValueReference(node)) out.push({ file: sf.file, detail: `references ${node.text}` });
+      const member = memberName(node);
+      if (member !== null && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && NETWORK_GLOBALS.includes(member) && isGlobalObject(node.expression)) {
+        out.push({ file: sf.file, detail: `references ${node.getText(tree)}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — G-1: network access only in the two fetch modules (A-8)', () => {
+  it('the real tree: both homes exist and use fetch; nothing else does', () => {
+    for (const f of FETCH_HOMES) expect(readFileSync(path.join(ROOT, f), 'utf8')).toMatch(/\bfetch\(/);
+    expect(fetchHomeViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: fetch in a wired module, an RSC, a client route; XMLHttpRequest; node:http; undici — all red; the homes are not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/people/wired.ts', source: "export const a = () => fetch('/bff/api/users');" },
+      { file: 'src/app/(app)/page.tsx', source: "export default async function P() { await globalThis.fetch('http://x'); }" },
+      { file: 'src/app/(auth)/login/LoginRoute.tsx', source: "'use client';\nexport const x = new XMLHttpRequest();" },
+      { file: 'src/lib/bff/apiCall.ts', source: "import { request } from 'node:http';\nimport { Pool } from 'undici';" },
+      { file: 'src/lib/bff/transport.ts', source: "export const t = () => fetch('/bff/x');" },
+      { file: 'src/lib/bff/server/apiClient.ts', source: "export const t = () => fetch('http://127.0.0.1');" },
+    ];
+    expect(fetchHomeViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/lib/people/wired.ts — references fetch',
+      'src/app/(app)/page.tsx — references globalThis.fetch',
+      'src/app/(auth)/login/LoginRoute.tsx — references XMLHttpRequest',
+      "src/lib/bff/apiCall.ts — imports 'node:http'",
+      "src/lib/bff/apiCall.ts — imports 'undici'",
+    ]);
   });
 });

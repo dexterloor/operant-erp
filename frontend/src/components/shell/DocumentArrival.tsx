@@ -17,11 +17,13 @@ export function resetDocumentArrivalForTest(): void {
   arrived = false;
 }
 
+function markArrived(): void {
+  arrived = true;
+}
+
 export function DocumentArrival() {
   useEffect(() => {
-    queueMicrotask(() => {
-      arrived = true;
-    });
+    queueMicrotask(markArrived);
   }, []);
   return null;
 }

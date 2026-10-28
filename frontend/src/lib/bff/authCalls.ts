@@ -42,3 +42,18 @@ export async function signIn(request: SignInRequest): Promise<SignInResult> {
   if (r.status === 429 && type === 'urn:erp:problem:sign-in-paused') return { kind: 'paused' };
   return { kind: 'server-error' };
 }
+
+export type SignOutResult = { kind: 'signed-out'; redirect: string } | { kind: 'unreachable' } | { kind: 'server-error' };
+
+/** POST /bff/session/sign-out. This browser only: the token stays valid at the API until it expires (ruling a1). */
+export async function signOut(): Promise<SignOutResult> {
+  const out = await bffFetch('/bff/session/sign-out', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+  if (!out.ok) return { kind: 'unreachable' };
+  if (out.response.status !== 200) return { kind: 'server-error' };
+  try {
+    const b = (await out.response.json()) as { redirect?: unknown };
+    return { kind: 'signed-out', redirect: sitePath(b.redirect) };
+  } catch {
+    return { kind: 'server-error' };
+  }
+}

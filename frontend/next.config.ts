@@ -27,13 +27,22 @@ export const CREDENTIAL_PAGE_HEADERS = [
 ] as const;
 export const CREDENTIAL_PAGE_ROUTES = ['/forgot-password', '/reset-password'] as const;
 
+/** No page of this app may be framed by another site (bff-auth-note.md R1-§3; b3b-design.md §5 item 13). */
+export const FRAME_HEADERS = [
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+  { key: 'X-Frame-Options', value: 'DENY' },
+] as const;
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // Next 16.4's `next dev` otherwise writes an AGENTS.md into this folder; this project does not want that file.
   agentRules: false,
   async headers() {
-    return CREDENTIAL_PAGE_ROUTES.map((source) => ({ source, headers: CREDENTIAL_PAGE_HEADERS.map((h) => ({ ...h })) }));
+    return [
+      { source: '/:path*', headers: FRAME_HEADERS.map((h) => ({ ...h })) },
+      ...CREDENTIAL_PAGE_ROUTES.map((source) => ({ source, headers: CREDENTIAL_PAGE_HEADERS.map((h) => ({ ...h })) })),
+    ];
   },
 };
 

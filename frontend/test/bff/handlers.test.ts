@@ -191,7 +191,7 @@ describe('T-5 — CSRF on every mutating BFF route (Origin, Sec-Fetch-Site, JSON
   const files = routeFiles(path.join(APP, 'bff'));
 
   it('finds the route files, and each exports POST and no GET that changes state', async () => {
-    expect(files.length).toBeGreaterThanOrEqual(2);
+    expect(files.length).toBeGreaterThanOrEqual(3);
     for (const f of files) {
       const mod = await import(f);
       expect(typeof mod.POST, f).toBe('function');
@@ -213,7 +213,8 @@ describe('T-5 — CSRF on every mutating BFF route (Origin, Sec-Fetch-Site, JSON
       stubApi(() => Response.json({ access_token: JWT, expires_at: EXPIRES }));
       vi.resetModules();
       const mod = await import(f);
-      const h: Record<string, string> = { origin: ORIGIN, 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+      // X-ERP-Session is present so the proxy's own header check is not what refuses: this test is about the wrapper.
+      const h: Record<string, string> = { origin: ORIGIN, 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-erp-session': 's' };
       for (const [k, v] of Object.entries(headers)) {
         if (v === undefined) delete h[k];
         else h[k] = v;
@@ -231,7 +232,7 @@ describe('T-5 — CSRF on every mutating BFF route (Origin, Sec-Fetch-Site, JSON
       stubApi(() => Response.json({}));
       vi.resetModules();
       const mod = await import(f);
-      const r: Response = await mod.POST(post('/bff/x', signInBody()));
+      const r: Response = await mod.POST(post('/bff/x', signInBody(), { 'x-erp-session': 's' }));
       expect(r.status, f).toBe(403);
       expect(fetchSpy).not.toHaveBeenCalled();
     }

@@ -7,12 +7,21 @@ import 'server-only';
 
 export const NO_STORE = 'no-store, private';
 
+const OWN = new WeakSet<Response>();
+
 /** A BFF-owned problem document. Never carries an upstream body. */
 export function bffProblem(status: number, type: string, extra: Record<string, unknown> = {}): Response {
-  return new Response(JSON.stringify({ type, status, ...extra }), {
+  const r = new Response(JSON.stringify({ type, status, ...extra }), {
     status,
     headers: { 'content-type': 'application/problem+json', 'cache-control': NO_STORE },
   });
+  OWN.add(r);
+  return r;
+}
+
+/** True for a Response made by bffProblem (identity, not a header an upstream could copy). */
+export function isBffProblem(r: Response): boolean {
+  return OWN.has(r);
 }
 
 /** The configured public origin, or null when it is missing or not an origin. */

@@ -69,6 +69,18 @@ export const START = {
   bodyNotYet: "The pages your roles give you access to aren't available yet.",
 } as const;
 
+/**
+ * NEW (ux-copy-b3b.md C3-1): the fixed page shown on a second session change in one tab (R2-4). It never names a
+ * workspace or a person: the tab cannot tell which. The first change is a silent reload with no copy.
+ */
+export const SESSION_CHANGED = {
+  heading: 'This tab is out of date.',
+  title: 'This tab is out of date',
+  body: "A newer sign-in in this browser replaced the one this tab was using, so your last action wasn't sent.",
+  bodySecond: 'If you sign in again here, other tabs in this browser will switch to that sign-in.',
+  signIn: 'Sign in again',
+} as const;
+
 export const SHELL = {
   skipLink: 'Skip to content',
   mainNav: 'Main',
