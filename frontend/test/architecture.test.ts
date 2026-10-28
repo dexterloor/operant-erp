@@ -2,9 +2,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { bulkMaxIds, bulkResources } from '@/lib/bff/surface';
 
-// Mechanical guards for docs/design/b4-architecture.md (Revision 4 > Revision 3 > Revision 2 FINAL > Revision 1 > Response
-// to RED > RED H-5).
+// Mechanical guards for docs/design/b4-architecture.md (Revision 5 > Revision 4 > Revision 3 > Revision 2 FINAL > Revision 1 >
+// Response to RED > RED H-5). Revision 5 A-8's G-2 and G-3 are at the end of this file; G-1 and G-4…G-7 arrive with B-3b C2/C3.
 // Never weaken a guard to get green (FRONTEND-HANDOFF.md). Every guard is a pure function over {file, source} pairs,
 // run once over the real tree (must find nothing) and once over a planted in-memory source (must go red), so a guard
 // that silently matches nothing cannot pass. Scanned-file counts are pinned: a B-4 step that adds files updates
@@ -193,7 +194,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 31,
+  'src/lib': 33,
   'src/components': 47,
   'src/lib/api': 5,
   'src/lib/roles': 9,
@@ -206,6 +207,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/people': 4,
   'src/components/ui': 11,
   [FIXTURE_DIR]: 4,
+  // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
+  'src/generated': 2,
+  'src/lib/bff': 2,
+  'src/app': 10,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -481,6 +486,125 @@ describe('architecture — no network in the component dirs (Revision 4 A-6)', (
       "src/components/bulk/C.tsx — references document['cookie']",
       'src/components/bulk/C.tsx — references window.document.cookie',
       'src/components/people/W.tsx — references EventSource',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-3b (b4-architecture.md Revision 5 A-8). G-2: the generated modules import nothing, and each is read by exactly one
+// module — the server map by lib/bff/server/surface.ts, the client projection by lib/bff/surface.ts. Tests are held to
+// the same rule (they go through the readers), so nothing else learns the generated shape. G-3: no TS/TSX string or
+// numeric literal equal to a bulk resource key or to the bulk cap under the bulk-facing dirs; the keys and the cap are
+// read from the generated surface, never typed here. Closes b4-architecture.md §5's "no bare 50/10000 in bulk code".
+// ---------------------------------------------------------------------------------------------------------------------
+
+const GENERATED_DIR = 'src/generated';
+const GENERATED_READERS: Record<string, string> = {
+  'src/generated/api-surface.server': 'src/lib/bff/server/surface.ts',
+  'src/generated/api-surface.client': 'src/lib/bff/surface.ts',
+};
+const withoutExtension = (t: string) => t.replace(/\.(ts|tsx|js|mjs)$/, '');
+
+function generatedImportViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    for (const spec of specifiersOf(sf)) {
+      if (under(sf.file, GENERATED_DIR)) {
+        out.push({ file: sf.file, detail: `generated modules import nothing: imports '${spec}'` });
+        continue;
+      }
+      const t = withoutExtension(targetOf(sf.file, spec));
+      if (!under(t, GENERATED_DIR)) continue;
+      if (GENERATED_READERS[t] !== sf.file) out.push({ file: sf.file, detail: `only its one reader imports ${t}: imports '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — G-2: the generated surface is read through its two readers only (A-8)', () => {
+  it('the real tree (src and test) has no breach, and both generated modules exist', () => {
+    expect(walk(GENERATED_DIR).map((f) => f.file)).toEqual(['src/generated/api-surface.client.ts', 'src/generated/api-surface.server.ts']);
+    expect(generatedImportViolations([...walk('src'), ...walk('test')])).toEqual([]);
+  });
+
+  it('planted controls: a generated module importing, a third reader, a test reading directly, a bad path form all go red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/generated/api-surface.client.ts', source: "import type { X } from '../lib/api/users';" },
+      { file: 'src/components/bulk/BulkBar.tsx', source: "import { BULK } from '@/generated/api-surface.client';" },
+      { file: 'src/lib/bff/surface.ts', source: "import { OPERATIONS } from '@/generated/api-surface.server';" },
+      { file: 'src/lib/bff/server/apiClient.ts', source: "import { OPERATIONS } from './../../../generated/api-surface.server.ts';" },
+      { file: 'test/contract/x.test.ts', source: "import { BULK } from '../../src/generated/api-surface.client';" },
+      { file: 'src/lib/bff/server/surface.ts', source: "import { OPERATIONS } from '@/generated/api-surface.server';\nimport { BULK } from '@/generated/api-surface.client';" },
+      { file: 'src/lib/bff/surface.ts', source: "import { BULK } from '@/generated/api-surface.client';" },
+    ];
+    expect(generatedImportViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/generated/api-surface.client.ts — generated modules import nothing: imports '../lib/api/users'",
+      "src/components/bulk/BulkBar.tsx — only its one reader imports src/generated/api-surface.client: imports '@/generated/api-surface.client'",
+      "src/lib/bff/surface.ts — only its one reader imports src/generated/api-surface.server: imports '@/generated/api-surface.server'",
+      "src/lib/bff/server/apiClient.ts — only its one reader imports src/generated/api-surface.server: imports './../../../generated/api-surface.server.ts'",
+      "test/contract/x.test.ts — only its one reader imports src/generated/api-surface.client: imports '../../src/generated/api-surface.client'",
+      "src/lib/bff/server/surface.ts — only its one reader imports src/generated/api-surface.client: imports '@/generated/api-surface.client'",
+    ]);
+  });
+});
+
+const BULK_LITERAL_DIRS = ['src/components', 'src/app', 'src/lib/bulk', 'src/lib/bff'] as const;
+const BULK_LITERAL_EXCLUDED = [FIXTURE_DIR] as const;
+
+function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly string[], cap: number): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!BULK_LITERAL_DIRS.some((d) => under(sf.file, d)) || BULK_LITERAL_EXCLUDED.some((d) => under(sf.file, d))) continue;
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      const isSpecifier = node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent) || ts.isExternalModuleReference(node.parent));
+      let text: string | null = null;
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) text = node.text;
+      else if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) text = node.text;
+      if (text !== null && !isSpecifier && (keys.includes(text) || text === String(cap))) out.push({ file: sf.file, detail: `literal '${text}'` });
+      if (ts.isNumericLiteral(node) && Number(node.text) === cap) out.push({ file: sf.file, detail: `number ${node.getText(tree)}` });
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', () => {
+  const keys = bulkResources();
+  const cap = bulkMaxIds();
+
+  it('reads a non-empty key set and a cap from the generated surface', () => {
+    expect(keys.length).toBeGreaterThan(0);
+    expect(cap).toBeGreaterThan(0);
+  });
+
+  it('the real bulk-facing dirs hold no such literal (preview fixtures excluded: dev-only, notFound() in production)', () => {
+    const files = BULK_LITERAL_DIRS.flatMap((d) => walk(d));
+    expect(files.length).toBeGreaterThan(50);
+    expect(bulkLiteralViolations(files, keys, cap)).toEqual([]);
+  });
+
+  it('planted controls: keys and the cap in every scanned dir go red; the fixtures folder, other dirs and near misses do not', () => {
+    const k = keys[0]!;
+    const planted: SourceFile[] = [
+      { file: 'src/components/preview/x.ts', source: `export const r = '${k}';` },
+      { file: `${FIXTURE_DIR}/bulk.ts`, source: `export const r = '${k}';` },
+      { file: 'src/app/x.tsx', source: `export const m = ${cap};` },
+      { file: 'src/lib/bff/x.ts', source: `export const m = 0x${cap.toString(16)};\nexport const s = '${cap}';` },
+      { file: 'src/lib/bulk/x.ts', source: `export const r = \`${k}\`;\nexport const t = (x: string) => \`\${x}${k}\${x}\`;` },
+      { file: 'src/components/bulk/y.tsx', source: `export const m = ${cap}.0;` },
+      { file: 'src/lib/roles/x.ts', source: `export const r = '${k}';` },
+      { file: 'src/components/ui/z.tsx', source: `export const a = '${k}s';\nexport const b = ${cap + 0.5};\nimport y from '${k}';` },
+    ];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      `src/components/preview/x.ts — literal '${k}'`,
+      `src/app/x.tsx — number ${cap}`,
+      `src/lib/bff/x.ts — number 0x${cap.toString(16)}`,
+      `src/lib/bff/x.ts — literal '${cap}'`,
+      `src/lib/bulk/x.ts — literal '${k}'`,
+      `src/lib/bulk/x.ts — literal '${k}'`,
+      `src/components/bulk/y.tsx — number ${cap}.0`,
     ]);
   });
 });
