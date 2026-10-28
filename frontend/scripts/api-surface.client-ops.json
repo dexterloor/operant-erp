@@ -1,6 +1,16 @@
 [
+  "AssignRole",
+  "CancelRoleGrantProposal",
+  "ConfirmRoleGrantProposal",
+  "CreateRoleGrantProposal",
   "DeleteUser",
   "GetUser",
+  "ListOfferedRoles",
+  "ListPermissions",
+  "ListRoleGrantProposals",
+  "ListRoles",
   "ListUsers",
-  "RestoreUser"
+  "RejectRoleGrantProposal",
+  "RestoreUser",
+  "RevokeRole"
 ]

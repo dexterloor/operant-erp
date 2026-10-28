@@ -159,6 +159,15 @@ export const ROLES_FORBIDDEN = {
   label: 'Give and take away roles',
   after: ' permission, which you no longer have. Your workspace administrator can grant it.',
 } as const;
+/** The same R1-5 sentence as one string, for the page's status region (the `<em>` form is for the banner). */
+export const ROLES_FORBIDDEN_SENTENCE = `${ROLES_FORBIDDEN.before}${ROLES_FORBIDDEN.label}${ROLES_FORBIDDEN.after}`;
+
+/**
+ * NEW (ux-copy-b3b.md C6-1, final; RED round 2 R2-M1): a re-read shows that someone deleted the person while their page
+ * was open. Announced through the page-level status region; after a save that did not finish, the body of the page's
+ * banner under the save's heading.
+ */
+export const PERSON_DELETED_WHILE_OPEN = 'This person was deleted while this page was open, so their roles can no longer be changed.';
 
 /**
  * The Waiting-for-an-owner group (round-6 §2a; R4-1; 4b-3; R1-2). Dates are `DateTime`, so templates split around them.

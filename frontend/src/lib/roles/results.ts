@@ -28,8 +28,14 @@ export type WithdrawResult = { kind: 'withdrawn'; proposal: RoleGrantProposal } 
 /**
  * What a re-read answers (RED M-4). `failed` covers every page of the pending-proposals walk (A-1: never a partial set).
  * `failure` says how, for the R1-1 heading (lost connection vs 5xx); a 401 navigates (R1-4), so it maps to either.
+ * `forbidden` and `not-found` (b4-architecture.md Revision 5 A-10; b3b-design.md §10) mean only "the page's container
+ * takes over": the picker and the Waiting group render NO message of their own for them — the page shows ST-4b, the
+ * R1-5 banner or ST-5 itself.
  */
-export type RereadResult = { kind: 'ok' } | { kind: 'failed'; failure: 'unreachable' | 'server-error' };
+export type RereadResult = { kind: 'ok' } | { kind: 'failed'; failure: 'unreachable' | 'server-error' | 'forbidden' | 'not-found' };
+
+/** True when a re-read's failure is the container's to show (A-10), not the component's. */
+export const isTakenOver = (r: RereadResult): boolean => r.kind === 'failed' && (r.failure === 'forbidden' || r.failure === 'not-found');
 
 /**
  * Re-read the person (`GetUser`), `ListOfferedRoles`, `ListRoles`/`ListPermissions` when shown, and the WHOLE

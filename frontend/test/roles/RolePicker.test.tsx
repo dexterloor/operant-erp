@@ -19,6 +19,7 @@ import {
 } from '@/components/preview/fixtures/roles';
 import type { User } from '@/lib/api/users';
 import { PICKER, PICKER_BANNERS, PICKER_STATUS } from '@/copy/roles';
+import { PAGE_STATES } from '@/copy/shell';
 import { PickerHarness, scene } from './harness';
 
 const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
@@ -357,6 +358,16 @@ describe('RolePicker — Save roles', () => {
     expect(status()).toHaveTextContent("Given: viewer. Not given: admin. Each change that wasn't saved has a message with the reason.");
   });
 
+  it('a give answered 404: "Not given: {role}" with ST-5\'s RULED words as one copy key (no component join)', async () => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={jonas()} assign={{ kind: 'not-found' }} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not given: viewer')).toHaveFocus());
+    expect(screen.getByText(PAGE_STATES.notFoundInline)).toBeInTheDocument();
+    expect(PAGE_STATES.notFoundInline).toBe(`${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}`);
+  });
+
   it('a take-away that was already gone (404): "Not taken away: {role}" with the client sentence (R1-6)', async () => {
     const user = userEvent.setup();
     render(<PickerHarness scene={jonas()} revoke={{ kind: 'not-found' }} />);
@@ -364,6 +375,18 @@ describe('RolePicker — Save roles', () => {
     await save(user);
     await waitFor(() => expect(screen.getByText('Not taken away: buyer')).toHaveFocus());
     expect(screen.getByText(PICKER_BANNERS.nothingToTakeAway)).toBeInTheDocument();
+  });
+
+  it.each(['forbidden', 'not-found'] as const)('A-10: a re-read that fails %s is the page\'s to show — the picker renders no banner and announces nothing of its own', async (failure) => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={jonas()} reread={() => ({ kind: 'failed', failure })} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await settled();
+    expect(screen.queryByText("We couldn't reach the server.")).toBeNull();
+    expect(screen.queryByText("Something went wrong on our side.")).toBeNull();
+    expect(screen.queryByRole('button', { name: PICKER_BANNERS.loadAgain })).toBeNull();
+    expect(screen.queryByText(PICKER_BANNERS.savedButStale)).toBeNull();
   });
 
   it('A-2: a 201 then a failed re-read — the row is not staged, has its Given pill, and Save has nothing to re-send (case D)', async () => {

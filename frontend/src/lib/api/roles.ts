@@ -67,3 +67,11 @@ export interface OfferedRole {
   /** Ticking it stages a proposal. Always false when `refusal` is set. */
   requires_owner_confirmation: boolean;
 }
+
+/**
+ * The owner marker (`backend/src/Modules/UserManagement/Domain/OwnerMarker.php:76`, `OwnerMarker::CODE`; SEC-confirmed,
+ * `sec-confirm-ux.md` F-9; `ux/STATES.md:338`): the one ruled rendering exception. Confirm / Reject are offered only to a
+ * viewer holding it AND `role.assign` (b3b-design.md §9.3, M-1). A top-level declaration of this file, so the literal
+ * backstop exempts it as it does `REFUSAL`.
+ */
+export const OWNER_MARKER = 'tenant_settings.edit';

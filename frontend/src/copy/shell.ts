@@ -43,6 +43,11 @@ export const PAGE_STATES = {
   notFoundHeading: "We couldn't find that.",
   notFoundBody: 'It may have been deleted, or you may not have access.',
   notFoundBack: 'Back to the list',
+  /**
+   * The ST-5 heading and body as one inline sentence pair, for a banner body (R1-6; ux-confirm-b4.md §4: components never
+   * join copy). Same RULED words as the two keys above.
+   */
+  notFoundInline: "We couldn't find that. It may have been deleted, or you may not have access.",
   retry: 'Retry',
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',

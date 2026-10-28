@@ -11,7 +11,7 @@ import { conflictLinesOf } from '@/lib/roles/conflictLines';
 import { previewOf } from '@/lib/roles/effectivePreview';
 import { afterSetOf, giveKindOf, reconcile, toggle, without, type Intents } from '@/lib/roles/intents';
 import { marginKey, marginWarningOf } from '@/lib/roles/margin';
-import type { RereadResult, RolePickerActions } from '@/lib/roles/results';
+import { isTakenOver, type RereadResult, type RolePickerActions } from '@/lib/roles/results';
 import { isSuccess, planSave, runSave, type Outcome, type SaveRun } from '@/lib/roles/save';
 import { isRefusal, saveSummary, tickStatus } from '@/lib/roles/statusLine';
 import { PICKER, PICKER_BANNERS, PICKER_STATUS, ROLES_FORBIDDEN } from '@/copy/roles';
@@ -44,10 +44,14 @@ export interface RolePickerProps {
 
 type Intended = { personId: string; intents: Intents };
 type Chips = { personId: string; byRole: ReadonlyMap<string, Exclude<OutcomeChip, null>> };
+/** A re-read the picker renders itself: success, or a transport failure. `forbidden` / `not-found` are the page's (A-10). */
+type OwnReread = { kind: 'ok' } | { kind: 'failed'; failure: 'unreachable' | 'server-error' };
+const ownReread = (r: RereadResult): OwnReread | null => (isTakenOver(r) ? null : (r as OwnReread));
+
 interface Post {
   gen: number;
   run: SaveRun;
-  reread: RereadResult;
+  reread: OwnReread;
   /** `person.margin_exposure` when Save was pressed (4b-2: announce the held form only when the re-read made it appear). */
   marginBefore: boolean;
   /** Load roles again succeeded after an interrupted save (R1-2): re-announce case B / show case A. */
@@ -163,13 +167,16 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
         });
       }
     });
-    let reread: RereadResult;
+    let answered: RereadResult;
     try {
-      reread = await actions.reread();
+      answered = await actions.reread();
     } catch {
-      reread = { kind: 'failed', failure: 'unreachable' };
+      answered = { kind: 'failed', failure: 'unreachable' };
     }
     setBusy(false);
+    // A-10: a 403 / 404 during the re-read is the page's to show (ST-4b, the R1-5 banner, ST-5); the picker adds nothing.
+    const reread = ownReread(answered);
+    if (reread === null) return;
     const undecidedIds = new Set(run.outcomes.filter((o) => UNDECIDED.has(o.result.kind)).map((o) => o.request.roleId));
     setPost((cur) => ({ gen: (cur?.gen ?? 0) + 1, run, reread, marginBefore, reloaded: false, undecidedIds }));
   };
@@ -177,13 +184,15 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
   const onLoadAgain = async () => {
     if (reloading || !post) return;
     setReloading(true);
-    let reread: RereadResult;
+    let answered: RereadResult;
     try {
-      reread = await actions.reread();
+      answered = await actions.reread();
     } catch {
-      reread = { kind: 'failed', failure: 'unreachable' };
+      answered = { kind: 'failed', failure: 'unreachable' };
     }
     setReloading(false);
+    const reread = ownReread(answered);
+    if (reread === null) return;
     // On failure the banner is unchanged and focus stays on the button (R1-2).
     if (reread.kind === 'ok') setPost({ ...post, gen: post.gen + 1, reread, reloaded: true });
   };
@@ -282,7 +291,7 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
             : REFUSED_WITHOUT_MESSAGE
           : o.request.kind === 'take-away'
             ? PICKER_BANNERS.nothingToTakeAway
-            : `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}`;
+            : PAGE_STATES.notFoundInline;
       banners.push({ key: `refused-${o.request.roleId}`, heading, body: <p>{body}</p> });
     }
   }

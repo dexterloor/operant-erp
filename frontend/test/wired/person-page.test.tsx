@@ -12,7 +12,9 @@ import { ID, TZ, VIEWER_ID, empty, json, problem, refused, renderWired, stubFetc
 afterEach(() => vi.unstubAllGlobals());
 
 const DELETED = user({ archived_at: '2026-10-28T10:00:00Z' });
-const show = (props: Partial<Parameters<typeof PersonPage>[0]> = {}) => renderWired(<PersonPage initial={user()} viewerId={VIEWER_ID} canDelete {...props} />);
+const NO_ROLES = { delete: true, assign: false, view: false, confirm: false };
+const show = ({ person = user(), canDelete = true, viewerId = VIEWER_ID }: { person?: ReturnType<typeof user>; canDelete?: boolean; viewerId?: string } = {}) =>
+  renderWired(<PersonPage initial={{ person, access: null, catalogue: null }} viewerId={viewerId} gates={{ ...NO_ROLES, delete: canDelete }} />);
 
 async function deleteIt(u: ReturnType<typeof userEvent.setup>) {
   await u.click(screen.getByRole('button', { name: 'Delete person' }));
@@ -88,7 +90,7 @@ describe('/admin/users/[id] — wired', () => {
 
   it('dates are in the zone the person signed in from (the session tz), never the browser default (A-9)', () => {
     const at = '2026-10-28T12:00:00Z';
-    show({ initial: user({ archived_at: at }) });
+    show({ person: user({ archived_at: at }) });
     const browser = formatDate(at, Intl.DateTimeFormat().resolvedOptions().timeZone);
     expect(formatDate(at, TZ)).not.toBe(browser);
     expect(screen.getByText(/This person was deleted on/)).toHaveTextContent(`This person was deleted on ${formatDate(at, TZ)}.`);
@@ -97,7 +99,7 @@ describe('/admin/users/[id] — wired', () => {
   it('Restore → POST …/restoration; the served person replaces the page', async () => {
     const calls = stubFetch([json(200, user())]);
     const u = userEvent.setup();
-    show({ initial: DELETED });
+    show({ person: DELETED });
     await u.click(screen.getByRole('button', { name: 'Restore person' }));
     await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Restore person' }));
     expect(await screen.findByText('Ada Lovelace was restored. Give them a role so they can work.')).toBeInTheDocument();

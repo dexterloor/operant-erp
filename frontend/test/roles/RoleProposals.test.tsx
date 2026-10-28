@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JONAS, OFFERED_JONAS_BY_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_EXPIRED, PROPOSAL_FINANCE, PROPOSAL_REFUSALS, page } from '@/components/preview/fixtures/roles';
 import { PICKER, WAITING } from '@/copy/roles';
+import { PAGE_STATES } from '@/copy/shell';
 import { PickerHarness, scene } from './harness';
 
 const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
@@ -170,6 +171,25 @@ describe('RoleProposals — gaps fix P-4 / L-4 (b4-step5-gaps.md Rev 2 > Rev 1)'
     await settled();
     await waitFor(() => expect(groupStatus()).toHaveTextContent('Proposal rejected: finance.'));
     expect(groupStatus().textContent).not.toContain(PICKER.marginHeld);
+  });
+
+  it('a group action answered 404: "Not withdrawn" with ST-5\'s RULED words as one copy key', async () => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={withProposals(PROPOSAL_BY_OTHER)} withdraw={{ kind: 'not-found' }} />);
+    await user.click(within(rowOf('warehouse_operator')).getByRole('button', { name: WAITING.withdraw }));
+    await settled();
+    expect(await screen.findByText(PAGE_STATES.notFoundInline)).toBeInTheDocument();
+    expect(screen.getByText('Not withdrawn')).toBeInTheDocument();
+  });
+
+  it.each(['forbidden', 'not-found'] as const)('A-10: a re-read that fails %s is the page\'s — no message, no stale sentence from the group', async (failure) => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={withProposals(PROPOSAL_BY_OTHER)} withdraw={{ kind: 'withdrawn', proposal: PROPOSAL_BY_OTHER }} reread={() => ({ kind: 'failed', failure })} />);
+    await user.click(within(rowOf('warehouse_operator')).getByRole('button', { name: WAITING.withdraw }));
+    await settled();
+    await settled();
+    expect(groupStatus()).toHaveTextContent('');
+    expect(screen.queryByText(WAITING.listStale)).toBeNull();
   });
 
   it('success + failed re-read: the message and the stale sentence; focus left on the opener; no held form', async () => {

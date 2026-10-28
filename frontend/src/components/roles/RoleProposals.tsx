@@ -3,7 +3,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Collection } from '@/lib/api/envelope';
 import type { RoleGrantProposal } from '@/lib/api/proposals';
-import type { ConfirmResult, RejectResult, RoleProposalActions, WithdrawResult } from '@/lib/roles/results';
+import { isTakenOver, type ConfirmResult, type RejectResult, type RereadResult, type RoleProposalActions, type WithdrawResult } from '@/lib/roles/results';
 import { PICKER, ROLES_FORBIDDEN, WAITING } from '@/copy/roles';
 import { COULD_NOT_REACH, NOT_CONFIRMED, NOT_REJECTED, NOT_WITHDRAWN, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PAGE_STATES } from '@/copy/shell';
@@ -57,7 +57,7 @@ function noticeFor(act: Act, result: Exclude<ActResult, { kind: 'confirmed' | 'r
     case 'refused':
       return { id, heading: HEADINGS[act], body: result.message !== '' ? result.message : REFUSED_WITHOUT_MESSAGE };
     case 'not-found':
-      return { id, heading: HEADINGS[act], body: `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}` };
+      return { id, heading: HEADINGS[act], body: PAGE_STATES.notFoundInline };
     case 'forbidden':
       return {
         id,
@@ -138,13 +138,16 @@ export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef
     const succeeded = result.kind === 'confirmed' || result.kind === 'rejected' || result.kind === 'withdrawn';
     const next = succeeded ? null : noticeFor(act, result as Exclude<ActResult, { kind: 'confirmed' | 'rejected' | 'withdrawn' }>, (notice?.id ?? 0) + 1);
     // The page re-reads after every answer (a confirm changes the person's roles; a refusal may mean the row is stale).
-    let rereadOk = false;
+    let answered: RereadResult;
     try {
-      rereadOk = (await actions.reread()).kind === 'ok';
+      answered = await actions.reread();
     } catch {
-      rereadOk = false;
+      answered = { kind: 'failed', failure: 'unreachable' };
     }
     setBusy(null);
+    // A-10: a 403 / 404 during the re-read is the page's to show; the group adds no message of its own.
+    if (isTakenOver(answered)) return;
+    const rereadOk = answered.kind === 'ok';
     setNotice(next);
     setAfter((cur) => ({ gen: (cur?.gen ?? 0) + 1, done: succeeded ? { act, role: proposal.role.name, rereadOk, marginBefore } : null }));
   };

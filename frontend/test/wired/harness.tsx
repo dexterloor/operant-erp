@@ -52,11 +52,15 @@ export function stubFetch(replies: Reply[]): Recorded[] {
         body: typeof init.body === 'string' ? init.body : null,
       };
       calls.push(req);
+      // As the real fetch does: an already-aborted signal rejects at once, and consumes no reply.
+      if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError');
       const next = queue.shift() ?? json(500, { unexpected: req.url });
       const r = typeof next === 'function' ? next(req) : next;
-      if (r === 'hang') {
-        return new Promise<Response>((_, reject) => {
+      // As the real fetch does: an abort rejects a request still in flight (a hanging one, or a later reply).
+      if (r === 'hang' || r instanceof Promise) {
+        return new Promise<Response>((resolve, reject) => {
           init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+          if (r instanceof Promise) void r.then(resolve);
         });
       }
       return r;
@@ -99,3 +103,39 @@ export const user = (over: Partial<User> = {}): User => ({
 });
 
 export const page = <T,>(items: T[], over: Record<string, unknown> = {}) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: items.length > 0, ...over });
+
+export const offered = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+  id,
+  name,
+  conflicts_with: [],
+  margin_exposure_with: [],
+  refusal: null,
+  requires_owner_confirmation: false,
+  ...over,
+});
+export const role = (id: string, name: string, codes: string[] = []) => ({
+  id,
+  name,
+  description: '',
+  permission_codes: codes,
+  is_system: false,
+  holder_count: 0,
+  margin_exposure: false,
+  archived_at: null,
+});
+export const proposal = (id: string, roleId: string, roleName: string, over: Record<string, unknown> = {}) => ({
+  id,
+  user: { id: ID, display_name: 'Ada Lovelace' },
+  role: { id: roleId, name: roleName },
+  permission_codes: [],
+  status: 'pending',
+  is_expired: false,
+  proposed_by: { id: VIEWER_ID, display_name: 'Me Myself' },
+  proposed_at: '2026-10-27T10:00:00Z',
+  expires_at: '2026-11-10T10:00:00Z',
+  decided_by: null,
+  decided_at: null,
+  reason: null,
+  lapse_reason: null,
+  ...over,
+});

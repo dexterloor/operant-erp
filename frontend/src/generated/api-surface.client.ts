@@ -23,6 +23,46 @@ export interface BulkResource {
 
 /** The wired operations only. */
 export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
+  AssignRole: {
+    method: 'POST',
+    template: '/api/v1/users/{id}/roles',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
+  CancelRoleGrantProposal: {
+    method: 'POST',
+    template: '/api/v1/role-grant-proposals/{id}/cancellation',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
+  ConfirmRoleGrantProposal: {
+    method: 'POST',
+    template: '/api/v1/role-grant-proposals/{id}/confirmation',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
+  CreateRoleGrantProposal: {
+    method: 'POST',
+    template: '/api/v1/users/{id}/role-grant-proposals',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
   DeleteUser: {
     method: 'DELETE',
     template: '/api/v1/users/{id}',
@@ -43,6 +83,46 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.view'],
     },
   },
+  ListOfferedRoles: {
+    method: 'GET',
+    template: '/api/v1/users/{id}/offered-roles',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
+  ListPermissions: {
+    method: 'GET',
+    template: '/api/v1/permissions',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.view'],
+    },
+  },
+  ListRoleGrantProposals: {
+    method: 'GET',
+    template: '/api/v1/role-grant-proposals',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
+  ListRoles: {
+    method: 'GET',
+    template: '/api/v1/roles',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.view'],
+    },
+  },
   ListUsers: {
     method: 'GET',
     template: '/api/v1/users',
@@ -53,6 +133,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.view'],
     },
   },
+  RejectRoleGrantProposal: {
+    method: 'POST',
+    template: '/api/v1/role-grant-proposals/{id}/rejection',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
+    },
+  },
   RestoreUser: {
     method: 'POST',
     template: '/api/v1/users/{id}/restoration',
@@ -61,6 +151,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.delete'],
+    },
+  },
+  RevokeRole: {
+    method: 'DELETE',
+    template: '/api/v1/users/{id}/roles/{roleId}',
+    pathParams: ['id', 'roleId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.assign'],
     },
   },
 };
