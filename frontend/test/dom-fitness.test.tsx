@@ -14,6 +14,8 @@ import type { User } from '@/lib/api/users';
 import { BulkHarness } from './bulk/harness';
 import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_SELF, VIEWER_ID } from '@/components/preview/fixtures/people';
+import { CUSTOM_ROLE, OWNER_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
+import { ChecklistHarness } from './permissions/harness';
 
 /** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
 const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
@@ -314,4 +316,52 @@ describe('DOM fitness — B-4 step 3 bulk surface', () => {
       expect(seen).toEqual(['', '', '', '', '', '', '2 of 2 deleted.', '', '', '', '', '3 of 3 restored.']);
     });
   }
+});
+
+// B-4 step 4: the permission checklist. One "Left out" region per group, mounted empty from first render (R4-4 L-2).
+// The script ticks, ticks a group (a Left-out line appears), is refused, is interrupted, discards, ticks a group again
+// and saves — the dirty bar and the Not saved banner come and go, and every group region must be the same node
+// throughout; no box ever carries [disabled] (refused boxes are aria-disabled).
+describe('DOM fitness — B-4 step 4 permission checklist', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region per group, empty at first render, the same nodes through save, refusal and discard${strict ? ' (StrictMode)' : ''}`, { timeout: 30_000 }, async () => {
+      const answers = [SAVE_REFUSALS[0]!, { kind: 'unreachable' as const }];
+      const ui = (
+        <ChecklistHarness
+          role={{ ...CUSTOM_ROLE, permission_codes: ['inventory_item.view'] }}
+          answer={(codes) => answers.shift() ?? { kind: 'saved', role: { ...CUSTOM_ROLE, permission_codes: [...codes] } }}
+        />
+      );
+      render(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const user = userEvent.setup();
+      const purchasingLine = () => document.querySelectorAll('[role="status"]')[3]?.textContent ?? null;
+      const seen: Array<string | null> = [];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('checkbox', { name: 'View customers' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'All Purchasing permissions' })),
+        () => user.click(screen.getByRole('button', { name: 'Save changes' })), // refused
+        () => user.click(screen.getByRole('button', { name: 'Save changes' })), // interrupted
+        () => user.click(screen.getByRole('button', { name: 'Discard' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'All Purchasing permissions' })),
+        () => user.click(screen.getByRole('button', { name: 'Save changes' })), // saved
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+        seen.push(purchasingLine());
+      }
+      const leftOut = 'Left out: Approve and place purchase orders, Cancel purchase orders and Receive deliveries, because each would complete a separation-of-duty split.';
+      expect(tracker.count).toBe(11);
+      expect(failures).toEqual([]);
+      expect(seen).toEqual(['', leftOut, leftOut, leftOut, '', leftOut, '']);
+    });
+  }
+
+  it('a built-in role: every box aria-disabled, none [disabled]', () => {
+    render(<ChecklistHarness role={OWNER_ROLE} />);
+    expect(trackRegions().firstRender).toEqual([]);
+  });
 });

@@ -23,6 +23,18 @@ import { BULK_PREVIEW_ANSWERS, SUPPLIER_ARCHIVED, SUPPLIER_NOUNS, SUPPLIER_PAGES
 import { PERSON } from '@/copy/people';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
+import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
+import type { Role } from '@/lib/api/roles';
+import type { SaveRoleResult } from '@/lib/permissions/results';
+import {
+  CUSTOM_ROLE,
+  MARGIN_ROLE,
+  OWNER_ROLE,
+  PERMISSIONS,
+  PURCHASING_MANAGER_ROLE,
+  SAVE_REFUSALS,
+  UNLABELLED_PERMISSION,
+} from './fixtures/permissions';
 import {
   DELETE_REFUSALS,
   FIXTURE_ONLY,
@@ -186,6 +198,7 @@ export function ComponentPreview() {
 
         <PeoplePreview />
         <BulkPreview />
+        <PermissionsPreview />
 
         <section className={styles.section} aria-labelledby="pv-messages">
           <h2 id="pv-messages">Status messages</h2>
@@ -444,6 +457,69 @@ function BulkPreview() {
       ) : null}
       <BulkResultMessage bulk={bulk} fallbackFocusRef={h1} />
       <p className={styles.muted}>{lastRun ? `Preview: last run sent ${lastRun.ids.length} ids with key ${lastRun.key}` : 'Preview: nothing sent yet'}</p>
+    </section>
+  );
+}
+
+const CHECKLIST_SCENARIOS: { label: string; role: Role; canEdit: boolean }[] = [
+  { label: 'Custom role, editing', role: CUSTOM_ROLE, canEdit: true },
+  { label: 'Custom role, margin flag', role: MARGIN_ROLE, canEdit: true },
+  { label: 'Built-in: owner', role: OWNER_ROLE, canEdit: true },
+  { label: 'Built-in: purchasing_manager', role: PURCHASING_MANAGER_ROLE, canEdit: true },
+  { label: 'Viewer without role.edit', role: CUSTOM_ROLE, canEdit: false },
+];
+// The served catalogue plus one illustrative unlabelled code, so the fallback row (server description only) shows.
+const PREVIEW_PERMISSIONS = [...PERMISSIONS, UNLABELLED_PERMISSION];
+
+/**
+ * B-4 step 4: the permission checklist, driven by the one fixture copy. The preview is the route: it owns the heading
+ * and re-reads (replaces the role) after a save. Preview-only labels are not product copy.
+ */
+function PermissionsPreview() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [scenario, setScenario] = useState(0);
+  const [role, setRole] = useState<Role>(CHECKLIST_SCENARIOS[0]!.role);
+  const [answer, setAnswer] = useState<PreviewAnswer>('ok');
+  const pick = (i: number) => {
+    setScenario(i);
+    setRole(CHECKLIST_SCENARIOS[i]!.role);
+    setAnswer('ok');
+  };
+  const save = async (codes: readonly string[]): Promise<SaveRoleResult> => {
+    if (answer === 'unreachable') return { kind: 'unreachable' };
+    if (typeof answer === 'number') return SAVE_REFUSALS[answer] ?? { kind: 'server-error' };
+    const saved = { ...role, permission_codes: [...codes] };
+    setRole(saved);
+    return { kind: 'saved', role: saved };
+  };
+  return (
+    <section className={styles.section} aria-labelledby="pv-perms" data-fixture={FIXTURE_ONLY}>
+      <h2 id="pv-perms">B-4 permission checklist</h2>
+      <div className={styles.row}>
+        {CHECKLIST_SCENARIOS.map((s, i) => (
+          <Button key={s.label} size="sm" aria-pressed={scenario === i} onClick={() => pick(i)}>
+            {s.label}
+          </Button>
+        ))}
+      </div>
+      <div className={styles.row}>
+        <Button size="sm" aria-pressed={answer === 'ok'} onClick={() => setAnswer('ok')}>
+          Preview save: success
+        </Button>
+        {SAVE_REFUSALS.map((r, i) => (
+          <Button key={r.rule} size="sm" aria-pressed={answer === i} onClick={() => setAnswer(i)}>
+            {`Preview save: refusal ${i + 1}`}
+          </Button>
+        ))}
+        <Button size="sm" aria-pressed={answer === 'unreachable'} onClick={() => setAnswer('unreachable')}>
+          Preview save: unreachable
+        </Button>
+      </div>
+      <h3 ref={h1} tabIndex={-1}>
+        {role.name}
+      </h3>
+      <p className={styles.muted}>{role.description}</p>
+      <PermissionChecklist role={role} permissions={PREVIEW_PERMISSIONS} canEdit={CHECKLIST_SCENARIOS[scenario]!.canEdit} save={save} fallbackFocusRef={h1} />
     </section>
   );
 }

@@ -12,6 +12,8 @@ import userEvent from '@testing-library/user-event';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
 import { BulkHarness } from './bulk/harness';
+import { ChecklistHarness } from './permissions/harness';
+import { CUSTOM_ROLE, MARGIN_ROLE, OWNER_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
 import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_DELETED_ACTIVE, PERSON_DELETED_SWITCHED_OFF, PERSON_SELF, RESTORE_REFUSALS, VIEWER_ID } from '@/components/preview/fixtures/people';
 
@@ -162,6 +164,39 @@ describe('axe — B-4 bulk', () => {
     await user.click(screen.getByRole('button', { name: 'Restore' }));
     await settled();
     expect(screen.getByRole('button', { name: 'Dismiss message' })).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+});
+
+// B-4 step 4: the permission checklist — an editable custom role (refused boxes with reasons, help lines, a Left-out
+// line, the dirty bar, a Not saved banner), a built-in role (read-only, described by the built-in line), the margin
+// banner, and the read-only list (no role.edit).
+describe('axe — B-4 permission checklist', () => {
+  const axeDoc = async () => {
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+  };
+
+  it('editing: a group tick with a Left-out line, the dirty bar, then a Not saved banner: no violations', { timeout: 30_000 }, async () => {
+    render(<ChecklistHarness role={{ ...CUSTOM_ROLE, permission_codes: [] }} answer={SAVE_REFUSALS[0]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: 'All Purchasing permissions' }));
+    expect(screen.getByText(/^Left out: /)).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await settled();
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('a built-in role, the margin banner, and the read-only list: no violations', { timeout: 30_000 }, async () => {
+    const { unmount } = render(<ChecklistHarness role={OWNER_ROLE} />);
+    expect(await axeDoc()).toEqual([]);
+    unmount();
+    const second = render(<ChecklistHarness role={MARGIN_ROLE} />);
+    expect(await axeDoc()).toEqual([]);
+    second.unmount();
+    render(<ChecklistHarness role={CUSTOM_ROLE} canEdit={false} />);
     expect(await axeDoc()).toEqual([]);
   });
 });

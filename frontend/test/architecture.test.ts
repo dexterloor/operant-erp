@@ -180,19 +180,21 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // {PersonLifecycleActions,DeletePersonDialog,RestorePersonDialog,ArchivedPersonBanner}.tsx; preview/fixtures/people.ts.
   // Step 3 added: copy/bulk.ts; lib/bulk/{results,selection,unwired}.ts; components/bulk/{useBulkSelection.ts,
   // BulkHeaderCheckbox,BulkRowCheckbox,BulkBar,BulkArchiveDialog,BulkResultMessage}.tsx; preview/fixtures/bulk.ts.
-  'src/copy': 5,
-  'src/lib': 15,
-  'src/components': 39,
-  'src/lib/api': 1,
+  // Step 4 added: copy/{permissionLabels,sod}.ts; lib/api/{permissions,roles}.ts, lib/permissions/{checklist,results,
+  // unwired}.ts; components/permissions/{PermissionChecklist,PermissionGroup}.tsx; preview/fixtures/permissions.ts.
+  'src/copy': 7,
+  'src/lib': 20,
+  'src/components': 42,
+  'src/lib/api': 3,
   'src/lib/roles': 0,
-  'src/lib/permissions': 0,
+  'src/lib/permissions': 3,
   'src/lib/bulk': 3,
   'src/lib/people': 2,
   'src/components/roles': 0,
-  'src/components/permissions': 0,
+  'src/components/permissions': 2,
   'src/components/bulk': 6,
   'src/components/people': 4,
-  [FIXTURE_DIR]: 2,
+  [FIXTURE_DIR]: 3,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {

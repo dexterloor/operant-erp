@@ -8,6 +8,8 @@ import type { DeletePersonResult } from '@/lib/people/results';
 import { DELETE_REFUSALS, PERSON_ACTIVE, VIEWER_ID } from '@/components/preview/fixtures/people';
 import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { BulkHarness } from './bulk/harness';
+import { CUSTOM_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
+import { ChecklistHarness } from './permissions/harness';
 
 // Regression for the B-4 step 3 flake (b4-step3-progress.md "Flake"): when an injected action answers in a LATER task
 // than the click (as a real network answer does), focus must move in the SAME commit that inserts the banner — never a
@@ -75,5 +77,16 @@ describe('focus moves in the commit that shows the banner (late answer)', () => 
     await waitFor(() => expect(probe.first()).toBeDefined());
     probe.stop();
     expect(probe.first()).toBe(screen.getByText('Not restored'));
+  });
+
+  it('checklist: Not saved banner above the groups (B-4 step 4)', async () => {
+    render(<ChecklistHarness role={CUSTOM_ROLE} answer={() => later(SAVE_REFUSALS[0]!)} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: 'View customers' }));
+    const probe = focusWhenInserted('Not saved');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(probe.first()).toBeDefined());
+    probe.stop();
+    expect(probe.first()).toBe(screen.getByText('Not saved'));
   });
 });
