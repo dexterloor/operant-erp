@@ -20,8 +20,10 @@ use Symfony\Component\Uid\Uuid;
  *
  * **Domain — who must take it, first, unconditionally:** every writer of `user_role`, `role_permission`,
  * `role_grant_proposal` (slice 3) and non-seed `role` rows, and every writer of `app_user.is_active` / `deleted_at` (the
- * E-15g paths). In slice 2: `RevokeRole` (C2) and `AssignRole` (C3). `PurchaseOrderRowLockTest`'s role scan derives the
- * writers from `src/` and is red on one that is not accounted for.
+ * E-15g paths). In slice 2: `RevokeRole` (C2) and `AssignRole` (C3). **Since U-C1b also `CreateUser`** (spar M-1, D-U4′),
+ * which writes no role table: it serialises against `RestoreUser`'s email check and against a concurrent deactivation of
+ * the actor (T-U13), and the positional test matches it on its `app_user` INSERT. `PurchaseOrderRowLockTest`'s role scan
+ * derives the writers from `src/` and is red on one that is not accounted for.
  *
  * ---------------------------------------------------------------------------
  * The statement, and the three refusals it makes itself (spar S-4, P2)

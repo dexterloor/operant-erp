@@ -49,6 +49,7 @@ final class RoleAdministrationActorCallerTest extends TestCase
         // Roles slice 4 C2: `UpdateRole`'s own §4.2 code.
         'RoleUpdate' => 'role.edit',
         // G4-C2: `DeleteUser`'s own §4.2 code.
+        'UserCreation' => 'app_user.create',
         'UserDeletion' => 'app_user.delete',
         // G4-C3: `RestoreUser`'s own §4.2 code (undoing a delete).
         'UserRestoration' => 'app_user.delete',

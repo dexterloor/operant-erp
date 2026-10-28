@@ -601,6 +601,37 @@ final class RoleGrantProposalConfirmTest extends ApiTestCase
         self::assertSame(self::COPY['role_grant_proposal.role_changed'], RoleGrantProposalConfirmation::ROLE_CHANGED);
     }
 
+    /**
+     * **G-91 / BK-11 (case B) at confirmation:** a proposal made while the subject combined nothing (`admin` alone, given
+     * `purchasing_manager`) is refused when an owner confirms it after owner SQL has also given the subject
+     * `warehouse_operator` — `purchasing_manager` would add approve × receive on SoD-2, which the subject already spans.
+     * Confirm's own tail; the proposal stays pending and nothing is granted.
+     */
+    #[Test]
+    public function aProposalIsRefusedAtConfirmationIfTheSubjectNowCombinesTwoDuties(): void
+    {
+        $manager = $this->systemRole(DefaultRoles::PURCHASING_MANAGER);
+        $subject = $this->holderOf([$this->systemRole(DefaultRoles::ADMIN)]);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+        $this->propose($subject, $manager);
+        self::assertSame(201, $this->httpStatus(), 'The proposal made while clean: '.$this->client()->getResponse()->getContent());
+        $proposal = (string) $this->json()['id'];
+
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)',
+            [self::TENANT_A, $subject, $this->systemRole(DefaultRoles::WAREHOUSE_OPERATOR)]);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::OWNER));
+        $this->confirm($proposal);
+
+        self::assertSame([409, 'user_role.separation_of_duty'], [$this->httpStatus(), $this->json()['rule'] ?? null],
+            (string) $this->client()->getResponse()->getContent());
+        self::assertSame('purchasing_manager '.substr($manager, 0, 8).' can\'t be given to this person: with the roles they already have, one person could '
+            .'raise or approve purchase orders and also record the goods as received (SoD-2). This proposal can\'t be confirmed. Reject it to close it.',
+            $this->json()['detail'] ?? null);
+        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE user_id = ?::uuid', [$subject]));
+        self::assertSame('pending', $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT status FROM role_grant_proposal WHERE id = ?::uuid', [$proposal])[0]['status']);
+    }
+
     // -----------------------------------------------------------------------
 
     private function roleRows(): int

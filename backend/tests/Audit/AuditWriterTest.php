@@ -180,6 +180,8 @@ final class AuditWriterTest extends PurchaseOrderTestCase
         'user.deleted',
         // G4-C3 (2026-10-23): a person restored, SECURITY, IP-bearing; `Version20261023000500` re-issues the scope with it.
         'user.restored',
+        // U-C1b (2026-10-27): a person added, SECURITY, IP-bearing; `Version20261027000200` re-issues the scope with it.
+        'user.created',
     ];
 
     /**

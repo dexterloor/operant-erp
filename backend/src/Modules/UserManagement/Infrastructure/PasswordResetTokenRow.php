@@ -22,6 +22,7 @@ final readonly class PasswordResetTokenRow
         public int $createdUnix,
         public string $storedEmail,
         public bool $userIsActive,
+        public bool $uncredentialed,
         public ?string $identityMac,
         public ?float $sessionFloorEpoch,
         public string $tenantSlug,

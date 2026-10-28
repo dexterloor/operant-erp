@@ -40,8 +40,9 @@ use Doctrine\ORM\EntityManagerInterface;
  *     three (`UX` #36a–c, F-5): chosen by `expires_at > $at` and the pure routing policy — it decides nothing. The
  *     refusal does not carry the proposal's id; the screen finds it through `ListRoleGrantProposals?user=&role=&
  *     status=pending` (Q-4 (d)).
- *  8. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} over the subject's LIVE roles → 409 `user_role.separation_of_duty`,
- *     naming each SoD row id, never the codes.
+ *  8. **PC-13 / E-18:** {@see \App\Modules\UserManagement\Domain\GrantConflict::newRows()} and, since G-91 (BK-11),
+ *     {@see \App\Modules\UserManagement\Domain\HeldSpanConflict::newEdgeRows()} over the subject's LIVE roles → 409
+ *     `user_role.separation_of_duty`, naming each SoD row id, never the codes.
  *  9. **E-15e routing, LAST** (roles slice 3 C2; design §4.7 slot R, §5 change 3): {@see GrantConfirmationPolicy} → 409
  *     `user_role.needs_owner_confirmation`, whose sentence **names the proposal route in the sentence; the body stays
  *     `rule` + `message`** (`UX` `roles-s3-ux-copy.md` #28, ruled 2026-10-05 — it replaced the pre-written slice-2 §3.5

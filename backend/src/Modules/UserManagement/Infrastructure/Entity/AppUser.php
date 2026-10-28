@@ -77,7 +77,8 @@ class AppUser
      * Mail-C1: the keyed seal over `(tenant_id, id, email)` (`SealsIdentities`, `k_ident`), read by the mail worker on
      * `erp_worker` before it mails a reset link. **Mapped so the schema and the mapping agree, and never written by the
      * ORM:** `insertable`/`updatable` are false, and no principal holds `UPDATE (identity_mac)` (`Version20261023000800`).
-     * U-C1's `CreateUser` seals it at insert (and must grant `INSERT (…, identity_mac)` then).
+     * U-C1b's `CreateUser` seals it at insert, in its own DBAL `INSERT` (`Version20261027000100` grants `erp_app`
+     * `INSERT (…, identity_mac)`); the ORM never inserts a user — it would name `password_mac`, which nobody may insert.
      */
     #[ORM\Column(name: 'identity_mac', type: Types::TEXT, nullable: true, insertable: false, updatable: false)]
     private ?string $identityMac = null;

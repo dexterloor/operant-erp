@@ -26,7 +26,7 @@ OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 # an operator inspects, never re-run automatically (mail-c0-red.md M-2).
 WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts
 
 env:                ## create .env, .env.infra, .env.test and .env.worker from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
@@ -56,6 +56,13 @@ test:
 
 tenancy:            ## just the isolation suite
 	cd backend && php bin/phpunit --testsuite "Project Test Suite" --filter Tenancy
+
+# contracts/openapi.json and contracts/api-surface.json are what the web app builds from; ContractArtefactTest holds them
+# equal to the API. The first run rewrites both files and fails on purpose (an update never passes); the second must pass.
+# No cache to delete first: every test run reads API metadata from its own fresh cache directory (tests/bootstrap.php).
+contracts:          ## regenerate contracts/*.json after an API change, then check them
+	-cd backend && CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter ContractArtefactTest
+	cd backend && php bin/phpunit --filter ContractArtefactTest
 
 deptrac:            ## ARCHITECTURE.md §5's module boundaries (also gated by DeptracRulesetTest in `make test`)
 	cd backend && php tools/deptrac/vendor/bin/deptrac analyse

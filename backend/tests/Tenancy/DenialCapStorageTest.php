@@ -153,8 +153,8 @@ final class DenialCapStorageTest extends TenancyTestCase
             return;
         }
 
-        // As the owner: no `src/` path creates a user, so `erp_app` holds no
-        // INSERT on app_user (ADR-002 Amendment 4).
+        // As the owner: a fixture, not the operation under test. (`erp_app` holds column-level INSERT on six app_user
+        // columns since U-C1b's CreateUser, never password_mac; a fixture writes as the owner regardless.)
         foreach ([[self::ACTOR, 'probe'], [self::OTHER_ACTOR, 'other']] as [$id, $slug]) {
             $this->insertAsOwnerForTenant(self::TENANT_A,
                 'INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, ?, ?)',

@@ -212,22 +212,12 @@ final readonly class UserUpdate
         $valid = [];
 
         if (\array_key_exists('display_name', $submitted)) {
-            $name = $submitted['display_name'];
-            if (null === $name) {
-                $errors[] = RoleDefinitionFields::error('/display_name', 'required', 'This field is required.');
-            } elseif (!\is_string($name)) {
-                $errors[] = RoleDefinitionFields::error('/display_name', 'not_a_string', 'This field must be a string.');
+            // One rule, two callers (U-C1b: `CreateUser`) — {@see UserDisplayName}.
+            [$name, $error] = UserDisplayName::check($submitted['display_name']);
+            if (null !== $error) {
+                $errors[] = $error;
             } else {
-                $name = RoleDefinitionFields::trimmed($name);
-                if ('' === $name) {
-                    $errors[] = RoleDefinitionFields::error('/display_name', 'blank', 'This field may not be blank.');
-                } elseif (mb_strlen($name, 'UTF-8') > RoleDefinitionFields::NAME_MAX) {
-                    $errors[] = RoleDefinitionFields::error('/display_name', 'too_long', sprintf('A name can be at most %d characters.', RoleDefinitionFields::NAME_MAX));
-                } elseif (1 === preg_match(RoleDefinitionFields::NAME_FORBIDDEN, $name)) {
-                    $errors[] = RoleDefinitionFields::error('/display_name', 'invalid_character', 'A name can\'t contain invisible or control characters.');
-                } else {
-                    $valid['display_name'] = $name;
-                }
+                $valid['display_name'] = $name;
             }
         }
 

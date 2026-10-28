@@ -455,6 +455,18 @@ final class UserUpdateTest extends ApiTestCase
         }
     }
 
+    /**
+     * **T-U14 (U-C1b, spar M-1):** `CreateUser`'s code has its own arm, pinned literally (a `UX` placeholder). Mutation MU-20
+     * (drop the arm) → `\UnhandledMatchError` here, and a 500 in `PurchaseOrderRowLockTest::anActorDeactivatedWhileWaitingCannotCreateAUser`.
+     */
+    #[Test]
+    public function theInactiveActorSentenceHasAnArmForCreatingAUser(): void
+    {
+        $refusal = RoleAdministrationActor::inactiveRefusal('app_user.create');
+        self::assertSame(['user_role.actor_is_inactive', 'Your account is not active, so you can\'t add anyone.'],
+            [$refusal->getRule(), $refusal->getDetail()]);
+    }
+
     // ---------------------------------------------------------------------
 
     private function patch(string $userId, array $body): void

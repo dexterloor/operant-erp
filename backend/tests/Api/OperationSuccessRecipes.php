@@ -761,6 +761,13 @@ trait OperationSuccessRecipes
 
                 return [204, 'delete a person'];
             }],
+            // U-C1b: a person added by the actor (who holds `app_user.create`) at a fresh address — the lock, the INSERT,
+            // `user.created`, then the invitation dispatched after the commit. 201 + `Location`.
+            'CreateUser' => [$none, function () use ($key): array {
+                $this->send('POST', '/users', ['email' => 'recipe-'.substr(Uuid::v4()->toRfc4122(), 0, 8).'@example.test', 'display_name' => 'Recipe person'], $key());
+
+                return [201, 'add a person'];
+            }],
             // G4-C3: a soft-deleted person holding nothing (owner SQL), restored by the actor (who holds `app_user.delete`). 200.
             'RestoreUser' => [function (): array {
                 $user = $this->seedPrincipal(self::TENANT_A, []);

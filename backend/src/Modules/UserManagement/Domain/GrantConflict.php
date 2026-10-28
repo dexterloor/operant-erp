@@ -12,8 +12,11 @@ namespace App\Modules\UserManagement\Domain;
  * new = rowsSpannedBy(held ∪ role) − rowsSpannedBy(held) − rowsSpannedBy(role)
  * ```
  *
- *  - **`− rowsSpannedBy(held)`** — a split the subject ALREADY spans (reachable only by owner-process seeding, or later by a
- *    role edit before E-15f's re-run) is reconciliation's business, not a reason to block an unrelated grant. The first draft
+ *  - **`− rowsSpannedBy(held)`** — a split the subject ALREADY spans (reachable by SQL or owner-process seeding, or by a
+ *    commit that changes `SeparationOfDuty::ROWS` or a default role's codes, with no SQL — SoD-5 did that on 2026-10-01) is
+ *    not a reason to block an unrelated grant here; a NEW pair on such a row is refused by the held-violator clause,
+ *    {@see HeldSpanConflict::newEdgeRows()}, beside this one in `GrantRules::conflictVerdict()` (G-91, BK-11), and
+ *    `app:roles:reconcile` arm H lists such people. This function stays row grain and unchanged. The first draft
  *    subtracted each held role alone and so refused ANY further grant to such a subject — `viewer` included, which E-18
  *    names as a violation (mutation A2).
  *  - **`− rowsSpannedBy(role)`** — a single role that spans a row on its own is E-18's deliberate permission (a split is

@@ -24,6 +24,19 @@ final class GeneratedSpec
     /** @return array<string, mixed> */
     public static function regenerate(KernelInterface $kernel): array
     {
+        $spec = json_decode(self::rawDocument($kernel), true);
+        Assert::assertIsArray($spec, 'NO ARTIFACT: the generator produced something that is not a JSON document.');
+        Assert::assertArrayHasKey('paths', $spec);
+
+        return $spec;
+    }
+
+    /**
+     * The command's output exactly as written, before any decoding: what `contracts/openapi.json` is generated from
+     * (W-4, in {@see CanonicalJson}'s form).
+     */
+    public static function rawDocument(KernelInterface $kernel): string
+    {
         $application = new Application($kernel);
         $application->setAutoExit(false);
 
@@ -50,11 +63,7 @@ final class GeneratedSpec
 
         Assert::assertSame(0, $status, 'NO ARTIFACT: the spec could not be generated. API-10a: an absent artifact is not evidence.');
 
-        $spec = json_decode($output->fetch(), true);
-        Assert::assertIsArray($spec, 'NO ARTIFACT: the generator produced something that is not a JSON document.');
-        Assert::assertArrayHasKey('paths', $spec);
-
-        return $spec;
+        return $output->fetch();
     }
 
     /**

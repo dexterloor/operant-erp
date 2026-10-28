@@ -3065,13 +3065,25 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
             // G4-C3: `admin` restores the viewer, deleted by owner SQL before the recorder — the lapse statement runs (on no rows)
             // and the leftover grant is stripped, then the flush and the rows.
             'RestoreUser' => $this->send('POST', '/users/'.$subject.'/restoration'),
+            // U-C1b: `admin` adds a person — the lock, the actor re-check, the `app_user` INSERT and `user.created`; the
+            // invitation is dispatched after the commit, in a transaction of its own that writes nothing.
+            'CreateUser' => $this->send('POST', '/users', ['email' => 'lock-first@example.test', 'display_name' => 'Lock first'],
+                [\App\Platform\Http\Idempotency\IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]),
         };
         $this->recorder()->stop();
         self::assertSame($status, $this->httpStatus(), $case.': '.$this->client()->getResponse()->getContent());
 
-        $writing = array_values(array_filter($this->transactionsRecorded(), static fn (array $statements): bool => [] !== preg_grep(
-            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(?:user_role|role(?:_permission|_grant_proposal)?)\b/i', $statements,
+        // U-C1b (final RED M-1): `CreateUser` writes no role table; it is matched on its `app_user` INSERT, the statement the
+        // lock must precede. INSERT only — `UpdateUser`'s `app_user` UPDATE is not a second match.
+        $transactions = $this->transactionsRecorded();
+        $writing = array_values(array_filter($transactions, static fn (array $statements): bool => [] !== preg_grep(
+            '/^\s*(?:DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(?:user_role|role(?:_permission|_grant_proposal)?)\b|^\s*INSERT\s+INTO\s+app_user\b/i', $statements,
         )));
+        if ('CreateUser' !== $case) {
+            // The widening changes no other case: none inserts a person.
+            self::assertSame([], array_values(array_filter($transactions, static fn (array $statements): bool => [] !== preg_grep('/^\s*INSERT\s+INTO\s+app_user\b/i', $statements))),
+                $case.' inserts an app_user row, so the CreateUser alternative would match it.');
+        }
         self::assertCount(1, $writing, 'Expected exactly one transaction writing a role-administration table.');
         self::assertSame(RoleAdministrationLock::SQL, $writing[0][0] ?? null,
             "The first statement of the transaction writing a role table is not the role-administration lock. Statements, in order:\n"
@@ -3095,6 +3107,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         yield 'CreateBulkRoleAssignment' => ['CreateBulkRoleAssignment', 200];
         yield 'DeleteUser' => ['DeleteUser', 204];
         yield 'RestoreUser' => ['RestoreUser', 200];
+        yield 'CreateUser' => ['CreateUser', 201];
     }
 
     /** Refusal 1: outside a transaction nothing is sent — an autocommitted advisory lock is no lock. */
@@ -3336,6 +3349,36 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         self::assertSame([409, 'user_role.actor_is_inactive'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
         self::assertSame($afterUserRoles, $this->userRoleRows(), 'The inactive actor\'s refused revoke changed user_role.');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'), 'The 409 wrote an audit row.');
+    }
+
+    /**
+     * **T-U13 — an admin switched off (by SQL) while waiting cannot add a person** (U-C1b; spar M-1, D-U4′; T-1-12's shape).
+     * The holder, as `erp_app` under the role lock, clears the actor's `is_active` and leaves their roles: the waiting
+     * `CreateUser` passes the permission re-check, then is refused 409 `user_role.actor_is_inactive` — no person, no audit
+     * row, nothing queued. Written before `RoleAdministrationActor::inactiveRefusal()` had an `app_user.create` arm, where it
+     * was a 500 (`\UnhandledMatchError`). Mutations: MU-18 (drop the re-check) → 201; MU-20 (drop the arm) → 500.
+     */
+    #[Test]
+    public function anActorDeactivatedWhileWaitingCannotCreateAUser(): void
+    {
+        $actor = $this->seedPrincipal(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $this->assertTheRequestConnectionIsReadCommitted();
+        $this->actAsUser(self::TENANT_A, $actor);
+        $people = $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM app_user');
+        $this->client()->disableReboot();
+
+        $holder = $this->raceAgainstAHolder(self::TENANT_A, before: [
+            ['UPDATE app_user SET is_active = false WHERE id = ?::uuid', [$actor]],
+        ], request: fn () => $this->send('POST', '/users', ['email' => 'too-late@example.test', 'display_name' => 'Too late'],
+            [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]), table: 'role_administration');
+
+        $this->assertTheHolderWasWaitedOnAndCommitted($holder);
+        self::assertSame([409, 'user_role.actor_is_inactive'], [$this->httpStatus(), $this->json()['rule'] ?? null], (string) $this->client()->getResponse()->getContent());
+        self::assertSame($people, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM app_user'), 'The inactive actor\'s refused create added a person.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM audit_log'), 'The 409 wrote an audit row.');
+        $async = self::getContainer()->get('messenger.transport.async');
+        \assert($async instanceof \Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport);
+        self::assertSame([], $async->getSent(), 'The refused create queued an invitation.');
     }
 
     /**
@@ -4169,7 +4212,7 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
      * **Every method in `src/` that writes a role-administration table, or ends a user's liveness, takes the role lock
      * first** (spar §2 item 5, P6; design §4.4). The domain is derived from `src/`: SQL/DQL writes of `user_role`, `role`,
      * `role_permission`, `role_grant_proposal`; SQL/DQL that sets `app_user.is_active` / `deleted_at` (keyed on the SET
-     * list) or hard-deletes a user; the ORM arm (flush/persist/remove or a mutator) for `UserRole`, `RolePermission`,
+     * list) or hard-deletes a user; SQL that inserts a user (U-C1b, `CreateUser`); the ORM arm (flush/persist/remove or a mutator) for `UserRole`, `RolePermission`,
      * `Role`; and for `AppUser` the **mutators only** — those assigning `isActive`/`deletedAt`, derived from its source —
      * because the flush clause would name `ChangePassword` and `LoginRecorder` (credential writers) as role writers.
      *
@@ -4188,6 +4231,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         foreach (['UPDATE roles SET x = 1', 'UPDATE role_grant_proposal_x SET x = 1', 'SELECT 1 FROM user_role'] as $statement) {
             self::assertDoesNotMatchRegularExpression(self::ROLE_ADMIN_SCAN['sql'], $statement, 'The role scan over-matches: '.$statement);
         }
+        // U-C1b: the user-INSERT arm sees a created person and not a credential write.
+        self::assertMatchesRegularExpression(self::ROLE_ADMIN_SCAN['also'][1], 'INSERT INTO app_user (id) VALUES (1)', 'The role scan does not see a user insert.');
+        self::assertDoesNotMatchRegularExpression(self::ROLE_ADMIN_SCAN['also'][1], 'UPDATE app_user SET password_hash = 1', 'The user-insert arm over-matches a credential write.');
         // G4-C1: `reactivate()` joined (it assigns `isActive`); `rename()` assigns neither property, so it is not one. G4-C3:
         // `restore()` joined (it assigns `deletedAt`).
         self::assertSame(['deactivate', 'delete', 'reactivate', 'restore'], self::livenessMutators(self::ROLE_ADMIN_SCAN['mutator_only']), 'AppUser\'s liveness mutators are not the four the scan was written for.');
@@ -4228,6 +4274,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'dql' => '/\b(?:UPDATE|DELETE\s+FROM)\s+[\w\\\\]*(?:UserRole|RolePermission|Role|RoleGrantProposal)\b/',
         'also' => [
             '/\b(?:UPDATE\s+app_user\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b(?:is_active|deleted_at)\s*=|DELETE\s+FROM\s+app_user\b)/i',
+            // U-C1b (spar M-1, D-U4′): a person CREATED takes the lock first too — `CreateUser` serialises against
+            // `RestoreUser`'s email check and the actor's deactivation. INSERT only (the credential writers UPDATE).
+            '/\bINSERT\s+INTO\s+app_user\b/i',
             '/\b(?:UPDATE\s+[\w\\\\]*AppUser\b(?:(?!\bWHERE\b)[\s\S])*?\bSET\b(?:(?!\bWHERE\b)[\s\S])*\b\w+\.(?:isActive|deletedAt)\s*=|DELETE\s+FROM\s+[\w\\\\]*AppUser\b)/',
         ],
         // `RoleGrantProposal` joined at roles slice 3 C1 (design F-14): without it the proposal's transition flushes would be
@@ -4272,6 +4321,9 @@ final class PurchaseOrderRowLockTest extends PurchaseOrderTestCase
         'DeleteUser' => 'UserDeletion::delete',
         // G4-C3: one transaction writes `role_grant_proposal` (the lapse), `user_role` (any leftover), `app_user` (`restore()`).
         'RestoreUser' => 'UserRestoration::restore',
+        // U-C1b: writes no role table — the lock precedes its `app_user` INSERT, the actor re-check and `user.created`
+        // (spar M-1; the positional case is matched on the INSERT).
+        'CreateUser' => 'UserCreation::create',
     ];
 
     /**

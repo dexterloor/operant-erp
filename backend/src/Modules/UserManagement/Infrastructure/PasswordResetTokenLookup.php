@@ -17,6 +17,9 @@ use Doctrine\DBAL\Connection;
  * `password_reset_token_selector_key UNIQUE (tenant_id, selector)`. A forged tenant prefix sets a context that reads
  * nothing, and it could not verify anyway: the verifier MAC binds the tenant (`CredentialSeal::macVerifier()`).
  *
+ * `uncredentialed` (U-C1a): whether the person has never had a sealed credential (`password_mac IS NULL`) — an
+ * `invitation` link is redeemable only then. Same one statement; `erp_auth` already reads `password_mac`.
+ *
  * The join to `app_user` keeps only a live (not soft-deleted) person, so a removed person's link joins nothing and is the
  * one constant refusal. `expires_at` and `created_at` come back as unix seconds (what the MAC encodes; the worker stores
  * whole seconds), and the session floor as epoch seconds, possibly fractional (`IdentityReader`'s comparison).
@@ -31,7 +34,7 @@ final readonly class PasswordResetTokenLookup
                extract(epoch FROM t.expires_at)::bigint AS expires_unix,
                t.used_at IS NOT NULL AS used,
                extract(epoch FROM t.created_at)::bigint AS created_unix,
-               u.email, u.is_active, u.identity_mac,
+               u.email, u.is_active, u.identity_mac, u.password_mac IS NULL AS uncredentialed,
                extract(epoch FROM u.sessions_valid_after) AS floor_epoch,
                ten.slug, ten.status
           FROM password_reset_token t
@@ -74,6 +77,7 @@ final readonly class PasswordResetTokenLookup
             createdUnix: (int) $row['created_unix'],
             storedEmail: (string) $row['email'],
             userIsActive: (bool) $row['is_active'],
+            uncredentialed: (bool) $row['uncredentialed'],
             identityMac: null === $row['identity_mac'] ? null : (string) $row['identity_mac'],
             sessionFloorEpoch: null === $row['floor_epoch'] ? null : (float) $row['floor_epoch'],
             tenantSlug: (string) $row['slug'],

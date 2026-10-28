@@ -597,6 +597,26 @@ final class RoleGrantProposalTest extends ApiTestCase
         self::assertSame(['items' => [], 'next_cursor' => null, 'previous_cursor' => null, 'tenant_has_rows' => false], $this->json());
     }
 
+    /**
+     * **G-91 / BK-11 (case C) on the proposal route:** proposing `sales_rep` for someone who already combines invoicing and
+     * shipping (SoD-4, seeded by owner SQL) adds a new pair on that row and is refused with the shipped tail, nothing written.
+     */
+    #[Test]
+    public function aProposalAddingANewCombinationForSomeoneWhoAlreadyCombinesTwoIsRefused(): void
+    {
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $subject = $this->holderOf([$this->composedRole(['invoice.issue']), $this->systemRole(DefaultRoles::WAREHOUSE_OPERATOR)]);
+        $this->actAsUser(self::TENANT_A, $this->principal(DefaultRoles::ADMIN));
+
+        $this->propose($subject, $salesRep);
+        self::assertSame([409, 'user_role.separation_of_duty'], [$this->httpStatus(), $this->json()['rule'] ?? null],
+            (string) $this->client()->getResponse()->getContent());
+        self::assertSame('sales_rep '.substr($salesRep, 0, 8).' can\'t be given to this person: with the roles they already have, one person could '
+            .'confirm sales orders or issue invoices and also ship the goods (SoD-4). Choose another role or another person.',
+            $this->json()['detail'] ?? null);
+        self::assertSame([], $this->proposalRows());
+    }
+
     // -----------------------------------------------------------------------
 
     private function roleRows(): int

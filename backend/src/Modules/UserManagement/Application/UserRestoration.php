@@ -29,7 +29,8 @@ use Symfony\Component\Uid\Uuid;
  *  3. `{id}` not a uuid / absent / another workspace's → 404; live → 409 `app_user.is_not_archived` (a DBAL read);
  *  4. **email collision:** a LIVE person in the workspace already holds this email → 409 `app_user.email_taken` (the live-only
  *     unique `app_user_tenant_email_live` would refuse the restore). The `23505` on that index is translated the same way as a
- *     backstop, outside `run()` (V2-R-12b family). Today only SQL or seeding can create the clash (`CreateUser` is unbuilt);
+ *     backstop, outside `run()` (V2-R-12b family). Since U-C1b `CreateUser` makes the clash reachable (a removed
+ *     person's address given to someone new — owner notice N-2; T-U3), and both take the role-administration lock first;
  *  5. the **legacy strip** (D-4): any `user_role` row a deleted person still holds (only a database edit leaves one) is removed
  *     and recorded with `revoke_reason: subject_removed` — and **E-15b binds it** (R1.2 C3 M-4): a non-owner is refused
  *     409 `app_user.marker_needs_owner` if any of those rows' stored codes confer the marker;

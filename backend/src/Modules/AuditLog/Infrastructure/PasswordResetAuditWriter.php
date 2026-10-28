@@ -36,16 +36,45 @@ final readonly class PasswordResetAuditWriter
     {
     }
 
-    public function recordIssued(string $tenantId, string $userId, string $storedEmail, ?string $ipAddress, string $messageId, \DateTimeImmutable $at): void
+    /**
+     * `purpose` and `requested_by` are literals the HANDLER chooses (`anonymous` for a reset, `invitation` for an invitation;
+     * U-C1 H-2, L-1), never a value read from a queued message: whoever can write to the queue must not be able to put a
+     * name in the trail. Anything outside {@see self::REQUESTERS} is refused.
+     */
+    public function recordIssued(string $tenantId, string $userId, string $storedEmail, ?string $ipAddress, string $messageId, \DateTimeImmutable $at, string $purpose, string $requestedBy): void
     {
+        self::requireRequester($purpose, $requestedBy);
         $this->insert(AuditEvent::AUTH_PASSWORD_RESET_ISSUED, $tenantId, $userId, $storedEmail, $ipAddress, $at,
-            ['purpose' => 'reset', 'message_id' => $messageId, 'requested_by' => 'anonymous']);
+            ['purpose' => $purpose, 'message_id' => $messageId, 'requested_by' => $requestedBy]);
     }
 
-    public function recordIdentityMismatch(string $tenantId, string $userId, string $storedEmail, ?string $ipAddress, string $messageId, \DateTimeImmutable $at): void
+    /**
+     * `$unknownKeyId`: the seal names a key id this worker does not hold (the park path, U-C1a; Mail-C1 carry item 5) —
+     * `{"unknown_key_id": true}` is added, the sign-in's D-C2 shape. Otherwise the metadata is unchanged since Mail-C1.
+     */
+    public function recordIdentityMismatch(string $tenantId, string $userId, string $storedEmail, ?string $ipAddress, string $messageId, \DateTimeImmutable $at, string $requestedBy, bool $unknownKeyId): void
     {
-        $this->insert(AuditEvent::AUTH_CREDENTIAL_IDENTITY_MISMATCH, $tenantId, $userId, $storedEmail, $ipAddress, $at,
-            ['message_id' => $messageId, 'requested_by' => 'anonymous']);
+        if (!\in_array($requestedBy, self::REQUESTERS, true)) {
+            throw new \LogicException('An identity-mismatch row names a requester that is not a handler literal.');
+        }
+        $metadata = ['message_id' => $messageId, 'requested_by' => $requestedBy];
+        if ($unknownKeyId) {
+            $metadata[self::UNKNOWN_KEY_ID] = true;
+        }
+        $this->insert(AuditEvent::AUTH_CREDENTIAL_IDENTITY_MISMATCH, $tenantId, $userId, $storedEmail, $ipAddress, $at, $metadata);
+    }
+
+    /** The sign-in's metadata key (`SealsCredentials::UNKNOWN_KEY_ID`), restated: AuditLog does not import UserManagement's Domain. */
+    private const UNKNOWN_KEY_ID = 'unknown_key_id';
+
+    /** purpose => the one `requested_by` literal it may carry. */
+    public const REQUESTERS = ['reset' => 'anonymous', 'invitation' => 'invitation'];
+
+    private static function requireRequester(string $purpose, string $requestedBy): void
+    {
+        if ((self::REQUESTERS[$purpose] ?? null) !== $requestedBy) {
+            throw new \LogicException('A link row names a purpose or requester that is not a handler literal.');
+        }
     }
 
     /**
@@ -63,7 +92,7 @@ final readonly class PasswordResetAuditWriter
         );
     }
 
-    /** @param array<string, string> $metadata */
+    /** @param array<string, string|bool> $metadata */
     private function insert(string $event, string $tenantId, string $userId, string $label, ?string $ip, \DateTimeImmutable $at, array $metadata): void
     {
         $this->requireTransaction();

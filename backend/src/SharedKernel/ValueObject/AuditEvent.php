@@ -412,6 +412,12 @@ namespace App\SharedKernel\ValueObject;
  *     `Version20261024000200` (the live seventy plus this one; supersedes `Version20261023000900`); step 6 both halves.
  *     *SEC TO CONFIRM the name.*
  *
+ *   - **`USER_CREATED`**, 2026-10-27, U-C1b `CreateUser` — **`SECURITY`** (a principal added; `user.restored`'s ground),
+ *     subject `('app_user', id)`, `{"fields":["display_name","email"]}` (field names only, never a value — D-U6), IP-bearing,
+ *     written on `erp_app` inside the create transaction (`UserAuditWriter::recordCreated()`). Steps 3–5 with its writer;
+ *     step 5 is `Version20261027000200` (the live seventy-one plus this one; supersedes `Version20261024000200`); step 6 both
+ *     halves. *SEC TO CONFIRM the metadata.*
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -467,7 +473,8 @@ final class AuditEvent
      * Mail-C1: a password-reset link was minted and mailed to the account's STORED email. Written by the mail worker on
      * `erp_worker`, in the transaction that inserts the token and sends the mail; subjectless, actor = the user, IP = the
      * request's, `metadata` `{"purpose":"reset","message_id":…,"requested_by":"anonymous"}` (L-11: nobody signed in asked).
-     * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token`. Never the token or link.
+     * Bounded by the worker's 3-links-per-user-per-24-h cap, counted in `password_reset_token` over `purpose = 'reset'` rows only
+     * since U-C1a. Never the token or link.
      */
     public const AUTH_PASSWORD_RESET_ISSUED = 'auth.password_reset.issued';
 
@@ -475,7 +482,8 @@ final class AuditEvent
      * Mail-C2: a mailed reset link was redeemed and the password set. Written on `erp_app` inside the redeem's one write
      * transaction (it rolls back with the change); subjectless, actor = the user, `actor_label` = the STORED email (the
      * label the worker's `auth.password_reset.issued` row carries for the same flow), IP = the request's, `metadata`
-     * `{"purpose":"reset"}` (U-C1 adds `"invitation"`). Never the token, the verifier or anything credential-derived (E-23).
+     * `{"purpose":"reset"}`, or `{"purpose":"invitation"}` when the link was an invitation (U-C1a; one of two literals keyed by
+     * the redeemed row's purpose). Never the token, the verifier or anything credential-derived (E-23).
      * A refused redemption writes nothing (Q-4, `SEC`'s call: recorded as a residual).
      */
     public const AUTH_PASSWORD_RESET = 'auth.password.reset';
@@ -484,6 +492,9 @@ final class AuditEvent
      * Mail-C1 (D-M7): a reset was asked for an account whose stored email no longer matches its keyed identity seal
      * (`app_user.identity_mac`) — the address was changed outside the application. No mail is sent. Written by the mail
      * worker at most once per user per UTC day (a read-back on the trail); subjectless, actor = the user, IP = the request's.
+     * U-C1a: also written when the seal names a key id the worker does not hold (the park path, Mail-C1 carry item 5), with
+     * `{"unknown_key_id": true}`, under the SAME once-a-day allowance (one seal note per person per day, of either kind — M-4 (a),
+     * `SEC` TO CONFIRM); committed before the message is parked in `failed`.
      */
     public const AUTH_CREDENTIAL_IDENTITY_MISMATCH = 'auth.credential.identity_mismatch';
 
@@ -707,6 +718,13 @@ final class AuditEvent
      * IP-bearing.
      */
     public const USER_RESTORED = 'user.restored';
+
+    /**
+     * U-C1b (`CreateUser`, 2026-10-27; `docs/session13/u-c1-build-plan.md` Revision 2 FINAL R2.2): a person added, who has no
+     * credential until they redeem the mailed invitation. Subject `('app_user', id)`; `metadata` `{"fields":["display_name",
+     * "email"]}` — names only. Written inside the create transaction, after the INSERT and its read-back. SECURITY; IP-bearing.
+     */
+    public const USER_CREATED = 'user.created';
 
     // ---------------------------------------------------------------------
     // Business events. These are the PC-11 allowlist: the rows a colleague may
@@ -1398,6 +1416,7 @@ final class AuditEvent
         self::USER_UPDATED,
         self::USER_DELETED,
         self::USER_RESTORED,
+        self::USER_CREATED,
     ];
 
     /**
@@ -1441,6 +1460,7 @@ final class AuditEvent
         self::USER_UPDATED,
         self::USER_DELETED,
         self::USER_RESTORED,
+        self::USER_CREATED,
     ];
 
     /**
@@ -1642,6 +1662,7 @@ final class AuditEvent
         self::USER_DELETED => 'app_user',
         // G4-C3: the person brought back.
         self::USER_RESTORED => 'app_user',
+        self::USER_CREATED => 'app_user',
     ];
 
     /**

@@ -43,6 +43,8 @@ final class UserReadTest extends ApiTestCase
         'UpdateUser' => ['method' => 'PATCH', 'path' => '/users/{id}', 'idem' => false],
         // G4-C2. `idem`: §4.2's `no` (a repeat meets a deleted person, 409).
         'DeleteUser' => ['method' => 'DELETE', 'path' => '/users/{id}', 'idem' => false],
+        // U-C1b. `idem`: §4.2's `unique:app_user_tenant_email_live` (the header is demanded; a repeat is 409).
+        'CreateUser' => ['method' => 'POST', 'path' => '/users', 'idem' => true],
     ];
 
     /** `UserResource`'s serialized members — §4.4.3's `User` row as rewritten at C1 (K-1), pinned against the DTO. */

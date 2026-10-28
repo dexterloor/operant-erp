@@ -10,11 +10,13 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use App\Modules\UserManagement\ApiResource\State\CreateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\DeleteUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\RestoreUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UpdateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UserProvider;
 use App\Modules\UserManagement\Application\UserView;
+use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -47,6 +49,27 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: UserProvider::class,
             // §4.2's `Perm` cell. Enforced by `PermissionGate` on `kernel.controller`, before the provider loads anything.
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.view'],
+        ),
+        // U-C1b (2026-10-27): add a person, who then sets their own password from a mailed link (`API.md` §4.3a;
+        // `docs/session13/u-c1-build-plan.md` Revision 2 FINAL R2.2). 201 + `Location` + `GetUser`'s body. §4.2's `Idem` is
+        // `unique:app_user_tenant_email_live`: the header is demanded (428) and a repeat is refused by the live-email unique,
+        // 409 `app_user.email_taken`, never replayed. Body `email` + `display_name` and nothing else (`allow_extra_attributes`).
+        new Post(
+            uriTemplate: '/users',
+            name: 'CreateUser',
+            status: 201,
+            openapi: new OpenApiOperation(operationId: 'CreateUser'),
+            input: CreateUserInput::class,
+            denormalizationContext: [
+                'allow_extra_attributes' => false,
+                'api_assign_object_to_populate' => false,
+            ],
+            read: false,
+            processor: CreateUserProcessor::class,
+            extraProperties: [
+                IdempotencyKeyGuard::OPERATION_FLAG => true,
+                PermissionGate::OPERATION_PERMISSION => 'app_user.create',
+            ],
         ),
         // G4-C1 (2026-10-23): rename, switch off, switch back on (E-15g; `docs/session13/g4-users-design.md` §5). §4.2's
         // `Idem` cell is `no`: a repeat computes an empty delta and writes nothing. `read: false` (final RED L-2): the person is

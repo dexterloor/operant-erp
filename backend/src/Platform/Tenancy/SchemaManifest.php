@@ -347,8 +347,15 @@ final class SchemaManifest
             //                     (G4-C1, Version20261023000100; E-15g)
             //   UserDeletion   -> delete()              deleted_at, sessions_valid_after, updated_at
             //                     (G4-C2, Version20261023000300; a SOFT delete)
-            // Nothing else in `src/` writes a user, and nothing creates or hard-deletes
-            // one -- CreateUser and provisioning grant INSERT when they are built.
+            // Nothing else in `src/` writes a user, and nothing hard-deletes one.
+            //   UserCreation   -> one DBAL INSERT       id, tenant_id, email, password_hash, display_name, identity_mac
+            //                     (U-C1b CreateUser, Version20261027000100; column-level INSERT, NEVER password_mac:
+            //                     an inserted pre-sealed credential is the one write that must not exist — GrantFootprintTest
+            //                     H5; is_active / deleted_at / sessions_valid_after / timestamps take their defaults)
+            // Provisioning (a new workspace's first owner) grants its own when it is built.
+            // L-9 (Mail-C1 carry item 4): the FIRST writer of `email` after insert must re-seal identity_mac in the
+            // same statement and grant UPDATE (identity_mac) with itself; it must also decide what the one-per-account
+            // invitation cap (IssueInvitationHandler, D-U7′) means for a changed address.
             // A NEW COLUMN HERE INHERITS SELECT BUT NO UPDATE: the table-level ACL
             // no longer carries UPDATE. So a writer grants its own columns with
             // itself (A4.4 duty 1): E-15g's deactivate/delete add
@@ -373,11 +380,17 @@ final class SchemaManifest
                 // Mail-C2 (Version20261024000100): the redeem's one lookup joins the user and re-checks the identity seal
                 // (identity_mac) and owner Q-3's session floor (sessions_valid_after).
                 DatabaseRoles::AUTH => ['SELECT' => ['id', 'tenant_id', 'email', 'password_hash', 'is_active', 'deleted_at', 'password_mac', 'identity_mac', 'sessions_valid_after']],
-                DatabaseRoles::APP => ['UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at', 'password_mac']],
-                // Mail-C1 (Version20261023000800): the mail worker's one user lookup — never password_hash, password_mac or
-                // display_name (FA-6). identity_mac (the keyed seal over tenant, id and email) is updatable by NO principal:
-                // erp_app reads it through its table SELECT; U-C1 grants erp_app INSERT (…, identity_mac) with CreateUser.
-                DatabaseRoles::WORKER => ['SELECT' => ['id', 'tenant_id', 'email', 'is_active', 'deleted_at', 'identity_mac']],
+                DatabaseRoles::APP => [
+                    'UPDATE' => ['password_hash', 'last_login_at', 'updated_at', 'is_active', 'display_name', 'sessions_valid_after', 'deleted_at', 'password_mac'],
+                    // U-C1b (Version20261027000100): CreateUser's one INSERT — exactly these six, never password_mac.
+                    'INSERT' => ['id', 'tenant_id', 'email', 'password_hash', 'display_name', 'identity_mac'],
+                ],
+                // Mail-C1 (Version20261023000800): the mail worker's one user lookup — never password_hash or display_name
+                // (FA-6). identity_mac (the keyed seal over tenant, id and email) is updatable by NO principal: erp_app reads
+                // it through its table SELECT and INSERTs it (U-C1b, sealed by CreateUser). password_mac joined at U-C1b
+                // (Version20261027000100) with its caller, IssueInvitationHandler: an invitation goes only to a person with
+                // no credential (`password_mac IS NULL`) — read, never the value.
+                DatabaseRoles::WORKER => ['SELECT' => ['id', 'tenant_id', 'email', 'is_active', 'deleted_at', 'identity_mac', 'password_mac']],
             ],
         ],
         'password_reset_token' => [

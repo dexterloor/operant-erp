@@ -1,0 +1,1289 @@
+{
+    "bulk": {
+        "max_ids": 50,
+        "resources": {
+            "customer": {
+                "delete": "DeleteCustomer",
+                "list": "ListCustomers",
+                "permission": "customer.delete",
+                "restore": "RestoreCustomer"
+            },
+            "inventory_item": {
+                "delete": "DeleteItem",
+                "list": "ListItems",
+                "permission": "inventory_item.delete",
+                "restore": "RestoreItem"
+            },
+            "purchase_order": {
+                "delete": "DeletePurchaseOrder",
+                "list": "ListPurchaseOrders",
+                "permission": "purchase_order.delete",
+                "restore": "RestorePurchaseOrder"
+            },
+            "sales_order": {
+                "delete": "DeleteSalesOrder",
+                "list": "ListSalesOrders",
+                "permission": "sales_order.delete",
+                "restore": "RestoreSalesOrder"
+            },
+            "storage_location": {
+                "delete": "DeleteStorageLocation",
+                "list": "ListStorageLocations",
+                "permission": "storage_location.delete",
+                "restore": "RestoreStorageLocation"
+            },
+            "supplier": {
+                "delete": "DeleteSupplier",
+                "list": "ListSuppliers",
+                "permission": "supplier.delete",
+                "restore": "RestoreSupplier"
+            },
+            "warehouse": {
+                "delete": "DeleteWarehouse",
+                "list": "ListWarehouses",
+                "permission": "warehouse.delete",
+                "restore": "RestoreWarehouse"
+            }
+        }
+    },
+    "export": {
+        "app_user": {
+            "list": "ListUsers",
+            "permission": "app_user.view"
+        },
+        "credit_note": {
+            "list": "ListCreditNotes",
+            "permission": "invoice.view"
+        },
+        "customer": {
+            "list": "ListCustomers",
+            "permission": "customer.view"
+        },
+        "fulfilment": {
+            "list": "ListFulfilments",
+            "permission": "fulfilment.view"
+        },
+        "goods_receipt": {
+            "list": "ListGoodsReceipts",
+            "permission": "goods_receipt.view"
+        },
+        "inventory_item": {
+            "list": "ListItems",
+            "permission": "inventory_item.view"
+        },
+        "invoice": {
+            "list": "ListInvoices",
+            "permission": "invoice.view"
+        },
+        "permission": {
+            "list": "ListPermissions",
+            "permission": "role.view"
+        },
+        "purchase_order": {
+            "list": "ListPurchaseOrders",
+            "permission": "purchase_order.view"
+        },
+        "role": {
+            "list": "ListRoles",
+            "permission": "role.view"
+        },
+        "sales_order": {
+            "list": "ListSalesOrders",
+            "permission": "sales_order.view"
+        },
+        "sales_return": {
+            "list": "ListSalesReturns",
+            "permission": "sales_return.view"
+        },
+        "stock_level": {
+            "list": "ListStockLevels",
+            "permission": "stock_level.view"
+        },
+        "stock_movement": {
+            "list": "ListStockMovements",
+            "permission": "stock_movement.view"
+        },
+        "supplier": {
+            "list": "ListSuppliers",
+            "permission": "supplier.view"
+        },
+        "warehouse": {
+            "list": "ListWarehouses",
+            "permission": "warehouse.view"
+        }
+    },
+    "operations": {
+        "ApprovePurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.approve"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "AssignRole": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CancelPurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.cancel"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CancelRoleGrantProposal": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CancelSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.cancel"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ChangePassword": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "none"
+            }
+        },
+        "ConfirmRoleGrantProposal": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ConfirmSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.confirm"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateAdjustmentDecision": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "credit_note.issue"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateBulkArchival": {
+            "idempotency_key_required": true,
+            "permission": {
+                "kind": "derived"
+            }
+        },
+        "CreateBulkRestoration": {
+            "idempotency_key_required": true,
+            "permission": {
+                "kind": "derived"
+            }
+        },
+        "CreateBulkRoleAssignment": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateCustomer": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "customer.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateCustomerAddress": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateCustomerContact": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateExport": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "derived"
+            }
+        },
+        "CreateFulfilment": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "fulfilment.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateGoodsReceipt": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "goods_receipt.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateItem": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "inventory_item.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreatePasswordReset": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "none"
+            }
+        },
+        "CreatePasswordResetRedemption": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "none"
+            }
+        },
+        "CreatePurchaseOrder": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "purchase_order.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreatePurchaseOrderLine": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "purchase_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateRole": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "role.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateRoleGrantProposal": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateSalesOrder": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "sales_order.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateSalesOrderLine": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "sales_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateSalesReturn": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "sales_return.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateStockAdjustment": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "stock_movement.adjust"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateStockTransfer": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "stock_movement.adjust"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateStorageLocation": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "storage_location.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateSupplier": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "supplier.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateSupplierProduct": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "supplier_product.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateUser": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "app_user.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "CreateWarehouse": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "warehouse.create"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteCustomer": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteCustomerAddress": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteCustomerContact": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteItem": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "inventory_item.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeletePurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeletePurchaseOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteRole": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteSalesOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteStorageLocation": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "storage_location.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteSupplier": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteSupplierProduct": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier_product.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteUser": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "app_user.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "DeleteWarehouse": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "warehouse.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetCreditNote": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetCurrentUser": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "none"
+            }
+        },
+        "GetCustomer": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetFulfilment": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "fulfilment.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetGoodsReceipt": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "goods_receipt.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetInvoice": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetItem": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "inventory_item.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetPickList": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "fulfilment.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetPurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetReorderSummary": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "forecast.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetRole": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetRoleGrantProposal": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetSalesReturn": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_return.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetSettings": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "tenant_settings.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetStockMovement": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "stock_movement.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetSupplier": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetUser": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "app_user.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "GetWarehouse": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "warehouse.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "IssueAdjustmentCreditNote": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "credit_note.adjust"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "IssueCreditNote": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "credit_note.issue"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "IssueInvoice": {
+            "idempotency_key_required": true,
+            "permission": {
+                "codes": [
+                    "invoice.issue"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "IssueToken": {
+            "idempotency_key_required": false,
+            "permission": {
+                "kind": "none"
+            }
+        },
+        "ListAuditLogEntries": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "audit_log.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListAuditRecords": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "audit_log.view_record"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListCreditNotes": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListCustomerAddresses": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListCustomerContacts": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListCustomers": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListFulfilments": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "fulfilment.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListGoodsReceipts": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "goods_receipt.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListInvoiceLines": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListInvoices": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListItems": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "inventory_item.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListOfferedRoles": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListPermissions": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListPurchaseOrderLines": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListPurchaseOrders": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListReorderSuggestions": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "forecast.view",
+                    "inventory_item.view",
+                    "purchase_order.view",
+                    "stock_level.view",
+                    "supplier.view",
+                    "supplier_product.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListRoleGrantProposals": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListRoles": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListSalesOrderLines": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListSalesOrders": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListSalesReturns": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_return.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListStockLevels": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "stock_level.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListStockMovements": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "stock_movement.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListStorageLocations": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "storage_location.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListSupplierProducts": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier_product.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListSuppliers": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListUsers": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "app_user.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ListWarehouses": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "warehouse.view"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "PayInvoice": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.pay"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RejectRoleGrantProposal": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreCustomer": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreItem": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "inventory_item.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestorePurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestorePurchaseOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreRole": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreSalesOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreStorageLocation": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "storage_location.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreSupplier": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreUser": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "app_user.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RestoreWarehouse": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "warehouse.delete"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "ReverseInvoicePayment": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.pay"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "RevokeRole": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.assign"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateCustomer": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateCustomerAddress": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateCustomerContact": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "customer.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateItem": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "inventory_item.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdatePurchaseOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdatePurchaseOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "purchase_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateRole": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "role.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateSalesOrder": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateSalesOrderLine": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "sales_order.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateSettings": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "tenant_settings.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateStorageLocation": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "storage_location.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateSupplier": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateSupplierProduct": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "supplier_product.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateUser": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "app_user.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "UpdateWarehouse": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "warehouse.edit"
+                ],
+                "kind": "all_of"
+            }
+        },
+        "VoidInvoice": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "invoice.void"
+                ],
+                "kind": "all_of"
+            }
+        }
+    },
+    "pathParameters": {
+        "format": "uuid",
+        "names": [
+            "addressId",
+            "contactId",
+            "id",
+            "lineId",
+            "locationId",
+            "productId",
+            "roleId"
+        ]
+    }
+}

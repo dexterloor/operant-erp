@@ -347,12 +347,17 @@ final class PasswordResetHandlerTest extends AuthTestCase
     }
 
     /**
-     * **T-G75-4:** an identity seal under ANOTHER key id (key A sealed it, the worker holds key B) is parked in `failed`,
-     * not retried and not silently acknowledged; the operator log names both key ids and never the address; no mail, no
-     * token. Driven through a real `Worker` with the container's retry and failure listeners.
+     * **T-G75-4, now T-U5c's reset half (U-C1a; Mail-C1 carry item 5; `u-c1-final-red.md` L-2):** an identity seal under
+     * ANOTHER key id (key A sealed it, the worker holds key B) is parked in `failed`, not retried and not silently
+     * acknowledged; the operator log names both key ids and never the address; no mail, no token — and, since U-C1a, ONE
+     * `auth.credential.identity_mismatch` row `{"unknown_key_id": true}`, committed before the park. Both runs fall on one
+     * UTC day, so the second (through the real `Worker`) shares the first's allowance: exactly one row. The allowance is
+     * shared with the ordinary mismatch too — at most one seal note per person per UTC day, of either kind (M-4 (a),
+     * SEC TO CONFIRM): a second person with an ordinary mismatch row earlier that day gets no park row. Mutation MU-12
+     * (roll back before the row, as before U-C1a) → no row → red.
      */
     #[Test]
-    public function aForeignKidIsParkedNotDropped(): void
+    public function aSealUnderAnotherKeyIdIsParkedWithATrailRow(): void
     {
         [$tenant, $user] = $this->liveUser();
         $foreign = new CredentialSeal(base64_encode(str_repeat('f', 32)));
@@ -360,7 +365,7 @@ final class PasswordResetHandlerTest extends AuthTestCase
         $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET identity_mac = ? WHERE id = ?::uuid', [$foreign->sealIdentity($tenant, $user, self::EMAIL), $user]);
 
         $logger = $this->recordingLogger();
-        $handler = $this->handler(new MockClock('2026-10-23 10:00:00'), null, null, $logger);
+        $handler = $this->handler(new MockClock(), null, null, $logger);
         try {
             $handler($this->message(self::SLUG, self::EMAIL));
             self::fail('A foreign key id was acknowledged silently.');
@@ -393,6 +398,49 @@ final class PasswordResetHandlerTest extends AuthTestCase
         self::assertCount(1, $async->getSent(), 'The envelope was retried on async.');
         self::assertEmailCount(0);
         self::assertSame([], $this->tokens($tenant));
+
+        $rows = $this->trail($tenant);
+        self::assertCount(1, $rows, 'The park did not leave exactly one trail row for the day.');
+        self::assertSame(AuditEvent::AUTH_CREDENTIAL_IDENTITY_MISMATCH, $rows[0]['event_type']);
+        self::assertSame($user, $rows[0]['actor_user_id']);
+        $metadata = json_decode((string) $rows[0]['metadata'], true);
+        self::assertSame(true, $metadata['unknown_key_id'] ?? null);
+        self::assertSame('anonymous', $metadata['requested_by'] ?? null);
+
+        // The allowance is shared with the ordinary mismatch: an earlier ordinary row that day → no park row.
+        $bob = $this->seedUser($tenant, 'bob@example.test', 'password-number-two');
+        $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET identity_mac = ? WHERE id = ?::uuid', [$this->seal()->sealIdentity($tenant, $bob, 'bob@elsewhere.test'), $bob]);
+        $clock = new MockClock();
+        $this->handler($clock)($this->message(self::SLUG, 'bob@example.test'));
+        $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET identity_mac = ? WHERE id = ?::uuid', [$foreign->sealIdentity($tenant, $bob, 'bob@example.test'), $bob]);
+        try {
+            $this->handler($clock)($this->message(self::SLUG, 'bob@example.test'));
+            self::fail('A foreign key id was acknowledged silently.');
+        } catch (UnrecoverableMessageHandlingException) {
+        }
+        $bobs = array_values(array_filter($this->trail($tenant), static fn (array $r): bool => $r['actor_user_id'] === $bob));
+        self::assertCount(1, $bobs, 'The park wrote a second seal note on a day that already had one.');
+        self::assertArrayNotHasKey('unknown_key_id', json_decode((string) $bobs[0]['metadata'], true));
+    }
+
+    /**
+     * **Reset cap counts resets only (U-C1a; D-U7′; `RESIDUAL_GAPS.md` G-78):** three invitation rows minted today do not
+     * use up a person's three reset links. Mutation MU-9 (the cap counts every purpose) → nothing sent → red.
+     */
+    #[Test]
+    public function invitationsDoNotUseUpTheResetCap(): void
+    {
+        [$tenant, $user] = $this->liveUser();
+        for ($i = 0; $i < 3; ++$i) {
+            $this->executeAsOwnerForTenant($tenant, <<<'SQL'
+                INSERT INTO password_reset_token (id, tenant_id, user_id, purpose, selector, verifier_mac, message_id, created_at, expires_at)
+                VALUES (?::uuid, ?::uuid, ?::uuid, 'invitation', ?, ?, ?::uuid, now(), now() + interval '72 hours')
+                SQL, [Uuid::v4()->toRfc4122(), $tenant, $user, bin2hex(random_bytes(16)), 'v1.00000000.'.str_repeat('0', 64), Uuid::v4()->toRfc4122()]);
+        }
+        $this->handler(new MockClock())($this->message(self::SLUG, self::EMAIL));
+
+        self::assertSame(1, \count(array_filter($this->tokens($tenant), static fn (array $r): bool => 'reset' === $r['purpose'])), 'Invitation rows used up the reset cap.');
+        self::assertEmailCount(1);
     }
 
     /**

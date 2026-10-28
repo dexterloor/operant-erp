@@ -513,6 +513,109 @@ final class PasswordResetRedeemTest extends AuthTestCase
 
     private ?\Doctrine\DBAL\Connection $freshOwner = null;
 
+    /**
+     * **T-U9 (U-C1a; Mail-C2 carry items 1, 2):** an invitation link sets the FIRST password of a person who has never had
+     * one; the trail says `{"purpose":"invitation"}`; the new password signs in. Mutation MU-11 (metadata hard-coded
+     * `reset`) → red.
+     */
+    #[Test]
+    public function anInvitationSetsTheFirstPassword(): void
+    {
+        [$tenant, $user] = $this->uncredentialedUser();
+        $token = $this->mint($tenant, $user, expiresIn: 259200, purpose: 'invitation');
+
+        $this->redeem($token, self::NEW);
+        self::assertSame(200, $this->httpStatus(), $this->responseContent());
+        $rows = $this->fetchAsOwnerForTenant($tenant, 'SELECT metadata FROM audit_log WHERE event_type = ?', [AuditEvent::AUTH_PASSWORD_RESET]);
+        self::assertCount(1, $rows);
+        self::assertSame(['purpose' => 'invitation'], json_decode((string) $rows[0]['metadata'], true));
+        $this->signIn(self::SLUG, self::EMAIL, self::NEW);
+        self::assertSame(200, $this->httpStatus(), 'The password an invitation set does not sign in.');
+    }
+
+    /**
+     * **T-U9:** an invitation for a person who already has a credential is the one constant 401, refused at step 4 —
+     * before the KDF runs (the armed KDF must never fire). Mutation MU-5 (accept `invitation` without the rule) → the KDF
+     * runs (7b would still refuse, which is why the KDF is the observable) → red.
+     */
+    #[Test]
+    public function anInvitationForSomeoneWithAPasswordIsRefusedBeforeTheKdf(): void
+    {
+        [$tenant, $user] = $this->liveUser();
+        $token = $this->mint($tenant, $user, purpose: 'invitation');
+        $hashed = false;
+        $this->kdf()->arm(function () use (&$hashed): void {
+            $hashed = true;
+        });
+
+        $this->redeem($token, self::NEW);
+
+        self::assertSame(401, $this->httpStatus());
+        self::assertFalse($hashed, 'An invitation for a credentialed person reached the KDF.');
+        $this->signIn(self::SLUG, self::EMAIL, self::OLD);
+        self::assertSame(200, $this->httpStatus());
+    }
+
+    /**
+     * **T-U9 (7b TOCTOU):** a credential set while the invitation's KDF runs is never overwritten → 401, nothing changed.
+     * Mutation MU-6 (drop 7b's invitation predicate) → 200 → red.
+     */
+    #[Test]
+    public function aCredentialSetDuringAnInvitationRedeemIsKept(): void
+    {
+        [$tenant, $user, $mac] = $this->uncredentialedUser();
+        $token = $this->mint($tenant, $user, purpose: 'invitation');
+        $this->kdf()->arm(function () use ($tenant, $user, $mac): void {
+            self::assertSame(1, $this->asFreshOwner($tenant, 'UPDATE app_user SET password_mac = ? WHERE id = ?::uuid', [$mac, $user]));
+        });
+        $this->redeem($token, self::NEW);
+
+        self::assertSame(401, $this->httpStatus(), 'An invitation overwrote a credential set while it was being redeemed.');
+        $after = $this->credentialOf($tenant, $user);
+        self::assertSame($mac, $after['password_mac']);
+        self::assertSame([], $this->resetRows($tenant));
+    }
+
+    /**
+     * **T-U9 (Mail-C2 carry item 4):** a reset redeemed by a never-credentialed person also uses up their outstanding
+     * invitation. Mutation MU-14 (7a only consumes `reset` links) → the invitation row stays unused → red.
+     */
+    #[Test]
+    public function aResetRedeemUsesUpAnOutstandingInvitation(): void
+    {
+        [$tenant, $user] = $this->uncredentialedUser();
+        $invitation = $this->mint($tenant, $user, expiresIn: 259200, purpose: 'invitation');
+        $reset = $this->mint($tenant, $user);
+
+        $this->redeem($reset, self::NEW);
+        self::assertSame(200, $this->httpStatus(), $this->responseContent());
+        $open = $this->fetchAsOwnerForTenant($tenant, "SELECT count(*) AS n FROM password_reset_token WHERE purpose = 'invitation' AND used_at IS NULL");
+        self::assertSame(0, (int) $open[0]['n'], 'The invitation survived the reset.');
+        $this->redeem($invitation, self::NEW.'2');
+        self::assertSame(401, $this->httpStatus());
+    }
+
+    /** **T-U9 (owner Q-3; Mail-C2 carry item 5):** an invitation minted before the person's latest session floor is dead. */
+    #[Test]
+    public function anInvitationMintedBeforeTheLatestLivenessChangeIsDead(): void
+    {
+        [$tenant, $user] = $this->uncredentialedUser();
+        $token = $this->mint($tenant, $user, expiresIn: 259200, createdAt: time() - 5, purpose: 'invitation');
+        $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET sessions_valid_after = to_timestamp(?) WHERE id = ?::uuid', [time() - 2, $user]);
+        $this->redeem($token, self::NEW);
+        self::assertSame(401, $this->httpStatus(), 'An invitation minted before the latest session floor still worked.');
+    }
+
+    /** @return array{0: string, 1: string, 2: string} tenant, a live sealed user whose credential seal was removed, and that seal */
+    private function uncredentialedUser(): array
+    {
+        [$tenant, $user] = $this->liveUser();
+        $mac = (string) $this->credentialOf($tenant, $user)['password_mac'];
+        $this->executeAsOwnerForTenant($tenant, 'UPDATE app_user SET password_mac = NULL WHERE id = ?::uuid', [$user]);
+
+        return [$tenant, $user, $mac];
+    }
+
     protected function tearDown(): void
     {
         $this->kdf()->disarm();
@@ -648,7 +751,8 @@ final class PasswordResetRedeemTest extends AuthTestCase
             'foreign kid' => $this->tokenFrom($tenant, $selector, $verifier),
             'expired' => $this->mint($tenant, $person('expired'), expiresIn: -60),
             'used' => $usedToken,
-            'invitation purpose' => $this->mint($tenant, $person('invited'), purpose: 'invitation'),
+            // U-C1a: an invitation is redeemable only while the person has no credential; this person has one.
+            'invitation, person already credentialed' => $this->mint($tenant, $person('invited'), purpose: 'invitation'),
             'inactive person' => $this->mint($tenant, $person('inactive', active: false)),
             'removed person' => $this->mint($tenant, $removed),
             'suspended workspace' => $this->mint($suspended, $person('suspended', inTenant: $suspended)),

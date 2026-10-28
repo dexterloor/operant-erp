@@ -11,6 +11,8 @@ use App\Platform\Messaging\MessageNotCatalogued;
 use App\Platform\Messaging\PreAuthenticationMessage;
 use App\Platform\Messaging\TenantIdStamp;
 use App\Platform\Messaging\TenantMessage;
+use App\Platform\Messaging\TenantStampMiddleware;
+use App\Platform\Messaging\TenantStatusGateMiddleware;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\Tests\Messaging\Fixture\BareScalarProbe;
 use App\Tests\Messaging\Fixture\BothMarkersProbe;
@@ -452,16 +454,53 @@ final class MessengerConfigurationTest extends KernelTestCase
     /**
      * 14. **Tripwire (RED M-5): the first `TenantMessage` owes the tenant-status gate.** Red when a catalogue class
      * implements `TenantMessage` and `App\Tests\Messaging\WorkerTenantStatusTest` is absent or its `tenantStatuses()`
-     * provider does not cover every `Tenant::STATUS_*`. Planted control: a `TenantMessage` in a planted catalogue → red.
-     * Mutation M18.
+     * provider does not cover every `Tenant::STATUS_*`. Mutation M18.
+     *
+     * **Re-keyed at U-C1a, not retired (deviation D-3, `docs/session13/u-c1-progress.md`).** Until U-C1a the planted control
+     * was "a `TenantMessage` in a planted catalogue → owed"; it reddened only because the gate test did not exist. U-C1a
+     * builds the gate and `WorkerTenantStatusTest`, so that control could no longer fail. The obligation now names the gate
+     * test it checks, and the controls plant the two ways the gate can be missing: no gate test (→ owed) and a gate test
+     * whose provider misses a status (→ owed); the real gate test owes nothing. The main arm stays the guard for every
+     * later `TenantMessage` (live from U-C1b's `IssueInvitation`); that the gate is on the bus is T-U7b (#14b).
+     * Mutation MU-23 (the coverage comparison always true) → the controls red.
      */
     #[Test]
     public function aTenantMessageInTheCatalogueRequiresTheTenantStatusGate(): void
     {
-        self::assertNotSame([], self::tenantGateObligations([TenantProbe::class]), 'A planted TenantMessage did not trip the tripwire.');
-        self::assertSame([], self::tenantGateObligations([CataloguedProbe::class]));
+        $partial = (new class {
+            /** @return iterable<string, array{0: string}> one status only */
+            public static function tenantStatuses(): iterable
+            {
+                yield Tenant::STATUS_ACTIVE => [Tenant::STATUS_ACTIVE];
+            }
+        })::class;
+        self::assertNotSame([], self::tenantGateObligations([TenantProbe::class], 'App\Tests\Messaging\NoSuchGateTest'), 'A planted TenantMessage with no gate test did not trip the tripwire.');
+        self::assertNotSame([], self::tenantGateObligations([TenantProbe::class], $partial), 'A planted TenantMessage whose gate test misses a status did not trip the tripwire.');
+        self::assertSame([], self::tenantGateObligations([TenantProbe::class]), 'The real gate test does not cover every status.');
+        self::assertSame([], self::tenantGateObligations([CataloguedProbe::class], 'App\Tests\Messaging\NoSuchGateTest'));
         $owed = self::tenantGateObligations(MessageCatalogue::ALL);
         self::assertSame([], $owed, implode("\n", $owed));
+    }
+
+    /**
+     * 14b. **T-U7b (U-C1a; u-c1-red.md L-5):** the tenant-status gate is on the compiled bus, immediately after the stamp
+     * check and before the send and handle middleware — #14 above checks only the test provider's coverage. Mutation: drop
+     * the gate from `messenger.yaml`, or list it before `TenantStampMiddleware` → red.
+     */
+    #[Test]
+    public function theTenantStatusGateFollowsTheStampCheckOnTheBus(): void
+    {
+        $classes = array_map(get_class(...), self::busMiddleware());
+        $stamp = array_search(TenantStampMiddleware::class, $classes, true);
+        $gate = array_search(TenantStatusGateMiddleware::class, $classes, true);
+        self::assertIsInt($stamp, 'The stamp middleware is not on the bus.');
+        self::assertIsInt($gate, 'The tenant-status gate is not on the bus.');
+        self::assertSame($stamp + 1, $gate, 'The tenant-status gate does not come right after the stamp check.');
+        foreach ([SendMessageMiddleware::class, HandleMessageMiddleware::class] as $later) {
+            $at = array_search($later, $classes, true);
+            self::assertIsInt($at, "$later is not on the bus.");
+            self::assertGreaterThan($gate, $at, "$later runs before the tenant-status gate.");
+        }
     }
 
     /**
@@ -529,10 +568,11 @@ final class MessengerConfigurationTest extends KernelTestCase
 
     /**
      * @param list<class-string> $catalogue
+     * @param string             $gate      the gate test whose static `tenantStatuses()` must cover every `Tenant::STATUS_*`
      *
      * @return list<string> the obligations still owed, empty when none
      */
-    public static function tenantGateObligations(array $catalogue): array
+    public static function tenantGateObligations(array $catalogue, string $gate = 'App\Tests\Messaging\WorkerTenantStatusTest'): array
     {
         $tenantMessages = array_values(array_filter($catalogue, static fn (string $c): bool => is_subclass_of($c, TenantMessage::class)));
         if ([] === $tenantMessages) {
@@ -546,7 +586,6 @@ final class MessengerConfigurationTest extends KernelTestCase
         }
         sort($statuses);
         $covered = [];
-        $gate = 'App\Tests\Messaging\WorkerTenantStatusTest';
         if (class_exists($gate) && method_exists($gate, 'tenantStatuses')) {
             foreach ($gate::tenantStatuses() as $case) {
                 $covered[] = (string) (\is_array($case) ? reset($case) : $case);

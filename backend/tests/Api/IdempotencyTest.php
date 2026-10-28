@@ -179,6 +179,12 @@ final class IdempotencyTest extends PurchaseOrderTestCase
                 .'mechanism is `unique:user_role_unique` on the natural pair, and a repeat is REFUSED 409 '
                 .'user_role.already_held, never replayed: the key header is required and its value is not stored.',
         ],
+        'CreateUser' => [
+            'method' => 'repeatCreateUser',
+            'why' => 'A second person at one address, a second user.created row and a second invitation (U-C1b). Its mechanism '
+                .'is `unique:app_user_tenant_email_live` on the live email, under the role lock; a repeat is REFUSED 409 '
+                .'app_user.email_taken, never replayed: the key header is required and its value is not stored (N-1).',
+        ],
         'CreateRole' => [
             'method' => 'repeatCreateRole',
             'why' => 'A second role of one name and a second role.permissions_changed row (roles slice 4 C1). Its mechanism is '
@@ -785,6 +791,23 @@ final class IdempotencyTest extends PurchaseOrderTestCase
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM user_role WHERE user_id = ?::uuid', [$subject]), $why);
         self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
             "SELECT id FROM audit_log WHERE event_type = 'role.assigned'"), $why);
+    }
+
+    private function repeatCreateUser(string $why): void
+    {
+        $key = [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()];
+        $body = ['email' => 'repeat-person@example.test', 'display_name' => 'Repeat person'];
+
+        $this->send('POST', '/users', $body, $key);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('POST', '/users', $body, $key);
+
+        self::assertSame(409, $this->httpStatus(), 'The repeat was not refused: '.(string) $this->client()->getResponse()->getContent());
+        self::assertSame('app_user.email_taken', $this->json()['rule']);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A, "SELECT id FROM app_user WHERE email = 'repeat-person@example.test'"), $why);
+        self::assertCount(1, $this->fetchAsOwnerForTenant(self::TENANT_A,
+            "SELECT id FROM audit_log WHERE event_type = 'user.created'"), $why);
     }
 
     private function repeatCreateRole(string $why): void

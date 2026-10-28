@@ -135,6 +135,24 @@ final class PasswordResetRequestTest extends AuthTestCase
     }
 
     /**
+     * **T-U4a (U-C1b; final RED M-2, M-4):** an address `CreateUser`'s create-only rule refuses (a zero-width space) but the
+     * store holds — seeded by the owner — still REQUESTS a reset: 202 and one dispatch. It pins only that `EmailAddress`, the
+     * lookup predicate, stays lenient (L-7); it does NOT claim the reset can be mailed — the worker's `new Address()` refuses
+     * such an address, and its message retries into `failed`, as before U-C1 (owner notice N-9; a residual).
+     */
+    #[Test]
+    public function aStoredAddressTheCreateRuleRefusesStillRequestsAReset(): void
+    {
+        $tenant = $this->seedTenant(self::SLUG_PREFIX.'reset-zw', Tenant::STATUS_ACTIVE);
+        $this->seedUser($tenant, "ad\u{200B}a@example.test", 'password-number-one');
+        self::assertFalse((new \App\Modules\UserManagement\Infrastructure\MimeAddressCheck())->accepts("ad\u{200B}a@example.test"), 'Control: the create rule accepts this address, so the test proves nothing.');
+
+        $this->ask(self::SLUG_PREFIX.'reset-zw', "ad\u{200B}a@example.test");
+        self::assertSame(202, $this->httpStatus(), $this->client()->getResponse()->getContent());
+        self::assertCount(1, $this->async()->getSent(), 'A stored address the create rule refuses could not request a reset.');
+    }
+
+    /**
      * **T-M2:** the request path reads no user and writes nothing but the two budgets — `erp_app`, `erp_ai`, `erp_auth`,
      * `erp_authlog` and `erp_worker` issue nothing; `erp_ratelimit` issues something.
      */

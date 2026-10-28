@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Platform\Messaging;
 
+use App\Modules\UserManagement\Application\Contract\Message\IssueInvitation;
 use App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested;
 
 /**
@@ -12,7 +13,8 @@ use App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequest
  * whose `type` is not here is refused before any class is built), `MessageClassAllowlistMiddleware` (a dispatch of a class
  * not here is refused), and `MessengerConfigurationTest` (routing is exactly this list, all to `async`).
  *
- * **One member since Mail-C1:** the password-reset request. It names a MODULE class from `Platform` — the one Platform
+ * **Two members since U-C1b:** the password-reset request (Mail-C1) and the invitation (`IssueInvitation`, the first
+ * {@see TenantMessage}). It names a MODULE class from `Platform` — the one Platform
  * list that must (it is read by the serializer, the middleware and the config test, and a string list would hide the
  * dependency from deptrac without removing it): an A-1 exception, registered in `deptrac.yaml` with its revisit trigger
  * (the third catalogued message, or the first from a module other than UserManagement — then feed this from
@@ -34,5 +36,6 @@ final class MessageCatalogue
     /** @var list<class-string> */
     public const ALL = [
         PasswordResetRequested::class,
+        IssueInvitation::class,
     ];
 }

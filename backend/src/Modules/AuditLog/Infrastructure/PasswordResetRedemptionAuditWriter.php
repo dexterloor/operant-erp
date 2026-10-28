@@ -19,7 +19,10 @@ use Symfony\Component\Uid\Uuid;
  * worker's `auth.password_reset.issued` row and the pre-authentication `auth.login.*` rows, so one person's reset can be
  * followed end to end by one label (`SEC` TO CONFIRM). `metadata` is the literal `{"purpose":"reset"}` — never anything
  * derived from the token or the password (E-23). `occurred_at now()`, the `erp_app` writer shape (the audit-order trigger
- * clamps `erp_app`). Uncapped (E-23); bounded upstream by the worker's 3 links per person per 24 h.
+ * clamps `erp_app`). Uncapped (E-23); bounded upstream by the worker's 3 reset links per person per 24 h and one invitation per account.
+ *
+ * U-C1a: an `invitation` redeem writes `{"purpose":"invitation"}` — one of two literals keyed by the row's purpose, never a
+ * value interpolated from input.
  */
 final readonly class PasswordResetRedemptionAuditWriter
 {
@@ -27,15 +30,19 @@ final readonly class PasswordResetRedemptionAuditWriter
     {
     }
 
-    public function record(string $tenantId, string $actorUserId, string $storedEmail, ?string $ipAddress): void
+    /** `$purpose` (the redeemed row's) selects one of two literals; anything else is refused (Mail-C2 carry item 2). */
+    private const METADATA = ['reset' => '{"purpose":"reset"}', 'invitation' => '{"purpose":"invitation"}'];
+
+    public function record(string $tenantId, string $actorUserId, string $storedEmail, ?string $ipAddress, string $purpose): void
     {
-        $this->tenants->run($tenantId, function () use ($tenantId, $actorUserId, $storedEmail, $ipAddress): void {
+        $metadata = self::METADATA[$purpose] ?? throw new \LogicException('A redeemed link has a purpose this writer does not record.');
+        $this->tenants->run($tenantId, function () use ($tenantId, $actorUserId, $storedEmail, $ipAddress, $metadata): void {
             $this->app->executeStatement(<<<'SQL'
                 INSERT INTO audit_log
                     (id, tenant_id, occurred_at, event_type, actor_user_id, actor_label,
                      subject_type, subject_id, ip_address, metadata)
                 VALUES
-                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, NULL, NULL, ?::inet, '{"purpose":"reset"}'::jsonb)
+                    (?::uuid, ?::uuid, now(), ?, ?::uuid, ?, NULL, NULL, ?::inet, ?::jsonb)
                 SQL, [
                     Uuid::v4()->toRfc4122(),
                     $tenantId,
@@ -43,6 +50,7 @@ final readonly class PasswordResetRedemptionAuditWriter
                     $actorUserId,
                     $storedEmail,
                     $ipAddress,
+                    $metadata,
                 ]);
         });
     }

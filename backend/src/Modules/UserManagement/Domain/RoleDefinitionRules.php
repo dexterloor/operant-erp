@@ -21,6 +21,8 @@ namespace App\Modules\UserManagement\Domain;
  *    `edges(N)` is subtracted because a pair inside the new set alone is PC-4's to refuse; `edges(H ∪ O)` because a span the
  *    holder already carried is tolerated (new-conflict-only, the shape PC-13/E-18 already ship). Stricter than shipped
  *    `GrantConflict::newRows` (row grain) for new pairs, equal for pre-existing spans. `SEC` confirms the mechanics (D-7).
+ *    Grants now use edge grain for held violators too ({@see HeldSpanConflict::newEdgeRows()}, G-91): a grant adding a new
+ *    pair on a row the person already spans is refused, as an edit adding one is here.
  */
 final class RoleDefinitionRules
 {

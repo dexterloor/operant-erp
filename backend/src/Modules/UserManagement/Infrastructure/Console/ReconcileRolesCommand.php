@@ -14,7 +14,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * `app:roles:reconcile --tenant=<uuid>` — the thin console face of {@see RoleReconciliation} (G-10 condition (1); roles
  * slice 2: arms B and F in C2, A and C in C3). One line per finding, `finding,user_id,role_id,at` — arm A adds
- * `,inserted_by,owner_process_row=yes|no`; exit **1** on any finding, **0** on none,
+ * `,inserted_by,owner_process_row=yes|no`; arm H (G-91) adds `,rows=SoD-3;SoD-5` (`;` inside the field, because the line
+ * is comma-joined); exit **1** on any finding, **0** on none,
  * **2** when a control refuses (no findings printed); the cadence sentence on every run.
  *
  * **Not on `ServingCredentialGuard::CONSOLE_OWNER_COMMANDS`, on purpose** (design D-9): it never needs the owner, and adding
@@ -68,6 +69,10 @@ final class ReconcileRolesCommand extends Command
             if (\array_key_exists('permission_code', $finding)) {
                 // Arm D (roles slice 4 C1): which code is unaccounted for, or phantom.
                 $line .= ',permission_code='.$finding['permission_code'];
+            }
+            if (\array_key_exists('rows', $finding)) {
+                // Arm H (G-91): which SoD rows the person combines, or which the masking role hides. Report-only.
+                $line .= ',rows='.implode(';', $finding['rows']);
             }
             if (RoleReconciliation::FINDING_NO_ACTIVE_OWNER === $finding['finding']) {
                 $line .= ' (attribution and recovery triage, not detection)';

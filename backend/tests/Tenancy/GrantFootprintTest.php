@@ -906,6 +906,92 @@ final class GrantFootprintTest extends TenancyTestCase
         self::assertSame([], $violations($probe()), 'The planted status grant survived its REVOKE.');
     }
 
+    /** The `app_user` columns `UserCreation` inserts (U-C1b, `Version20261027000100`) — typed from its one INSERT, never the manifest. */
+    private const USER_COLUMNS_THE_CREATOR_INSERTS = ['display_name', 'email', 'id', 'identity_mac', 'password_hash', 'tenant_id'];
+
+    /**
+     * **T-U6: `erp_app` can INSERT exactly the six `app_user` columns `CreateUser` names — proved by running the statement as
+     * `erp_app`** (U-C1b; the invoice issuer's shape). Domain server-derived (`pg_attribute`); one connection and one
+     * rolled-back transaction per column; the zero-row probe. **Positive control:** `email` accepted. **Anti-vacuity:**
+     * `password_mac` (a pre-sealed credential must never be insertable — H5's insert clause), `is_active`, `deleted_at` and
+     * `sessions_valid_after` refused. **Planted control, committed then undone:** `GRANT INSERT (password_mac)` must produce
+     * exactly one violation. Mutation MU-8 (that grant in the migration) → red here and in H5.
+     */
+    #[Test]
+    public function theCreatorCanInsertOnlyTheUserColumnsItWrites(): void
+    {
+        $columns = $this->owner()->fetchFirstColumn(<<<'SQL'
+            SELECT a.attname FROM pg_attribute a
+            WHERE a.attrelid = 'app_user'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+            SQL);
+
+        $probe = function () use ($columns): array {
+            $outcomes = [];
+            foreach ($columns as $column) {
+                $connection = $this->secondClient();
+                $connection->beginTransaction();
+                try {
+                    $this->tenantContext()->establishOn($connection, self::TENANT_A);
+                    $quoted = $connection->getDatabasePlatform()->quoteSingleIdentifier($column);
+                    $connection->executeStatement(sprintf('INSERT INTO app_user (%1$s) SELECT %1$s FROM app_user WHERE false', $quoted));
+                    $outcomes[$column] = 'accepted';
+                } catch (DriverException $e) {
+                    $outcomes[$column] = '42501' === $e->getSQLState()
+                        && str_contains($e->getMessage(), 'permission denied for table app_user')
+                        ? 'refused'
+                        : 'other: '.($e->getSQLState() ?? '?').' '.$e->getMessage();
+                } finally {
+                    $connection->rollBack();
+                    $connection->close();
+                }
+            }
+
+            return $outcomes;
+        };
+
+        $violations = static function (array $outcomes): array {
+            $wrong = [];
+            foreach ($outcomes as $column => $outcome) {
+                $inserted = \in_array($column, self::USER_COLUMNS_THE_CREATOR_INSERTS, true);
+                if ($inserted && 'accepted' !== $outcome) {
+                    $wrong[] = sprintf('app_user.%s: CreateUser inserts it, but erp_app got "%s"', $column, $outcome);
+                } elseif (!$inserted && 'refused' !== $outcome) {
+                    $wrong[] = sprintf('app_user.%s: CreateUser does not insert it, but erp_app got "%s"', $column, $outcome);
+                }
+            }
+
+            return $wrong;
+        };
+
+        $outcomes = $probe();
+
+        self::assertSame('accepted', $outcomes['email'] ?? null,
+            'The positive control failed: erp_app could not insert app_user.email, so the refusals below prove nothing.');
+        foreach (['password_mac', 'is_active', 'deleted_at', 'sessions_valid_after'] as $closed) {
+            self::assertSame('refused', $outcomes[$closed] ?? null, "erp_app must not insert app_user.{$closed}, and the probe did not see it refused.");
+        }
+        foreach (self::USER_COLUMNS_THE_CREATOR_INSERTS as $inserted) {
+            self::assertArrayHasKey($inserted, $outcomes, "A column CreateUser inserts, {$inserted}, is not in app_user.");
+        }
+
+        self::assertSame([], $violations($outcomes),
+            "erp_app's INSERT on app_user is not exactly the columns CreateUser names. A 42501 from the writer is fixed by "
+            ."removing the column from its statement, never by widening the grant:\n  ".implode("\n  ", $violations($outcomes)));
+
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT INSERT (password_mac) ON app_user TO %s', DatabaseRoles::APP));
+            self::assertSame(
+                ['app_user.password_mac: CreateUser does not insert it, but erp_app got "accepted"'],
+                $violations($probe()),
+                'A committed INSERT (password_mac) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE INSERT (password_mac) ON app_user FROM %s', DatabaseRoles::APP));
+        }
+
+        self::assertSame([], $violations($probe()), 'The planted password_mac grant survived its REVOKE.');
+    }
+
     /**
      * The `user_role` columns `AssignRole` inserts, and no others (roles slice 2, C3, `Version20260930000100`; H1). **Typed
      * by hand from `RoleAssignment`'s one `INSERT INTO user_role (…)` statement, never read from `SchemaManifest`** — the
@@ -2404,6 +2490,16 @@ final class GrantFootprintTest extends TenancyTestCase
         }
         self::assertFalse(self::credentialClauseFires(...[...$signals, 'appUpdatesHash' => false, 'sealedPaths' => false]), 'The credential clause fired without the password_hash grant.');
 
+        // U-C1b (`u-c1-red.md` L-2): the INSERT clause. erp_app now inserts people; that is safe only while nobody can
+        // UPDATE identity_mac and erp_app cannot insert password_mac. Planted controls at the clause-function level only.
+        $insert = $this->insertSignals();
+        self::assertSame(['appInsertsUser' => true, 'nobodyUpdatesIdentityMac' => true, 'appInsertsMac' => false], $insert,
+            'The insert clause\'s signals are not as U-C1b built them.');
+        self::assertFalse(self::insertClauseFires(...$insert), 'The insert clause fired with every signal in force.');
+        self::assertTrue(self::insertClauseFires(true, false, false), 'A principal holding UPDATE (identity_mac) did not arm the insert clause.');
+        self::assertTrue(self::insertClauseFires(true, true, true), 'erp_app holding INSERT (password_mac) did not arm the insert clause.');
+        self::assertFalse(self::insertClauseFires(false, false, true), 'The insert clause fired without an INSERT on app_user.');
+
         $fired = self::leavesTheLaptop($roleWrite, $files, $services, self::manifestGivesTheAgentAWrite());
         self::assertSame([], $fired,
             "H5 (G-10, G-12): a role or credential write is about to leave the laptop.\n  ".implode("\n  ", $fired)
@@ -2424,6 +2520,11 @@ final class GrantFootprintTest extends TenancyTestCase
                     $found[] = DatabaseRoles::APP." holds $privilege on $table";
                 }
             }
+        }
+        $insert = $this->insertSignals();
+        if (self::insertClauseFires(...$insert)) {
+            $found[] = DatabaseRoles::APP.' can insert app_user rows while identity_mac is updatable or password_mac insertable (G-12, U-C1b): '
+                .json_encode($insert, \JSON_THROW_ON_ERROR);
         }
         $credential = $this->credentialSignals();
         if (self::credentialClauseFires(...$credential)) {
@@ -2468,6 +2569,36 @@ final class GrantFootprintTest extends TenancyTestCase
             'appInsertsMac' => $column(DatabaseRoles::APP, 'INSERT'),
             'sealedPaths' => self::takesTheSeal(SignIn::class) && self::takesTheSeal(ChangePassword::class) && self::theSealIsTheRealOne(),
         ];
+    }
+
+    /**
+     * **H5's INSERT clause (U-C1b; `u-c1-red.md` L-2, Revision 2 R2.2 T-U6).** `erp_app` inserting `app_user` rows is safe
+     * only while an inserted row can never carry a working credential or a valid identity seal: `password_mac` is not
+     * insertable (sign-in fails closed) and NO application principal can UPDATE `identity_mac` (the seal needs the key, so
+     * a planted row is never mailed — T-U5). `erp_app`'s INSERT of `identity_mac` is REQUIRED (CreateUser seals at insert),
+     * so it is not a signal. Pins the stranger variant only; the revived former member is T-U5b's.
+     *
+     * @return array{appInsertsUser: bool, nobodyUpdatesIdentityMac: bool, appInsertsMac: bool}
+     */
+    private function insertSignals(): array
+    {
+        $nobody = true;
+        foreach (DatabaseRoles::APPLICATION_ROLES as $role) {
+            if ((bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'identity_mac', 'UPDATE')", [$role])) {
+                $nobody = false;
+            }
+        }
+
+        return [
+            'appInsertsUser' => (bool) $this->owner()->fetchOne("SELECT has_any_column_privilege(?, 'app_user', 'INSERT')", [DatabaseRoles::APP]),
+            'nobodyUpdatesIdentityMac' => $nobody,
+            'appInsertsMac' => (bool) $this->owner()->fetchOne("SELECT has_column_privilege(?, 'app_user', 'password_mac', 'INSERT')", [DatabaseRoles::APP]),
+        ];
+    }
+
+    private static function insertClauseFires(bool $appInsertsUser, bool $nobodyUpdatesIdentityMac, bool $appInsertsMac): bool
+    {
+        return $appInsertsUser && !($nobodyUpdatesIdentityMac && !$appInsertsMac);
     }
 
     private static function credentialClauseFires(bool $appUpdatesHash, bool $authSelectsMac, bool $shapeCheck, bool $appInsertsMac, bool $sealedPaths): bool
@@ -2652,13 +2783,19 @@ final class GrantFootprintTest extends TenancyTestCase
     }
 
     /**
-     * **T-M15 (Mail-C1): the worker reads neither a password nor its seal, nor the display name** (FA-6: granted with
-     * their callers, if ever). Control: it reads `email`. Mutation MU-23 (`GRANT SELECT (password_hash) … TO erp_worker`) → red.
+     * **T-M15 (Mail-C1): the worker reads neither a password hash nor the display name** (FA-6: granted with their callers,
+     * if ever). Control: it reads `email`. Mutation MU-23 (`GRANT SELECT (password_hash) … TO erp_worker`) → red.
+     *
+     * **Moved deliberately at U-C1b:** `password_mac` left the refused list — FA-6's grant arrived with its caller,
+     * `IssueInvitationHandler`, which mails only a person with no credential (`password_mac IS NULL`;
+     * `Version20261027000100`). It is asserted readable below, so the move cannot pass silently either way.
      */
     #[Test]
     public function theWorkerReadsNeitherPasswordNorPasswordHash(): void
     {
-        foreach (['password_hash', 'password_mac', 'display_name', 'last_login_at', 'sessions_valid_after'] as $column) {
+        self::assertTrue((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'app_user', 'password_mac', 'SELECT']),
+            'erp_worker cannot read app_user.password_mac, which IssueInvitationHandler needs (U-C1b).');
+        foreach (['password_hash', 'display_name', 'last_login_at', 'sessions_valid_after'] as $column) {
             self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::WORKER, 'app_user', $column, 'SELECT']),
                 "erp_worker can read app_user.$column.");
         }

@@ -5,7 +5,7 @@
 #   `theSerializerIsNeverPhpNative`).
 # - `doctrine_transaction` is NOT on the bus (API.md §11.1 O-2; `doctrineTransactionIsNotOnTheBus`), and no transport is
 #   Doctrine in any environment -- `symfony/doctrine-messenger` is not installed (`theDoctrineTransportPackageIsNotInstalled`).
-# - Routing is EXACTLY `MessageCatalogue::ALL`, all to `async` -- one message since Mail-C1, the password-reset request.
+# - Routing is EXACTLY `MessageCatalogue::ALL`, all to `async` -- two messages since U-C1b: the password-reset request (Mail-C1) and the invitation.
 #   `SendEmailMessage` is never routed and never catalogued: the mailer sends synchronously (`mailer.yaml`).
 # - No env read appears in a comment here: `EnvProcessorPinTest` reads comments too.
 framework:
@@ -19,6 +19,10 @@ framework:
                 middleware:
                     - App\Platform\Messaging\MessageClassAllowlistMiddleware
                     - App\Platform\Messaging\TenantStampMiddleware
+                    # U-C1a (API.md §11.2 O-8): a received workspace message is handled only while its workspace permits
+                    # sign-in. After the stamp check, before the handler. It takes the worker connection lazily: the web
+                    # process builds this middleware on every dispatch (u-c1-final-red.md C-1).
+                    - App\Platform\Messaging\TenantStatusGateMiddleware
         transports:
             # Redis (owner Q-1, confirmed 2026-10-23). The DSN carries NO path and no `stream`/`group` query: in the bridge a
             # DSN path overrides `options.stream`, so a path would put both transports on one stream (mail-c0-red.md M-1;
@@ -35,6 +39,7 @@ framework:
                 options: { stream: failed, lazy: true }
         routing:
             App\Modules\UserManagement\Application\Contract\Message\PasswordResetRequested: async
+            App\Modules\UserManagement\Application\Contract\Message\IssueInvitation: async
 
 when@test:
     framework:

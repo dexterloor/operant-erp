@@ -223,6 +223,25 @@ final class BulkRoleAssignmentTest extends PurchaseOrderTestCase
         self::assertSame([], $this->proposalRows(), 'Bulk never proposes.');
     }
 
+    /**
+     * **G-91 / BK-11 (case C) in bulk:** a member who already combines invoicing and shipping (SoD-4, owner SQL) is counted
+     * but not given `sales_rep`, without saying who (S-4's shipped behaviour for every refusal); the clean member is.
+     */
+    #[Test]
+    public function aMemberWhoAlreadyCombinesTwoDutiesIsNotGivenANewCombination(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $salesRep = $this->systemRole(DefaultRoles::SALES_REP);
+        $held = $this->holderOf([$this->composedRole(['invoice.issue']), $this->systemRole(DefaultRoles::WAREHOUSE_OPERATOR)]);
+        $clean = $this->seedPrincipal(self::TENANT_A, []);
+
+        $this->bulk($salesRep, [$held, $clean]);
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['requested' => 2, 'applied' => 1], array_intersect_key($this->json(), ['requested' => 0, 'applied' => 0]));
+        self::assertSame([0, 1], [$this->grantsOf($held, $salesRep), $this->grantsOf($clean, $salesRep)]);
+    }
+
     // -----------------------------------------------------------------------
     // The answer.
     // -----------------------------------------------------------------------

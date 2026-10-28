@@ -6,6 +6,8 @@ namespace App\Modules\UserManagement\Application;
 
 use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Modules\UserManagement\Domain\GrantConflict;
+use App\Modules\UserManagement\Domain\HeldSpanConflict;
+use App\Modules\UserManagement\Domain\SeparationOfDuty;
 use App\Platform\Http\Problem\ApiProblem;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -27,7 +29,8 @@ use Symfony\Component\Uid\Uuid;
  *     subject), E-15b / Q5 (a role conferring the owner marker, by a grantor without it);
  *  2. {@see self::refuseBeyondGrantor()} — E-15c: a composed role whose codes are not a subset of the grantor's;
  *  3. {@see self::refuseAlreadyHeld()} — C12;
- *  4. {@see self::refuseConflict()} — PC-13 / E-18, "new conflict only" over the subject's live roles;
+ *  4. {@see self::refuseConflict()} — PC-13 / E-18, "new conflict only" over the subject's live roles, in two clauses:
+ *     a row the grant newly spans, and (G-91) a new pair on a row the subject already spans;
  *  5. {@see self::insert()} — the one `INSERT INTO user_role`, H1's four columns.
  *
  * **Since users slice 1 C1a, phases 1–4 are also VERDICTS** ({@see self::firstVerdict()} and the four `*Verdict()`
@@ -161,8 +164,10 @@ final class GrantRules
     }
 
     /**
-     * Phase 4 — PC-13 / E-18, "new conflict only" ({@see GrantConflict::newRows()}) over the subject's LIVE roles as they
-     * stand under the lock, naming each SoD row id in `UX`'s sentence, never the codes; the sentence's last clause is the
+     * Phase 4 — PC-13 / E-18, "new conflict only" over the subject's LIVE roles as they stand under the lock, in two
+     * clauses ({@see self::conflictVerdict()}): {@see GrantConflict::newRows()} (a row the grant newly spans) and, since
+     * G-91 (BK-11), {@see HeldSpanConflict::newEdgeRows()} (a new pair on a row the subject already spans and the role does
+     * not span alone). Each SoD row id is named in `UX`'s sentence, never the codes; the sentence's last clause is the
      * route's ({@see self::SOD_TAILS}).
      *
      * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
@@ -276,14 +281,20 @@ final class GrantRules
 
     /**
      * Phase 4's verdict: `separation_of_duty` with `{rows, role_name}` when the grant newly spans a SoD row over the
-     * subject's LIVE held codes, else null.
+     * subject's LIVE held codes, or (G-91, BK-11; `SEC` `sec-held-conflict.md` R2.1) adds a new preparing × controlled pair on
+     * a row the subject already spans and the role does not span alone; else null. The rows are the union of the two clauses,
+     * de-duplicated, in §2's order. Keeping `newRows` in the union means no refusal it gives can be lost to a defect in the
+     * held clause; for anyone who combines nothing the two agree (`HeldSpanConflictTest`), so the held clause only adds
+     * refusals for people who already combine two duties. `GrantConflict::newRows` itself is unchanged: its pairwise callers
+     * (the picker's `conflicts_with`, PC-12's margin partners) must not move.
      *
      * @param list<string>                                                             $heldLiveCodes the union of the codes of the subject's grants on LIVE roles
      * @param array{name: string, live: bool, is_system: bool, codes: list<string>} $role
      */
     public static function conflictVerdict(array $heldLiveCodes, array $role): ?GrantVerdict
     {
-        $conflicts = GrantConflict::newRows($heldLiveCodes, $role['codes']);
+        $found = [...GrantConflict::newRows($heldLiveCodes, $role['codes']), ...HeldSpanConflict::newEdgeRows($heldLiveCodes, $role['codes'])];
+        $conflicts = array_values(array_filter(SeparationOfDuty::rowIds(), static fn (string $id): bool => \in_array($id, $found, true)));
 
         return [] === $conflicts ? null : new GrantVerdict('user_role.separation_of_duty', ['rows' => $conflicts, 'role_name' => $role['name']]);
     }

@@ -270,6 +270,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         'UpdateUser' => ['vars' => ['id' => 'revoke_subject'], 'body' => ['display_name' => 'Probe renamed']],
         // G4-C2: the remembered revoke subject, deleted. A supplied tenant id that moved the write would delete B's person.
         'DeleteUser' => ['vars' => ['id' => 'revoke_subject']],
+        // U-C1b: a person added at a fresh address. A supplied tenant id that moved the write would add the person to B,
+        // which the digest names.
+        'CreateUser' => ['body' => ['email' => 'probe-person@example.test', 'display_name' => 'Probe person']],
         // G4-C3: the remembered deleted person (B's is another id, so a moved restore 404s).
         'RestoreUser' => ['vars' => ['id' => 'restore_user']],
         // Roles slice 4, C3: an unheld composed role with no proposal (`seedMirror()`), deleted by the actor (who holds every

@@ -17,7 +17,9 @@ use Doctrine\DBAL\Connection;
  *    set (T-R5a/T-R5b).
  *  - **7b** sets the hash, its seal and the session floor, guarded so it can only act on a live, active person whose floor
  *    is still older than the link (owner Q-3), and the floor never moves backwards: `GREATEST` ignores NULL, so a NULL floor
- *    becomes `$at` and a later one is kept (the G4 amendment; `AppUser::raiseSessionStamp`'s rule in SQL).
+ *    becomes `$at` and a later one is kept (the G4 amendment; `AppUser::raiseSessionStamp`'s rule in SQL). For an
+ *    `invitation` link it also requires the person still to have no credential (`password_mac IS NULL`, bound from the
+ *    row's purpose — U-C1a): a credential set while the invitation's KDF ran is never overwritten (T-U9, MU-6).
  *
  * The caller decides what an outcome means (membership of the presented id; exactly one row) and rolls back.
  */
@@ -34,6 +36,7 @@ final readonly class PasswordResetRedemptionWriter
                sessions_valid_after = GREATEST(sessions_valid_after, ?::timestamptz), updated_at = ?::timestamptz
          WHERE tenant_id = ?::uuid AND id = ?::uuid AND is_active AND deleted_at IS NULL
            AND (sessions_valid_after IS NULL OR sessions_valid_after < ?::timestamptz)
+           AND (?::text <> 'invitation' OR password_mac IS NULL)
         SQL;
 
     public function __construct(private Connection $app)
@@ -50,13 +53,13 @@ final readonly class PasswordResetRedemptionWriter
     }
 
     /** @return int the rows changed (the caller requires exactly 1) */
-    public function replaceCredential(string $tenantId, string $userId, string $hash, string $mac, \DateTimeImmutable $at, int $linkCreatedUnix): int
+    public function replaceCredential(string $tenantId, string $userId, string $hash, string $mac, \DateTimeImmutable $at, int $linkCreatedUnix, string $purpose): int
     {
         $this->requireTransaction();
         $stamp = self::seconds($at);
 
         return (int) $this->app->executeStatement(self::REPLACE, [
-            $hash, $mac, $stamp, $stamp, $tenantId, $userId, self::seconds(new \DateTimeImmutable('@'.$linkCreatedUnix)),
+            $hash, $mac, $stamp, $stamp, $tenantId, $userId, self::seconds(new \DateTimeImmutable('@'.$linkCreatedUnix)), $purpose,
         ]);
     }
 
