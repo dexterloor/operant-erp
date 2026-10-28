@@ -111,3 +111,10 @@
 .selectedRow {
   background: var(--accent-subtle-bg);
 }
+
+/* B-4 step 5: the person page composes the picker and the Waiting group as siblings. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}

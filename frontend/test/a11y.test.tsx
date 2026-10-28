@@ -13,6 +13,8 @@ import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
 import { BulkHarness } from './bulk/harness';
 import { ChecklistHarness } from './permissions/harness';
+import { HELD_PAIR_PERSON, JONAS, OFFERED_HELD_PAIR_BY_ADMIN, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_EXPIRED, PROPOSAL_FINANCE, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
+import { PickerHarness, scene as pickerScene } from './roles/harness';
 import { CUSTOM_ROLE, MARGIN_ROLE, OWNER_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
 import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_DELETED_ACTIVE, PERSON_DELETED_SWITCHED_OFF, PERSON_SELF, RESTORE_REFUSALS, VIEWER_ID } from '@/components/preview/fixtures/people';
@@ -197,6 +199,47 @@ describe('axe — B-4 permission checklist', () => {
     expect(await axeDoc()).toEqual([]);
     second.unmount();
     render(<ChecklistHarness role={CUSTOM_ROLE} canEdit={false} />);
+    expect(await axeDoc()).toEqual([]);
+  });
+});
+
+// B-4 step 5: the picker with staged ticks, the pair warning, refusals and the interrupted banner; the Waiting group with
+// live and expired rows; a held conflicting pair; the own page; the no-role.view seat.
+describe('axe — B-4 role picker + Waiting group', () => {
+  const axeDoc = async () => {
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+  };
+
+  it('staged ticks, the pair warning, a refusal banner and the interrupted banner: no violations', { timeout: 30_000 }, async () => {
+    const answers = [PICKER_REFUSALS.assignProposalPending];
+    render(
+      <PickerHarness
+        scene={pickerScene(JONAS, OFFERED_JONAS_BY_ADMIN, [PROPOSAL_FINANCE, PROPOSAL_EXPIRED, PROPOSAL_BY_OTHER])}
+        canConfirm
+        assign={() => answers.shift() ?? { kind: 'unreachable' }}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: 'finance' }));
+    await user.click(screen.getByRole('checkbox', { name: 'buyer' }));
+    await user.click(screen.getByRole('checkbox', { name: 'viewer' }));
+    expect(await axeDoc()).toEqual([]);
+    await user.click(screen.getByRole('button', { name: 'Save roles' }));
+    await settled();
+    expect(screen.getByText('Not given: viewer')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('a held conflicting pair, the own page and the no-role.view seat: no violations', { timeout: 30_000 }, async () => {
+    const a = render(<PickerHarness scene={pickerScene(HELD_PAIR_PERSON, OFFERED_HELD_PAIR_BY_ADMIN)} />);
+    expect(await axeDoc()).toEqual([]);
+    a.unmount();
+    const b = render(<PickerHarness scene={pickerScene(SELF_ADMIN, OFFERED_SELF_ADMIN)} showProposals={false} />);
+    expect(await axeDoc()).toEqual([]);
+    b.unmount();
+    render(<PickerHarness scene={pickerScene(JONAS, OFFERED_JONAS_BY_ADMIN)} roleView={false} />);
+    await userEvent.setup().click(screen.getByRole('checkbox', { name: 'finance' }));
     expect(await axeDoc()).toEqual([]);
   });
 });

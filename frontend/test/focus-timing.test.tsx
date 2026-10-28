@@ -10,6 +10,8 @@ import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { BulkHarness } from './bulk/harness';
 import { CUSTOM_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
 import { ChecklistHarness } from './permissions/harness';
+import { JONAS, OFFERED_JONAS_BY_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_FINANCE, PROPOSAL_REFUSALS, SAVE_REFUSALS as PICKER_REFUSALS, page } from '@/components/preview/fixtures/roles';
+import { PickerHarness, scene } from './roles/harness';
 
 // Regression for the B-4 step 3 flake (b4-step3-progress.md "Flake"): when an injected action answers in a LATER task
 // than the click (as a real network answer does), focus must move in the SAME commit that inserts the banner — never a
@@ -88,5 +90,43 @@ describe('focus moves in the commit that shows the banner (late answer)', () => 
     await waitFor(() => expect(probe.first()).toBeDefined());
     probe.stop();
     expect(probe.first()).toBe(screen.getByText('Not saved'));
+  });
+
+  it('picker: the first refused banner after Save roles (B-4 step 5; the harness answers in later tasks)', async () => {
+    render(<PickerHarness scene={scene(JONAS, OFFERED_JONAS_BY_ADMIN)} assign={() => later(PICKER_REFUSALS.assignProposalPending)} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: 'admin' }));
+    const probe = focusWhenInserted('Not given: admin');
+    await user.click(screen.getByRole('button', { name: 'Save roles' }));
+    await waitFor(() => expect(probe.first()).toBeDefined());
+    probe.stop();
+    expect(probe.first()).toBe(screen.getByText('Not given: admin'));
+  });
+
+  it('Waiting group: Not withdrawn (B-4 step 5)', async () => {
+    render(<PickerHarness scene={scene(JONAS, OFFERED_JONAS_BY_ADMIN, [PROPOSAL_BY_OTHER])} withdraw={() => later(PROPOSAL_REFUSALS.notTheProposer)} />);
+    const user = userEvent.setup();
+    const probe = focusWhenInserted('Not withdrawn');
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }));
+    await waitFor(() => expect(probe.first()).toBeDefined());
+    probe.stop();
+    expect(probe.first()).toBe(screen.getByText('Not withdrawn'));
+  });
+
+  it('Waiting group: "Proposal confirmed…" is written AFTER focus reached the <h2> (gaps Rev 1 P-4, RED L-3)', async () => {
+    render(
+      <PickerHarness
+        scene={scene(JONAS, OFFERED_JONAS_BY_ADMIN, [PROPOSAL_FINANCE, PROPOSAL_BY_OTHER])}
+        canConfirm
+        confirm={() => later({ kind: 'confirmed' as const, proposal: PROPOSAL_FINANCE })}
+        reread={(s) => ({ ...s, proposals: page([PROPOSAL_BY_OTHER]) })}
+      />,
+    );
+    const user = userEvent.setup();
+    const probe = focusWhenInserted('Proposal confirmed: finance is now given to this person.');
+    await user.click(screen.getAllByRole('button', { name: 'Confirm' })[0]!);
+    await waitFor(() => expect(probe.first()).toBeDefined());
+    probe.stop();
+    expect(probe.first()).toBe(screen.getByRole('heading', { level: 2, name: 'Waiting for an owner' }));
   });
 });

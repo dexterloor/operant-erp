@@ -3,15 +3,18 @@ import path from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-// Mechanical guards for docs/design/b4-architecture.md (Revision 2 FINAL > Revision 1 > Response to RED > RED H-5).
+// Mechanical guards for docs/design/b4-architecture.md (Revision 4 > Revision 3 > Revision 2 FINAL > Revision 1 > Response
+// to RED > RED H-5).
 // Never weaken a guard to get green (FRONTEND-HANDOFF.md). Every guard is a pure function over {file, source} pairs,
 // run once over the real tree (must find nothing) and once over a planted in-memory source (must go red), so a guard
 // that silently matches nothing cannot pass. Scanned-file counts are pinned: a B-4 step that adds files updates
 // EXPECTED_COUNTS deliberately, and a directory that does not exist yet is counted as 0, not skipped.
 //
-// Here: import direction (H-5 item 5 as amended by Revision 2 C-2) and the AST literal backstop (H-5 item 4 + C-2).
-// DOM fitness lives in test/dom-fitness.test.tsx (the binding tree's file). Not yet here, because their subjects are
-// later steps: no-clock expiry and no-identity Withdraw (step 5). The `__FIXTURE_ONLY__` post-build check (L-2) is
+// Here: import direction (H-5 item 5 as amended by Revision 2 C-2, plus Revision 4 A-6's lib ↛ copy), the AST literal
+// backstop (H-5 item 4 + C-2) and Revision 4 A-6's no-network rule for the component dirs.
+// DOM fitness lives in test/dom-fitness.test.tsx (the binding tree's file). Step 5 adds no-clock expiry and no-identity
+// Withdraw (RED H-5 items 6–7): a static backstop here (no clock read, no `proposed_by` comparison in the picker dirs) plus
+// the behavioural checks, which render, are in test/roles/RoleProposals.test.tsx ("no clock" and "Withdraw for every viewer"). The `__FIXTURE_ONLY__` post-build check (L-2) is
 // `scripts/check-fixtures-absent.mjs`, run by `postbuild` (it reads `.next/static`, which a unit test cannot).
 
 const ROOT = path.resolve(__dirname, '..');
@@ -61,9 +64,12 @@ function specifiersOf(sf: SourceFile): string[] {
   return found;
 }
 
-/** `@/x` → `src/x`; `./x` → resolved against the file; anything else is a package name, returned as `pkg:<name>`. */
+/**
+ * `@/x` → `src/x`; `./x` → resolved against the file; anything else is a package name, returned as `pkg:<name>`. Both
+ * path forms are normalised, so `@/../test/x` is `test/x` and cannot slip past a rule (b4-final-red L-3).
+ */
 function targetOf(file: string, spec: string): string {
-  if (spec.startsWith('@/')) return `src/${spec.slice(2)}`;
+  if (spec.startsWith('@/')) return path.posix.normalize(`src/${spec.slice(2)}`);
   if (spec.startsWith('.')) return path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
   return `pkg:${spec}`;
 }
@@ -88,6 +94,7 @@ function importViolations(files: readonly SourceFile[]): Violation[] {
       if (under(sf.file, 'src/lib/api')) breach('lib/api imports nothing');
       else if (under(sf.file, 'src/copy') && !under(t, 'src/lib/api')) breach('copy/* may import only from lib/api/*');
       if (under(sf.file, 'src/lib') && (isFramework(t) || under(t, 'src/components'))) breach('lib/** never imports react, next or components');
+      if (under(sf.file, 'src/lib') && under(t, 'src/copy')) breach('lib/** never imports copy/** (Revision 4 A-6)');
       if (under(sf.file, 'src') && under(t, 'test')) breach('src never imports test/**');
       if (under(t, 'src/components/preview/fixtures') && !under(sf.file, 'src/components/preview')) {
         breach('only components/preview (and tests) import the preview fixtures (RED L-1)');
@@ -182,19 +189,23 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // BulkHeaderCheckbox,BulkRowCheckbox,BulkBar,BulkArchiveDialog,BulkResultMessage}.tsx; preview/fixtures/bulk.ts.
   // Step 4 added: copy/{permissionLabels,sod}.ts; lib/api/{permissions,roles}.ts, lib/permissions/{checklist,results,
   // unwired}.ts; components/permissions/{PermissionChecklist,PermissionGroup}.tsx; preview/fixtures/permissions.ts.
-  'src/copy': 7,
-  'src/lib': 20,
-  'src/components': 42,
-  'src/lib/api': 3,
-  'src/lib/roles': 0,
+  // Step 5 added: copy/roles.ts; lib/api/{envelope,proposals}.ts, lib/roles/{availability,conflictLines,effectivePreview,
+  // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
+  // RoleProposals}.tsx; preview/fixtures/roles.ts.
+  'src/copy': 8,
+  'src/lib': 31,
+  'src/components': 47,
+  'src/lib/api': 5,
+  'src/lib/roles': 9,
   'src/lib/permissions': 3,
   'src/lib/bulk': 3,
   'src/lib/people': 2,
-  'src/components/roles': 0,
+  'src/components/roles': 4,
   'src/components/permissions': 2,
   'src/components/bulk': 6,
   'src/components/people': 4,
-  [FIXTURE_DIR]: 3,
+  'src/components/ui': 11,
+  [FIXTURE_DIR]: 4,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -221,6 +232,8 @@ describe('architecture — import direction (RED H-5 item 5, Revision 2 C-2)', (
       { file: 'src/components/ui/Chip.tsx', source: "import { built } from '../../../test/fixtures/x';" },
       { file: 'src/components/roles/RolePicker.tsx', source: "import { ROLES } from '@/components/preview/fixtures/roles';" },
       { file: 'src/components/preview/ComponentPreview.tsx', source: "import { ROLES } from './fixtures/roles';\nimport styles from './x.module.css';" },
+      { file: 'src/lib/roles/margin.ts', source: "import { PICKER } from '@/copy/roles';\nimport { PICKER_BANNERS } from '../../copy/roles';" },
+      { file: 'src/components/ui/Banner.tsx', source: "import { x } from '@/../test/fixtures/x';" },
     ];
     const got = importViolations(planted).map((v) => `${v.file} — ${v.detail}`);
     expect(got).toEqual([
@@ -231,6 +244,9 @@ describe('architecture — import direction (RED H-5 item 5, Revision 2 C-2)', (
       "src/lib/people/x.ts — lib/** never imports react, next or components: imports '@/components/ui/Chip'",
       "src/components/ui/Chip.tsx — src never imports test/**: imports '../../../test/fixtures/x'",
       "src/components/roles/RolePicker.tsx — only components/preview (and tests) import the preview fixtures (RED L-1): imports '@/components/preview/fixtures/roles'",
+      "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '@/copy/roles'",
+      "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '../../copy/roles'",
+      "src/components/ui/Banner.tsx — src never imports test/**: imports '@/../test/fixtures/x'",
     ]);
   });
 });
@@ -280,5 +296,191 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
   it('documents its limit: a code built by concatenation evades it (caught only by the invariance test, C-2)', () => {
     const evasive: SourceFile[] = [{ file: 'src/lib/roles/x.ts', source: "export const c = 'user_role' + '.' + 'separation_of_duty';" }];
     expect(literalViolations(evasive, [])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// RED H-5 items 6–7 (step 5): no clock in expiry, no identity comparison for Withdraw. Static backstop over the picker
+// dirs; the behavioural checks render below.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const PICKER_DIRS = ['src/lib/roles', 'src/components/roles'] as const;
+
+/** A clock read (`Date.now()`, `new Date(…)`, `performance.now()`) or a comparison against `proposed_by` / `expires_at`. */
+function clockAndIdentityViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    const visit = (node: ts.Node) => {
+      if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Date') out.push({ file: sf.file, detail: 'new Date(…)' });
+      if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && ['Date', 'performance'].includes(node.expression.text) && node.name.text === 'now') {
+        out.push({ file: sf.file, detail: `${node.expression.text}.now()` });
+      }
+      if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken].includes(node.operatorToken.kind)) {
+        const text = node.getText(parse(sf));
+        if (/proposed_by|expires_at/.test(text)) out.push({ file: sf.file, detail: `compares ${text}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(parse(sf));
+  }
+  return out;
+}
+
+describe('architecture — no clock in expiry, no identity for Withdraw (RED H-5 items 6–7, step 5)', () => {
+  it('the picker dirs read no clock and compare no proposer / expiry', () => {
+    expect(clockAndIdentityViolations(PICKER_DIRS.flatMap((d) => walk(d)))).toEqual([]);
+  });
+
+  it('positive controls: each shape goes red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/roles/RoleProposals.tsx', source: 'export const e = (p: { expires_at: string }) => new Date(p.expires_at) < new Date();' },
+      { file: 'src/lib/roles/x.ts', source: 'export const t = Date.now();' },
+      { file: 'src/components/roles/Y.tsx', source: 'export const mine = (p: { proposed_by: { id: string } }, v: string) => p.proposed_by.id === v;' },
+    ];
+    expect(clockAndIdentityViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/roles/RoleProposals.tsx — compares new Date(p.expires_at) < new Date()',
+      'src/components/roles/RoleProposals.tsx — new Date(…)',
+      'src/components/roles/RoleProposals.tsx — new Date(…)',
+      'src/lib/roles/x.ts — Date.now()',
+      'src/components/roles/Y.tsx — compares p.proposed_by.id === v',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 4 A-6: no network or request-scoped server access in the component dirs (props in, callbacks out). Matched on
+// the AST — identifier references, property and element access, import specifiers — never by substring, so a comment or
+// a sentence that mentions fetch does not trip it. Hardened by b4-final-red L-D2: ANY reference to an unshadowed global
+// `fetch`/`XMLHttpRequest`/`EventSource`/`WebSocket` counts (so `(fetch)()` and `const f = fetch` do), `self` joins
+// `window`/`globalThis` (dot or string-literal bracket access), and `document['cookie']` counts with `document.cookie`.
+// Limit, stated as the other guards state theirs: a computed key (`window[k]`) or a global reached through a value this
+// file did not name (`Reflect.get`, an injected object) is not seen. `src/lib/**` stays open: B-3b chooses where its
+// wired actions live.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const NETWORK_SCAN_DIRS = ['src/components/ui', 'src/components/roles', 'src/components/permissions', 'src/components/bulk', 'src/components/people'] as const;
+const GLOBAL_OBJECTS = ['window', 'globalThis', 'self'];
+const NETWORK_GLOBALS = ['fetch', 'XMLHttpRequest', 'EventSource', 'WebSocket'];
+
+/** The member name of `x.name` or `x['name']` (string literal only), else null. */
+function memberName(node: ts.Node): string | null {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) return node.argumentExpression.text;
+  return null;
+}
+
+/** `(x)` → `x`, any depth. */
+function unwrap(expr: ts.Expression): ts.Expression {
+  let e = expr;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
+}
+
+/** `window` / `globalThis` / `self`, parentheses unwrapped. */
+function isGlobalObject(expr: ts.Expression): boolean {
+  const e = unwrap(expr);
+  return ts.isIdentifier(e) && GLOBAL_OBJECTS.includes(e.text);
+}
+
+/** `document`, or `window.document` / `self['document']` etc., parentheses unwrapped. */
+function isDocument(expr: ts.Expression): boolean {
+  const e = unwrap(expr);
+  if (ts.isIdentifier(e)) return e.text === 'document';
+  return (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) && memberName(e) === 'document' && isGlobalObject(e.expression);
+}
+
+/** Every name this file binds (variables, parameters, functions, classes, imports): such a name is not the global. */
+function boundNames(tree: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  const addBinding = (n: ts.BindingName) => {
+    if (ts.isIdentifier(n)) names.add(n.text);
+    else for (const el of n.elements) if (!ts.isOmittedExpression(el)) addBinding(el.name);
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) addBinding(node.name);
+    else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isFunctionExpression(node)) && node.name) names.add(node.name.text);
+    else if (ts.isImportClause(node) && node.name) names.add(node.name.text);
+    else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) names.add(node.name.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return names;
+}
+
+/** True when this identifier is a value reference (not a member name, a key, a declaration name or a type). */
+function isValueReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
+  if ((ts.isPropertyAssignment(p) || ts.isPropertySignature(p) || ts.isPropertyDeclaration(p) || ts.isMethodDeclaration(p) || ts.isMethodSignature(p)) && p.name === id) return false;
+  if (ts.isJsxAttribute(p) || ts.isQualifiedName(p)) return false;
+  return !inTypePosition(id);
+}
+
+function networkViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    for (const spec of specifiersOf(sf)) if (spec === 'next/headers' || spec.startsWith('next/headers/')) out.push({ file: sf.file, detail: `imports '${spec}'` });
+    const tree = parse(sf);
+    const local = boundNames(tree);
+    const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && NETWORK_GLOBALS.includes(node.text) && !local.has(node.text) && isValueReference(node)) {
+        out.push({ file: sf.file, detail: `references ${node.text}` });
+      }
+      const member = memberName(node);
+      if (member !== null && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))) {
+        if (NETWORK_GLOBALS.includes(member) && isGlobalObject(node.expression)) out.push({ file: sf.file, detail: `references ${node.getText(tree)}` });
+        if (member === 'cookie' && isDocument(node.expression)) out.push({ file: sf.file, detail: `references ${node.getText(tree)}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — no network in the component dirs (Revision 4 A-6)', () => {
+  it('the real component dirs make no request and read no cookie or request header', () => {
+    const files = NETWORK_SCAN_DIRS.flatMap((d) => walk(d));
+    expect(files.length).toBe(NETWORK_SCAN_DIRS.reduce((n, d) => n + EXPECTED_COUNTS[d]!, 0));
+    expect(networkViolations(files)).toEqual([]);
+  });
+
+  it('positive controls: each shape goes red; a comment, a sentence, another object\'s fetch or a local binding does not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/roles/RolePicker.tsx', source: "export const a = () => fetch('/api/x');" },
+      { file: 'src/components/bulk/BulkBar.tsx', source: "export const b = () => window.fetch('/api/x');\nexport const c = () => globalThis.fetch('/api/x');" },
+      { file: 'src/components/people/X.tsx', source: "export const d = new XMLHttpRequest();\nexport const e = new EventSource('/s');\nexport const f = new window.WebSocket('ws://x');" },
+      { file: 'src/components/permissions/Y.tsx', source: 'export const g = document.cookie;' },
+      { file: 'src/components/ui/Z.tsx', source: "import { cookies } from 'next/headers';\nexport const h = () => import('next/headers');" },
+      // b4-final-red L-D2: the four escapes, plus self / bracket / parenthesised forms.
+      { file: 'src/components/roles/RoleOption.tsx', source: "export const i = () => (fetch)('/x');\nconst f = fetch;\nexport const j = () => f('/x');" },
+      { file: 'src/components/roles/Effective.tsx', source: "export const k = () => self.fetch('/x');\nexport const l = () => self['fetch']('/x');\nexport const m = () => (globalThis)['WebSocket'];" },
+      { file: 'src/components/bulk/C.tsx', source: "export const n = document['cookie'];\nexport const o = window.document.cookie;" },
+      { file: 'src/components/people/W.tsx', source: 'export const p = [EventSource];' },
+      {
+        file: 'src/components/ui/Ok.tsx',
+        source:
+          "// the fetch wrapper navigates; new WebSocket is not used\nexport const s = 'fetch(the list) document.cookie';\nexport const t = (api: { fetch: () => void }) => api.fetch();\nexport const u = (fetch: () => void) => fetch();\nexport type V = typeof WebSocket;\nexport const w = { fetch: 1 };",
+      },
+    ];
+    expect(networkViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/roles/RolePicker.tsx — references fetch',
+      'src/components/bulk/BulkBar.tsx — references window.fetch',
+      'src/components/bulk/BulkBar.tsx — references globalThis.fetch',
+      'src/components/people/X.tsx — references XMLHttpRequest',
+      'src/components/people/X.tsx — references EventSource',
+      'src/components/people/X.tsx — references window.WebSocket',
+      'src/components/permissions/Y.tsx — references document.cookie',
+      "src/components/ui/Z.tsx — imports 'next/headers'",
+      "src/components/ui/Z.tsx — imports 'next/headers'",
+      'src/components/roles/RoleOption.tsx — references fetch',
+      'src/components/roles/RoleOption.tsx — references fetch',
+      'src/components/roles/Effective.tsx — references self.fetch',
+      "src/components/roles/Effective.tsx — references self['fetch']",
+      "src/components/roles/Effective.tsx — references (globalThis)['WebSocket']",
+      "src/components/bulk/C.tsx — references document['cookie']",
+      'src/components/bulk/C.tsx — references window.document.cookie',
+      'src/components/people/W.tsx — references EventSource',
+    ]);
   });
 });

@@ -45,6 +45,28 @@ import {
   RESTORE_REFUSALS,
   VIEWER_ID,
 } from './fixtures/people';
+import { RolePicker } from '@/components/roles/RolePicker';
+import { RoleProposals } from '@/components/roles/RoleProposals';
+import type { RoleGrantProposal } from '@/lib/api/proposals';
+import type { OfferedRole } from '@/lib/api/roles';
+import type { RoleActionFailure } from '@/lib/roles/results';
+import {
+  HELD_PAIR_PERSON,
+  JONAS,
+  OFFERED_HELD_PAIR_BY_ADMIN,
+  OFFERED_JONAS_BY_ADMIN,
+  OFFERED_JONAS_BY_OWNER,
+  OFFERED_SELF_ADMIN,
+  OWNER_VIEWER_ID,
+  PROPOSAL_BY_OTHER,
+  PROPOSAL_EXPIRED,
+  PROPOSAL_FINANCE,
+  PROPOSAL_REFUSALS,
+  ROLES,
+  SAVE_REFUSALS as PICKER_REFUSALS,
+  SELF_ADMIN,
+  page,
+} from './fixtures/roles';
 import { SignInCard, type SignInNotice } from '@/components/auth/SignInCard';
 import { NotFound, OfflineBanner, PermissionDenied, Refetchable, RegionError, RegionLoading, Skeleton } from '@/components/states/PageStates';
 import styles from './ComponentPreview.module.css';
@@ -199,6 +221,7 @@ export function ComponentPreview() {
         <PeoplePreview />
         <BulkPreview />
         <PermissionsPreview />
+        <RolePickerPreview />
 
         <section className={styles.section} aria-labelledby="pv-messages">
           <h2 id="pv-messages">Status messages</h2>
@@ -520,6 +543,145 @@ function PermissionsPreview() {
       </h3>
       <p className={styles.muted}>{role.description}</p>
       <PermissionChecklist role={role} permissions={PREVIEW_PERMISSIONS} canEdit={CHECKLIST_SCENARIOS[scenario]!.canEdit} save={save} fallbackFocusRef={h1} />
+    </section>
+  );
+}
+
+interface PickerScenario {
+  label: string;
+  person: User;
+  viewerId: string;
+  offered: OfferedRole[];
+  proposals: RoleGrantProposal[];
+  roleView: boolean;
+  canConfirm: boolean;
+  showProposals: boolean;
+}
+
+const PICKER_SCENARIOS: PickerScenario[] = [
+  { label: 'Admin opens Jonas (F-7)', person: JONAS, viewerId: VIEWER_ID, offered: OFFERED_JONAS_BY_ADMIN, proposals: [PROPOSAL_BY_OTHER], roleView: true, canConfirm: false, showProposals: true },
+  { label: 'Owner opens Jonas', person: JONAS, viewerId: OWNER_VIEWER_ID, offered: OFFERED_JONAS_BY_OWNER, proposals: [PROPOSAL_FINANCE, PROPOSAL_EXPIRED], roleView: true, canConfirm: true, showProposals: true },
+  { label: 'Holds a conflicting pair', person: HELD_PAIR_PERSON, viewerId: VIEWER_ID, offered: OFFERED_HELD_PAIR_BY_ADMIN, proposals: [], roleView: true, canConfirm: false, showProposals: true },
+  { label: "Can give roles, can't view them", person: JONAS, viewerId: VIEWER_ID, offered: OFFERED_JONAS_BY_ADMIN, proposals: [], roleView: false, canConfirm: false, showProposals: true },
+  { label: 'Your own page', person: SELF_ADMIN, viewerId: VIEWER_ID, offered: OFFERED_SELF_ADMIN, proposals: [], roleView: true, canConfirm: false, showProposals: false },
+];
+
+type PickerAnswer = 'ok' | 'refused' | 'unreachable' | 'reread-fails';
+
+/**
+ * B-4 step 5: the role picker and the Waiting group, driven by the one fixture copy. The preview is the person page: it
+ * owns the heading, composes the two siblings (RED M-3) and plays the caller contract — a re-read sets new props, then
+ * resolves. It does not recompute served verdicts (only the server can), so after a save the offered list stays as
+ * loaded. Preview-only labels are not product copy.
+ */
+function RolePickerPreview() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [scenario, setScenario] = useState(0);
+  const s = PICKER_SCENARIOS[scenario]!;
+  const [person, setPerson] = useState<User>(s.person);
+  const [proposals, setProposals] = useState<RoleGrantProposal[]>(s.proposals);
+  const [answer, setAnswer] = useState<PickerAnswer>('ok');
+  const pick = (i: number) => {
+    setScenario(i);
+    setPerson(PICKER_SCENARIOS[i]!.person);
+    setProposals(PICKER_SCENARIOS[i]!.proposals);
+    setAnswer('ok');
+  };
+  const roleOf = (id: string) => ROLES.find((r) => r.id === id)!;
+  const fail = (): RoleActionFailure | null => (answer === 'unreachable' ? { kind: 'unreachable' } : null);
+  const pendingRoleIds = new Set(proposals.filter((p) => !p.is_expired).map((p) => p.role.id));
+  return (
+    <section className={styles.section} aria-labelledby="pv-roles" data-fixture={FIXTURE_ONLY}>
+      <h2 id="pv-roles">B-4 role picker and Waiting for an owner</h2>
+      <div className={styles.row}>
+        {PICKER_SCENARIOS.map((x, i) => (
+          <Button key={x.label} size="sm" aria-pressed={scenario === i} onClick={() => pick(i)}>
+            {x.label}
+          </Button>
+        ))}
+      </div>
+      <div className={styles.row}>
+        {(['ok', 'refused', 'unreachable', 'reread-fails'] as const).map((a) => (
+          <Button key={a} size="sm" aria-pressed={answer === a} onClick={() => setAnswer(a)}>
+            {`Preview answers: ${a}`}
+          </Button>
+        ))}
+      </div>
+      <h3 ref={h1} tabIndex={-1}>
+        {s.viewerId === person.id ? PERSON.ownName(person.display_name) : person.display_name}
+      </h3>
+      <div key={scenario} className={styles.stack}>
+        <RolePicker
+          person={person}
+          viewerId={s.viewerId}
+          offered={s.offered}
+          pendingRoleIds={pendingRoleIds}
+          roles={s.roleView ? ROLES : undefined}
+          permissions={s.roleView ? PERMISSIONS : undefined}
+          actions={{
+            assign: async (id) => {
+              if (answer === 'refused') return PICKER_REFUSALS.assignProposalPending;
+              const f = fail();
+              if (f) return f;
+              setPerson((p) => ({ ...p, roles: [...p.roles, { id, name: roleOf(id).name }] }));
+              return { kind: 'given', role: roleOf(id) };
+            },
+            propose: async (id) => {
+              if (answer === 'refused') return PICKER_REFUSALS.proposeAlreadyPending;
+              const f = fail();
+              if (f) return f;
+              const proposal = { ...PROPOSAL_FINANCE, id: `${PROPOSAL_FINANCE.id.slice(0, -4)}${String(proposals.length + 10).padStart(4, '0')}`, role: { id, name: roleOf(id).name } };
+              setProposals((ps) => [...ps, proposal]);
+              return { kind: 'proposed', proposal };
+            },
+            revoke: async (id) => {
+              if (answer === 'refused') return PICKER_REFUSALS.revokeLastOwner;
+              const f = fail();
+              if (f) return f;
+              setPerson((p) => ({ ...p, roles: p.roles.filter((r) => r.id !== id) }));
+              return { kind: 'taken-away' };
+            },
+            reread: async () => (answer === 'reread-fails' ? { kind: 'failed', failure: 'unreachable' } : { kind: 'ok' }),
+          }}
+        />
+        {s.showProposals ? (
+          <RoleProposals
+            proposals={page(proposals)}
+            canConfirm={s.canConfirm}
+            marginExposure={person.margin_exposure}
+            fallbackFocusRef={h1}
+            timeZone="UTC"
+            actions={{
+              confirm: async (id) => {
+                const f = fail();
+                if (f) return f;
+                if (answer === 'refused') return PROPOSAL_REFUSALS.confirmerIsProposer;
+                const p = proposals.find((x) => x.id === id)!;
+                setProposals((ps) => ps.filter((x) => x.id !== id));
+                setPerson((x) => ({ ...x, roles: [...x.roles, p.role] }));
+                return { kind: 'confirmed', proposal: { ...p, status: 'confirmed' } };
+              },
+              reject: async (id) => {
+                const f = fail();
+                if (f) return f;
+                const p = proposals.find((x) => x.id === id)!;
+                setProposals((ps) => ps.filter((x) => x.id !== id));
+                return { kind: 'rejected', proposal: { ...p, status: 'rejected' } };
+              },
+              withdraw: async (id) => {
+                const f = fail();
+                if (f) return f;
+                if (answer === 'refused') return PROPOSAL_REFUSALS.notTheProposer;
+                const p = proposals.find((x) => x.id === id)!;
+                setProposals((ps) => ps.filter((x) => x.id !== id));
+                return { kind: 'withdrawn', proposal: { ...p, status: 'cancelled' } };
+              },
+              reread: async () => ({ kind: 'ok' }),
+              onPage: () => {},
+            }}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }

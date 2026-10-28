@@ -23,17 +23,25 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
    * aria-describedby. A permission the user lacks is never expressed this way: such a button is not rendered (ST-4c).
    */
   unavailableReason?: string;
+  /**
+   * The same aria-disabled state, with the reason rendered BY THE CALLER at this id. The button is then never wrapped, so
+   * its DOM node survives the state changing either way — for a control whose focus must survive (the role picker's
+   * **Save roles**, 4b-1: "never re-mount it"). The caller keeps the reason as visible text.
+   */
+  unavailableReasonId?: string;
 }
 
 /** There is deliberately no `disabled` prop: the native attribute is never used (brief §3 Behaviour). */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'secondary', size = 'md', icon, loading = false, unavailableReason, children, className, onClick, type = 'button', ...rest },
+  { variant = 'secondary', size = 'md', icon, loading = false, unavailableReason, unavailableReasonId, children, className, onClick, type = 'button', ...rest },
   ref,
 ) {
   const reasonId = useId();
-  const unavailable = typeof unavailableReason === 'string' && unavailableReason.length > 0;
+  const external = typeof unavailableReasonId === 'string' && unavailableReasonId.length > 0;
+  const wrapped = typeof unavailableReason === 'string' && unavailableReason.length > 0;
+  const unavailable = wrapped || external;
   const blocked = loading || unavailable;
-  const describedBy = [rest['aria-describedby'], unavailable ? reasonId : null].filter(Boolean).join(' ') || undefined;
+  const describedBy = [rest['aria-describedby'], wrapped ? reasonId : null, external ? unavailableReasonId : null].filter(Boolean).join(' ') || undefined;
 
   const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
     if (blocked) {
@@ -59,7 +67,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     </button>
   );
 
-  if (!unavailable) return button;
+  if (!wrapped) return button;
   return (
     <span className={styles.withReason}>
       {button}

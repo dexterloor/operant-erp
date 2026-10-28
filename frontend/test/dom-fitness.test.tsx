@@ -16,6 +16,9 @@ import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_SELF, VIEWER_ID } from '@/components/preview/fixtures/people';
 import { CUSTOM_ROLE, OWNER_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
 import { ChecklistHarness } from './permissions/harness';
+import type { AssignResult } from '@/lib/roles/results';
+import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_REFUSALS, ROLES, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
+import { PickerHarness, scene as pickerScene } from './roles/harness';
 
 /** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
 const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
@@ -363,5 +366,48 @@ describe('DOM fitness — B-4 step 4 permission checklist', () => {
   it('a built-in role: every box aria-disabled, none [disabled]', () => {
     render(<ChecklistHarness role={OWNER_ROLE} />);
     expect(trackRegions().firstRender).toEqual([]);
+  });
+});
+
+describe('DOM fitness — B-4 step 5 role picker + Waiting group', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; two status regions (the picker's status line + the Waiting group's after-message, gaps Rev 1 P-4 / RED L-3), empty at first render, the same nodes through ticks, save, refusal, interruption and a group action${strict ? ' (StrictMode)' : ''}`, { timeout: 30_000 }, async () => {
+      const assigns: AssignResult[] = [PICKER_REFUSALS.assignProposalPending, { kind: 'unreachable' }];
+      const ui = (
+        <PickerHarness
+          scene={pickerScene(JONAS, OFFERED_JONAS_BY_ADMIN, [PROPOSAL_BY_OTHER])}
+          assign={() => assigns.shift() ?? { kind: 'given', role: ROLES[0]! }}
+          withdraw={PROPOSAL_REFUSALS.notTheProposer}
+        />
+      );
+      render(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const user = userEvent.setup();
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('checkbox', { name: 'finance' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'finance' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'viewer' })),
+        () => user.click(screen.getByRole('button', { name: 'Save roles' })), // refused
+        () => user.click(screen.getByRole('button', { name: 'Save roles' })), // interrupted
+        () => user.click(screen.getByRole('button', { name: 'Withdraw' })), // refused after the click
+        () => user.click(screen.getByRole('button', { name: 'Save roles' })), // given
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      // 2, not 1: RoleProposals now has its own polite region at its always-rendered root for "Proposal …" messages
+      // (b4-step5-gaps.md Rev 1 P-4, RED L-3). The picker's status line is the other.
+      expect(tracker.count).toBe(2);
+      expect(failures).toEqual([]);
+    });
+  }
+
+  it('own page: every option and Save aria-disabled, none [disabled]', () => {
+    render(<PickerHarness scene={pickerScene(SELF_ADMIN, OFFERED_SELF_ADMIN)} showProposals={false} />);
+    expect(trackRegions().firstRender).toEqual([]);
+    expect(document.querySelectorAll('[aria-disabled="true"]').length).toBeGreaterThan(5);
   });
 });
