@@ -1117,6 +1117,7 @@ final class GrantFootprintTest extends TenancyTestCase
      * `GRANT UPDATE (is_system) ON role` must produce exactly one violation. Moved deliberately at C2 (UPDATE on three
      * `role` columns, DELETE on `role_permission`), and again at C3 (`deleted_at` joins the UPDATE list — `DeleteRole` is a
      * soft delete, so `role` DELETE stays refused). The anti-vacuity `is_system` assertion and the planted grant are unmoved.
+     * W-3 adds a second planted control: `GRANT INSERT (default_key) ON role` must produce exactly one violation.
      */
     #[Test]
     public function theApplicationCanWriteOnlyTheRoleColumnsTheRoleDefinitionWritersName(): void
@@ -1192,6 +1193,18 @@ final class GrantFootprintTest extends TenancyTestCase
             $this->owner()->executeStatement(sprintf('REVOKE UPDATE (is_system) ON role FROM %s', DatabaseRoles::APP));
         }
         self::assertSame([], $violations($probe()), 'The planted is_system grant survived its REVOKE.');
+
+        // W-3: `role.default_key` (`Version20261028000100`) is written by an owner process only. The probe derives its
+        // domain from `pg_attribute`, so the new column is already refused above; this planted grant proves it is seen.
+        self::assertSame(['refused', 'refused'], [$outcomes['role.default_key INSERT'] ?? null, $outcomes['role.default_key UPDATE'] ?? null],
+            'role.default_key must be unwritable by erp_app, and the probe did not see it refused.');
+        try {
+            $this->owner()->executeStatement(sprintf('GRANT INSERT (default_key) ON role TO %s', DatabaseRoles::APP));
+            self::assertSame(['role.default_key INSERT: no role-definition writer issues it, but erp_app got "accepted"'], $violations($probe()),
+                'A committed INSERT (default_key) grant to erp_app did not make this check fail, so it is not a check.');
+        } finally {
+            $this->owner()->executeStatement(sprintf('REVOKE INSERT (default_key) ON role FROM %s', DatabaseRoles::APP));
+        }
     }
 
     /**

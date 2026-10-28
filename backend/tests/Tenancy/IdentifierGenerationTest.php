@@ -102,7 +102,8 @@ final class IdentifierGenerationTest extends TenancyTestCase
         $files = [];
         $root = \dirname(__DIR__, 2);
 
-        foreach (['/src', '/migrations', '/tests'] as $dir) {
+        // `/bin` since W-3: `bin/demo-seed.php` writes uuid-keyed rows from outside an HTTP request.
+        foreach (['/bin', '/src', '/migrations', '/tests'] as $dir) {
             $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root.$dir));
             foreach ($iterator as $file) {
                 if ($file->isFile() && 'php' === $file->getExtension()) {

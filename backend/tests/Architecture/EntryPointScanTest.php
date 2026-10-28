@@ -65,6 +65,7 @@ final class EntryPointScanTest extends TestCase
     /** @var array<string, string> path => reason */
     private const DIRECT_CONNECTION_FILES = [
         'bin/assert-clean-database.php' => '`make reset`\'s drift guard: loads `.env.test` and opens PDO as the owner to prove the destroyed volume is the one the suite reaches.',
+        'bin/demo-seed.php' => '`make demo-seed` (W-3): loads `.env.test` and `.env` and opens a DBAL connection as the owner to write a local demo workspace; refuses anything but a loopback, NOBYPASSRLS database whose comment is `erp-local-demo` (or the gate database for the suite\'s own `demo-test-` process test).',
         'tests/bootstrap.php' => 'PHPUnit\'s bootstrap: `Dotenv::bootEnv` on the root `.env` (and `.env.test` under APP_ENV=test).',
         'tests/Tenancy/TenancyTestCase.php' => 'the isolation rig: second pooled and fresh unpooled `erp_app` clients from APP_DATABASE_URL / APP_DIRECT_DATABASE_URL.',
         'tests/Tenancy/PoolConfigurationTest.php' => 'reads PgBouncer\'s SHOW CONFIG over PDO as `erp_app` (APP_DATABASE_URL).',
@@ -73,7 +74,7 @@ final class EntryPointScanTest extends TestCase
     ];
 
     /** Files in DIRECT_CONNECTION_FILES that may name the owner's key. */
-    private const OWNER_KEY_FILES = ['bin/assert-clean-database.php', 'tests/bootstrap.php'];
+    private const OWNER_KEY_FILES = ['bin/assert-clean-database.php', 'bin/demo-seed.php', 'tests/bootstrap.php'];
 
     #[Test]
     public function theDomainIsEveryPhpBearingFileIncludingExtensionlessOnes(): void

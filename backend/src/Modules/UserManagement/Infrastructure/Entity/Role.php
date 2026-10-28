@@ -34,6 +34,7 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Table(name: 'role')]
 #[ORM\UniqueConstraint(name: 'role_tenant_id_id_key', columns: ['tenant_id', 'id'])]
 #[ORM\UniqueConstraint(name: 'role_tenant_name_live', columns: ['tenant_id', 'name'], options: ['where' => '(deleted_at IS NULL)'])]
+#[ORM\UniqueConstraint(name: 'role_tenant_default_key_live', columns: ['tenant_id', 'default_key'], options: ['where' => '(deleted_at IS NULL)'])]
 class Role
 {
     #[ORM\Id]
@@ -52,6 +53,14 @@ class Role
 
     #[ORM\Column(name: 'is_system', type: Types::BOOLEAN, options: ['default' => false])]
     private bool $isSystem = false;
+
+    /**
+     * Which built-in role this is (`DefaultRoles::names()`), on a system role only (`role_default_key_only_on_system_roles`);
+     * NULL on every other role. Written only by an owner process (the local demo seed, W-3): `erp_app` holds no column
+     * grant on it, so the ORM never names it (`insertable: false, updatable: false`, `AppUser::$identityMac`'s precedent).
+     */
+    #[ORM\Column(name: 'default_key', type: Types::TEXT, nullable: true, insertable: false, updatable: false)]
+    private ?string $defaultKey = null;
 
     #[ORM\Column(name: 'created_at', type: Types::DATETIMETZ_IMMUTABLE, options: ['default' => 'now()'])]
     private \DateTimeImmutable $createdAt;

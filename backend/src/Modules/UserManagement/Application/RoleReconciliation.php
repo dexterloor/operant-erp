@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\Application;
 
+use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Modules\UserManagement\Domain\HeldSpanConflict;
 use App\Platform\Tenancy\DatabaseRoles;
 use App\Platform\Tenancy\TenantContext;
@@ -52,8 +53,15 @@ use Symfony\Component\Uid\Uuid;
  *    has no `inserted_by` column, so arm A's owner-process marker cannot be printed here (deviation, recorded).
  *    **Interim `system_role_has_permission_rows`** (final2 RED M-2; `DATA` D-10.2): no migration or `src/` path writes a
  *    system role's codes today, so ANY `role_permission` row on an `is_system` role is anomalous with no baseline — reported
- *    once per role. *Interim: retired by the seeder build, which adds `role.default_key` + `seed_catalogue_version`
- *    (`roles-s4-sec-data.md` D-10.2) and makes arm D-system a command arm.* Reads under no lock (final RED L-2): a
+ *    once per role. **Arm D-system (W-3, the local demo seed's commit; D-10.2 reduced; ADR-008 D2's "run against the role
+ *    seeder"):** a LIVE system role carrying `role.default_key` is compared with `DefaultRoles::codesFor(key)` — the one
+ *    source of the built-in roles' codes — and every extra or missing code is `system_role_permission_differs`, one line
+ *    each with `permission_code=` and `difference=extra|missing`; a key that is not a `DefaultRoles::names()` member is
+ *    `unknown_default_key`, once. The interim finding is KEPT for KEYLESS system roles only (D-10.2 deviation (ii), DATA +
+ *    SEC to confirm: `role_default_key_only_on_system_roles` is one-way, so keyless system roles can exist); a soft-deleted
+ *    keyed system role is not compared. **Limit:** with one catalogue in code, a keyed role made from an older catalogue
+ *    reads as tampered — `seed_catalogue_version` / `catalogue_skew` arrive with the populate commit (deviation (iii)).
+ *    Reads under no lock (final RED L-2): a
  *    concurrent `CreateRole` can print a transient finding — re-run before acting on one. Proves nothing against a forger
  *    who also writes the event (G-10).
  *  - **F — `no_active_owner`:** no user that is active, not deleted, and holds the owner marker through a live role — the
@@ -103,6 +111,12 @@ final readonly class RoleReconciliation
     public const FINDING_PRE_EVENT_ROLE = 'pre_event_role';
 
     public const FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS = 'system_role_has_permission_rows';
+
+    /** Arm D-system (W-3): a live keyed system role's codes differ from `DefaultRoles::codesFor(key)`, one line per code. */
+    public const FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS = 'system_role_permission_differs';
+
+    /** Arm D-system (W-3): a live system role whose `default_key` is not a `DefaultRoles::names()` member. */
+    public const FINDING_UNKNOWN_DEFAULT_KEY = 'unknown_default_key';
 
     public const FINDING_HELD_SEPARATION_OF_DUTY = 'held_separation_of_duty';
 
@@ -206,7 +220,8 @@ final readonly class RoleReconciliation
 
     /** Arm D: every role, system or not, with whether it predates the baseline. Names `role` only. */
     private const ARM_D_ROLES = <<<'SQL'
-        SELECT r.id::text AS role_id, r.is_system, r.created_at < ?::timestamptz AS pre_event, r.created_at::text AS at
+        SELECT r.id::text AS role_id, r.is_system, r.default_key, r.deleted_at IS NULL AS live,
+               r.created_at < ?::timestamptz AS pre_event, r.created_at::text AS at
           FROM role r
          WHERE r.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
          ORDER BY r.created_at, r.id
@@ -266,7 +281,7 @@ final readonly class RoleReconciliation
     }
 
     /**
-     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string, permission_code?: string, rows?: list<string>}>}
+     * @return array{refused: ?string, findings: list<array{finding: string, user_id: ?string, role_id: ?string, at: ?string, inserted_by?: string, owner_process_row?: bool, proposal_id?: string, case?: string, permission_code?: string, difference?: string, default_key?: string, rows?: list<string>}>}
      */
     public function run(string $tenantId): array
     {
@@ -366,7 +381,7 @@ final readonly class RoleReconciliation
     /**
      * Arm D and its interim system-role finding (see the class docblock). Three reads, folded in PHP.
      *
-     * @return list<array{finding: string, user_id: null, role_id: string, at: ?string, permission_code?: string}>
+     * @return list<array{finding: string, user_id: null, role_id: string, at: ?string, permission_code?: string, difference?: string, default_key?: string}>
      */
     private static function armD(EntityManagerInterface $em): array
     {
@@ -400,6 +415,12 @@ final readonly class RoleReconciliation
             $rows = $stored[$id] ?? [];
             sort($rows);
             if (true === $role['is_system']) {
+                if (null !== $role['default_key']) {
+                    if (true === $role['live']) {
+                        $findings = [...$findings, ...self::armDSystem($id, (string) $role['default_key'], $rows, (string) $role['at'])];
+                    }
+                    continue;
+                }
                 if ([] !== $rows) {
                     $findings[] = ['finding' => self::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS, 'user_id' => null, 'role_id' => $id, 'at' => (string) $role['at']];
                 }
@@ -428,6 +449,32 @@ final readonly class RoleReconciliation
                     $findings[] = ['finding' => self::FINDING_PHANTOM_PERMISSION, 'user_id' => null, 'role_id' => (string) $id, 'at' => null, 'permission_code' => (string) $code];
                 }
             }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Arm D-system (W-3; see the class docblock): one live keyed system role against the catalogue's definition.
+     *
+     * @param list<string> $rows the role's stored codes, sorted
+     *
+     * @return list<array{finding: string, user_id: null, role_id: string, at: string, permission_code?: string, difference?: string, default_key?: string}>
+     */
+    private static function armDSystem(string $roleId, string $key, array $rows, string $at): array
+    {
+        if (!DefaultRoles::isDefault($key)) {
+            return [['finding' => self::FINDING_UNKNOWN_DEFAULT_KEY, 'user_id' => null, 'role_id' => $roleId, 'at' => $at, 'default_key' => $key]];
+        }
+        $expected = DefaultRoles::codesFor($key);
+        sort($expected);
+
+        $findings = [];
+        foreach (array_diff($rows, $expected) as $code) {
+            $findings[] = ['finding' => self::FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS, 'user_id' => null, 'role_id' => $roleId, 'at' => $at, 'permission_code' => $code, 'difference' => 'extra'];
+        }
+        foreach (array_diff($expected, $rows) as $code) {
+            $findings[] = ['finding' => self::FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS, 'user_id' => null, 'role_id' => $roleId, 'at' => $at, 'permission_code' => $code, 'difference' => 'missing'];
         }
 
         return $findings;

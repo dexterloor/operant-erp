@@ -27,6 +27,15 @@
 # Neon's console owner differs (neon_superuser); measured at G-3, not here.
 set -euo pipefail
 
+# What this database is for (W-3): `gate` unless compose passes another DB_PURPOSE. Checked against a fixed shape BEFORE
+# it is interpolated into SQL below. bin/demo-seed.php reads the comment and refuses anything but `erp-local-demo`; it is
+# accident prevention, not a security control (the owner, which owns the database, can rewrite it).
+DB_PURPOSE="${DB_PURPOSE:-gate}"
+if ! [[ "${DB_PURPOSE}" =~ ^[a-z][a-z0-9-]{0,30}$ ]]; then
+    echo "10-roles.sh: DB_PURPOSE must match ^[a-z][a-z0-9-]{0,30}\$" >&2
+    exit 1
+fi
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE ROLE "${DB_OWNER}"      LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${DB_OWNER_PASSWORD}';
     CREATE ROLE "${ERP_APP_USER}"  LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${ERP_APP_PASSWORD}';
@@ -45,6 +54,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- The owner role owns the database and the schema, so migrations run as a
     -- non-superuser exactly as they will on Neon.
     ALTER DATABASE "${POSTGRES_DB}" OWNER TO "${DB_OWNER}";
+    COMMENT ON DATABASE "${POSTGRES_DB}" IS 'erp-local-${DB_PURPOSE}';
     ALTER SCHEMA public OWNER TO "${DB_OWNER}";
 
     -- Local observability only. PooledConnectionTest has to read the state of a
