@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { describe, expect, it } from 'vitest';
 import { ComponentPreview } from '@/components/preview/ComponentPreview';
@@ -11,7 +11,13 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
+import { BulkHarness } from './bulk/harness';
+import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_DELETED_ACTIVE, PERSON_DELETED_SWITCHED_OFF, PERSON_SELF, RESTORE_REFUSALS, VIEWER_ID } from '@/components/preview/fixtures/people';
+
+/** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
+const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+
 
 // axe on the component preview in jsdom. Two limits of jsdom, handled explicitly rather than by switching rules off:
 //  - no layout or computed colours → colour-contrast is disabled here; contrast is computed from the tokens instead
@@ -87,6 +93,7 @@ describe('axe — B-4 person delete/restore', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Delete person' }));
     await user.click(screen.getAllByRole('button', { name: 'Delete person' }).at(-1)!);
+    await settled();
     expect(await axeDoc()).toEqual([]);
   });
 
@@ -95,6 +102,7 @@ describe('axe — B-4 person delete/restore', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Restore person' }));
     await user.click(screen.getAllByRole('button', { name: 'Restore person' }).at(-1)!);
+    await settled();
     expect(await axeDoc()).toEqual([]);
   });
 
@@ -103,7 +111,57 @@ describe('axe — B-4 person delete/restore', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Restore person' }));
     await user.click(screen.getAllByRole('button', { name: 'Restore person' }).at(-1)!);
+    await settled();
     expect(screen.getByRole('button', { name: 'Give a role' })).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+});
+
+// B-4 step 3: the bulk surface — the column, the bar (incl. an over-cap reason), the Delete dialog with a refusal inside,
+// the banner zone (restore) and the after-message.
+describe('axe — B-4 bulk', () => {
+  const axeDoc = async () => {
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+  };
+  const pick = async (user: ReturnType<typeof userEvent.setup>, n: number) => {
+    for (const name of ['Sample Supplier A', 'Sample Supplier B', 'Sample Supplier C', 'Sample Supplier D'].slice(0, n)) {
+      await user.click(screen.getByRole('checkbox', { name: `Select ${name}` }));
+    }
+  };
+
+  it('the list with a selection over the cap: no violations', async () => {
+    render(<BulkHarness run={async () => BULK_CONTENTION} maxMembers={3} />);
+    const user = userEvent.setup();
+    await pick(user, 4);
+    expect(screen.getByText('You can delete up to 3 at a time.')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('the Delete dialog with a refusal inside: no violations', async () => {
+    render(<BulkHarness run={async () => BULK_CONTENTION} maxMembers={10} />);
+    const user = userEvent.setup();
+    await pick(user, 2);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await user.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!);
+    await settled();
+    expect(screen.getByText('Not deleted')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('a restore refusal in the banner zone, then the after-message: no violations', async () => {
+    const answers = [BULK_CONTENTION, { kind: 'done' as const, requested: 3, applied: 2 }];
+    render(<BulkHarness run={async () => answers.shift()!} maxMembers={10} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Scope: archived' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select every row on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Restore' }));
+    await settled();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+    await user.click(screen.getByRole('button', { name: 'Restore' }));
+    await settled();
+    expect(screen.getByRole('button', { name: 'Dismiss message' })).toBeInTheDocument();
     expect(await axeDoc()).toEqual([]);
   });
 });

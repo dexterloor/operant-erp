@@ -178,19 +178,21 @@ function literalViolations(files: readonly SourceFile[], roleNames: readonly str
 const EXPECTED_COUNTS: Record<string, number> = {
   // Step 2 added: copy/{people,headings}.ts; lib/api/users.ts, lib/people/{results,unwired}.ts; components/people/
   // {PersonLifecycleActions,DeletePersonDialog,RestorePersonDialog,ArchivedPersonBanner}.tsx; preview/fixtures/people.ts.
-  'src/copy': 4,
-  'src/lib': 12,
-  'src/components': 32,
+  // Step 3 added: copy/bulk.ts; lib/bulk/{results,selection,unwired}.ts; components/bulk/{useBulkSelection.ts,
+  // BulkHeaderCheckbox,BulkRowCheckbox,BulkBar,BulkArchiveDialog,BulkResultMessage}.tsx; preview/fixtures/bulk.ts.
+  'src/copy': 5,
+  'src/lib': 15,
+  'src/components': 39,
   'src/lib/api': 1,
   'src/lib/roles': 0,
   'src/lib/permissions': 0,
-  'src/lib/bulk': 0,
+  'src/lib/bulk': 3,
   'src/lib/people': 2,
   'src/components/roles': 0,
   'src/components/permissions': 0,
-  'src/components/bulk': 0,
+  'src/components/bulk': 6,
   'src/components/people': 4,
-  [FIXTURE_DIR]: 1,
+  [FIXTURE_DIR]: 2,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {

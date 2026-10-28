@@ -679,7 +679,7 @@ export const statusChip = {
   },
   "archived": {
     "archived": {
-      "label": "Archived",
+      "label": "Deleted",
       "tone": "neutral",
       "variant": "subtle"
     }

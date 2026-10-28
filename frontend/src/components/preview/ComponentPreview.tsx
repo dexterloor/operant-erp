@@ -13,6 +13,13 @@ import { Dialog } from '@/components/ui/Dialog';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { StatusMessages, type StatusMessage } from '@/components/ui/StatusMessages';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
+import { BulkBar } from '@/components/bulk/BulkBar';
+import { BulkHeaderCheckbox } from '@/components/bulk/BulkHeaderCheckbox';
+import { BulkNotices, BulkResultMessage } from '@/components/bulk/BulkResultMessage';
+import { BulkRowCheckbox } from '@/components/bulk/BulkRowCheckbox';
+import { useBulkSelection } from '@/components/bulk/useBulkSelection';
+import type { BulkResult } from '@/lib/bulk/results';
+import { BULK_PREVIEW_ANSWERS, SUPPLIER_ARCHIVED, SUPPLIER_NOUNS, SUPPLIER_PAGES } from './fixtures/bulk';
 import { PERSON } from '@/copy/people';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
@@ -178,6 +185,7 @@ export function ComponentPreview() {
         <PrimitivesPreview />
 
         <PeoplePreview />
+        <BulkPreview />
 
         <section className={styles.section} aria-labelledby="pv-messages">
           <h2 id="pv-messages">Status messages</h2>
@@ -336,6 +344,106 @@ function PeoplePreview() {
         fallbackFocusRef={h1}
         timeZone="UTC"
       />
+    </section>
+  );
+}
+
+/** Illustrative only (see fixtures/bulk.ts): small enough to reach the over-cap state on one page. Never the served cap. */
+const PREVIEW_CAP = 3;
+
+/**
+ * B-4 step 3: the bulk surface on a sample list, driven by the one fixture copy. The list (this component) is the
+ * surface's parent: it calls `useBulkSelection`, renders the column, the bar, the banner zone and the after-message, and
+ * re-reads after a finished run (here: drops the applied rows). Preview-only labels are not product copy.
+ */
+function BulkPreview() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [archivedView, setArchivedView] = useState(false);
+  const [page, setPage] = useState(0);
+  const [offered, setOffered] = useState(true);
+  const [answer, setAnswer] = useState(0);
+  const [gone, setGone] = useState<Set<string>>(() => new Set());
+  const [lastRun, setLastRun] = useState<{ ids: readonly string[]; key: string } | null>(null);
+  const rows = (archivedView ? SUPPLIER_ARCHIVED : SUPPLIER_PAGES[page] ?? []).filter((r) => !gone.has(r.id));
+  const bulk = useBulkSelection({ scopeKey: `${archivedView ? 'archived' : 'live'}|${page}`, offered });
+  const pageIds = rows.map((r) => r.id);
+
+  const run = async (ids: readonly string[], key: string): Promise<BulkResult> => {
+    setLastRun({ ids, key });
+    const result = BULK_PREVIEW_ANSWERS[answer]!.answer(ids.length);
+    if (result.kind === 'done') setGone((g) => new Set([...g, ...ids.slice(0, result.applied)]));
+    return result;
+  };
+
+  return (
+    <section className={styles.section} aria-labelledby="pv-bulk" data-fixture={FIXTURE_ONLY}>
+      <h2 id="pv-bulk">B-4 bulk selection</h2>
+      <div className={styles.row}>
+        <Button size="sm" aria-pressed={!archivedView} onClick={() => { setArchivedView(false); setPage(0); }}>
+          Preview view: live
+        </Button>
+        <Button size="sm" aria-pressed={archivedView} onClick={() => { setArchivedView(true); setPage(0); }}>
+          Preview view: archived
+        </Button>
+        <Button size="sm" aria-pressed={offered} onClick={() => setOffered((o) => !o)}>
+          Preview: holds the delete permission
+        </Button>
+      </div>
+      <div className={styles.row}>
+        {BULK_PREVIEW_ANSWERS.map((a, i) => (
+          <Button key={a.label} size="sm" aria-pressed={answer === i} onClick={() => setAnswer(i)}>
+            {`Preview answer: ${a.label}`}
+          </Button>
+        ))}
+      </div>
+      <h3 ref={h1} tabIndex={-1}>
+        Sample suppliers
+      </h3>
+      <BulkNotices bulk={bulk} />
+      <BulkBar
+        bulk={bulk}
+        mode={archivedView ? 'restore' : 'delete'}
+        nouns={SUPPLIER_NOUNS}
+        maxMembers={PREVIEW_CAP}
+        run={run}
+        onReread={() => undefined}
+        fallbackFocusRef={h1}
+      />
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <BulkHeaderCheckbox bulk={bulk} pageIds={pageIds} />
+            <th scope="col">Name</th>
+            <th scope="col">Code</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className={bulk.isSelected(r.id) ? styles.selectedRow : undefined}>
+              <BulkRowCheckbox bulk={bulk} id={r.id} firstColumn={r.name} />
+              <td>{r.name}</td>
+              <td>{r.code}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!archivedView ? (
+        <div className={styles.row}>
+          <span className={styles.muted}>{`${rows.length} shown`}</span>
+          {page > 0 ? (
+            <Button size="sm" onClick={() => setPage((p) => p - 1)}>
+              Newer
+            </Button>
+          ) : null}
+          {page < SUPPLIER_PAGES.length - 1 ? (
+            <Button size="sm" onClick={() => setPage((p) => p + 1)}>
+              Older
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      <BulkResultMessage bulk={bulk} fallbackFocusRef={h1} />
+      <p className={styles.muted}>{lastRun ? `Preview: last run sent ${lastRun.ids.length} ids with key ${lastRun.key}` : 'Preview: nothing sent yet'}</p>
     </section>
   );
 }

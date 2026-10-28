@@ -1,5 +1,5 @@
 import { StrictMode, useRef, useState, type ReactNode } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { Button } from '@/components/ui/Button';
@@ -11,7 +11,13 @@ import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
 import type { User } from '@/lib/api/users';
+import { BulkHarness } from './bulk/harness';
+import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_SELF, VIEWER_ID } from '@/components/preview/fixtures/people';
+
+/** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
+const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+
 
 // DOM fitness (b4-architecture.md Revision 1 "Tests", RED H-5 item 3) — rendered, never grepped:
 //  1. no element carries the native [disabled] attribute (ST-4e: aria-disabled only);
@@ -104,6 +110,7 @@ async function runFitness(ui: ReactNode) {
   const failures = [...tracker.firstRender];
   for (const step of await script()) {
     await step();
+    await settled();
     failures.push(...tracker.check());
   }
   return { failures, count: tracker.count };
@@ -242,6 +249,8 @@ describe('DOM fitness — B-4 step 2 person surface', () => {
       const seen: string[] = [];
       for (const step of await personScript()) {
         await step();
+        await settled();
+    await settled();
         failures.push(...tracker.check());
         seen.push(screen.getByRole('status').textContent ?? '');
       }
@@ -262,4 +271,47 @@ describe('DOM fitness — B-4 step 2 person surface', () => {
     render(<PersonSurface initial={PERSON_SELF} />);
     expect(trackRegions().firstRender).toEqual([]);
   });
+});
+
+// B-4 step 3: the bulk surface. The script selects, is refused inside the Delete dialog, deletes (the selection clears
+// and the bar goes), dismisses, switches to the Archived view, restores and is refused in the banner zone, then
+// restores — so the one after-message region, rendered by the list outside the bar (RED M-6), must be the same node
+// throughout, mounted empty from first render.
+describe('DOM fitness — B-4 step 3 bulk surface', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node while the bar comes and goes${strict ? ' (StrictMode)' : ''}`, async () => {
+      const answers = [BULK_CONTENTION, { kind: 'done' as const, requested: 2, applied: 2 }, BULK_CONTENTION, { kind: 'done' as const, requested: 3, applied: 3 }];
+      const ui = <BulkHarness run={async () => answers.shift()!} maxMembers={3} />;
+      render(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const user = userEvent.setup();
+      const status = () => document.querySelector('[role="status"]')?.textContent ?? null;
+      const seen: Array<string | null> = [];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('checkbox', { name: 'Select Sample Supplier A' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'Select every row on this page' })), // 4 > cap 3
+        () => user.click(screen.getByRole('checkbox', { name: 'Select Sample Supplier D' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'Select Sample Supplier C' })),
+        () => user.click(screen.getByRole('button', { name: 'Delete' })),
+        () => user.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!), // refused in the dialog
+        () => user.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!), // done: the bar goes
+        () => user.click(screen.getByRole('button', { name: 'Dismiss message' })),
+        () => user.click(screen.getByRole('button', { name: 'Scope: archived' })),
+        () => user.click(screen.getByRole('checkbox', { name: 'Select every row on this page' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore' })), // refused in the banner zone
+        () => user.click(screen.getByRole('button', { name: 'Restore' })), // done
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+    await settled();
+        failures.push(...tracker.check());
+        seen.push(status());
+      }
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      expect(seen).toEqual(['', '', '', '', '', '', '2 of 2 deleted.', '', '', '', '', '3 of 3 restored.']);
+    });
+  }
 });

@@ -74,3 +74,15 @@ describe('contrast (WCAG 2.x, computed — never the printed ratios)', () => {
     expect(ratio('#7D899F', '#E1E8F2')).toBeLessThan(3);
   });
 });
+
+// B-4 step 3 (b4-owed-copy.md R1-10 row 10, O-1): the soft-deleted status chip says what was done — "Deleted" — while
+// the view that holds such records stays the Archived view (the segment text is unchanged).
+describe('status chip — soft-deleted record (O-1)', () => {
+  it('reads "Deleted" in the source and the generated module; the view is still named Archived', async () => {
+    const { statusChip } = await import('@/styles/tokens');
+    expect(statusChip.archived.archived.label).toBe('Deleted');
+    const text = JSON.stringify(JSON.parse(readFileSync(`${__dirname}/../src/styles/tokens.json`, 'utf8')));
+    expect(text).toContain('"segments":"Archived view"');
+    expect(text).not.toContain('"wire":"archived","label":"Archived"');
+  });
+});

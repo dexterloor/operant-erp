@@ -91,3 +91,23 @@
   gap: var(--space-4);
   margin: 0;
 }
+
+/* B-4 step 3 preview list (layout from R6 Bulk Actions.dc.html; preview only). */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line);
+}
+.table th,
+.table td {
+  height: var(--size-row-comfortable);
+  padding: 0 var(--space-6);
+  text-align: left;
+  border-bottom: 1px solid var(--border-default);
+}
+.selectedRow {
+  background: var(--accent-subtle-bg);
+}
