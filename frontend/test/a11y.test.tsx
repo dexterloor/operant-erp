@@ -2,6 +2,10 @@ import { render } from '@testing-library/react';
 import axe from 'axe-core';
 import { describe, expect, it } from 'vitest';
 import { ComponentPreview } from '@/components/preview/ComponentPreview';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { DateTime } from '@/components/ui/DateTime';
+import { Dialog } from '@/components/ui/Dialog';
+import { TooltipProvider } from '@/components/ui/Tooltip';
 
 // axe on the component preview in jsdom. Two limits of jsdom, handled explicitly rather than by switching rules off:
 //  - no layout or computed colours → colour-contrast is disabled here; contrast is computed from the tokens instead
@@ -25,4 +29,23 @@ describe('axe — component preview', () => {
       expect(summary).toEqual([]);
     });
   }
+});
+
+// B-4 step 1: the open Dialog is portalled out of the preview's container, so it gets its own axe run.
+describe('axe — B-4 primitives', () => {
+  it('an open Dialog with an unavailable Checkbox and a DateTime has no violations', async () => {
+    const ref = { current: null as HTMLElement | null };
+    render(
+      <TooltipProvider>
+        <h1 tabIndex={-1}>Page</h1>
+        <Dialog open onOpenChange={() => undefined} title="Archive 3 items?" description={<p>You can restore them later.</p>} initialFocusRef={ref} fallbackFocusRef={ref}>
+          <Checkbox label="Also archive lines" checked="mixed" onCheckedChange={() => undefined} unavailable describedBy="why" />
+          <p id="why">Reason text.</p>
+          <DateTime value="2026-10-22T06:05:00Z" form="date-time" timeZone="UTC" />
+        </Dialog>
+      </TooltipProvider>,
+    );
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    expect(result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`)).toEqual([]);
+  });
 });

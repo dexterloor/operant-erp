@@ -6,21 +6,13 @@
 // the reset endpoints carry no human `detail`, so those variants carry no text: the page supplies the client copy
 // (ux-copy-frontend.md §1.4, the one named exception).
 
+// Unreachable, ServerError and RateLimited now live once in `lib/results.ts` (B-4 step 1, Revision 2 C-3); they are
+// re-exported here so every B-3a import is unchanged.
+import type { RateLimited, ServerError, Unreachable } from '../results';
+export type { RateLimited, ServerError, Unreachable } from '../results';
+
 /** Field pointer → the server's sentence for it. */
 export type FieldErrors<F extends string> = Partial<Record<F, string>>;
-
-/** A failure that never reached a usable response (fetch rejected, offline). */
-export interface Unreachable {
-  kind: 'unreachable';
-}
-/** 5xx or an unexpected status. Never carries the server's `detail` (ST-3: 5xx detail is for the log). */
-export interface ServerError {
-  kind: 'server-error';
-}
-/** 429. Sign-in's budgets (ST-8a); no count, no window. */
-export interface RateLimited {
-  kind: 'rate-limited';
-}
 
 /** `POST /auth/password-resets` `{workspace, email}`. */
 export type RequestResetResult =

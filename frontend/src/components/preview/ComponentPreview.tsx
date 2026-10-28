@@ -1,11 +1,16 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Archive, Download } from 'lucide-react';
 import { NAVIGATION } from '@/lib/navigation';
 import { AppFrame } from '@/components/shell/AppFrame';
 import { useThemePreference } from '@/components/theme/useThemePreference';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Chip, type ChipTone } from '@/components/ui/Chip';
+import { DateTime } from '@/components/ui/DateTime';
+import { Dialog } from '@/components/ui/Dialog';
+import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { StatusMessages, type StatusMessage } from '@/components/ui/StatusMessages';
 import { SignInCard, type SignInNotice } from '@/components/auth/SignInCard';
 import { NotFound, OfflineBanner, PermissionDenied, Refetchable, RegionError, RegionLoading, Skeleton } from '@/components/states/PageStates';
@@ -156,6 +161,8 @@ export function ComponentPreview() {
           </Refetchable>
         </section>
 
+        <PrimitivesPreview />
+
         <section className={styles.section} aria-labelledby="pv-messages">
           <h2 id="pv-messages">Status messages</h2>
           <div className={styles.row}>
@@ -181,5 +188,59 @@ export function ComponentPreview() {
         </section>
       </div>
     </AppFrame>
+  );
+}
+
+const CHIP_TONES: ChipTone[] = ['neutral', 'info', 'success', 'warning', 'danger', 'accent', 'violet'];
+
+/** B-4 step 1 primitives with illustrative props (no B-4 copy exists in `copy/` yet; these strings are preview-only). */
+function PrimitivesPreview() {
+  const live = useLiveRegion();
+  const [a, setA] = useState<boolean | 'mixed'>(false);
+  const [group, setGroup] = useState<boolean | 'mixed'>('mixed');
+  const [open, setOpen] = useState(false);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  return (
+    <section className={styles.section} aria-labelledby="pv-primitives">
+      <h2 id="pv-primitives" ref={heading} tabIndex={-1}>
+        B-4 primitives
+      </h2>
+      <LiveRegion message={live.message} />
+      <div className={styles.row}>
+        <Checkbox label="Preview option" checked={a} onCheckedChange={(next) => { setA(next); live.announce(next ? 'Preview: ticked.' : 'Preview: unticked.'); }} />
+        <Checkbox label="Preview group (mixed)" checked={group} onCheckedChange={setGroup} />
+        <Checkbox label="Preview unavailable" checked={false} onCheckedChange={() => undefined} unavailable describedBy="pv-why" />
+      </div>
+      <p id="pv-why" className={styles.muted}>Preview reason: shown as visible text, tied by aria-describedby.</p>
+      <div className={styles.row}>
+        {CHIP_TONES.map((t) => (
+          <Chip key={t} tone={t}>
+            Preview {t}
+          </Chip>
+        ))}
+      </div>
+      <p className={styles.muted}>
+        Date: <DateTime value="2026-09-22T06:05:00Z" form="date" /> · Date and time: <DateTime value="2026-10-22T06:05:00Z" form="date-time" />
+      </p>
+      <div className={styles.row}>
+        <Button onClick={() => setOpen(true)}>Open a preview dialog</Button>
+      </div>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Preview dialog"
+        description={<p>Focus starts on Cancel; Esc closes and returns focus to the opener.</p>}
+        initialFocusRef={cancel}
+        fallbackFocusRef={heading}
+      >
+        <Button ref={cancel} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={() => setOpen(false)}>
+          Done
+        </Button>
+      </Dialog>
+    </section>
   );
 }

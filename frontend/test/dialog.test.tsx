@@ -1,0 +1,134 @@
+import { StrictMode, useRef, useState } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+import { Banner } from '@/components/ui/Banner';
+import { Button } from '@/components/ui/Button';
+import { Dialog, type DialogRefusal } from '@/components/ui/Dialog';
+
+// A props-only page shape: an <h1> owned by the route (the fallback), an opener that disappears after success (Delete
+// person), and a dialog whose action is refused once, then succeeds (R4-4 L-6, 4b-4, RED M-7).
+function Page({ refuseFirst = false }: { refuseFirst?: boolean }) {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const refusalHeading = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const [refusal, setRefusal] = useState<DialogRefusal | null>(null);
+  const [tries, setTries] = useState(0);
+  return (
+    <main>
+      <h1 ref={h1} tabIndex={-1}>
+        Ana Reyes
+      </h1>
+      {deleted ? null : <Button onClick={() => setOpen(true)}>Delete person</Button>}
+      <Button>Elsewhere</Button>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setRefusal(null);
+        }}
+        title="Delete Ana Reyes?"
+        description={
+          <>
+            <p>They can no longer sign in.</p>
+            <p>You can restore them later.</p>
+          </>
+        }
+        tone="danger"
+        initialFocusRef={cancel}
+        fallbackFocusRef={h1}
+        refusal={refusal}
+      >
+        <Button ref={cancel} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          onClick={() => {
+            setTries(tries + 1);
+            if (refuseFirst && tries === 0) {
+              setRefusal({
+                id: 'r1',
+                headingRef: refusalHeading,
+                content: (
+                  <Banner tone="danger" heading="Not deleted" ref={refusalHeading}>
+                    <p>Server sentence.</p>
+                  </Banner>
+                ),
+              });
+              return;
+            }
+            setDeleted(true);
+            setOpen(false);
+          }}
+        >
+          Delete person
+        </Button>
+      </Dialog>
+    </main>
+  );
+}
+
+describe('Dialog (R4-4 L-6, 4b-4, RED M-7)', () => {
+  it('names and describes itself; initial focus on the caller-chosen control', async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete Ana Reyes?' });
+    expect(dialog).toHaveAccessibleDescription('They can no longer sign in. You can restore them later.');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus());
+  });
+
+  it('Esc closes and returns focus to the opener', async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    const opener = screen.getByRole('button', { name: 'Delete person' });
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('when the opener is gone after success, focus goes to the fallback (the route h1)', async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    await user.click(screen.getAllByRole('button', { name: 'Delete person' }).at(-1)!);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete person' })).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Ana Reyes' })).toHaveFocus());
+  });
+
+  it('a refusal renders inside the open dialog, takes focus to its heading, and the trap holds', async () => {
+    const user = userEvent.setup();
+    render(<Page refuseFirst />);
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(screen.getAllByRole('button', { name: 'Delete person' }).at(-1)!);
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    const heading = screen.getByText('Not deleted');
+    expect(dialog).toContainElement(heading);
+    await waitFor(() => expect(heading).toHaveFocus());
+    for (let i = 0; i < 4; i += 1) {
+      await user.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    }
+  });
+
+  it('under StrictMode: one dialog, same focus rules', async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <Page />
+      </StrictMode>,
+    );
+    const opener = screen.getByRole('button', { name: 'Delete person' });
+    await user.click(opener);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus());
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+});

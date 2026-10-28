@@ -1,0 +1,34 @@
+/* 24×24 hit area: the label is the target (WCAG 2.2 SC 2.5.8). Tokens only. */
+.hit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: var(--size-target-min);
+  min-height: var(--size-target-min);
+  cursor: pointer;
+  color: var(--fg-default);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+}
+
+.box {
+  flex: none;
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: inherit;
+}
+
+.label {
+  min-width: 0;
+}
+
+/* aria-disabled: still focusable and readable (fg.disabled ≥ 4.5:1 on its surfaces), never the native disabled look. */
+.unavailable {
+  color: var(--fg-disabled);
+  cursor: not-allowed;
+}
+.unavailable .box {
+  accent-color: var(--fg-disabled);
+}
