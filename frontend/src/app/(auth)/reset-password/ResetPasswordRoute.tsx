@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm';
-import { unwiredRedeemReset } from '@/lib/auth/unwired';
+import { wiredRedeemReset } from '@/lib/auth/wired';
 
-/** B-3b passes the BFF-backed redemption action here. */
+/** The BFF-backed redemption (B-3b C8): the token is passed only as the action's argument. */
 export function ResetPasswordRoute() {
-  return <ResetPasswordForm redeem={unwiredRedeemReset} linkComponent={Link} />;
+  return <ResetPasswordForm redeem={wiredRedeemReset} linkComponent={Link} />;
 }

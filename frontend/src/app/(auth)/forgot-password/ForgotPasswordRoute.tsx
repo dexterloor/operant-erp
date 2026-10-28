@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
-import { unwiredRequestReset } from '@/lib/auth/unwired';
+import { wiredRequestReset } from '@/lib/auth/wired';
 
-/** B-3b passes the BFF-backed action and the device's remembered workspace (IA-O-2) here. */
+/** The BFF-backed reset request (B-3b C8). The device's remembered workspace (IA-O-2) is not built yet. */
 export function ForgotPasswordRoute() {
-  return <ForgotPasswordForm requestReset={unwiredRequestReset} linkComponent={Link} />;
+  return <ForgotPasswordForm requestReset={wiredRequestReset} linkComponent={Link} />;
 }

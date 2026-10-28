@@ -116,3 +116,86 @@ export async function handleSignOut(request: Request): Promise<Response> {
     headers: { 'content-type': 'application/json', 'cache-control': NO_STORE, 'set-cookie': clearedSessionCookie() },
   });
 }
+
+const CREDENTIAL_MAX = 4096;
+
+const text = (b: Record<string, unknown>, k: string, max: number): string | null => {
+  const v = b[k];
+  return typeof v === 'string' && v.length <= max ? v : null;
+};
+
+/** The API's field errors with their sentences: the reset pages render a server 422 sentence verbatim on its field. */
+const fieldErrors = (errors: unknown) =>
+  Array.isArray(errors)
+    ? errors.flatMap((e) =>
+        e && typeof e === 'object' && typeof (e as { pointer?: unknown }).pointer === 'string' && typeof (e as { message?: unknown }).message === 'string'
+          ? [{ pointer: (e as { pointer: string }).pointer, code: String((e as { code?: unknown }).code ?? ''), message: (e as { message: string }).message }]
+          : [],
+      )
+    : [];
+
+/** Passes through only the named problem types, reduced to `type` (422: field errors); anything else is the generic problem. */
+async function credentialProblem(upstream: Response, allowed: Readonly<Record<number, readonly string[]>>): Promise<Response> {
+  const types = allowed[upstream.status];
+  const { type, errors } = await problemType(upstream);
+  if (!types || type === null || !types.includes(type)) return serverError();
+  return bffProblem(upstream.status, type, upstream.status === 422 ? { errors: fieldErrors(errors) } : {});
+}
+
+const VALIDATION = 'urn:erp:problem:validation-failed';
+const TOO_MANY = 'urn:erp:problem:too-many-attempts';
+
+/**
+ * POST /bff/password-resets: `{workspace, email}` → the API's reset request. 202 (for every well-formed input, F-11) →
+ * 202 with no body. No session is read or touched.
+ */
+export async function handleResetRequest(request: Request): Promise<Response> {
+  const refused = refuseCrossSiteMutation(request);
+  if (refused) return refused;
+  const body = await jsonBody(request);
+  const workspace = body && text(body, 'workspace', FIELD_MAX);
+  const email = body && text(body, 'email', FIELD_MAX);
+  if (workspace === null || email === null || !body) return localRefusal();
+  let upstream: Response;
+  try {
+    upstream = await apiFetch('CreatePasswordReset', { body: { workspace, email } });
+  } catch {
+    return serverError();
+  }
+  if (upstream.status === 202) return new Response(null, { status: 202, headers: { 'cache-control': NO_STORE } });
+  return credentialProblem(upstream, { 422: [VALIDATION], 429: [TOO_MANY] });
+}
+
+/**
+ * POST /bff/password-resets/redemption: `{token, password}` → the API's redemption. 200 `{changed_at}` → the same body,
+ * and this browser's session cookie is deleted in the same response (the reset has just ended every session of that
+ * person, bff-auth-note.md §8). A 401 is a bad, used or expired link: never "session ended", and no cookie change.
+ */
+export async function handleResetRedemption(request: Request): Promise<Response> {
+  const refused = refuseCrossSiteMutation(request);
+  if (refused) return refused;
+  const body = await jsonBody(request);
+  const token = body && text(body, 'token', CREDENTIAL_MAX);
+  const password = body && text(body, 'password', CREDENTIAL_MAX);
+  if (!token || password === null || !body) return localRefusal();
+  let upstream: Response;
+  try {
+    upstream = await apiFetch('CreatePasswordResetRedemption', { body: { token, password } });
+  } catch {
+    return serverError();
+  }
+  if (upstream.status === 200) {
+    let changedAt: unknown;
+    try {
+      changedAt = ((await upstream.json()) as { changed_at?: unknown }).changed_at;
+    } catch {
+      return serverError();
+    }
+    if (typeof changedAt !== 'string') return serverError();
+    return new Response(JSON.stringify({ changed_at: changedAt }), {
+      status: 200,
+      headers: { 'content-type': 'application/json', 'cache-control': NO_STORE, 'set-cookie': clearedSessionCookie() },
+    });
+  }
+  return credentialProblem(upstream, { 401: ['urn:erp:problem:authentication-failed'], 422: [VALIDATION], 429: [TOO_MANY] });
+}

@@ -198,7 +198,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 46,
+  'src/lib': 47,
   'src/components': 49,
   'src/lib/api': 5,
   'src/lib/roles': 9,
@@ -218,9 +218,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // (replacing app/page.tsx); components/shell/{StartPage,DocumentArrival}.tsx.
   // B-3b C3 added: lib/bff/{paths,problem,deadline,apiCall}.ts, lib/bff/server/apiProxy.ts; app/bff/api/[...path]/route.ts,
   // app/(app)/{layout,BffProvider,AppShell}.tsx, app/(app)/currentViewer.ts.
+  // B-3b C8 added: lib/auth/wired.ts; app/bff/password-resets/{route,redemption/route}.ts.
   'src/lib/bff': 14,
   'src/lib/bff/server': 6,
-  'src/app': 19,
+  'src/app': 21,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
