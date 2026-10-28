@@ -26,9 +26,10 @@ function useFocusOnMount<T extends HTMLElement>(enabled: boolean) {
 
 /**
  * ST-4b, RULED copy: "You don't have access to <resource>." / "This needs the <permission> permission. Your workspace
- * administrator can grant it." / "Back to Overview". Calm, in the content area; the sidebar stays.
+ * administrator can grant it." / "Go to your start page" → `/` (ux-copy-b3b.md C2-3: `/` never sends the viewer to a
+ * page they lack, so this link cannot loop back here). Calm, in the content area; the sidebar stays.
  */
-export function PermissionDenied({ resourcePlural, permissionName, overviewHref = '/overview', autoFocus = true, renderLink = plainLink }: { resourcePlural: string; permissionName: string; overviewHref?: string; autoFocus?: boolean; renderLink?: LinkRenderer }) {
+export function PermissionDenied({ resourcePlural, permissionName, startHref = '/', autoFocus = true, renderLink = plainLink }: { resourcePlural: string; permissionName: string; startHref?: string; autoFocus?: boolean; renderLink?: LinkRenderer }) {
   const h1 = useFocusOnMount<HTMLHeadingElement>(autoFocus);
   return (
     <section className={styles.full}>
@@ -43,7 +44,7 @@ export function PermissionDenied({ resourcePlural, permissionName, overviewHref 
         <em>{permissionName}</em>
         {PAGE_STATES.deniedBodyAfter}
       </p>
-      {renderLink({ href: overviewHref, className: styles.back, children: PAGE_STATES.deniedBack })}
+      {renderLink({ href: startHref, className: styles.back, children: PAGE_STATES.deniedBack })}
     </section>
   );
 }

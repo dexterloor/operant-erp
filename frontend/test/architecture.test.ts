@@ -120,6 +120,9 @@ const LITERAL_SCAN_DIRS = [
   'src/components/permissions',
   'src/components/bulk',
   'src/components/people',
+  // Revision 5 A-8 G-7 (B-3b C2): the pages and route handlers, and the BFF's own code.
+  'src/app',
+  'src/lib/bff',
 ] as const;
 
 /** A served code shape: `user_role.separation_of_duty`, `invoice.view`. */
@@ -132,6 +135,7 @@ const CODE_SHAPE = /^[a-z_]+\.[a-z_]+$/;
  * so the role-name half cannot go quietly vacuous once fixtures exist.
  */
 const FIXTURE_DIR = 'src/components/preview/fixtures';
+const BFF_SERVER_DIR = 'src/lib/bff/server';
 function builtInRoleNames(): string[] {
   const names = new Set<string>();
   for (const sf of walk(FIXTURE_DIR)) {
@@ -194,8 +198,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 33,
-  'src/components': 47,
+  'src/lib': 41,
+  'src/components': 49,
   'src/lib/api': 5,
   'src/lib/roles': 9,
   'src/lib/permissions': 3,
@@ -209,8 +213,12 @@ const EXPECTED_COUNTS: Record<string, number> = {
   [FIXTURE_DIR]: 4,
   // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
   'src/generated': 2,
-  'src/lib/bff': 2,
-  'src/app': 10,
+  // B-3b C2 added: lib/bff/{loopback,transport,authCalls}.ts, lib/bff/server/{session,origin,apiClient,handlers}.ts,
+  // lib/routes.ts; app/bff/session/{route,sign-out/route}.ts, app/(auth)/login/{page,LoginRoute}.tsx, app/(app)/page.tsx
+  // (replacing app/page.tsx); components/shell/{StartPage,DocumentArrival}.tsx.
+  'src/lib/bff': 9,
+  'src/lib/bff/server': 5,
+  'src/app': 14,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -606,5 +614,283 @@ describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', (
       `src/lib/bulk/x.ts — literal '${k}'`,
       `src/components/bulk/y.tsx — number ${cap}.0`,
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-3b C2 (b4-architecture.md Revision 5 A-8; b3b-design.md §14). G-4: every lib/bff/server module opens with
+// `import 'server-only'`, and nothing reached by import from a 'use client' file reaches lib/bff/server. G-5: the BFF's
+// environment variables are named only in lib/bff/server, and ERP_API_BASE_URL is never read there at module scope
+// (`next build` loads every route module). G-6 / T-TK (b): no client-reachable module imports the Session type or tokenOf.
+// T-TK (c): a server component under src/app passes session-derived props only as clientSessionView(session). G-7: the
+// literal backstop also reads src/app and src/lib/bff. T-AL: the server-only test alias lives in the vitest config only.
+// ---------------------------------------------------------------------------------------------------------------------
+
+
+/** `import 'server-only'` is the module's first statement. */
+function serverOnlyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, BFF_SERVER_DIR)) continue;
+    const first = parse(sf).statements[0];
+    const ok = first && ts.isImportDeclaration(first) && !first.importClause && ts.isStringLiteral(first.moduleSpecifier) && first.moduleSpecifier.text === 'server-only';
+    if (!ok) out.push({ file: sf.file, detail: "does not open with import 'server-only'" });
+  }
+  return out;
+}
+
+const isUseClient = (sf: SourceFile) => {
+  const first = parse(sf).statements[0];
+  return !!first && ts.isExpressionStatement(first) && ts.isStringLiteral(first.expression) && first.expression.text === 'use client';
+};
+
+/** Resolve an import target (`src/x/y`, no extension) to a file in `files`, as the bundler would. */
+function resolveIn(byFile: Map<string, SourceFile>, target: string): string | null {
+  for (const cand of [target, `${target}.ts`, `${target}.tsx`, `${target}/index.ts`, `${target}/index.tsx`]) if (byFile.has(cand)) return cand;
+  return null;
+}
+
+/** For each 'use client' file, every file it reaches by import, with the first chain that reached it. */
+function clientChains(files: readonly SourceFile[]): string[][] {
+  const byFile = new Map(files.map((f) => [f.file, f]));
+  const chains: string[][] = [];
+  for (const start of files.filter(isUseClient)) {
+    const queue: string[][] = [[start.file]];
+    const seen = new Set([start.file]);
+    while (queue.length) {
+      const chain = queue.shift()!;
+      const sf = byFile.get(chain[chain.length - 1]!)!;
+      for (const spec of specifiersOf(sf)) {
+        const t = targetOf(sf.file, spec);
+        if (t.startsWith('pkg:')) continue;
+        const hit = resolveIn(byFile, withoutExtension(t));
+        if (!hit || seen.has(hit)) continue;
+        seen.add(hit);
+        chains.push([...chain, hit]);
+        queue.push([...chain, hit]);
+      }
+    }
+  }
+  return chains;
+}
+
+/** Every file reachable from some 'use client' file. */
+const clientReachable = (files: readonly SourceFile[]) => new Set(clientChains(files).map((c) => c[c.length - 1]!));
+
+function clientReachesServerViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const chain of clientChains(files)) {
+    const file = chain[chain.length - 1]!;
+    if (under(file, BFF_SERVER_DIR)) out.push({ file: chain[0]!, detail: `reaches ${file} via ${chain.join(' → ')}` });
+  }
+  return out;
+}
+
+/** T-TK (b) / G-6: a client-reachable module (or a 'use client' file) imports `Session` or `tokenOf` from the session module. */
+function sessionImportViolations(files: readonly SourceFile[]): Violation[] {
+  const reach = clientReachable(files);
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!isUseClient(sf) && !reach.has(sf.file)) continue;
+    for (const st of parse(sf).statements) {
+      if (!(ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) || !st.moduleSpecifier || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      if (withoutExtension(targetOf(sf.file, st.moduleSpecifier.text)) !== `${BFF_SERVER_DIR}/session`) continue;
+      const names: string[] = [];
+      if (ts.isImportDeclaration(st)) {
+        const b = st.importClause?.namedBindings;
+        if (b && ts.isNamedImports(b)) for (const e of b.elements) names.push((e.propertyName ?? e.name).text);
+        if (b && ts.isNamespaceImport(b)) names.push('*');
+      } else if (st.exportClause && ts.isNamedExports(st.exportClause)) for (const e of st.exportClause.elements) names.push((e.propertyName ?? e.name).text);
+      else names.push('*');
+      for (const n of names) if (n === 'Session' || n === 'tokenOf' || n === '*') out.push({ file: sf.file, detail: `client-reachable import of ${n}` });
+    }
+  }
+  return out;
+}
+
+const BFF_ENV = ['ERP_API_BASE_URL', 'BFF_SESSION_KEY', 'APP_PUBLIC_ORIGIN', 'BFF_CLIENT_IP_SOURCE', 'BFF_API_IP_KEY', 'BFF_API_IP_KEYS'];
+
+const insideFunction = (node: ts.Node) => {
+  for (let p: ts.Node | undefined = node.parent; p; p = p.parent) if (ts.isFunctionLike(p)) return true;
+  return false;
+};
+
+/** G-5: the BFF's variables are named only in lib/bff/server; there, ERP_API_BASE_URL only inside a function body. */
+function envViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    const inServer = under(sf.file, BFF_SERVER_DIR);
+    const visit = (node: ts.Node) => {
+      const text = ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null;
+      if (text !== null && BFF_ENV.includes(text)) {
+        if (!inServer) out.push({ file: sf.file, detail: `names ${text} outside ${BFF_SERVER_DIR}` });
+        else if (text === 'ERP_API_BASE_URL' && !insideFunction(node)) out.push({ file: sf.file, detail: 'reads ERP_API_BASE_URL at module scope' });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(parse(sf));
+  }
+  return out;
+}
+
+/**
+ * T-TK (c): in a server file under src/app, an identifier bound to `readSession(…)` / `unsealSession(…)` may reach a JSX
+ * prop only as `clientSessionView(<it>)`; `tokenOf(…)` never reaches JSX.
+ */
+function sessionPropViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, 'src/app') || isUseClient(sf)) continue;
+    const tree = parse(sf);
+    const bound = new Set<string>();
+    const collect = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && /\b(readSession|unsealSession)\s*\(/.test(node.initializer.getText(tree))) bound.add(node.name.text);
+      ts.forEachChild(node, collect);
+    };
+    collect(tree);
+    const mentions = (e: ts.Node): boolean => {
+      let hit = false;
+      const v = (n: ts.Node) => {
+        if (ts.isIdentifier(n) && (bound.has(n.text) || n.text === 'tokenOf')) hit = true;
+        ts.forEachChild(n, v);
+      };
+      v(e);
+      return hit;
+    };
+    const isView = (e: ts.Expression) =>
+      ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === 'clientSessionView' && e.arguments.length === 1 && ts.isIdentifier(e.arguments[0]!) && bound.has((e.arguments[0] as ts.Identifier).text);
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+        const e = node.initializer.expression;
+        if (mentions(e) && !isView(e)) out.push({ file: sf.file, detail: `prop ${node.name.getText(tree)}={${e.getText(tree)}}` });
+      }
+      if (ts.isJsxSpreadAttribute(node) && mentions(node.expression) && !isView(node.expression)) out.push({ file: sf.file, detail: `spread {...${node.expression.getText(tree)}}` });
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — G-4: lib/bff/server is server-only and unreachable from client code (A-8)', () => {
+  it('the real tree: every lib/bff/server module opens with the import, and no client file reaches the folder', () => {
+    expect(walk(BFF_SERVER_DIR).length).toBeGreaterThan(0);
+    expect(serverOnlyViolations(walk('src'))).toEqual([]);
+    expect(clientReachesServerViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: a server module without the import, and a client file reaching the folder directly or through a hop, go red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/bff/server/x.ts', source: "import { a } from './y';\nexport const b = a;" },
+      { file: 'src/lib/bff/server/y.ts', source: "import 'server-only';\nexport const a = 1;" },
+      { file: 'src/lib/bff/server/z.ts', source: "import type { S } from './y';\nimport 'server-only';" },
+      { file: 'src/app/A.tsx', source: "'use client';\nimport { a } from '@/lib/bff/server/y';" },
+      { file: 'src/app/B.tsx', source: "'use client';\nimport { h } from '../lib/hop';" },
+      { file: 'src/lib/hop.ts', source: "export { a as h } from './bff/server/y';" },
+      { file: 'src/app/C.tsx', source: "import { a } from '@/lib/bff/server/y';\nexport const c = a;" },
+    ];
+    expect(serverOnlyViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/lib/bff/server/x.ts — does not open with import 'server-only'",
+      "src/lib/bff/server/z.ts — does not open with import 'server-only'",
+    ]);
+    expect(clientReachesServerViolations(planted).map((v) => v.detail).sort()).toEqual([
+      'reaches src/lib/bff/server/y.ts via src/app/A.tsx → src/lib/bff/server/y.ts',
+      'reaches src/lib/bff/server/y.ts via src/app/B.tsx → src/lib/hop.ts → src/lib/bff/server/y.ts',
+    ]);
+  });
+});
+
+describe('architecture — G-5: the BFF environment is read only in lib/bff/server, the API base never at module scope (A-8)', () => {
+  it('the real tree has no breach', () => {
+    expect(envViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: a module-scope base read in lib/bff/server and any mention outside it go red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/bff/server/x.ts', source: 'export const base = process.env.ERP_API_BASE_URL;' },
+      { file: 'src/lib/bff/server/y.ts', source: "const { ERP_API_BASE_URL } = process.env;\nexport const k = () => process.env['BFF_SESSION_KEY'];" },
+      { file: 'src/lib/bff/server/ok.ts', source: 'export const base = () => process.env.ERP_API_BASE_URL;\nexport const o = process.env.APP_PUBLIC_ORIGIN;' },
+      { file: 'src/lib/bff/transport.ts', source: "export const k = process.env['BFF_SESSION_KEY'];" },
+      { file: 'src/app/page.tsx', source: 'export const f = () => process.env.BFF_CLIENT_IP_SOURCE;' },
+    ];
+    expect(envViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/lib/bff/server/x.ts — reads ERP_API_BASE_URL at module scope',
+      'src/lib/bff/server/y.ts — reads ERP_API_BASE_URL at module scope',
+      'src/lib/bff/transport.ts — names BFF_SESSION_KEY outside src/lib/bff/server',
+      'src/app/page.tsx — names BFF_CLIENT_IP_SOURCE outside src/lib/bff/server',
+    ]);
+  });
+});
+
+describe('architecture — G-6 / T-TK (b): no client-reachable import of Session or tokenOf (A-8)', () => {
+  it('the real tree has no breach', () => {
+    expect(sessionImportViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: a client file importing tokenOf, a type-only Session import, and a reached helper re-exporting it go red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/A.tsx', source: "'use client';\nimport { tokenOf } from '@/lib/bff/server/session';" },
+      { file: 'src/app/B.tsx', source: "'use client';\nimport type { Session } from '../lib/bff/server/session';\nimport { h } from '@/lib/hop';" },
+      { file: 'src/lib/hop.ts', source: "export { tokenOf as h } from './bff/server/session';" },
+      { file: 'src/lib/bff/server/session.ts', source: "import 'server-only';\nexport const tokenOf = 1;" },
+      { file: 'src/app/page.tsx', source: "import { tokenOf } from '@/lib/bff/server/session';" },
+    ];
+    expect(sessionImportViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/app/A.tsx — client-reachable import of tokenOf',
+      'src/app/B.tsx — client-reachable import of Session',
+      'src/lib/hop.ts — client-reachable import of tokenOf',
+    ]);
+  });
+});
+
+describe('architecture — T-TK (c): a server component passes the session only as clientSessionView(session)', () => {
+  it('the real src/app server files have no breach', () => {
+    expect(sessionPropViolations(walk('src/app'))).toEqual([]);
+  });
+
+  it('planted controls: the session, a session field, a spread and tokenOf go red; clientSessionView(session) does not', () => {
+    const planted: SourceFile[] = [
+      {
+        file: 'src/app/(app)/layout.tsx',
+        source: [
+          'export default async function L() {',
+          '  const session = await readSession(v);',
+          '  return (<>',
+          '    <P a={session} />',
+          '    <P b={session.tz} />',
+          '    <P {...session} />',
+          '    <P c={tokenOf(other)} />',
+          '    <P ok={clientSessionView(session)} />',
+          '    <P {...clientSessionView(session)} />',
+          '  </>);',
+          '}',
+        ].join('\n'),
+      },
+    ];
+    expect(sessionPropViolations(planted).map((v) => v.detail)).toEqual(['prop a={session}', 'prop b={session.tz}', 'spread {...session}', 'prop c={tokenOf(other)}']);
+  });
+});
+
+describe('architecture — G-7: the literal backstop reads src/app and src/lib/bff (A-8)', () => {
+  it('both are in LITERAL_SCAN_DIRS, and their real files hold no served-code or role-name literal', () => {
+    expect(LITERAL_SCAN_DIRS).toEqual(expect.arrayContaining(['src/app', 'src/lib/bff']));
+    expect(literalViolations([...walk('src/app'), ...walk('src/lib/bff')], builtInRoleNames())).toEqual([]);
+  });
+
+  it("planted controls: 'user_role.x' in src/app and 'owner' in src/lib/bff go red", () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/x.tsx', source: "export const c = 'user_role.x';" },
+      { file: 'src/lib/bff/x.ts', source: "export const r = 'owner';" },
+    ];
+    expect(literalViolations(planted, builtInRoleNames()).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/app/x.tsx — literal 'user_role.x'", "src/lib/bff/x.ts — literal 'owner'"]);
+  });
+});
+
+describe('architecture — T-AL: the server-only alias is a test-only setting', () => {
+  it('vitest aliases server-only to its empty module; next.config.ts and src do not', () => {
+    const vitest = readFileSync(path.join(ROOT, 'vitest.config.mts'), 'utf8');
+    expect(vitest).toMatch(/'server-only':\s*'next\/dist\/compiled\/server-only\/empty\.js'/);
+    expect(readFileSync(path.join(ROOT, 'next.config.ts'), 'utf8')).not.toMatch(/server-only/);
+    for (const sf of walk('src')) expect(sf.source, sf.file).not.toMatch(/compiled\/server-only/);
   });
 });

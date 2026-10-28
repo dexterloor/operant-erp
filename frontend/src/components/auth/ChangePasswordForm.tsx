@@ -1,5 +1,6 @@
 'use client';
 
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -112,12 +113,12 @@ export function ChangePasswordForm({ changePassword, onSessionEnded, signInHref 
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (
-        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={CREDENTIAL_FALLBACK.unreachableHeading}>
+        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
           <p>{CREDENTIAL_FALLBACK.unreachableBody}</p>
         </Banner>
       ) : null}
       {notice === 'server-error' ? (
-        <Banner ref={noticeRef} tone="danger" live="status" heading={CREDENTIAL_FALLBACK.serverErrorHeading}>
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
           <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>
       ) : null}

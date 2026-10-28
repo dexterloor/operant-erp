@@ -1,4 +1,19 @@
 import type { NextConfig } from 'next';
+import { isLoopbackBase } from './src/lib/bff/loopback';
+
+/**
+ * Deployment guard, build-time half (b3b-design.md §5 item 18; ruling Q-7). This branch may only be built for a local
+ * API: loading this file throws on any hosting platform's marker variable, and on an API base URL that is set and not
+ * exact-host loopback. An unset base builds (the run-time half in lib/bff/server/apiClient.ts then refuses the first
+ * API call). Retired only by the commit that adds the first deployment configuration, which is gated on BK-2/3/4,
+ * BK-8, BK-9, the idle bound (L3) and the owner's word. There is no marker file.
+ */
+const PLATFORM_MARKERS = ['VERCEL', 'VERCEL_ENV', 'NETLIFY', 'CF_PAGES'] as const;
+for (const name of PLATFORM_MARKERS) {
+  if (process.env[name] !== undefined) throw new Error(`Refusing a hosted build (${name} is set): no deployment configuration exists yet.`);
+}
+const apiBase = process.env.ERP_API_BASE_URL;
+if (apiBase !== undefined && !isLoopbackBase(apiBase)) throw new Error('Refusing to build against an API base URL that is not loopback.');
 
 /**
  * Response headers for the two password-reset pages (ux-copy-frontend.md §1.3–§1.4, bff-auth-note.md §8 / R1-§8):
@@ -12,7 +27,6 @@ export const CREDENTIAL_PAGE_HEADERS = [
 ] as const;
 export const CREDENTIAL_PAGE_ROUTES = ['/forgot-password', '/reset-password'] as const;
 
-// B-3a: components only. No rewrites, no API proxy, no BFF route handlers yet (B-3b).
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,

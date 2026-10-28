@@ -34,12 +34,13 @@ describe('Button', () => {
 });
 
 describe('Page states (RULED copy)', () => {
-  it('permission denied: heading, body, back link; focus on the h1', () => {
+  it('permission denied: heading, body, "Go to your start page" link to /; focus on the h1 (ux-copy-b3b.md C2-3)', () => {
     render(<PermissionDenied resourcePlural="purchase orders" permissionName="Purchasing" />);
     const h1 = screen.getByRole('heading', { level: 1, name: "You don't have access to purchase orders." });
     expect(h1).toHaveFocus();
     expect(screen.getByText(/needs the/)).toHaveTextContent('This needs the Purchasing permission. Your workspace administrator can grant it.');
-    expect(screen.getByRole('link', { name: 'Back to Overview' })).toHaveAttribute('href', '/overview');
+    expect(screen.getByRole('link', { name: 'Go to your start page' })).toHaveAttribute('href', '/');
+    expect(screen.queryByText('Back to Overview')).toBeNull();
   });
 
   it('not found: identical for missing and not yours', () => {

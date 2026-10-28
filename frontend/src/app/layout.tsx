@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import '@/styles/globals.css';
 import { ThemeBootScript } from '@/components/theme/ThemeBootScript';
+import { DocumentArrival } from '@/components/shell/DocumentArrival';
+import { APP_TITLE } from '@/copy/shell';
 import { fontVariables } from './fonts';
 
 export const metadata: Metadata = {
-  title: { default: 'ERP', template: '%s · ERP' },
+  title: { ...APP_TITLE },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -16,7 +18,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <ThemeBootScript />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <DocumentArrival />
+      </body>
     </html>
   );
 }

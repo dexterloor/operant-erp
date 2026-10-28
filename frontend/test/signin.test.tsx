@@ -74,6 +74,29 @@ describe('SignInCard', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('T-L13: the session-ended notice is exactly three lines of fixed text (b4-owed-copy.md R1-4; design §12)', () => {
+    render(<SignInCard onSubmit={vi.fn()} notice="session-ended" />);
+    const text = screen.getByText('You were signed out.').parentElement!;
+    const lines = [...text.querySelectorAll('p')].map((p) => p.textContent);
+    expect(lines).toEqual([
+      'You were signed out.',
+      'Sign in again to continue.',
+      'If you were saving changes, check them after you sign in: some may not have been saved.',
+    ]);
+  });
+
+  it('C2-2: the server cannot be reached → the connection notice, never the failure sentence', () => {
+    render(<SignInCard onSubmit={vi.fn()} notice="unreachable" />);
+    expect(screen.getByRole('status')).toHaveTextContent("We couldn't reach the server.Check your connection and try again.");
+    expect(screen.queryByText(FAILURE[0]!)).toBeNull();
+  });
+
+  it('C2-2: a server failure or an unexpected answer → the "on our side" notice, never the failure sentence', () => {
+    render(<SignInCard onSubmit={vi.fn()} notice="server-error" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(screen.queryByText(FAILURE[0]!)).toBeNull();
+  });
+
   it('submits the three values; while submitting the button is busy, not disabled, and ignores clicks', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();

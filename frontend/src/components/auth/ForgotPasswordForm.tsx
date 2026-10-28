@@ -1,5 +1,6 @@
 'use client';
 
+import { WENT_WRONG } from '@/copy/headings';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -121,7 +122,7 @@ export function ForgotPasswordForm({ requestReset, rememberedWorkspace = '', sig
         </Banner>
       ) : null}
       {notice === 'server-error' ? (
-        <Banner ref={noticeRef} tone="danger" live="status" heading={CREDENTIAL_FALLBACK.serverErrorHeading}>
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
           <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>
       ) : null}

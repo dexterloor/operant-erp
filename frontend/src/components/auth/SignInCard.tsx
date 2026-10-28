@@ -5,7 +5,8 @@ import { SIGN_IN } from '@/copy/shell';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PlainLink, type LinkComponent } from '@/components/shell/types';
-import { FORGOT_LINK } from '@/copy/password';
+import { CREDENTIAL_FALLBACK, FORGOT_LINK } from '@/copy/password';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { AuthCard } from './AuthCard';
 import styles from './AuthCard.module.css';
 
@@ -14,7 +15,7 @@ import styles from './AuthCard.module.css';
  * (unknown workspace, unknown email, wrong password, switched-off account…) — never a variant per cause, never
  * attempts remaining or pause time remaining. Only the IP rate limit and the account pause differ.
  */
-export type SignInNotice = 'failure' | 'rate-limited' | 'paused' | 'session-ended';
+export type SignInNotice = 'failure' | 'rate-limited' | 'paused' | 'session-ended' | 'unreachable' | 'server-error';
 
 export interface SignInValues {
   workspace: string;
@@ -64,7 +65,7 @@ export function SignInCard({ notice = null, attempt = 0, submitting = false, wor
   }, [values, manageFocus]);
 
   // After a refused attempt: password cleared, workspace and email kept, focus to the first field (§10).
-  const refused = notice === 'failure' || notice === 'rate-limited' || notice === 'paused';
+  const refused = notice === 'failure' || notice === 'rate-limited' || notice === 'paused' || notice === 'unreachable' || notice === 'server-error';
   useEffect(() => {
     if (!refused) return;
     // Clearing the password is a reaction to the caller's new outcome prop, not derived render state.
@@ -104,6 +105,19 @@ export function SignInCard({ notice = null, attempt = 0, submitting = false, wor
         {notice === 'session-ended' ? (
           <Banner tone="info" heading={SIGN_IN.sessionEndedHeading}>
             <p>{SIGN_IN.sessionEndedBody}</p>
+            <p>{SIGN_IN.sessionEndedSaving}</p>
+          </Banner>
+        ) : null}
+        {/* ux-copy-b3b.md C2-2: never the failure sentence, which would tell a person their details are wrong when the
+            server is down (bff-auth-note.md §4's last row). */}
+        {notice === 'unreachable' ? (
+          <Banner tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
+            <p>{CREDENTIAL_FALLBACK.unreachableBody}</p>
+          </Banner>
+        ) : null}
+        {notice === 'server-error' ? (
+          <Banner tone="danger" live="status" heading={WENT_WRONG}>
+            <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
           </Banner>
         ) : null}
 

@@ -4,6 +4,10 @@ import { cleanup } from '@testing-library/react';
 
 afterEach(() => cleanup());
 
+// The BFF server tests run under `// @vitest-environment node` (WebCrypto and Request/Response are the real ones there);
+// the DOM shims below apply only where there is a DOM.
+if (typeof window !== 'undefined') {
+
 // jsdom lacks these; Radix (Tooltip, DropdownMenu, Dialog) measures with them.
 class ResizeObserverStub {
   observe() {}
@@ -23,3 +27,4 @@ if (!Element.prototype.hasPointerCapture) {
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 // axe probes icon ligatures with a canvas; jsdom has none. Returning null makes axe skip that heuristic quietly.
 HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+}

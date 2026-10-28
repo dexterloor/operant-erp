@@ -20,9 +20,11 @@ export const SIGN_IN = {
   /** RULED (§9, ST-8b): the account pause. */
   pausedHeading: 'Too many failed attempts.',
   pausedBody: 'Sign-in with this workspace and email is paused for 15 minutes.',
-  /** PROPOSED (§7.1): the notice after a session ended. */
+  /** CONFIRMED (ux-copy-b3b.md C2-2): the notice after a session ended. Fixed text: `reason` is settable by anyone. */
   sessionEndedHeading: 'You were signed out.',
   sessionEndedBody: 'Sign in again to continue.',
+  /** CONFIRMED (b4-owed-copy.md R1-4; b3b-design.md §12, L-13): the notice's third line. */
+  sessionEndedSaving: 'If you were saving changes, check them after you sign in: some may not have been saved.',
   /** PROPOSED (export DECISIONS §7.1, IA-O-2). */
   rememberedHint: 'Remembered on this device.',
   useAnotherWorkspace: 'Use another workspace',
@@ -35,7 +37,8 @@ export const PAGE_STATES = {
   deniedHeading: (resourcePlural: string) => `You don't have access to ${resourcePlural}.`,
   deniedBodyBefore: 'This needs the ',
   deniedBodyAfter: ' permission. Your workspace administrator can grant it.',
-  deniedBack: 'Back to Overview',
+  /** CHANGED (ux-copy-b3b.md C2-3, SEC accepted with conditions): the link goes to the `/` start page. */
+  deniedBack: 'Go to your start page',
   /** RULED (§9, ST-5): not found and not yours look identical. */
   notFoundHeading: "We couldn't find that.",
   notFoundBody: 'It may have been deleted, or you may not have access.',
@@ -48,6 +51,22 @@ export const PAGE_STATES = {
   offlineBody: (loadedAt: string) => `The figures shown were loaded at ${loadedAt} and may be out of date.`,
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',
+} as const;
+
+/** The document title: the page's own title, then the product name (root layout metadata). */
+export const APP_TITLE = { default: 'ERP', template: '%s · ERP' } as const;
+export const pageTitle = (title: string) => APP_TITLE.template.replace('%s', title);
+
+/**
+ * NEW (ux-copy-b3b.md C2-1, Q-6): the `/` start page, when no built page is open to the viewer. The body is chosen by
+ * the served `permission_codes`: empty (no roles, or roles with no permissions) or not. The h1 ends with a full stop;
+ * the `<title>` does not.
+ */
+export const START = {
+  heading: "There's nothing here for you yet.",
+  title: "There's nothing here for you yet",
+  bodyNoAccess: "You don't have access to anything in this workspace yet. Your workspace administrator can give you a role.",
+  bodyNotYet: "The pages your roles give you access to aren't available yet.",
 } as const;
 
 export const SHELL = {

@@ -77,14 +77,15 @@ export const CHANGE_PASSWORD = {
 } as const;
 
 /**
- * PROPOSED (b3a2 fallback; no UX string exists for these on the set-password and change-password pages):
+ * CONFIRMED (ux-copy-b3b.md C2-2; b3a2 fallback): the bodies for "the server can't be reached" and "a server failure"
+ * on the credential pages and sign-in:
  * - unreachable: the request page's sentence says "nothing was sent", which is not knowable once a request may have
  *   reached the server, so it is not reused there;
- * - server error (5xx): ST-3 says bounded and never the server's `detail`, but gives no sentence for these pages.
+ * - server error (5xx): ST-3 says bounded and never the server's `detail`.
+ * The headings are not repeated here: they are `COULD_NOT_REACH` / `WENT_WRONG` in `copy/headings.ts`, their one home
+ * (RED L-14). A `copy/*` module may import only from `lib/api/*`, so the pages import the headings themselves.
  */
 export const CREDENTIAL_FALLBACK = {
-  unreachableHeading: "We couldn't reach the server.",
   unreachableBody: 'Check your connection and try again.',
-  serverErrorHeading: 'Something went wrong on our side.',
   serverErrorBody: 'Try again in a moment.',
 } as const;

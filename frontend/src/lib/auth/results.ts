@@ -71,3 +71,28 @@ export type DocumentNavigate = (url: string) => void;
 export const assignLocation: DocumentNavigate = (url) => {
   window.location.assign(url);
 };
+
+/** `POST /bff/session` (b3b-design.md §5 item 5): the three fields, plus two the BFF reads and never forwards. */
+export interface SignInRequest {
+  workspace: string;
+  email: string;
+  password: string;
+  /** `?return_to` as the page received it; the BFF validates it (SD-1). */
+  returnTo: string | null;
+  /** The browser's IANA zone; the BFF seals it, or UTC (design §5 item 15). */
+  timeZone: string;
+}
+
+/** The sign-in outcomes. Only `signed-in` navigates, and only to the server's `redirect`. A 401 here is never "session ended". */
+export type SignInResult =
+  | { kind: 'signed-in'; redirect: string }
+  /** 401 `authentication-failed`, every cause (ST-7); also a 422 shape refusal. */
+  | { kind: 'failure' }
+  /** 429 `too-many-attempts` (ST-8a). */
+  | RateLimited
+  /** 429 `sign-in-paused` (ST-8b). */
+  | { kind: 'paused' }
+  | Unreachable
+  | ServerError;
+
+export type SignInAction = (request: SignInRequest) => Promise<SignInResult>;
