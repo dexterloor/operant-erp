@@ -75,3 +75,39 @@ export const PERSON_FORBIDDEN = {
   label: 'Delete and restore people',
   after: ' permission, which you no longer have. Your workspace administrator can grant it.',
 } as const;
+
+/**
+ * NEW (ux-copy-b3b.md C5-1, final per its "Summary, per commit"): the `/admin/users` list. The h1 is the nav noun
+ * (R4-1); every other string says *people*. Templates are functions; the curly quotes are the ST-9a form.
+ */
+export const USERS_LIST = {
+  heading: 'Users',
+  /** ST-4b's `{resource}` for this list and the person page (C5-1 403 row). */
+  resourcePlural: 'people',
+  /** REUSE (b4-owed-copy.md R1-10 "Unchanged"). */
+  archived: 'Archived',
+  name: 'Name',
+  email: 'Email',
+  roles: 'Roles',
+  status: 'Status',
+  noRoles: 'No roles',
+  active: 'Active',
+  switchedOff: 'Switched off',
+  archivedOrder: 'Most recently deleted first',
+  searchLabel: 'Search by email',
+  searchPlaceholder: 'Start of an email address',
+  noMatch: (q: string) => `No one's email starts with “${q}”.`,
+  noArchivedMatch: (q: string) => `No archived person's email starts with “${q}”.`,
+  /** REUSE (b4-owed-copy.md R1-10 row 11). */
+  noneArchived: 'Nobody in this workspace has been deleted.',
+  clearSearch: 'Clear search',
+  /** ST-1a's settled announcement. Never called with 0: the empty heading is spoken instead (ST-2a). */
+  shown: (n: number, q: string, archived: boolean) =>
+    [n === 1 ? '1 person shown.' : `${n} people shown.`, q !== '' ? `Email starts with “${q}”.` : null, archived ? 'Archived.' : null].filter(Boolean).join(' '),
+  loadFailed: "The list of people couldn't be loaded.",
+} as const;
+
+/** NEW (ux-copy-b3b.md C5-2, RED M-4, unified): the person page's read failed after first paint, incl. after a delete. */
+export const PERSON_PAGE = {
+  rereadFailed: "We couldn't load this person's details again, so what's shown may be out of date.",
+} as const;

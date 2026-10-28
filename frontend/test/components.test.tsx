@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
 import { StatusMessages } from '@/components/ui/StatusMessages';
 import { TooltipProvider } from '@/components/ui/Tooltip';
-import { NotFound, PermissionDenied, Refetchable, RegionError } from '@/components/states/PageStates';
+import { NotFound, PermissionDenied, Refetchable, RefetchFailedBanner, RegionError } from '@/components/states/PageStates';
 
 describe('Button', () => {
   it('never uses the native disabled attribute; aria-disabled keeps it focusable with a visible, linked reason', async () => {
@@ -50,13 +50,23 @@ describe('Page states (RULED copy)', () => {
     expect(screen.getByRole('link', { name: 'Back to the list' })).toHaveAttribute('href', '/items');
   });
 
-  it('region error: focus to its heading, Retry calls back', async () => {
+  it('region error: the caller\'s heading and body; focus moves to its heading, so it takes no live role (R1-1); Retry calls back', async () => {
     const user = userEvent.setup();
     const retry = vi.fn();
-    render(<RegionError heading="Couldn't load this section." onRetry={retry} />);
-    expect(screen.getByRole('heading', { name: "Couldn't load this section." })).toHaveFocus();
+    const { container } = render(<RegionError heading="Something went wrong on our side." body="The list of people couldn't be loaded." onRetry={retry} />);
+    expect(screen.getByRole('heading', { name: 'Something went wrong on our side.' })).toHaveFocus();
+    expect(screen.getByText("The list of people couldn't be loaded.")).toBeInTheDocument();
+    expect(container.querySelector('[role="status"], [aria-live]')).toBeNull();
+    expect(container.textContent).not.toMatch(/unaffected/);
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalled();
+  });
+
+  it('refetch failed: the earlier data stays; the R1-1 heading and body are the caller\'s; polite, focus does not move', () => {
+    render(<RefetchFailedBanner heading="We couldn't reach the server." body="The list couldn't be updated, so it still shows the earlier results." onRetry={() => {}} />);
+    expect(screen.getByRole('status')).toHaveTextContent("We couldn't reach the server.");
+    expect(screen.getByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument();
+    expect(document.body).toHaveFocus();
   });
 
   it('refetching sets aria-busy and leaves content untouched (no dimming wrapper styles)', () => {

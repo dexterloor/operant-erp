@@ -67,20 +67,22 @@ export function NotFound({ listHref, autoFocus = true, renderLink = plainLink }:
 }
 
 /**
- * A server error bounded to one region, never blanking the page (§5.11). Focus moves to the region's heading and the
- * announcement is polite, inside the region (§10). Heading copy is the caller's (PROPOSED per region).
+ * A failed read bounded to one region, never blanking the page (§5.11). The heading is R1-1's by cause and the body is
+ * the region's own (ux-copy-b3b.md C5; RED M-4), both the caller's. **Focus moves to the heading** (the R1-1 rule:
+ * a surface that moves focus takes no live role, so the region has none — the heading is read when it takes focus).
+ * `autoFocus={false}` on first paint (ST-2a: ordinary content, not announced).
  */
-export function RegionError({ heading, onRetry, retrying = false, autoFocus = true }: { heading: string; onRetry: () => void; retrying?: boolean; autoFocus?: boolean }) {
+export function RegionError({ heading, body, onRetry, retrying = false, autoFocus = true }: { heading: string; body: string; onRetry: () => void; retrying?: boolean; autoFocus?: boolean }) {
   const ref = useFocusOnMount<HTMLHeadingElement>(autoFocus);
   const id = useId();
   return (
-    <section className={styles.region} aria-labelledby={id} role="status" aria-live="polite">
+    <section className={styles.region} aria-labelledby={id}>
       <RefreshCcw aria-hidden="true" width={16} height={16} strokeWidth={1.5} className={styles.regionIcon} />
       <div className={styles.regionText}>
         <h2 id={id} ref={ref} tabIndex={-1} className={styles.regionHeading}>
           {heading}
         </h2>
-        <p className={styles.muted}>{PAGE_STATES.regionErrorBody}</p>
+        <p className={styles.muted}>{body}</p>
       </div>
       <Button size="sm" variant="secondary" loading={retrying} onClick={onRetry}>
         {PAGE_STATES.retry}
@@ -89,21 +91,24 @@ export function RegionError({ heading, onRetry, retrying = false, autoFocus = tr
   );
 }
 
-/** Stale / offline (§5.6, warning): the last good data stays on the page; announced politely; focus does not move. */
-export function OfflineBanner({ loadedAt, onRetry, retrying = false }: { loadedAt: string; onRetry: () => void; retrying?: boolean }) {
+/**
+ * A refetch failed (ST-3 network row; §5.6 warning): the earlier data stays on the page; announced politely; focus does
+ * not move. The heading is R1-1's by cause, the body the caller's (`LIST_STATES.refetchFailed`).
+ */
+export function RefetchFailedBanner({ heading, body, onRetry, retrying = false }: { heading: string; body: string; onRetry: () => void; retrying?: boolean }) {
   return (
     <Banner
       tone="warning"
       icon="offline"
       live="status"
-      heading={PAGE_STATES.offlineHeading}
+      heading={heading}
       action={
         <Button size="sm" variant="secondary" loading={retrying} onClick={onRetry}>
           {PAGE_STATES.retry}
         </Button>
       }
     >
-      <p>{PAGE_STATES.offlineBody(loadedAt)}</p>
+      <p>{body}</p>
     </Banner>
   );
 }

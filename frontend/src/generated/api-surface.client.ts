@@ -22,7 +22,48 @@ export interface BulkResource {
 }
 
 /** The wired operations only. */
-export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {};
+export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
+  DeleteUser: {
+    method: 'DELETE',
+    template: '/api/v1/users/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['app_user.delete'],
+    },
+  },
+  GetUser: {
+    method: 'GET',
+    template: '/api/v1/users/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['app_user.view'],
+    },
+  },
+  ListUsers: {
+    method: 'GET',
+    template: '/api/v1/users',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['app_user.view'],
+    },
+  },
+  RestoreUser: {
+    method: 'POST',
+    template: '/api/v1/users/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['app_user.delete'],
+    },
+  },
+};
 
 /** The resources that can be archived or restored in bulk. */
 export const BULK: Readonly<Record<string, BulkResource>> = {

@@ -6,7 +6,7 @@
 import { NAVIGATION, type PermissionCodes } from './navigation';
 
 /** The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. */
-export const BUILT_PAGE_HREFS: readonly string[] = [];
+export const BUILT_PAGE_HREFS: readonly string[] = ['/admin/users'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 

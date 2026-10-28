@@ -86,7 +86,9 @@ describe('sign-in handler — POST /bff/session', () => {
   it.each([
     [undefined, '/'],
     ['//evil.example', '/'],
-    ['/admin/users', '/'],
+    // Built since B-3b C5: a return path to a built page is kept; an unbuilt route still falls back to /.
+    ['/admin/users', '/admin/users'],
+    ['/purchase-orders', '/'],
     ['/', '/'],
   ])('return_to %s → redirect %s (SD-1: only built pages; the fallback is always /)', async (returnTo, want) => {
     stubApi(() => Response.json({ access_token: JWT, token_type: 'Bearer', expires_at: EXPIRES }));

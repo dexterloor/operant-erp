@@ -20,7 +20,9 @@ import { BulkRowCheckbox } from '@/components/bulk/BulkRowCheckbox';
 import { useBulkSelection } from '@/components/bulk/useBulkSelection';
 import type { BulkResult } from '@/lib/bulk/results';
 import { BULK_PREVIEW_ANSWERS, SUPPLIER_ARCHIVED, SUPPLIER_NOUNS, SUPPLIER_PAGES } from './fixtures/bulk';
-import { PERSON } from '@/copy/people';
+import { PERSON, USERS_LIST } from '@/copy/people';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { LIST_STATES } from '@/copy/shell';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
 import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
@@ -68,7 +70,7 @@ import {
   page,
 } from './fixtures/roles';
 import { SignInCard, type SignInNotice } from '@/components/auth/SignInCard';
-import { NotFound, OfflineBanner, PermissionDenied, Refetchable, RegionError, RegionLoading, Skeleton } from '@/components/states/PageStates';
+import { NotFound, PermissionDenied, RefetchFailedBanner, Refetchable, RegionError, RegionLoading, Skeleton } from '@/components/states/PageStates';
 import styles from './ComponentPreview.module.css';
 
 // Neutral placeholders only — no business sample data (G-37: never the export's DKK/NL/JP samples).
@@ -190,8 +192,8 @@ export function ComponentPreview() {
           <div className={styles.frame}>
             <NotFound listHref="/component-preview" autoFocus={false} />
           </div>
-          <RegionError heading="Couldn't load this section." onRetry={() => undefined} autoFocus={false} />
-          <OfflineBanner loadedAt="10:42" onRetry={() => undefined} />
+          <RegionError heading={WENT_WRONG} body={USERS_LIST.loadFailed} onRetry={() => undefined} autoFocus={false} />
+          <RefetchFailedBanner heading={COULD_NOT_REACH} body={LIST_STATES.refetchFailed} onRetry={() => undefined} />
           <Skeleton rows={4} label="Loading the preview section" />
           <RegionLoading />
           <div className={styles.row}>

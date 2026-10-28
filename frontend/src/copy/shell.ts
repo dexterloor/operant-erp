@@ -43,14 +43,18 @@ export const PAGE_STATES = {
   notFoundHeading: "We couldn't find that.",
   notFoundBody: 'It may have been deleted, or you may not have access.',
   notFoundBack: 'Back to the list',
-  /** PROPOSED (Spec States §5.11). */
-  regionErrorBody: 'The rest of this page is unaffected. Try again in a moment.',
   retry: 'Retry',
-  /** PROPOSED (Spec Feedback §5.6). */
-  offlineHeading: "Can't reach the server.",
-  offlineBody: (loadedAt: string) => `The figures shown were loaded at ${loadedAt} and may be out of date.`,
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',
+} as const;
+
+/**
+ * NEW (ux-copy-b3b.md C5-1, RED M-4): a list whose refetch failed while its rows stay shown (ST-3 network row), under
+ * R1-1's heading by cause. Shared by every list (C7-1 REUSE). It is true only while the view control shows the view on
+ * screen (RED round 2 R2-L2), which the lists guarantee by deriving the control from the shown rows.
+ */
+export const LIST_STATES = {
+  refetchFailed: "The list couldn't be updated, so it still shows the earlier results.",
 } as const;
 
 /** The document title: the page's own title, then the product name (root layout metadata). */

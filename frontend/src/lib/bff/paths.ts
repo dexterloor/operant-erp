@@ -6,6 +6,11 @@ import { operation, type SurfaceOperation } from './surface';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const API_PREFIX = '/api/v1/';
 
+/** A canonical lowercase UUID: the only form a record id in a path may take. */
+export function isRecordId(s: string): boolean {
+  return UUID.test(s);
+}
+
 /** The browser path of one surface operation. Throws on a missing, extra or malformed parameter. */
 export function bffPathFor(op: SurfaceOperation, params: Readonly<Record<string, string>>): string {
   if (!op.template.startsWith(API_PREFIX) || op.template.startsWith(`${API_PREFIX}auth/`)) throw new Error(`${op.template} is not a proxied path.`);

@@ -28,9 +28,10 @@ describe('generated API surface (b3b §4, A-7)', () => {
   it('a changed contract changes both modules: the generator is not a constant', () => {
     const mutated = structuredClone(inputs);
     mutated.surface.bulk.max_ids = mutated.surface.bulk.max_ids + 1;
-    mutated.openapi.paths['/api/v1/users/{id}'].get.operationId = 'GetUserX';
-    mutated.surface.operations.GetUserX = mutated.surface.operations.GetUser;
-    delete mutated.surface.operations.GetUser;
+    // An operation the browser never calls (GetCurrentUser is read by the server layout only), so the wired list stays valid.
+    mutated.openapi.paths['/api/v1/me'].get.operationId = 'GetCurrentUserX';
+    mutated.surface.operations.GetCurrentUserX = mutated.surface.operations.GetCurrentUser;
+    delete mutated.surface.operations.GetCurrentUser;
     const again = generate(mutated);
     expect(again.server).not.toBe(out.server);
     expect(again.client).not.toBe(out.client);

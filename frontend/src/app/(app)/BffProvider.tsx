@@ -12,11 +12,22 @@ import styles from '@/components/states/PageStates.module.css';
  */
 
 const CallerContext = createContext<ApiCaller | null>(null);
+const TimeZoneContext = createContext<string | null>(null);
 
 export function useApiCaller(): ApiCaller {
   const c = useContext(CallerContext);
   if (c === null) throw new Error('useApiCaller() is used outside BffProvider.');
   return c;
+}
+
+/**
+ * The viewer's IANA zone, from the session (`tz`, captured at sign-in; b4-architecture.md Revision 5 A-9): the one
+ * source of every `timeZone` prop below the frame. Never read from the browser in render.
+ */
+export function useViewerTimeZone(): string {
+  const tz = useContext(TimeZoneContext);
+  if (tz === null) throw new Error('useViewerTimeZone() is used outside BffProvider.');
+  return tz;
 }
 
 /** sessionStorage, tolerating a browser that refuses it (the marker then lasts only for this document). */
@@ -63,7 +74,11 @@ export function BffProvider({ session, children, reload }: BffProviderProps) {
       development: process.env.NODE_ENV !== 'production',
     }),
   );
-  return <CallerContext.Provider value={caller}>{fixed ? <SessionChangedPage /> : children}</CallerContext.Provider>;
+  return (
+    <CallerContext.Provider value={caller}>
+      <TimeZoneContext.Provider value={session.tz}>{fixed ? <SessionChangedPage /> : children}</TimeZoneContext.Provider>
+    </CallerContext.Provider>
+  );
 }
 
 function SessionChangedPage() {

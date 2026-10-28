@@ -198,13 +198,13 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 47,
+  'src/lib': 51,
   'src/components': 49,
   'src/lib/api': 5,
   'src/lib/roles': 9,
   'src/lib/permissions': 3,
   'src/lib/bulk': 3,
-  'src/lib/people': 2,
+  'src/lib/people': 4,
   'src/components/roles': 4,
   'src/components/permissions': 2,
   'src/components/bulk': 6,
@@ -219,9 +219,11 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C3 added: lib/bff/{paths,problem,deadline,apiCall}.ts, lib/bff/server/apiProxy.ts; app/bff/api/[...path]/route.ts,
   // app/(app)/{layout,BffProvider,AppShell}.tsx, app/(app)/currentViewer.ts.
   // B-3b C8 added: lib/auth/wired.ts; app/bff/password-resets/{route,redemption/route}.ts.
-  'src/lib/bff': 14,
-  'src/lib/bff/server': 6,
-  'src/app': 21,
+  // B-3b C5 added: lib/bff/reads.ts, lib/bff/server/reads.ts, lib/people/{load,wired}.ts; app/(app)/useCommittedState.ts,
+  // app/(app)/admin/users/{page,UsersList,PeopleStates}.tsx, app/(app)/admin/users/[id]/{page,PersonPage,not-found}.tsx.
+  'src/lib/bff': 16,
+  'src/lib/bff/server': 7,
+  'src/app': 28,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
