@@ -1,6 +1,7 @@
 // Dates as shown to a person — docs/ux/STATES.md DT-1…DT-4. Framework-free; the time zone is always a PARAMETER so the
-// output is deterministic in tests. DT-2: the viewer's browser zone is the INTERIM rule (ROADMAP F-11, PO + DATA); the
-// caller passes it (`viewerTimeZone()` below), never this module guessing.
+// output is deterministic in tests. DT-2: the viewer's browser zone is the INTERIM rule (ROADMAP F-11, PO + DATA); it is
+// the zone the browser reported at sign-in, sealed in the session as `tz` (or UTC), and the caller passes it — never
+// this module guessing, and never read during render (rule M-4).
 //
 // Two locale traps, measured on Node 20 (RED L-3) and fixed here deterministically rather than by trusting the locale:
 //  - `en-GB` short month prints "Sept" — DT-1 rules the three-letter month from a FIXED twelve-entry list ("Sep");
@@ -76,9 +77,4 @@ export function formatDateTime(instant: string, timeZone: string): string {
 export function formatInstant(instant: string, timeZone: string): string {
   const p = partsOf(instant, timeZone);
   return `${datePart(p)}, ${p.hour}:${p.minute} (UTC${p.offset})`;
-}
-
-/** The viewer's browser zone — DT-2's interim rule. Call it in the browser; the server's zone is not the viewer's. */
-export function viewerTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }

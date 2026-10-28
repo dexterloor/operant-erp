@@ -281,7 +281,7 @@ function PrimitivesPreview() {
         ))}
       </div>
       <p className={styles.muted}>
-        Date: <DateTime value="2026-09-22T06:05:00Z" form="date" /> · Date and time: <DateTime value="2026-10-22T06:05:00Z" form="date-time" />
+        Date: <DateTime value="2026-09-22T06:05:00Z" form="date" timeZone="UTC" /> · Date and time: <DateTime value="2026-10-22T06:05:00Z" form="date-time" timeZone="UTC" />
       </p>
       <div className={styles.row}>
         <Button onClick={() => setOpen(true)}>Open a preview dialog</Button>

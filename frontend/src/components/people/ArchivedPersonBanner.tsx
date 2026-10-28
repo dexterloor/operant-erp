@@ -11,7 +11,7 @@ import styles from './People.module.css';
  * picker is rendered there). Shown to every viewer of the page; the Restore action is passed in only for holders of
  * `app_user.delete` (ST-4c). The date is the served `archived_at`, DT-1, with the full instant on hover and focus.
  */
-export function ArchivedPersonBanner({ archivedAt, timeZone, action }: { archivedAt: string; timeZone?: string; action?: ReactNode }) {
+export function ArchivedPersonBanner({ archivedAt, timeZone, action }: { archivedAt: string; timeZone: string; action?: ReactNode }) {
   return (
     <div className={styles.archived}>
       <Archive aria-hidden="true" width={16} height={16} strokeWidth={1.5} className={styles.archivedIcon} />

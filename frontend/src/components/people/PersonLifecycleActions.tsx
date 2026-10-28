@@ -29,8 +29,11 @@ export interface PersonLifecycleActionsProps {
   onGiveRole?: () => void;
   /** The page's `<h1>`, owned by the route (RED M-7): focus target when the opener is gone, and after Dismiss message. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
-  /** DT-2 interim: the viewer's zone by default; tests and the preview pass one. */
-  timeZone?: string;
+  /**
+   * The viewer's IANA zone, from the session (`tz`, captured at sign-in). Never read in render: a browser default would
+   * differ from the server's HTML.
+   */
+  timeZone: string;
 }
 
 type Action = 'delete' | 'restore';

@@ -31,8 +31,11 @@ export interface RoleProposalsProps {
   actions: RoleProposalActions;
   /** The page's `<h1>`: focus goes there when the row whose button was pressed leaves the view (4b-4 pattern). */
   fallbackFocusRef: RefObject<HTMLElement | null>;
-  /** DT-2 interim: the viewer's zone (default); tests and the preview pass one. */
-  timeZone?: string;
+  /**
+   * The viewer's IANA zone, from the session (`tz`, captured at sign-in). Never read in render: a browser default would
+   * differ from the server's HTML.
+   */
+  timeZone: string;
   /**
    * The served `person.margin_exposure`, passed by the page (b4-step5-gaps.md Rev 2 item 2). When a Confirm's re-read turns
    * it from false to true, the RULED held-form sentence is appended to the confirmation message (4b-2's "made it appear").
