@@ -7,6 +7,11 @@
 //    ux-copy §3.1 / Rev 3 item 4 / R4-4 L-6 and round-6 §2c). "The archived {plural}" names the place and is unchanged.
 // Templates are functions; components never concatenate. A server sentence (e.g. `bulk.contention`) is NEVER stored
 // here: the bar renders the result's `message` as sent. The cap is a parameter, never a number in this file.
+// Every string here is confirmed by ux-confirm-b4.md (2026-10-28), which also sets the two remainders' forms and the
+// Already sent body.
+
+/** Plural forms chosen by `lib/format/plural`. Local, because `copy/*` may import only `lib/api/*`. */
+const pluralForms = (one: (n: number) => string, other: (n: number) => string) => ({ one, other });
 
 /** The list's nouns, supplied by the caller from its own copy (e.g. supplier / suppliers). */
 export interface BulkNouns {
@@ -24,10 +29,10 @@ export const BULK = {
   /** Round-6 §2c, RULED. */
   selected: (n: number) => `${n} selected`,
   clearSelection: 'Clear selection',
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-10 row 1). */
+  /** b4-owed-copy.md Rev 2 R1-10 row 1. */
   deleteAction: 'Delete',
   restoreAction: 'Restore',
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-10 row 2). The number is the served cap, passed in. */
+  /** b4-owed-copy.md Rev 2 R1-10 row 2. The number is the served cap, passed in. */
   deleteCapReason: (max: number) => `You can delete up to ${max} at a time.`,
   /** Rev 3 item 4 (restore). */
   restoreCapReason: (max: number) => `You can restore up to ${max} at a time.`,
@@ -36,7 +41,7 @@ export const BULK = {
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-10 rows 3–5): the bulk Delete dialog. Initial focus is Cancel (row 5). Bulk
+ * b4-owed-copy.md Rev 2 R1-10 rows 3–5: the bulk Delete dialog. Initial focus is Cancel (row 5). Bulk
  * Restore has no dialog (Rev 3 item 4).
  */
 export const BULK_DELETE_DIALOG = {
@@ -46,20 +51,32 @@ export const BULK_DELETE_DIALOG = {
   cancel: 'Cancel',
 } as const;
 
-/** §3.1 after-messages, counts only (E-14). Rev 3 item 1 for the restore remainder. */
+/**
+ * §3.1 after-messages, counts only (E-14). Rev 3 item 1 for the restore remainder. The remainders are plural forms
+ * (ux-confirm-b4.md §2.1, §2.2); "for example" keeps the delete remainder true for a refusal it does not name.
+ */
 export const BULK_AFTER = {
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-10 row 6). */
+  /** b4-owed-copy.md Rev 2 R1-10 row 6. */
   deleted: (applied: number, requested: number) => `${applied} of ${requested} deleted.`,
   restored: (applied: number, requested: number) => `${applied} of ${requested} restored.`,
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-10 row 6). */
-  deleteRemainder: (rest: number) =>
-    `The other ${rest} weren't changed. A record may already be archived, no longer exist, or still have open work.`,
-  restoreRemainder: (rest: number) =>
-    `The other ${rest} weren't changed. A record may no longer be archived or exist, another record may now use its code or name, or a record it depends on may be archived.`,
+  /** ux-confirm-b4.md §2.1. */
+  deleteRemainder: pluralForms(
+    (n) =>
+      `The other ${n} wasn't changed. It may already be archived or no longer exist, or something may stop it being deleted: for example, it still holds stock or has open work, or it's an order that is no longer a draft.`,
+    (n) =>
+      `The other ${n} weren't changed. A record may already be archived or no longer exist, or something may stop it being deleted: for example, it still holds stock or has open work, or it's an order that is no longer a draft.`,
+  ),
+  /** Rev 3 item 1 (the plural); ux-confirm-b4.md §2.2 (the singular). */
+  restoreRemainder: pluralForms(
+    (n) =>
+      `The other ${n} wasn't changed. It may no longer be archived or exist, another record may now use its code or name, or a record it depends on may be archived.`,
+    (n) =>
+      `The other ${n} weren't changed. A record may no longer be archived or exist, another record may now use its code or name, or a record it depends on may be archived.`,
+  ),
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-3): one body for lost connection and 5xx, under the R1-1 heading. Safe because the
+ * b4-owed-copy.md Rev 2 R1-3: one body for lost connection and 5xx, under the R1-1 heading. Safe because the
  * key is kept (R1-9).
  */
 export const BULK_INTERRUPTED = {
@@ -70,17 +87,17 @@ export const BULK_INTERRUPTED = {
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-5), bulk row: from the bar's nouns, no label lookup. Heading Not deleted / Not
+ * b4-owed-copy.md Rev 2 R1-5, bulk row: from the bar's nouns, no label lookup. Heading Not deleted / Not
  * restored.
  */
 export const bulkForbidden = (nouns: BulkNouns) =>
   `You no longer have permission to delete and restore ${nouns.plural}. Your workspace administrator can grant it.`;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-8): a 422 `key_expired`. The selection is cleared and the caller re-reads the
- * list.
+ * b4-owed-copy.md Rev 2 R1-8 heading; the body is ux-confirm-b4.md §2.3 (it superseded R1-8's body). A 422
+ * `key_expired`: the selection is cleared and the caller re-reads the list.
  */
 export const BULK_ALREADY_SENT = {
   heading: 'Already sent',
-  body: "These were sent more than a day ago, so we can't show that result again. The list now shows where they are.",
+  body: "These were sent more than a day ago, so we can't show that result again. The list shows each record as it is now.",
 } as const;

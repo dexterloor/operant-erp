@@ -122,10 +122,24 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
     const others = (list: string[]) => list.filter((id) => id !== roleId).map(nameOf);
     const nextWarning = marginWarningOf(person.margin_exposure, offered, nextIntents, nextAfter);
     const changedMargin = marginKey(nextWarning) !== marginKey(warning) ? marginSentences(nextWarning) : [];
+    // ux-confirm-b4.md §2.7 (M-3): this toggle made Save roles unavailable because nothing is staged any more.
+    const nothingStaged = intents.size > 0 && nextIntents.size === 0 && !saveBlocked({ ...avail, afterSet: nextAfter });
     setIntended({ personId: person.id, intents: nextIntents });
     setChips({ personId: person.id, byRole: new Map() });
+    // ux-confirm-b4.md §2.8 (L-D3): a row the person has changed leaves the interrupted save's frozen set.
+    if (post?.undecidedIds.has(roleId)) {
+      const rest = new Set(post.undecidedIds);
+      rest.delete(roleId);
+      setPost({ ...post, undecidedIds: rest });
+    }
     status.announce(
-      tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: others(d.newlyUnavailable), availableAgain: others(d.availableAgain), cause: role.name, marginSentences: changedMargin }),
+      tickStatus(PICKER_STATUS, formatList, {
+        newlyUnavailable: others(d.newlyUnavailable),
+        availableAgain: others(d.availableAgain),
+        cause: role.name,
+        marginSentences: changedMargin,
+        nothingStaged,
+      }),
     );
   };
 
@@ -304,7 +318,9 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
   }
 
   const stagedCount = intents.size;
-  const saveReasonIds = [ownPage ? ownLineId : null, !ownPage && blocked ? saveReasonId : null].filter(Boolean).join(' ');
+  // Precedence (ux-confirm-b4.md §2.7): own page > conflict > busy (no reason) > nothing staged.
+  const nothingToSave = stagedCount === 0 && !busy && !ownPage && !blocked;
+  const saveReasonIds = [ownPage ? ownLineId : null, !ownPage && (blocked || nothingToSave) ? saveReasonId : null].filter(Boolean).join(' ');
 
   return (
     <div className={styles.picker}>
@@ -366,9 +382,9 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
             <Button ref={saveRef} variant="primary" loading={busy} unavailableReasonId={saveReasonIds || undefined} onClick={() => void onSave()}>
               {PICKER.save}
             </Button>
-            {!ownPage && blocked ? (
+            {!ownPage && (blocked || nothingToSave) ? (
               <p id={saveReasonId} className={styles.reason}>
-                {PICKER.saveBlocked}
+                {blocked ? PICKER.saveBlocked : PICKER.saveNothing}
               </p>
             ) : null}
           </div>

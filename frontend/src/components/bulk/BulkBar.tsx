@@ -4,6 +4,7 @@ import { useState, type ReactNode, type RefObject } from 'react';
 import { Archive, ArchiveRestore } from 'lucide-react';
 import type { BulkResult, BulkRunAction } from '@/lib/bulk/results';
 import { isOverCap } from '@/lib/bulk/selection';
+import { plural } from '@/lib/format/plural';
 import {
   BULK,
   BULK_AFTER,
@@ -118,7 +119,7 @@ export function BulkBar({ bulk, mode, nouns, maxMembers, run, onReread, fallback
         const { applied, requested } = result;
         const head = mode === 'delete' ? BULK_AFTER.deleted(applied, requested) : BULK_AFTER.restored(applied, requested);
         const rest = requested - applied;
-        const tail = rest > 0 ? (mode === 'delete' ? BULK_AFTER.deleteRemainder(rest) : BULK_AFTER.restoreRemainder(rest)) : '';
+        const tail = rest > 0 ? plural(rest, mode === 'delete' ? BULK_AFTER.deleteRemainder : BULK_AFTER.restoreRemainder) : '';
         bulk.live.announce(tail ? `${head} ${tail}` : head);
       } else {
         bulk.showNotice({ heading: BULK_ALREADY_SENT.heading, body: BULK_ALREADY_SENT.body, focus: false, tone: 'info' });

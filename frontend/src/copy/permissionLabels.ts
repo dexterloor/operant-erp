@@ -122,10 +122,17 @@ export const CHECKLIST = {
   leftOut: (labels: string) => `Left out: ${labels}, because each would complete a separation-of-duty split.`,
   /** SEC F-6 / round-6 §2b: a warning banner, never a refusal — only from the served `margin_exposure` (L-10). */
   margin: 'People with this role can see both what goods cost and what they sell for, so they can work out your margins.',
+  /** ux-confirm-b4.md §2.6 (L-8; RED L-3: count-free, because the server stores the whole set this page sends). */
+  saved: 'Your changes to this role are saved.',
+  /**
+   * ux-confirm-b4.md §2.6 (RED L-2: the component never joins copy): `saved`, then the RULED `margin` only when this
+   * save made the warning appear. Nothing is appended when it went away.
+   */
+  savedAnnouncement: (withMargin: boolean): string => (withMargin ? `${CHECKLIST.saved} ${CHECKLIST.margin}` : CHECKLIST.saved),
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-3), checklist row: lost connection and 5xx alike, under the R1-1 heading. The
+ * b4-owed-copy.md Rev 2 R1-3, confirmed by ux-confirm-b4.md, checklist row: lost connection and 5xx alike, under the R1-1 heading. The
  * dirty bar and its count stay.
  */
 export const CHECKLIST_INTERRUPTED = {
@@ -133,7 +140,7 @@ export const CHECKLIST_INTERRUPTED = {
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-5), checklist row (heading Not saved), split so the permission's name renders in
+ * b4-owed-copy.md Rev 2 R1-5, confirmed by ux-confirm-b4.md, checklist row (heading Not saved), split so the permission's name renders in
  * `<em>` (ST-4b's form).
  */
 export const CHECKLIST_FORBIDDEN = {

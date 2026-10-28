@@ -130,3 +130,10 @@
 .changeCount {
   margin-right: auto;
 }
+
+/* ux-confirm-b4.md §2.6: the visible after-save line, styled like the role picker's status line. */
+.status {
+  min-height: var(--type-caption-line);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}

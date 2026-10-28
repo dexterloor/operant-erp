@@ -8,7 +8,7 @@ export const NOT_DELETED = 'Not deleted';
 export const NOT_RESTORED = 'Not restored';
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16): where the client cannot know whether the
+ * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the
  * request committed (lost connection, 5xx), the heading names the failure instead of "Not {participle}". The one home
  * of these two headings for every B-4 surface (person dialogs, bulk, checklist, picker, Waiting group; b4-final-red F).
  */
@@ -16,7 +16,7 @@ export const COULD_NOT_REACH = "We couldn't reach the server.";
 export const WENT_WRONG = 'Something went wrong on our side.';
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-7 step 5): a 409/422 refusal that carries no `message` (incl.
+ * b4-owed-copy.md Rev 2 R1-7 step 5, confirmed by ux-confirm-b4.md: a 409/422 refusal that carries no `message` (incl.
  * `idempotency-key-conflict`, step 2). Steps 3–4: any other refusal renders the server's `message`. Surface-neutral, so
  * it lives here with the headings (b4-final-red F).
  */

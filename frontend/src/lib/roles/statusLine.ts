@@ -10,17 +10,20 @@ export interface TickWords {
   unavailableMany: (roles: string, cause: string) => string;
   againOne: (role: string) => string;
   againMany: (roles: string) => string;
+  /** ux-confirm-b4.md §2.7 (ST-4f middle arm): Save roles has just become unavailable because nothing is staged. */
+  saveNothing: string;
 }
 
 /**
  * One update per tick (4b-1): the newly-unavailable sentence, the available-again sentence, then the margin warning's own
- * sentences when it appeared or changed form because of this tick (R4-2 L-3). `''` when the tick changed nothing else
- * (the checkbox announces its own state).
+ * sentences when it appeared or changed form because of this tick (R4-2 L-3), then the nothing-to-save sentence when
+ * this toggle left nothing staged (ux-confirm-b4.md §2.7). `''` when the tick changed nothing else (the checkbox
+ * announces its own state).
  */
 export function tickStatus(
   words: TickWords,
   join: (items: readonly string[]) => string,
-  change: { newlyUnavailable: readonly string[]; availableAgain: readonly string[]; cause: string; marginSentences: readonly string[] },
+  change: { newlyUnavailable: readonly string[]; availableAgain: readonly string[]; cause: string; marginSentences: readonly string[]; nothingStaged: boolean },
 ): string {
   const out: string[] = [];
   const { newlyUnavailable: n, availableAgain: a, cause } = change;
@@ -29,6 +32,7 @@ export function tickStatus(
   if (a.length === 1) out.push(words.againOne(a[0]!));
   else if (a.length > 1) out.push(words.againMany(join(a)));
   out.push(...change.marginSentences);
+  if (change.nothingStaged) out.push(words.saveNothing);
   return out.join(' ');
 }
 

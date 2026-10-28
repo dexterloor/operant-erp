@@ -182,7 +182,7 @@ describe('RoleProposals — gaps fix P-4 / L-4 (b4-step5-gaps.md Rev 2 > Rev 1)'
     expect(opener).toHaveFocus();
   });
 
-  it('Confirm + failed re-read: the FINAL short form "Proposal confirmed: {role}." then the stale sentence, exactly; focus on the opener', async () => {
+  it('Confirm + failed re-read: the long form "Proposal confirmed: {role} is now given to this person." then the stale sentence, exactly; focus on the opener (ux-confirm-b4.md §2.5)', async () => {
     const user = userEvent.setup();
     render(
       <PickerHarness
@@ -195,7 +195,7 @@ describe('RoleProposals — gaps fix P-4 / L-4 (b4-step5-gaps.md Rev 2 > Rev 1)'
     const opener = within(rowOf('finance')).getByRole('button', { name: WAITING.confirm });
     await user.click(opener);
     await settled();
-    await waitFor(() => expect(groupStatus().textContent).toBe(`Proposal confirmed: finance. ${WAITING.listStale}`));
+    await waitFor(() => expect(groupStatus().textContent).toBe(`Proposal confirmed: finance is now given to this person. ${WAITING.listStale}`));
     expect(opener).toHaveFocus();
   });
 

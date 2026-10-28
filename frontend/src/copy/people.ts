@@ -56,7 +56,7 @@ export const PERSON = {
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-3). b4-owed-copy.md Revision 2 (FINAL) > Revision 1. R1-3: one body for lost
+ * b4-owed-copy.md Rev 2 R1-3, confirmed by ux-confirm-b4.md. b4-owed-copy.md Revision 2 (FINAL) > Revision 1. R1-3: one body for lost
  * connection and 5xx, under R1-1's heading (`copy/headings.ts` COULD_NOT_REACH / WENT_WRONG). R1-4: a 401 gets no
  * in-page copy (the fetch wrapper navigates to sign-in), so there is no string for it here.
  */
@@ -66,7 +66,7 @@ export const INTERRUPTED = {
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-5). Person dialogs (heading Not deleted / Not restored): the surface's own
+ * b4-owed-copy.md Rev 2 R1-5, confirmed by ux-confirm-b4.md. Person dialogs (heading Not deleted / Not restored): the surface's own
  * permission named from copy, in ST-4b's italic form — split so the component can render the label in `<em>`
  * (PAGE_STATES precedent).
  */

@@ -13,6 +13,7 @@ import { PAGE_STATES } from '@/copy/shell';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
+import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { PermissionGroup, type GroupMode } from './PermissionGroup';
 import styles from './PermissionChecklist.module.css';
 
@@ -93,6 +94,9 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeHeading = useRef<HTMLParagraphElement>(null);
+  // ux-confirm-b4.md §2.6: the after-save line. Written after the h1 focus, in a layout effect gated on a generation.
+  const savedStatus = useLiveRegion();
+  const [savedNote, setSavedNote] = useState<{ gen: number; withMargin: boolean } | null>(null);
   // Scoped by useId (b4-final-red L-4): two checklists on one page never share an id.
   const uid = useId();
   const builtInLineId = `${uid}-role-${role.id}-built-in`;
@@ -110,6 +114,14 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
   useLayoutEffect(() => {
     if (noticeId !== null) noticeHeading.current?.focus();
   }, [noticeId]);
+  const savedGen = savedNote?.gen ?? null;
+  useLayoutEffect(() => {
+    if (savedGen === null || !savedNote) return;
+    fallbackFocusRef.current?.focus();
+    savedStatus.announce(CHECKLIST.savedAnnouncement(savedNote.withMargin));
+    // Runs once per successful save only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedGen]);
 
   const mode: GroupMode = !canEdit ? 'read' : current.is_system ? 'built-in' : 'edit';
   const editable = mode === 'edit';
@@ -120,6 +132,8 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
   const write = (next: Set<string>, byModule: Record<string, string> = {}) => {
     setEdit({ key, ticked: next });
     setLeftOut({ key, byModule });
+    // §2.6 (M-4): the saved sentence never stays beside a dirty bar or after Discard.
+    savedStatus.clear();
   };
   const onToggle = (code: string, next: boolean) => {
     if (!editable || busy) return;
@@ -139,6 +153,9 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
   };
   const onSave = async () => {
     if (busy) return;
+    // §2.6 (M-4): empty at save start, so a second save in a row is announced too.
+    savedStatus.clear();
+    const marginBefore = current.margin_exposure;
     setBusy(true);
     let result: SaveRoleResult;
     try {
@@ -151,7 +168,7 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
       setSaved({ for: role, role: result.role });
       setNotice(null);
       setLeftOut({ key: '', byModule: {} });
-      fallbackFocusRef.current?.focus();
+      setSavedNote((cur) => ({ gen: (cur?.gen ?? 0) + 1, withMargin: !marginBefore && result.role.margin_exposure }));
       return;
     }
     const next = noticeFor(result, (notice?.id ?? 0) + 1);
@@ -208,6 +225,7 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
           </Button>
         </div>
       ) : null}
+      {canEdit ? <LiveRegion message={savedStatus.message} className={styles.status} /> : null}
     </div>
   );
 }

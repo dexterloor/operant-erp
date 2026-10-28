@@ -227,7 +227,7 @@ describe('bulk — a finished run (R1-9: cleared; A-5: the caller re-reads)', ()
     await openDelete(user);
     await confirmDelete(user);
     expect(status()).toHaveTextContent(
-      "3 of 4 deleted. The other 1 weren't changed. A record may already be archived, no longer exist, or still have open work.",
+      "3 of 4 deleted. The other 1 wasn't changed. It may already be archived or no longer exist, or something may stop it being deleted: for example, it still holds stock or has open work, or it's an order that is no longer a draft.",
     );
     await user.click(screen.getByRole('button', { name: 'Dismiss message' }));
     expect(status()).toHaveTextContent('');
@@ -248,6 +248,27 @@ describe('bulk — a finished run (R1-9: cleared; A-5: the caller re-reads)', ()
     expect(bar()).toBeNull();
     await waitFor(() => expect(h1()).toHaveFocus());
     expect(onReread).toHaveBeenCalledTimes(1);
+  });
+
+  it('delete remainder of more than one: the plural names stock and drafts', async () => {
+    const { user } = setup([{ kind: 'done', requested: 4, applied: 1 }]);
+    await selectRows(user, 4);
+    await openDelete(user);
+    await confirmDelete(user);
+    expect(status()).toHaveTextContent(
+      "1 of 4 deleted. The other 3 weren't changed. A record may already be archived or no longer exist, or something may stop it being deleted: for example, it still holds stock or has open work, or it's an order that is no longer a draft.",
+    );
+  });
+
+  it('restore remainder of one takes the singular', async () => {
+    const { user } = setup([{ kind: 'done', requested: 2, applied: 1 }]);
+    await user.click(screen.getByRole('button', { name: 'Scope: archived' }));
+    await user.click(header());
+    await user.click(within(bar()!).getByRole('button', { name: 'Restore' }));
+    await settled();
+    expect(status()).toHaveTextContent(
+      "1 of 2 restored. The other 1 wasn't changed. It may no longer be archived or exist, another record may now use its code or name, or a record it depends on may be archived.",
+    );
   });
 });
 
@@ -400,7 +421,7 @@ describe('bulk — key past 24 h (R1-8)', () => {
     await waitFor(() => expect(h1()).toHaveFocus());
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Already sent');
-    expect(alert).toHaveTextContent("These were sent more than a day ago, so we can't show that result again. The list now shows where they are.");
+    expect(alert).toHaveTextContent("These were sent more than a day ago, so we can't show that result again. The list shows each record as it is now.");
     expect(onReread).toHaveBeenCalledTimes(1);
     expect(status()).toHaveTextContent('');
   });

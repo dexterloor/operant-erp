@@ -37,8 +37,8 @@ export interface PickerHarnessProps {
   confirm?: Answer<ConfirmResult>;
   reject?: Answer<RejectResult>;
   withdraw?: Answer<WithdrawResult>;
-  /** What each re-read loads: a new scene (or the same one), or a failure. Called once per re-read. */
-  reread?: (current: Scene, n: number) => Scene | RereadResult;
+  /** What each re-read loads: a new scene (or the same one), or a failure. Called once per re-read; may be held open. */
+  reread?: (current: Scene, n: number) => Scene | RereadResult | Promise<Scene | RereadResult>;
   log?: string[];
   /** `ListRoles` / `ListPermissions` (default: the fixture's). The invariance test passes renamed copies. */
   roles?: readonly Role[];
@@ -72,7 +72,7 @@ export function PickerHarness(props: PickerHarnessProps) {
     log?.push('reread');
     await delay();
     rereads.current += 1;
-    const next = props.reread ? props.reread(sceneRef.current, rereads.current) : { ...sceneRef.current };
+    const next = props.reread ? await props.reread(sceneRef.current, rereads.current) : { ...sceneRef.current };
     if ('kind' in next) return next;
     setScene(next);
     await delay(); // resolve only after the new props are set

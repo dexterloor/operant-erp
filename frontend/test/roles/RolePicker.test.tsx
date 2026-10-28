@@ -255,6 +255,67 @@ describe('RolePicker — effective permissions and the margin warning', () => {
   });
 });
 
+describe('RolePicker — L-9, Save roles with nothing staged (ux-confirm-b4.md §2.7)', () => {
+  it('on load: Save roles is aria-disabled (never natively disabled), focusable, and described by "Nothing to save."', () => {
+    render(<PickerHarness scene={jonas()} />);
+    expect(saveButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(saveButton()).not.toHaveAttribute('disabled');
+    expect(saveButton()).toHaveAccessibleDescription(PICKER.saveNothing);
+    expect(screen.getByText('Nothing to save.')).toBeVisible();
+  });
+
+  it('pressing it with nothing staged sends nothing', async () => {
+    const user = userEvent.setup();
+    const log: string[] = [];
+    render(<PickerHarness scene={jonas()} log={log} />);
+    await user.click(saveButton());
+    expect(log).toEqual([]);
+  });
+
+  it('ticking one role and unticking it announces "Nothing to save." in the status line', async () => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={jonas()} />);
+    await user.click(box('viewer'));
+    expect(screen.queryByText('Nothing to save.')).toBeNull();
+    expect(saveButton()).not.toHaveAttribute('aria-disabled');
+    await user.click(box('viewer'));
+    expect(status()).toHaveTextContent('Nothing to save.');
+    expect(saveButton()).toHaveAccessibleDescription(PICKER.saveNothing);
+  });
+
+  it('busy (M-2): while the save is still running, "Nothing to save." is absent even though its 2xx cleared the row', async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    render(
+      <PickerHarness
+        scene={jonas()}
+        reread={() => new Promise((r) => (release = () => r({ kind: 'ok' })))}
+      />,
+    );
+    await user.click(box('viewer'));
+    await user.click(saveButton());
+    await waitFor(() => expect(within(rowOf('viewer')).getByText(PICKER.given)).toBeInTheDocument());
+    expect(saveButton()).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('Nothing to save.')).toBeNull();
+    expect(saveButton()).not.toHaveAccessibleDescription(PICKER.saveNothing);
+    release();
+    await settled();
+    expect(screen.getByText('Nothing to save.')).toBeInTheDocument();
+  });
+
+  it('the conflict reason wins over nothing staged (a held conflicting pair)', () => {
+    render(<PickerHarness scene={scene(HELD_PAIR_PERSON, OFFERED_HELD_PAIR_BY_ADMIN)} />);
+    expect(saveButton()).toHaveAccessibleDescription(PICKER.saveBlocked);
+    expect(screen.queryByText('Nothing to save.')).toBeNull();
+  });
+
+  it('own page: only the own-page line describes Save', () => {
+    render(<PickerHarness scene={scene(SELF_ADMIN, OFFERED_SELF_ADMIN)} viewerId={VIEWER_ID} showProposals={false} />);
+    expect(saveButton()).toHaveAccessibleDescription(PICKER.ownPage);
+    expect(screen.queryByText('Nothing to save.')).toBeNull();
+  });
+});
+
 describe('RolePicker — Save roles', () => {
   it('Q-2: a take-away and the give it unblocks are sent revoke → assign, one after the other', async () => {
     const user = userEvent.setup();
@@ -349,6 +410,19 @@ describe('RolePicker — Save roles', () => {
     await user.click(box('admin'));
     await user.click(box('admin'));
     expect(screen.queryByText(/^Not saved/)).toBeNull();
+  });
+
+  it('L-D3: a still-marked row the person changes leaves the save\'s set — untick then re-tick is an ordinary staged change', async () => {
+    const user = userEvent.setup();
+    render(<PickerHarness scene={jonas()} assign={{ kind: 'unreachable' }} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not saved: 1 change')).toHaveFocus());
+    await user.click(box('viewer'));
+    expect(screen.queryByText(/^Not saved/)).toBeNull();
+    await user.click(box('viewer'));
+    expect(screen.queryByText(/^Not saved/)).toBeNull();
+    expect(screen.getByText('1 change')).toBeInTheDocument();
   });
 
   it('interrupted on the last request that in fact committed (case B): no banner, "All your changes are now saved.", focus on Save', async () => {

@@ -321,13 +321,14 @@ describe('DOM fitness — B-4 step 3 bulk surface', () => {
   }
 });
 
-// B-4 step 4: the permission checklist. One "Left out" region per group, mounted empty from first render (R4-4 L-2).
+// B-4 step 4: the permission checklist. One "Left out" region per group, plus the checklist's own after-save region at
+// its root (ux-confirm-b4.md §2.6), all mounted empty from first render (R4-4 L-2).
 // The script ticks, ticks a group (a Left-out line appears), is refused, is interrupted, discards, ticks a group again
 // and saves — the dirty bar and the Not saved banner come and go, and every group region must be the same node
 // throughout; no box ever carries [disabled] (refused boxes are aria-disabled).
 describe('DOM fitness — B-4 step 4 permission checklist', () => {
   for (const strict of [false, true]) {
-    it(`no [disabled]; one region per group, empty at first render, the same nodes through save, refusal and discard${strict ? ' (StrictMode)' : ''}`, { timeout: 30_000 }, async () => {
+    it(`no [disabled]; one region per group and one at the root, empty at first render, the same nodes through save, refusal and discard${strict ? ' (StrictMode)' : ''}`, { timeout: 30_000 }, async () => {
       const answers = [SAVE_REFUSALS[0]!, { kind: 'unreachable' as const }];
       const ui = (
         <ChecklistHarness
@@ -357,7 +358,8 @@ describe('DOM fitness — B-4 step 4 permission checklist', () => {
         seen.push(purchasingLine());
       }
       const leftOut = 'Left out: Approve and place purchase orders, Cancel purchase orders and Receive deliveries, because each would complete a separation-of-duty split.';
-      expect(tracker.count).toBe(11);
+      // 11 group regions + the root after-save region (ux-confirm-b4.md §2.6); index [3] is still Purchasing's line.
+      expect(tracker.count).toBe(12);
       expect(failures).toEqual([]);
       expect(seen).toEqual(['', leftOut, leftOut, leftOut, '', leftOut, '']);
     });

@@ -3,7 +3,8 @@
 // 4b-1…4b-3, 4c → `b4-owed-copy.md` Revision 2 (FINAL) > Revision 1 (R1-1, R1-2 with A-1 + A-2 adopted, R1-5, R1-6,
 // R1-7, R1-11). Templates are functions; components never concatenate. A server sentence is NEVER stored here (ST-3):
 // banners render the result's `message` as sent. The SoD clauses and the picker's conflict sentence are `copy/sod.ts`
-// (one shared copy). `copy/*` may import only `lib/api/*` (architecture.test.ts).
+// (one shared copy). `copy/*` may import only `lib/api/*` (architecture.test.ts). Every string here is confirmed by
+// ux-confirm-b4.md (2026-10-28), which also sets `loadFirst`, `saveNothing` and the one confirm sentence of `WAITING`.
 
 import { REFUSAL, type KnownRefusal } from '@/lib/api/roles';
 
@@ -11,7 +12,7 @@ const pluralForms = (one: (n: number) => string, other: (n: number) => string) =
 
 /** §3 staged-save labels + R4-1 + R1-11 headings. */
 export const PICKER = {
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-11 item 1, ratifying the prototype). */
+  /** b4-owed-copy.md Rev 2 R1-11 item 1, ratifying the prototype. */
   rolesHeading: 'Roles',
   effectiveHeading: 'Effective permissions',
   willBeGiven: 'Will be given',
@@ -25,6 +26,8 @@ export const PICKER = {
   save: 'Save roles',
   /** §3: the aria-disabled Save reason while the selection holds a conflict (served `conflicts_with`, ST-4e). */
   saveBlocked: "You can't save while a conflicting set of roles is selected.",
+  /** ux-confirm-b4.md §2.7 (ST-4f middle arm): the aria-disabled Save reason while nothing is staged. */
+  saveNothing: 'Nothing to save.',
   /** Round-6 §2a `actor_is_subject`: one visible line above the list, tied to every control. */
   ownPage: "You can't change your own roles. Ask someone else who manages roles.",
   /** Round-6 §2a "The real rules" + s4 §8.2 help line. */
@@ -33,7 +36,7 @@ export const PICKER = {
   /** Round-6 §2a `subject_is_inactive`: the picker is not rendered; this banner is. */
   inactiveBanner: "This person's account is not active, so they can't be given a role.",
   /**
-   * PROPOSED (b4-owed-copy.md Rev 2 R1-7): a served `refusal` code with no copy. The code is never shown; the reason is
+   * b4-owed-copy.md Rev 2 R1-7: a served `refusal` code with no copy. The code is never shown; the reason is
    * never blank.
    */
   unknownRefusal: "This role can't be given to this person.",
@@ -101,51 +104,54 @@ export const PICKER_STATUS = {
   notProposed: (roles: string) => `Not proposed: ${roles}.`,
   notTakenAway: (roles: string) => `Not taken away: ${roles}.`,
   reasons: "Each change that wasn't saved has a message with the reason.",
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2). */
+  /** b4-owed-copy.md Rev 2 R1-2. */
   didntFinish: "The save didn't finish. A message says what wasn't saved.",
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2 case B). */
+  /** b4-owed-copy.md Rev 2 R1-2 case B. */
   allSaved: 'All your changes are now saved.',
-  /** PROPOSED (b4-step5-gaps.md Rev 1 P-3): Load roles again succeeded after a case D/E save. */
+  /** b4-step5-gaps.md Rev 1 P-3: Load roles again succeeded after a case D/E save. */
   reloaded: "This person's roles were loaded again.",
+  /** ux-confirm-b4.md §2.7, RED M-3: announced when a toggle leaves nothing staged. The one string is `PICKER`'s. */
+  saveNothing: PICKER.saveNothing,
 } as const;
 
 /** Banners after Save roles (R1-2, R1-5, R1-6). Headings `Not given: {role}` etc. are `copy/headings.ts`. */
 export const PICKER_BANNERS = {
   /**
-   * PROPOSED (b4-owed-copy.md Rev 2 R1-2 case A, A-1 + A-2 adopted; R1-5): `Not saved: 1 change` / `Not saved: {n}
+   * b4-owed-copy.md Rev 2 R1-2 case A, A-1 + A-2 adopted; R1-5: `Not saved: 1 change` / `Not saved: {n}
    * changes`.
    */
   notSaved: pluralForms((n) => `Not saved: ${n} change`, (n) => `Not saved: ${n} changes`),
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2 case A): the body, after the R1-1 heading text as its first sentence. */
+  /** b4-owed-copy.md Rev 2 R1-2 case A: the body, after the R1-1 heading text as its first sentence. */
   stillMarked: pluralForms(
     () => '1 change is still marked because the save stopped before we could tell whether it went through. Check it, then press Save roles.',
     (n) => `${n} changes are still marked because the save stopped before we could tell whether they went through. Check them, then press Save roles.`,
   ),
   /**
-   * PROPOSED (b4-step5-gaps.md Rev 1 P-1 case E, RED M-1; Rev 2 item 1 P-5): the re-read failed after
+   * b4-step5-gaps.md Rev 1 P-1 case E, RED M-1; Rev 2 item 1 P-5: the re-read failed after
    * a save that was not interrupted (refusals present), and after a 403 stop. Case E's own key (Rev 2 item 4).
    */
   marksMayBeStale: "We couldn't load this person's roles again, so the marks below may be out of date.",
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2 case C), with the four lines that follow. */
+  /** b4-owed-copy.md Rev 2 R1-2 case C, with the four lines that follow. */
   rereadFailedLead: "We couldn't load this person's roles again, so we can't tell what was saved.",
   cantTell: (action: string) => `We can't tell whether this went through: ${action}.`,
   notSent: (actions: string) => `Not sent: ${actions}.`,
-  loadFirst: 'Load the roles again before you save anything else.',
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2): the `{action}` forms. */
+  /** ux-confirm-b4.md §2.4: names the button in the same banner. */
+  loadFirst: 'Press Load roles again before you save anything else.',
+  /** b4-owed-copy.md Rev 2 R1-2: the `{action}` forms. */
   giving: (role: string) => `giving ${role}`,
   proposing: (role: string) => `proposing ${role}`,
   takingAway: (role: string) => `taking away ${role}`,
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2 case D, A-2 adopted). */
+  /** b4-owed-copy.md Rev 2 R1-2 case D, A-2 adopted. */
   savedButStale:
     "Your changes were saved, but we couldn't load this person's roles again, so other roles' availability may be out of date. Press Load roles again before you change anything.",
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2 / R1-11 item 2). */
+  /** b4-owed-copy.md Rev 2 R1-2 / R1-11 item 2. */
   loadAgain: 'Load roles again',
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-6): a take-away whose grant was already gone (404, no text); client copy. */
+  /** b4-owed-copy.md Rev 2 R1-6: a take-away whose grant was already gone (404, no text); client copy. */
   nothingToTakeAway: 'This person no longer has this role, so there was nothing to take away.',
 } as const;
 
 /**
- * PROPOSED (b4-owed-copy.md Rev 2 R1-5), picker and Waiting group: the surface's own permission named from copy, split
+ * b4-owed-copy.md Rev 2 R1-5, picker and Waiting group: the surface's own permission named from copy, split
  * for the `<em>`.
  */
 export const ROLES_FORBIDDEN = {
@@ -176,27 +182,18 @@ export const WAITING = {
   newer: 'Newer',
   older: 'Older',
   /**
-   * PROPOSED (b4-step5-gaps.md Rev 1 P-4, RED M-4/M-5): announced in the group's own status region
-   * after a successful action; `{role}` = the served `role.name`. `listStale` follows when the re-read then failed.
+   * b4-step5-gaps.md Rev 1 P-4, RED M-4/M-5: announced in the group's own status region after a successful action;
+   * `{role}` = the served `role.name`. The same sentence whether or not the re-read then worked (ux-confirm-b4.md §2.5);
+   * `listStale` follows when it failed.
    */
   done: {
     confirm: (role: string) => `Proposal confirmed: ${role} is now given to this person.`,
     reject: (role: string) => `Proposal rejected: ${role}.`,
     withdraw: (role: string) => `Proposal withdrawn: ${role}.`,
   },
-  /**
-   * PROPOSED (b4-step5-gaps.md Rev 1 P-4, RED M-5; b4-final-red G: the long form "…is now given to this person." is
-   * the alternative UX may choose): the same action succeeded but the re-read failed —
-   * the short form, then `listStale`. Word for word from the FINAL text, which has no "is now given" clause here.
-   */
-  doneButStale: {
-    confirm: (role: string) => `Proposal confirmed: ${role}.`,
-    reject: (role: string) => `Proposal rejected: ${role}.`,
-    withdraw: (role: string) => `Proposal withdrawn: ${role}.`,
-  },
-  /** PROPOSED (b4-step5-gaps.md Rev 1 P-4). */
+  /** b4-step5-gaps.md Rev 1 P-4. */
   listStale: "We couldn't load the list again, so it may be out of date.",
-  /** PROPOSED (b4-owed-copy.md Rev 2 R1-2): the group's interrupted bodies. */
+  /** b4-owed-copy.md Rev 2 R1-2: the group's interrupted bodies. */
   interrupted: {
     confirm: "We can't tell whether this proposal was confirmed. If it's still waiting, press Confirm to try again.",
     reject: "We can't tell whether this proposal was rejected. If it's still waiting, press Reject to try again.",

@@ -106,7 +106,7 @@ export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef
       // Gaps Rev 1 P-4: focus first — the Waiting <h2> if the group is still rendered, else the page h1, NEVER a row's
       // action button (RED H-2); after a failed re-read focus stays on the opener (RED M-5). Then the message (L-3).
       if (done.rereadOk) (groupHeading.current?.isConnected ? groupHeading.current : fallbackFocusRef.current)?.focus();
-      const parts = [done.rereadOk ? WAITING.done[done.act](done.role) : WAITING.doneButStale[done.act](done.role)];
+      const parts = [WAITING.done[done.act](done.role)];
       if (!done.rereadOk) parts.push(WAITING.listStale);
       else if (done.act === 'confirm' && !done.marginBefore && marginExposure) parts.push(PICKER.marginHeld);
       status.announce(parts.join(' '));

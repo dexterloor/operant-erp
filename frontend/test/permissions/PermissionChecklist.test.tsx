@@ -19,6 +19,14 @@ const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="t
 const box = (name: string) => screen.getByRole('checkbox', { name });
 const groupOf = (heading: string) => screen.getByRole('region', { name: heading });
 const role = (codes: string[], over: Partial<Role> = {}): Role => ({ ...CUSTOM_ROLE, permission_codes: codes, ...over });
+/** The checklist's own after-save region (ux-confirm-b4.md §2.6): the one status region outside every group. */
+const savedRegion = () => {
+  const outside = screen.getAllByRole('status').filter((r) => r.closest('section') === null);
+  expect(outside).toHaveLength(1);
+  return outside[0]!;
+};
+const SAVED = 'Your changes to this role are saved.';
+const MARGIN = 'People with this role can see both what goods cost and what they sell for, so they can work out your margins.';
 
 async function save(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
@@ -139,9 +147,15 @@ describe('PermissionChecklist — separation of duty from served sod_rows', () =
 
   it('every group line is mounted empty from first render (R4-4 L-2)', () => {
     render(<ChecklistHarness role={CUSTOM_ROLE} />);
-    const regions = screen.getAllByRole('status');
+    const regions = document.querySelectorAll('section[aria-labelledby] [role="status"]');
     expect(regions).toHaveLength(MODULE_HEADINGS.length);
     for (const r of regions) expect(r).toBeEmptyDOMElement();
+  });
+
+  it('the after-save region is mounted at the root, empty, from first render (ux-confirm-b4.md §2.6)', () => {
+    render(<ChecklistHarness role={CUSTOM_ROLE} />);
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(savedRegion()).toBeVisible();
   });
 });
 
@@ -229,6 +243,87 @@ describe('PermissionChecklist — dirty bar and save', () => {
     unmount();
     render(<ChecklistHarness role={MARGIN_ROLE} />);
     expect(screen.getByText(margin)).toBeInTheDocument();
+  });
+
+  it('L-8: after a 200 the root region says the changes are saved, after focus moves to the h1; nothing about the margin when it did not appear', async () => {
+    render(<ChecklistHarness role={CUSTOM_ROLE} />);
+    const user = userEvent.setup();
+    await user.click(box('View customers'));
+    await save(user);
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+    expect(savedRegion().textContent).toBe(SAVED);
+  });
+
+  it('L-8: the margin sentence is appended only when the save made the warning appear', async () => {
+    const { unmount } = render(<ChecklistHarness role={role(['purchase_order.view'])} answer={(codes) => ({ kind: 'saved', role: role([...codes], { margin_exposure: true }) })} />);
+    const user = userEvent.setup();
+    await user.click(box('View sales orders'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(`${SAVED} ${MARGIN}`);
+    unmount();
+    render(<ChecklistHarness role={MARGIN_ROLE} answer={(codes) => ({ kind: 'saved', role: { ...MARGIN_ROLE, permission_codes: [...codes] } })} />);
+    await user.click(box('View customers'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(SAVED);
+  });
+
+  it('M-4: two saves in a row both announce — the region is empty while the second runs, and holds the sentence again after', async () => {
+    let release: () => void = () => {};
+    let first = true;
+    render(
+      <ChecklistHarness
+        role={CUSTOM_ROLE}
+        answer={(codes) => {
+          const saved = { kind: 'saved' as const, role: { ...CUSTOM_ROLE, permission_codes: [...codes] } };
+          if (first) {
+            first = false;
+            return saved;
+          }
+          return new Promise((r) => (release = () => r(saved)));
+        }}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(box('View customers'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(SAVED);
+    await user.click(box('View items'));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toHaveAttribute('aria-busy', 'true'));
+    expect(savedRegion()).toBeEmptyDOMElement();
+    release();
+    await settled();
+    expect(savedRegion().textContent).toBe(SAVED);
+  });
+
+  it('M-4: the saved sentence goes on the next tick, the next group tick and on Discard', async () => {
+    render(<ChecklistHarness role={CUSTOM_ROLE} />);
+    const user = userEvent.setup();
+    await user.click(box('View customers'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(SAVED);
+    await user.click(box('View items'));
+    expect(savedRegion()).toBeEmptyDOMElement();
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    await user.click(box('View items'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(SAVED);
+    await user.click(box('All Customers permissions'));
+    expect(savedRegion()).toBeEmptyDOMElement();
+    await user.click(box('All Customers permissions'));
+    await save(user);
+    expect(savedRegion().textContent).toBe(SAVED);
+    await user.click(box('View customers'));
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it('a refused save says nothing in the root region', async () => {
+    render(<ChecklistHarness role={CUSTOM_ROLE} answer={SAVE_REFUSALS[0]!} />);
+    const user = userEvent.setup();
+    await user.click(box('View customers'));
+    await save(user);
+    expect(savedRegion()).toBeEmptyDOMElement();
   });
 
   for (const refusal of SAVE_REFUSALS) {
@@ -336,8 +431,8 @@ describe('PermissionChecklist — dirty bar and save', () => {
 });
 
 // b4-step4-gaps.md Revision 2 (FINAL), G-c (RED F-1): a served SoD id with no clause in copy/sod.ts behaves exactly as a
-// known id — refused, marked, left out by a group tick — and only the reason WORDING falls back (PROPOSED, UX to
-// confirm), with one dev warning per id. `SoD-9` is a test-only row: today it is never served (version-skew guard).
+// known id — refused, marked, left out by a group tick — and only the reason WORDING falls back (confirmed by
+// ux-confirm-b4.md), with one dev warning per id. `SoD-9` is a test-only row: today it is never served (version-skew guard).
 describe('PermissionChecklist — an SoD id with no clause (G-c)', () => {
   const SKEW: Permission[] = [
     { code: 'zz_prep.create', module: 'Modules\\Inventory', description: 'zz prep: create', sod_rows: [{ id: 'SoD-9', half: 'preparing' }] },

@@ -24,14 +24,14 @@ export const pickerConflict = (role: string, clause: string, sodId: string) =>
   `Conflicts with ${role}: one person could then ${clause} (${sodId}).`;
 
 /**
- * PROPOSED (b4-step4-gaps.md Revision 2, FINAL): a served SoD id with no clause above. Only the
+ * b4-step4-gaps.md Revision 2, FINAL, confirmed by ux-confirm-b4.md: a served SoD id with no clause above. Only the
  * WORDING falls back; the conflict still counts (it refuses the role and blocks Save roles exactly as a known id does).
  */
 export const pickerConflictUnknown = (role: string, sodId: string) =>
   `Conflicts with ${role}: together they would complete a separation-of-duty split (${sodId}).`;
 
 /**
- * PROPOSED (b4-step4-gaps.md Revision 2, FINAL; RED F-3): the checklist form for a served SoD id with
+ * b4-step4-gaps.md Revision 2, FINAL; RED F-3, confirmed by ux-confirm-b4.md: the checklist form for a served SoD id with
  * no clause above (a version-skew guard: a backend row deployed before this copy). Only the WORDING falls back; the box
  * is still refused, keeps its marker, and is left out by a group tick exactly as for a known id.
  */

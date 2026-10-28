@@ -9,15 +9,21 @@ const refused = { kind: 'refused', rule: 'x.y', message: 'No.' } as const;
 
 describe('status line on a tick (4b-1, R4-4 L-1, L-3)', () => {
   it('F-7 step 2: two newly unavailable roles, then the pair warning', () => {
-    const s = tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: ['admin', 'sales_rep'], availableAgain: [], cause: 'finance', marginSentences: ['W.'] });
+    const s = tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: ['admin', 'sales_rep'], availableAgain: [], cause: 'finance', marginSentences: ['W.'], nothingStaged: false });
     expect(s).toBe("admin and sales_rep can't be given now, because each conflicts with finance. W.");
   });
   it('one role, and available again', () => {
-    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: ['admin'], availableAgain: [], cause: 'finance', marginSentences: [] })).toBe("admin can't be given now, because it conflicts with finance.");
-    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: ['admin', 'sales_rep'], cause: 'finance', marginSentences: [] })).toBe('admin and sales_rep can be given again.');
+    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: ['admin'], availableAgain: [], cause: 'finance', marginSentences: [], nothingStaged: false })).toBe("admin can't be given now, because it conflicts with finance.");
+    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: ['admin', 'sales_rep'], cause: 'finance', marginSentences: [], nothingStaged: false })).toBe('admin and sales_rep can be given again.');
+  });
+  it('L-9: a toggle that leaves nothing staged ends with "Nothing to save.", after any tick sentence', () => {
+    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: [], cause: 'viewer', marginSentences: [], nothingStaged: true })).toBe('Nothing to save.');
+    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: ['admin'], cause: 'finance', marginSentences: ['W.'], nothingStaged: true })).toBe(
+      'admin can be given again. W. Nothing to save.',
+    );
   });
   it('a tick that changes nothing else says nothing', () => {
-    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: [], cause: 'viewer', marginSentences: [] })).toBe('');
+    expect(tickStatus(PICKER_STATUS, formatList, { newlyUnavailable: [], availableAgain: [], cause: 'viewer', marginSentences: [], nothingStaged: false })).toBe('');
   });
 });
 
