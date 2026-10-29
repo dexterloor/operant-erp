@@ -55,6 +55,9 @@ describe('/admin/users/[id] — wired', () => {
     const heading = await screen.findByRole('heading', { name: 'Something went wrong on our side.' });
     expect(screen.getByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeInTheDocument();
     await waitFor(() => expect(heading).toHaveFocus());
+    // Focus must stay there once the dialog's own close timers have run, not merely arrive (b3b-dialog-focus-red L-3).
+    await new Promise((r) => setTimeout(r, 50));
+    expect(heading).toHaveFocus();
     stubFetch([json(200, DELETED)]);
     await u.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeNull());

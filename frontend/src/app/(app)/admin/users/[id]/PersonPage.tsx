@@ -163,7 +163,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
       setSwap(f);
       return;
     }
-    // After the dialog's close has returned focus, so the region error's heading takes it (ux-copy-b3b.md C5 pins).
+    // After the dialog has closed, so the region error's heading takes focus (ux-copy-b3b.md C5 pins). This timer alone
+    // did not guarantee it — Radix returns focus on a timer of its own — the Dialog now leaves focus a page has already
+    // moved (b3b-followup "Flake").
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 

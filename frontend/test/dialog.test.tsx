@@ -1,5 +1,5 @@
-import { StrictMode, useRef, useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { Banner } from '@/components/ui/Banner';
@@ -130,5 +130,72 @@ describe('Dialog (R4-4 L-6, 4b-4, RED M-7)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus());
     await user.keyboard('{Escape}');
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+});
+
+// The person-page flake (b3b-followup "Flake"): after a delete whose re-read failed, the page's region error takes focus
+// to its heading — but Radix returns focus to the opener on ITS OWN timer after the dialog unmounts, so whichever of the
+// two ran last owned focus. Here the page moves focus in the very commit that closes the dialog, i.e. always before
+// Radix's timer: the dialog must leave that focus where the page put it, and return focus only when nothing else has it.
+/** As the page's RegionError does (useFocusOnMount): focus in a passive effect, after the commit. */
+function FocusedOnMount() {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return (
+    <h2 ref={ref} tabIndex={-1}>
+      Something went wrong on our side.
+    </h2>
+  );
+}
+
+function PageThatTakesFocusOnClose() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  return (
+    <main>
+      <h1 ref={h1} tabIndex={-1}>
+        Ana Reyes
+      </h1>
+      <Button onClick={() => setOpen(true)}>Delete person</Button>
+      {failed ? (
+        <FocusedOnMount />
+      ) : null}
+      <Dialog open={open} onOpenChange={setOpen} title="Delete Ana Reyes?" description={<p>They will lose access.</p>} initialFocusRef={cancel} fallbackFocusRef={h1}>
+        <Button ref={cancel} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        <Button
+          onClick={() => {
+            setOpen(false);
+            setFailed(true);
+          }}
+        >
+          Delete person
+        </Button>
+      </Dialog>
+    </main>
+  );
+}
+
+describe('Dialog — close focus never takes focus back from the page', () => {
+  it('a heading the page focused as the dialog closed keeps focus after the close timers have run', async () => {
+    const user = userEvent.setup();
+    render(<PageThatTakesFocusOnClose />);
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete person' }));
+    const heading = await screen.findByRole('heading', { name: 'Something went wrong on our side.' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(heading).toHaveFocus();
+  });
+
+  it('with nothing else focused, closing still returns focus to the opener', async () => {
+    const user = userEvent.setup();
+    render(<PageThatTakesFocusOnClose />);
+    await user.click(screen.getByRole('button', { name: 'Delete person' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete person' })).toHaveFocus());
   });
 });

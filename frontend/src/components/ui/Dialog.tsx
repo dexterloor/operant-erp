@@ -44,9 +44,20 @@ export interface DialogProps {
 }
 
 /**
+ * Focus sits on a page element, not the body. The dialog's content has already unmounted when this runs (Radix starts
+ * its close-focus timer after unmount), so anything focused here belongs to the page. `isConnected` is defensive only:
+ * removing a focused element already moves focus to the body.
+ */
+const pageTookFocus = () => {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== document.body && active.isConnected;
+};
+
+/**
  * Radix Dialog wrapper (modal: focus trapped, Esc closes unless `busy`). Focus on open goes to `initialFocusRef`; on
  * close it returns to the element that had focus when the dialog opened if that element is still in the document, else
- * to `fallbackFocusRef` (Radix alone would drop it on `body` once the opener is removed — RED M-7).
+ * to `fallbackFocusRef` (Radix alone would drop it on `body` once the opener is removed — RED M-7) — unless the page has
+ * already put focus on an element of its own by the time the dialog has gone, which it keeps.
  */
 export function Dialog({ open, onOpenChange, title, description, children, initialFocusRef, fallbackFocusRef, refusal, busy = false, tone = 'default' }: DialogProps) {
   const opener = useRef<HTMLElement | null>(null);
@@ -81,6 +92,10 @@ export function Dialog({ open, onOpenChange, title, description, children, initi
             e.preventDefault();
             const back = opener.current && opener.current.isConnected ? opener.current : fallbackFocusRef.current;
             opener.current = null;
+            // Radix runs this on its own timer after the dialog has unmounted. If the page has already moved focus to an
+            // element of its own by then (e.g. a region error after a delete whose re-read failed), leave it there:
+            // taking it back made the outcome depend on which of two timers ran last (b3b-followup "Flake").
+            if (pageTookFocus()) return;
             back?.focus();
           }}
         >
