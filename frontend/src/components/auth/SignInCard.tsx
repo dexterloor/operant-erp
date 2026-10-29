@@ -121,7 +121,7 @@ export function SignInCard({ notice = null, attempt = 0, submitting = false, wor
           </Banner>
         ) : null}
 
-        <form className={styles.form} onSubmit={submit} noValidate>
+        <form className={styles.form} method="post" onSubmit={submit} noValidate>
           <div className={styles.field}>
             <label htmlFor={ids.ws}>{SIGN_IN.workspaceLabel}</label>
             <input

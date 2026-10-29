@@ -127,7 +127,7 @@ export function ForgotPasswordForm({ requestReset, rememberedWorkspace = '', sig
         </Banner>
       ) : null}
 
-      <form className={styles.form} onSubmit={submit} noValidate>
+      <form className={styles.form} method="post" onSubmit={submit} noValidate>
         <AuthField
           ref={wsRef}
           id={ids.ws}

@@ -11,6 +11,14 @@ const FAILURE = [
 ];
 
 describe('SignInCard', () => {
+  it('F-2: the form submits as a post, so a submit before hydration never puts the password in the address bar', () => {
+    render(<SignInCard onSubmit={vi.fn()} />);
+    const form = screen.getByRole('button', { name: 'Sign in' }).closest('form');
+    // jsdom reports 'get' when the attribute is absent; no action, so a native post lands on this same page.
+    expect(form?.method).toBe('post');
+    expect(form).not.toHaveAttribute('action');
+  });
+
   it('has exactly three fields — Workspace, Email, Password — a Sign in button, and one link: "Forgot your password?"', () => {
     render(<SignInCard onSubmit={vi.fn()} />);
     expect(screen.getByLabelText('Workspace')).toBeInTheDocument();

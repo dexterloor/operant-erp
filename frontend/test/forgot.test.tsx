@@ -28,6 +28,13 @@ async function submitWith(result: RequestResetResult | Error, values = { workspa
 }
 
 describe('ForgotPasswordForm (/forgot-password)', () => {
+  it('F-2: the form submits as a post, so a submit before hydration never puts the workspace or email in the address bar', () => {
+    render(<ForgotPasswordForm requestReset={vi.fn()} />);
+    const form = screen.getByRole('button', { name: 'Send link' }).closest('form');
+    expect(form?.method).toBe('post');
+    expect(form).not.toHaveAttribute('action');
+  });
+
   it('renders the request form word for word: heading, intro, Workspace, Email (autocomplete=email), Send link, Back to sign in', () => {
     render(<ForgotPasswordForm requestReset={vi.fn()} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Reset your password' })).toBeInTheDocument();

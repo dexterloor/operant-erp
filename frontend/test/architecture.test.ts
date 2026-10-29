@@ -985,3 +985,98 @@ describe('architecture — G-1: network access only in the two fetch modules (A-
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-3b follow-up C-1 (G-F2, design b3b-followup §1 + RED L-2): a form submitted before hydration, or with JavaScript off,
+// goes out natively. As a GET it puts every named field — a password included — in the address bar, history and request
+// logs. So every <form> under src states method="post" literally and has no action (the default, the current URL, keeps
+// the query string and stays off (app) paths); nothing may override the method or target per button (formMethod,
+// formAction) or the encoding (encType); and next/form, which submits as GET, is not imported. Attribute names are
+// compared case-insensitively. Limits: a form built with createElement, or a method given through an expression, is not
+// read as post — the first evades the guard, the second is refused.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const FORM_ONLY_FORBIDDEN = ['action', 'enctype'];
+const ANY_ELEMENT_FORBIDDEN = ['formmethod', 'formaction'];
+
+function formMethodViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    for (const spec of specifiersOf(sf)) if (spec === 'next/form') out.push({ file: sf.file, detail: "imports 'next/form'" });
+    if (!sf.file.endsWith('.tsx')) continue;
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const tag = node.tagName.getText(tree);
+        const isForm = tag === 'form';
+        let method: string | null = null;
+        for (const attr of node.attributes.properties) {
+          if (ts.isJsxSpreadAttribute(attr)) {
+            if (isForm) out.push({ file: sf.file, detail: 'spreads attributes onto <form>' });
+            continue;
+          }
+          const name = attr.name.getText(tree);
+          const lower = name.toLowerCase();
+          if (ANY_ELEMENT_FORBIDDEN.includes(lower)) out.push({ file: sf.file, detail: `${name} on <${tag}>` });
+          if (!isForm) continue;
+          if (FORM_ONLY_FORBIDDEN.includes(lower)) out.push({ file: sf.file, detail: `${name} on <form>` });
+          if (lower === 'method') method = attr.initializer && ts.isStringLiteral(attr.initializer) ? attr.initializer.text : '(not a literal)';
+        }
+        if (isForm && method !== 'post') out.push({ file: sf.file, detail: method === null ? '<form> without method="post"' : `<form> with method ${method}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — G-F2: every form posts, to its own page (b3b-followup C-1)', () => {
+  it('the real tree has no breach, and the guard reads the four credential forms', () => {
+    const files = walk('src');
+    expect(formMethodViolations(files)).toEqual([]);
+    const withForm = files.filter((sf) => /<form\b/.test(sf.source)).map((sf) => sf.file);
+    expect(withForm).toEqual([
+      'src/components/auth/ChangePasswordForm.tsx',
+      'src/components/auth/ForgotPasswordForm.tsx',
+      'src/components/auth/ResetPasswordForm.tsx',
+      'src/components/auth/SignInCard.tsx',
+    ]);
+  });
+
+  it('planted controls: no method, an action, an encType, a button formMethod, next/form — each red on its own; a post form is not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/a/NoMethod.tsx', source: 'export const A = () => <form onSubmit={f}><input name="p" /></form>;' },
+      { file: 'src/components/a/Action.tsx', source: 'export const B = () => <form method="post" action="/elsewhere"></form>;' },
+      { file: 'src/components/a/EncType.tsx', source: 'export const C = () => <form method="post" encType="multipart/form-data"></form>;' },
+      { file: 'src/components/a/Button.tsx', source: 'export const D = () => <form method="post"><button formMethod="get">Go</button></form>;' },
+      { file: 'src/app/x/page.tsx', source: "import Form from 'next/form';\nexport const E = () => null;" },
+      { file: 'src/components/a/Ok.tsx', source: 'export const F = () => <form method="post" onSubmit={f} noValidate><button type="submit">Go</button></form>;' },
+    ];
+    expect(formMethodViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/a/NoMethod.tsx — <form> without method="post"',
+      'src/components/a/Action.tsx — action on <form>',
+      'src/components/a/EncType.tsx — encType on <form>',
+      'src/components/a/Button.tsx — formMethod on <button>',
+      "src/app/x/page.tsx — imports 'next/form'",
+    ]);
+  });
+
+  it('planted controls: a GET or computed method, formAction, a spread on the form, and lowercase spellings go red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/b/Get.tsx', source: 'export const A = () => <form method="get"></form>;' },
+      { file: 'src/components/b/Computed.tsx', source: 'export const B = () => <form method={m}></form>;' },
+      { file: 'src/components/b/FormAction.tsx', source: 'export const C = () => <form method="post"><input type="submit" formAction="/x" /></form>;' },
+      { file: 'src/components/b/Spread.tsx', source: 'export const D = (p: P) => <form method="post" {...p}></form>;' },
+      { file: 'src/components/b/Lower.tsx', source: 'export const E = () => <form method="post" enctype="text/plain"><button formmethod="get" /></form>;' },
+    ];
+    expect(formMethodViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/b/Get.tsx — <form> with method get',
+      'src/components/b/Computed.tsx — <form> with method (not a literal)',
+      'src/components/b/FormAction.tsx — formAction on <input>',
+      'src/components/b/Spread.tsx — spreads attributes onto <form>',
+      'src/components/b/Lower.tsx — enctype on <form>',
+      'src/components/b/Lower.tsx — formmethod on <button>',
+    ]);
+  });
+});

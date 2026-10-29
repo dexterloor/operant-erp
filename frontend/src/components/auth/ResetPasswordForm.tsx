@@ -207,7 +207,7 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
         </Banner>
       ) : null}
 
-      <form className={styles.form} onSubmit={submit} noValidate>
+      <form className={styles.form} method="post" onSubmit={submit} noValidate>
         <AuthField
           ref={fieldRef}
           id={fieldId}

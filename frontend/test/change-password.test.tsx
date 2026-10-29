@@ -21,6 +21,13 @@ describe('ChangePasswordForm (/account/password)', () => {
     vi.restoreAllMocks();
   });
 
+  it('F-2: the form submits as a post, so a native submit never puts either password in the address bar', () => {
+    render(<ChangePasswordForm changePassword={vi.fn<ChangePasswordAction>()} onSessionEnded={vi.fn()} />);
+    const form = screen.getByRole('button', { name: 'Change password' }).closest('form');
+    expect(form?.method).toBe('post');
+    expect(form).not.toHaveAttribute('action');
+  });
+
   it('two fields with the right autocomplete; posts {current_password, new_password}', async () => {
     const action = vi.fn<ChangePasswordAction>(async () => ({ kind: 'session-ended' }));
     render(<ChangePasswordForm changePassword={action} onSessionEnded={vi.fn()} />);

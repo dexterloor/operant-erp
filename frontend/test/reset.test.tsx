@@ -183,6 +183,14 @@ describe('ResetPasswordForm — the form and its results', () => {
     expect(screen.getByRole('button', { name: 'Set password' })).toBeInTheDocument();
   });
 
+  it('F-2: once the token is read, the form submits as a post, so a native submit never puts the password in the address bar', () => {
+    openLink();
+    renderPage(vi.fn());
+    const form = screen.getByRole('button', { name: 'Set password' }).closest('form');
+    expect(form?.method).toBe('post');
+    expect(form).not.toHaveAttribute('action');
+  });
+
   it('Show password / Hide password is a real toggle button with aria-pressed', () => {
     openLink();
     renderPage(vi.fn());
