@@ -1082,3 +1082,41 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-3b follow-up C-5b (RED M-1, narrow): components never join copy (ux-confirm-b4.md §4). The ST-5 heading and body as one
+// sentence pair is `PAGE_STATES.notFoundInline`; no template literal under src may rebuild it from the two keys. Scope is
+// src only (final-red I-2): test/roles/RolePicker.test.tsx joins them on purpose, to pin notFoundInline's equality.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const NOT_FOUND_PARTS = ['PAGE_STATES.notFoundHeading', 'PAGE_STATES.notFoundBody'];
+
+function notFoundJoinViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      if (ts.isTemplateExpression(node)) {
+        const refs = node.templateSpans.map((span) => span.expression.getText(tree).replace(/\s+/g, ''));
+        if (NOT_FOUND_PARTS.every((p) => refs.includes(p))) out.push({ file: sf.file, detail: `joins the ST-5 heading and body at line ${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — C-5b: the ST-5 sentence pair comes from notFoundInline, never a join (b3b-followup)', () => {
+  it('the real src tree has no join', () => {
+    expect(notFoundJoinViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: the join goes red; one key alone, or notFoundInline, does not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/x/A.tsx', source: 'export const a = `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}`;' },
+      { file: 'src/components/x/B.tsx', source: 'export const b = `${PAGE_STATES.notFoundHeading} more`;\nexport const c = PAGE_STATES.notFoundInline;' },
+    ];
+    expect(notFoundJoinViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual(['src/components/x/A.tsx — joins the ST-5 heading and body at line 1']);
+  });
+});

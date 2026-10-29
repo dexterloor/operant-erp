@@ -61,7 +61,7 @@ function failureFor(mode: BulkMode, result: Exclude<BulkResult, { kind: 'done' }
       // R1-7 steps 3–5: no code is branched on; the server's sentence as sent (e.g. bulk.contention), else the generic.
       return { heading: refused, body: result.message !== '' ? result.message : REFUSED_WITHOUT_MESSAGE };
     case 'not-found':
-      return { heading: refused, body: `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}` };
+      return { heading: refused, body: PAGE_STATES.notFoundInline };
     case 'forbidden':
       return { heading: refused, body: bulkForbidden(nouns) };
     case 'session-ended':

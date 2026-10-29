@@ -50,7 +50,7 @@ function noticeFor(action: Action, failure: PersonActionFailure, name: string, i
     case 'refused':
       return { id, heading: refusedHeading, body: failure.message !== '' ? failure.message : REFUSED_WITHOUT_MESSAGE };
     case 'not-found':
-      return { id, heading: refusedHeading, body: `${PAGE_STATES.notFoundHeading} ${PAGE_STATES.notFoundBody}` };
+      return { id, heading: refusedHeading, body: PAGE_STATES.notFoundInline };
     case 'forbidden':
       return {
         id,
