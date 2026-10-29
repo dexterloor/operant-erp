@@ -74,11 +74,13 @@ describe('POST /bff/password-resets', () => {
     expect((await r.json()).errors).toEqual([{ pointer: '/email', code: 'invalid', message: 'Enter an email address.' }]);
   });
 
-  it('a body that is not two strings ≤ 255 is refused 422 with no API call', async () => {
+  it('a body that is not two strings ≤ 255 is refused 422 request-invalid ("not sent") with no API call', async () => {
     stubApi(() => new Response(null, { status: 202 }));
     const { handleResetRequest } = await handlers();
-    for (const body of [{ workspace: 'a' }, { workspace: 1, email: 'e' }, { workspace: 'a', email: 'e'.repeat(256) }, 'nope']) {
-      expect((await handleResetRequest(post('/bff/password-resets', body))).status).toBe(422);
+    for (const body of [{ workspace: 'a' }, { workspace: 1, email: 'e' }, { workspace: 'a', email: 'e'.repeat(256) }, 'nope', '[]']) {
+      const r = await handleResetRequest(post('/bff/password-resets', body));
+      expect(r.status).toBe(422);
+      expect((await r.json()).type).toBe('urn:erp:bff:request-invalid');
     }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -133,14 +135,37 @@ describe('POST /bff/password-resets/redemption', () => {
   });
 });
 
-describe('code RED M-2 — the redemption bound is measured in UTF-8 bytes', () => {
-  it('4096 bytes is forwarded; 1366 three-byte characters (4098 bytes) is refused locally', async () => {
+describe('c10 FINAL A.3 — the password is not capped here: the API says "too long" itself (M-3 measured 422)', () => {
+  it('a 4098-byte password (1366 three-byte characters) and a 4097-byte one are forwarded; the API\'s 422 sentence comes back', async () => {
+    stubApi(() => problem(422, 'urn:erp:problem:validation-failed', { errors: [{ pointer: '/password', code: 'new_password_too_long', message: 'The new password is too long.' }] }));
+    const { handleResetRedemption } = await handlers();
+    for (const password of ['€'.repeat(1366), 'a'.repeat(4097)]) {
+      const r = await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password }));
+      expect(r.status).toBe(422);
+      expect((await r.json()).errors).toEqual([{ pointer: '/password', code: 'new_password_too_long', message: 'The new password is too long.' }]);
+      expect(JSON.parse(fetchSpy.mock.calls.at(-1)![1].body).password).toBe(password);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('the token keeps its 4096-byte bound (a token is never typed): an over-long one is "not sent", no API call', async () => {
     stubApi(() => Response.json({ changed_at: '2026-11-01T00:00:00+00:00' }));
     const { handleResetRedemption } = await handlers();
-    expect((await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password: 'é'.repeat(2048) }))).status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const r = await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password: '€'.repeat(1366) }));
+    expect((await handleResetRedemption(post('/bff/password-resets/redemption', { token: 'é'.repeat(2048), password: 'p' }))).status).toBe(200);
+    const r = await handleResetRedemption(post('/bff/password-resets/redemption', { token: '€'.repeat(1366), password: 'p' }));
     expect(r.status).toBe(422);
+    expect((await r.json()).type).toBe('urn:erp:bff:request-invalid');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused body (not an object, no token, empty token, non-string password) is 422 request-invalid with no API call', async () => {
+    stubApi(() => Response.json({ changed_at: 'x' }));
+    const { handleResetRedemption } = await handlers();
+    for (const body of ['nope', '[]', { password: 'p' }, { token: '', password: 'p' }, { token: TOKEN }, { token: TOKEN, password: 5 }]) {
+      const r = await handleResetRedemption(post('/bff/password-resets/redemption', body));
+      expect(r.status).toBe(422);
+      expect((await r.json()).type).toBe('urn:erp:bff:request-invalid');
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

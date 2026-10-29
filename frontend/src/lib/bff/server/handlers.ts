@@ -21,6 +21,11 @@ const SIGN_IN_PASSED_THROUGH: Readonly<Record<number, readonly string[]>> = {
 
 const serverError = () => bffProblem(502, 'urn:erp:bff:server-error');
 const localRefusal = () => bffProblem(422, 'urn:erp:problem:validation-failed', { errors: [] });
+/**
+ * A body this server will not forward, refused before any API call (c10 FINAL A.1): the browser reads it as "not sent".
+ * Sign-in keeps `localRefusal()` (its page maps a local 422 to the ruled wrong-details failure).
+ */
+const notSentRefusal = () => bffProblem(422, 'urn:erp:bff:request-invalid');
 
 /**
  * The request's JSON object; null when it is not one; a Response (413 / 408) when the body is over the cap or does not
@@ -190,7 +195,7 @@ export async function handleResetRequest(request: Request): Promise<Response> {
   if (body instanceof Response) return body;
   const workspace = body && text(body, 'workspace', FIELD_MAX);
   const email = body && text(body, 'email', FIELD_MAX);
-  if (workspace === null || email === null || !body) return localRefusal();
+  if (workspace === null || email === null || !body) return notSentRefusal();
   let upstream: Response;
   try {
     upstream = await apiFetch('CreatePasswordReset', { body: { workspace, email } });
@@ -211,9 +216,11 @@ export async function handleResetRedemption(request: Request): Promise<Response>
   if (refused) return refused;
   const body = await jsonBody(request);
   if (body instanceof Response) return body;
+  // The token keeps the 4096-byte bound (it is never typed). The password is not capped here: the API refuses an
+  // over-long one with its own 422 "The new password is too long." (measured, c10-progress M-3), so the page can say so.
   const token = body && credential(body, 'token', true);
-  const password = body && credential(body, 'password', true);
-  if (!token || password === null || !body) return localRefusal();
+  const password = body && typeof body.password === 'string' ? body.password : null;
+  if (!token || password === null || !body) return notSentRefusal();
   let upstream: Response;
   try {
     upstream = await apiFetch('CreatePasswordResetRedemption', { body: { token, password } });

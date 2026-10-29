@@ -16,6 +16,25 @@ async function typeOf(response: Response): Promise<string | null> {
   }
 }
 
+/**
+ * The answers the web app's server gives WITHOUT calling the API (origin.ts and handlers.ts `notSentRefusal`), keyed by
+ * type with the status each comes with (c10 FINAL A.1). Every one is produced before the upstream call, so nothing was
+ * sent: the outcome is known.
+ */
+const NOT_SENT: Readonly<Record<string, readonly number[]>> = {
+  'urn:erp:bff:request-refused': [403, 400],
+  'urn:erp:bff:unsupported-media-type': [415],
+  'urn:erp:bff:payload-too-large': [413],
+  'urn:erp:bff:request-timeout': [408],
+  'urn:erp:bff:request-invalid': [422],
+};
+
+/** True when the answer is one the web app's server made before sending anything to the API. Reads a clone. */
+async function isNotSent(response: Response): Promise<boolean> {
+  const type = await typeOf(response.clone());
+  return type !== null && (NOT_SENT[type]?.includes(response.status) ?? false);
+}
+
 /** A same-site path with exactly one leading slash, else `/` (the page navigates only to what the server says). */
 const sitePath = (x: unknown): string => (typeof x === 'string' && x.startsWith('/') && !x.startsWith('//') && !x.includes('\\') ? x : '/');
 
@@ -80,6 +99,7 @@ export async function requestReset(values: RequestResetValues): Promise<RequestR
   if (!out.ok) return { kind: 'unreachable' };
   const r = out.response;
   if (r.status === 202) return { kind: 'accepted' };
+  if (await isNotSent(r)) return { kind: 'not-sent' };
   if (r.status === 422) {
     const fieldErrors = await fieldErrorsOf(r, ['workspace', 'email'] as const);
     return fieldErrors ? { kind: 'invalid', fieldErrors } : { kind: 'server-error' };
@@ -98,6 +118,7 @@ export async function redeemReset(values: { token: string; password: string }): 
   if (!out.ok) return { kind: 'unreachable' };
   const receivedAt = performance.now();
   const r = out.response;
+  if (await isNotSent(r)) return { kind: 'not-sent' };
   if (r.status === 200) {
     try {
       const b = (await r.json()) as { changed_at?: unknown };

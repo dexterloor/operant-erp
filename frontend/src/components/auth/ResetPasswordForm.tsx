@@ -5,12 +5,12 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } f
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PlainLink, type LinkComponent } from '@/components/shell/types';
-import { RATE_LIMITED, SET_PASSWORD } from '@/copy/password';
+import { CREDENTIAL_FALLBACK, RATE_LIMITED, SET_PASSWORD } from '@/copy/password';
 import { assignLocation, type DocumentNavigate, type RedeemResetAction, type RedeemResetResult } from '@/lib/auth/results';
 import { AuthCard, AuthField, authStyles as styles, useElapsedSince } from './AuthCard';
 
 type Phase = 'reading' | 'ready' | 'refused' | 'done';
-type Notice = 'rate-limited' | 'unreachable' | 'server-error' | null;
+type Notice = 'rate-limited' | 'not-sent' | 'unreachable' | 'server-error' | null;
 
 /**
  * Reads `token` from the URL fragment and removes the fragment from the address bar and the current history entry at
@@ -194,6 +194,12 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
         <Banner ref={noticeRef} tone="warning" live="status" heading={RATE_LIMITED.heading}>
           <p>{RATE_LIMITED.body}</p>
           <p className={styles.secondary}>{SET_PASSWORD.rateLimitedNothingChanged}</p>
+        </Banner>
+      ) : null}
+      {notice === 'not-sent' ? (
+        // not-sent → C2-2 body: pairing PROPOSED, UX TO CONFIRM (c10 FINAL A.2)
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
+          <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (

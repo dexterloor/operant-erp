@@ -81,6 +81,47 @@ describe('wiredRedeemReset — POST /bff/password-resets/redemption', () => {
   });
 });
 
+// c10 FINAL A.2/A.4 (F-1): every answer the web app's server gives WITHOUT calling the API is "not sent" — never the
+// "we can't tell" outcome. These five (status, type) pairs are typed here independently of src/lib/bff.
+const NOT_SENT_ANSWERS: readonly [number, string][] = [
+  [403, 'urn:erp:bff:request-refused'],
+  [400, 'urn:erp:bff:request-refused'],
+  [415, 'urn:erp:bff:unsupported-media-type'],
+  [413, 'urn:erp:bff:payload-too-large'],
+  [408, 'urn:erp:bff:request-timeout'],
+  [422, 'urn:erp:bff:request-invalid'],
+];
+
+describe('F-1 — a refusal the web app\'s server made before sending is "not sent" (both reset calls)', () => {
+  it.each(NOT_SENT_ANSWERS)('requestReset: %i %s → not-sent', async (status, type) => {
+    stub(() => problem(status, { type, status }));
+    expect(await wiredRequestReset({ workspace: 'a', email: 'e' })).toEqual({ kind: 'not-sent' });
+  });
+
+  it.each(NOT_SENT_ANSWERS)('redeemReset: %i %s → not-sent', async (status, type) => {
+    stub(() => problem(status, { type, status }));
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'not-sent' });
+  });
+
+  it("an API 422 that names no field is still the server's error, not \"not sent\" (it reached the API)", async () => {
+    stub(() => problem(422, { type: 'urn:erp:problem:validation-failed', errors: [] }));
+    expect(await wiredRequestReset({ workspace: 'a', email: 'e' })).toEqual({ kind: 'server-error' });
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+  });
+
+  it('a not-sent type on another status is not trusted (the pair must match)', async () => {
+    stub(() => problem(502, { type: 'urn:erp:bff:request-invalid' }));
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+  });
+
+  it("the BFF's generic 502 and a 504 stay \"outcome unknown\" (server-error), never not-sent", async () => {
+    stub(() => problem(502, { type: 'urn:erp:bff:server-error' }));
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+    stub(() => problem(504, { type: 'urn:erp:bff:upstream-timeout' }));
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+  });
+});
+
 describe('T-R8 — the wired page sends the token only in the redemption body, as the argument', () => {
   it('the token never appears in the request URL or headers; the body is exactly {token, password}', async () => {
     window.history.replaceState(null, '', `/reset-password#token=${TOKEN}`);

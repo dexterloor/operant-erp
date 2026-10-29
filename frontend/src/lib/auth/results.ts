@@ -11,6 +11,15 @@
 import type { RateLimited, ServerError, Unreachable } from '../results';
 export type { RateLimited, ServerError, Unreachable } from '../results';
 
+/**
+ * The web app's server refused the request before sending it to the API (its origin, size, time or shape checks), so
+ * nothing changed and the outcome is known (c10 FINAL A.2). Never "we can't tell": that is for `unreachable` and the
+ * BFF's generic server error, where the API may have acted.
+ */
+export interface NotSent {
+  kind: 'not-sent';
+}
+
 /** Field pointer → the server's sentence for it. */
 export type FieldErrors<F extends string> = Partial<Record<F, string>>;
 
@@ -20,6 +29,7 @@ export type RequestResetResult =
   | { kind: 'accepted' }
   /** 422 `/workspace`, `/email`. */
   | { kind: 'invalid'; fieldErrors: FieldErrors<'workspace' | 'email'> }
+  | NotSent
   | RateLimited
   | Unreachable
   | ServerError;
@@ -41,6 +51,7 @@ export type RedeemResetResult =
   | { kind: 'invalid'; fieldErrors: FieldErrors<'password'> }
   /** 401 — one state for every cause; never the shell's "session ended". */
   | { kind: 'link-refused' }
+  | NotSent
   | RateLimited
   | Unreachable
   | ServerError;

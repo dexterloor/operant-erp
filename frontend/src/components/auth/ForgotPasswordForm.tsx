@@ -121,7 +121,8 @@ export function ForgotPasswordForm({ requestReset, rememberedWorkspace = '', sig
           <p>{REQUEST_RESET.unreachableBody}</p>
         </Banner>
       ) : null}
-      {notice === 'server-error' ? (
+      {notice === 'server-error' || notice === 'not-sent' ? (
+        // not-sent → C2-2 body: pairing PROPOSED, UX TO CONFIRM (c10 FINAL A.2)
         <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
           <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>

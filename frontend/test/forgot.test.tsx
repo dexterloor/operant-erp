@@ -125,4 +125,11 @@ describe('ForgotPasswordForm (/forgot-password)', () => {
     await submitWith({ kind: 'server-error' });
     expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
   });
+
+  // Coverage, not evidence (c10-final-red L-2): server-error already shows this text, so mapping not-sent to it stays
+  // green. The pin is the authCalls case in auth-wired.test.tsx.
+  it('not sent (refused by the web app\'s server): the same bounded message', async () => {
+    await submitWith({ kind: 'not-sent' });
+    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+  });
 });

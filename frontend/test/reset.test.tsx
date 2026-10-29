@@ -261,6 +261,18 @@ describe('ResetPasswordForm — the form and its results', () => {
     expect(redeem).toHaveBeenNthCalledWith(3, expect.objectContaining({ token: TOKEN }));
   });
 
+  it('F-1: a request the server refused before sending says "Try again in a moment.", never the "can\'t tell" body', async () => {
+    openLink();
+    const redeem = vi.fn<RedeemResetAction>().mockResolvedValueOnce({ kind: 'not-sent' }).mockResolvedValueOnce({ kind: 'link-refused' });
+    renderPage(redeem);
+    await submit();
+    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(document.body.textContent).not.toContain(INTERRUPTED_BODY);
+    expect(screen.getByLabelText('New password')).toBeInTheDocument();
+    await submit();
+    expect(redeem).toHaveBeenNthCalledWith(2, expect.objectContaining({ token: TOKEN }));
+  });
+
   it('no wording anywhere on the page claims an email was sent', async () => {
     openLink();
     renderPage(async () => ({ kind: 'link-refused' }));
