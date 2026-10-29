@@ -4,15 +4,17 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Menu as MenuIcon, X } from 'lucide-react';
 import { useState } from 'react';
 import { SHELL } from '@/copy/shell';
-import { Sidebar, type SidebarProps } from './Sidebar';
+import { Sidebar, navGroups, type SidebarProps } from './Sidebar';
 import styles from './MobileNav.module.css';
 
 /**
  * Below 768 px the sidebar becomes a menu button (§4.1 reflow at 320 CSS px). The menu is a modal sheet: focus is
- * trapped inside while open, Esc closes it, and focus returns to the menu button (Radix Dialog).
+ * trapped inside while open, Esc closes it, and focus returns to the menu button (Radix Dialog). With no page to offer
+ * (b3b-followup C-3) there is no menu button at all: an empty sheet behind a button is worse than none.
  */
 export function MobileNav(props: Omit<SidebarProps, 'onNavigate'>) {
   const [open, setOpen] = useState(false);
+  if (navGroups(props.permissionCodes, props.builtHrefs).length === 0) return null;
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger className={styles.trigger} aria-label={open ? SHELL.closeMenu : SHELL.openMenu}>

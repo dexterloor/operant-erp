@@ -34,6 +34,11 @@ describe('sidebar derivation from permission codes (L-5)', () => {
     expect(deriveNavigation([])).toEqual([]);
   });
 
+  it('b3b-followup C-3: with a built list, only built items remain and emptied groups are absent', () => {
+    expect(deriveNavigation(all, NAVIGATION, ['/admin/users']).map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([['Administration', ['Users']]]);
+    expect(deriveNavigation(all, NAVIGATION, [])).toEqual([]);
+  });
+
   it('accepts a Set as well as an array', () => {
     expect(deriveNavigation(new Set(['warehouse.view'])).map((g) => g.label)).toEqual(['Inventory']);
   });

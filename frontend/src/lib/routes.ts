@@ -5,7 +5,10 @@
 // the page folders under src/app/(app) on disk, both ways, and each to a navigation item.
 import { NAVIGATION, type PermissionCodes } from './navigation';
 
-/** The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. */
+/**
+ * The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. The
+ * sidebar, rail and 320 px menu read it too (b3b-followup C-3): they offer only these pages.
+ */
 export const BUILT_PAGE_HREFS: readonly string[] = ['/admin/users', '/admin/roles'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);

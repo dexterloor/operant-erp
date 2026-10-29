@@ -90,11 +90,15 @@ export type PermissionCodes = ReadonlySet<string> | readonly string[];
 
 const asSet = (codes: PermissionCodes): ReadonlySet<string> => (codes instanceof Set ? codes : new Set(codes as readonly string[]));
 
-/** The groups and items this person may see. Groups with no visible item are absent, never greyed. */
-export function deriveNavigation(codes: PermissionCodes, nav: readonly NavGroupDef[] = NAVIGATION): NavGroupDef[] {
+/**
+ * The groups and items this person may see. Groups with no visible item are absent, never greyed. With `built`
+ * (b3b-followup C-3), an item also needs its page to exist: only hrefs in `built` remain, so the menu never offers a
+ * page that answers 404.
+ */
+export function deriveNavigation(codes: PermissionCodes, nav: readonly NavGroupDef[] = NAVIGATION, built?: readonly string[]): NavGroupDef[] {
   const held = asSet(codes);
   return nav
-    .map((g) => ({ label: g.label, items: g.items.filter((i) => held.has(i.permission)) }))
+    .map((g) => ({ label: g.label, items: g.items.filter((i) => held.has(i.permission) && (built === undefined || built.includes(i.href))) }))
     .filter((g) => g.items.length > 0);
 }
 

@@ -1,7 +1,8 @@
 'use client';
 
 import { useId } from 'react';
-import { activeHref, deriveNavigation, type NavGroupDef, type PermissionCodes } from '@/lib/navigation';
+import { NAVIGATION, activeHref, deriveNavigation, type NavGroupDef, type PermissionCodes } from '@/lib/navigation';
+import { BUILT_PAGE_HREFS } from '@/lib/routes';
 import { SHELL } from '@/copy/shell';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { NAV_ICONS } from './icons';
@@ -14,10 +15,17 @@ export interface SidebarProps {
   Link?: LinkComponent;
   /** Called after a link is followed (the 320 px menu closes itself with it). */
   onNavigate?: () => void;
+  /** The hrefs whose page exists (b3b-followup C-3); only these are offered. Tests may pass every href. */
+  builtHrefs?: readonly string[];
 }
 
-function useNav(permissionCodes: PermissionCodes, currentPath: string): { groups: NavGroupDef[]; active: string | null } {
-  const groups = deriveNavigation(permissionCodes);
+/** The groups the menu shows: held codes AND built pages. Zero groups → no menu landmark at all (no empty `<nav>`). */
+export function navGroups(permissionCodes: PermissionCodes, builtHrefs: readonly string[] = BUILT_PAGE_HREFS): NavGroupDef[] {
+  return deriveNavigation(permissionCodes, NAVIGATION, builtHrefs);
+}
+
+function useNav(permissionCodes: PermissionCodes, currentPath: string, builtHrefs?: readonly string[]): { groups: NavGroupDef[]; active: string | null } {
+  const groups = navGroups(permissionCodes, builtHrefs);
   return { groups, active: activeHref(currentPath, groups) };
 }
 
@@ -25,10 +33,22 @@ function BrandMark() {
   return <span className={styles.mark} aria-hidden="true" />;
 }
 
-/** Expanded sidebar, 248 px. Items absent (not greyed) when the code is missing (ST-4c, brief §3). */
-export function Sidebar({ permissionCodes, currentPath, Link = PlainLink, onNavigate }: SidebarProps) {
-  const { groups, active } = useNav(permissionCodes, currentPath);
+/**
+ * Expanded sidebar, 248 px. Items absent (not greyed) when the code is missing (ST-4c, brief §3) or the page is not built
+ * (C-3). With nothing to offer it keeps the brand mark and renders no `<nav>` (an empty landmark is noise).
+ */
+export function Sidebar({ permissionCodes, currentPath, Link = PlainLink, onNavigate, builtHrefs }: SidebarProps) {
+  const { groups, active } = useNav(permissionCodes, currentPath, builtHrefs);
   const uid = useId();
+  if (groups.length === 0) {
+    return (
+      <div className={styles.sidebar}>
+        <div className={styles.brand}>
+          <BrandMark />
+        </div>
+      </div>
+    );
+  }
   return (
     <nav aria-label={SHELL.mainNav} className={styles.sidebar}>
       <div className={styles.brand}>
@@ -66,8 +86,17 @@ export function Sidebar({ permissionCodes, currentPath, Link = PlainLink, onNavi
  * Collapsed rail, 64 px. Each icon link carries its name as aria-label and shows it in a tooltip on hover and
  * keyboard focus, with WCAG 1.4.13 behaviour (Esc dismisses, hoverable, persistent). Group labels become dividers.
  */
-export function SidebarRail({ permissionCodes, currentPath, Link = PlainLink }: SidebarProps) {
-  const { groups, active } = useNav(permissionCodes, currentPath);
+export function SidebarRail({ permissionCodes, currentPath, Link = PlainLink, builtHrefs }: SidebarProps) {
+  const { groups, active } = useNav(permissionCodes, currentPath, builtHrefs);
+  if (groups.length === 0) {
+    return (
+      <div className={styles.rail}>
+        <div className={styles.brandRail}>
+          <BrandMark />
+        </div>
+      </div>
+    );
+  }
   return (
     <nav aria-label={SHELL.mainNav} className={styles.rail}>
       <div className={styles.brandRail}>
