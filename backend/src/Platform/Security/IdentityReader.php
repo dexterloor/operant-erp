@@ -59,8 +59,10 @@ use Symfony\Component\Uid\Uuid;
  * - **Whole-second stamps:** written through the ORM the stamp loses its
  *   sub-second part (`AppUser::$sessionsValidAfter`); by the equivalence above
  *   that changes nothing here.
- * - The stamp is written at every liveness transition from G4-C1 on; until then
- *   only the owner sets it. The named cost: a sign-in in the same wall-clock second
+ * - The stamp is written at every liveness transition from G4-C1 on, and at every
+ *   credential replacement (a redeemed reset link, Mail-C2; a password change,
+ *   W1-b); until G4-C1 only the owner set it. The token's `iat` is carried on
+ *   `Identity::$issuedAt` so `ChangePassword` can floor at it. The named cost: a sign-in in the same wall-clock second
  *   as a re-enable gets a token refused on its first use (200, then 401 once).
  *
  * **`CurrentUserReader` does not repeat this predicate, and is not meant to:** the
@@ -116,6 +118,7 @@ final readonly class IdentityReader
                 userId: (string) $user['id'],
                 actorLabel: (string) $user['display_name'],
                 permissionCodes: array_map(strval(...), $codes),
+                issuedAt: $issuedAt,
             );
         });
     }

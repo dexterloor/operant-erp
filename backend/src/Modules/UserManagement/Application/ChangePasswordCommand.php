@@ -27,6 +27,8 @@ final readonly class ChangePasswordCommand
         public string $currentPassword,
         public string $newPassword,
         public ?string $ipAddress,
+        /** The `iat` of the token that made this call (`Identity::$issuedAt`); the session floor is at least this second. */
+        public ?int $callingTokenIssuedAt = null,
     ) {
     }
 }

@@ -1418,6 +1418,9 @@ trait OperationSuccessRecipes
             }],
             // Last two, in this order: the sign-in presents the password the
             // change just set, so both writers on the credential path run.
+            // Load-bearing order (W1-b): this change raises the actor's session
+            // floor, so any authenticated recipe placed after it gets 401 — keep it
+            // after every authenticated recipe.
             'ChangePassword' => [function () use ($password): array {
                 $this->setPassword(self::TENANT_A, $this->actorId, $password);
 

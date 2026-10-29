@@ -668,7 +668,7 @@ final class GrantFootprintTest extends TenancyTestCase
      * `SchemaManifest` — see the method's docblock for why that matters.
      *
      *   LoginRecorder  -> AppUser::recordLogin()         -> last_login_at, updated_at
-     *   ChangePassword -> AppUser::replaceCredential()   -> password_hash, password_mac, updated_at
+     *   ChangePassword -> AppUser::replaceCredential()   -> password_hash, password_mac, sessions_valid_after, updated_at
      *                     (Cred-C1, `Version20261023000600`: the seal is written with the hash it seals)
      *   UserUpdate     -> AppUser::deactivate() / reactivate() -> is_active, sessions_valid_after, updated_at
      *                     AppUser::rename()                      -> display_name, updated_at

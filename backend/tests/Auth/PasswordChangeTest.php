@@ -6,12 +6,15 @@ namespace App\Tests\Auth;
 
 use App\Modules\UserManagement\Application\ChangePassword;
 use App\Modules\UserManagement\Application\PasswordChangeThrottle;
+use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
 use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Api\TransactionBoundaryTest;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Clock\Test\ClockSensitiveTrait;
 use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 
 /**
@@ -34,8 +37,8 @@ use Symfony\Component\PasswordHasher\PasswordHasherInterface;
  *                                                 E-23's *"throttle the action"*
  *   `::theOperationIsAuthenticatedThoughItDeclaresNoCode`
  *                                                 §4.2's `—` rule
- *   `::theTokenThatMadeTheChangeStillWorksAfterwards`
- *                                                 API-O-13 / API-O-21, pinned
+ *   `PasswordChangeSessionTest`                 a change ends every session
+ *                                                 (owner ruling P-A, G-84 closed)
  *   `::theMinimumLengthIsTheOneTheEnforcementRegisterSets`
  *                                                 **E-24**, three-sided
  *   `::aNewPasswordBelowTheMinimumIsRefusedInCharactersRatherThanBytes`
@@ -62,6 +65,8 @@ use Symfony\Component\PasswordHasher\PasswordHasherInterface;
  */
 final class PasswordChangeTest extends AuthTestCase
 {
+    use ClockSensitiveTrait;
+
     private const SLUG = self::SLUG_PREFIX.'credential';
 
     private const EMAIL = 'holder@example.test';
@@ -104,7 +109,7 @@ final class PasswordChangeTest extends AuthTestCase
      * *Mutation, run:* delete the `$this->trail->record(...)` call from
      * `ChangePassword`; the row count goes to zero and **five** methods in this
      * file are red — measured — because four others read the trail as well.
-     * *Second mutation, run:* delete `$user->replaceCredential($hash, $mac)` and keep
+     * *Second mutation, run:* delete `$user->replaceCredential($hash, $mac, $at)` and keep
      * the audit write; the row assertions all still hold and the sign-in half
      * goes red — which is what tells you the two halves are checking different
      * things.
@@ -143,7 +148,7 @@ final class PasswordChangeTest extends AuthTestCase
      * **T-C6 (Cred-C1): a change writes the new hash AND its seal**, and the seal is exactly what the key makes for this
      * (tenant, user, new hash) — so the next sign-in verifies it rather than meeting a transplanted-looking row.
      *
-     * *Mutation:* write the hash without the seal (`replaceCredential($hash, $oldMac)`) → the stored seal is not the
+     * *Mutation:* write the hash without the seal (`replaceCredential($hash, $oldMac, $at)`) → the stored seal is not the
      * recomputed one and the next sign-in is 401 → red.
      */
     #[Test]
@@ -581,6 +586,12 @@ final class PasswordChangeTest extends AuthTestCase
     #[Test]
     public function aPassphraseLongerThanSeventyTwoBytesIsAcceptedAndIsNotTruncated(): void
     {
+        // W1-b (owner ruling P-A): a change ends the calling session, so the second change below needs a token minted
+        // after the first change's second. Mock first (behind real time — firebase checks `iat` with `time()`), then
+        // replace the setUp token — minted at REAL time, which the change would take as its floor — with one at the mock.
+        $clock = $this->mockAt(time() - 10);
+        $this->token = $this->accessTokenAt($this->tenantId, $this->userId, $clock->now()->getTimestamp());
+
         $eighty = str_repeat('correct-horse-battery-staple-', 2).str_repeat('z', 80 - 58);
         self::assertSame(80, \strlen($eighty), 'The fixture is not 80 bytes, so it does not straddle the 72-byte claim.');
 
@@ -597,7 +608,9 @@ final class PasswordChangeTest extends AuthTestCase
             'A 72-byte prefix authenticated as the 80-byte passphrase, so the KDF really is truncating and '
             .'API-O-24 was right after all. That would be a finding, not a test failure.');
 
-        // And the ceiling that *is* in force is still in force.
+        // And the ceiling that *is* in force is still in force — on a token minted the second after the change.
+        $clock->sleep(1);
+        $this->token = $this->accessTokenAt($this->tenantId, $this->userId, $clock->now()->getTimestamp());
         $this->changePassword($eighty, str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1));
         $this->assertRefusedAs(ChangePassword::NEW_PASSWORD_TOO_LONG, 'one byte over the component ceiling');
     }
@@ -640,9 +653,17 @@ final class PasswordChangeTest extends AuthTestCase
         $ceiling = PasswordChangeThrottle::CHANGES_PER_WINDOW;
         $current = self::PASSWORD;
 
+        // W1-b (owner ruling P-A): each change ends the calling session, so every request below runs on a token minted
+        // under the mock (behind real time) in a second after the previous change's. The setUp token, minted at REAL
+        // time, is never sent: the change would floor at its `iat` and every later mock token would be dead. The
+        // throttle counts `audit_log` rows on the database clock, so its arithmetic is unchanged.
+        $clock = $this->mockAt(time() - 10);
+
         for ($i = 1; $i <= $ceiling; ++$i) {
             $next = 'rotation-'.$i.'-secret';
+            $this->token = $this->accessTokenAt($this->tenantId, $this->userId, $clock->now()->getTimestamp());
             $this->changePassword($current, $next);
+            $clock->sleep(1);
 
             self::assertSame(200, $this->httpStatus(),
                 \sprintf('Change %d of %d was refused, so the throttle assertion below would hold over a '
@@ -655,6 +676,7 @@ final class PasswordChangeTest extends AuthTestCase
             $current = $next;
         }
 
+        $this->token = $this->accessTokenAt($this->tenantId, $this->userId, $clock->now()->getTimestamp());
         $this->changePassword($current, 'one-rotation-too-many');
 
         self::assertSame(429, $this->httpStatus(), $this->bodyForFailure());
@@ -746,40 +768,6 @@ final class PasswordChangeTest extends AuthTestCase
     }
 
     /**
-     * **The residual, pinned: a password change revokes nothing.**
-     *
-     * There is no session store (**API-O-13**) and E-20 makes the access token an
-     * absolute eight hours with no revocation, so the token that made the change
-     * keeps working — as does every other live token for this principal, for the
-     * remainder of its lifetime. `SECURITY_MODEL.md` §5.1.1 states the consequence
-     * in terms; §4.2's Authentication prose and `PasswordResource`'s docblock say
-     * it where a client reads it.
-     *
-     * **This test asserts the residual rather than the fix, and that is on
-     * purpose.** Building revocation needs the session table D-14 declined and
-     * E4-1's migration slot does not authorise, so the honest thing a suite can do
-     * today is make the consequence visible instead of leaving it as a sentence in
-     * a document nobody diffs.
-     *
-     * *Mutation — and it is the useful direction:* the day anybody implements
-     * revocation, this method goes red. That is the intended failure: it forces
-     * the residual to be closed **in the documents and in this file, deliberately**,
-     * rather than a stale API-O-13 outliving the gap it describes.
-     */
-    #[Test]
-    public function theTokenThatMadeTheChangeStillWorksAfterwards(): void
-    {
-        $this->changePassword(self::PASSWORD, 'a-secret-that-revokes-nothing');
-        self::assertSame(200, $this->httpStatus(), $this->bodyForFailure());
-
-        $this->send('GET', '/me', null, ['Authorization' => 'Bearer '.$this->token]);
-
-        self::assertSame(200, $this->httpStatus(),
-            'The token used to change the password stopped working. That would be revocation, which '
-            .'API-O-13 records as impossible today — if it has been built, close API-O-13 and rewrite this.');
-    }
-
-    /**
      * **The pre-authentication trail writer refuses this event, and that guard
      * had no test until this method.**
      *
@@ -864,6 +852,26 @@ final class PasswordChangeTest extends AuthTestCase
         }
 
         return null;
+    }
+
+    /** As `PasswordResetRedeemTest::mockAt()`: the mock at or behind real time (firebase checks `iat` with `time()`). */
+    private function mockAt(int $second): MockClock
+    {
+        \assert($second <= time(), 'Mock at or behind real time (firebase checks iat with time()).');
+        $clock = self::mockTime(new \DateTimeImmutable('@'.$second));
+        \assert($clock instanceof MockClock);
+
+        return $clock;
+    }
+
+    /** As `PasswordResetRedeemTest::accessTokenAt()`: a real token issued at a chosen second. */
+    private function accessTokenAt(string $tenant, string $user, int $issuedAt): string
+    {
+        \assert($issuedAt <= time());
+        $issuer = self::getContainer()->get('test.auth.token_issuer');
+        \assert($issuer instanceof AccessTokenIssuer);
+
+        return $issuer->issue($tenant, $user, new \DateTimeImmutable('@'.$issuedAt))->jwt;
     }
 
     /** The response body, so a status assertion that fails says why rather than only what. */

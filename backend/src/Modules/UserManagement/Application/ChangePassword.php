@@ -9,6 +9,7 @@ use App\Modules\UserManagement\Domain\SealCheck;
 use App\Modules\UserManagement\Domain\SealsCredentials;
 use App\Modules\UserManagement\Domain\VerifiesPasswords;
 use App\Modules\UserManagement\Infrastructure\Entity\AppUser;
+use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Tenancy\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Clock\ClockInterface;
@@ -26,7 +27,10 @@ use Symfony\Component\Uid\Uuid;
  *  4  the new-password checks                        — no statement
  *  5  refuse on either, with every applicable pointer— no statement
  *  6  hash the new password                          — **no statement, no txn**
- *  7  `UPDATE app_user` + E-23's `audit_log` row     — `erp_app`, txn C (write)
+ *  7  `$at` (first statement); `SELECT … FOR NO KEY UPDATE` on `app_user` (live +
+ *     active + unchanged hash, else 401 / 422); refresh; `UPDATE app_user` (hash,
+ *     seal, `sessions_valid_after`, `updated_at`) + E-23's `audit_log` row
+ *                                                    — `erp_app`, txn C (write)
  *
  * **Steps 3 and 6 are outside every transaction, and that is ADR-006 §6.1 rather
  * than tidiness.** O-1 was closed on measurement: 1505 ms of pooled-backend
@@ -119,19 +123,53 @@ use Symfony\Component\Uid\Uuid;
  * and therefore the most tempting one to hoist, which is exactly why it is not.
  *
  * ===========================================================================
- * A password change does not end other sessions — by choice, not impossibility
+ * A password change ends every session, the calling one included
  * ===========================================================================
- * **The token the caller used to make this change keeps working after it, and so
- * does any other live token for this principal**, for up to E-20's eight hours.
- * This docblock used to say revocation "needs storage that D-14 declined"; that
- * has been false since G4-C0 built `app_user.sessions_valid_after`, which
- * `IdentityReader` honours on every request. So it is now a choice: this class
- * does **not** raise that floor, while a redeemed reset link does (Mail-C2,
- * `PasswordResetRedemption`). The asymmetry is recorded (`RESIDUAL_GAPS.md`
- * G-84, Mail-C2's R-C2-5; owner notice N-7) — someone who changes a password because
- * they suspect an intruder keeps that intruder's session — and a later small
- * commit can raise the floor here too. It is stated on `PasswordResource`, where
- * a client reads it, and in §4.4.3's additions row.
+ * Owner ruling P-A (2026-10-27; `RESIDUAL_GAPS.md` G-84 closed by W1-b). In the
+ * step-7 transaction that writes the new hash, this class raises
+ * `app_user.sessions_valid_after` (monotone, `AppUser::raiseSessionStamp`) to the
+ * change second, and `IdentityReader` refuses every token minted at or before it —
+ * **including the token that made this call**. The 200 is still answered; the
+ * caller's next request is the constant 401. No individual token is listed or
+ * revoked (there is still no session store, API-O-13); the principal's floor moves.
+ *
+ * **The floor `$at`** is the first statement inside the step-7 callback, after the
+ * KDF, and is the latest of three seconds: the request start (a PHP clock stepping
+ * back during the KDF cannot lower it), the clock now, and the calling token's
+ * `iat` (`ChangePasswordCommand::$callingTokenIssuedAt` — that token always dies,
+ * even when the application server's clock stepped back between its sign-in and
+ * this change). Whole seconds, from the injected PHP PSR clock — **never the
+ * database clock**, because `iat` is that PHP clock's second (Mail-C2's rule, MC-25).
+ *
+ * **The DBAL `SELECT … FOR NO KEY UPDATE` is the lock and the liveness check**, not
+ * the ORM `refresh()`: the soft-delete filter would make a refresh of a deleted row
+ * silent and lockless (`UserLiveness::loadUnderTheLock()`'s precondition). The read
+ * requires the row live and active and still holding the hash step 3 verified:
+ *   - no live active row → the gate's own constant 401 (`ApiProblem::
+ *     authenticationFailed()`, E-7): a person switched off or deleted at the moment
+ *     of the write is no longer a principal. *(Before W1-b this was a shipped
+ *     defect: the step-7 `find()` hit the identity map, so the old
+ *     `RuntimeException` guard was unreachable and a change on a person deleted or
+ *     switched off mid-request answered 200, rewriting the row.)* Named limit: a
+ *     switch-off and switch-back (or delete and restore) completed inside the KDF
+ *     window is not seen — the lock read finds the row live again.
+ *   - a different hash → 422 `current_password_invalid`, nothing written (a reset
+ *     redeemed while ours was being hashed is not overwritten). `$stored` may come
+ *     from the identity map; the compare is against the locked row, so a stale read
+ *     is refused, never written over.
+ * Lock strength: `FOR NO KEY UPDATE` — the strength the shipped plain `UPDATE`
+ * already took, so a concurrent FK `KEY SHARE` check is not blocked; it still
+ * conflicts with every other `app_user` writer (`UserUpdate`/`UserDeletion`'s
+ * `FOR UPDATE`, the redeem's `UPDATE`), so serialisation is unchanged. The entity is
+ * then refreshed (the step-2 instance is stale — a floor raised meanwhile must not
+ * be overwritten lower) and written through `AppUser::replaceCredential()`.
+ *
+ * **Named costs:** a sign-in in the change's own second is refused once (the
+ * whole-second floor G4 and Mail-C2 carry); a floor taken from a calling token's
+ * `iat` ahead of a stepped-back server clock refuses a fresh sign-in for at most
+ * that step. **Residual:** a sign-in that starts in a later second than `$at` and
+ * reads the old credential before step 7 commits keeps its session — the window
+ * is the step-7 transaction, not the KDF.
  *
  * @see SECURITY_MODEL.md §5 E-23, §5.1.4; E-20; API.md §4.2, §4.4.3, §9.2, §12.4
  */
@@ -139,6 +177,16 @@ final readonly class ChangePassword
 {
     /** §5.2's `errors[]` code for the branch that says the current password did not verify. */
     public const CURRENT_PASSWORD_INVALID = 'current_password_invalid';
+
+    /** The one copy of that branch's sentence: step 5 and the step-7 credential-moved refusal share it. */
+    private const CURRENT_PASSWORD_INVALID_MESSAGE = 'The current password is not correct.';
+
+    /** Step 7's three outcomes, returned out of the transaction callback. */
+    private const WRITTEN = 'written';
+
+    private const GONE = 'gone';
+
+    private const MOVED = 'moved';
 
     /** The two structural new-password codes. See the class docblock. Aliases of `PasswordRules`' (Mail-C2). */
     public const NEW_PASSWORD_EMPTY = PasswordRules::EMPTY;
@@ -173,6 +221,9 @@ final readonly class ChangePassword
 
     public function change(ChangePasswordCommand $command): ChangePasswordResult
     {
+        // The request start: the floor below is never earlier than this (Mail-C2's `$now`).
+        $start = $this->clock->now();
+
         // --- 1 ------------------------------------------------------------
         // Ahead of the KDF, so a throttled caller costs nothing to refuse. It
         // refuses the *action* and writes no row; E-23 forbids capping the
@@ -211,7 +262,7 @@ final readonly class ChangePassword
             array_unshift($errors, [
                 'pointer' => '/current_password',
                 'code' => self::CURRENT_PASSWORD_INVALID,
-                'message' => 'The current password is not correct.',
+                'message' => self::CURRENT_PASSWORD_INVALID_MESSAGE,
             ]);
         }
 
@@ -224,25 +275,29 @@ final readonly class ChangePassword
         $mac = $this->seals->seal($command->tenantId, $command->actorUserId, $hash);
 
         // --- 7 ------------------------------------------------------------
-        $at = $this->clock->now();
-        $this->tenants->run($command->tenantId, function (EntityManagerInterface $em) use ($command, $hash, $mac): void {
-            $user = $em->find(AppUser::class, Uuid::fromString($command->actorUserId));
+        $at = null;
+        $outcome = $this->tenants->run($command->tenantId, function (EntityManagerInterface $em) use ($command, $hash, $mac, $stored, $start, &$at): string {
+            // First statement inside the held transaction, after the KDF; floored at the request start and at the
+            // calling token's iat; whole seconds; the PHP PSR clock (class docblock).
+            $at = self::floorInstant($start, $this->clock->now(), $command->callingTokenIssuedAt);
 
-            // Step 2 already resolved a hash for this principal inside this
-            // request, so `null` here is a row that vanished between two
-            // transactions. Refusing to write is right and refusing *loudly* is
-            // right: unlike the sign-in path there is no response that would be
-            // correct, and a silent no-op would answer 200 for a change that did
-            // not happen — which is precisely the state E-23 exists to make
-            // impossible.
-            if (!$user instanceof AppUser) {
-                throw new \RuntimeException(
-                    'The principal resolved at authentication no longer exists, so no credential was changed. '
-                    .'E-23 requires the row and the change to stand or fall together.'
-                );
+            // The lock and the liveness check (class docblock): a DBAL read on `erp_app`, never the refresh.
+            $locked = $em->getConnection()->fetchOne(
+                'SELECT password_hash FROM app_user WHERE id = ?::uuid AND deleted_at IS NULL AND is_active FOR NO KEY UPDATE',
+                [$command->actorUserId],
+            );
+            if (false === $locked) {
+                return self::GONE;
+            }
+            if ($locked !== $stored) {
+                return self::MOVED;
             }
 
-            $user->replaceCredential($hash, $mac);
+            $user = $em->find(AppUser::class, Uuid::fromString($command->actorUserId))
+                ?? throw new \LogicException('A row locked live a statement ago is not loadable.');
+            // Re-read only, under the lock already held: the step-2 instance is stale.
+            $em->refresh($user);
+            $user->replaceCredential($hash, $mac, $at);
             $em->flush();
 
             // Inside this transaction, by re-entrancy. §9.2: audit is synchronous
@@ -253,9 +308,33 @@ final readonly class ChangePassword
                 actorLabel: $command->actorLabel,
                 ipAddress: $command->ipAddress,
             );
+
+            return self::WRITTEN;
         });
 
+        // Decided outside `run()`: an exception thrown inside it would close the shared entity manager.
+        if (self::GONE === $outcome) {
+            // Deleted or switched off since the gate: no longer a principal — the gate's own constant 401 (E-7).
+            throw ApiProblem::authenticationFailed();
+        }
+        if (self::MOVED === $outcome) {
+            // The credential was replaced while ours was being hashed: what the caller proved is no longer the
+            // stored one, so nothing was written.
+            return ChangePasswordResult::refused([[
+                'pointer' => '/current_password',
+                'code' => self::CURRENT_PASSWORD_INVALID,
+                'message' => self::CURRENT_PASSWORD_INVALID_MESSAGE,
+            ]]);
+        }
+        \assert($at instanceof \DateTimeImmutable);
+
         return ChangePasswordResult::changed($at);
+    }
+
+    /** The latest of the request start, the clock now and the calling token's `iat`, as a whole second. */
+    private static function floorInstant(\DateTimeImmutable $start, \DateTimeImmutable $now, ?int $issuedAt): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('@'.max($start->getTimestamp(), $now->getTimestamp(), $issuedAt ?? \PHP_INT_MIN));
     }
 
     /**

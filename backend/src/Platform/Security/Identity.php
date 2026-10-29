@@ -26,6 +26,11 @@ namespace App\Platform\Security;
  * `actorLabel` is `app_user.display_name`, captured here because E-3's audit row
  * needs it and `audit_log.actor_label` is `NOT NULL` — the trail has to stay
  * readable after the principal is deleted.
+ *
+ * `issuedAt` is the `iat` of the token this request was authenticated with (set by
+ * `IdentityReader`); `null` for a directly-set identity (test rig, non-HTTP). Read
+ * only by `ChangePassword`, whose session floor is at least this second so the
+ * calling token always dies (owner ruling P-A, 2026-10-27).
  */
 final readonly class Identity
 {
@@ -37,6 +42,7 @@ final readonly class Identity
         public string $userId,
         public string $actorLabel,
         public array $permissionCodes,
+        public ?int $issuedAt = null,
     ) {
     }
 

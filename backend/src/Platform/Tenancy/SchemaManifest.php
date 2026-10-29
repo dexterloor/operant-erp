@@ -340,7 +340,7 @@ final class SchemaManifest
             // Version20260922000300). The columns are the union of the ORM
             // flushes that write this table:
             //   LoginRecorder  -> recordLogin()         last_login_at, updated_at
-            //   ChangePassword -> replaceCredential()   password_hash, password_mac, updated_at
+            //   ChangePassword -> replaceCredential()   password_hash, password_mac, sessions_valid_after, updated_at
             //                     (password_mac: Cred-C1, Version20261023000600; the seal SQL cannot compute)
             //   UserUpdate     -> deactivate() / reactivate() / rename()
             //                     is_active, sessions_valid_after, display_name, updated_at

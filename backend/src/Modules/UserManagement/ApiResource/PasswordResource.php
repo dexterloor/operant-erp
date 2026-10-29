@@ -64,23 +64,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * credential-bearing request.
  *
  * ---------------------------------------------------------------------------
- * **A successful change does not revoke anything, and this class says so
- * because a client will assume otherwise**
+ * **A successful change signs the person out everywhere — including the token
+ * that made this call**
  * ---------------------------------------------------------------------------
- * The access token used to make this call keeps working afterwards, and so does
- * every other live token for this principal, for the remainder of E-20's
- * **eight-hour absolute** lifetime. There is **no session store** (**API-O-13**),
- * so there is nothing to revoke against; **API-O-21** records the same window
- * seen from tenant suspension. `SECURITY_MODEL.md` §5.1.1 states the consequence
- * in terms — *"a user who changes their password after a compromise will
- * reasonably believe it did"*.
- *
- * **No member of this response hints otherwise**, and none was added to soften
- * it: a `sessions_revoked` or `tokens_invalidated` field would be an endpoint
- * that reports a control it does not have, which is the fake-green shape this
- * project has found seventeen times. Building revocation is **not** in this
- * pass's scope — it needs the session table D-14 declined and E4-1's migration
- * slot does not authorise.
+ * Owner ruling P-A, 2026-10-27; closes `RESIDUAL_GAPS.md` G-84. In the transaction
+ * that writes the new hash, `ChangePassword` raises `app_user.sessions_valid_after`
+ * (monotone) to the change second, and `IdentityReader` refuses every token minted
+ * at or before it. The 200 is still answered; the caller's next request is the
+ * constant 401 `authentication-failed`, so a client must sign in again with the new
+ * password, no sooner than `changed_at` + 1 s (a sign-in in the change's own second
+ * is refused once — the whole-second floor G4 and Mail-C2 already carry). Every
+ * unused password-reset link minted at or before that second stops working too
+ * (owner Q-3, Mail-C2). This is not a session store (API-O-13 stands): no token is
+ * listed or revoked; the principal's floor moves. **No member of this response
+ * reports it** — on a 200 it always happens, so a `sessions_revoked` field would be
+ * a constant.
  *
  * ---------------------------------------------------------------------------
  * The response shape, and why it is one member
@@ -91,8 +89,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * has no `SchemaManifest` deletion class. **API-23a therefore requires an
  * additions row, and §4.4.3 now carries one** — the same shape `ReorderSummary`
  * uses, where the additions row *is* the whole response. `changed_at` is the
- * instant the audit row records, so a client can show it and a support question
- * can be matched against the trail.
+ * change second: the session floor the change set, within a second of E-23's audit
+ * row, so a support question can still be matched against the trail.
  */
 #[ApiResource(
     shortName: 'Password',
@@ -123,7 +121,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class PasswordResource
 {
     public function __construct(
-        /** RFC 3339 — the instant E-23's `audit_log` row records. */
+        /** RFC 3339, whole seconds — the session floor the change set (owner ruling P-A); within a second of E-23's audit_log row. */
         #[SerializedName('changed_at')]
         public string $changedAt,
     ) {
