@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   title: { ...APP_TITLE },
 };
 
+// Reads nothing that can fail, so `src/app/error.tsx` covers every throw below it. The day this layout reads data, add
+// `global-error.tsx` (b3b-followup C-2).
 export default function RootLayout({ children }: { children: ReactNode }) {
   // data-theme="light" is the server default (D4); the boot script replaces it before first paint with the stored
   // choice, hence suppressHydrationWarning on <html> only.

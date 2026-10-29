@@ -2,6 +2,8 @@ import { render, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { describe, expect, it } from 'vitest';
 import { ComponentPreview } from '@/components/preview/ComponentPreview';
+import RootError from '@/app/error';
+import RootNotFound from '@/app/not-found';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
@@ -241,5 +243,17 @@ describe('axe — B-4 role picker + Waiting group', () => {
     render(<PickerHarness scene={pickerScene(JONAS, OFFERED_JONAS_BY_ADMIN)} roleView={false} />);
     await userEvent.setup().click(screen.getByRole('checkbox', { name: 'finance' }));
     expect(await axeDoc()).toEqual([]);
+  });
+});
+
+// b3b-followup C-2: the page-level error and the root not-found, each as it renders frame-less (its own <main>).
+describe('axe — page error and not found (b3b-followup C-2)', () => {
+  it('the root error page and the root not-found page have no violations', async () => {
+    for (const ui of [<RootError key="e" />, <RootNotFound key="n" />]) {
+      const { container, unmount } = render(ui);
+      const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+      expect(result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`)).toEqual([]);
+      unmount();
+    }
   });
 });

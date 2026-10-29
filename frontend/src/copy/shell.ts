@@ -49,6 +49,12 @@ export const PAGE_STATES = {
    */
   notFoundInline: "We couldn't find that. It may have been deleted, or you may not have access.",
   retry: 'Retry',
+  /**
+   * PROPOSED (NEW, b3b-followup C-2; R1-1 / M-4 shape: name what failed) — UX to confirm — owner may strike. Adopted under
+   * the owner's overnight delegation. The body of the page-level error (`error.tsx`) under the WENT_WRONG heading; the
+   * alternative offered to UX is "Try again in a moment.".
+   */
+  pageLoadFailed: "This page couldn't be loaded.",
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',
 } as const;

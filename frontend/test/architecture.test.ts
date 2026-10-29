@@ -199,7 +199,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
   'src/lib': 55,
-  'src/components': 49,
+  // b3b-followup C-2 added: components/shell/PageError.tsx.
+  'src/components': 50,
   'src/lib/api': 5,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
@@ -226,7 +227,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/admin/roles/{page,RolesList,RoleStates}.tsx, app/(app)/admin/roles/[id]/{page,RolePage,not-found}.tsx.
   'src/lib/bff': 16,
   'src/lib/bff/server': 7,
-  'src/app': 35,
+  // b3b-followup C-2 added: app/error.tsx, app/(app)/error.tsx, app/not-found.tsx.
+  'src/app': 38,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
