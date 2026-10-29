@@ -1,6 +1,11 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// b3b-followup C-4 (final-red L-1): the list keeps its view in the address through the App Router, which Next refuses to
+// give outside a mounted router. The list is never made tolerant of a missing router; the test supplies one.
+const nav = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/users' }));
 import { UsersList } from '@/app/(app)/admin/users/UsersList';
 import { formatDate } from '@/lib/format/dates';
 import { ID, TZ, VIEWER_ID, json, page, renderWired, stubFetch, user } from './harness';
@@ -140,5 +145,53 @@ describe('/admin/users — the first load failed', () => {
     await act(async () => u.click(screen.getByRole('button', { name: 'Archived' })));
     expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
     expect(screen.getByText(/needs the/)).toHaveTextContent('This needs the View people permission. Your workspace administrator can grant it.');
+  });
+});
+
+describe('/admin/users — the Archived view is in the address (b3b-followup C-4, O-1)', () => {
+  beforeEach(() => nav.replace.mockReset());
+
+  it('initialArchived: the first render is the Archived view, with nothing fetched', () => {
+    const calls = stubFetch([]);
+    show(<UsersList initial={{ kind: 'ok', users: [OLD, NEW] }} initialArchived viewerId={VIEWER_ID} />);
+    expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Name', 'Email', 'Deleted on']);
+    expect(calls).toHaveLength(0);
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a successful switch replaces the address after the rows arrive; switching back drops the parameter', async () => {
+    stubFetch([json(200, page([OLD])), json(200, page([ADA, ME]))]);
+    const u = userEvent.setup();
+    show();
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(nav.replace.mock.calls).toEqual([['/admin/users?archived=true', { scroll: false }]]);
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'false'));
+    expect(nav.replace.mock.calls).toEqual([
+      ['/admin/users?archived=true', { scroll: false }],
+      ['/admin/users', { scroll: false }],
+    ]);
+  });
+
+  it('a failed switch leaves the address alone', async () => {
+    stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('final-red L-2: after a failed first load of the Archived view, Retry loads the Archived view again', async () => {
+    const calls = stubFetch([json(200, page([OLD]))]);
+    const u = userEvent.setup();
+    show(<UsersList initial={{ kind: 'server-error' }} initialArchived viewerId={VIEWER_ID} />);
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Old One')).toBeInTheDocument();
+    expect(calls[0]!.url).toBe('/bff/api/users?archived=true');
+    expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'true');
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 });

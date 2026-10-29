@@ -15,11 +15,13 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: USERS_LIST.heading };
 
-export default async function Page() {
+/** The address names the view (b3b-followup C-4): exactly `?archived=true` is the Archived view, anything else live. */
+export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const archived = (await searchParams).archived === 'true';
   const { session, viewer } = await currentViewer();
   if (!viewerMay('ListUsers', viewer.permissionCodes)) return <PeopleDenied />;
-  const first = await loadUsers(serverRead(session), false);
+  const first = await loadUsers(serverRead(session), archived);
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/users'));
   if (first.kind === 'forbidden') return <PeopleDenied />;
-  return <UsersList initial={first} viewerId={viewer.id} />;
+  return <UsersList initial={first} initialArchived={archived} viewerId={viewer.id} />;
 }

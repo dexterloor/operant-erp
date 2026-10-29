@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Refetchable, RefetchFailedBanner, RegionError } from '@/components/states/PageStates';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
@@ -43,6 +44,8 @@ export interface Column<T> {
 
 export interface ArchivableListProps<T> {
   initial: ListLoad<T>;
+  /** The view the server loaded for `initial`, from the address (`?archived=true`, b3b-followup C-4). */
+  initialArchived?: boolean;
   load: (read: Read, archived: boolean, signal: AbortSignal) => Promise<ListLoad<T>>;
   /** The client filter: the same case-insensitive prefix the server's `q` uses. */
   matches: (item: T, lowerQ: string) => boolean;
@@ -54,14 +57,22 @@ export interface ArchivableListProps<T> {
 
 /**
  * A bounded list with a live and an Archived view (IA §5.6; ux-copy-b3b.md C5-1, C7-1). Search filters on the client;
- * the only refetch is the Archived switch or a Retry. The Archived control is derived from the rows on screen, so a
+ * the only refetch is the Archived switch or a Retry. The view is in the address (b3b-followup C-4): the server page
+ * reads `?archived=true` for the first render, and a switch that loaded replaces the address through the App Router
+ * (`router.replace`, never `history.replaceState`, which the router ignores and Back then contradicts — RED H-1), which
+ * also re-renders the server page once (one extra read, accepted). A failed switch leaves the address alone. A Retry
+ * after a failed first load retries the view the address names. The Archived control is derived from the rows on screen, so a
  * failed switch leaves it on the view actually shown (RED round 2 R2-L2) under `LIST_STATES.refetchFailed`. The settled
  * announcement starts after the first interaction (first paint is not announced, ST-2a) and never says "0 shown": an
  * empty result speaks its empty heading.
  */
-export function ArchivableList<T extends { id: string; archived_at: string | null }>({ initial, load, matches, columns, copy, denied }: ArchivableListProps<T>) {
+export function ArchivableList<T extends { id: string; archived_at: string | null }>({ initial, initialArchived = false, load, matches, columns, copy, denied }: ArchivableListProps<T>) {
   const caller = useApiCaller();
-  const [shown, setShown] = useState<{ archived: boolean; items: T[] } | null>(initial.kind === 'ok' ? { archived: false, items: initial.items } : null);
+  const router = useRouter();
+  const pathname = usePathname();
+  /** The view the address names; it changes only after a load of the other view succeeded. */
+  const addressArchived = useRef(initialArchived);
+  const [shown, setShown] = useState<{ archived: boolean; items: T[] } | null>(initial.kind === 'ok' ? { archived: initialArchived, items: initial.items } : null);
   const [firstError, setFirstError] = useState<{ gen: number; cause: Cause } | null>(initial.kind === 'ok' ? null : { gen: 0, cause: causeOf(initial.kind) });
   const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean } | null>(null);
   const [isDenied, setDenied] = useState(false);
@@ -88,6 +99,10 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       setFirstError(null);
       setRefetchError(null);
       setInteracted(true);
+      if (archived !== addressArchived.current) {
+        addressArchived.current = archived;
+        router.replace(pathname + (archived ? '?archived=true' : ''), { scroll: false });
+      }
       return;
     }
     if (r.kind === 'session-ended') return;
@@ -125,7 +140,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         <h1 tabIndex={-1}>{copy.heading}</h1>
       </header>
       {firstError ? (
-        <RegionError key={firstError.gen} heading={headingOf(firstError.cause)} body={copy.loadFailed} retrying={busy} autoFocus={firstError.gen > 0} onRetry={() => void fetchView(false)} />
+        <RegionError key={firstError.gen} heading={headingOf(firstError.cause)} body={copy.loadFailed} retrying={busy} autoFocus={firstError.gen > 0} onRetry={() => void fetchView(initialArchived)} />
       ) : null}
       {shown ? (
         <>

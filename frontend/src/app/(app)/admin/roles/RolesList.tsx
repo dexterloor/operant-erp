@@ -24,7 +24,7 @@ const load = async (read: Read, archived: boolean, signal: AbortSignal) => asLis
  * the served codes — the list loads no catalogue); Name · Deleted on archived. `Built-in` comes from the served
  * `is_system`, never from a name.
  */
-export function RolesList({ initial }: { initial: RolesLoad }) {
+export function RolesList({ initial, initialArchived = false }: { initial: RolesLoad; initialArchived?: boolean }) {
   const timeZone = useViewerTimeZone();
   const name: Column<Role> = {
     header: ROLES_LIST.name,
@@ -45,5 +45,5 @@ export function RolesList({ initial }: { initial: RolesLoad }) {
     archived
       ? [name, { header: PERSON.deletedOnColumn, cell: (r) => (r.archived_at !== null ? <DateTime value={r.archived_at} form="date" timeZone={timeZone} /> : null) }]
       : [name, { header: ROLES_LIST.people, cell: (r) => String(r.holder_count) }, { header: ROLES_LIST.permissions, cell: (r) => String(r.permission_codes.length) }];
-  return <ArchivableList initial={asList(initial)} load={load} matches={matches} columns={columns} copy={ROLES_LIST} denied={<RolesDenied />} />;
+  return <ArchivableList initial={asList(initial)} initialArchived={initialArchived} load={load} matches={matches} columns={columns} copy={ROLES_LIST} denied={<RolesDenied />} />;
 }

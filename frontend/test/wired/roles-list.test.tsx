@@ -1,6 +1,11 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// b3b-followup C-4 (final-red L-1): the list keeps its view in the address through the App Router, which Next refuses to
+// give outside a mounted router. The list is never made tolerant of a missing router; the test supplies one.
+const nav = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/roles' }));
 import { RolesList } from '@/app/(app)/admin/roles/RolesList';
 import { formatDate } from '@/lib/format/dates';
 import { ROLE_A, ROLE_B, TZ, json, page, renderWired, role, stubFetch } from './harness';

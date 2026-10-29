@@ -21,8 +21,10 @@ const asList = (r: UsersLoad): ListLoad<User> => (r.kind === 'ok' ? { kind: 'ok'
 const load = async (read: Read, archived: boolean, signal: AbortSignal) => asList(await loadUsers(read, archived, signal));
 
 export interface UsersListProps {
-  /** The first render's ListUsers answer (live view). A 401 and a 403 never reach here: the server page handles them. */
+  /** The first render's ListUsers answer (the view `initialArchived` names). A 401 and a 403 never reach here: the server page handles them. */
   initial: UsersLoad;
+  /** The view `initial` holds, from the address (b3b-followup C-4). */
+  initialArchived?: boolean;
   viewerId: string;
 }
 
@@ -30,7 +32,7 @@ export interface UsersListProps {
  * `/admin/users` (ux-copy-b3b.md C5-1): Name · Email · Roles · Status live; Name · Email · Deleted on archived (a deleted
  * person holds no roles, E-15g). The live view has no empty state: the viewer is always a live row.
  */
-export function UsersList({ initial, viewerId }: UsersListProps) {
+export function UsersList({ initial, initialArchived = false, viewerId }: UsersListProps) {
   const timeZone = useViewerTimeZone();
   const columns = (archived: boolean): Column<User>[] => [
     { header: USERS_LIST.name, cell: (u) => <Link href={`/admin/users/${u.id}`}>{u.id === viewerId ? PERSON.ownName(u.display_name) : u.display_name}</Link> },
@@ -42,5 +44,5 @@ export function UsersList({ initial, viewerId }: UsersListProps) {
           { header: USERS_LIST.status, cell: (u: User) => (u.is_active ? USERS_LIST.active : USERS_LIST.switchedOff) },
         ]),
   ];
-  return <ArchivableList initial={asList(initial)} load={load} matches={matches} columns={columns} copy={COPY} denied={<PeopleDenied />} />;
+  return <ArchivableList initial={asList(initial)} initialArchived={initialArchived} load={load} matches={matches} columns={columns} copy={COPY} denied={<PeopleDenied />} />;
 }
