@@ -3,7 +3,7 @@ import { safeReturnPath } from '../../session';
 import { DECLARED_ROUTES } from '../../routes';
 import { apiFetch } from './apiClient';
 import { NO_STORE, bffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
-import { clearedSessionCookie, newSessionPayload, sealSession, sessionCookie } from './session';
+import { clearedSessionCookie, cookieValue, newSessionPayload, sealSession, sessionCookie, tokenOf, unsealSession } from './session';
 
 // The named handlers (bff-auth-note.md D-4.1, §4, §5, R1-§4, R1-§6.1; b3b-design.md §5 items 3–7, 15). Each is a
 // `Request → Response` function; the route files under src/app/bff are thin adapters. Every one goes through the Origin
@@ -241,4 +241,75 @@ export async function handleResetRedemption(request: Request): Promise<Response>
     });
   }
   return credentialProblem(upstream, { 401: ['urn:erp:problem:authentication-failed'], 422: [VALIDATION], 429: [TOO_MANY] });
+}
+
+/**
+ * POST /bff/me/password: `{current_password, new_password}` → the API's ChangePassword, as the session's person
+ * (c10-design.md "Revision 1 — FINAL" B.1; b4-architecture.md Revision 6 A-12). Order — every refusal before the API call
+ * makes none, and the session is checked before the body is read, as the proxy does (c10-final-red L-3):
+ *   1. the Origin / JSON wrapper → 403 / 415;
+ *   2. `X-ERP-Session` missing, or `Sec-Fetch-Mode: navigate` → 403 request-refused;
+ *   3. the cookie: none → 401 session-ended, no delete; a key that cannot be read → 502, no delete; a cookie that does not
+ *      open or has passed its sealed exp → 401 session-ended and the cookie deleted (proxy parity);
+ *   4. `X-ERP-Session` ≠ the cookie's sid → 409 session-changed (a page rendered for one person never changes another's);
+ *   5. the body: both fields strings, else request-invalid ("not sent"). No length or emptiness check: the API owns those
+ *      rules and their sentences, and answers 422 for an over-long password (measured, c10-progress M-3);
+ *   6. one API call with the session's bearer.
+ * The answer: 200 with a string `changed_at` → 200 `{changed_at}` and this browser's cookie deleted (the token is already
+ * dead at the API); a 200 without one → 502 and the cookie deleted (the change committed); API 401 → 401 session-ended,
+ * the cookie kept (a late 401 must not wipe a newer session from another tab); 422 → the field errors with their
+ * sentences; 429 → 429; anything else, including a 504 or a 200 whose body could not be read in time → the generic 502,
+ * the cookie kept (outcome unknown; if the change committed, the next call routes to sign-in). Logs nothing.
+ */
+export async function handleChangePassword(request: Request): Promise<Response> {
+  const refused = refuseCrossSiteMutation(request);
+  if (refused) return refused;
+  const declaredSid = request.headers.get('x-erp-session');
+  if (!declaredSid || request.headers.get('sec-fetch-mode') === 'navigate') return bffProblem(403, 'urn:erp:bff:request-refused');
+
+  const value = cookieValue(request);
+  if (value === undefined) return bffProblem(401, 'urn:erp:bff:session-ended');
+  let session: Awaited<ReturnType<typeof unsealSession>>;
+  try {
+    session = await unsealSession(value);
+  } catch {
+    return serverError();
+  }
+  if (session === null) {
+    const ended = bffProblem(401, 'urn:erp:bff:session-ended');
+    ended.headers.set('set-cookie', clearedSessionCookie());
+    return ended;
+  }
+  if (declaredSid !== session.sid) return bffProblem(409, 'urn:erp:bff:session-changed');
+
+  const body = await jsonBody(request);
+  if (body instanceof Response) return body;
+  if (!body || typeof body.current_password !== 'string' || typeof body.new_password !== 'string') return notSentRefusal();
+
+  let upstream: Response;
+  try {
+    upstream = await apiFetch('ChangePassword', { token: tokenOf(session), body: { current_password: body.current_password, new_password: body.new_password } });
+  } catch {
+    return serverError();
+  }
+
+  if (upstream.status === 200) {
+    let changedAt: unknown;
+    try {
+      changedAt = ((await upstream.json()) as { changed_at?: unknown }).changed_at;
+    } catch {
+      changedAt = undefined;
+    }
+    const answer =
+      typeof changedAt === 'string'
+        ? new Response(JSON.stringify({ changed_at: changedAt }), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': NO_STORE } })
+        : serverError();
+    answer.headers.set('set-cookie', clearedSessionCookie());
+    return answer;
+  }
+  if (upstream.status === 401) {
+    const { type } = await problemType(upstream);
+    return type === 'urn:erp:problem:authentication-failed' ? bffProblem(401, 'urn:erp:bff:session-ended') : serverError();
+  }
+  return credentialProblem(upstream, { 422: [VALIDATION], 429: [TOO_MANY] });
 }

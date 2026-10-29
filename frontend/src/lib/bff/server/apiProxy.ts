@@ -1,7 +1,7 @@
 import 'server-only';
 import { apiBaseOrigin, apiFetch } from './apiClient';
 import { NO_STORE, bffProblem, isBffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
-import { SESSION_COOKIE, clearedSessionCookie, tokenOf, unsealSession } from './session';
+import { clearedSessionCookie, cookieValue, tokenOf, unsealSession } from './session';
 import { allOperations, proxyAllowlist } from './surface';
 
 // The authenticated proxy, /bff/api/[...path] (bff-auth-note.md D-4.2, R1-D4, R1-D5, R1-D6, R1-§6.1, R2-1; b3b-design.md
@@ -60,16 +60,6 @@ function route(method: string, rawPath: string): Route | null {
     if (match) return { operationId, params };
   }
   return null;
-}
-
-function cookieValue(request: Request): string | undefined {
-  const header = request.headers.get('cookie');
-  if (!header) return undefined;
-  for (const part of header.split(';')) {
-    const at = part.indexOf('=');
-    if (at > 0 && part.slice(0, at).trim() === SESSION_COOKIE) return part.slice(at + 1).trim();
-  }
-  return undefined;
 }
 
 function sessionEnded(deleteCookie: boolean): Response {

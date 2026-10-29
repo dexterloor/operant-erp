@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { bulkMaxIds, bulkResources } from '@/lib/bff/surface';
 
-// Mechanical guards for docs/design/b4-architecture.md (Revision 5 > Revision 4 > Revision 3 > Revision 2 FINAL > Revision 1 >
+// Mechanical guards for docs/design/b4-architecture.md (Revision 6 > Revision 5 > Revision 4 > Revision 3 > Revision 2 FINAL > Revision 1 >
 // Response to RED > RED H-5). Revision 5 A-8's G-2 and G-3 are at the end of this file; G-1 and G-4…G-7 arrive with B-3b C2/C3.
 // Never weaken a guard to get green (FRONTEND-HANDOFF.md). Every guard is a pure function over {file, source} pairs,
 // run once over the real tree (must find nothing) and once over a planted in-memory source (must go red), so a guard
@@ -198,7 +198,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
-  'src/lib': 55,
+  // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
+  'src/lib': 54,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   'src/components': 51,
   'src/lib/api': 5,
@@ -228,7 +229,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/bff': 16,
   'src/lib/bff/server': 7,
   // b3b-followup C-2 added: app/error.tsx, app/(app)/error.tsx, app/not-found.tsx.
-  'src/app': 38,
+  // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
+  // ChangePasswordRoute}.tsx → app/(app)/account/password/ (Revision 6 A-13).
+  'src/app': 39,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1118,5 +1121,57 @@ describe('architecture — C-5b: the ST-5 sentence pair comes from notFoundInlin
       { file: 'src/components/x/B.tsx', source: 'export const b = `${PAGE_STATES.notFoundHeading} more`;\nexport const c = PAGE_STATES.notFoundInline;' },
     ];
     expect(notFoundJoinViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual(['src/components/x/A.tsx — joins the ST-5 heading and body at line 1']);
+  });
+});
+
+// Revision 6 A-14, G-8 (c10-final-red M-2): the frame's session id reaches only the account-page route. Every other
+// authenticated browser call goes through useApiCaller(), which handles a 401 and a 409; a hand-rolled bffFetch with the
+// sid would skip that. The identifier `useSessionId` may appear only in BffProvider.tsx and under src/app/(app)/account/.
+
+const SESSION_ID_HOME = 'src/app/(app)/BffProvider.tsx';
+const SESSION_ID_CONSUMERS = 'src/app/(app)/account/';
+
+function sessionIdViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (sf.file === SESSION_ID_HOME || sf.file.startsWith(SESSION_ID_CONSUMERS)) continue;
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      if ((ts.isIdentifier(node) && node.text === 'useSessionId') || (ts.isStringLiteralLike(node) && node.text === 'useSessionId')) {
+        out.push({ file: sf.file, detail: `names useSessionId at line ${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1}` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — G-8: the session id reaches only the account-page route (Revision 6 A-14)', () => {
+  it('the real src tree has no breach, and the accessor and its one consumer exist', () => {
+    const files = walk('src');
+    expect(sessionIdViolations(files)).toEqual([]);
+    const named = files.filter((f) => /\buseSessionId\b/.test(f.source)).map((f) => f.file);
+    expect(named).toContain(SESSION_ID_HOME);
+    expect(named.some((f) => f.startsWith(SESSION_ID_CONSUMERS))).toBe(true);
+  });
+
+  it('planted controls: a use in an (app) page, the shell, a component or lib goes red; the home and an account route do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/x.tsx', source: "import { useSessionId } from './BffProvider';\nexport const X = () => useSessionId();" },
+      { file: 'src/app/(app)/AppShell.tsx', source: "import { useSessionId as sid } from './BffProvider';" },
+      { file: 'src/components/people/Y.tsx', source: 'export const y = (m: { useSessionId: () => string }) => m.useSessionId();' },
+      { file: 'src/lib/bff/z.ts', source: "export const k = 'useSessionId';" },
+      { file: 'src/app/(app)/BffProvider.tsx', source: 'export function useSessionId() { return "s"; }' },
+      { file: 'src/app/(app)/account/password/R.tsx', source: "import { useSessionId } from '../../BffProvider';\nexport const R = () => useSessionId();" },
+    ];
+    expect(sessionIdViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/app/(app)/x.tsx — names useSessionId at line 1',
+      'src/app/(app)/x.tsx — names useSessionId at line 2',
+      'src/app/(app)/AppShell.tsx — names useSessionId at line 1',
+      'src/components/people/Y.tsx — names useSessionId at line 1',
+      'src/components/people/Y.tsx — names useSessionId at line 1',
+      'src/lib/bff/z.ts — names useSessionId at line 1',
+    ]);
   });
 });

@@ -80,6 +80,15 @@ export const CHANGE_PASSWORD = {
   doneBody: "You've been signed out everywhere, including here. Sign in with your new password.",
   signIn: 'Sign in',
   signInNow: SET_PASSWORD.signInNow,
+  /**
+   * PROPOSED (c10-design.md §6, FINAL B.5) — UX TO CONFIRM. The body of BOTH interrupted notices on this page
+   * (unreachable, server error), under the unchanged headings: a change that reached the API may have committed even
+   * though its answer was lost, and pressing again is safe (if it changed, the next press is sent to sign-in).
+   */
+  interruptedBody:
+    "We can't tell whether your password was changed. Press Change password again: if it was changed, you'll be asked to sign in, and your new password will work.",
+  /** PROPOSED (c10-design.md §5, FINAL B.5) — UX TO CONFIRM: the 429 second line, reused from the reset page. */
+  rateLimitedNothingChanged: SET_PASSWORD.rateLimitedNothingChanged,
 } as const;
 
 /**

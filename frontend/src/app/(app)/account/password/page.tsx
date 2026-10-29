@@ -6,11 +6,10 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: CHANGE_PASSWORD.title };
 
-/** PROPOSED route (ia-proposed-edits.md E-2). B-3b puts it inside the app frame once a session can be read. */
+/**
+ * `/account/password` inside the signed-in frame (b4-architecture.md Revision 6 A-13): reached from the user menu, never
+ * a navigation item. The frame provides the one `<main>`, so this page renders none.
+ */
 export default function Page() {
-  return (
-    <main>
-      <ChangePasswordRoute />
-    </main>
-  );
+  return <ChangePasswordRoute />;
 }

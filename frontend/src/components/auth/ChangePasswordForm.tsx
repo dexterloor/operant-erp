@@ -8,13 +8,18 @@ import { CHANGE_PASSWORD, CREDENTIAL_FALLBACK, RATE_LIMITED } from '@/copy/passw
 import { assignLocation, type ChangePasswordAction, type ChangePasswordResult, type ChangePasswordValues, type DocumentNavigate, type FieldErrors } from '@/lib/auth/results';
 import { AuthCard, AuthField, authStyles as styles, useElapsedSince } from './AuthCard';
 
-type Notice = 'rate-limited' | 'unreachable' | 'server-error' | null;
+type Notice = 'rate-limited' | 'not-sent' | 'unreachable' | 'server-error' | null;
 
 export interface ChangePasswordFormProps {
-  /** Injected; B-3b wires it to `POST /me/password` through the BFF. */
+  /** Injected; wired to `POST /bff/me/password` with the frame's sid (`wiredChangePassword`). */
   changePassword: ChangePasswordAction;
   /** A 401 means the session has ended: the caller shows sign-in with the "session ended" notice (BFF note §6.1). */
   onSessionEnded: () => void;
+  /**
+   * A 409: this browser is now signed in as someone else than the page was rendered for. The caller reloads once, with no
+   * message (c10-design.md FINAL B.3, departure D-5); after the reload the identities match, so it cannot loop.
+   */
+  onSessionChanged?: () => void;
   signInHref?: string;
   navigate?: DocumentNavigate;
   layout?: 'in-app' | 'embedded';
@@ -26,7 +31,7 @@ export interface ChangePasswordFormProps {
  * password signs out everywhere, this session included). Success offers sign-in no sooner than 1.1 s after the response
  * arrived and leaves by a full document load; the BFF deletes the session cookie in the same response (B-3b).
  */
-export function ChangePasswordForm({ changePassword, onSessionEnded, signInHref = '/login', navigate = assignLocation, layout = 'in-app', manageFocus = true }: ChangePasswordFormProps) {
+export function ChangePasswordForm({ changePassword, onSessionEnded, onSessionChanged = () => {}, signInHref = '/login', navigate = assignLocation, layout = 'in-app', manageFocus = true }: ChangePasswordFormProps) {
   const base = useId();
   const ids = { current: `${base}-current`, next: `${base}-new` };
   const [values, setValues] = useState<ChangePasswordValues>({ current_password: '', new_password: '' });
@@ -53,12 +58,14 @@ export function ChangePasswordForm({ changePassword, onSessionEnded, signInHref 
 
   const apply = (result: ChangePasswordResult, arrivedAt: number) => {
     setErrors(result.kind === 'invalid' ? result.fieldErrors : {});
-    setNotice(result.kind === 'rate-limited' || result.kind === 'unreachable' || result.kind === 'server-error' ? result.kind : null);
+    setNotice(result.kind === 'rate-limited' || result.kind === 'not-sent' || result.kind === 'unreachable' || result.kind === 'server-error' ? result.kind : null);
     if (result.kind === 'changed') {
       setValues({ current_password: '', new_password: '' });
       setReceivedAt(result.receivedAt ?? arrivedAt);
     } else if (result.kind === 'session-ended') {
       onSessionEnded();
+    } else if (result.kind === 'session-changed') {
+      onSessionChanged();
     }
   };
 
@@ -110,16 +117,23 @@ export function ChangePasswordForm({ changePassword, onSessionEnded, signInHref 
       {notice === 'rate-limited' ? (
         <Banner ref={noticeRef} tone="warning" live="status" heading={RATE_LIMITED.heading}>
           <p>{RATE_LIMITED.body}</p>
+          <p className={styles.secondary}>{CHANGE_PASSWORD.rateLimitedNothingChanged}</p>
+        </Banner>
+      ) : null}
+      {notice === 'not-sent' ? (
+        // not-sent → C2-2 body: pairing PROPOSED, UX TO CONFIRM (c10 FINAL A.2)
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
+          <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (
         <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
-          <p>{CREDENTIAL_FALLBACK.unreachableBody}</p>
+          <p>{CHANGE_PASSWORD.interruptedBody}</p>
         </Banner>
       ) : null}
       {notice === 'server-error' ? (
         <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
-          <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
+          <p>{CHANGE_PASSWORD.interruptedBody}</p>
         </Banner>
       ) : null}
 

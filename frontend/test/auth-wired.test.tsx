@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { wiredRedeemReset, wiredRequestReset } from '@/lib/auth/wired';
+import { wiredChangePassword, wiredRedeemReset, wiredRequestReset } from '@/lib/auth/wired';
+import type { ChangePasswordResult } from '@/lib/auth/results';
 import { ResetPasswordRoute } from '@/app/(auth)/reset-password/ResetPasswordRoute';
 
 // The wired credential actions (b3b-design.md §9.6, §6.1 authCalls, T-AU's redemption half, T-R8): each maps the BFF's
@@ -138,5 +139,50 @@ describe('T-R8 — the wired page sends the token only in the redemption body, a
     expect(url).not.toContain(TOKEN);
     expect(JSON.stringify([...new Headers(init.headers).entries()])).not.toContain(TOKEN);
     expect(JSON.parse(init.body as string)).toEqual({ token: TOKEN, password: 'correct horse battery' });
+  });
+});
+
+describe('A-1 — wiredChangePassword(sid) — POST /bff/me/password (c10 FINAL B.2; Revision 6 A-12)', () => {
+  const VALUES = { current_password: 'old-sentinel', new_password: 'new-sentinel-long' };
+
+  it('200 → changed with receivedAt at arrival; JSON {current_password, new_password}; X-ERP-Session = the frame\'s sid', async () => {
+    const calls = stub(() => Response.json({ changed_at: '2026-10-29T06:00:00+00:00' }));
+    const now = vi.spyOn(performance, 'now').mockReturnValue(777);
+    expect(await wiredChangePassword('S-1')(VALUES)).toEqual({ kind: 'changed', receivedAt: 777 });
+    now.mockRestore();
+    const [url, init] = calls[0]!;
+    expect(url).toBe('/bff/me/password');
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('x-erp-session')).toBe('S-1');
+    expect(new Headers(init.headers).get('content-type')).toBe('application/json');
+    expect(JSON.parse(init.body as string)).toEqual(VALUES);
+  });
+
+  type Case = readonly [() => Response | Promise<Response>, ChangePasswordResult];
+  const CASES: Case[] = [
+    [() => problem(401, { type: 'urn:erp:bff:session-ended' }), { kind: 'session-ended' }],
+    [() => problem(401, { type: 'urn:erp:problem:authentication-failed' }), { kind: 'server-error' }],
+    [() => problem(409, { type: 'urn:erp:bff:session-changed' }), { kind: 'session-changed' }],
+    [() => problem(409, { type: 'urn:erp:problem:x' }), { kind: 'server-error' }],
+    [
+      () => problem(422, { type: 'urn:erp:problem:validation-failed', errors: [{ pointer: '/current_password', code: 'c', message: 'The current password is not correct.' }, { pointer: '/new_password', code: 'n', message: 'The new password is too long.' }] }),
+      { kind: 'invalid', fieldErrors: { current_password: 'The current password is not correct.', new_password: 'The new password is too long.' } },
+    ],
+    [() => problem(422, { type: 'urn:erp:problem:validation-failed', errors: [{ pointer: '/other', code: 'x', message: 'm' }] }), { kind: 'server-error' }],
+    [() => problem(429, { type: 'urn:erp:problem:too-many-attempts' }), { kind: 'rate-limited' }],
+    [() => problem(502, { type: 'urn:erp:bff:server-error' }), { kind: 'server-error' }],
+    [() => problem(504, { type: 'urn:erp:bff:upstream-timeout' }), { kind: 'server-error' }],
+    [() => Response.json({}), { kind: 'server-error' }],
+    [() => Promise.reject(new TypeError('x')), { kind: 'unreachable' }],
+    ...NOT_SENT_ANSWERS.map(([status, type]): Case => [() => problem(status, { type, status }), { kind: 'not-sent' }]),
+  ];
+  it.each(CASES)('answer %# → its kind; nothing navigates or reloads', async (answer, want) => {
+    stub(answer);
+    const before = window.location.href;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await wiredChangePassword('S-1')(VALUES)).toEqual(want);
+    expect(window.location.href).toBe(before);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 });

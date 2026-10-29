@@ -58,13 +58,19 @@ export type RedeemResetResult =
 
 /** `POST /me/password` `{current_password, new_password}` — owner ruling P-A: success signs out everywhere. */
 export type ChangePasswordResult =
+  /** 200: the password changed and every session of this person ended, this one included (the BFF deleted its cookie). */
   | { kind: 'changed'; receivedAt?: number }
   /** 422 `/current_password`, `/new_password`. */
   | { kind: 'invalid'; fieldErrors: FieldErrors<'current_password' | 'new_password'> }
   /** 401: the session has ended (BFF note §8 "Change password"); the caller routes to sign-in. */
   | { kind: 'session-ended' }
+  /** 409: this browser is now signed in as someone else than the page was rendered for; the caller reloads. */
+  | { kind: 'session-changed' }
+  | NotSent
   | RateLimited
+  /** Outcome unknown: the request may have reached the API. */
   | Unreachable
+  /** Outcome unknown: the API's answer was lost or not one the page can read. */
   | ServerError;
 
 export interface ChangePasswordValues {

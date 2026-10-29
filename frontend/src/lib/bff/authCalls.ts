@@ -1,9 +1,10 @@
-import type { FieldErrors, RedeemResetResult, RequestResetResult, RequestResetValues, SignInRequest, SignInResult } from '../auth/results';
+import type { ChangePasswordResult, ChangePasswordValues, FieldErrors, RedeemResetResult, RequestResetResult, RequestResetValues, SignInRequest, SignInResult } from '../auth/results';
 import { bffFetch } from './transport';
 
-// The named credential calls (b3b-design.md §6.1; bff-auth-note.md §4, §6.1). They call bffFetch directly with their
-// own mapping: no X-ERP-Session (these pages have no session), and a 401 here means "wrong details" or "bad link",
-// never "session ended", so nothing here navigates.
+// The named credential calls (b3b-design.md §6.1; bff-auth-note.md §4, §6.1; b4-architecture.md Revision 6 A-12). They
+// call bffFetch directly with their own mapping. Sign-in and the two reset calls send no X-ERP-Session (those pages have
+// no session), and a 401 there means "wrong details" or "bad link". The change-password call sends the sid of the app
+// frame it was rendered in. Nothing here navigates or reloads: a 401 or 409 is handed to the page, which decides.
 
 const JSON_HEADERS = { 'content-type': 'application/json', accept: 'application/json' } as const;
 
@@ -130,6 +131,40 @@ export async function redeemReset(values: { token: string; password: string }): 
   if (r.status === 401) return (await typeOf(r)) === 'urn:erp:problem:authentication-failed' ? { kind: 'link-refused' } : { kind: 'server-error' };
   if (r.status === 422) {
     const fieldErrors = await fieldErrorsOf(r, ['password'] as const);
+    return fieldErrors ? { kind: 'invalid', fieldErrors } : { kind: 'server-error' };
+  }
+  if (r.status === 429 && (await typeOf(r)) === 'urn:erp:problem:too-many-attempts') return { kind: 'rate-limited' };
+  return { kind: 'server-error' };
+}
+
+/**
+ * POST /bff/me/password with `X-ERP-Session: <sid>` (Revision 6 A-12). 200 → changed, `receivedAt` = performance.now() at
+ * arrival (the BFF has deleted this browser's cookie in the same answer); 401 session-ended; 409 session-changed; 422
+ * naming either field → its sentences; 429 → rate-limited; a refusal the BFF made before sending → not-sent; anything
+ * else, or no answer → the outcome is unknown.
+ */
+export async function changePassword(values: ChangePasswordValues, sid: string): Promise<ChangePasswordResult> {
+  const out = await bffFetch('/bff/me/password', {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, 'x-erp-session': sid },
+    body: JSON.stringify({ current_password: values.current_password, new_password: values.new_password }),
+  });
+  if (!out.ok) return { kind: 'unreachable' };
+  const receivedAt = performance.now();
+  const r = out.response;
+  if (await isNotSent(r)) return { kind: 'not-sent' };
+  if (r.status === 200) {
+    try {
+      const b = (await r.json()) as { changed_at?: unknown };
+      return typeof b.changed_at === 'string' ? { kind: 'changed', receivedAt } : { kind: 'server-error' };
+    } catch {
+      return { kind: 'server-error' };
+    }
+  }
+  if (r.status === 401) return (await typeOf(r)) === 'urn:erp:bff:session-ended' ? { kind: 'session-ended' } : { kind: 'server-error' };
+  if (r.status === 409) return (await typeOf(r)) === 'urn:erp:bff:session-changed' ? { kind: 'session-changed' } : { kind: 'server-error' };
+  if (r.status === 422) {
+    const fieldErrors = await fieldErrorsOf(r, ['current_password', 'new_password'] as const);
     return fieldErrors ? { kind: 'invalid', fieldErrors } : { kind: 'server-error' };
   }
   if (r.status === 429 && (await typeOf(r)) === 'urn:erp:problem:too-many-attempts') return { kind: 'rate-limited' };

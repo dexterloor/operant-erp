@@ -139,6 +139,20 @@ export async function unsealSession(value: string | undefined | null, ring: Keyr
   return session;
 }
 
+/**
+ * The session cookie's value from a request's `Cookie` header, or undefined. The one parser for route handlers: the proxy
+ * and the change-password handler both use it (c10-final-red L-4); server components read `cookies()` instead.
+ */
+export function cookieValue(request: Request): string | undefined {
+  const header = request.headers.get('cookie');
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const at = part.indexOf('=');
+    if (at > 0 && part.slice(0, at).trim() === SESSION_COOKIE) return part.slice(at + 1).trim();
+  }
+  return undefined;
+}
+
 /** For server components: the session behind the cookie value, under the environment's keys and clock. */
 export function readSession(cookieValue: string | undefined): Promise<Session | null> {
   return unsealSession(cookieValue);

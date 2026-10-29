@@ -13,6 +13,7 @@ import styles from '@/components/states/PageStates.module.css';
 
 const CallerContext = createContext<ApiCaller | null>(null);
 const TimeZoneContext = createContext<string | null>(null);
+const SessionIdContext = createContext<string | null>(null);
 
 export function useApiCaller(): ApiCaller {
   const c = useContext(CallerContext);
@@ -28,6 +29,17 @@ export function useViewerTimeZone(): string {
   const tz = useContext(TimeZoneContext);
   if (tz === null) throw new Error('useViewerTimeZone() is used outside BffProvider.');
   return tz;
+}
+
+/**
+ * The frame's session id (`sid`, from the client view; b4-architecture.md Revision 6 A-14). Its only consumer is the
+ * account-page route under src/app/(app)/account/ (guard G-8): every other authenticated browser call goes through
+ * useApiCaller(), which handles a 401 and a 409 for it.
+ */
+export function useSessionId(): string {
+  const sid = useContext(SessionIdContext);
+  if (sid === null) throw new Error('useSessionId() is used outside BffProvider.');
+  return sid;
 }
 
 /** sessionStorage, tolerating a browser that refuses it (the marker then lasts only for this document). */
@@ -76,7 +88,9 @@ export function BffProvider({ session, children, reload }: BffProviderProps) {
   );
   return (
     <CallerContext.Provider value={caller}>
-      <TimeZoneContext.Provider value={session.tz}>{fixed ? <SessionChangedPage /> : children}</TimeZoneContext.Provider>
+      <TimeZoneContext.Provider value={session.tz}>
+        <SessionIdContext.Provider value={session.sid}>{fixed ? <SessionChangedPage /> : children}</SessionIdContext.Provider>
+      </TimeZoneContext.Provider>
     </CallerContext.Provider>
   );
 }

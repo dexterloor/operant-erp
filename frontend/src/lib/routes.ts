@@ -1,8 +1,9 @@
 // The app's built pages, and the start page's choice (b3b-design.md §10a, ruling Q-6; ux-copy-b3b.md C2-1).
 // Deliberately outside the literal-scanned folders (final RED M-5): DECLARED_ROUTES is DERIVED — the first segments of
 // the built pages' navigation hrefs, plus '' for the `/` start page — so no route segment that equals a role name is
-// ever typed under a scanned folder, and no exemption is ever added for one. Test C-2c holds BUILT_PAGE_HREFS equal to
-// the page folders under src/app/(app) on disk, both ways, and each to a navigation item.
+// ever typed under a scanned folder, and no exemption is ever added for one. Test C-2c holds BUILT_PAGE_HREFS ∪
+// ACCOUNT_PAGE_HREFS equal to the page folders under src/app/(app) on disk, both ways, and each BUILT_PAGE_HREFS entry to a
+// navigation item; no ACCOUNT_PAGE_HREFS entry is one (b4-architecture.md Revision 6 A-13).
 import { NAVIGATION, type PermissionCodes } from './navigation';
 
 /**
@@ -10,6 +11,12 @@ import { NAVIGATION, type PermissionCodes } from './navigation';
  * sidebar, rail and 320 px menu read it too (b3b-followup C-3): they offer only these pages.
  */
 export const BUILT_PAGE_HREFS: readonly string[] = ['/admin/users', '/admin/roles'];
+
+/**
+ * Pages inside the signed-in frame reached from the user menu, not from navigation (Revision 6 A-13). Never navigation
+ * items, never in DECLARED_ROUTES, never a start destination; a return path to one falls back to `/`.
+ */
+export const ACCOUNT_PAGE_HREFS: readonly string[] = ['/account/password'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 
