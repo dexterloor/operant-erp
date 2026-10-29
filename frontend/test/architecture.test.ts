@@ -199,8 +199,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
   'src/lib': 55,
-  // b3b-followup C-2 added: components/shell/PageError.tsx.
-  'src/components': 50,
+  // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
+  'src/components': 51,
   'src/lib/api': 5,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,

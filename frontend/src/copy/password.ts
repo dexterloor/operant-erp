@@ -60,11 +60,9 @@ export const SET_PASSWORD = {
   /** Announced politely when Sign in appears (§1.4 "The wait"). */
   signInNow: 'You can sign in now.',
   /**
-   * PROPOSED (b3b-followup C-6, R-2) — UX to confirm — owner may strike. Adopted under the owner's overnight delegation.
-   * The body of BOTH interrupted notices on this page (unreachable, server error), under the unchanged R1-1 headings: a
-   * redeem that reached the server may have set the password even though the answer was lost, so "try again" alone
-   * would lead to "This link can't be used". The "We can't tell whether…" shape is R1-3's. On this page it SUPERSEDES
-   * the CONFIRMED `CREDENTIAL_FALLBACK` bodies (final-red L-3); Forgot password and Change password keep them.
+   * CONFIRMED (ux-confirm-followup.md §3); supersedes CREDENTIAL_FALLBACK's bodies on the reset page only. The body of
+   * BOTH interrupted notices on this page (unreachable, server error), under the unchanged R1-1 headings: a redeem that
+   * reached the server may have set the password even though the answer was lost.
    */
   interruptedBody: "We can't tell whether your new password was set. Try signing in with it. If that doesn't work, press Set password again, or ask for a new link.",
 } as const;

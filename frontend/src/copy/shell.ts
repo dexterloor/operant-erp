@@ -49,12 +49,12 @@ export const PAGE_STATES = {
    */
   notFoundInline: "We couldn't find that. It may have been deleted, or you may not have access.",
   retry: 'Retry',
-  /**
-   * PROPOSED (NEW, b3b-followup C-2; R1-1 / M-4 shape: name what failed) — UX to confirm — owner may strike. Adopted under
-   * the owner's overnight delegation. The body of the page-level error (`error.tsx`) under the WENT_WRONG heading; the
-   * alternative offered to UX is "Try again in a moment.".
-   */
+  /** CONFIRMED (ux-confirm-followup.md §1a): the page-level error's body under WENT_WRONG (R1-1 / M-4 shape). */
   pageLoadFailed: "This page couldn't be loaded.",
+  /** NEW (ux-confirm-followup.md §1c): the error page's <title>, its h1 without the full stop. */
+  pageLoadFailedTitle: 'Something went wrong on our side',
+  /** NEW (ux-confirm-followup.md §1d): the root not-found page's <title>, its h1 without the full stop. */
+  notFoundTitle: "We couldn't find that",
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',
 } as const;
@@ -111,10 +111,6 @@ export const SHELL = {
   themeSystem: 'Match system',
   signOut: 'Sign out',
   dismiss: 'Dismiss',
-  /**
-   * PROPOSED (b3b-followup C-8) — UX and SEC to confirm — owner may strike. Adopted under the owner's overnight
-   * delegation. The body under R1-1's heading by cause when Sign out got no answer or a failure: the cookie may still be
-   * set, which matters most on a shared device.
-   */
-  signOutFailedBody: 'You may still be signed in on this device. Press Sign out to try again.',
+  /** AMENDED by UX (ux-confirm-followup.md §5a: Sign out is inside the account menu); SEC to confirm. */
+  signOutFailedBody: 'You may still be signed in on this device. Open your account menu and press Sign out again.',
 } as const;

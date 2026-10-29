@@ -36,8 +36,8 @@ describe('AppShell — a page restored from the back-forward cache reloads (b3b-
   });
 });
 
-// PROPOSED (b3b-followup C-8; UX + SEC to confirm), typed here independently of src/copy.
-const SIGN_OUT_FAILED = 'You may still be signed in on this device. Press Sign out to try again.';
+// AMENDED by UX (ux-confirm-followup.md §5a; SEC to confirm), typed here independently of src/copy.
+const SIGN_OUT_FAILED = 'You may still be signed in on this device. Open your account menu and press Sign out again.';
 /** Resolves after a 20 ms timer, as a real network answer does: always after the menu has closed. */
 const later = <T,>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 20));
 

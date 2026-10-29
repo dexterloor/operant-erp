@@ -435,7 +435,7 @@ describe('DOM fitness — the app shell after a failed sign-out (b3b-followup C-
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Sample Person · Account' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
-    expect(await screen.findByText('You may still be signed in on this device. Press Sign out to try again.')).toBeInTheDocument();
+    expect(await screen.findByText('You may still be signed in on this device. Open your account menu and press Sign out again.')).toBeInTheDocument();
     expect(regions.check()).toEqual([]);
   });
 });
