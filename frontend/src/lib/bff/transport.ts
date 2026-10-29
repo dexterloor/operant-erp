@@ -9,7 +9,11 @@ export const CLIENT_TIMEOUT_MS = 20_000;
 
 export type RawOutcome = { readonly ok: true; readonly response: Response } | { readonly ok: false; readonly kind: 'unreachable' };
 
-/** One request to the web app's own server. An abort (the limit, or the caller's signal) or a network error is `unreachable`. */
+/**
+ * One request to the web app's own server. An abort (the limit, or the caller's signal) or a network error is `unreachable`.
+ * Text bodies only (b3b-followup C-5a, R-3): the body is decoded as UTF-8 and rebuilt, so a file download must not go
+ * through `bffFetch` — it would be corrupted; the export/bulk-download commit adds a byte path or streams outside it.
+ */
 export async function bffFetch(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<RawOutcome> {
   if (!path.startsWith('/bff/') || path.startsWith('//')) throw new Error(`${path} is not a path on the web app's server.`);
   const controller = new AbortController();

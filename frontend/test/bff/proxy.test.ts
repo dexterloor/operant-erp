@@ -402,6 +402,12 @@ describe('code RED L-6 — Location on the configured API origin is rewritten, w
     ['relative, an auth path', '/api/v1/auth/token', null],
     ['scheme-relative', `//evil.example/api/v1/users/${ID}`, null],
     ['outside /api/v1/', 'http://127.0.0.1:8082/other', null],
+    // b3b-followup C-5a (I-1): every Location is parsed against the API origin, so dot segments are normalised before
+    // the /auth/ check, and a dot-free relative reference resolves against the origin root — outside /api/v1/, dropped.
+    ['relative, dot segments into auth', '/api/v1/../v1/auth/x', null],
+    ['relative, encoded dot segments into auth', '/api/v1/%2e%2e/v1/auth/x', null],
+    ['relative, plain', '/api/v1/users/abc', '/bff/api/users/abc'],
+    ['relative, no leading slash', 'users/abc', null],
   ])('%s', async (_n, location, expected) => {
     stubApi(() => json(201, { id: ID }, { location }));
     const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: '{}', headers: { 'idempotency-key': 'k' } }));

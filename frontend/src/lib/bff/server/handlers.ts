@@ -62,6 +62,15 @@ const credential = (b: Record<string, unknown>, k: string, allowEmpty = false): 
  */
 const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
+/**
+ * PHP's `trim()` with its default set — exactly space, tab, newline, carriage return, NUL and vertical tab, from both ends —
+ * which is what the API applies to the workspace name (PreAuthKeys.php; b3b-followup C-5a, R-1). Not JS `trim()`, which
+ * also strips U+00A0, U+FEFF and other spaces the API keeps.
+ */
+function phpTrim(value: string): string {
+  return value.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '');
+}
+
 async function problemType(response: Response): Promise<{ type: string | null; errors: unknown }> {
   if (!(response.headers.get('content-type') ?? '').includes('application/problem+json')) return { type: null, errors: undefined };
   try {
@@ -93,7 +102,7 @@ export async function handleSignIn(request: Request): Promise<Response> {
   const email = field(body, 'email');
   const password = credential(body, 'password');
   const returnTo = body.return_to;
-  if (workspace === null || email === null || password === null || CONTROL_OR_FORMAT.test(workspace)) return localRefusal();
+  if (workspace === null || email === null || password === null || CONTROL_OR_FORMAT.test(phpTrim(workspace))) return localRefusal();
   if (returnTo !== undefined && returnTo !== null && (typeof returnTo !== 'string' || returnTo.length > RETURN_TO_MAX)) return localRefusal();
 
   let upstream: Response;
@@ -114,7 +123,7 @@ export async function handleSignIn(request: Request): Promise<Response> {
     if (typeof token.access_token !== 'string' || token.access_token === '' || !Number.isFinite(exp) || exp <= Date.now() / 1000) return serverError();
     let sealed: string;
     try {
-      sealed = await sealSession(newSessionPayload({ jwt: token.access_token, exp, workspaceTyped: workspace.trim(), timeZone: body.time_zone }));
+      sealed = await sealSession(newSessionPayload({ jwt: token.access_token, exp, workspaceTyped: phpTrim(workspace), timeZone: body.time_zone }));
     } catch {
       return serverError();
     }

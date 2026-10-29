@@ -152,23 +152,25 @@ function translate(upstream: Response): Response {
   return new Response(status === 204 || status === 205 ? null : upstream.body, { status, headers });
 }
 
-/** An API Location as a /bff/api/ path: relative `/api/v1/…`, or absolute on the configured API origin; never /auth/. */
+/**
+ * An API Location as a /bff/api/ path, or null (dropped). Every form is parsed against the configured API origin
+ * (b3b-followup C-5a, I-1), so a relative `/api/v1/…`, an absolute URL and a scheme-relative `//host/…` all meet the same
+ * checks: same origin, no credentials, under /api/v1/, never /api/v1/auth/ — and dot segments (`..`, `%2e%2e`) are
+ * normalised BEFORE the auth check. A dot-free relative reference (`users/x`) resolves against the origin root, not the
+ * request URI, so it lands outside /api/v1/ and is dropped: fail-safe.
+ */
 function proxiedLocation(location: string | null): string | null {
   if (!location) return null;
-  let path: string;
-  if (location.startsWith('/api/v1/')) path = location;
-  else {
-    let u: URL;
-    let base: string;
-    try {
-      u = new URL(location);
-      base = apiBaseOrigin();
-    } catch {
-      return null;
-    }
-    if (u.origin !== base || u.username !== '' || u.password !== '' || !u.pathname.startsWith('/api/v1/')) return null;
-    path = u.pathname + u.search;
+  let u: URL;
+  let base: string;
+  try {
+    base = apiBaseOrigin();
+    u = new URL(location, base);
+  } catch {
+    return null;
   }
+  if (u.origin !== base || u.username !== '' || u.password !== '' || !u.pathname.startsWith('/api/v1/')) return null;
+  const path = u.pathname + u.search;
   if (path.startsWith('/api/v1/auth/')) return null;
   return `/bff/api/${path.slice('/api/v1/'.length)}`;
 }

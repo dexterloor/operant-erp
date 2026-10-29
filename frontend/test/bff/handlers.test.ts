@@ -300,6 +300,29 @@ describe('code RED M-2 and L-5 — what sign-in refuses locally', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a trailing tab', 'acme\t'],
+    ['a leading newline', '\nacme'],
+    ['a trailing NUL and vertical tab', 'acme\u0000\u000B'],
+  ])('b3b-followup C-5a (R-1): a workspace with %s, which the API trims (PHP trim), is forwarded unchanged', async (_n, workspace) => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    const r = await handleSignIn(post('/bff/session', signInBody({ workspace })));
+    expect(r.status).toBe(200);
+    expect(JSON.parse(fetchSpy.mock.calls[0]![1].body).workspace).toBe(workspace);
+  });
+
+  it.each([
+    ['a zero-width space inside', 'ac\u200Bme'],
+    ['a trailing byte order mark (PHP trim keeps it; JS trim would strip it)', 'acme\uFEFF'],
+    ['a trailing no-break space then a bell', 'acme\u00A0\u0007'],
+  ])('b3b-followup C-5a (R-1): a workspace with %s is still refused locally', async (_n, workspace) => {
+    stubApi(okToken);
+    const { handleSignIn } = await handlers();
+    expect((await handleSignIn(post('/bff/session', signInBody({ workspace })))).status).toBe(422);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('L-5: an ordinary accented workspace name still signs in', async () => {
     stubApi(okToken);
     const { handleSignIn } = await handlers();
