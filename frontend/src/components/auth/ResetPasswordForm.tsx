@@ -5,7 +5,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } f
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PlainLink, type LinkComponent } from '@/components/shell/types';
-import { CREDENTIAL_FALLBACK, RATE_LIMITED, SET_PASSWORD } from '@/copy/password';
+import { RATE_LIMITED, SET_PASSWORD } from '@/copy/password';
 import { assignLocation, type DocumentNavigate, type RedeemResetAction, type RedeemResetResult } from '@/lib/auth/results';
 import { AuthCard, AuthField, authStyles as styles, useElapsedSince } from './AuthCard';
 
@@ -198,12 +198,12 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
       ) : null}
       {notice === 'unreachable' ? (
         <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
-          <p>{CREDENTIAL_FALLBACK.unreachableBody}</p>
+          <p>{SET_PASSWORD.interruptedBody}</p>
         </Banner>
       ) : null}
       {notice === 'server-error' ? (
         <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
-          <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
+          <p>{SET_PASSWORD.interruptedBody}</p>
         </Banner>
       ) : null}
 

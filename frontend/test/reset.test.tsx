@@ -9,6 +9,8 @@ const REFUSED_BODY = 'Each link works once, for 30 minutes, and setting a new pa
 const REFUSED_BODY_2 = "If a new link doesn't arrive, ask the person who manages your workspace.";
 const DONE_BODY = "You've been signed out everywhere, including other tabs and devices. Sign in with your new password.";
 const NEVER_SENT_CLAIM = /emailed|email sent|we've sent|we have sent|check your inbox|sent you/i;
+/** PROPOSED (b3b-followup C-6), typed here independently of src/copy. */
+const INTERRUPTED_BODY = "We can't tell whether your new password was set. Try signing in with it. If that doesn't work, press Set password again, or ask for a new link.";
 
 const TOKEN = 'tok_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZZ';
 const ROUTER_STATE = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: 'tree' };
@@ -251,9 +253,10 @@ describe('ResetPasswordForm — the form and its results', () => {
       .mockResolvedValueOnce({ kind: 'link-refused' });
     renderPage(redeem);
     await submit();
-    expect(screen.getByRole('status')).toHaveTextContent("We couldn't reach the server.Check your connection and try again.");
+    // b3b-followup C-6 (R-2): a redeem that may have committed says the outcome is unknown, never "try again" alone.
+    expect(screen.getByRole('status')).toHaveTextContent(`We couldn't reach the server.${INTERRUPTED_BODY}`);
     await submit();
-    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(screen.getByRole('status')).toHaveTextContent(`Something went wrong on our side.${INTERRUPTED_BODY}`);
     await submit();
     expect(redeem).toHaveBeenNthCalledWith(3, expect.objectContaining({ token: TOKEN }));
   });
