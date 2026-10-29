@@ -23,8 +23,10 @@ use Symfony\Component\Uid\Uuid;
  * `UserUpdate`'s transaction, with these differences (design §6):
  *  1. `RoleAdministrationLock` first; 2. the actor re-checked under the lock with **`app_user.delete`**;
  *  3. `{id}` not a uuid / absent / another workspace's → 404; already deleted → 409 `app_user.is_archived` — a DBAL read, so a
- *     deleted row never reaches the entity load (final RED M-1: the soft-delete filter would hide it);
- *  4. E-15a: nobody deletes themselves, owners included → 409 `app_user.actor_is_subject`;
+ *     deleted row never reaches the entity load (final RED M-1: the soft-delete filter would hide it); the sentence is
+ *     this class's own, *"…has already been deleted."* (`UX`, B-6), not `UpdateUser`'s *"…can't be changed."*;
+ *  4. E-15a: nobody deletes themselves, owners included → 409 `app_user.actor_is_subject`, with `UX`'s delete sentence
+ *     (`UserLiveness::ACTOR_IS_SUBJECT_DELETE`), not the switch-off one;
  *  5. E-15b over the stored codes of every grant the strip removes → 409 `app_user.marker_needs_owner` for a non-owner;
  *  6. API-20: the floor counts the person out whether or not they are active — and is a no-op for an inactive person, who
  *     was never counted (`LiveGrantReader::activeMarkerHolderCountExcludingUser`);
@@ -38,6 +40,9 @@ final readonly class UserDeletion
 {
     /** The permission this operation requires — the gate's, re-derived under the lock. */
     public const REQUIRED_PERMISSION = 'app_user.delete';
+
+    /** `UX`'s sentence for a repeat delete (`ux-copy-frontend.md` §2.2, B-6); `RoleDeletion::IS_ARCHIVED`'s precedent. */
+    public const IS_ARCHIVED = 'This person\'s account has already been deleted.';
 
     public function __construct(
         private TenantContext $tenants,
@@ -86,11 +91,11 @@ final readonly class UserDeletion
         $userId = Uuid::fromString($userId)->toRfc4122();
         $subject = LiveGrantReader::user($em, $userId) ?? throw ApiProblem::notFound();
         if ($subject['deleted']) {
-            throw ApiProblem::businessRuleViolated('app_user.is_archived', UserUpdate::IS_ARCHIVED);
+            throw ApiProblem::businessRuleViolated('app_user.is_archived', self::IS_ARCHIVED);
         }
 
         // 4.
-        UserLiveness::refuseSelf($identity, $userId);
+        UserLiveness::refuseSelf($identity, $userId, UserLiveness::ACTOR_IS_SUBJECT_DELETE);
 
         // 5.
         $grants = LiveGrantReader::allGrantsOf($em, $userId);

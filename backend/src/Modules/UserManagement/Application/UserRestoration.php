@@ -53,7 +53,7 @@ final readonly class UserRestoration
     /** The permission this operation requires — the gate's, re-derived under the lock. */
     public const REQUIRED_PERMISSION = 'app_user.delete';
 
-    /** PLACEHOLDER — `UX` to confirm. */
+    /** Confirmed by `UX` 2026-10-27 (`docs/design/ux-copy-frontend.md` §2.2/§2.3). */
     public const NOT_ARCHIVED = 'This person\'s account hasn\'t been deleted, so there is nothing to restore.';
 
     /** PLACEHOLDER — `UX` to confirm. Names no person and no email (a `.delete` seat may lack `app_user.view`). */

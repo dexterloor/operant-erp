@@ -106,7 +106,8 @@ use Symfony\Component\Uid\Uuid;
  * **The minimum counts characters; the maximum counts bytes**, and the asymmetry
  * is deliberate. Twelve *characters* is what E-24 decides and what a person
  * choosing a password understands; 4096 *bytes* is what the component refuses,
- * so it is read in the component's own unit.
+ * so it is read in the component's own unit. The message names neither the unit nor the
+ * figure (`UX`, `ux-copy-frontend.md` §1): a person cannot act on 'bytes'.
  *
  * **No maximum below the component's ceiling, and that was measured rather than
  * assumed.** A 72-byte cap was proposed on the grounds that bcrypt truncates

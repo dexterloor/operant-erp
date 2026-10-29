@@ -14,7 +14,8 @@ use Symfony\Component\PasswordHasher\PasswordHasherInterface;
  *
  * Why each check is what it is — twelve **characters** (E-24, the user's decision of 2026-09-10), empty kept apart from too
  * short, and a maximum in the component's own unit (bytes, `PasswordHasherInterface::MAX_PASSWORD_LENGTH`, above which
- * `NativePasswordHasher::hash()` throws) — is argued in `ChangePassword`'s class docblock and not restated here.
+ * `NativePasswordHasher::hash()` throws) — is argued in `ChangePassword`'s class docblock and not restated here. The message
+ * names neither the unit nor the figure (`UX`, `ux-copy-frontend.md` §1): a person cannot act on 'bytes'.
  * `PasswordChangeTest` pins 12 as a literal of its own against `ChangePassword::MINIMUM_LENGTH`, which aliases this.
  *
  * The codes stay `new_password_*` on both operations (`UX` TO CONFIRM): a client already maps them.
@@ -63,7 +64,7 @@ final class PasswordRules
             return [[
                 'pointer' => $pointer,
                 'code' => self::TOO_LONG,
-                'message' => \sprintf('The new password must be at most %d bytes.', PasswordHasherInterface::MAX_PASSWORD_LENGTH),
+                'message' => 'The new password is too long.',
             ]];
         }
 

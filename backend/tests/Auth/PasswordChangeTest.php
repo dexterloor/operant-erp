@@ -615,6 +615,27 @@ final class PasswordChangeTest extends AuthTestCase
         $this->assertRefusedAs(ChangePassword::NEW_PASSWORD_TOO_LONG, 'one byte over the component ceiling');
     }
 
+    /**
+     * **T-W6a (BK-6): the three new-password sentences, pinned as literals** — `UX`'s (`ux-copy-frontend.md` §1); the
+     * too-long one names neither the unit nor the figure ("4096 bytes" was the shipped defect). Refusals only, so the
+     * calling token stays live (W1-b). *Mutation MB-4:* `PasswordRules` back to the bytes sentence → red.
+     */
+    #[Test]
+    public function theNewPasswordMessagesArePinnedAsLiterals(): void
+    {
+        foreach ([
+            'empty' => ['', '/new_password', 'The new password must not be empty.'],
+            'eleven characters' => ['abcdefghijk', '/new_password', 'The new password must be at least 12 characters.'],
+            'one byte over the ceiling' => [str_repeat('p', PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1), '/new_password', 'The new password is too long.'],
+        ] as $label => [$new, $pointer, $message]) {
+            $this->changePassword(self::PASSWORD, $new);
+            self::assertSame(422, $this->httpStatus(), $label);
+            self::assertSame([['pointer' => $pointer, 'message' => $message]],
+                array_map(static fn (array $e): array => ['pointer' => $e['pointer'] ?? null, 'message' => $e['message'] ?? null], (array) ($this->json()['errors'] ?? [])),
+                $label);
+        }
+    }
+
     /** The 422 shape shared by every new-password refusal, asserted once. */
     private function assertRefusedAs(string $code, string $label): void
     {

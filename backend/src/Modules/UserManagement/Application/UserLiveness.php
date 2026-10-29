@@ -56,13 +56,16 @@ use Doctrine\ORM\EntityManagerInterface;
  */
 final readonly class UserLiveness
 {
-    /** First RED / design §5.4 (codes `BE-LEAD`'s). PLACEHOLDER copy — `UX` to confirm. */
+    /** First RED / design §5.4 (codes `BE-LEAD`'s). `UpdateUser`'s sentence. PLACEHOLDER copy — `UX` to confirm. */
     public const ACTOR_IS_SUBJECT = 'Nobody can switch off their own account. Ask someone else who manages people to do it.';
 
-    /** E-15b (E-15g's consequence clause). PLACEHOLDER — `UX` to confirm. */
+    /** `UX`'s sentence for `DeleteUser` (`docs/design/ux-copy-frontend.md` §2.2). Same code, `app_user.actor_is_subject`. */
+    public const ACTOR_IS_SUBJECT_DELETE = 'You can\'t delete your own account. Ask someone else who manages people.';
+
+    /** E-15b (E-15g's consequence clause). Confirmed by `UX` 2026-10-27 (`docs/design/ux-copy-frontend.md` §2.2/§2.3). */
     public const MARKER_NEEDS_OWNER = 'Only an owner can do this, because this person holds a role that makes them an owner.';
 
-    /** API-20. PLACEHOLDER — `UX` to confirm (`RoleRevocation`'s sentence, which `UX` wrote for the same floor). */
+    /** API-20 (`RoleRevocation`'s sentence, which `UX` wrote for the same floor). Confirmed by `UX` 2026-10-27 (`docs/design/ux-copy-frontend.md` §2.2/§2.3). */
     public const LAST_OWNER = 'This would leave the workspace with no owner. Make someone else an owner first.';
 
     private const STRIP = 'DELETE FROM user_role WHERE user_id = ?::uuid RETURNING role_id::text AS role_id';
@@ -103,11 +106,15 @@ final readonly class UserLiveness
         return $user;
     }
 
-    /** E-15a: nobody switches off, deletes or strips themselves — owners included. */
-    public static function refuseSelf(Identity $identity, string $userId): void
+    /**
+     * E-15a: nobody switches off, deletes or strips themselves — owners included. The sentence is the caller's: switching
+     * off and deleting read differently (`UX`, 2026-10-27), so it is a required argument with no default — a third caller
+     * must choose its own. The code is `app_user.actor_is_subject` for every caller.
+     */
+    public static function refuseSelf(Identity $identity, string $userId, string $sentence): void
     {
         if (strtolower($identity->userId) === strtolower($userId)) {
-            throw ApiProblem::businessRuleViolated('app_user.actor_is_subject', self::ACTOR_IS_SUBJECT);
+            throw ApiProblem::businessRuleViolated('app_user.actor_is_subject', $sentence);
         }
     }
 
