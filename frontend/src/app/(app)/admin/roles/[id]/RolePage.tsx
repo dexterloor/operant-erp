@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
 import { RegionError } from '@/components/states/PageStates';
+import { Banner } from '@/components/ui/Banner';
+import { DateTime } from '@/components/ui/DateTime';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { ROLE_PAGE } from '@/copy/roles';
 import type { Permission } from '@/lib/api/permissions';
@@ -11,7 +13,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { loadRole } from '@/lib/permissions/load';
 import { roleSave } from '@/lib/permissions/wired';
-import { useApiCaller } from '../../../BffProvider';
+import { useApiCaller, useViewerTimeZone } from '../../../BffProvider';
 import { useCommittedState } from '../../../useCommittedState';
 import { RoleNotFound, RolesDenied } from '../RoleStates';
 import styles from '../../Lists.module.css';
@@ -29,9 +31,15 @@ type Cause = 'unreachable' | 'server-error';
  * The role page's container (b3b-design.md §9.4, §10; ux-copy-b3b.md C7-2). It holds the role in state and passes the
  * re-read role to the checklist without a remount. A failed re-read → the region error (focus on its heading); 403 →
  * ST-4b; 404 → ST-5. The checklist renders nothing for `session-ended`.
+ *
+ * A deleted role (`archived_at` set) is read-only whatever the viewer holds — the API refuses its update (409
+ * `role.is_archived`) — so the checklist shows its read-only list, under a persistent banner with the deletion date
+ * (b3b-followup C-7, D-28; no live role: it is page content, not an announcement). No Restore here: RestoreRole is not
+ * wired (carry).
  */
 export function RolePage({ initial, canEdit }: RolePageProps) {
   const caller = useApiCaller();
+  const timeZone = useViewerTimeZone();
   const [role, setRole] = useCommittedState(initial.role);
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
@@ -78,7 +86,20 @@ export function RolePage({ initial, canEdit }: RolePageProps) {
       {rereadError ? (
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ROLE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
-      <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit} save={save} fallbackFocusRef={h1} />
+      {role.archived_at !== null ? (
+        <Banner
+          tone="neutral"
+          live="none"
+          heading={
+            <>
+              {ROLE_PAGE.deletedBannerBefore}
+              <DateTime value={role.archived_at} form="date" timeZone={timeZone} />
+              {ROLE_PAGE.deletedBannerAfter}
+            </>
+          }
+        />
+      ) : null}
+      <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit && role.archived_at === null} save={save} fallbackFocusRef={h1} />
     </section>
   );
 }

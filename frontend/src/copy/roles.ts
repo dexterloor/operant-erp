@@ -239,4 +239,11 @@ export const ROLES_LIST = {
 /** NEW (ux-copy-b3b.md C7-2, RED M-4): the role page's read failed after first paint, incl. after a save. */
 export const ROLE_PAGE = {
   rereadFailed: "We couldn't load this role again, so what's shown may be out of date.",
+  /**
+   * PROPOSED (b3b-followup C-7, D-28) — UX to confirm — owner may strike. Adopted under the owner's overnight delegation.
+   * "This role was deleted on {date}." split around the date (DT-1, rendered by `DateTime` with the session zone), the
+   * shape of the person banner (`ARCHIVED_PERSON`).
+   */
+  deletedBannerBefore: 'This role was deleted on ',
+  deletedBannerAfter: '.',
 } as const;
