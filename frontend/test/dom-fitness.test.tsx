@@ -1,7 +1,7 @@
 import { StrictMode, useRef, useState, type ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Chip } from '@/components/ui/Chip';
@@ -19,6 +19,12 @@ import { ChecklistHarness } from './permissions/harness';
 import type { AssignResult } from '@/lib/roles/results';
 import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_REFUSALS, ROLES, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
 import { PickerHarness, scene as pickerScene } from './roles/harness';
+import { AppShell } from '@/app/(app)/AppShell';
+
+// The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
+const shellIo = vi.hoisted(() => ({ signOut: vi.fn() }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/admin/users' }));
+vi.mock('@/lib/bff/authCalls', () => ({ signOut: shellIo.signOut }));
 
 /** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
 const settled = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
@@ -411,5 +417,25 @@ describe('DOM fitness — B-4 step 5 role picker + Waiting group', () => {
     render(<PickerHarness scene={pickerScene(SELF_ADMIN, OFFERED_SELF_ADMIN)} showProposals={false} />);
     expect(trackRegions().firstRender).toEqual([]);
     expect(document.querySelectorAll('[aria-disabled="true"]').length).toBeGreaterThan(5);
+  });
+});
+
+// b3b-followup C-8 (final-red M-3): a failed sign-out shows a banner that takes focus and has NO live role, so no region
+// appears and none is re-mounted; the frame's own regions stay the same nodes; nothing is [disabled].
+describe('DOM fitness — the app shell after a failed sign-out (b3b-followup C-8)', () => {
+  it('no region appears or is re-mounted, and nothing is disabled', async () => {
+    shellIo.signOut.mockImplementation(() => new Promise((r) => setTimeout(() => r({ kind: 'server-error' }), 20)));
+    render(
+      <AppShell viewer={{ displayName: 'Sample Person', email: 'person@example.com', permissionCodes: ['app_user.view'] }} workspaceSignInName="acme" reload={() => {}}>
+        <h1>Page</h1>
+      </AppShell>,
+    );
+    const regions = trackRegions();
+    expect(regions.firstRender).toEqual([]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sample Person · Account' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
+    expect(await screen.findByText('You may still be signed in on this device. Press Sign out to try again.')).toBeInTheDocument();
+    expect(regions.check()).toEqual([]);
   });
 });

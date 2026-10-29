@@ -111,4 +111,10 @@ export const SHELL = {
   themeSystem: 'Match system',
   signOut: 'Sign out',
   dismiss: 'Dismiss',
+  /**
+   * PROPOSED (b3b-followup C-8) — UX and SEC to confirm — owner may strike. Adopted under the owner's overnight
+   * delegation. The body under R1-1's heading by cause when Sign out got no answer or a failure: the cookie may still be
+   * set, which matters most on a shared device.
+   */
+  signOutFailedBody: 'You may still be signed in on this device. Press Sign out to try again.',
 } as const;
