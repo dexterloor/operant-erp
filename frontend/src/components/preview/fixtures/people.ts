@@ -60,14 +60,14 @@ const refused = (rule: string, message: string): Refused => ({ kind: 'refused', 
 
 /** Delete refusals, as served. Bodies are the server's sentences; the client keeps no copy of them. */
 export const DELETE_REFUSALS: Refused[] = [
-  // UserLiveness.php:63, thrown at :124
+  // UserLiveness.php:66, thrown at :131
   refused('app_user.marker_needs_owner', 'Only an owner can do this, because this person holds a role that makes them an owner.'),
-  // UserLiveness.php:60, thrown at :110 (reached only by a stale page; BE item B-1 changes the wording)
-  refused('app_user.actor_is_subject', 'Nobody can switch off their own account. Ask someone else who manages people to do it.'),
-  // UserLiveness.php:66, thrown at :135
+  // UserLiveness.php:63 (ACTOR_IS_SUBJECT_DELETE), passed at UserDeletion.php:98, thrown at UserLiveness.php:117 (reached only by a stale page)
+  refused('app_user.actor_is_subject', "You can't delete your own account. Ask someone else who manages people."),
+  // UserLiveness.php:69, thrown at :142
   refused('app_user.last_owner', 'This would leave the workspace with no owner. Make someone else an owner first.'),
-  // UserUpdate.php:15, thrown at UserDeletion.php:89
-  refused('app_user.is_archived', "This person's account has been deleted, so it can't be changed."),
+  // UserDeletion.php:45, thrown at :94
+  refused('app_user.is_archived', "This person's account has already been deleted."),
 ];
 
 /** Restore refusals, as served. */
@@ -76,6 +76,6 @@ export const RESTORE_REFUSALS: Refused[] = [
   refused('app_user.email_taken', "Someone else in this workspace now uses this person's email address, so the account can't be restored."),
   // UserRestoration.php:57, returned at :190
   refused('app_user.is_not_archived', "This person's account hasn't been deleted, so there is nothing to restore."),
-  // UserLiveness.php:63 (reached only when a database edit left a role behind)
+  // UserLiveness.php:66 (reached only when a database edit left a role behind)
   refused('app_user.marker_needs_owner', 'Only an owner can do this, because this person holds a role that makes them an owner.'),
 ];

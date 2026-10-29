@@ -443,7 +443,14 @@ describe('no server sentence is stored in client code (ST-3, review L-6)', () =>
         .map((f) => readFileSync(path.join(root, d, f), 'utf8')),
     );
     expect(sources.length).toBeGreaterThan(4);
-    const messages = [...DELETE_REFUSALS, ...RESTORE_REFUSALS].map((r) => r.message);
+    // One sentence is shared by design: the server's own-account delete refusal (`app_user.actor_is_subject` on delete)
+    // adopted UX's own-page reason word for word (ux-copy-frontend.md §2.2, backend 01cbb2e). The client renders its own
+    // copy for the disabled button and the server's message for a stale page, so neither is a stored server sentence.
+    // Typed here so the exemption cannot widen: exactly this rule with exactly this sentence, and it must still be served.
+    const SHARED_BY_DESIGN = { rule: 'app_user.actor_is_subject', message: "You can't delete your own account. Ask someone else who manages people." };
+    const all = [...DELETE_REFUSALS, ...RESTORE_REFUSALS];
+    expect(all.filter((r) => r.rule === SHARED_BY_DESIGN.rule && r.message === SHARED_BY_DESIGN.message)).toHaveLength(1);
+    const messages = all.filter((r) => !(r.rule === SHARED_BY_DESIGN.rule && r.message === SHARED_BY_DESIGN.message)).map((r) => r.message);
     // Compare with typographic quotes and escapes flattened, so a re-quoted copy is still caught.
     const norm = (s: string) => s.replace(/\\'/g, "'").replace(/[‘’]/g, "'");
     const leaked = messages.filter((m) => sources.some((src) => norm(src).includes(norm(m))));
