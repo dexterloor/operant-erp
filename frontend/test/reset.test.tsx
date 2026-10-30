@@ -11,6 +11,9 @@ const DONE_BODY = "You've been signed out everywhere, including other tabs and d
 const NEVER_SENT_CLAIM = /emailed|email sent|we've sent|we have sent|check your inbox|sent you/i;
 /** PROPOSED (b3b-followup C-6), typed here independently of src/copy. */
 const INTERRUPTED_BODY = "We can't tell whether your new password was set. Try signing in with it. If that doesn't work, press Set password again, or ask for a new link.";
+/** The 429 lines (confirm-pass-2026-10-30-final-red.md Spar round 2, amendment 1), typed here independently of src/copy. */
+const RATE_LIMITED_NOTHING_CHANGED = 'Too many attempts.Try again in a few minutes.Nothing was changed.';
+const RATE_LIMITED_EARLIER_TRY = 'Too many attempts.Try again in a few minutes.An earlier try may already have set your new password: try signing in with it.';
 
 const TOKEN = 'tok_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZZ';
 const ROUTER_STATE = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: 'tree' };
@@ -242,6 +245,55 @@ describe('ResetPasswordForm — the form and its results', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Too many attempts.Try again in a few minutes.Nothing was changed.');
     await submit();
     expect(redeem).toHaveBeenNthCalledWith(2, expect.objectContaining({ token: TOKEN }));
+  });
+
+  describe('B3: the 429 second line follows what this page has shown', () => {
+    type Kind = RedeemResetResult['kind'];
+    const field = { kind: 'invalid', fieldErrors: { password: 'The new password must be at least 12 characters.' } } as const;
+    const as = (k: Kind): RedeemResetResult => (k === 'invalid' ? field : ({ kind: k } as RedeemResetResult));
+
+    /** Presses once per result; the last result is a 429. Returns the 429 banner's text. */
+    async function after(...kinds: Kind[]): Promise<string> {
+      openLink();
+      const redeem = vi.fn<RedeemResetAction>();
+      for (const k of [...kinds, 'rate-limited' as const]) redeem.mockResolvedValueOnce(as(k));
+      const { unmount } = renderPage(redeem);
+      for (let i = 0; i <= kinds.length; i++) await submit();
+      const text = screen.getByRole('status').textContent ?? '';
+      unmount();
+      return text;
+    }
+
+    it('"Nothing was changed." until the page has shown an interrupted result', async () => {
+      expect(await after()).toBe(RATE_LIMITED_NOTHING_CHANGED);
+      expect(await after('not-sent')).toBe(RATE_LIMITED_NOTHING_CHANGED);
+      expect(await after('invalid')).toBe(RATE_LIMITED_NOTHING_CHANGED);
+      expect(await after('rate-limited')).toBe(RATE_LIMITED_NOTHING_CHANGED);
+      expect(await after('not-sent', 'invalid', 'rate-limited')).toBe(RATE_LIMITED_NOTHING_CHANGED);
+    });
+
+    it('after a network failure or a 5xx: the earlier try may have set the password', async () => {
+      expect(await after('unreachable')).toBe(RATE_LIMITED_EARLIER_TRY);
+      expect(await after('server-error')).toBe(RATE_LIMITED_EARLIER_TRY);
+      expect(document.body.textContent).not.toContain('Nothing was changed.');
+    });
+
+    it('a later not-sent, 429 or 422 does not clear it', async () => {
+      expect(await after('unreachable', 'not-sent')).toBe(RATE_LIMITED_EARLIER_TRY);
+      expect(await after('server-error', 'rate-limited')).toBe(RATE_LIMITED_EARLIER_TRY);
+      // A 422 proves the link was unused when it was checked, but the interrupted request may still commit after it.
+      expect(await after('unreachable', 'invalid')).toBe(RATE_LIMITED_EARLIER_TRY);
+      expect(await after('not-sent', 'server-error', 'invalid', 'not-sent', 'rate-limited')).toBe(RATE_LIMITED_EARLIER_TRY);
+    });
+
+    it('a thrown call counts as interrupted too', async () => {
+      openLink();
+      const redeem = vi.fn<RedeemResetAction>().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ kind: 'rate-limited' });
+      renderPage(redeem);
+      await submit();
+      await submit();
+      expect(screen.getByRole('status').textContent).toBe(RATE_LIMITED_EARLIER_TRY);
+    });
   });
 
   it('network failure and 5xx keep the form and the token', async () => {

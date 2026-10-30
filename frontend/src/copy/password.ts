@@ -45,8 +45,14 @@ export const SET_PASSWORD = {
   show: 'Show password',
   hide: 'Hide password',
   submit: 'Set password',
-  /** 429: ST-8a + NEW. */
+  /** 429: ST-8a + NEW. The second line while this page has not shown an interrupted result (unreachable, server error). */
   rateLimitedNothingChanged: 'Nothing was changed.',
+  /**
+   * 429 second line once this page has shown an interrupted result: that earlier redeem may have committed, so "Nothing
+   * was changed." would not be known to be true (M-2). CONVERGED (confirm-pass-2026-10-30-final-red.md "Spar round 2",
+   * amendment 1).
+   */
+  rateLimitedEarlierTry: 'An earlier try may already have set your new password: try signing in with it.',
   /** 401 — one state for every cause; also shown, without calling the API, when there is no token. */
   refusedHeading: "This link can't be used",
   refusedBody:
@@ -90,9 +96,11 @@ export const CHANGE_PASSWORD = {
     "We can't tell whether your password was changed. Press Change password again: if it was changed, you'll be asked to sign in, and your new password will work.",
   /**
    * CONFIRMED by UX (confirm-pass-2026-10-30.md Rev 1 §a) for this page: the 429 second line (c10-design.md §5, FINAL
-   * B.5). The alias to `SET_PASSWORD` is to be broken under M-2.
+   * B.5). Its own literal, no longer an alias of the reset page's (M-2): it stays true here after an interrupted result,
+   * because a change that committed ends the calling session and the next press is the constant 401, refused before the
+   * throttle.
    */
-  rateLimitedNothingChanged: SET_PASSWORD.rateLimitedNothingChanged,
+  rateLimitedNothingChanged: 'Nothing was changed.',
 } as const;
 
 /**

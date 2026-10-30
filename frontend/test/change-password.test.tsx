@@ -72,6 +72,21 @@ describe('ChangePasswordForm (/account/password)', () => {
     expect(screen.getByLabelText('New password')).toHaveValue('kept new password');
   });
 
+  it('B3: the 429 second line is this page\'s own "Nothing was changed.", the same after an interrupted result', async () => {
+    // On this page a change that committed ends the calling session, so the next press is the constant 401 (refused
+    // before the throttle) and a 429 can never follow a lost success (confirm-pass-2026-10-30.md Rev 1 §a). The reset
+    // page's earlier-try sentence must never reach this page.
+    for (const interrupted of ['unreachable', 'server-error', 'not-sent'] as const) {
+      const action = vi.fn<ChangePasswordAction>().mockResolvedValueOnce({ kind: interrupted }).mockResolvedValueOnce({ kind: 'rate-limited' });
+      const { unmount } = render(<ChangePasswordForm changePassword={action} onSessionEnded={vi.fn()} />);
+      await fillAndSubmit();
+      await fillAndSubmit();
+      expect(screen.getByRole('status')).toHaveTextContent(/^Too many attempts\.Try again in a few minutes\.Nothing was changed\.$/);
+      expect(document.body.textContent).not.toMatch(/earlier try/i);
+      unmount();
+    }
+  });
+
   it('F-1: a lost answer (network failure or 5xx) says the outcome is unknown and how to resolve it; values kept', async () => {
     const action = vi.fn<ChangePasswordAction>().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ kind: 'unreachable' }).mockResolvedValueOnce({ kind: 'server-error' });
     render(<ChangePasswordForm changePassword={action} onSessionEnded={vi.fn()} />);

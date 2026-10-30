@@ -64,6 +64,13 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
   const [shown, setShown] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<Notice>(null);
+  // Set once this page has shown an interrupted result (unreachable, server error): that redeem may have committed even
+  // though its answer was lost. Never cleared while the form is on screen — not by a later not-sent or 429, which say
+  // nothing about the earlier request, and not by a 422: it proves the link was unused when it was checked, but the
+  // interrupted request may still be running on the server and commit after it. It picks the 429's second line
+  // (confirm-pass-2026-10-30-final-red.md "Spar round 2", amendment 1). Residual, named and not built for: the same link
+  // used in another tab, then a 429 here — this page cannot know.
+  const [interrupted, setInterrupted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receivedAt, setReceivedAt] = useState<number | null>(null);
   const [settled, setSettled] = useState(0);
@@ -118,6 +125,7 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
       default:
         setError(undefined);
         setNotice(result.kind);
+        if (result.kind === 'unreachable' || result.kind === 'server-error') setInterrupted(true);
     }
   };
 
@@ -193,7 +201,7 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
       {notice === 'rate-limited' ? (
         <Banner ref={noticeRef} tone="warning" live="status" heading={RATE_LIMITED.heading}>
           <p>{RATE_LIMITED.body}</p>
-          <p className={styles.secondary}>{SET_PASSWORD.rateLimitedNothingChanged}</p>
+          <p className={styles.secondary}>{interrupted ? SET_PASSWORD.rateLimitedEarlierTry : SET_PASSWORD.rateLimitedNothingChanged}</p>
         </Banner>
       ) : null}
       {notice === 'not-sent' ? (
