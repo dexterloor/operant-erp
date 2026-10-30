@@ -32,6 +32,10 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "display_name"
+                                    ],
                                     "type": [
                                         "object",
                                         "null"
@@ -123,6 +127,10 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "display_name"
+                                    ],
                                     "type": [
                                         "object",
                                         "null"
@@ -463,19 +471,26 @@
                     },
                     "permission_codes": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "type": "string"
                         },
                         "type": "array"
                     },
                     "roles": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "name"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     }
@@ -1239,6 +1254,11 @@
                                                     "type": "string"
                                                 }
                                             },
+                                            "required": [
+                                                "id",
+                                                "sku",
+                                                "name"
+                                            ],
                                             "type": "object"
                                         },
                                         "quantity": {
@@ -1254,9 +1274,19 @@
                                                     "type": "integer"
                                                 }
                                             },
+                                            "required": [
+                                                "id",
+                                                "line_number"
+                                            ],
                                             "type": "object"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "sales_order_line",
+                                        "inventory_item",
+                                        "quantity"
+                                    ],
                                     "type": "object"
                                 },
                                 "id": {
@@ -1276,6 +1306,11 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
                                     "type": "object"
                                 },
                                 "quantity_billed": {
@@ -2089,6 +2124,11 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
                                     "type": "object"
                                 },
                                 "lead_time_days": {
@@ -2107,6 +2147,10 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "name"
+                                    ],
                                     "type": [
                                         "object",
                                         "null"
@@ -2205,10 +2249,7 @@
                     },
                     "permission_codes": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "type": "string"
                         },
                         "type": "array"
                     }
@@ -2336,10 +2377,7 @@
                     },
                     "permission_codes": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "type": "string"
                         },
                         "type": "array"
                     },
@@ -3002,6 +3040,11 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
                                     "type": "object"
                                 },
                                 "qty_on_hand": {
@@ -3017,6 +3060,10 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "code"
+                                    ],
                                     "type": "object"
                                 },
                                 "version": {
@@ -3032,6 +3079,10 @@
                                             "type": "string"
                                         }
                                     },
+                                    "required": [
+                                        "id",
+                                        "name"
+                                    ],
                                     "type": "object"
                                 }
                             },
@@ -3615,10 +3666,20 @@
                     },
                     "roles": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "name"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     }

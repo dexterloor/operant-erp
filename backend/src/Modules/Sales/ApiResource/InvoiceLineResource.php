@@ -26,13 +26,13 @@ final readonly class InvoiceLineResource
         'required' => ['id', 'fulfilment_line', 'inventory_item', 'quantity_billed', 'unit_price', 'amount_billed', 'quantity_credited', 'amount_credited'],
         'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
-            'fulfilment_line' => ['type' => 'object', 'properties' => [
+            'fulfilment_line' => ['type' => 'object', 'required' => ['id', 'sales_order_line', 'inventory_item', 'quantity'], 'properties' => [
                 'id' => ['type' => 'string', 'format' => 'uuid'],
-                'sales_order_line' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'line_number' => ['type' => 'integer']]],
-                'inventory_item' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                'sales_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'line_number' => ['type' => 'integer']]],
+                'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
                 'quantity' => ['type' => 'string'],
             ]],
-            'inventory_item' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+            'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
             'quantity_billed' => ['type' => 'string'],
             'unit_price' => ['type' => 'string'],
             'amount_billed' => ['type' => 'string'],

@@ -4,9 +4,17 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\Metadata\ApiProperty;
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Operation;
+use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
+use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Serializer\Attribute\Context;
+use Symfony\Component\Serializer\Attribute\SerializedName;
+use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 
 /**
  * B-3's phase-2 half — the generated artifact, and API-10a's three outcomes.
@@ -529,5 +537,448 @@ final class OpenApiContractTest extends ApiTestCase
         }
 
         return $paths;
+    }
+
+    /**
+     * BK-13 T-1. Every `items` and every object-valued `additionalProperties` node in the served spec types its element,
+     * and every array declares `items`. A list property declared `public array $x` with its element type only in a
+     * docblock falls back to `{"type":["string","null"]}`, because no docblock reader is installed: that fallback is
+     * what this test refuses. The remaining offenders are pinned, two-way.
+     */
+    private const ITEMS_NOT_YET_TYPED = [
+        'components/schemas/CreditNote.IssueAdjustmentCreditNoteInput/properties/lines',
+        'components/schemas/CreditNote.IssueCreditNoteInput/properties/lines',
+        'components/schemas/CreditNote/properties/lines',
+        'components/schemas/Fulfilment.CreateFulfilmentInput/properties/lines',
+        'components/schemas/Fulfilment/properties/lines',
+        'components/schemas/GoodsReceipt.CreateGoodsReceiptInput/properties/lines',
+        'components/schemas/GoodsReceipt/properties/lines',
+        'components/schemas/PickList/properties/lines',
+        'components/schemas/PurchaseOrder.CreatePurchaseOrderInput/properties/lines',
+        'components/schemas/SalesOrder.CreateSalesOrderInput/properties/lines',
+        'components/schemas/SalesReturn.CreateSalesReturnInput/properties/lines',
+        'components/schemas/SalesReturn/properties/lines',
+    ];
+
+    #[Test]
+    public function noArrayInTheSpecFallsBackToAnUntypedItem(): void
+    {
+        $planted = ['a' => ['b' => ['properties' => ['x' => ['type' => 'array', 'items' => ['type' => ['string', 'null']]]]]]];
+        [$plantedOffenders] = self::untypedItemNodes($planted);
+        self::assertSame(['a/b/properties/x'], $plantedOffenders, 'Control: the walker finds a fallback planted at depth.');
+        [$bare] = self::untypedItemNodes(['p' => ['type' => 'array']]);
+        self::assertSame(['p'], $bare, 'Control: the walker finds an array with no items.');
+
+        [$offenders, $inspected] = self::untypedItemNodes($this->regenerate());
+        self::assertGreaterThan(0, \count($inspected), 'Anti-vacuity: some items nodes were inspected.');
+        self::assertContains('components/schemas/User/properties/roles', $inspected);
+
+        sort($offenders);
+        $expected = self::ITEMS_NOT_YET_TYPED;
+        sort($expected);
+        self::assertSame($expected, $offenders, 'An array in the served spec types its items as the string|null fallback, or has no items at all. Declare #[ApiProperty(schema: [...])] on the property.');
+    }
+
+    /**
+     * @param array<mixed> $node
+     *
+     * @return array{0: list<string>, 1: list<string>}
+     */
+    private static function untypedItemNodes(array $node, string $path = ''): array
+    {
+        $offenders = [];
+        $inspected = [];
+        $type = $node['type'] ?? null;
+        $isArray = 'array' === $type || (\is_array($type) && \in_array('array', $type, true));
+        if ($isArray && !\array_key_exists('items', $node)) {
+            $offenders[] = $path;
+        }
+        foreach (['items', 'additionalProperties'] as $key) {
+            if (!\is_array($node[$key] ?? null)) {
+                continue;
+            }
+            $inspected[] = $path;
+            $child = $node[$key];
+            $untyped = ['type' => ['string', 'null']] === $child
+                || (!isset($child['type']) && !isset($child['$ref']) && !isset($child['anyOf']) && !isset($child['oneOf']) && !isset($child['allOf']));
+            if ($untyped && !\in_array($path, $offenders, true)) {
+                $offenders[] = $path;
+            }
+        }
+        foreach ($node as $key => $value) {
+            if (\is_array($value)) {
+                [$o, $i] = self::untypedItemNodes($value, '' === $path ? (string) $key : $path.'/'.$key);
+                $offenders = [...$offenders, ...$o];
+                $inspected = [...$inspected, ...$i];
+            }
+        }
+
+        return [$offenders, $inspected];
+    }
+
+    /** BK-13 T-2. A person's roles are served as role references, `{id, name}`, on both person schemas. */
+    #[Test]
+    public function theUserAndCurrentUserSchemasTypeRolesAsReferences(): void
+    {
+        $spec = $this->regenerate();
+        foreach (['User', 'CurrentUser'] as $component) {
+            $roles = $spec['components']['schemas'][$component]['properties']['roles'] ?? [];
+            self::assertSame('array', $roles['type'] ?? null, $component.'.roles is an array.');
+            $items = $this->resolve($roles['items'] ?? [], $spec);
+            self::assertSame('object', $items['type'] ?? null);
+            self::assertSame(['id', 'name'], $items['required'] ?? null);
+            self::assertSame(['type' => 'string', 'format' => 'uuid'], self::sortedKeys($items['properties']['id'] ?? []));
+            self::assertSame(['type' => 'string'], $items['properties']['name'] ?? null);
+            self::assertEquals(self::canonical(RoleReference::WIRE_SCHEMA), self::canonical($items), $component.'.roles items are RoleReference::WIRE_SCHEMA.');
+        }
+    }
+
+    /**
+     * @param array<mixed> $a
+     *
+     * @return array<mixed>
+     */
+    private static function sortedKeys(array $a): array
+    {
+        $out = ['type' => $a['type'] ?? null];
+        foreach ($a as $k => $v) {
+            if ('type' !== $k) {
+                $out[$k] = $v;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<mixed> $a
+     *
+     * @return array<mixed>
+     */
+    private static function canonical(array $a): array
+    {
+        if (!array_is_list($a)) {
+            ksort($a);
+        }
+        foreach ($a as $k => $v) {
+            if (\is_array($v)) {
+                $a[$k] = self::canonical($v);
+            }
+        }
+
+        return $a;
+    }
+
+    /**
+     * `#[ApiResource]` classes that serve no component, because every one of their operations answers with no body.
+     * Pinned two-way.
+     */
+    private const RESOURCES_WITHOUT_A_COMPONENT = ['BulkArchival', 'BulkRestoration', 'BulkRoleAssignment', 'Export', 'PasswordReset'];
+
+    /**
+     * BK-13 T-3′. Every served list of objects (and every single-object member) has exactly its element class's
+     * serialized members as keys. On a hand-written node — one written in an `#[ApiProperty(schema:)]` and everything
+     * inside it — it also declares `required` as every member except those that are nullable AND skipped when null, and
+     * a member's type admits `null` exactly when the member is nullable and not skipped. At a `$ref` to a minted
+     * component, keys only (BK-14 widens this).
+     */
+    #[Test]
+    public function everyServedListOfObjectsIsItsElementClass(): void
+    {
+        $spec = $this->regenerate();
+        $failures = [];
+        $visited = [];
+        $withoutComponent = [];
+
+        foreach (self::apiResourceClasses() as $class => $shortName) {
+            $component = $spec['components']['schemas'][$shortName] ?? null;
+            if (null === $component) {
+                $withoutComponent[] = $shortName;
+                continue;
+            }
+            $this->walkMembers($class, $component, $shortName, false, false, $spec, $failures, $visited);
+        }
+
+        sort($withoutComponent);
+        self::assertSame(self::RESOURCES_WITHOUT_A_COMPONENT, $withoutComponent, 'The resources that serve no component.');
+        foreach (['User.roles', 'CurrentUser.roles'] as $path) {
+            self::assertContains($path, $visited, 'Anti-vacuity: '.$path.' was walked.');
+        }
+        self::assertSame([], $failures, "A served object schema does not match its element class:\n".implode("\n", $failures));
+    }
+
+    /**
+     * @param class-string        $class
+     * @param array<mixed>        $node
+     * @param array<mixed>        $spec
+     * @param list<string>        $failures
+     * @param list<string>        $visited
+     */
+    private function walkMembers(string $class, array $node, string $path, bool $handWritten, bool $inheritedSkip, array $spec, array &$failures, array &$visited): void
+    {
+        if (isset($node['$ref'])) {
+            $node = $this->resolve($node, $spec);
+            $handWritten = false;
+        }
+        foreach ($node['anyOf'] ?? [] as $branch) {
+            if (['type' => 'null'] !== $branch) {
+                $node = isset($branch['$ref']) ? $this->resolve($branch, $spec) : $branch;
+                $handWritten = $handWritten && !isset($branch['$ref']);
+            }
+        }
+
+        $reflection = new \ReflectionClass($class);
+        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            if (!$method->isStatic() && 1 === preg_match('/^(get|is|has|can)[A-Z]/', $method->getName())) {
+                $failures[] = $path.': '.$class.'::'.$method->getName().'() is serialized but not a property this test reads';
+            }
+        }
+
+        $members = [];
+        foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            $serialized = $property->getAttributes(SerializedName::class)[0] ?? null;
+            $members[null === $serialized ? $property->getName() : $serialized->newInstance()->serializedName] = $property;
+        }
+
+        $served = array_keys($node['properties'] ?? []);
+        $expectedKeys = array_keys($members);
+        sort($served);
+        sort($expectedKeys);
+        if ($served !== $expectedKeys) {
+            $failures[] = $path.': keys ['.implode(',', $served).'] != members ['.implode(',', $expectedKeys).']';
+
+            return;
+        }
+
+        $required = [];
+        foreach ($members as $name => $property) {
+            $nullable = $property->getType()?->allowsNull() ?? true;
+            $skip = self::effectiveSkipNull($property, $inheritedSkip);
+            if (!($nullable && $skip)) {
+                $required[] = $name;
+            }
+            if ($handWritten) {
+                $memberNode = $node['properties'][$name];
+                $type = $memberNode['type'] ?? null;
+                $admitsNull = (\is_array($type) && \in_array('null', $type, true)) || 'null' === $type
+                    || \in_array(['type' => 'null'], $memberNode['anyOf'] ?? [], true);
+                if ($admitsNull !== ($nullable && !$skip)) {
+                    $failures[] = $path.'.'.$name.': admits null = '.var_export($admitsNull, true).', expected '.var_export($nullable && !$skip, true);
+                }
+            }
+        }
+        if ($handWritten) {
+            $declared = $node['required'] ?? [];
+            sort($declared);
+            sort($required);
+            if ($declared !== $required) {
+                $failures[] = $path.': required ['.implode(',', $declared).'] != ['.implode(',', $required).']';
+            }
+        }
+
+        foreach ($members as $name => $property) {
+            $here = $path.'.'.$name;
+            $memberNode = $node['properties'][$name];
+            $childHand = $handWritten || [] !== array_filter(
+                $property->getAttributes(ApiProperty::class),
+                static fn (\ReflectionAttribute $a): bool => null !== $a->newInstance()->getSchema(),
+            );
+            $skip = self::effectiveSkipNull($property, $inheritedSkip);
+            $type = $property->getType();
+            $typeName = $type instanceof \ReflectionNamedType ? $type->getName() : null;
+
+            if ('array' === $typeName) {
+                $element = self::listElementClass($property);
+                if (null === $element || \in_array('components/schemas/'.self::shortNameOf($class).'/properties/'.$name, self::ITEMS_NOT_YET_TYPED, true)) {
+                    continue;
+                }
+                $visited[] = $here;
+                $this->walkMembers($element, $memberNode['items'] ?? [], $here.'[]', $childHand, $skip, $spec, $failures, $visited);
+            } elseif (null !== $typeName && str_starts_with($typeName, 'App\\') && !enum_exists($typeName)) {
+                $visited[] = $here;
+                $this->walkMembers($typeName, $memberNode, $here, $childHand, $skip, $spec, $failures, $visited);
+            }
+        }
+    }
+
+    /** The served short name of an `#[ApiResource]` class (T-3′ skips exactly T-1's allow-list, keyed by component). */
+    private static function shortNameOf(string $class): string
+    {
+        return self::apiResourceClasses()[$class] ?? (new \ReflectionClass($class))->getShortName();
+    }
+
+    private static function effectiveSkipNull(\ReflectionProperty $property, bool $inherited): bool
+    {
+        foreach ($property->getAttributes(Context::class) as $attribute) {
+            $context = $attribute->newInstance();
+            foreach ([$context->context, $context->normalizationContext] as $values) {
+                if (\array_key_exists(AbstractObjectNormalizer::SKIP_NULL_VALUES, $values)) {
+                    return (bool) $values[AbstractObjectNormalizer::SKIP_NULL_VALUES];
+                }
+            }
+        }
+
+        return $inherited;
+    }
+
+    /** @return class-string|null the element class of a `list<X>` member, or null when the element is not a class */
+    private static function listElementClass(\ReflectionProperty $property): ?string
+    {
+        $name = preg_quote($property->getName(), '/');
+        $docs = [(string) $property->getDocComment()];
+        $constructor = $property->getDeclaringClass()->getConstructor();
+        if (null !== $constructor) {
+            $docs[] = (string) $constructor->getDocComment();
+        }
+        $element = null;
+        foreach ($docs as $doc) {
+            if (1 === preg_match('/@var\s+(?:list|array)<(?:[^,<>{}]+,\s*)?([^\s|]+?)>(?:\|null)?(?:\s|\*)/', $doc, $m) && $doc === $docs[0]) {
+                $element = $m[1];
+                break;
+            }
+            if (1 === preg_match('/@param\s+(?:list|array)<(?:[^,<>{}]+,\s*)?([^\s|]+?)>(?:\|null)?\s+\$'.$name.'\b/', $doc, $m)) {
+                $element = $m[1];
+                break;
+            }
+        }
+        if (null === $element || str_contains($element, '{') || \in_array($element, ['string', 'int', 'float', 'bool', 'mixed', 'array'], true)) {
+            return null;
+        }
+
+        $file = (string) file_get_contents((string) $property->getDeclaringClass()->getFileName());
+        $resolved = $property->getDeclaringClass()->getNamespaceName().'\\'.$element;
+        if (1 === preg_match('/^use\s+([A-Za-z0-9_\\\\]+\\\\'.preg_quote($element, '/').');/m', $file, $m)) {
+            $resolved = $m[1];
+        }
+        if (!class_exists($resolved)) {
+            throw new \LogicException(\sprintf('%s::$%s names list<%s>, which does not resolve to a class.', $property->getDeclaringClass()->getName(), $property->getName(), $element));
+        }
+
+        return $resolved;
+    }
+
+    /** @return array<class-string, string> every `#[ApiResource]` class under src/, by its served short name */
+    private static function apiResourceClasses(): array
+    {
+        static $memo = null;
+        if (null !== $memo) {
+            return $memo;
+        }
+        $classes = [];
+        foreach (PhpSourceScan::phpFilesUnder(\dirname(__DIR__, 2).'/src') as $file) {
+            $source = (string) file_get_contents($file);
+            if (!str_contains($source, '#[ApiResource')
+                || 1 !== preg_match('/^namespace\s+([^;]+);/m', $source, $ns)
+                || 1 !== preg_match('/^(?:final\s+|abstract\s+|readonly\s+)*class\s+(\w+)/m', $source, $cl)) {
+                continue;
+            }
+            $class = $ns[1].'\\'.$cl[1];
+            foreach ((new \ReflectionClass($class))->getAttributes(ApiResource::class) as $attribute) {
+                $classes[$class] = $attribute->newInstance()->getShortName() ?? $cl[1];
+            }
+        }
+        ksort($classes);
+
+        return $memo = $classes;
+    }
+
+    /**
+     * BK-13 T-5. Every `public mixed` property of a request input class declares its schema, or is pinned as not yet
+     * typed (BK-15's list), two-way.
+     */
+    private const MIXED_INPUTS_NOT_YET_TYPED = [
+        'CreateAdjustmentDecisionInput::$acknowledgedReturnIds',
+        'CreateAdjustmentDecisionInput::$creditNoteLineId',
+        'CreateAdjustmentDecisionInput::$kind',
+        'CreateAdjustmentDecisionInput::$quantity',
+        'CreateAdjustmentDecisionInput::$reversesDecisionId',
+        'CreateAdjustmentDecisionInput::$salesReturnLineId',
+        'CreateCustomerContactInput::$isPrimary',
+        'CreateCustomerInput::$paymentTermsDays',
+        'CreateRoleInput::$description',
+        'CreateRoleInput::$name',
+        'CreateRoleInput::$permissionCodes',
+        'CreateSalesReturnInput::$reason',
+        'CreateStockAdjustmentInput::$countedQuantity',
+        'CreateStockAdjustmentInput::$inventoryItemId',
+        'CreateStockAdjustmentInput::$note',
+        'CreateStockAdjustmentInput::$storageLocationId',
+        'CreateStockAdjustmentInput::$version',
+        'CreateStockTransferInput::$destinationStorageLocationId',
+        'CreateStockTransferInput::$inventoryItemId',
+        'CreateStockTransferInput::$note',
+        'CreateStockTransferInput::$quantity',
+        'CreateStockTransferInput::$sourceStorageLocationId',
+        'CreateSupplierInput::$paymentTermsDays',
+        'CreateSupplierProductInput::$leadTimeDays',
+        'CreateUserInput::$displayName',
+        'CreateUserInput::$email',
+        'IssueAdjustmentCreditNoteInput::$acknowledged_return_ids',
+        'IssueAdjustmentCreditNoteInput::$reason',
+        'IssueCreditNoteInput::$reason',
+        'IssueCreditNoteInput::$salesReturnId',
+        'PayInvoiceInput::$acknowledgedReturnIds',
+        'RejectRoleGrantProposalInput::$reason',
+        'UpdateCustomerContactInput::$isPrimary',
+        'UpdateCustomerInput::$paymentTermsDays',
+        'UpdateRoleInput::$description',
+        'UpdateRoleInput::$name',
+        'UpdateRoleInput::$permissionCodes',
+        'UpdateSettingsInput::$displayName',
+        'UpdateSupplierInput::$paymentTermsDays',
+        'UpdateSupplierProductInput::$leadTimeDays',
+        'UpdateUserInput::$displayName',
+        'UpdateUserInput::$isActive',
+    ];
+
+    #[Test]
+    public function everyMixedInputPropertyDeclaresItsSchema(): void
+    {
+        $reflected = [];
+        $untyped = [];
+        foreach (array_keys(self::apiResourceClasses()) as $class) {
+            $reflection = new \ReflectionClass($class);
+            $operations = [];
+            foreach ($reflection->getAttributes() as $attribute) {
+                $instance = $attribute->newInstance();
+                if ($instance instanceof ApiResource) {
+                    $operations = [...$operations, ...iterator_to_array($instance->getOperations() ?? [])];
+                } elseif ($instance instanceof Operation) {
+                    $operations[] = $instance;
+                }
+            }
+            foreach ($operations as $operation) {
+                $input = $operation->getInput();
+                $inputClass = \is_array($input) ? ($input['class'] ?? null) : $input;
+                if (!\is_string($inputClass) || !class_exists($inputClass)) {
+                    continue;
+                }
+                foreach ((new \ReflectionClass($inputClass))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                    if ('mixed' !== (string) $property->getType()) {
+                        continue;
+                    }
+                    $key = (new \ReflectionClass($inputClass))->getShortName().'::$'.$property->getName();
+                    $reflected[$key] = true;
+                    $typed = false;
+                    foreach ($property->getAttributes(ApiProperty::class) as $attribute) {
+                        $typed = $typed || isset($attribute->newInstance()->getSchema()['type']);
+                    }
+                    if (!$typed) {
+                        $untyped[$key] = true;
+                    }
+                }
+            }
+        }
+
+        self::assertNotEmpty($reflected);
+        self::assertArrayHasKey('CreateRoleInput::$permissionCodes', $reflected);
+        $untyped = array_keys($untyped);
+        sort($untyped);
+        $expected = self::MIXED_INPUTS_NOT_YET_TYPED;
+        sort($expected);
+        self::assertSame($expected, $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
     }
 }
