@@ -47,7 +47,19 @@ describe('loadUsers / loadPerson — the pure loaders (§10)', () => {
   });
 });
 
+/**
+ * The deadline T-R2 names (§6.2 R-2 item 2), typed here on purpose. Advancing the fake clock by
+ * `ACTION_DEADLINES_MS.personAction` instead would move with the table, so a 20 s deadline would pass as well.
+ */
+const THIRTY_SECONDS = 30_000;
+/** The per-request limit (§6.2 R-2 item 1), typed here for the same reason. */
+const TWENTY_SECONDS = 20_000;
+
 describe('Delete person (DeleteUser) — §9.1', () => {
+  it('the configured Delete / Restore person deadline is the 30 s T-R2 names', () => {
+    expect(ACTION_DEADLINES_MS.personAction).toBe(THIRTY_SECONDS);
+  });
+
   it('204, then re-reads GetUser (a deleted person answers 200 with archived_at), sets it, THEN resolves deleted', async () => {
     const calls = stubFetch([empty(204), json(200, user({ archived_at: '2026-10-28T10:00:00Z' }))]);
     const w = wiring();
@@ -91,19 +103,24 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     const w = wiring();
     let done: unknown = null;
     void w.actions.deletePerson().then((r) => (done = r));
-    await vi.advanceTimersByTimeAsync(ACTION_DEADLINES_MS.personAction - 1);
+    await vi.advanceTimersByTimeAsync(THIRTY_SECONDS - 1);
     expect(done).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
     expect(done).toEqual({ kind: 'deleted' });
     expect(w.order).toEqual(['failed:unreachable']);
   });
 
-  it('T-R2: the request itself hangs → unreachable at 30 s (the dialog then says R1-3: we can\'t tell)', async () => {
+  // A lone request never reaches the 30 s action deadline: the request's own 20 s limit (`transport.ts`) passes first
+  // (b3b-design.md §14 T-R2, amended 2026-10-29, D-24). Measured 2026-10-30: this used to advance 30 s in one step
+  // and so could not tell which bound ended it.
+  it('T-R2: the request itself hangs → unreachable at the request\'s own 20 s limit, the first bound to pass (the dialog then says R1-3: we can\'t tell)', async () => {
     vi.useFakeTimers();
     stubFetch(['hang']);
     let done: unknown = null;
     void wiring().actions.deletePerson().then((r) => (done = r));
-    await vi.advanceTimersByTimeAsync(ACTION_DEADLINES_MS.personAction);
+    await vi.advanceTimersByTimeAsync(TWENTY_SECONDS - 1);
+    expect(done).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
     expect(done).toEqual({ kind: 'unreachable' });
   });
 });
