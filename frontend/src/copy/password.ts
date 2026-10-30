@@ -48,11 +48,12 @@ export const SET_PASSWORD = {
   /** 429: ST-8a + NEW. The second line while this page has not shown an interrupted result (unreachable, server error). */
   rateLimitedNothingChanged: 'Nothing was changed.',
   /**
-   * 429 second line once this page has shown an interrupted result: that earlier redeem may have committed, so "Nothing
-   * was changed." would not be known to be true (M-2). CONVERGED (confirm-pass-2026-10-30-final-red.md "Spar round 2",
-   * amendment 1).
+   * Shown once this page has shown an interrupted result (unreachable, server error): that earlier redeem may have
+   * committed. The 429's second line in place of "Nothing was changed." (M-2; CONVERGED, confirm-pass-2026-10-30-final-red.md
+   * "Spar round 2", amendment 1), the not-sent banner's second line, and the line under the refusal card's heading
+   * (B4, b4-doubt-ux.md Revision 1 §R1-4). One string for the three results; the text is unchanged.
    */
-  rateLimitedEarlierTry: 'An earlier try may already have set your new password: try signing in with it.',
+  earlierTryMaySet: 'An earlier try may already have set your new password: try signing in with it.',
   /** 401 — one state for every cause; also shown, without calling the API, when there is no token. */
   refusedHeading: "This link can't be used",
   refusedBody:

@@ -14,6 +14,9 @@ const INTERRUPTED_BODY = "We can't tell whether your new password was set. Try s
 /** The 429 lines (confirm-pass-2026-10-30-final-red.md Spar round 2, amendment 1), typed here independently of src/copy. */
 const RATE_LIMITED_NOTHING_CHANGED = 'Too many attempts.Try again in a few minutes.Nothing was changed.';
 const RATE_LIMITED_EARLIER_TRY = 'Too many attempts.Try again in a few minutes.An earlier try may already have set your new password: try signing in with it.';
+/** B4 (b4-doubt-ux.md Revision 1 + RED round-1 amendments): the earlier-try sentence, typed here independently of src/copy. */
+const EARLIER_TRY = 'An earlier try may already have set your new password: try signing in with it.';
+const NOT_SENT = 'Something went wrong on our side.Try again in a moment.';
 
 const TOKEN = 'tok_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZZ';
 const ROUTER_STATE = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: 'tree' };
@@ -325,19 +328,186 @@ describe('ResetPasswordForm — the form and its results', () => {
     expect(redeem).toHaveBeenNthCalledWith(2, expect.objectContaining({ token: TOKEN }));
   });
 
-  it('B1: an interrupted result, then not-sent: the not-sent banner reads "Try again in a moment." and never "Nothing was changed."', async () => {
-    // Guards the not-sent banner's text (confirm-pass-2026-10-30.md Rev 1 §b): the earlier press may have set the password.
-    for (const interrupted of ['unreachable', 'server-error'] as const) {
+  it('B1 + B4 (T1): an interrupted result, then not-sent: "Try again in a moment.", then the earlier-try line; never "Nothing was changed."', async () => {
+    // Guards the not-sent body after an interrupted result (confirm-pass-2026-10-30.md Rev 1 §b: the earlier press may
+    // have set the password, so "Nothing was changed." is not known to be true) plus B4's earlier-try line as the banner's
+    // second line (b4-doubt-ux.md Revision 1 §R1-4.1). The exact pin moved with B4; it covers a thrown call too.
+    for (const interrupted of ['unreachable', 'server-error', 'thrown'] as const) {
       openLink();
-      const redeem = vi.fn<RedeemResetAction>().mockResolvedValueOnce({ kind: interrupted }).mockResolvedValueOnce({ kind: 'not-sent' });
+      const redeem = vi.fn<RedeemResetAction>();
+      if (interrupted === 'thrown') redeem.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      else redeem.mockResolvedValueOnce({ kind: interrupted });
+      redeem.mockResolvedValueOnce({ kind: 'not-sent' });
       const { unmount } = renderPage(redeem);
       await submit();
       expect(screen.getByRole('status')).toHaveTextContent(INTERRUPTED_BODY);
       await submit();
-      expect(screen.getByRole('status')).toHaveTextContent(/^Something went wrong on our side\.Try again in a moment\.$/);
+      expect(screen.getByRole('status')).toHaveTextContent(/^Something went wrong on our side\.Try again in a moment\.An earlier try may already have set your new password: try signing in with it\.$/);
       expect(document.body.textContent).not.toContain('Nothing was changed.');
       unmount();
     }
+  });
+
+  describe('B4: the earlier-try doubt stays on screen after a later, different result (b4-doubt-ux.md Revision 1)', () => {
+    type Step = RedeemResetResult['kind'] | 'thrown';
+    const fieldError = 'The new password must be at least 12 characters.';
+
+    /** Renders the page with one result per press queued; returns the press function and the navigate spy. */
+    function page(...steps: Step[]) {
+      openLink();
+      const redeem = vi.fn<RedeemResetAction>();
+      for (const k of steps) {
+        if (k === 'thrown') redeem.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        else if (k === 'invalid') redeem.mockResolvedValueOnce({ kind: 'invalid', fieldErrors: { password: fieldError } });
+        else if (k === 'changed') redeem.mockResolvedValueOnce({ kind: 'changed', changedAt: '2026-10-27T10:00:00+00:00' });
+        else redeem.mockResolvedValueOnce({ kind: k } as RedeemResetResult);
+      }
+      const navigate = vi.fn();
+      const view = renderPage(redeem, { navigate });
+      return { ...view, navigate };
+    }
+    async function pressAll(n: number) {
+      for (let i = 0; i < n; i++) await submit();
+    }
+    const refusedCard = () => screen.getByRole('heading', { level: 1, name: "This link can't be used" }).parentElement as HTMLElement;
+
+    it('T2: never interrupted, not-sent has no earlier-try line (first press, after a 422, after a 429, twice)', async () => {
+      for (const steps of [['not-sent'], ['invalid', 'not-sent'], ['rate-limited', 'not-sent'], ['not-sent', 'not-sent']] as Step[][]) {
+        const { unmount } = page(...steps);
+        await pressAll(steps.length);
+        expect(screen.getByRole('status')).toHaveTextContent(/^Something went wrong on our side\.Try again in a moment\.$/);
+        expect(document.body.textContent).not.toContain(EARLIER_TRY);
+        unmount();
+      }
+    });
+
+    it('T3: interrupted, then link-refused: focus on the h1; heading, line, body, second line, Sign in, Ask for a new link — in that order', async () => {
+      for (const first of ['unreachable', 'server-error', 'thrown'] as const) {
+        const { unmount } = page(first, 'link-refused');
+        await pressAll(2);
+        const h1 = screen.getByRole('heading', { level: 1, name: "This link can't be used" });
+        expect(h1).toHaveFocus();
+        expect(refusedCard().textContent).toBe(`This link can't be used${EARLIER_TRY}${REFUSED_BODY}${REFUSED_BODY_2}Sign inAsk for a new link`);
+        unmount();
+      }
+    });
+
+    it('T3b: the flagged card has Sign in, a full document load to /login, before "Ask for a new link"; unflagged cards have none', async () => {
+      const { navigate, unmount } = page('unreachable', 'link-refused');
+      await pressAll(2);
+      const signIn = screen.getByRole('button', { name: 'Sign in' });
+      const ask = screen.getByRole('link', { name: 'Ask for a new link' });
+      expect(signIn.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(ask).toHaveAttribute('href', '/forgot-password');
+      fireEvent.click(signIn);
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith('/login');
+      unmount();
+
+      // Unflagged: a first-press 401, and opening with no token.
+      const second = page('link-refused');
+      await pressAll(1);
+      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(screen.queryByText('Sign in')).toBeNull();
+      second.unmount();
+      window.history.replaceState(null, '', '/reset-password');
+      renderPage(vi.fn());
+      expect(screen.getByRole('heading', { level: 1, name: "This link can't be used" })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(screen.queryByText('Sign in')).toBeNull();
+    });
+
+    it('T4: never interrupted, a refusal has no earlier-try line (first press, after 422 / not-sent / 429, and no token)', async () => {
+      for (const steps of [['link-refused'], ['invalid', 'link-refused'], ['not-sent', 'link-refused'], ['rate-limited', 'link-refused']] as Step[][]) {
+        const { unmount } = page(...steps);
+        await pressAll(steps.length);
+        expect(refusedCard().textContent).toBe(`This link can't be used${REFUSED_BODY}${REFUSED_BODY_2}Ask for a new link`);
+        unmount();
+      }
+      window.history.replaceState(null, '', '/reset-password');
+      renderPage(vi.fn());
+      expect(refusedCard().textContent).toBe(`This link can't be used${REFUSED_BODY}${REFUSED_BODY_2}Ask for a new link`);
+    });
+
+    it('T5: a 422 shows nothing extra and keeps the flag', async () => {
+      const a = page('unreachable', 'invalid', 'link-refused');
+      await pressAll(2);
+      expect(screen.getByLabelText('New password')).toHaveAccessibleDescription(`At least 12 characters. ${fieldError}`);
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(document.body.textContent).not.toContain(EARLIER_TRY);
+      await pressAll(1);
+      expect(refusedCard().textContent).toContain(EARLIER_TRY);
+      a.unmount();
+
+      const b = page('unreachable', 'invalid', 'not-sent');
+      await pressAll(3);
+      expect(screen.getByRole('status').textContent).toBe(`${NOT_SENT}${EARLIER_TRY}`);
+      b.unmount();
+    });
+
+    it('T6: server-error → 429 → not-sent → link-refused: the line is in each of the three later results', async () => {
+      page('server-error', 'rate-limited', 'not-sent', 'link-refused');
+      await pressAll(2);
+      expect(screen.getByRole('status').textContent).toBe(RATE_LIMITED_EARLIER_TRY);
+      await pressAll(1);
+      expect(screen.getByRole('status').textContent).toBe(`${NOT_SENT}${EARLIER_TRY}`);
+      await pressAll(1);
+      expect(refusedCard().textContent).toContain(EARLIER_TRY);
+    });
+
+    it('T7: a second interrupted result shows only its own body, never the earlier-try line on top', async () => {
+      for (const steps of [['unreachable', 'server-error'], ['server-error', 'unreachable'], ['thrown', 'thrown']] as Step[][]) {
+        const { unmount } = page(...steps);
+        await pressAll(2);
+        const heading = steps[1] === 'server-error' ? 'Something went wrong on our side.' : "We couldn't reach the server.";
+        expect(screen.getByRole('status').textContent).toBe(`${heading}${INTERRUPTED_BODY}`);
+        expect(document.body.textContent).not.toContain(EARLIER_TRY);
+        unmount();
+      }
+    });
+
+    it('T8: success ends it — the done phase has no earlier-try line and no extra Sign in', async () => {
+      page('unreachable', 'changed');
+      await pressAll(2);
+      expect(screen.getByRole('heading', { level: 1, name: 'Password set' })).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain(EARLIER_TRY);
+      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull(); // not before the 1.1 s wait
+    });
+
+    it('T9: the flag is memory only — never stored; a reload (fragment already stripped) shows the plain refusal', async () => {
+      const { unmount } = page('unreachable');
+      await pressAll(1);
+      expect(window.localStorage.length).toBe(0);
+      expect(window.sessionStorage.length).toBe(0);
+      expect(document.cookie).toBe('');
+      unmount();
+      // Named residual (b4-doubt-ux.md §4.3 "Reload"): the doubt is lost; the plain copy is still true.
+      window.history.replaceState(null, '', '/reset-password');
+      renderPage(vi.fn());
+      expect(refusedCard().textContent).toBe(`This link can't be used${REFUSED_BODY}${REFUSED_BODY_2}Ask for a new link`);
+    });
+
+    it('T10: one live region on flagged not-sent, with the line inside; on the flagged card nothing new is live or focused', async () => {
+      const a = page('unreachable', 'not-sent');
+      await pressAll(2);
+      const regions = screen.getAllByRole('status');
+      expect(regions).toHaveLength(1);
+      expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
+      const line = screen.getByText(EARLIER_TRY);
+      expect(regions[0]).toContainElement(line);
+      expect(line).not.toHaveAttribute('role');
+      expect(line).not.toHaveAttribute('tabindex');
+      a.unmount();
+
+      page('server-error', 'link-refused');
+      await pressAll(2);
+      const cardLine = screen.getByText(EARLIER_TRY);
+      const signIn = screen.getByRole('button', { name: 'Sign in' });
+      for (const el of [cardLine, signIn]) expect(el.closest('[role="status"],[role="alert"],[aria-live]')).toBeNull();
+      expect(document.querySelectorAll('[role="status"],[role="alert"],[aria-live]')).toHaveLength(0);
+      expect(screen.getByRole('heading', { level: 1, name: "This link can't be used" })).toHaveFocus();
+      expect(signIn).not.toHaveFocus();
+    });
   });
 
   it('no wording anywhere on the page claims an email was sent', async () => {

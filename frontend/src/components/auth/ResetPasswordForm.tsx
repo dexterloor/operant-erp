@@ -68,8 +68,10 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
   // though its answer was lost. Never cleared while the form is on screen — not by a later not-sent or 429, which say
   // nothing about the earlier request, and not by a 422: it proves the link was unused when it was checked, but the
   // interrupted request may still be running on the server and commit after it. It picks the 429's second line
-  // (confirm-pass-2026-10-30-final-red.md "Spar round 2", amendment 1). Residual, named and not built for: the same link
-  // used in another tab, then a 429 here — this page cannot know.
+  // (confirm-pass-2026-10-30-final-red.md "Spar round 2", amendment 1), and adds the same sentence as the not-sent
+  // banner's second line and under the refusal card's heading, with a Sign in action there (B4, b4-doubt-ux.md
+  // Revision 1 §R1-4). Memory only: never stored, so a reload loses it (named residual). Residual, named and not built
+  // for: the same link used in another tab — this page cannot know.
   const [interrupted, setInterrupted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receivedAt, setReceivedAt] = useState<number | null>(null);
@@ -158,9 +160,18 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
           <h1 ref={headingRef} tabIndex={-1} className={styles.title}>
             {SET_PASSWORD.refusedHeading}
           </h1>
+          {/* Client-derived from this page's own interrupted result, never from the 401: the same for every cause. */}
+          {interrupted ? <p>{SET_PASSWORD.earlierTryMaySet}</p> : null}
           <p>{SET_PASSWORD.refusedBody}</p>
           <p>{SET_PASSWORD.refusedBody2}</p>
           <div className={styles.actions}>
+            {interrupted ? (
+              // A full document load, as after success (BFF note R1-§4, by analogy). No 1.1 s wait: any commit happened
+              // before this refusal was answered.
+              <Button variant="primary" size="lg" onClick={() => navigate(signInHref)}>
+                {SET_PASSWORD.signIn}
+              </Button>
+            ) : null}
             <Link href={forgotHref} className={styles.link}>
               {SET_PASSWORD.askForNewLink}
             </Link>
@@ -201,13 +212,15 @@ export function ResetPasswordForm({ redeem, forgotHref = '/forgot-password', sig
       {notice === 'rate-limited' ? (
         <Banner ref={noticeRef} tone="warning" live="status" heading={RATE_LIMITED.heading}>
           <p>{RATE_LIMITED.body}</p>
-          <p className={styles.secondary}>{interrupted ? SET_PASSWORD.rateLimitedEarlierTry : SET_PASSWORD.rateLimitedNothingChanged}</p>
+          <p className={styles.secondary}>{interrupted ? SET_PASSWORD.earlierTryMaySet : SET_PASSWORD.rateLimitedNothingChanged}</p>
         </Banner>
       ) : null}
       {notice === 'not-sent' ? (
         // not-sent → C2-2 body: pairing CONFIRMED by UX (confirm-pass-2026-10-30.md Rev 1 §b; c10 FINAL A.2)
         <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
           <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
+          {/* B4: the earlier press may have set the password; this line is about it, never about this press. */}
+          {interrupted ? <p className={styles.secondary}>{SET_PASSWORD.earlierTryMaySet}</p> : null}
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (

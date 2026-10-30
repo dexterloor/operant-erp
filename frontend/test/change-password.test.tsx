@@ -121,6 +121,19 @@ describe('ChangePasswordForm (/account/password)', () => {
     }
   });
 
+  it('B4 (T11): the reset page\'s earlier-try line is not built here — not after not-sent, not after a 429', async () => {
+    // b4-doubt-ux.md Revision 1 §R1-3.2: a committed change ends this session, so the next press resolves the doubt.
+    for (const steps of [['unreachable', 'not-sent'], ['server-error', 'rate-limited'], ['server-error', 'not-sent']] as const) {
+      const action = vi.fn<ChangePasswordAction>();
+      for (const k of steps) action.mockResolvedValueOnce({ kind: k });
+      const { unmount } = render(<ChangePasswordForm changePassword={action} onSessionEnded={vi.fn()} />);
+      await fillAndSubmit();
+      await fillAndSubmit();
+      expect(document.body.textContent).not.toContain('An earlier try');
+      unmount();
+    }
+  });
+
   it('F-4: session-changed → the injected reload, once; no banner, no session-ended hand-over', async () => {
     const reload = vi.fn();
     const ended = vi.fn();
