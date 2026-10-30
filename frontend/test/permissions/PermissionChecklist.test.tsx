@@ -37,8 +37,16 @@ describe('PermissionChecklist — groups, labels, counts', () => {
   it('groups by module in the sidebar order with the ruled headings; one labelled box per code', () => {
     render(<ChecklistHarness role={CUSTOM_ROLE} />);
     expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(MODULE_HEADINGS.map((m) => m.heading));
-    for (const code of Object.keys(PERMISSION_LABELS)) expect(box(PERMISSION_LABELS[code]!.label)).toBeInTheDocument();
-    expect(screen.getAllByRole('checkbox')).toHaveLength(PERMISSIONS.length + MODULE_HEADINGS.length);
+    // One role query names every box (each accessible name computed once); a `box()` per label re-scanned all ~70
+    // boxes for each of the ~60 labels and made this the slowest test in the suite (2.3 s alone, measured 2026-10-30).
+    // Same check as before: every label names exactly one box.
+    const names: string[] = [];
+    const boxes = screen.getAllByRole('checkbox', { name: (n) => (names.push(n), true) });
+    for (const code of Object.keys(PERMISSION_LABELS)) {
+      const label = PERMISSION_LABELS[code]!.label;
+      expect(names.filter((n) => n === label), label).toHaveLength(1);
+    }
+    expect(boxes).toHaveLength(PERMISSIONS.length + MODULE_HEADINGS.length);
   });
 
   it('header "{n} of {total} permissions" counts the served catalogue (never a typed total); groups "{n} of {m}"', async () => {

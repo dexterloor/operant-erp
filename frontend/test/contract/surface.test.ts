@@ -53,7 +53,10 @@ describe('generated API surface (b3b §4, A-7)', () => {
     }
   });
 
-  it('`surface:check` exits non-zero on a missing input, and zero on the committed tree', () => {
+  // An explicit timeout, and only here: this is the one test that starts two `node` processes, so its time is node's
+  // start-up under whatever else the machine is running (≈70 ms each alone; it went past vitest's 5 s default with
+  // three or four suites running at once). The work itself is the same small file comparison the tests above make.
+  it('`surface:check` exits non-zero on a missing input, and zero on the committed tree', { timeout: 30_000 }, () => {
     const empty = mkdtempSync(path.join(tmpdir(), 'surface-'));
     try {
       const bad = spawnSync(process.execPath, ['scripts/build-api-surface.mjs', '--check', '--contracts', empty], { cwd: FRONTEND, encoding: 'utf8' });
