@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: USERS_LIST.heading };
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
   const archived = query.archived === 'true';
-  const { session, viewer } = await currentViewer();
+  const { session, viewer } = await currentViewer(sessionEndedPath('/admin/users', query));
   if (!viewerMay('ListUsers', viewer.permissionCodes)) return <PeopleDenied />;
   const first = await loadUsers(serverRead(session), archived);
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/users', query));

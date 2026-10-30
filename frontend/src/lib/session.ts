@@ -54,6 +54,16 @@ export function safeReturnPath(
   }
 }
 
+/**
+ * Where a page sends a person whose session has ended (b3b-design.md §6.3, §10): the sign-in notice, carrying the page
+ * they were on (path and query) as `return_to`. `here` is a request, not a destination: after sign-in the browser goes
+ * only to the address the sign-in handler returns, and that handler alone checks `here` with `safeReturnPath` (SD-1).
+ * So any `here` is safe to carry, and one that is refused (off-site, undeclared, an account page, `/`) lands on `/`.
+ */
+export function sessionEndedHref(here: string): string {
+  return `/login?reason=session_ended&return_to=${encodeURIComponent(here)}`;
+}
+
 /** Initials for the avatar: first letters of the first two words of the display name. */
 export function initials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);

@@ -31,13 +31,13 @@ function gatesOf(codes: readonly string[]) {
 }
 
 const personFor = cache(async (id: string) => {
-  const { session, viewer } = await currentViewer();
+  const { session, viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
   return loadPersonView(serverRead(session), id, gatesOf(viewer.permissionCodes));
 });
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
-  const { viewer } = await currentViewer();
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
   if (!isRecordId(id) || !viewerMay('GetUser', viewer.permissionCodes)) return { title: USERS_LIST.heading };
   const p = await personFor(id);
   return { title: p.kind === 'ok' ? p.view.person.display_name : USERS_LIST.heading };
@@ -45,7 +45,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function Page({ params }: Params) {
   const { id } = await params;
-  const { viewer } = await currentViewer();
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
   if (!viewerMay('GetUser', viewer.permissionCodes)) return <PeopleDenied />;
   if (!isRecordId(id)) notFound();
   const first = await personFor(id);

@@ -2,6 +2,7 @@ import { bffFetch } from './transport';
 import { bffPathFor } from './paths';
 import { classify, type ApiFailure } from './problem';
 import { operation, type SurfaceOperation } from './surface';
+import { sessionEndedHref } from '../session';
 
 // The ONE caller for /bff/api/* (b3b-design.md §6.1, §6.3, §7). It builds the path with bffPath, sends X-ERP-Session on
 // every call (GET included), applies problem.ts, and runs the session handling:
@@ -86,7 +87,7 @@ export function createApiCaller(deps: CallerDeps): ApiCaller {
     if (c.kind === 'session-ended-navigate') {
       if (!ended) {
         ended = true;
-        deps.navigate(`/login?reason=session_ended&return_to=${encodeURIComponent(deps.here())}`);
+        deps.navigate(sessionEndedHref(deps.here()));
       }
       return { kind: 'session-ended' };
     }

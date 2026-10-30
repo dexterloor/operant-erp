@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { initials, safeReturnPath, workspaceLabel } from '@/lib/session';
+import { DECLARED_ROUTES } from '@/lib/routes';
+import { initials, safeReturnPath, sessionEndedHref, workspaceLabel } from '@/lib/session';
 
 describe('D14 workspace label', () => {
   it('tenant_settings.view holders see the display name', () => {
@@ -99,4 +100,52 @@ describe('initials', () => {
     expect(initials('sample person name')).toBe('SP');
     expect(initials('  Solo ')).toBe('S');
   });
+});
+
+// The session-ended address (b3b-design.md §6.3, §10): every place that ends a session sends the browser to the
+// sign-in notice with the page it was on — path AND query — as `return_to`. The address is only a request: the sign-in
+// handler alone decides where the browser goes, through `safeReturnPath` over the declared routes (SD-1), so a hostile
+// page address still lands on `/`.
+describe('the session-ended address carries the page it was on', () => {
+  const uuid = '0b7c1f9e-3f4a-4c8e-9d2b-5a6e7f8091a2';
+  const after = (here: string) => {
+    const to = new URL(sessionEndedHref(here), 'https://x.invalid');
+    expect(to.origin).toBe('https://x.invalid');
+    expect(to.pathname).toBe('/login');
+    expect(to.searchParams.get('reason')).toBe('session_ended');
+    expect(to.searchParams.get('return_to')).toBe(here);
+    return safeReturnPath(to.searchParams.get('return_to'), { declaredRoutes: DECLARED_ROUTES, fallback: '/' });
+  };
+
+  it('is the notice with the whole place encoded as one value', () => {
+    expect(sessionEndedHref('/admin/users?archived=true&q=a b')).toBe('/login?reason=session_ended&return_to=%2Fadmin%2Fusers%3Farchived%3Dtrue%26q%3Da%20b');
+    expect(sessionEndedHref('/')).toBe('/login?reason=session_ended&return_to=%2F');
+  });
+
+  it.each([
+    ['/admin/users?archived=true', '/admin/users?archived=true'],
+    [`/admin/users/${uuid}`, `/admin/users/${uuid}`],
+    ['/admin/roles?archived=true&q=x%26y', '/admin/roles?archived=true&q=x%26y'],
+    ['/', '/'],
+  ])('a built page %s comes back to %s after sign-in', (here, want) => expect(after(here)).toBe(want));
+
+  it.each([
+    '//evil.example',
+    '//evil.example/admin/users',
+    '/\\evil.example',
+    'https://evil.example/admin/users',
+    '/%2F%2Fevil.example',
+    '/%2f%2fevil.example',
+    '%2F%2Fevil.example',
+    '/%5Cevil.example',
+    '/.//evil.example',
+    '/admin/..//evil.example',
+    '/admin/%2e%2e//evil.example',
+    '/\t/evil.example',
+    'javascript:alert(1)',
+    '/login?return_to=//evil.example',
+    '/account/password',
+    '/nowhere',
+    '',
+  ])('a hostile or undeclared place %j falls back to /', (here) => expect(after(here)).toBe('/'));
 });

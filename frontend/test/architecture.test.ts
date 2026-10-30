@@ -231,7 +231,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // b3b-followup C-2 added: app/error.tsx, app/(app)/error.tsx, app/not-found.tsx.
   // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
   // ChangePasswordRoute}.tsx → app/(app)/account/password/ (Revision 6 A-13).
-  'src/app': 39,
+  // Session-expiry return path added: app/(app)/SessionEndedReturn.tsx.
+  'src/app': 40,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {

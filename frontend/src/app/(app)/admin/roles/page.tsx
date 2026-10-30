@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: ROLES_LIST.heading };
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
   const archived = query.archived === 'true';
-  const { session, viewer } = await currentViewer();
+  const { session, viewer } = await currentViewer(sessionEndedPath('/admin/roles', query));
   if (!viewerMay('ListRoles', viewer.permissionCodes)) return <RolesDenied />;
   const first = await loadRoles(serverRead(session), archived);
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/roles', query));
