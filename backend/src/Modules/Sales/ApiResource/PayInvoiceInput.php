@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -27,5 +28,6 @@ final class PayInvoiceInput
      * @var mixed list of uuids; checked by `InvoicePayment`
      */
     #[SerializedName('acknowledged_return_ids')]
+    #[ApiProperty(schema: ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']])]
     public mixed $acknowledgedReturnIds = null;
 }

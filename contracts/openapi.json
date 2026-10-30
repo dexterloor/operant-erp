@@ -538,22 +538,32 @@
                 "additionalProperties": false,
                 "properties": {
                     "acknowledged_return_ids": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
-                    },
-                    "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "format": "uuid",
+                            "type": "string"
                         },
                         "type": [
                             "array",
                             "null"
                         ]
+                    },
+                    "lines": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "fulfilment_line_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "maxItems": 200,
+                        "minItems": 1,
+                        "type": "array"
                     },
                     "reason": {
                         "type": [
@@ -569,15 +579,21 @@
                 "properties": {
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "fulfilment_line_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         },
-                        "type": [
-                            "array",
-                            "null"
-                        ]
+                        "maxItems": 200,
+                        "minItems": 1,
+                        "type": "array"
                     },
                     "reason": {
                         "type": [
@@ -1184,15 +1200,25 @@
                 "properties": {
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "sales_order_line_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "storage_location_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         },
-                        "type": [
-                            "array",
-                            "null"
-                        ]
+                        "maxItems": 200,
+                        "minItems": 1,
+                        "type": "array"
                     },
                     "shipped_at": {
                         "type": [
@@ -1346,15 +1372,25 @@
                 "properties": {
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "purchase_order_line_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "storage_location_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         },
-                        "type": [
-                            "array",
-                            "null"
-                        ]
+                        "maxItems": 200,
+                        "minItems": 1,
+                        "type": "array"
                     },
                     "received_at": {
                         "type": [
@@ -1452,8 +1488,12 @@
                 "additionalProperties": false,
                 "properties": {
                     "acknowledged_return_ids": {
+                        "items": {
+                            "format": "uuid",
+                            "type": "string"
+                        },
                         "type": [
-                            "string",
+                            "array",
                             "null"
                         ]
                     },
@@ -2296,11 +2336,23 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "inventory_item_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "unit_cost": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         },
+                        "maxItems": 200,
+                        "minItems": 1,
                         "type": [
                             "array",
                             "null"
@@ -2659,10 +2711,10 @@
                         ]
                     },
                     "permission_codes": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     }
                 },
                 "type": "object"
@@ -2683,10 +2735,10 @@
                         ]
                     },
                     "permission_codes": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     }
                 },
                 "type": "object"
@@ -2988,11 +3040,23 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "inventory_item_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "unit_price": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         },
+                        "maxItems": 200,
+                        "minItems": 1,
                         "type": [
                             "array",
                             "null"
@@ -3443,8 +3507,12 @@
                 "additionalProperties": false,
                 "properties": {
                     "acknowledged_return_ids": {
+                        "items": {
+                            "format": "uuid",
+                            "type": "string"
+                        },
                         "type": [
-                            "string",
+                            "array",
                             "null"
                         ]
                     },
@@ -3486,15 +3554,28 @@
                 "properties": {
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "additionalProperties": false,
+                            "properties": {
+                                "fulfilment_line_id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "storage_location_id": {
+                                    "format": "uuid",
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                }
+                            },
+                            "type": "object"
                         },
-                        "type": [
-                            "array",
-                            "null"
-                        ]
+                        "maxItems": 200,
+                        "minItems": 1,
+                        "type": "array"
                     },
                     "reason": {
                         "type": [

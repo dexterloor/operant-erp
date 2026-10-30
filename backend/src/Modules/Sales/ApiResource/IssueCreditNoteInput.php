@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Sales\Application\CreditNoteWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -20,5 +22,18 @@ final class IssueCreditNoteInput
     public mixed $salesReturnId = null;
 
     /** @var array<mixed>|null */
+    #[ApiProperty(schema: [
+        'type' => 'array',
+        'minItems' => 1,
+        'maxItems' => CreditNoteWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 }
