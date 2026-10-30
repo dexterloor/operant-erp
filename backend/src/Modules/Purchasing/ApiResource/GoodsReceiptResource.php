@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
@@ -80,6 +81,28 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class GoodsReceiptResource
 {
     /**
+     * The served schema of one `GoodsReceiptLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
+     * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
+     */
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'purchase_order_line', 'inventory_item', 'quantity', 'storage_location'], 'properties' => [
+        'id' => ['type' => 'string', 'format' => 'uuid'],
+        'purchase_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'line_number' => ['type' => 'integer'],
+        ]],
+        'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sku' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+        ]],
+        'quantity' => ['type' => 'string'],
+        'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'code' => ['type' => 'string'],
+        ]],
+    ]];
+
+    /**
      * @param list<GoodsReceiptLineView> $lines
      */
     public function __construct(
@@ -90,6 +113,7 @@ final class GoodsReceiptResource
         public string $receivedAt,
         #[SerializedName('purchase_order')]
         public OrderReference $purchaseOrder,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
         /**
          * API-O-33 option (a), ruled 2026-09-14: who booked the delivery, gated

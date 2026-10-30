@@ -104,6 +104,57 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 final class SalesReturnResource
 {
     /**
+     * The served schema of one `SalesReturnLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
+     * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
+     */
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'fulfilment_line', 'inventory_item', 'quantity', 'storage_location', 'quantity_credited'], 'properties' => [
+        'id' => ['type' => 'string', 'format' => 'uuid'],
+        'fulfilment_line' => ['type' => 'object', 'required' => ['id', 'sales_order_line', 'inventory_item', 'storage_location'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sales_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'line_number' => ['type' => 'integer'],
+            ]],
+            'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'sku' => ['type' => 'string'],
+                'name' => ['type' => 'string'],
+            ]],
+            'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'code' => ['type' => 'string'],
+            ]],
+        ]],
+        'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sku' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+        ]],
+        'quantity' => ['type' => 'string'],
+        'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'code' => ['type' => 'string'],
+        ]],
+        'quantity_credited' => ['type' => 'string'],
+        'quantity_covered_by_adjustment' => ['type' => 'string'],
+        'adjustment_decisions' => ['type' => 'array', 'items' => ['type' => 'object', 'required' => ['id', 'credit_note', 'kind', 'quantity', 'reverses_decision_id', 'recorded_by', 'recorded_at'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'credit_note' => ['type' => 'object', 'required' => ['id', 'credit_note_number'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'credit_note_number' => ['type' => 'string'],
+            ]],
+            'kind' => ['type' => 'string'],
+            'quantity' => ['type' => ['string', 'null']],
+            'reverses_decision_id' => ['type' => ['string', 'null'], 'format' => 'uuid'],
+            'recorded_by' => ['type' => 'object', 'required' => ['id', 'display_name'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'display_name' => ['type' => 'string'],
+            ]],
+            'recorded_at' => ['type' => 'string'],
+        ]]],
+    ]];
+
+    /**
      * @param list<SalesReturnLineView> $lines
      */
     public function __construct(
@@ -126,6 +177,7 @@ final class SalesReturnResource
         public SalesActorRef $recordedBy,
         #[SerializedName('created_at')]
         public string $createdAt,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
         /**
          * `true` when the return would be creditable but its invoice is paid (Q-E, G-23's queue). **Absent** — not null —

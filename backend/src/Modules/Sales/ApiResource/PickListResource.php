@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
@@ -53,6 +54,32 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class PickListResource
 {
     /**
+     * The served schema of one `PickListLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
+     * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
+     */
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['sales_order_line', 'inventory_item', 'quantity', 'quantity_fulfilled', 'quantity_outstanding', 'candidate_bins'], 'properties' => [
+        'sales_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'line_number' => ['type' => 'integer'],
+        ]],
+        'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sku' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+        ]],
+        'quantity' => ['type' => 'string'],
+        'quantity_fulfilled' => ['type' => 'string'],
+        'quantity_outstanding' => ['type' => 'string'],
+        'candidate_bins' => ['type' => 'array', 'items' => ['type' => 'object', 'required' => ['storage_location', 'qty_on_hand'], 'properties' => [
+            'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'code' => ['type' => 'string'],
+            ]],
+            'qty_on_hand' => ['type' => 'string'],
+        ]]],
+    ]];
+
+    /**
      * @param list<PickListLineView> $lines live lines only, by `line_number`
      */
     public function __construct(
@@ -71,6 +98,7 @@ final class PickListResource
         public string $shipToPostalCode,
         #[SerializedName('ship_to_country_code')]
         public string $shipToCountryCode,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
     ) {
     }
