@@ -117,13 +117,20 @@ export function ForgotPasswordForm({ requestReset, rememberedWorkspace = '', sig
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (
-        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
+        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH} describeBody>
           <p>{REQUEST_RESET.interruptedBody}</p>
         </Banner>
       ) : null}
-      {notice === 'server-error' || notice === 'not-sent' ? (
-        // not-sent → C2-2 body: pairing CONFIRMED by UX (confirm-pass-2026-10-30.md Rev 1 §b; c10 FINAL A.2)
-        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG}>
+      {notice === 'server-error' ? (
+        // A server error may still have queued the request: the same doubt as unreachable (forgot-heading-ux.md Rev 1 (b)).
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG} describeBody>
+          <p>{REQUEST_RESET.interruptedBody}</p>
+        </Banner>
+      ) : null}
+      {notice === 'not-sent' ? (
+        // not-sent → C2-2 body: pairing CONFIRMED by UX (confirm-pass-2026-10-30.md Rev 1 §b; c10 FINAL A.2). Nothing
+        // reached the API, so it keeps its own branch and its shipped text.
+        <Banner ref={noticeRef} tone="danger" live="status" heading={WENT_WRONG} describeBody>
           <p>{CREDENTIAL_FALLBACK.serverErrorBody}</p>
         </Banner>
       ) : null}

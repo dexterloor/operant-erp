@@ -118,6 +118,24 @@ describe('axe — credential pages', () => {
     expect(screen.getByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
   });
 
+  // forgot-heading-ux.md Revision 1 T10: the three interrupted / not-sent banners, each with its described heading.
+  it('request page: unreachable, server error, not sent', async () => {
+    const action = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'unreachable' })
+      .mockResolvedValueOnce({ kind: 'server-error' })
+      .mockResolvedValueOnce({ kind: 'not-sent' });
+    const { container } = render(<ForgotPasswordForm requestReset={action} />);
+    for (const heading of ["We couldn't reach the server.", 'Something went wrong on our side.', 'Something went wrong on our side.']) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Send link' }));
+      });
+      expect(screen.getByRole('status').textContent).toContain(heading);
+      await expectNoViolations(container);
+    }
+    expect(action).toHaveBeenCalledTimes(3);
+  });
+
   it('set-new-password page: form, 422, refusal; and success', async () => {
     window.history.replaceState(null, '', '/reset-password#token=abc');
     const action = vi

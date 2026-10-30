@@ -46,6 +46,8 @@ describe('wiredRequestReset — POST /bff/password-resets', () => {
     [() => problem(422, { type: 'urn:erp:problem:validation-failed', errors: [{ pointer: '/other', code: 'x', message: 'm' }] }), { kind: 'server-error' }],
     [() => problem(429, { type: 'urn:erp:problem:too-many-attempts' }), { kind: 'rate-limited' }],
     [() => problem(502, { type: 'urn:erp:bff:server-error' }), { kind: 'server-error' }],
+    // forgot-heading-ux.md Revision 1 T11: a timeout may have reached the API, so it is never "not sent".
+    [() => problem(504, { type: 'urn:erp:bff:upstream-timeout' }), { kind: 'server-error' }],
     [() => problem(401, { type: 'urn:erp:problem:authentication-failed' }), { kind: 'server-error' }],
     [() => Promise.reject(new TypeError('x')), { kind: 'unreachable' }],
   ])('answer %# → its kind', async (answer, want) => {

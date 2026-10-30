@@ -3,7 +3,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
-import type { RequestResetResult } from '@/lib/auth/results';
+import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm';
+import type { RedeemResetResult, RequestResetResult } from '@/lib/auth/results';
 
 // Copy typed here from docs/design/ux-copy-frontend.md §1.3, independently of src/copy, so a drift in either is caught.
 const INTRO = "Enter the workspace name and email you sign in with. If they belong to an active account, we'll send a link to set a new password.";
@@ -14,6 +15,7 @@ const RESULT_BODY_2 =
 const SHARED_LIMIT = 'This limit is shared with signing in, so it can also come from other people on the same network.';
 /** The R1-1 house headings, typed here (forgot-heading-ux.md §3). */
 const COULD_NOT_REACH = "We couldn't reach the server.";
+const WENT_WRONG = 'Something went wrong on our side.';
 /** forgot-heading-ux.md §3 / Revision 1: the body of the interrupted notices on this page. */
 const INTERRUPTED_BODY =
   "We can't tell whether your request got through. If an email with a link arrives, use it. If none arrives in a few minutes, press Send link again.";
@@ -130,9 +132,10 @@ describe('ForgotPasswordForm (/forgot-password)', () => {
     ['a resolved "unreachable"', { kind: 'unreachable' }],
   ])('unreachable (%s): exactly the R1-1 heading and the interrupted body; never "nothing was sent"', async (_, result) => {
     await submitWith(result);
-    expect(screen.getByRole('status').textContent).toBe(COULD_NOT_REACH + INTERRUPTED_BODY);
-    expect(document.body.textContent).not.toMatch(/nothing was sent/i);
+    // The negatives first, so a claim that mail was sent fails here by name rather than at the exact-text check.
     expect(document.body.textContent).not.toMatch(NEVER_SENT_CLAIM);
+    expect(document.body.textContent).not.toMatch(/nothing was sent/i);
+    expect(screen.getByRole('status').textContent).toBe(COULD_NOT_REACH + INTERRUPTED_BODY);
   });
 
   // T4: the body names the button it tells the person to press; renaming either alone goes red.
@@ -186,15 +189,75 @@ describe('ForgotPasswordForm (/forgot-password)', () => {
     expect(status.querySelector('svg.lucide-wifi-off') !== null).toBe(offline);
   });
 
-  it('5xx: a bounded message, never the server detail', async () => {
+  // T2: a server error may still have queued the request, so it gets the interrupted body under its own heading.
+  it('server error: exactly "Something went wrong on our side." and the interrupted body', async () => {
     await submitWith({ kind: 'server-error' });
-    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(screen.getByRole('status').textContent).toBe(WENT_WRONG + INTERRUPTED_BODY);
   });
 
-  // Coverage, not evidence (c10-final-red L-2): server-error already shows this text, so mapping not-sent to it stays
-  // green. The pin is the authCalls case in auth-wired.test.tsx.
-  it('not sent (refused by the web app\'s server): the same bounded message', async () => {
+  // T3: not-sent is known to have sent nothing (the web app's server refused before calling the API), so it keeps its
+  // shipped text. The 504 pin is in auth-wired.test.tsx (T11).
+  it("not sent (refused by the web app's server): exactly the shipped bounded message, never the interrupted body", async () => {
     await submitWith({ kind: 'not-sent' });
-    expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(screen.getByRole('status').textContent).toBe(WENT_WRONG + 'Try again in a moment.');
+  });
+
+  // T8 (RED A1): focus lands on the banner heading after each outcome, and again after the SAME outcome a second time,
+  // with focus moved away first (fireEvent.click does not move focus in jsdom).
+  it.each<RequestResetResult['kind']>(['unreachable', 'server-error', 'not-sent'])(
+    '%s: focus goes to the banner heading, and back to it when the same outcome repeats',
+    async (kind) => {
+      const action = vi.fn(async () => ({ kind }) as RequestResetResult);
+      render(<ForgotPasswordForm requestReset={action} />);
+      fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'acme' } });
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'pat@example.com' } });
+      const button = screen.getByRole('button', { name: 'Send link' });
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      const heading = () => screen.getByRole('status').querySelector('p[tabindex="-1"]');
+      expect(heading()).not.toBeNull();
+      expect(heading()).toHaveFocus();
+      button.focus();
+      expect(button).toHaveFocus();
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      expect(action).toHaveBeenCalledTimes(2);
+      expect(heading()).toHaveFocus();
+    },
+  );
+
+  // T9: the focused heading is described by exactly its banner's body (opt-in `describeBody` on the three Forgot banners).
+  it.each<[RequestResetResult['kind'], string]>([
+    ['unreachable', INTERRUPTED_BODY],
+    ['server-error', INTERRUPTED_BODY],
+    ['not-sent', 'Try again in a moment.'],
+  ])('%s: the focused heading is described by exactly the body', async (kind, body) => {
+    await submitWith({ kind } as RequestResetResult);
+    const heading = screen.getByRole('status').querySelector('p[tabindex="-1"]') as HTMLElement;
+    expect(heading).toHaveFocus();
+    const id = heading.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id as string)?.textContent).toBe(body);
+    expect(heading).toHaveAccessibleDescription(body);
+  });
+
+  it('describeBody is opt-in: the reset page not-sent banner and this page\'s 429 banner carry no description', async () => {
+    window.history.replaceState(null, '', '/reset-password#token=abc');
+    const reset = render(<ResetPasswordForm redeem={vi.fn(async () => ({ kind: 'not-sent' }) as RedeemResetResult)} />);
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'correct horse battery' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Set password' }));
+    });
+    const resetHeading = screen.getByRole('status').querySelector('p[tabindex="-1"]');
+    expect(resetHeading).not.toBeNull();
+    expect(resetHeading).not.toHaveAttribute('aria-describedby');
+    reset.unmount();
+    window.history.replaceState(null, '', '/');
+    await submitWith({ kind: 'rate-limited' });
+    const limitHeading = screen.getByRole('status').querySelector('p[tabindex="-1"]');
+    expect(limitHeading).not.toBeNull();
+    expect(limitHeading).not.toHaveAttribute('aria-describedby');
   });
 });
