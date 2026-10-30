@@ -9,7 +9,7 @@ const REFUSED_BODY = 'Each link works once, for 30 minutes, and setting a new pa
 const REFUSED_BODY_2 = "If a new link doesn't arrive, ask the person who manages your workspace.";
 const DONE_BODY = "You've been signed out everywhere, including other tabs and devices. Sign in with your new password.";
 const NEVER_SENT_CLAIM = /emailed|email sent|we've sent|we have sent|check your inbox|sent you/i;
-/** PROPOSED (b3b-followup C-6), typed here independently of src/copy. */
+/** CONFIRMED (ux-confirm-followup.md §3; first proposed as b3b-followup C-6), typed here independently of src/copy. */
 const INTERRUPTED_BODY = "We can't tell whether your new password was set. Try signing in with it. If that doesn't work, press Set password again, or ask for a new link.";
 /** The 429 lines (confirm-pass-2026-10-30-final-red.md Spar round 2, amendment 1), typed here independently of src/copy. */
 const RATE_LIMITED_NOTHING_CHANGED = 'Too many attempts.Try again in a few minutes.Nothing was changed.';

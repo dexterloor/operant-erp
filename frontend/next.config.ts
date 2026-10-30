@@ -19,16 +19,17 @@ const publicOrigin = process.env.APP_PUBLIC_ORIGIN;
 if (publicOrigin !== undefined && !isLoopbackOrigin(publicOrigin)) throw new Error('Refusing to build for a public origin that is not loopback.');
 
 /**
- * Response headers for the two password-reset pages (ux-copy-frontend.md §1.3–§1.4, bff-auth-note.md §8 / R1-§8):
- * no referrer may carry anything off these pages, and neither may be stored by a browser or a shared cache. Both pages
- * are also rendered per request (`dynamic = 'force-dynamic'`), which is what makes Next itself send `no-store`; the
- * explicit header here is the declared rule a test reads.
+ * Response headers for the credential pages: the two password-reset pages (ux-copy-frontend.md §1.3–§1.4, bff-auth-note.md
+ * §8 / R1-§8) and the change-password page (§1.5; confirm-pass-2026-10-30.md finding 11). No referrer may carry anything
+ * off these pages, and none may be stored by a browser or a shared cache. Each is also rendered per request
+ * (`dynamic = 'force-dynamic'`), which is what makes Next itself send `no-store`; the explicit header here is the declared
+ * rule a test reads. The test derives the list from disk (every page built from the password copy), both ways.
  */
 export const CREDENTIAL_PAGE_HEADERS = [
   { key: 'Referrer-Policy', value: 'no-referrer' },
   { key: 'Cache-Control', value: 'no-store' },
 ] as const;
-export const CREDENTIAL_PAGE_ROUTES = ['/forgot-password', '/reset-password'] as const;
+export const CREDENTIAL_PAGE_ROUTES = ['/forgot-password', '/reset-password', '/account/password'] as const;
 
 /** No page of this app may be framed by another site (bff-auth-note.md R1-§3; b3b-design.md §5 item 13). */
 export const FRAME_HEADERS = [

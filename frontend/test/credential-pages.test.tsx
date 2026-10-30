@@ -3,7 +3,7 @@ import path from 'node:path';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import nextConfig from '../next.config';
+import nextConfig, { CREDENTIAL_PAGE_ROUTES } from '../next.config';
 import * as forgotPage from '@/app/(auth)/forgot-password/page';
 import * as resetPage from '@/app/(auth)/reset-password/page';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
@@ -23,7 +23,7 @@ function filesUnder(dir: string): string[] {
 }
 
 describe('credential routes — response headers (§1.4, BFF note §8)', () => {
-  it.each(['/forgot-password', '/reset-password'])('%s sends Referrer-Policy: no-referrer and Cache-Control: no-store', async (route) => {
+  it.each([...CREDENTIAL_PAGE_ROUTES])('%s sends Referrer-Policy: no-referrer and Cache-Control: no-store', async (route) => {
     const rules = (await nextConfig.headers?.()) ?? [];
     const rule = rules.find((r) => r.source === route);
     expect(rule, `no headers rule for ${route}`).toBeDefined();
