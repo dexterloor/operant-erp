@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -24,6 +25,7 @@ final class UpdateRoleInput
     public mixed $description;
 
     #[SerializedName('permission_codes')]
+    #[ApiProperty(schema: ['type' => 'array', 'items' => ['type' => 'string']])]
     public mixed $permissionCodes;
 
     /**

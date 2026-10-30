@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Sales\Application\FulfilmentWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -20,5 +22,19 @@ final class CreateFulfilmentInput
     public ?string $shippedAt = null;
 
     /** @var array<mixed>|null */
+    #[ApiProperty(schema: [
+        'type' => 'array',
+        'minItems' => 1,
+        'maxItems' => FulfilmentWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'sales_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+                'storage_location_id' => ['type' => 'string', 'format' => 'uuid'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 }

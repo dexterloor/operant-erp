@@ -7,6 +7,12 @@ namespace App\Tests\Api;
 use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Operation;
+use App\Modules\Purchasing\Application\GoodsReceiptWriter;
+use App\Modules\Purchasing\Application\PurchaseOrderWriter;
+use App\Modules\Sales\Application\CreditNoteWriter;
+use App\Modules\Sales\Application\FulfilmentWriter;
+use App\Modules\Sales\Application\SalesOrderWriter;
+use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
@@ -543,17 +549,8 @@ final class OpenApiContractTest extends ApiTestCase
      * BK-13 T-1. Every `items` and every object-valued `additionalProperties` node in the served spec types its element,
      * and every array declares `items`. A list property declared `public array $x` with its element type only in a
      * docblock falls back to `{"type":["string","null"]}`, because no docblock reader is installed: that fallback is
-     * what this test refuses. The remaining offenders are pinned, two-way.
+     * what this test refuses. There are no exceptions.
      */
-    private const ITEMS_NOT_YET_TYPED = [
-        'components/schemas/CreditNote.IssueAdjustmentCreditNoteInput/properties/lines',
-        'components/schemas/CreditNote.IssueCreditNoteInput/properties/lines',
-        'components/schemas/Fulfilment.CreateFulfilmentInput/properties/lines',
-        'components/schemas/GoodsReceipt.CreateGoodsReceiptInput/properties/lines',
-        'components/schemas/PurchaseOrder.CreatePurchaseOrderInput/properties/lines',
-        'components/schemas/SalesOrder.CreateSalesOrderInput/properties/lines',
-        'components/schemas/SalesReturn.CreateSalesReturnInput/properties/lines',
-    ];
 
     #[Test]
     public function noArrayInTheSpecFallsBackToAnUntypedItem(): void
@@ -569,9 +566,7 @@ final class OpenApiContractTest extends ApiTestCase
         self::assertContains('components/schemas/User/properties/roles', $inspected);
 
         sort($offenders);
-        $expected = self::ITEMS_NOT_YET_TYPED;
-        sort($expected);
-        self::assertSame($expected, $offenders, 'An array in the served spec types its items as the string|null fallback, or has no items at all. Declare #[ApiProperty(schema: [...])] on the property.');
+        self::assertSame([], $offenders, 'An array in the served spec types its items as the string|null fallback, or has no items at all. Declare #[ApiProperty(schema: [...])] on the property.');
     }
 
     /**
@@ -787,7 +782,7 @@ final class OpenApiContractTest extends ApiTestCase
 
             if ('array' === $typeName) {
                 $element = self::listElementClass($property);
-                if (null === $element || \in_array('components/schemas/'.self::shortNameOf($class).'/properties/'.$name, self::ITEMS_NOT_YET_TYPED, true)) {
+                if (null === $element) {
                     continue;
                 }
                 $visited[] = $here;
@@ -797,12 +792,6 @@ final class OpenApiContractTest extends ApiTestCase
                 $this->walkMembers($typeName, $memberNode, $here, $childHand, $skip, $spec, $failures, $visited);
             }
         }
-    }
-
-    /** The served short name of an `#[ApiResource]` class (T-3′ skips exactly T-1's allow-list, keyed by component). */
-    private static function shortNameOf(string $class): string
-    {
-        return self::apiResourceClasses()[$class] ?? (new \ReflectionClass($class))->getShortName();
     }
 
     private static function effectiveSkipNull(\ReflectionProperty $property, bool $inherited): bool
@@ -885,7 +874,6 @@ final class OpenApiContractTest extends ApiTestCase
      * typed (BK-15's list), two-way.
      */
     private const MIXED_INPUTS_NOT_YET_TYPED = [
-        'CreateAdjustmentDecisionInput::$acknowledgedReturnIds',
         'CreateAdjustmentDecisionInput::$creditNoteLineId',
         'CreateAdjustmentDecisionInput::$kind',
         'CreateAdjustmentDecisionInput::$quantity',
@@ -895,7 +883,6 @@ final class OpenApiContractTest extends ApiTestCase
         'CreateCustomerInput::$paymentTermsDays',
         'CreateRoleInput::$description',
         'CreateRoleInput::$name',
-        'CreateRoleInput::$permissionCodes',
         'CreateSalesReturnInput::$reason',
         'CreateStockAdjustmentInput::$countedQuantity',
         'CreateStockAdjustmentInput::$inventoryItemId',
@@ -911,17 +898,14 @@ final class OpenApiContractTest extends ApiTestCase
         'CreateSupplierProductInput::$leadTimeDays',
         'CreateUserInput::$displayName',
         'CreateUserInput::$email',
-        'IssueAdjustmentCreditNoteInput::$acknowledged_return_ids',
         'IssueAdjustmentCreditNoteInput::$reason',
         'IssueCreditNoteInput::$reason',
         'IssueCreditNoteInput::$salesReturnId',
-        'PayInvoiceInput::$acknowledgedReturnIds',
         'RejectRoleGrantProposalInput::$reason',
         'UpdateCustomerContactInput::$isPrimary',
         'UpdateCustomerInput::$paymentTermsDays',
         'UpdateRoleInput::$description',
         'UpdateRoleInput::$name',
-        'UpdateRoleInput::$permissionCodes',
         'UpdateSettingsInput::$displayName',
         'UpdateSupplierInput::$paymentTermsDays',
         'UpdateSupplierProductInput::$leadTimeDays',
@@ -975,5 +959,163 @@ final class OpenApiContractTest extends ApiTestCase
         $expected = self::MIXED_INPUTS_NOT_YET_TYPED;
         sort($expected);
         self::assertSame($expected, $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
+    }
+
+    /**
+     * The writer that reads each request list of line objects. The operation set is DERIVED from the served spec (every
+     * request property whose items are objects) and compared two-way with this map, so a new list of line objects
+     * cannot arrive unlisted. `CreditNoteWriter` serves both credit operations.
+     */
+    private const LINE_WRITERS = [
+        'CreateFulfilment' => FulfilmentWriter::class,
+        'CreateGoodsReceipt' => GoodsReceiptWriter::class,
+        'CreatePurchaseOrder' => PurchaseOrderWriter::class,
+        'CreateSalesOrder' => SalesOrderWriter::class,
+        'CreateSalesReturn' => SalesReturnWriter::class,
+        'IssueAdjustmentCreditNote' => CreditNoteWriter::class,
+        'IssueCreditNote' => CreditNoteWriter::class,
+    ];
+
+    /**
+     * The operations whose `lines` may be sent as `null`, because the writer reads a null list as "no lines". Every
+     * other line list refuses `null` (`required`) and must not admit it in its served type.
+     */
+    private const NULLABLE_LINES = [
+        'CreatePurchaseOrder' => 'PurchaseOrderWriter::nestedLines() returns null for a null list: the order is raised as an empty draft.',
+        'CreateSalesOrder' => 'SalesOrderWriter::nestedLines() returns null for a null list: the order is raised as an empty draft.',
+    ];
+
+    /**
+     * BK-13 T-6. Every request list of line objects is described as its writer reads it: the item's keys are exactly
+     * the writer's line fields (§4.2's `lines[].x` fields: the next method), extra keys are refused, at least one and at most the
+     * writer's `MAXIMUM_LINES` lines are accepted, and the list admits `null` exactly where the writer does.
+     */
+    #[Test]
+    public function everyInputLineSchemaIsItsWritersFields(): void
+    {
+        $spec = $this->regenerate();
+        $found = [];
+        foreach ($this->requestSchemas($spec) as $operationId => [, $schema]) {
+            foreach ($schema['properties'] ?? [] as $name => $property) {
+                if ('object' === ($property['items']['type'] ?? null)) {
+                    $found[$operationId] = [$name, $property];
+                }
+            }
+        }
+
+        $derived = array_keys($found);
+        sort($derived);
+        self::assertSame(array_keys(self::LINE_WRITERS), $derived, 'The operations whose request carries a list of line objects.');
+        self::assertCount(7, $derived, 'Anti-vacuity: seven operations visited.');
+
+        foreach ($found as $operationId => [$name, $property]) {
+            $writer = self::LINE_WRITERS[$operationId];
+            self::assertSame('lines', $name, $operationId);
+            $writerFields = method_exists($writer, 'nestedLineFields')
+                ? $writer::nestedLineFields()
+                : (new \ReflectionClassConstant($writer, 'LINE_FIELDS'))->getValue();
+            $served = array_keys($property['items']['properties'] ?? []);
+            sort($writerFields);
+            sort($served);
+            self::assertNotEmpty($writerFields, $operationId);
+            self::assertSame($writerFields, $served, $operationId.': the served line keys are the writer\'s line fields.');
+            self::assertFalse($property['items']['additionalProperties'] ?? null, $operationId.': a line refuses an undeclared key.');
+            self::assertSame(1, $property['minItems'] ?? null, $operationId.': an empty list is refused.');
+            self::assertSame(\constant($writer.'::MAXIMUM_LINES'), $property['maxItems'] ?? null, $operationId.': the writer\'s line cap.');
+            self::assertSame(
+                \array_key_exists($operationId, self::NULLABLE_LINES) ? ['array', 'null'] : 'array',
+                $property['type'] ?? null,
+                $operationId.': lines admits null exactly where the writer accepts it.',
+            );
+        }
+    }
+
+    /**
+     * T-6's third side: §4.2's `lines[].x` fields for each of those operations are the writer's line fields. Its own
+     * method because `docs/API.md` is gitignored and may be absent, and T-6's spec-and-writer half must run regardless.
+     */
+    #[Test]
+    public function everyInputLineListsDocumentedFieldsAreItsWritersFields(): void
+    {
+        if (!ContractDocument::isAvailable()) {
+            self::markTestSkipped('docs/API.md is gitignored and absent, so §4.2\'s lines[] fields are not there to compare with.');
+        }
+        foreach (self::LINE_WRITERS as $operationId => $writer) {
+            $writerFields = method_exists($writer, 'nestedLineFields')
+                ? $writer::nestedLineFields()
+                : (new \ReflectionClassConstant($writer, 'LINE_FIELDS'))->getValue();
+            $documented = ContractDocument::nestedAcceptedFields($operationId, 'lines');
+            sort($writerFields);
+            sort($documented);
+            self::assertNotEmpty($documented, $operationId);
+            self::assertSame($writerFields, $documented, $operationId.': §4.2\'s lines[] fields are the writer\'s line fields.');
+        }
+    }
+
+    /**
+     * Every request list of plain values, exactly as served, by served path. The domain is derived (every request
+     * property whose type is an array of non-objects) and compared two-way; it also holds the three bulk id lists,
+     * which were already typed. The three `acknowledged_return_ids` admit
+     * `null` because their writers read `null` as absent; `permission_codes` refuses `null`. No `uniqueItems` on
+     * `acknowledged_return_ids`: a repeated id is de-duplicated, not refused.
+     */
+    private const VALUE_LIST_SCHEMAS = [
+        'components/schemas/BulkArchival.CreateBulkArchivalInput/properties/ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 50, 'uniqueItems' => true, 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/BulkRestoration.CreateBulkRestorationInput/properties/ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 50, 'uniqueItems' => true, 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/BulkRoleAssignment.CreateBulkRoleAssignmentInput/properties/user_ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 50, 'uniqueItems' => true, 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/Invoice.PayInvoiceInput/properties/acknowledged_return_ids' => ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/CreditNote.IssueAdjustmentCreditNoteInput/properties/acknowledged_return_ids' => ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/SalesReturn.CreateAdjustmentDecisionInput/properties/acknowledged_return_ids' => ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']],
+        'components/schemas/Role.CreateRoleInput/properties/permission_codes' => ['type' => 'array', 'items' => ['type' => 'string']],
+        'components/schemas/Role.UpdateRoleInput.jsonMergePatch/properties/permission_codes' => ['type' => 'array', 'items' => ['type' => 'string']],
+    ];
+
+    /** BK-13 T-7. Every request list of plain values is served exactly as pinned. */
+    #[Test]
+    public function everyRequestListOfValuesIsServedExactly(): void
+    {
+        $spec = $this->regenerate();
+        $served = [];
+        foreach ($this->requestSchemas($spec) as [$component, $schema]) {
+            foreach ($schema['properties'] ?? [] as $name => $property) {
+                $type = $property['type'] ?? null;
+                $isArray = 'array' === $type || (\is_array($type) && \in_array('array', $type, true));
+                if ($isArray && 'object' !== ($property['items']['type'] ?? null)) {
+                    $served[$component.'/properties/'.$name] = $property;
+                }
+            }
+        }
+
+        $paths = array_keys($served);
+        sort($paths);
+        $expected = array_keys(self::VALUE_LIST_SCHEMAS);
+        sort($expected);
+        self::assertSame($expected, $paths, 'The request lists of plain values in the served spec.');
+        foreach (self::VALUE_LIST_SCHEMAS as $path => $schema) {
+            self::assertEquals(self::canonical($schema), self::canonical($served[$path]), $path);
+        }
+    }
+
+    /**
+     * The request-body component of every write operation, by operationId, resolved.
+     *
+     * @param array<string, mixed> $spec
+     *
+     * @return array<string, array{0: string, 1: array<string, mixed>}>
+     */
+    private function requestSchemas(array $spec): array
+    {
+        $out = [];
+        foreach ($this->writeOperations($spec) as $operation) {
+            foreach ($operation['requestBody']['content'] ?? [] as $media) {
+                $ref = $media['schema']['$ref'] ?? null;
+                if (\is_string($ref)) {
+                    $out[(string) $operation['operationId']] = [substr($ref, 2), $this->resolve($media['schema'], $spec)];
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
     }
 }

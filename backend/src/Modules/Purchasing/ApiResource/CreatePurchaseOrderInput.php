@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Purchasing\Application\PurchaseOrderWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -105,5 +107,19 @@ final class CreatePurchaseOrderInput
      *
      * @var array<mixed>|null
      */
+    #[ApiProperty(schema: [
+        'type' => ['array', 'null'],
+        'minItems' => 1,
+        'maxItems' => PurchaseOrderWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+                'unit_cost' => ['type' => 'string'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 }

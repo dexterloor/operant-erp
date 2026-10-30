@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -25,5 +27,19 @@ final class CreateGoodsReceiptInput
     public ?string $receivedAt = null;
 
     /** @var array<mixed>|null */
+    #[ApiProperty(schema: [
+        'type' => 'array',
+        'minItems' => 1,
+        'maxItems' => GoodsReceiptWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'purchase_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+                'storage_location_id' => ['type' => 'string', 'format' => 'uuid'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 }

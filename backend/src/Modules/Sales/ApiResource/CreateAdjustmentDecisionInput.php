@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -30,5 +31,6 @@ final class CreateAdjustmentDecisionInput
     public mixed $reversesDecisionId = null;
 
     #[SerializedName('acknowledged_return_ids')]
+    #[ApiProperty(schema: ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']])]
     public mixed $acknowledgedReturnIds = null;
 }

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Sales\Application\CreditNoteWriter;
+
 /**
  * `IssueAdjustmentCreditNote`'s body — §4.2's accepted fields: `reason`, `lines[].fulfilment_line_id`,
  * `lines[].quantity`. No `sales_return_id`: an adjustment credits billed units that come back on no return (owner
@@ -17,6 +20,19 @@ final class IssueAdjustmentCreditNoteInput
     public mixed $reason = null;
 
     /** @var array<mixed>|null */
+    #[ApiProperty(schema: [
+        'type' => 'array',
+        'minItems' => 1,
+        'maxItems' => CreditNoteWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 
     /**
@@ -24,5 +40,6 @@ final class IssueAdjustmentCreditNoteInput
      * units adjusted — each one named here gets a `distinct` decision in the same transaction (an owner-marker act). A
      * list of UUIDs; every pending return on an adjusted line must be named (`credit_note.has_no_pending_return`).
      */
+    #[ApiProperty(schema: ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'format' => 'uuid']])]
     public mixed $acknowledged_return_ids = null;
 }

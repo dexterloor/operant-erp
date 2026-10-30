@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Sales\Application\SalesOrderWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -112,5 +114,19 @@ final class CreateSalesOrderInput
      *
      * @var array<mixed>|null
      */
+    #[ApiProperty(schema: [
+        'type' => ['array', 'null'],
+        'minItems' => 1,
+        'maxItems' => SalesOrderWriter::MAXIMUM_LINES,
+        'items' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
+                'quantity' => ['type' => 'string'],
+                'unit_price' => ['type' => 'string'],
+            ],
+        ],
+    ])]
     public ?array $lines = null;
 }
