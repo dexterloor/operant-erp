@@ -18,8 +18,8 @@ export const metadata: Metadata = { title: USERS_LIST.heading };
 /** The address names the view (b3b-followup C-4): exactly `?archived=true` is the Archived view, anything else live. */
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
-  const archived = query.archived === 'true';
   const { session, viewer } = await currentViewer(sessionEndedPath('/admin/users', query));
+  const archived = query.archived === 'true';
   if (!viewerMay('ListUsers', viewer.permissionCodes)) return <PeopleDenied />;
   const first = await loadUsers(serverRead(session), archived);
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/users', query));

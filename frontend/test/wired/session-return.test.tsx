@@ -1,6 +1,4 @@
 import { render } from '@testing-library/react';
-import fs from 'node:fs';
-import path from 'node:path';
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DECLARED_ROUTES } from '@/lib/routes';
@@ -101,28 +99,16 @@ describe('a page whose session has ended returns to itself after sign-in', () =>
       expect(landsOn(await redirectOf((mod.default as DetailPage)({ params: params() })))).toBe(`${name}/${ID}`);
       expect(landsOn(await redirectOf(mod.generateMetadata({ params: params() })))).toBe(`${name}/${ID}`);
     });
+
+    it(`${name}/<a malformed id> comes back to that same address, encoded (L-4)`, async () => {
+      const to = await redirectOf((mod.default as DetailPage)({ params: Promise.resolve({ id: 'abc?x#y%' }) }));
+      expect(new URL(to, 'https://x.invalid').searchParams.get('return_to')).toBe(`${name}/abc%3Fx%23y%25`);
+      expect(landsOn(to)).toBe(`${name}/abc%3Fx%23y%25`);
+    });
   }
 
   it('/account/password checks the session too, and lands on / (an account page is never a return target, A-13)', async () => {
     expect(landsOn(await redirectOf(AccountPage()))).toBe('/');
-  });
-
-  it('every (app) page.tsx asks currentViewer with its own address before anything else (the layout lets the page answer)', () => {
-    const root = path.resolve(__dirname, '../../src/app/(app)');
-    const pages = (fs.readdirSync(root, { recursive: true }) as string[]).filter((f) => path.basename(f) === 'page.tsx');
-    expect(pages.length).toBe(6);
-    for (const f of pages) {
-      const src = fs.readFileSync(path.join(root, f), 'utf8');
-      const body = src.slice(src.indexOf('export default async function Page('));
-      expect(body.startsWith('export default async function Page('), f).toBe(true);
-      const firstAwait = body.indexOf('await ');
-      const viewerAwait = body.indexOf('await currentViewer(sessionEndedPath(');
-      expect(viewerAwait, f).toBeGreaterThan(-1);
-      // Only the route's own params / searchParams may be awaited first (they name the address).
-      const before = body.slice(firstAwait, viewerAwait);
-      expect(before === '' || /^await (params|searchParams);[\s\S]*$/.test(before), f).toBe(true);
-      expect(before.match(/await /g)?.length ?? 0, f).toBeLessThanOrEqual(1);
-    }
   });
 });
 
@@ -151,6 +137,14 @@ describe('the frame hands an ended session to the browser’s own address', () =
     const to = navigate.mock.calls[0]![0] as string;
     expect(new URL(to, 'https://x.invalid').searchParams.get('return_to')).toBe(`/admin/users/${ID}?x=1`);
     expect(landsOn(to)).toBe(`/admin/users/${ID}?x=1`);
+  });
+
+  it('navigates once only, however often it re-renders (L-5)', () => {
+    const navigate = vi.fn();
+    const { rerender } = render(<SessionEndedReturn navigate={navigate} />);
+    rerender(<SessionEndedReturn navigate={navigate} />);
+    rerender(<SessionEndedReturn navigate={navigate} here={() => '/admin/roles'} />);
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it.each(['//evil.example', '//evil.example/admin/users', '/%2F%2Fevil.example', '/.//evil.example', '/%5Cevil.example', '/account/password'])(

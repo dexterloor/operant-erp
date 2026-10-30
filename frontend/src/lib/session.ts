@@ -16,6 +16,12 @@ const REFUSED_SEGMENTS: ReadonlySet<string> = new Set(['login', 'reset-password'
 const ORIGIN = 'https://same-origin.invalid';
 
 /**
+ * The longest `return_to` the app accepts. The ONE copy: the sign-in handler refuses a longer body field outright
+ * (`handlers.ts`), `safeReturnPath` falls back on one, and `sessionEndedHref` never produces one.
+ */
+export const RETURN_TO_MAX = 2048;
+
+/**
  * Review L-7 / SD-1: the return target after "session ended" or sign-in must be a path on this site that names a
  * declared page. The check is made on the value AFTER the URL parser has resolved it, because dot segments can turn a
  * harmless-looking path into `//host` or into a refused page. Anything else returns `fallback`.
@@ -30,7 +36,7 @@ export function safeReturnPath(
 ): string {
   const { declaredRoutes, fallback } = opts;
   // Step 1: length, no control characters, no backslash anywhere.
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2048) return fallback;
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > RETURN_TO_MAX) return fallback;
   if (/[\u0000-\u001f\u007f\\]/.test(raw)) return fallback;
   // Step 2: exactly one leading slash (this also rules out a scheme).
   if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
@@ -59,9 +65,20 @@ export function safeReturnPath(
  * they were on (path and query) as `return_to`. `here` is a request, not a destination: after sign-in the browser goes
  * only to the address the sign-in handler returns, and that handler alone checks `here` with `safeReturnPath` (SD-1).
  * So any `here` is safe to carry, and one that is refused (off-site, undeclared, an account page, `/`) lands on `/`.
+ *
+ * It never carries a `return_to` the sign-in handler would refuse (longer than RETURN_TO_MAX, measured on the value the
+ * sign-in page reads back, i.e. before encoding): over the cap the query is dropped and the path kept; if the path
+ * alone is still over the cap, no `return_to` is sent and sign-in lands on `/` (fe-session-return-red.md M-1).
  */
 export function sessionEndedHref(here: string): string {
-  return `/login?reason=session_ended&return_to=${encodeURIComponent(here)}`;
+  const notice = '/login?reason=session_ended';
+  let carried = here;
+  if (carried.length > RETURN_TO_MAX) {
+    const q = carried.indexOf('?');
+    if (q !== -1) carried = carried.slice(0, q);
+  }
+  if (carried.length > RETURN_TO_MAX) return notice;
+  return `${notice}&return_to=${encodeURIComponent(carried)}`;
 }
 
 /** Initials for the avatar: first letters of the first two words of the display name. */

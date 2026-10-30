@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DECLARED_ROUTES } from '@/lib/routes';
-import { initials, safeReturnPath, sessionEndedHref, workspaceLabel } from '@/lib/session';
+import { RETURN_TO_MAX, initials, safeReturnPath, sessionEndedHref, workspaceLabel } from '@/lib/session';
 
 describe('D14 workspace label', () => {
   it('tenant_settings.view holders see the display name', () => {
@@ -58,6 +58,12 @@ describe('L-7 / SD-1 return path after session ended', () => {
     '/%5fnext/x',
     '/%E0%A4%A',
     '/admin%2f..%2f..%2f/evil',
+    // Step 2 alone refuses these (fe-session-return-red.md M-2): a relative value, and the placeholder origin itself named
+    // absolute or protocol-relative, all resolve to a same-origin declared path if step 2 is skipped.
+    'admin/users',
+    'https://same-origin.invalid/admin/users',
+    '//same-origin.invalid/admin/users',
+    '?x=1',
     '/a\u0000b',
     'overview',
   ])('refuses %j', (raw) => expect(safeReturnPath(raw, opts)).toBe('/fallback'));
@@ -147,5 +153,24 @@ describe('the session-ended address carries the page it was on', () => {
     '/account/password',
     '/nowhere',
     '',
+    'admin/users',
+    'https://same-origin.invalid/admin/users',
+    '//same-origin.invalid/admin/users',
+    '?x=1',
   ])('a hostile or undeclared place %j falls back to /', (here) => expect(after(here)).toBe('/'));
+
+  it('never carries a return_to the sign-in handler would refuse (M-1): over the cap the query goes, then the path', () => {
+    const longQuery = `/admin/users?q=${'a'.repeat(3000)}`;
+    const kept = new URL(sessionEndedHref(longQuery), 'https://x.invalid').searchParams.get('return_to');
+    expect(kept).toBe('/admin/users');
+    const exact = `/admin/users?q=${'a'.repeat(RETURN_TO_MAX - '/admin/users?q='.length)}`;
+    expect(exact.length).toBe(RETURN_TO_MAX);
+    expect(new URL(sessionEndedHref(exact), 'https://x.invalid').searchParams.get('return_to')).toBe(exact);
+    const longPath = `/admin/${'a'.repeat(RETURN_TO_MAX)}?archived=true`;
+    expect(sessionEndedHref(longPath)).toBe('/login?reason=session_ended');
+    for (const here of [longQuery, exact, longPath, `/${'b'.repeat(5000)}`]) {
+      const r = new URL(sessionEndedHref(here), 'https://x.invalid').searchParams.get('return_to');
+      expect(r === null || r.length <= RETURN_TO_MAX).toBe(true);
+    }
+  });
 });

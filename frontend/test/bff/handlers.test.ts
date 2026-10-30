@@ -102,6 +102,21 @@ describe('sign-in handler — POST /bff/session', () => {
     expect((await r.json()).redirect).toBe(want);
   });
 
+  // fe-session-return-red.md M-1: a session-ended notice built from a page with a very long address still lets the
+  // person sign in (the handler refuses an over-long return_to outright), and lands on the page's path.
+  it.each([
+    [`/admin/users?q=${'a'.repeat(3000)}`, '/admin/users'],
+    [`/admin/${'a'.repeat(3000)}?archived=true`, '/'],
+  ])('sign-in from the notice for an over-long page address (case %#) succeeds and lands on %s', async (here, want) => {
+    const { sessionEndedHref } = await import('@/lib/session');
+    const returnTo = new URL(sessionEndedHref(here), ORIGIN).searchParams.get('return_to');
+    stubApi(() => Response.json({ access_token: JWT, token_type: 'Bearer', expires_at: EXPIRES }));
+    const { handleSignIn } = await handlers();
+    const r = await handleSignIn(post('/bff/session', signInBody(returnTo === null ? {} : { return_to: returnTo })));
+    expect(r.status).toBe(200);
+    expect((await r.json()).redirect).toBe(want);
+  });
+
   it.each([
     [problem(401, 'urn:erp:problem:authentication-failed'), 401, 'urn:erp:problem:authentication-failed'],
     [problem(429, 'urn:erp:problem:too-many-attempts'), 429, 'urn:erp:problem:too-many-attempts'],

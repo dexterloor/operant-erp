@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 type Params = { params: Promise<{ id: string }> };
 
 const roleFor = cache(async (id: string) => {
-  const { session } = await currentViewer(sessionEndedPath(`/admin/roles/${id}`));
+  const { session } = await currentViewer(sessionEndedPath(`/admin/roles/${encodeURIComponent(id)}`));
   return loadRolePage(serverRead(session), id);
 });
 
@@ -27,7 +27,7 @@ const mayRead = (codes: readonly string[]) => viewerMay('GetRole', codes) && vie
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
-  const { viewer } = await currentViewer(sessionEndedPath(`/admin/roles/${id}`));
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/roles/${encodeURIComponent(id)}`));
   if (!isRecordId(id) || !mayRead(viewer.permissionCodes)) return { title: ROLES_LIST.heading };
   const r = await roleFor(id);
   return { title: r.kind === 'ok' ? r.role.name : ROLES_LIST.heading };
@@ -35,11 +35,11 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function Page({ params }: Params) {
   const { id } = await params;
-  const { viewer } = await currentViewer(sessionEndedPath(`/admin/roles/${id}`));
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/roles/${encodeURIComponent(id)}`));
   if (!mayRead(viewer.permissionCodes)) return <RolesDenied />;
   if (!isRecordId(id)) notFound();
   const first = await roleFor(id);
-  if (first.kind === 'session-ended') redirect(sessionEndedPath(`/admin/roles/${id}`));
+  if (first.kind === 'session-ended') redirect(sessionEndedPath(`/admin/roles/${encodeURIComponent(id)}`));
   if (first.kind === 'forbidden') return <RolesDenied />;
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The role could not be read.');

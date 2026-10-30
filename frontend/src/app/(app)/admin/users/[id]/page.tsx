@@ -31,13 +31,13 @@ function gatesOf(codes: readonly string[]) {
 }
 
 const personFor = cache(async (id: string) => {
-  const { session, viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
+  const { session, viewer } = await currentViewer(sessionEndedPath(`/admin/users/${encodeURIComponent(id)}`));
   return loadPersonView(serverRead(session), id, gatesOf(viewer.permissionCodes));
 });
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
-  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${encodeURIComponent(id)}`));
   if (!isRecordId(id) || !viewerMay('GetUser', viewer.permissionCodes)) return { title: USERS_LIST.heading };
   const p = await personFor(id);
   return { title: p.kind === 'ok' ? p.view.person.display_name : USERS_LIST.heading };
@@ -45,11 +45,11 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function Page({ params }: Params) {
   const { id } = await params;
-  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${id}`));
+  const { viewer } = await currentViewer(sessionEndedPath(`/admin/users/${encodeURIComponent(id)}`));
   if (!viewerMay('GetUser', viewer.permissionCodes)) return <PeopleDenied />;
   if (!isRecordId(id)) notFound();
   const first = await personFor(id);
-  if (first.kind === 'session-ended') redirect(sessionEndedPath(`/admin/users/${id}`));
+  if (first.kind === 'session-ended') redirect(sessionEndedPath(`/admin/users/${encodeURIComponent(id)}`));
   if (first.kind === 'forbidden') return <PeopleDenied />;
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The person could not be read.');

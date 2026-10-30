@@ -1,5 +1,5 @@
 import 'server-only';
-import { safeReturnPath } from '../../session';
+import { RETURN_TO_MAX, safeReturnPath } from '../../session';
 import { DECLARED_ROUTES } from '../../routes';
 import { apiFetch } from './apiClient';
 import { NO_STORE, bffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
@@ -11,7 +11,6 @@ import { clearedSessionCookie, cookieValue, newSessionPayload, sealSession, sess
 // browser only BFF-owned bodies, and logs nothing.
 
 const FIELD_MAX = 255;
-const RETURN_TO_MAX = 2048;
 
 const SIGN_IN_PASSED_THROUGH: Readonly<Record<number, readonly string[]>> = {
   401: ['urn:erp:problem:authentication-failed'],
@@ -94,7 +93,7 @@ const pointers = (errors: unknown) =>
 
 /**
  * POST /bff/session. Body `{workspace, email, password}` plus two optional fields that are never forwarded: `return_to`
- * (≤ 2048) and `time_zone`. On 200 the token is sealed into the cookie and the reply is `{redirect}`, the return path
+ * (≤ RETURN_TO_MAX) and `time_zone`. On 200 the token is sealed into the cookie and the reply is `{redirect}`, the return path
  * validated against the built pages with `/` as the fixed fallback.
  */
 export async function handleSignIn(request: Request): Promise<Response> {
