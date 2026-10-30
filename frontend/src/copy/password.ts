@@ -24,9 +24,13 @@ export const REQUEST_RESET = {
   backToSignIn: 'Back to sign in',
   /** 429 second line — confirmed by SEC (S-3). */
   rateLimitedShared: 'This limit is shared with signing in, so it can also come from other people on the same network.',
-  /** Network failure, split into heading + body (one sentence each, wording unchanged). */
-  unreachableHeading: "We couldn't reach the server, so nothing was sent.",
-  unreachableBody: 'Check your connection and try again.',
+  /**
+   * NEW (forgot-heading-ux.md Revision 1, RED round 1 A1–A3): the body of the interrupted notices on this page, under the
+   * unchanged R1-1 headings (`COULD_NOT_REACH`, offline icon kept). A request that reached the server may already be
+   * queued even though the answer was lost, so the page cannot say whether a link is on its way.
+   */
+  interruptedBody:
+    "We can't tell whether your request got through. If an email with a link arrives, use it. If none arrives in a few minutes, press Send link again.",
   /** The one result state for every 202. */
   resultHeading: 'Check your email',
   resultBody:
@@ -107,8 +111,8 @@ export const CHANGE_PASSWORD = {
 /**
  * CONFIRMED (ux-copy-b3b.md C2-2; b3a2 fallback): the bodies for "the server can't be reached" and "a server failure"
  * on the credential pages and sign-in:
- * - unreachable: the request page's sentence says "nothing was sent", which is not knowable once a request may have
- *   reached the server, so it is not reused there;
+ * - unreachable: on the sign-in card only; the three password pages each state the doubt instead (their own
+ *   `interruptedBody`), because a request that reached the server may have done its work although the answer was lost;
  * - server error (5xx): ST-3 says bounded and never the server's `detail`.
  * The headings are not repeated here: they are `COULD_NOT_REACH` / `WENT_WRONG` in `copy/headings.ts`, their one home
  * (RED L-14). A `copy/*` module may import only from `lib/api/*`, so the pages import the headings themselves.

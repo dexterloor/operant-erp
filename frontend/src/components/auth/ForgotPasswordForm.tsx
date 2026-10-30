@@ -1,6 +1,6 @@
 'use client';
 
-import { WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -117,8 +117,8 @@ export function ForgotPasswordForm({ requestReset, rememberedWorkspace = '', sig
         </Banner>
       ) : null}
       {notice === 'unreachable' ? (
-        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={REQUEST_RESET.unreachableHeading}>
-          <p>{REQUEST_RESET.unreachableBody}</p>
+        <Banner ref={noticeRef} tone="danger" icon="offline" live="status" heading={COULD_NOT_REACH}>
+          <p>{REQUEST_RESET.interruptedBody}</p>
         </Banner>
       ) : null}
       {notice === 'server-error' || notice === 'not-sent' ? (

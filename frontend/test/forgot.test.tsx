@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
 import type { RequestResetResult } from '@/lib/auth/results';
@@ -10,6 +12,11 @@ const RESULT_BODY =
 const RESULT_BODY_2 =
   "Your password hasn't changed. If no email arrives in a few minutes, check the workspace name and email, or ask the person who manages your workspace.";
 const SHARED_LIMIT = 'This limit is shared with signing in, so it can also come from other people on the same network.';
+/** The R1-1 house headings, typed here (forgot-heading-ux.md §3). */
+const COULD_NOT_REACH = "We couldn't reach the server.";
+/** forgot-heading-ux.md §3 / Revision 1: the body of the interrupted notices on this page. */
+const INTERRUPTED_BODY =
+  "We can't tell whether your request got through. If an email with a link arrives, use it. If none arrives in a few minutes, press Send link again.";
 /** §1.3 "Never on this page". */
 const NEVER_SENT_CLAIM = /emailed|email sent|we've sent|we have sent|check your inbox|sent you/i;
 
@@ -116,9 +123,67 @@ describe('ForgotPasswordForm (/forgot-password)', () => {
     expect(document.body.textContent).not.toMatch(NEVER_SENT_CLAIM);
   });
 
-  it('network failure (rejected action or "unreachable"): nothing was sent', async () => {
-    await submitWith(new TypeError('Failed to fetch'));
-    expect(screen.getByRole('status')).toHaveTextContent("We couldn't reach the server, so nothing was sent.Check your connection and try again.");
+  // forgot-heading-ux.md Revision 1 T1: the unreachable banner never claims nothing was sent (a request that reached the
+  // server may already be queued), and its full text is exactly the R1-1 heading plus the interrupted body.
+  it.each<[string, RequestResetResult | Error]>([
+    ['a rejected call', new TypeError('Failed to fetch')],
+    ['a resolved "unreachable"', { kind: 'unreachable' }],
+  ])('unreachable (%s): exactly the R1-1 heading and the interrupted body; never "nothing was sent"', async (_, result) => {
+    await submitWith(result);
+    expect(screen.getByRole('status').textContent).toBe(COULD_NOT_REACH + INTERRUPTED_BODY);
+    expect(document.body.textContent).not.toMatch(/nothing was sent/i);
+    expect(document.body.textContent).not.toMatch(NEVER_SENT_CLAIM);
+  });
+
+  // T4: the body names the button it tells the person to press; renaming either alone goes red.
+  it('the interrupted body names the button: "Send link" and "press Send link again"', async () => {
+    await submitWith({ kind: 'unreachable' });
+    expect(screen.getByRole('button', { name: 'Send link' })).toBeInTheDocument();
+    expect(screen.getByRole('status').textContent).toContain('press Send link again');
+  });
+
+  // T5: after an interrupted result the fields are kept, and a second press sends exactly the same request.
+  it('unreachable and server error keep the fields; the next press sends exactly {workspace, email} again', async () => {
+    const action = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'unreachable' })
+      .mockResolvedValueOnce({ kind: 'server-error' })
+      .mockResolvedValueOnce({ kind: 'server-error' });
+    render(<ForgotPasswordForm requestReset={action} />);
+    fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'acme' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'pat@example.com' } });
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Send link' }));
+      });
+      expect(screen.getByLabelText('Workspace')).toHaveValue('acme');
+      expect(screen.getByLabelText('Email')).toHaveValue('pat@example.com');
+    }
+    expect(action.mock.calls).toEqual([
+      [{ workspace: 'acme', email: 'pat@example.com' }],
+      [{ workspace: 'acme', email: 'pat@example.com' }],
+      [{ workspace: 'acme', email: 'pat@example.com' }],
+    ]);
+  });
+
+  // T6: the false claim cannot come back through any copy module, comments included.
+  it('no src/copy file says "nothing was sent" (file text, comments included)', () => {
+    const dir = path.resolve(__dirname, '..', 'src', 'copy');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.ts'));
+    expect(files).toContain('password.ts');
+    for (const f of files) expect(readFileSync(path.join(dir, f), 'utf8'), f).not.toMatch(/nothing was sent/i);
+  });
+
+  // T7: the offline icon belongs to the unreachable banner only (class read from lucide-react 1.55.0's output).
+  it.each<[RequestResetResult, boolean]>([
+    [{ kind: 'unreachable' }, true],
+    [{ kind: 'server-error' }, false],
+    [{ kind: 'not-sent' }, false],
+  ])('%o: offline icon shown = %s', async (result, offline) => {
+    await submitWith(result);
+    const status = screen.getByRole('status');
+    expect(status.querySelectorAll('svg')).toHaveLength(1);
+    expect(status.querySelector('svg.lucide-wifi-off') !== null).toBe(offline);
   });
 
   it('5xx: a bounded message, never the server detail', async () => {
