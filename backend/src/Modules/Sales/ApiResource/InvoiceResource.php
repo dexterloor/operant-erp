@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
@@ -153,9 +154,12 @@ final class InvoiceResource
         public string $dueAt,
         #[SerializedName('paid_at')]
         public ?string $paidAt,
+        #[ApiProperty(schema: SalesReferenceSchema::ACTOR_OR_NULL)]
         #[SerializedName('paid_by')]
         public ?SalesActorRef $paidBy,
+        #[ApiProperty(schema: SalesReferenceSchema::FULFILMENT)]
         public FulfilmentRef $fulfilment,
+        #[ApiProperty(schema: SalesReferenceSchema::NAMED)]
         public SalesNamedRef $customer,
         #[SerializedName('amount_credited')]
         public string $amountCredited,

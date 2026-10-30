@@ -12,9 +12,14 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "display_name"
+                ],
                 "type": "object"
             },
             "AuditLogEntryCollection": {
@@ -336,13 +341,39 @@
                         "type": "string"
                     },
                     "invoice": {
-                        "$ref": "#/components/schemas/InvoiceNumberRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "invoice_number": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "invoice_number"
+                        ],
+                        "type": "object"
                     },
                     "issued_at": {
                         "type": "string"
                     },
                     "issued_by": {
-                        "$ref": "#/components/schemas/SalesActorRef"
+                        "properties": {
+                            "display_name": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "display_name"
+                        ],
+                        "type": "object"
                     },
                     "lines": {
                         "items": {
@@ -519,13 +550,22 @@
                         "type": "string"
                     },
                     "sales_return": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/SalesReturnNumberRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
                             },
-                            {
-                                "type": "null"
+                            "sales_return_number": {
+                                "type": "string"
                             }
+                        },
+                        "required": [
+                            "id",
+                            "sales_return_number"
+                        ],
+                        "type": [
+                            "object",
+                            "null"
                         ]
                     },
                     "total_amount": {
@@ -1184,13 +1224,39 @@
                         "type": "array"
                     },
                     "sales_order": {
-                        "$ref": "#/components/schemas/SalesOrderRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "order_number": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "order_number"
+                        ],
+                        "type": "object"
                     },
                     "shipped_at": {
                         "type": "string"
                     },
                     "shipped_by": {
-                        "$ref": "#/components/schemas/SalesActorRef"
+                        "properties": {
+                            "display_name": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "display_name"
+                        ],
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1251,17 +1317,6 @@
                     },
                     "tenant_has_rows": {
                         "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
-            "FulfilmentRef": {
-                "properties": {
-                    "fulfilment_number": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1346,7 +1401,20 @@
                         "type": "array"
                     },
                     "purchase_order": {
-                        "$ref": "#/components/schemas/OrderReference"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "order_number": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "order_number"
+                        ],
+                        "type": "object"
                     },
                     "receipt_number": {
                         "type": "string"
@@ -1442,13 +1510,39 @@
                         "type": "string"
                     },
                     "customer": {
-                        "$ref": "#/components/schemas/SalesNamedRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "name"
+                        ],
+                        "type": "object"
                     },
                     "due_at": {
                         "type": "string"
                     },
                     "fulfilment": {
-                        "$ref": "#/components/schemas/FulfilmentRef"
+                        "properties": {
+                            "fulfilment_number": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "fulfilment_number"
+                        ],
+                        "type": "object"
                     },
                     "id": {
                         "type": "string"
@@ -1466,13 +1560,22 @@
                         ]
                     },
                     "paid_by": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/SalesActorRef"
+                        "properties": {
+                            "display_name": {
+                                "type": "string"
                             },
-                            {
-                                "type": "null"
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
                             }
+                        },
+                        "required": [
+                            "id",
+                            "display_name"
+                        ],
+                        "type": [
+                            "object",
+                            "null"
                         ]
                     },
                     "status": {
@@ -1687,17 +1790,6 @@
                 },
                 "type": "object"
             },
-            "InvoiceNumberRef": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "invoice_number": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "Item": {
                 "properties": {
                     "archived_at": {
@@ -1862,29 +1954,20 @@
                 },
                 "type": "object"
             },
-            "ItemReference": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "sku": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "NamedReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "name"
+                ],
                 "type": "object"
             },
             "OfferedRoleCollection": {
@@ -1985,17 +2068,6 @@
                     },
                     "tenant_has_rows": {
                         "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
-            "OrderReference": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "order_number": {
-                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2120,7 +2192,20 @@
             "PickList": {
                 "properties": {
                     "customer": {
-                        "$ref": "#/components/schemas/SalesNamedRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "name"
+                        ],
+                        "type": "object"
                     },
                     "id": {
                         "type": "string"
@@ -2236,7 +2321,20 @@
                         "type": "string"
                     },
                     "warehouse": {
-                        "$ref": "#/components/schemas/SalesNamedRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "name"
+                        ],
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -2435,7 +2533,24 @@
                         "type": "string"
                     },
                     "inventory_item": {
-                        "$ref": "#/components/schemas/ItemReference"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "sku": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "sku",
+                            "name"
+                        ],
+                        "type": "object"
                     },
                     "line_number": {
                         "type": "integer"
@@ -2885,23 +3000,17 @@
             "RoleReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
                         "type": "string"
                     }
                 },
-                "type": "object"
-            },
-            "SalesActorRef": {
-                "properties": {
-                    "display_name": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
-                    }
-                },
+                "required": [
+                    "id",
+                    "name"
+                ],
                 "type": "object"
             },
             "SalesActorReference": {
@@ -2910,14 +3019,20 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "display_name"
+                ],
                 "type": "object"
             },
             "SalesItemReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
@@ -2927,28 +3042,27 @@
                         "type": "string"
                     }
                 },
-                "type": "object"
-            },
-            "SalesNamedRef": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    }
-                },
+                "required": [
+                    "id",
+                    "sku",
+                    "name"
+                ],
                 "type": "object"
             },
             "SalesNamedReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "name"
+                ],
                 "type": "object"
             },
             "SalesOrder": {
@@ -3227,17 +3341,6 @@
                 },
                 "type": "object"
             },
-            "SalesOrderRef": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "order_number": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "SalesReturn": {
                 "properties": {
                     "adjustment_decision_owed": {
@@ -3256,32 +3359,63 @@
                         ]
                     },
                     "credit_target": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/InvoiceNumberRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
                             },
-                            {
-                                "type": "null"
+                            "invoice_number": {
+                                "type": "string"
                             }
+                        },
+                        "required": [
+                            "id",
+                            "invoice_number"
+                        ],
+                        "type": [
+                            "object",
+                            "null"
                         ]
                     },
                     "deducts": {
                         "type": "boolean"
                     },
                     "fulfilment": {
-                        "$ref": "#/components/schemas/FulfilmentRef"
+                        "properties": {
+                            "fulfilment_number": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "fulfilment_number"
+                        ],
+                        "type": "object"
                     },
                     "id": {
                         "type": "string"
                     },
                     "invoice": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/InvoiceNumberRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
                             },
-                            {
-                                "type": "null"
+                            "invoice_number": {
+                                "type": "string"
                             }
+                        },
+                        "required": [
+                            "id",
+                            "invoice_number"
+                        ],
+                        "type": [
+                            "object",
+                            "null"
                         ]
                     },
                     "lines": {
@@ -3492,7 +3626,20 @@
                         "type": "string"
                     },
                     "recorded_by": {
-                        "$ref": "#/components/schemas/SalesActorRef"
+                        "properties": {
+                            "display_name": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "display_name"
+                        ],
+                        "type": "object"
                     },
                     "returned_at": {
                         "type": "string"
@@ -3618,17 +3765,6 @@
                 },
                 "type": "object"
             },
-            "SalesReturnNumberRef": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "sales_return_number": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "Settings": {
                 "properties": {
                     "default_currency_code": {
@@ -3651,20 +3787,6 @@
                             "string",
                             "null"
                         ]
-                    }
-                },
-                "type": "object"
-            },
-            "StockItemRef": {
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "sku": {
-                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3767,24 +3889,30 @@
                 },
                 "type": "object"
             },
-            "StockLocationRef": {
-                "properties": {
-                    "code": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "StockMovement": {
                 "properties": {
                     "id": {
                         "type": "string"
                     },
                     "inventory_item": {
-                        "$ref": "#/components/schemas/StockItemRef"
+                        "properties": {
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "sku": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "sku",
+                            "name"
+                        ],
+                        "type": "object"
                     },
                     "occurred_at": {
                         "type": "string"
@@ -3808,7 +3936,20 @@
                         ]
                     },
                     "storage_location": {
-                        "$ref": "#/components/schemas/StockLocationRef"
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "format": "uuid",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "code"
+                        ],
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -4123,6 +4264,7 @@
             "SupplierItemReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
@@ -4132,6 +4274,11 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "sku",
+                    "name"
+                ],
                 "type": "object"
             },
             "SupplierProduct": {
@@ -4255,12 +4402,17 @@
             "SupplierReference": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "name"
+                ],
                 "type": "object"
             },
             "Token": {
@@ -4405,9 +4557,14 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "display_name"
+                ],
                 "type": "object"
             },
             "Warehouse": {
