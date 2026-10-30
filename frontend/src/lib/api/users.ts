@@ -4,6 +4,10 @@
 // 'User'`); `RoleReference` is its expanded `roles[]` item (API-23b: `{id, name}` only). OfferedRole and Permission are
 // inline schemas, not components (RED H-4) — they are not mirrored here.
 //
+// Since d95d475 the published description types `User.roles` items as `{id, name}`, so `roles[]` is checked from
+// `contracts/openapi.json` (C-1 mirror `User.roles[]`, test/contract/wireParity.test.ts) and no longer taken from the
+// backend source by hand.
+//
 // Wire field names stay snake_case, as served, so codegen is a drop-in. Types only: this file imports nothing
 // (architecture.test.ts) and holds no value.
 

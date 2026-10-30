@@ -18,6 +18,10 @@ const keysOf =
 const MIRRORED: Record<string, string[]> = {
   User: keysOf<User>()({ id: true, email: true, display_name: true, is_active: true, archived_at: true, roles: true, margin_exposure: true }),
   RoleReference: keysOf<RoleReference>()({ id: true, name: true }),
+  // The item of `User.roles` itself, not only the component of the same name: the served description now types it as
+  // `{id, name}` (it was a list of nullable strings before d95d475), so the person's roles are checked from the
+  // description rather than taken from the backend source by hand.
+  'User.roles[]': keysOf<RoleReference>()({ id: true, name: true }),
   Role: keysOf<Role>()({
     id: true,
     name: true,

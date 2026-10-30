@@ -245,5 +245,6 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
+  'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],
 };

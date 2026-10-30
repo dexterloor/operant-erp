@@ -34,6 +34,7 @@ const HANDLER_OWNED = ['ChangePassword'];
 const MIRRORED = {
   User: ['User'],
   RoleReference: ['RoleReference'],
+  'User.roles[]': ['User', 'properties', 'roles', 'items'],
   Role: ['Role'],
   RoleGrantProposal: ['RoleGrantProposal'],
   UserDisplayReference: ['UserDisplayReference'],
