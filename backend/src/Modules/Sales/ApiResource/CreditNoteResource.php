@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
@@ -105,6 +106,49 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreditNoteResource
 {
     /**
+     * The served schema of one `CreditNoteLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
+     * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
+     */
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'fulfilment_line', 'inventory_item', 'quantity', 'amount'], 'properties' => [
+        'id' => ['type' => 'string', 'format' => 'uuid'],
+        'fulfilment_line' => ['type' => 'object', 'required' => ['id', 'sales_order_line', 'inventory_item', 'quantity'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sales_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'line_number' => ['type' => 'integer'],
+            ]],
+            'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'sku' => ['type' => 'string'],
+                'name' => ['type' => 'string'],
+            ]],
+            'quantity' => ['type' => 'string'],
+        ]],
+        'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sku' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+        ]],
+        'quantity' => ['type' => 'string'],
+        'amount' => ['type' => 'string'],
+        'return_decisions' => ['type' => 'array', 'items' => ['type' => 'object', 'required' => ['id', 'sales_return', 'kind', 'quantity', 'reverses_decision_id', 'recorded_by', 'recorded_at'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sales_return' => ['type' => 'object', 'required' => ['id', 'sales_return_number'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'sales_return_number' => ['type' => 'string'],
+            ]],
+            'kind' => ['type' => 'string'],
+            'quantity' => ['type' => ['string', 'null']],
+            'reverses_decision_id' => ['type' => ['string', 'null'], 'format' => 'uuid'],
+            'recorded_by' => ['type' => 'object', 'required' => ['id', 'display_name'], 'properties' => [
+                'id' => ['type' => 'string', 'format' => 'uuid'],
+                'display_name' => ['type' => 'string'],
+            ]],
+            'recorded_at' => ['type' => 'string'],
+        ]]],
+    ]];
+
+    /**
      * @param list<CreditNoteLineView> $lines
      */
     public function __construct(
@@ -125,6 +169,7 @@ final class CreditNoteResource
         /** PC-11 (4a): who issued it — SoD-5's evidence, not enforcement. */
         #[SerializedName('issued_by')]
         public SalesActorRef $issuedBy,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
     ) {
     }

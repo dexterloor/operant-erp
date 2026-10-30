@@ -346,10 +346,172 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "amount": {
+                                    "type": "string"
+                                },
+                                "fulfilment_line": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "inventory_item": {
+                                            "properties": {
+                                                "id": {
+                                                    "format": "uuid",
+                                                    "type": "string"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "sku": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "sku",
+                                                "name"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        "quantity": {
+                                            "type": "string"
+                                        },
+                                        "sales_order_line": {
+                                            "properties": {
+                                                "id": {
+                                                    "format": "uuid",
+                                                    "type": "string"
+                                                },
+                                                "line_number": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "line_number"
+                                            ],
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sales_order_line",
+                                        "inventory_item",
+                                        "quantity"
+                                    ],
+                                    "type": "object"
+                                },
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "inventory_item": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "sku": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "return_decisions": {
+                                    "items": {
+                                        "properties": {
+                                            "id": {
+                                                "format": "uuid",
+                                                "type": "string"
+                                            },
+                                            "kind": {
+                                                "type": "string"
+                                            },
+                                            "quantity": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            },
+                                            "recorded_at": {
+                                                "type": "string"
+                                            },
+                                            "recorded_by": {
+                                                "properties": {
+                                                    "display_name": {
+                                                        "type": "string"
+                                                    },
+                                                    "id": {
+                                                        "format": "uuid",
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "display_name"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "reverses_decision_id": {
+                                                "format": "uuid",
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            },
+                                            "sales_return": {
+                                                "properties": {
+                                                    "id": {
+                                                        "format": "uuid",
+                                                        "type": "string"
+                                                    },
+                                                    "sales_return_number": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "sales_return_number"
+                                                ],
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "sales_return",
+                                            "kind",
+                                            "quantity",
+                                            "reverses_decision_id",
+                                            "recorded_by",
+                                            "recorded_at"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "fulfilment_line",
+                                "inventory_item",
+                                "quantity",
+                                "amount"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     },
@@ -933,10 +1095,75 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "inventory_item": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "sku": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "sales_order_line": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "line_number": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "line_number"
+                                    ],
+                                    "type": "object"
+                                },
+                                "storage_location": {
+                                    "properties": {
+                                        "code": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "code"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "sales_order_line",
+                                "inventory_item",
+                                "quantity",
+                                "storage_location"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     },
@@ -1020,10 +1247,75 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "inventory_item": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "sku": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "purchase_order_line": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "line_number": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "line_number"
+                                    ],
+                                    "type": "object"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "storage_location": {
+                                    "properties": {
+                                        "code": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "code"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "purchase_order_line",
+                                "inventory_item",
+                                "quantity",
+                                "storage_location"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     },
@@ -1795,10 +2087,93 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "candidate_bins": {
+                                    "items": {
+                                        "properties": {
+                                            "qty_on_hand": {
+                                                "type": "string"
+                                            },
+                                            "storage_location": {
+                                                "properties": {
+                                                    "code": {
+                                                        "type": "string"
+                                                    },
+                                                    "id": {
+                                                        "format": "uuid",
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "code"
+                                                ],
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": [
+                                            "storage_location",
+                                            "qty_on_hand"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "inventory_item": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "sku": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "quantity_fulfilled": {
+                                    "type": "string"
+                                },
+                                "quantity_outstanding": {
+                                    "type": "string"
+                                },
+                                "sales_order_line": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "line_number": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "line_number"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "required": [
+                                "sales_order_line",
+                                "inventory_item",
+                                "quantity",
+                                "quantity_fulfilled",
+                                "quantity_outstanding",
+                                "candidate_bins"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     },
@@ -2847,10 +3222,205 @@
                     },
                     "lines": {
                         "items": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
+                            "properties": {
+                                "adjustment_decisions": {
+                                    "items": {
+                                        "properties": {
+                                            "credit_note": {
+                                                "properties": {
+                                                    "credit_note_number": {
+                                                        "type": "string"
+                                                    },
+                                                    "id": {
+                                                        "format": "uuid",
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "credit_note_number"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "id": {
+                                                "format": "uuid",
+                                                "type": "string"
+                                            },
+                                            "kind": {
+                                                "type": "string"
+                                            },
+                                            "quantity": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            },
+                                            "recorded_at": {
+                                                "type": "string"
+                                            },
+                                            "recorded_by": {
+                                                "properties": {
+                                                    "display_name": {
+                                                        "type": "string"
+                                                    },
+                                                    "id": {
+                                                        "format": "uuid",
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "display_name"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "reverses_decision_id": {
+                                                "format": "uuid",
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "credit_note",
+                                            "kind",
+                                            "quantity",
+                                            "reverses_decision_id",
+                                            "recorded_by",
+                                            "recorded_at"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "fulfilment_line": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "inventory_item": {
+                                            "properties": {
+                                                "id": {
+                                                    "format": "uuid",
+                                                    "type": "string"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "sku": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "sku",
+                                                "name"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        "sales_order_line": {
+                                            "properties": {
+                                                "id": {
+                                                    "format": "uuid",
+                                                    "type": "string"
+                                                },
+                                                "line_number": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "line_number"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        "storage_location": {
+                                            "properties": {
+                                                "code": {
+                                                    "type": "string"
+                                                },
+                                                "id": {
+                                                    "format": "uuid",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "code"
+                                            ],
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sales_order_line",
+                                        "inventory_item",
+                                        "storage_location"
+                                    ],
+                                    "type": "object"
+                                },
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "inventory_item": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "sku": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "sku",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "quantity": {
+                                    "type": "string"
+                                },
+                                "quantity_covered_by_adjustment": {
+                                    "type": "string"
+                                },
+                                "quantity_credited": {
+                                    "type": "string"
+                                },
+                                "storage_location": {
+                                    "properties": {
+                                        "code": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "code"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "fulfilment_line",
+                                "inventory_item",
+                                "quantity",
+                                "storage_location",
+                                "quantity_credited"
+                            ],
+                            "type": "object"
                         },
                         "type": "array"
                     },

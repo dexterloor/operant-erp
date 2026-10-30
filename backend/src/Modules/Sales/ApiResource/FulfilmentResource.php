@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
@@ -73,6 +74,28 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class FulfilmentResource
 {
     /**
+     * The served schema of one `FulfilmentLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
+     * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
+     */
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'sales_order_line', 'inventory_item', 'quantity', 'storage_location'], 'properties' => [
+        'id' => ['type' => 'string', 'format' => 'uuid'],
+        'sales_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'line_number' => ['type' => 'integer'],
+        ]],
+        'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'sku' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+        ]],
+        'quantity' => ['type' => 'string'],
+        'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
+            'id' => ['type' => 'string', 'format' => 'uuid'],
+            'code' => ['type' => 'string'],
+        ]],
+    ]];
+
+    /**
      * @param list<FulfilmentLineView> $lines
      */
     public function __construct(
@@ -83,6 +106,7 @@ final class FulfilmentResource
         public string $shippedAt,
         #[SerializedName('sales_order')]
         public SalesOrderRef $salesOrder,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
         /** Owner ruling R6 / PC-11 (4a): who declared the goods shipped. Evidence for SoD-4, not enforcement. */
         #[SerializedName('shipped_by')]

@@ -548,16 +548,11 @@ final class OpenApiContractTest extends ApiTestCase
     private const ITEMS_NOT_YET_TYPED = [
         'components/schemas/CreditNote.IssueAdjustmentCreditNoteInput/properties/lines',
         'components/schemas/CreditNote.IssueCreditNoteInput/properties/lines',
-        'components/schemas/CreditNote/properties/lines',
         'components/schemas/Fulfilment.CreateFulfilmentInput/properties/lines',
-        'components/schemas/Fulfilment/properties/lines',
         'components/schemas/GoodsReceipt.CreateGoodsReceiptInput/properties/lines',
-        'components/schemas/GoodsReceipt/properties/lines',
-        'components/schemas/PickList/properties/lines',
         'components/schemas/PurchaseOrder.CreatePurchaseOrderInput/properties/lines',
         'components/schemas/SalesOrder.CreateSalesOrderInput/properties/lines',
         'components/schemas/SalesReturn.CreateSalesReturnInput/properties/lines',
-        'components/schemas/SalesReturn/properties/lines',
     ];
 
     #[Test]
@@ -701,7 +696,7 @@ final class OpenApiContractTest extends ApiTestCase
 
         sort($withoutComponent);
         self::assertSame(self::RESOURCES_WITHOUT_A_COMPONENT, $withoutComponent, 'The resources that serve no component.');
-        foreach (['User.roles', 'CurrentUser.roles'] as $path) {
+        foreach (['User.roles', 'CurrentUser.roles', 'PickList.lines[].candidate_bins', 'SalesReturn.lines[].adjustment_decisions', 'CreditNote.lines[].return_decisions'] as $path) {
             self::assertContains($path, $visited, 'Anti-vacuity: '.$path.' was walked.');
         }
         self::assertSame([], $failures, "A served object schema does not match its element class:\n".implode("\n", $failures));
