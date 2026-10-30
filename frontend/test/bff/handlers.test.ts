@@ -88,6 +88,11 @@ describe('sign-in handler — POST /bff/session', () => {
     ['//evil.example', '/'],
     // Built since B-3b C5: a return path to a built page is kept; an unbuilt route still falls back to /.
     ['/admin/users', '/admin/users'],
+    // The Archived view survives sign-in; the same query on an off-site or protocol-relative address is still refused.
+    ['/admin/users?archived=true', '/admin/users?archived=true'],
+    ['//evil.example/admin/users?archived=true', '/'],
+    ['https://evil.example/admin/users?archived=true', '/'],
+    ['/\\evil.example/admin/users?archived=true', '/'],
     ['/purchase-orders', '/'],
     ['/', '/'],
   ])('return_to %s → redirect %s (SD-1: only built pages; the fallback is always /)', async (returnTo, want) => {

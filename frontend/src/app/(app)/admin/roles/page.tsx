@@ -17,11 +17,12 @@ export const metadata: Metadata = { title: ROLES_LIST.heading };
 
 /** The address names the view (b3b-followup C-4): exactly `?archived=true` is the Archived view, anything else live. */
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const archived = (await searchParams).archived === 'true';
+  const query = await searchParams;
+  const archived = query.archived === 'true';
   const { session, viewer } = await currentViewer();
   if (!viewerMay('ListRoles', viewer.permissionCodes)) return <RolesDenied />;
   const first = await loadRoles(serverRead(session), archived);
-  if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/roles'));
+  if (first.kind === 'session-ended') redirect(sessionEndedPath('/admin/roles', query));
   if (first.kind === 'forbidden') return <RolesDenied />;
   return <RolesList initial={first} initialArchived={archived} />;
 }

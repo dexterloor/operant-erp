@@ -19,9 +19,18 @@ export interface Viewer {
 
 const SESSION_ENDED = '/login?reason=session_ended';
 
-/** The session-ended notice, returning to `path` after sign-in (only a path; sign-in re-checks it, SD-1). */
-export function sessionEndedPath(path: string): string {
-  return `${SESSION_ENDED}&return_to=${encodeURIComponent(path)}`;
+/**
+ * The session-ended notice, returning to `path` and the page's own query after sign-in, so a person on the Archived
+ * view comes back to it. `query` is the page's `searchParams` as Next hands it over (every value, in order). Only the
+ * page's fixed path and its query go in; sign-in re-checks the whole address (SD-1), which a query cannot move off-site.
+ */
+export function sessionEndedPath(path: string, query: Readonly<Record<string, string | string[] | undefined>> = {}): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    for (const one of Array.isArray(value) ? value : value === undefined ? [] : [value]) search.append(key, one);
+  }
+  const s = search.toString();
+  return `${SESSION_ENDED}&return_to=${encodeURIComponent(s === '' ? path : `${path}?${s}`)}`;
 }
 
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((c): c is string => typeof c === 'string') : []);
