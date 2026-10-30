@@ -103,10 +103,12 @@ class AppUser
 
     /**
      * G4-C0 (`Version20261022007000`): a token whose `iat` is not strictly after this instant is refused by
-     * `App\Platform\Security\IdentityReader`; NULL = no restriction. Mapped read-only at C0; **written since G4-C1** by
-     * {@see self::deactivate()} and {@see self::reactivate()} only (monotone `max(existing, $at)` from the injected PSR clock,
-     * design R1.3 D-2; `erp_app` holds `UPDATE (sessions_valid_after)` from `Version20261023000100`). An ORM flush writes only
-     * changed fields, so `recordLogin()` and `replaceCredential()` stay inside H0's column list (as widened by Cred-C1).
+     * `App\Platform\Security\IdentityReader`; NULL = no restriction. Mapped read-only at C0; written by
+     * {@see self::deactivate()}, {@see self::reactivate()}, {@see self::delete()}, {@see self::restore()} and
+     * {@see self::replaceCredential()} (ORM), and by the redeem in SQL (`PasswordResetRedemptionWriter`) — always monotone
+     * `max(existing, $at)`, always from the injected PSR clock (design R1.3 D-2; `erp_app` holds
+     * `UPDATE (sessions_valid_after)` from `Version20261023000100`). An ORM flush writes only changed fields, so
+     * `recordLogin()` stays inside H0's column list (as widened by Cred-C1).
      *
      * **Whole-second on write** (`g4-users-final-red.md` L-6, verified): DBAL's Postgres platform formats `datetimetz` as
      * `'Y-m-d H:i:sO'`, and the house `TimestampTzImmutableType` replaces the read side only. That is harmless here —
@@ -171,11 +173,14 @@ class AppUser
     }
 
     /**
-     * The single writer of `password_hash` and `password_mac` after construction. **It has one
-     * caller: `ChangePassword` (E-23)** — the password changes, and the change is
-     * audited. The method replaces the stored digest **and its seal, together** (Cred-C1: a hash
-     * written without its seal refuses the next sign-in) and moves `updated_at`. *(It was
-     * `replacePasswordHash(string)` until Cred-C1.)*
+     * The ORM writer of `password_hash` and `password_mac`; **one caller, `ChangePassword` (E-23)** — the password
+     * changes, and the change is audited. The redeem writes the same columns by SQL (`PasswordResetRedemptionWriter`,
+     * Mail-C2). The method replaces the stored digest **and its seal, together** (Cred-C1: a hash written without its
+     * seal refuses the next sign-in). *(It was `replacePasswordHash(string)` until Cred-C1.)*
+     *
+     * It raises the session stamp to `$at` (monotone) and sets `updated_at = $at`, so every token minted at or before
+     * `$at` is refused (owner ruling P-A, 2026-10-27; W1-b). The caller has locked the row live by a DBAL read before
+     * loading the entity, and refreshed it under that lock.
      *
      * **Rehash on login (ADR-006) is NOT built.** This docblock named it as a
      * first caller until 2026-09-22, and that was a sentence without a
@@ -189,19 +194,20 @@ class AppUser
      * not hash (the KDF runs outside every transaction — ADR-006 §6.1, O-1's
      * 1505 ms of pooled-backend pinning), it does not audit (E-23's row is
      * `PasswordChangeAuditWriter`'s, written inside the caller's transaction),
-     * and it revokes nothing (there is no session store — **API-O-13** — so a
-     * live token outlives this call for up to E-20's eight hours).
+     * and it lists or revokes no individual token (there is no session store —
+     * **API-O-13**); the stamp above is the principal's floor, not a revocation.
      *
      * The class-level rule holds: **nothing on this class may be written before
      * authentication has succeeded.** A change happens behind
      * `AuthenticationGate` and costs the current password as well; a rehash, if
      * one is ever built, must run only after the credential has verified.
      */
-    public function replaceCredential(string $passwordHash, string $passwordMac): void
+    public function replaceCredential(string $passwordHash, string $passwordMac, \DateTimeImmutable $at): void
     {
         $this->passwordHash = $passwordHash;
         $this->passwordMac = $passwordMac;
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->raiseSessionStamp($at);
+        $this->updatedAt = $at;
     }
 
     /**

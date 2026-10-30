@@ -59,6 +59,9 @@ final class TenantContextContainmentTest extends TestCase
      * of them exist specifically to demonstrate the forbidden forms.
      */
     private const KNOWN_WRITERS_OUTSIDE_SRC = [
+        'bin/demo-seed.php' =>
+            'W-3, `make demo-seed`: an owner tool with no container (the sanctioned TenantContext needs an entity manager); '
+            .'set_config(..., true) inside its one write transaction, so FORCE RLS\'s WITH CHECK holds for every seeded row.',
         'tests/Api/BulkArchivalCoordinatorTest.php' =>
             'G5-C2: a real 55P03 needs a second connection (unpooled) holding a customer FOR UPDATE under the tenant, '
             .'set_config inside its own transaction, rolled back; it carries the only test that can redden the lock-timeout arm.',
@@ -82,7 +85,7 @@ final class TenantContextContainmentTest extends TestCase
             'Out-of-process transaction holder for the O-1 pool measurement; it has no container.',
     ];
 
-    private const SCANNED = ['src', 'tests', 'migrations', 'config'];
+    private const SCANNED = ['bin', 'src', 'tests', 'migrations', 'config'];
 
     /** A string literal that mentions the GUC and also establishes or destroys it. */
     private const WRITER = '/set_config\s*\(|(?:^|[^\w.])(?:SET\s+(?:LOCAL\s+)?|RESET\s+)app\.tenant_id/i';

@@ -26,7 +26,7 @@ OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 # an operator inspects, never re-run automatically (mail-c0-red.md M-2).
 WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed
 
 env:                ## create .env, .env.infra, .env.test and .env.worker from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
@@ -75,3 +75,15 @@ worker:             ## the mail worker: consumes `async` for an hour or 128 MB, 
 # One refused queue entry stops `messenger:consume` (RESIDUAL_GAPS.md G-1.3, mail-c0-red.md M-3); this restarts it.
 worker-loop:        ## `make worker`, restarted whenever it exits (Ctrl-C twice to stop)
 	@while true; do $(MAKE) worker; echo "worker exited ($$?); restarting in 5 s"; sleep 5; done
+
+# The local demo workspace (W-3): its eight built-in roles and one owner (owner@example.com), written as the schema owner by
+# bin/demo-seed.php. It runs ONLY in the frontend worktree's demo database, never in the main one: that database must have
+# been created with DB_PURPOSE=demo in its .env.infra (`make reset` there), and the seeder refuses any other. The password
+# comes from DEMO_PASSWORD in the gitignored root .env.demo (template .env.demo.example), or from stdin with
+# SEED_ARGS=--password-stdin; it is never printed. A second run for the same WORKSPACE refuses (exit 3): reset to start again.
+WORKSPACE ?= demo
+SEED_ARGS ?=
+demo-seed:          ## seed the local demo workspace (frontend worktree only: DOCKER_CONTEXT=colima-erp2 make demo-seed)
+	@if [ "$(DOCKER_CONTEXT)" = "colima" ]; then echo "demo-seed runs only in the demo database: DOCKER_CONTEXT=colima-erp2 make demo-seed in the frontend worktree."; exit 2; fi
+	@echo "demo-seed: target database port $$(grep -E '^POSTGRES_DIRECT_PORT=' .env.infra | cut -d= -f2) (DOCKER_CONTEXT=$(DOCKER_CONTEXT))"
+	cd backend && php bin/demo-seed.php --workspace=$(WORKSPACE) $(SEED_ARGS)

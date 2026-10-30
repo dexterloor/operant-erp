@@ -509,6 +509,28 @@ final class PasswordResetRedeemTest extends AuthTestCase
         self::assertSame(200, $this->httpStatus(), $this->responseContent());
     }
 
+    /**
+     * **T-W6b (BK-6): a reset sets a password under the change's three sentences** (`PasswordRules`, the one copy), pinned
+     * as literals here too; only the pointer differs. *Mutation MB-4:* `PasswordRules` back to the bytes sentence → red.
+     */
+    #[Test]
+    public function theNewPasswordMessagesAreTheChangesMessages(): void
+    {
+        [$tenant, $user] = $this->liveUser();
+        $token = $this->mint($tenant, $user);
+        foreach ([
+            'empty' => ['', 'The new password must not be empty.'],
+            'eleven characters' => ['abcdefghijk', 'The new password must be at least 12 characters.'],
+            'one byte over the ceiling' => [str_repeat('p', \Symfony\Component\PasswordHasher\PasswordHasherInterface::MAX_PASSWORD_LENGTH + 1), 'The new password is too long.'],
+        ] as $label => [$password, $message]) {
+            $this->redeem($token, $password);
+            self::assertSame(422, $this->httpStatus(), $label.': '.$this->responseContent());
+            self::assertSame([['pointer' => '/password', 'message' => $message]],
+                array_map(static fn (array $e): array => ['pointer' => $e['pointer'] ?? null, 'message' => $e['message'] ?? null], (array) ($this->json()['errors'] ?? [])),
+                $label);
+        }
+    }
+
     // ------------------------------------------------------------------------------------------------------------------
 
     private ?\Doctrine\DBAL\Connection $freshOwner = null;

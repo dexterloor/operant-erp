@@ -35,6 +35,11 @@ services:
       ERP_RATELIMIT_PASSWORD: ${ERP_RATELIMIT_PASSWORD}
       ERP_WORKER_USER: ${ERP_WORKER_USER}
       ERP_WORKER_PASSWORD: ${ERP_WORKER_PASSWORD}
+      # What this database is for, written by init/10-roles.sh as `COMMENT ON DATABASE … IS 'erp-local-<purpose>'`.
+      # `gate` (the default) is the suite's database; the frontend worktree sets DB_PURPOSE=demo in its .env.infra, and
+      # bin/demo-seed.php refuses any database whose comment is not `erp-local-demo`. An accident guard, not a security
+      # control: the owner can rewrite the comment.
+      DB_PURPOSE: ${DB_PURPOSE:-gate}
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - erp_pgdata:/var/lib/postgresql/data

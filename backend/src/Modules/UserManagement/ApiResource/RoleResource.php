@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
@@ -200,6 +201,7 @@ final class RoleResource
         public string $name,
         public string $description,
         #[SerializedName('permission_codes')]
+        #[ApiProperty(schema: ['type' => 'array', 'items' => ['type' => 'string']])]
         public array $permissionCodes,
         #[SerializedName('is_system')]
         public bool $isSystem,

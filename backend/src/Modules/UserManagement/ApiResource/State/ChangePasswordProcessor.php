@@ -59,6 +59,7 @@ final readonly class ChangePasswordProcessor implements ProcessorInterface
             currentPassword: $data->currentPassword,
             newPassword: $data->newPassword,
             ipAddress: $request instanceof Request ? $request->getClientIp() : null,
+            callingTokenIssuedAt: $identity->issuedAt,
         ));
 
         return match ($result->outcome) {

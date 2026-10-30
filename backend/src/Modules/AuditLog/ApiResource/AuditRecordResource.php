@@ -27,7 +27,7 @@ final readonly class AuditRecordResource
             'id' => ['type' => 'string', 'format' => 'uuid'],
             'occurred_at' => ['type' => 'string', 'format' => 'date-time'],
             'event_type' => ['type' => 'string'],
-            'actor' => ['type' => ['object', 'null'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'display_name' => ['type' => 'string']]],
+            'actor' => ['type' => ['object', 'null'], 'required' => ['id', 'display_name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'display_name' => ['type' => 'string']]],
             'actor_label' => ['type' => 'string'],
             'subject_type' => ['type' => 'string'],
             'subject_id' => ['type' => 'string', 'format' => 'uuid'],

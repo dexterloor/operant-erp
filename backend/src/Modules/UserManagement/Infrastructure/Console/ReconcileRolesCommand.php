@@ -70,6 +70,14 @@ final class ReconcileRolesCommand extends Command
                 // Arm D (roles slice 4 C1): which code is unaccounted for, or phantom.
                 $line .= ',permission_code='.$finding['permission_code'];
             }
+            if (\array_key_exists('difference', $finding)) {
+                // Arm D-system (W-3): the code is on the built-in role but not in its default (extra), or the reverse.
+                $line .= ',difference='.$finding['difference'];
+            }
+            if (\array_key_exists('default_key', $finding)) {
+                // Arm D-system (W-3): the built-in role's key the catalogue does not know.
+                $line .= ',default_key='.$finding['default_key'];
+            }
             if (\array_key_exists('rows', $finding)) {
                 // Arm H (G-91): which SoD rows the person combines, or which the masking role hides. Report-only.
                 $line .= ',rows='.implode(';', $finding['rows']);

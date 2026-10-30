@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
@@ -134,6 +135,7 @@ final class UserResource
         public bool $isActive,
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => RoleReference::WIRE_SCHEMA])]
         public array $roles,
         /** PC-12 clause 3's union warning over `roles[]` (`MarginExposure::of`): a warning, never a refusal. */
         #[SerializedName('margin_exposure')]

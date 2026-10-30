@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
@@ -148,6 +149,7 @@ final class RoleGrantProposalResource
         public UserDisplayReference $user,
         public RoleReference $role,
         #[SerializedName('permission_codes')]
+        #[ApiProperty(schema: ['type' => 'array', 'items' => ['type' => 'string']])]
         public array $permissionCodes,
         public string $status,
         /** Derived, display only: pending and past `expires_at` (R-13). Never a decision. */

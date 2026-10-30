@@ -58,7 +58,9 @@ use Symfony\Component\Uid\Uuid;
  * rows → `audit_log` INSERTs. `ChangePassword`, `LoginRecorder` (and Mail-C2) take the `app_user` row lock and nothing this
  * class takes after it, so no cycle (`ARCHITECTURE.md` W-5).
  *
- * **The refusal sentences are PLACEHOLDERS** (`UX`'s, V2-C-7), pinned as literals in `UserUpdateTest`.
+ * **The refusal sentences are `UX`'s** (V2-C-7), pinned as literals in `UserUpdateTest`. Confirmed: the shared
+ * `MARKER_NEEDS_OWNER` and `LAST_OWNER` (2026-10-27). Still PLACEHOLDERS in this operation's context: `IS_ARCHIVED` and
+ * `UserLiveness::ACTOR_IS_SUBJECT` (`UX` to confirm).
  */
 final readonly class UserUpdate
 {
@@ -151,7 +153,7 @@ final readonly class UserUpdate
 
         // 7.
         if ($deactivate || $strips) {
-            UserLiveness::refuseSelf($identity, $userId);
+            UserLiveness::refuseSelf($identity, $userId, UserLiveness::ACTOR_IS_SUBJECT);
         }
 
         // 8.

@@ -18,6 +18,12 @@ namespace App\Modules\UserManagement\ApiResource;
  */
 final class RoleReference
 {
+    /** The published item schema wherever a list of role references is served inline: the members below, nothing more. */
+    public const WIRE_SCHEMA = ['type' => 'object', 'required' => ['id', 'name'], 'properties' => [
+        'id' => ['type' => 'string', 'format' => 'uuid'],
+        'name' => ['type' => 'string'],
+    ]];
+
     public function __construct(public string $id, public string $name)
     {
     }

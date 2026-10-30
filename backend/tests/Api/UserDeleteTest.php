@@ -27,8 +27,8 @@ use Symfony\Component\Uid\Uuid;
 final class UserDeleteTest extends ApiTestCase
 {
     private const COPY = [
-        'app_user.is_archived' => 'This person\'s account has been deleted, so it can\'t be changed.',
-        'app_user.actor_is_subject' => 'Nobody can switch off their own account. Ask someone else who manages people to do it.',
+        'app_user.is_archived' => 'This person\'s account has already been deleted.',
+        'app_user.actor_is_subject' => 'You can\'t delete your own account. Ask someone else who manages people.',
         'app_user.marker_needs_owner' => 'Only an owner can do this, because this person holds a role that makes them an owner.',
     ];
 

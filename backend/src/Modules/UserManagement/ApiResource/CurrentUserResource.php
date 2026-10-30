@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
@@ -84,8 +85,10 @@ final class CurrentUserResource
         public string $email,
         #[SerializedName('display_name')]
         public string $displayName,
+        #[ApiProperty(schema: ['type' => 'array', 'items' => RoleReference::WIRE_SCHEMA])]
         public array $roles,
         #[SerializedName('permission_codes')]
+        #[ApiProperty(schema: ['type' => 'array', 'items' => ['type' => 'string']])]
         public array $permissionCodes,
     ) {
     }

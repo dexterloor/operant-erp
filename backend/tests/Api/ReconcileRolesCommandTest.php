@@ -329,6 +329,67 @@ final class ReconcileRolesCommandTest extends ApiTestCase
     }
 
     /**
+     * **Arm D-system (W-3; D-10.2 reduced; ADR-008 D2's "run against the role seeder"), planted.** Built-in roles carrying
+     * `role.default_key`, seeded as the owner:
+     *  - `viewer` with exactly `DefaultRoles::codesFor('viewer')` — NOT reported (the control: the arm reads the catalogue);
+     *  - `finance` with its codes plus one more — one `system_role_permission_differs` line, `difference=extra`;
+     *  - `buyer` with one of its codes removed — one line, `difference=missing`;
+     *  - a key the catalogue does not know — `unknown_default_key`, once, whatever its rows;
+     *  - a soft-deleted `sales_rep` with no rows — NOT reported (only live keyed roles are compared);
+     *  - a KEYLESS system role with a row — the interim `system_role_has_permission_rows`, unchanged.
+     */
+    #[Test]
+    public function armDSystemComparesEveryLiveBuiltInRoleWithItsDefault(): void
+    {
+        $this->accountedPrincipal(DefaultRoles::codesFor(DefaultRoles::OWNER));
+        $builtIn = function (string $key, array $codes, bool $deleted = false): string {
+            $id = Uuid::v4()->toRfc4122();
+            $this->insertAsOwnerForTenant(self::TENANT_A,
+                'INSERT INTO role (id, tenant_id, name, is_system, default_key, deleted_at) VALUES (?::uuid, ?::uuid, ?, true, ?, CASE WHEN ? THEN now() END)',
+                [$id, self::TENANT_A, 'Built-in '.$key, $key, $deleted ? 'true' : 'false']);
+            foreach ($codes as $code) {
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    'INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?)',
+                    [self::TENANT_A, $id, $code]);
+            }
+
+            return $id;
+        };
+        $viewer = $builtIn(DefaultRoles::VIEWER, DefaultRoles::codesFor(DefaultRoles::VIEWER));
+        $financeCodes = DefaultRoles::codesFor(DefaultRoles::FINANCE);
+        $extra = array_values(array_diff(DefaultRoles::codesFor(DefaultRoles::OWNER), $financeCodes))[0];
+        $finance = $builtIn(DefaultRoles::FINANCE, [...$financeCodes, $extra]);
+        $buyerCodes = DefaultRoles::codesFor(DefaultRoles::BUYER);
+        $missing = $buyerCodes[0];
+        $buyer = $builtIn(DefaultRoles::BUYER, \array_slice($buyerCodes, 1));
+        $unknown = $builtIn('not_a_default', ['role.view']);
+        $builtIn(DefaultRoles::SALES_REP, [], true);
+        $keyless = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'INSERT INTO role (id, tenant_id, name, is_system) VALUES (?::uuid, ?::uuid, ?, true)',
+            [$keyless, self::TENANT_A, 'keyless '.substr($keyless, 0, 8)]);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            "INSERT INTO role_permission (id, tenant_id, role_id, permission_code) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'role.view')",
+            [self::TENANT_A, $keyless]);
+
+        [$code, $out] = $this->reconcile(self::TENANT_A);
+        self::assertSame(ReconcileRolesCommand::EXIT_FINDINGS, $code, $out);
+        $kinds = [RoleReconciliation::FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS, RoleReconciliation::FINDING_UNKNOWN_DEFAULT_KEY,
+            RoleReconciliation::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS];
+        $lines = array_values(array_filter(explode("\n", trim($out)), static fn (string $l): bool => \in_array(explode(',', $l)[0], $kinds, true)));
+        $seen = array_map(static fn (string $l): string => preg_replace('/^([a-z_]+),,([0-9a-f-]+),[^,]*/', '$1 $2', $l), $lines);
+        sort($seen);
+        $expected = [
+            RoleReconciliation::FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS.' '.$finance.',permission_code='.$extra.',difference=extra',
+            RoleReconciliation::FINDING_SYSTEM_ROLE_PERMISSION_DIFFERS.' '.$buyer.',permission_code='.$missing.',difference=missing',
+            RoleReconciliation::FINDING_UNKNOWN_DEFAULT_KEY.' '.$unknown.',default_key=not_a_default',
+            RoleReconciliation::FINDING_SYSTEM_ROLE_HAS_PERMISSION_ROWS.' '.$keyless,
+        ];
+        sort($expected);
+        self::assertSame($expected, $seen, 'Arm D-system did not report exactly the planted built-in roles: '.$out);
+        self::assertStringNotContainsString($viewer, $out, 'A built-in role holding exactly its default was reported.');
+    }
+
+    /**
      * **Arm G, the confirmation half (roles slice 3 C2; design §10):** three plants, each reported once with its case and
      * the proposal's id — (i) a `confirmed` proposal with no `role.assigned` naming it (`decision_event_missing`); (ii) a
      * `role.assigned` naming a proposal that is still pending (`event_names_proposal_in_another_state`); (iii) a confirmed

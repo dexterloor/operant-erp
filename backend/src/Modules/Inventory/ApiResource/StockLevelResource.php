@@ -31,9 +31,9 @@ final readonly class StockLevelResource
         'required' => ['id', 'inventory_item', 'storage_location', 'warehouse', 'qty_on_hand', 'version'],
         'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
-            'inventory_item' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
-            'storage_location' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'code' => ['type' => 'string']]],
-            'warehouse' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'name' => ['type' => 'string']]],
+            'inventory_item' => ['type' => 'object', 'required' => ['id', 'sku', 'name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'sku' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+            'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'code' => ['type' => 'string']]],
+            'warehouse' => ['type' => 'object', 'required' => ['id', 'name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'name' => ['type' => 'string']]],
             'qty_on_hand' => ['type' => 'string'],
             'version' => ['type' => 'integer'],
         ],
