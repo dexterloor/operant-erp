@@ -6,7 +6,7 @@ import type { ChangePasswordAction } from '@/lib/auth/results';
 // ux-copy-frontend.md §1.5, the D2 = yes variant (owner ruling 2026-10-27, P-A), typed independently of src/copy.
 const DONE_BODY = "You've been signed out everywhere, including here. Sign in with your new password.";
 const NEVER_SENT_CLAIM = /emailed|email sent|we've sent|we have sent|check your inbox|sent you/i;
-/** PROPOSED (c10-design.md §6, FINAL B.5), typed here independently of src/copy. */
+/** CONFIRMED by UX (confirm-pass-2026-10-30.md Rev 1 §a; c10-design.md §6), typed here independently of src/copy. */
 const INTERRUPTED_BODY =
   "We can't tell whether your password was changed. Press Change password again: if it was changed, you'll be asked to sign in, and your new password will work.";
 
@@ -89,6 +89,21 @@ describe('ChangePasswordForm (/account/password)', () => {
     await fillAndSubmit();
     expect(screen.getByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
     expect(document.body.textContent).not.toContain(INTERRUPTED_BODY);
+  });
+
+  it('B1: an interrupted result, then not-sent: the not-sent banner reads "Try again in a moment." and never "Nothing was changed."', async () => {
+    // Guards the not-sent banner's text (confirm-pass-2026-10-30.md Rev 1 §b): a not-sent result is about this request
+    // only, and the earlier press may have changed the password, so "Nothing was changed." would not be known to be true.
+    for (const interrupted of ['unreachable', 'server-error'] as const) {
+      const action = vi.fn<ChangePasswordAction>().mockResolvedValueOnce({ kind: interrupted }).mockResolvedValueOnce({ kind: 'not-sent' });
+      const { unmount } = render(<ChangePasswordForm changePassword={action} onSessionEnded={vi.fn()} />);
+      await fillAndSubmit();
+      expect(screen.getByRole('status')).toHaveTextContent(INTERRUPTED_BODY);
+      await fillAndSubmit();
+      expect(screen.getByRole('status')).toHaveTextContent(/^Something went wrong on our side\.Try again in a moment\.$/);
+      expect(document.body.textContent).not.toContain('Nothing was changed.');
+      unmount();
+    }
   });
 
   it('F-4: session-changed → the injected reload, once; no banner, no session-ended hand-over', async () => {

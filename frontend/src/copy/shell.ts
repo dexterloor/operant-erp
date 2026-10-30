@@ -111,6 +111,9 @@ export const SHELL = {
   themeSystem: 'Match system',
   signOut: 'Sign out',
   dismiss: 'Dismiss',
-  /** AMENDED by UX (ux-confirm-followup.md §5a: Sign out is inside the account menu); SEC to confirm. */
+  /**
+   * AMENDED by UX (ux-confirm-followup.md §5a: Sign out is inside the account menu); CONFIRMED by SEC
+   * (confirm-pass-2026-10-30.md §e).
+   */
   signOutFailedBody: 'You may still be signed in on this device. Open your account menu and press Sign out again.',
 } as const;

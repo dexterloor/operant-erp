@@ -273,6 +273,21 @@ describe('ResetPasswordForm — the form and its results', () => {
     expect(redeem).toHaveBeenNthCalledWith(2, expect.objectContaining({ token: TOKEN }));
   });
 
+  it('B1: an interrupted result, then not-sent: the not-sent banner reads "Try again in a moment." and never "Nothing was changed."', async () => {
+    // Guards the not-sent banner's text (confirm-pass-2026-10-30.md Rev 1 §b): the earlier press may have set the password.
+    for (const interrupted of ['unreachable', 'server-error'] as const) {
+      openLink();
+      const redeem = vi.fn<RedeemResetAction>().mockResolvedValueOnce({ kind: interrupted }).mockResolvedValueOnce({ kind: 'not-sent' });
+      const { unmount } = renderPage(redeem);
+      await submit();
+      expect(screen.getByRole('status')).toHaveTextContent(INTERRUPTED_BODY);
+      await submit();
+      expect(screen.getByRole('status')).toHaveTextContent(/^Something went wrong on our side\.Try again in a moment\.$/);
+      expect(document.body.textContent).not.toContain('Nothing was changed.');
+      unmount();
+    }
+  });
+
   it('no wording anywhere on the page claims an email was sent', async () => {
     openLink();
     renderPage(async () => ({ kind: 'link-refused' }));

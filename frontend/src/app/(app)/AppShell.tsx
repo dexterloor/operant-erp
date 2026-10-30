@@ -20,7 +20,8 @@ const reloadDocument = () => window.location.reload();
  *
  * A page that Back restores from the browser's back-forward cache (`pageshow` with `persisted`) is reloaded, so the
  * server checks the session again and the page never shows what an earlier sign-in left on screen (b3b-followup C-5c,
- * design §8 L-11; SEC to confirm). `reload` is injectable because jsdom cannot patch `location.reload`.
+ * design §8 L-11; CONFIRMED by SEC, confirm-pass-2026-10-30.md §f). `reload` is injectable because jsdom cannot patch
+ * `location.reload`.
  *
  * A Sign out that got no answer or a failure never navigates (b3b-followup C-8): a banner above the page says the
  * person may still be signed in here, under R1-1's heading by cause. Its heading takes focus — after the menu's own
