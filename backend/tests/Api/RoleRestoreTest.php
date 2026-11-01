@@ -13,8 +13,9 @@ use Symfony\Component\Uid\Uuid;
 /**
  * **`RestoreRole` — `POST /api/v1/roles/{id}/restoration`, `role.delete`** (G2, 2026-10-22;
  * `docs/session13/g2-restore-role-design.md` as corrected by `g2-restore-role-red.md`; `remaining-ops-final-red.md` M-3, L-2;
- * V2-R-6). One rule per test; every refusal's sentence is pinned as a LITERAL (PLACEHOLDER copy, `UX` to confirm); **every
- * refusal writes nothing** (`assertUntouched()` reads `deleted_at`, `updated_at`, the codes, and counts `role.restored`).
+ * V2-R-6). One rule per test; every refusal's sentence is pinned as a LITERAL (copy confirmed by `UX` 2026-10-31,
+ * `docs/design/restore-role-ux.md` §2); **every refusal writes nothing** (`assertUntouched()` reads `deleted_at`,
+ * `updated_at`, the codes, and counts `role.restored`).
  *
  * **Fixture rule** (`RoleDeleteTest`'s): roles are archived by owner SQL (`DeleteRole` itself is `RoleDeleteTest`'s), and
  * every actor meant to reach the role holds `role.assign` as well as `role.delete`, EXCEPT the backstop's own test.
@@ -68,7 +69,7 @@ final class RoleRestoreTest extends ApiTestCase
         $before = $this->state($role);
         $this->restore($role);
 
-        self::assertSame([409, 'role.is_not_archived', 'This role is not archived, so there is nothing to restore.'], $this->refusal());
+        self::assertSame([409, 'role.is_not_archived', 'This role hasn\'t been deleted, so there is nothing to restore.'], $this->refusal());
         self::assertSame($before, $this->state($role));
         self::assertCount(1, $this->restorationEvents(), 'A repeated restore wrote a second row.');
     }
@@ -136,7 +137,7 @@ final class RoleRestoreTest extends ApiTestCase
 
         $this->restore($role);
 
-        self::assertSame([409, 'role.has_holders', 'This role is still given to 3 people, counting anyone whose account is deactivated or removed. It can be restored once nobody holds it.'], $this->refusal());
+        self::assertSame([409, 'role.has_holders', 'This role is still given to 3 people, counting anyone whose account is switched off or deleted, so it can\'t be restored.'], $this->refusal());
         $this->assertUntouched($role, $before);
         self::assertSame(3, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM user_role WHERE role_id = ?::uuid', [$role]), 'A holder was stripped.');
     }
@@ -217,7 +218,7 @@ final class RoleRestoreTest extends ApiTestCase
 
         $this->restore($role);
 
-        self::assertSame([409, 'role.separation_of_duty', 'This role covers both sides of a job that has to be split: anyone given it could raise purchase orders and also approve or cancel them (SoD-1). It can\'t be restored, but a new role can be created with the permissions for one side.'], $this->refusal());
+        self::assertSame([409, 'role.separation_of_duty', 'This role covers both sides of a job that has to be split: anyone given it could raise purchase orders and also approve or cancel them (SoD-1). So it can\'t be restored.'], $this->refusal());
         $this->assertUntouched($role, $before);
     }
 
@@ -231,7 +232,7 @@ final class RoleRestoreTest extends ApiTestCase
 
         $this->restore($role);
 
-        self::assertSame([409, 'role.missing_companion_view', 'Some permissions in this role only work alongside others it doesn\'t have: counting stock needs seeing stock levels. It can\'t be restored, but a new role can be created with the missing ones added.'], $this->refusal());
+        self::assertSame([409, 'role.missing_companion_view', 'Some permissions in this role only work alongside others it doesn\'t have: counting stock needs seeing stock levels. So it can\'t be restored.'], $this->refusal());
         $this->assertUntouched($role, $before);
     }
 
@@ -247,7 +248,7 @@ final class RoleRestoreTest extends ApiTestCase
         $before = $this->state($role);
 
         $this->restore($role);
-        self::assertSame([409, 'role.name_taken', 'Another role now uses this role\'s name, so it can\'t be restored. It can be restored once that role is renamed.'], $this->refusal());
+        self::assertSame([409, 'role.name_taken', 'Another role now has this role\'s name, or one that differs from it only in capitals, spaces, dashes or underscores, so this one can\'t be restored.'], $this->refusal());
         $this->assertUntouched($role, $before);
 
         $this->send('PATCH', '/roles/'.$live, ['name' => 'Stock Counter (new)']);
