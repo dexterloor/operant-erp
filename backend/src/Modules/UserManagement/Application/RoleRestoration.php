@@ -59,7 +59,8 @@ use Symfony\Component\Uid\Uuid;
  *
  * Not run: E-15f's held-role clause and PC-13's holder re-run — step 9 leaves no holder.
  *
- * **The refusal sentences are PLACEHOLDERS for `UX`** (`g2-restore-role-design.md` §4), each pinned as a LITERAL in
+ * **The refusal sentences are confirmed by `UX`** (2026-10-31, `docs/design/restore-role-ux.md` §2; BK-17 re-worded five
+ * of them so none advises renaming or creating a role, which the web app cannot do), each pinned as a LITERAL in
  * `RoleRestoreTest`; none names a permission code or a person (R-1).
  */
 final readonly class RoleRestoration
@@ -68,9 +69,9 @@ final readonly class RoleRestoration
 
     public const IS_SYSTEM = 'This is one of the built-in roles, and built-in roles can\'t be restored or changed.';
 
-    public const NOT_ARCHIVED = 'This role is not archived, so there is nothing to restore.';
+    public const NOT_ARCHIVED = 'This role hasn\'t been deleted, so there is nothing to restore.';
 
-    public const HAS_HOLDERS = 'This role is still given to %s, counting anyone whose account is deactivated or removed. It can be restored once nobody holds it.';
+    public const HAS_HOLDERS = 'This role is still given to %s, counting anyone whose account is switched off or deleted, so it can\'t be restored.';
 
     public const HAS_PENDING_PROPOSALS = '%s still open for this role, counting any that are more than 14 days old. It can be restored once they\'re closed: an owner can reject them, and whoever proposed one can withdraw it.';
 
@@ -78,11 +79,11 @@ final readonly class RoleRestoration
 
     public const EXCEEDS = 'This role includes permissions you don\'t have yourself, and a role can only be restored by someone who holds all of its permissions. Ask an owner to restore it.';
 
-    public const SEPARATION_OF_DUTY = 'This role covers both sides of a job that has to be split: anyone given it could %s (%s). It can\'t be restored, but a new role can be created with the permissions for one side.';
+    public const SEPARATION_OF_DUTY = 'This role covers both sides of a job that has to be split: anyone given it could %s (%s). So it can\'t be restored.';
 
-    public const MISSING_COMPANION = 'Some permissions in this role only work alongside others it doesn\'t have: %s. It can\'t be restored, but a new role can be created with the missing ones added.';
+    public const MISSING_COMPANION = 'Some permissions in this role only work alongside others it doesn\'t have: %s. So it can\'t be restored.';
 
-    public const NAME_TAKEN = 'Another role now uses this role\'s name, so it can\'t be restored. It can be restored once that role is renamed.';
+    public const NAME_TAKEN = 'Another role now has this role\'s name, or one that differs from it only in capitals, spaces, dashes or underscores, so this one can\'t be restored.';
 
     private const BACKSTOP_CODE = 'role.assign';
 
