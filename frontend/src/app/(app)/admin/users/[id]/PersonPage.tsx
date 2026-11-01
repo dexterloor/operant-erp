@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
 import { RolePicker } from '@/components/roles/RolePicker';
 import { RoleProposals } from '@/components/roles/RoleProposals';
@@ -65,9 +66,12 @@ function headingAfter(c: RereadContext): string | null {
  *   status region, which stays mounted (RED round 2 R2-M1), or is the page banner's body after a save that did not finish;
  * - a failed or timed-out read → the component's own failure copy (the old props kept), or the region error after a
  *   delete.
+ * After a restore's message is on screen the router cache is refreshed once (restore-role-design.md F-1 L-13, R-13: the
+ * Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
  */
 export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const caller = useApiCaller();
+  const router = useRouter();
   const timeZone = useViewerTimeZone();
   const [view, setView] = useCommittedState(initial);
   const viewRef = useRef(initial);
@@ -195,6 +199,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
     [caller, id, reread, showPage],
   );
 
+  // Cache invalidation only (never the commit signal): the Archived list must not show this person after Back.
+  const refreshAfterRestore = useCallback(() => router.refresh(), [router]);
+
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -250,6 +257,7 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
         onGiveRole={() => document.querySelector<HTMLInputElement>('[data-surface="role-picker"] input')?.focus()}
         fallbackFocusRef={h1}
         timeZone={timeZone}
+        onRestored={refreshAfterRestore}
       />
       {showAccess ? (
         <>

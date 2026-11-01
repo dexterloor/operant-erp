@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// PersonPage refreshes the router cache after a restore (R-13); outside Next there is no router, so it is stubbed.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 import { PersonPage, type PersonPageGates } from '@/app/(app)/admin/users/[id]/PersonPage';
 import { PERSON_DELETED_WHILE_OPEN, PICKER, ROLES_FORBIDDEN_SENTENCE } from '@/copy/roles';
 import type { PersonView } from '@/lib/people/load';

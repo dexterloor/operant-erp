@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { ArchiveRestore, CircleCheck, Trash2, X } from 'lucide-react';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonAction, PersonActionFailure, RestorePersonAction } from '@/lib/people/results';
@@ -34,6 +34,8 @@ export interface PersonLifecycleActionsProps {
    * differ from the server's HTML.
    */
   timeZone: string;
+  /** Called once after a restore's message has been committed (the page refreshes its router cache then). */
+  onRestored?: () => void;
 }
 
 type Action = 'delete' | 'restore';
@@ -88,13 +90,22 @@ export function PersonLifecycleActions({
   onGiveRole,
   fallbackFocusRef,
   timeZone,
+  onRestored,
 }: PersonLifecycleActionsProps) {
   const live = useLiveRegion();
   const [open, setOpen] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<PersonDialogNotice | null>(null);
   const [offerGiveRole, setOfferGiveRole] = useState(false);
+  const [restoredGen, setRestoredGen] = useState(0);
   const name = person.display_name;
+
+  // After the commit that put the restore's message on screen (restore-role-design.md F-1 L-13, branch R; R-13).
+  useEffect(() => {
+    if (restoredGen > 0) onRestored?.();
+    // Once per successful restore only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoredGen]);
 
   const openDialog = (action: Action) => {
     setNotice(null);
@@ -128,6 +139,7 @@ export function PersonLifecycleActions({
       setNotice(null);
       setOfferGiveRole(active);
       live.announce(active ? `${RESTORE_PERSON.after(name)} ${RESTORE_PERSON.afterActive}` : RESTORE_PERSON.after(name));
+      setRestoredGen((g) => g + 1);
     } else {
       // A 401 leaves the dialog as it is: the caller navigates away (R1-4).
       if (result.kind !== 'session-ended') setNotice((prev) => noticeFor(action, result, name, (prev?.id ?? 0) + 1));

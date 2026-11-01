@@ -1,6 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// R-13 (restore-role-design.md F-1 L-13, branch R): PersonPage refreshes the router cache after a restore; `refresh` is a spy.
+const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { PersonPage } from '@/app/(app)/admin/users/[id]/PersonPage';
 import { formatDate } from '@/lib/format/dates';
 import { ID, TZ, VIEWER_ID, empty, json, problem, refused, renderWired, stubFetch, user } from './harness';
@@ -9,7 +12,10 @@ import { ID, TZ, VIEWER_ID, empty, json, problem, refused, renderWired, stubFetc
 // delete whose re-read fails shows the after-message AND the region error (focus on the region error's heading); a
 // GetUser re-read that answers 403 swaps to ST-4b, 404 to ST-5 with no other sentence.
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  nav.refresh.mockReset();
+});
 
 const DELETED = user({ archived_at: '2026-10-28T10:00:00Z' });
 const NO_ROLES = { delete: true, assign: false, view: false, confirm: false };
@@ -108,5 +114,58 @@ describe('/admin/users/[id] — wired', () => {
     expect(await screen.findByText('Ada Lovelace was restored. Give them a role so they can work.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete person' })).toBeInTheDocument();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`POST /bff/api/users/${ID}/restoration`]);
+  });
+
+  it('R-13: after a restore, refresh once, with the message already on screen; never on a refusal, a failure or a delete', async () => {
+    const u = userEvent.setup();
+    const restore = async () => {
+      await u.click(screen.getByRole('button', { name: 'Restore person' }));
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Restore person' }));
+    };
+    let atRefresh: string[] = [];
+    nav.refresh.mockImplementation(() => {
+      atRefresh.push(screen.queryByText(/^Ada Lovelace was restored\./)?.textContent ?? '(no message)');
+    });
+    for (const [served, message] of [
+      [user(), 'Ada Lovelace was restored. Give them a role so they can work.'],
+      [user({ is_active: false }), 'Ada Lovelace was restored.'],
+    ] as const) {
+      stubFetch([json(200, served)]);
+      const v = show({ person: DELETED });
+      await restore();
+      await screen.findByText(message);
+      await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+      // Let any later effect or timer run: still exactly one call, made after the message was committed.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      expect(atRefresh).toEqual([message]);
+      v.unmount();
+      nav.refresh.mockClear();
+      atRefresh = [];
+    }
+    for (const reply of [
+      refused('app_user.planted', 'X-planted restore sentence'),
+      problem(403, 'permission-denied'),
+      problem(404, 'not-found'),
+      json(503, {}),
+      json(500, {}),
+      () => {
+        throw new TypeError('fetch failed');
+      },
+    ]) {
+      stubFetch([reply]);
+      const v = show({ person: DELETED });
+      await restore();
+      await within(screen.getByRole('dialog')).findByText(/Not restored|We couldn't reach|Something went wrong/);
+      await new Promise((r) => setTimeout(r, 20));
+      v.unmount();
+    }
+    stubFetch([empty(204), json(200, DELETED)]);
+    const v = show();
+    await deleteIt(u);
+    await screen.findByText("Ada Lovelace was deleted. They're now in the archived people.");
+    await new Promise((r) => setTimeout(r, 20));
+    v.unmount();
+    expect(nav.refresh).not.toHaveBeenCalled();
   });
 });
