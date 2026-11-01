@@ -36,6 +36,8 @@ export interface PersonLifecycleActionsProps {
   timeZone: string;
   /** Called once after a restore's message has been committed (the page refreshes its router cache then). */
   onRestored?: () => void;
+  /** Called once after a delete's message has been committed (the page refreshes its router cache then). */
+  onDeleted?: () => void;
 }
 
 type Action = 'delete' | 'restore';
@@ -91,6 +93,7 @@ export function PersonLifecycleActions({
   fallbackFocusRef,
   timeZone,
   onRestored,
+  onDeleted,
 }: PersonLifecycleActionsProps) {
   const live = useLiveRegion();
   const [open, setOpen] = useState<Action | null>(null);
@@ -98,6 +101,7 @@ export function PersonLifecycleActions({
   const [notice, setNotice] = useState<PersonDialogNotice | null>(null);
   const [offerGiveRole, setOfferGiveRole] = useState(false);
   const [restoredGen, setRestoredGen] = useState(0);
+  const [deletedGen, setDeletedGen] = useState(0);
   const name = person.display_name;
 
   // After the commit that put the restore's message on screen (restore-role-design.md F-1 L-13, branch R; R-13).
@@ -106,6 +110,13 @@ export function PersonLifecycleActions({
     // Once per successful restore only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoredGen]);
+
+  // The same after a delete's message is on screen (R-14: the live list was measured stale after Back).
+  useEffect(() => {
+    if (deletedGen > 0) onDeleted?.();
+    // Once per successful delete only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deletedGen]);
 
   const openDialog = (action: Action) => {
     setNotice(null);
@@ -133,6 +144,7 @@ export function PersonLifecycleActions({
       setNotice(null);
       setOfferGiveRole(false);
       live.announce(DELETE_PERSON.after(name));
+      setDeletedGen((g) => g + 1);
     } else if (result.kind === 'restored') {
       const active = result.person.is_active;
       setOpen(null);

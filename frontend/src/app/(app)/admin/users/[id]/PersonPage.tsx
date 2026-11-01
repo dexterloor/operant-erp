@@ -67,7 +67,8 @@ function headingAfter(c: RereadContext): string | null {
  * - a failed or timed-out read → the component's own failure copy (the old props kept), or the region error after a
  *   delete.
  * After a restore's message is on screen the router cache is refreshed once (restore-role-design.md F-1 L-13, R-13: the
- * Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
+ * Archived list was measured stale after Back); `useCommittedState` stays the commit signal. The same once after a
+ * delete's message is on screen (R-14: the live list was measured still showing the deleted person after Back).
  */
 export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const caller = useApiCaller();
@@ -199,8 +200,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
     [caller, id, reread, showPage],
   );
 
-  // Cache invalidation only (never the commit signal): the Archived list must not show this person after Back.
-  const refreshAfterRestore = useCallback(() => router.refresh(), [router]);
+  // Cache invalidation only (never the commit signal): after Back, neither the Archived list (restore) nor the live list
+  // (delete) may show this person where they no longer are. One call per event.
+  const refreshRouterCache = useCallback(() => router.refresh(), [router]);
 
   const retry = async () => {
     if (retrying) return;
@@ -257,7 +259,8 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
         onGiveRole={() => document.querySelector<HTMLInputElement>('[data-surface="role-picker"] input')?.focus()}
         fallbackFocusRef={h1}
         timeZone={timeZone}
-        onRestored={refreshAfterRestore}
+        onRestored={refreshRouterCache}
+        onDeleted={refreshRouterCache}
       />
       {showAccess ? (
         <>

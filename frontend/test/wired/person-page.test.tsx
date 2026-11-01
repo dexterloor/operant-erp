@@ -116,7 +116,7 @@ describe('/admin/users/[id] — wired', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`POST /bff/api/users/${ID}/restoration`]);
   });
 
-  it('R-13: after a restore, refresh once, with the message already on screen; never on a refusal, a failure or a delete', async () => {
+  it('R-13: after a restore, refresh once, with the message already on screen; never on a refusal or a failure, and a delete adds only its own (R-14)', async () => {
     const u = userEvent.setup();
     const restore = async () => {
       await u.click(screen.getByRole('button', { name: 'Restore person' }));
@@ -160,12 +160,67 @@ describe('/admin/users/[id] — wired', () => {
       await new Promise((r) => setTimeout(r, 20));
       v.unmount();
     }
+    expect(nav.refresh).not.toHaveBeenCalled();
+    // A delete refreshes once for itself (R-14); no restore-driven call rides along with it.
     stubFetch([empty(204), json(200, DELETED)]);
     const v = show();
     await deleteIt(u);
     await screen.findByText("Ada Lovelace was deleted. They're now in the archived people.");
     await new Promise((r) => setTimeout(r, 20));
     v.unmount();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(atRefresh).toEqual(['(no message)']);
+  });
+
+  it('R-14: after a delete, refresh once, with the message already on screen; never on a refusal or a failure; a restore adds only its own', async () => {
+    const u = userEvent.setup();
+    const DELETED_MESSAGE = "Ada Lovelace was deleted. They're now in the archived people.";
+    let atRefresh: string[] = [];
+    nav.refresh.mockImplementation(() => {
+      atRefresh.push(screen.queryByText(/^Ada Lovelace was deleted\./)?.textContent ?? '(no message)');
+    });
+    // Success, with the follow-up read answering 200, then failing (the after-message still shows with the region error).
+    for (const reread of [json(200, DELETED), json(500, {})]) {
+      stubFetch([empty(204), reread]);
+      const v = show();
+      await deleteIt(u);
+      await screen.findByText(DELETED_MESSAGE);
+      await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+      // Let any later effect or timer run: still exactly one call, made after the message was committed.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      expect(atRefresh).toEqual([DELETED_MESSAGE]);
+      v.unmount();
+      nav.refresh.mockClear();
+      atRefresh = [];
+    }
+    for (const reply of [
+      refused('app_user.planted', 'X-planted delete sentence'),
+      problem(403, 'permission-denied'),
+      problem(404, 'not-found'),
+      json(503, {}),
+      json(500, {}),
+      () => {
+        throw new TypeError('fetch failed');
+      },
+    ]) {
+      stubFetch([reply]);
+      const v = show();
+      await deleteIt(u);
+      await within(screen.getByRole('dialog')).findByText(/Not deleted|We couldn't reach|Something went wrong/);
+      await new Promise((r) => setTimeout(r, 20));
+      v.unmount();
+    }
     expect(nav.refresh).not.toHaveBeenCalled();
+    // A restore refreshes once for itself (R-13); no delete-driven call rides along with it.
+    stubFetch([json(200, user())]);
+    const v = show({ person: DELETED });
+    await u.click(screen.getByRole('button', { name: 'Restore person' }));
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Restore person' }));
+    await screen.findByText('Ada Lovelace was restored. Give them a role so they can work.');
+    await new Promise((r) => setTimeout(r, 20));
+    v.unmount();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(atRefresh).toEqual(['(no message)']);
   });
 });
