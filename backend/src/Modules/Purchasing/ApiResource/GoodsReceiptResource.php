@@ -111,6 +111,7 @@ final class GoodsReceiptResource
         public string $receiptNumber,
         #[SerializedName('received_at')]
         public string $receivedAt,
+        #[ApiProperty(schema: PurchasingReferenceSchema::ORDER)]
         #[SerializedName('purchase_order')]
         public OrderReference $purchaseOrder,
         #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]

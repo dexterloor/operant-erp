@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
@@ -182,6 +183,7 @@ final class PurchaseOrderLineResource
         public string $id,
         #[SerializedName('line_number')]
         public int $lineNumber,
+        #[ApiProperty(schema: PurchasingReferenceSchema::ITEM)]
         #[SerializedName('inventory_item')]
         public ItemReference $inventoryItem,
         /**

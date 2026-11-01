@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
@@ -110,8 +111,10 @@ final class StockMovementResource
         public ?string $sourceType,
         #[SerializedName('source_id')]
         public ?string $sourceId,
+        #[ApiProperty(schema: StockLevelResource::WIRE_SCHEMA['properties']['inventory_item'])]
         #[SerializedName('inventory_item')]
         public StockItemRef $inventoryItem,
+        #[ApiProperty(schema: StockLevelResource::WIRE_SCHEMA['properties']['storage_location'])]
         #[SerializedName('storage_location')]
         public StockLocationRef $storageLocation,
     ) {

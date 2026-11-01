@@ -88,7 +88,9 @@ final class PickListResource
         public string $orderNumber,
         /** One of `SalesOrder::STATUS_*` — B1N-12: the actor who shipped sees the order's resulting status. */
         public string $status,
+        #[ApiProperty(schema: SalesReferenceSchema::NAMED)]
         public SalesNamedRef $customer,
+        #[ApiProperty(schema: SalesReferenceSchema::NAMED)]
         public SalesNamedRef $warehouse,
         #[SerializedName('ship_to_line')]
         public string $shipToLine,

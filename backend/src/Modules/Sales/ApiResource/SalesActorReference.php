@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -49,7 +50,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final readonly class SalesActorReference
 {
     public function __construct(
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
+        #[ApiProperty(required: true)]
         #[SerializedName('display_name')]
         public string $displayName,
     ) {

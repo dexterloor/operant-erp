@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * API-23b — a foreign-key reference is returned expanded as
  * `{id, <display field>}` and never as a bare uuid, and an expansion carries
@@ -24,7 +26,15 @@ final class RoleReference
         'name' => ['type' => 'string'],
     ]];
 
-    public function __construct(public string $id, public string $name)
-    {
+    /**
+     * BK-14: the minted `RoleReference` component takes its members from {@see self::WIRE_SCHEMA}, so the component and the
+     * inline `roles[]` items are one source.
+     */
+    public function __construct(
+        #[ApiProperty(required: true, schema: self::WIRE_SCHEMA['properties']['id'])]
+        public string $id,
+        #[ApiProperty(required: true, schema: self::WIRE_SCHEMA['properties']['name'])]
+        public string $name,
+    ) {
     }
 }

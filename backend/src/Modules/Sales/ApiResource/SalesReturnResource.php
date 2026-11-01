@@ -164,15 +164,19 @@ final class SalesReturnResource
         public string $reason,
         #[SerializedName('returned_at')]
         public string $returnedAt,
+        #[ApiProperty(schema: SalesReferenceSchema::FULFILMENT)]
         public FulfilmentRef $fulfilment,
         /** The fulfilment's live invoice when the return was recorded (design F-2), or null. A PC-15 reference. */
+        #[ApiProperty(schema: SalesReferenceSchema::INVOICE_OR_NULL)]
         public ?InvoiceNumberRef $invoice,
         /** The invoice a credit for this return must be issued against; null unless creditable (L5-1 (b)). */
+        #[ApiProperty(schema: SalesReferenceSchema::INVOICE_OR_NULL)]
         #[SerializedName('credit_target')]
         public ?InvoiceNumberRef $creditTarget,
         /** Owner ruling Q-L (a′): whether this return lowers the next invoice, decided when it was recorded. */
         public bool $deducts,
         /** PC-11 (4a): who recorded the return — SoD-5's evidence, not enforcement. */
+        #[ApiProperty(schema: SalesReferenceSchema::ACTOR)]
         #[SerializedName('recorded_by')]
         public SalesActorRef $recordedBy,
         #[SerializedName('created_at')]

@@ -666,55 +666,209 @@ final class OpenApiContractTest extends ApiTestCase
     private const RESOURCES_WITHOUT_A_COMPONENT = ['BulkArchival', 'BulkRestoration', 'BulkRoleAssignment', 'Export', 'PasswordReset'];
 
     /**
-     * BK-13 T-3′. Every served list of objects (and every single-object member) has exactly its element class's
-     * serialized members as keys. On a hand-written node — one written in an `#[ApiProperty(schema:)]` and everything
-     * inside it — it also declares `required` as every member except those that are nullable AND skipped when null, and
-     * a member's type admits `null` exactly when the member is nullable and not skipped. At a `$ref` to a minted
-     * component, keys only (BK-14 widens this).
+     * BK-13 T-3′, widened by BK-14 (T-3″). Every served list of objects (and every single-object member) has exactly its
+     * element class's serialized members as keys.
+     *
+     * A node is DESCRIBED when it is hand-written — written in an `#[ApiProperty(schema:)]`, and everything inside it — or
+     * when its class is not an `#[ApiResource]` (a short reference served as a component of its own). A described node
+     * declares `required` as every member except those that are nullable AND skipped when null.
+     *
+     * A member's type admits `null` exactly when the member is nullable and not skipped. That holds on every member of a
+     * described node, and on every member that carries its own `#[ApiProperty(schema:)]` wherever it sits, so a nullable
+     * reference written by hand under a resource root is held too. A hand-written member whose PHP type is a scalar is
+     * served that scalar's JSON type.
+     *
+     * Resource root components stay keys-only: that they list no `required` and give `id` no `format` is BK-18, not this
+     * test.
+     *
+     * Anti-vacuity, two-way: the components the walk reached through a `$ref` and described == every component that is not
+     * a resource, not an input and not API Platform's own. It fails on a reference component the walk never reaches, and on
+     * a walk that silently describes nothing.
      */
     #[Test]
     public function everyServedListOfObjectsIsItsElementClass(): void
     {
         $spec = $this->regenerate();
+        ['failures' => $failures, 'visited' => $visited, 'followed' => $followed, 'withoutComponent' => $withoutComponent] = $this->walkSpec($spec);
+
+        self::assertSame(self::RESOURCES_WITHOUT_A_COMPONENT, $withoutComponent, 'The resources that serve no component.');
+        foreach (['User.roles', 'CurrentUser.roles', 'PickList.lines[].candidate_bins', 'SalesReturn.lines[].adjustment_decisions', 'CreditNote.lines[].return_decisions'] as $path) {
+            self::assertContains($path, $visited, 'Anti-vacuity: '.$path.' was walked.');
+        }
+
+        $minted = [];
+        foreach (array_keys($spec['components']['schemas'] ?? []) as $name) {
+            if (!\in_array($name, self::apiResourceClasses(), true) && !str_contains((string) $name, '.') && !\in_array($name, ['Error', 'ConstraintViolation'], true)) {
+                $minted[] = (string) $name;
+            }
+        }
+        sort($minted);
+        $followed = array_values(array_unique($followed));
+        sort($followed);
+        self::assertNotSame([], $minted, 'Anti-vacuity: some reference is served as a component of its own.');
+        self::assertSame($minted, $followed, 'The reference components the walk described are every reference component in the spec.');
+        self::assertSame([], $failures, "A served object schema does not match its element class:\n".implode("\n", $failures));
+    }
+
+    /**
+     * BK-14 T-14a (final RED FH-1). (a) Every described node with an `id` member serves `id` as `{type: string, format:
+     * uuid}`. The one served `id` that is not a uuid, a separation-of-duty row's, sits in a PHP array shape the walk cannot
+     * reach, so it is asserted directly: `{type: string}` and nothing more. (b) A REFERENCE CLASS — not an `#[ApiResource]`,
+     * with an `id`, and every public member a non-nullable `string` — carries `format` on `id` only. The reference classes
+     * the walk reaches are derived, pinned two-way, and printed on a difference.
+     */
+    #[Test]
+    public function everyReferenceTypesItsIdAsAUuid(): void
+    {
+        $spec = $this->regenerate();
+        $failures = [];
+        $notUuid = [];
+        $references = [];
+        foreach ($this->walkSpec($spec)['described'] as ['path' => $path, 'class' => $class, 'node' => $node]) {
+            $properties = $node['properties'] ?? [];
+            if (!\array_key_exists('id', $properties)) {
+                continue;
+            }
+            if (['type' => 'string', 'format' => 'uuid'] !== self::sortedKeys($properties['id'])) {
+                $notUuid[] = $path;
+            }
+            if (!self::isReferenceClass($class)) {
+                continue;
+            }
+            $short = (new \ReflectionClass($class))->getShortName();
+            if (isset($references[$short]) && $references[$short] !== $class) {
+                $failures[] = $short.' names two reference classes: '.$references[$short].' and '.$class;
+            }
+            $references[$short] = $class;
+            foreach ($properties as $member => $schema) {
+                if ('id' !== $member && \is_array($schema) && \array_key_exists('format', $schema)) {
+                    $failures[] = $path.'.'.$member.': a reference carries format "'.$schema['format'].'" on a member other than id';
+                }
+            }
+        }
+
+        $notUuid = array_values(array_unique($notUuid));
+        sort($notUuid);
+        self::assertSame([], $notUuid, 'The described nodes whose id is not a uuid.');
+        // The one exception, held here because the walk cannot reach it: a separation-of-duty row is a PHP array shape,
+        // not a class, and its `id` names a rule, not a row.
+        $sodRow = $spec['components']['schemas']['PermissionCollection']['properties']['items']['items']['properties']['sod_rows']['items'] ?? [];
+        self::assertSame(['type' => 'string'], $sodRow['properties']['id'] ?? null, 'A separation-of-duty row id is a rule id, not a uuid.');
+        $derived = array_keys($references);
+        sort($derived);
+        self::assertSame(self::REFERENCE_CLASSES, $derived, "The reference classes the walk reaches:\n".implode("\n", $derived));
+        self::assertSame([], $failures, implode("\n", $failures));
+    }
+
+    /**
+     * BK-14 T-14a (b)'s derived set, pinned two-way: the 19 references first served as components of their own (9 still
+     * are; the 10 `Application` ones are served inline since BK-14), plus 8 only ever served inline. Re-derive on a
+     * difference from the printed set; a new member is a new reference to check, not a pin to move by hand.
+     */
+    private const REFERENCE_CLASSES = [
+        'ActorReference', 'AuditActorReference', 'CreditNoteNumberRef', 'FulfilmentRef', 'InvoiceNumberRef', 'ItemReference',
+        'LocationReference', 'NamedReference', 'OrderReference', 'ReorderItemReference', 'ReorderSupplierReference',
+        'RoleReference', 'SalesActorRef', 'SalesActorReference', 'SalesItemRef', 'SalesItemReference', 'SalesLocationRef',
+        'SalesNamedRef', 'SalesNamedReference', 'SalesOrderRef', 'SalesReturnNumberRef', 'StockItemRef', 'StockLocationRef',
+        'StockWarehouseRef', 'SupplierItemReference', 'SupplierReference', 'UserDisplayReference',
+    ];
+
+    /** BK-14 T-14b. The minted `RoleReference` component is `RoleReference::WIRE_SCHEMA`, the inline `roles[]` item shape. */
+    #[Test]
+    public function theRoleReferenceComponentIsItsWireSchema(): void
+    {
+        $spec = $this->regenerate();
+        $component = $spec['components']['schemas']['RoleReference'] ?? [];
+        $wire = RoleReference::WIRE_SCHEMA;
+        foreach ([&$component, &$wire] as &$schema) {
+            $required = $schema['required'] ?? [];
+            sort($required);
+            $schema['required'] = $required;
+        }
+        unset($schema);
+        self::assertSame(self::canonical($wire), self::canonical($component));
+    }
+
+    /** A class not served as a resource, with an `id`, whose every public member is a non-nullable `string`. */
+    private static function isReferenceClass(string $class): bool
+    {
+        if (isset(self::apiResourceClasses()[$class])) {
+            return false;
+        }
+        $hasId = false;
+        foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            $type = $property->getType();
+            if (!$type instanceof \ReflectionNamedType || 'string' !== $type->getName() || $type->allowsNull()) {
+                return false;
+            }
+            $hasId = $hasId || 'id' === $property->getName();
+        }
+
+        return $hasId;
+    }
+
+    /**
+     * The walk T-3″ and T-14a share, over every resource component.
+     *
+     * @param array<mixed> $spec
+     *
+     * @return array{failures: list<string>, visited: list<string>, followed: list<string>, described: list<array{path: string, class: class-string, node: array<mixed>}>, withoutComponent: list<string>}
+     */
+    private function walkSpec(array $spec): array
+    {
         $failures = [];
         $visited = [];
+        $followed = [];
+        $described = [];
         $withoutComponent = [];
-
         foreach (self::apiResourceClasses() as $class => $shortName) {
             $component = $spec['components']['schemas'][$shortName] ?? null;
             if (null === $component) {
                 $withoutComponent[] = $shortName;
                 continue;
             }
-            $this->walkMembers($class, $component, $shortName, false, false, $spec, $failures, $visited);
+            $this->walkMembers($class, $component, $shortName, false, false, $spec, $failures, $visited, $followed, $described);
         }
-
         sort($withoutComponent);
-        self::assertSame(self::RESOURCES_WITHOUT_A_COMPONENT, $withoutComponent, 'The resources that serve no component.');
-        foreach (['User.roles', 'CurrentUser.roles', 'PickList.lines[].candidate_bins', 'SalesReturn.lines[].adjustment_decisions', 'CreditNote.lines[].return_decisions'] as $path) {
-            self::assertContains($path, $visited, 'Anti-vacuity: '.$path.' was walked.');
-        }
-        self::assertSame([], $failures, "A served object schema does not match its element class:\n".implode("\n", $failures));
+
+        return ['failures' => $failures, 'visited' => $visited, 'followed' => $followed, 'described' => $described, 'withoutComponent' => $withoutComponent];
     }
 
+    /** The JSON type a hand-written member of each PHP scalar type is served as (FM-3). */
+    private const JSON_TYPE_OF_SCALAR = ['string' => 'string', 'int' => 'integer', 'bool' => 'boolean', 'float' => 'number'];
+
     /**
-     * @param class-string        $class
-     * @param array<mixed>        $node
-     * @param array<mixed>        $spec
-     * @param list<string>        $failures
-     * @param list<string>        $visited
+     * @param class-string                                                         $class
+     * @param array<mixed>                                                         $node
+     * @param array<mixed>                                                         $spec
+     * @param list<string>                                                         $failures
+     * @param list<string>                                                         $visited
+     * @param list<string>                                                         $followed
+     * @param list<array{path: string, class: class-string, node: array<mixed>}>   $described
      */
-    private function walkMembers(string $class, array $node, string $path, bool $handWritten, bool $inheritedSkip, array $spec, array &$failures, array &$visited): void
+    private function walkMembers(string $class, array $node, string $path, bool $handWritten, bool $inheritedSkip, array $spec, array &$failures, array &$visited, array &$followed, array &$described): void
     {
+        $component = null;
         if (isset($node['$ref'])) {
+            $component = self::componentNameOf($node['$ref']);
             $node = $this->resolve($node, $spec);
             $handWritten = false;
         }
         foreach ($node['anyOf'] ?? [] as $branch) {
             if (['type' => 'null'] !== $branch) {
+                if (isset($branch['$ref'])) {
+                    $component = self::componentNameOf($branch['$ref']);
+                }
                 $node = isset($branch['$ref']) ? $this->resolve($branch, $spec) : $branch;
                 $handWritten = $handWritten && !isset($branch['$ref']);
             }
+        }
+        $isDescribed = $handWritten || !isset(self::apiResourceClasses()[$class]);
+        if ($isDescribed && null !== $component) {
+            $followed[] = $component;
         }
 
         $reflection = new \ReflectionClass($class);
@@ -742,6 +896,9 @@ final class OpenApiContractTest extends ApiTestCase
 
             return;
         }
+        if ($isDescribed) {
+            $described[] = ['path' => $path, 'class' => $class, 'node' => $node];
+        }
 
         $required = [];
         foreach ($members as $name => $property) {
@@ -750,8 +907,9 @@ final class OpenApiContractTest extends ApiTestCase
             if (!($nullable && $skip)) {
                 $required[] = $name;
             }
-            if ($handWritten) {
-                $memberNode = $node['properties'][$name];
+            $memberNode = $node['properties'][$name];
+            $ownSchema = self::carriesItsOwnSchema($property);
+            if ($isDescribed || $ownSchema) {
                 $type = $memberNode['type'] ?? null;
                 $admitsNull = (\is_array($type) && \in_array('null', $type, true)) || 'null' === $type
                     || \in_array(['type' => 'null'], $memberNode['anyOf'] ?? [], true);
@@ -759,8 +917,16 @@ final class OpenApiContractTest extends ApiTestCase
                     $failures[] = $path.'.'.$name.': admits null = '.var_export($admitsNull, true).', expected '.var_export($nullable && !$skip, true);
                 }
             }
+            $phpType = $property->getType();
+            if (($handWritten || $ownSchema) && $phpType instanceof \ReflectionNamedType && $phpType->isBuiltin()
+                && isset(self::JSON_TYPE_OF_SCALAR[$phpType->getName()])) {
+                $servedTypes = array_values(array_diff((array) ($memberNode['type'] ?? []), ['null']));
+                if ([self::JSON_TYPE_OF_SCALAR[$phpType->getName()]] !== $servedTypes) {
+                    $failures[] = $path.'.'.$name.': served type ['.implode(',', $servedTypes).'], but the member is PHP '.$phpType->getName();
+                }
+            }
         }
-        if ($handWritten) {
+        if ($isDescribed) {
             $declared = $node['required'] ?? [];
             sort($declared);
             sort($required);
@@ -772,10 +938,7 @@ final class OpenApiContractTest extends ApiTestCase
         foreach ($members as $name => $property) {
             $here = $path.'.'.$name;
             $memberNode = $node['properties'][$name];
-            $childHand = $handWritten || [] !== array_filter(
-                $property->getAttributes(ApiProperty::class),
-                static fn (\ReflectionAttribute $a): bool => null !== $a->newInstance()->getSchema(),
-            );
+            $childHand = $handWritten || self::carriesItsOwnSchema($property);
             $skip = self::effectiveSkipNull($property, $inheritedSkip);
             $type = $property->getType();
             $typeName = $type instanceof \ReflectionNamedType ? $type->getName() : null;
@@ -786,12 +949,25 @@ final class OpenApiContractTest extends ApiTestCase
                     continue;
                 }
                 $visited[] = $here;
-                $this->walkMembers($element, $memberNode['items'] ?? [], $here.'[]', $childHand, $skip, $spec, $failures, $visited);
+                $this->walkMembers($element, $memberNode['items'] ?? [], $here.'[]', $childHand, $skip, $spec, $failures, $visited, $followed, $described);
             } elseif (null !== $typeName && str_starts_with($typeName, 'App\\') && !enum_exists($typeName)) {
                 $visited[] = $here;
-                $this->walkMembers($typeName, $memberNode, $here, $childHand, $skip, $spec, $failures, $visited);
+                $this->walkMembers($typeName, $memberNode, $here, $childHand, $skip, $spec, $failures, $visited, $followed, $described);
             }
         }
+    }
+
+    private static function carriesItsOwnSchema(\ReflectionProperty $property): bool
+    {
+        return [] !== array_filter(
+            $property->getAttributes(ApiProperty::class),
+            static fn (\ReflectionAttribute $a): bool => null !== $a->newInstance()->getSchema(),
+        );
+    }
+
+    private static function componentNameOf(string $ref): string
+    {
+        return substr($ref, (int) strrpos($ref, '/') + 1);
     }
 
     private static function effectiveSkipNull(\ReflectionProperty $property, bool $inherited): bool

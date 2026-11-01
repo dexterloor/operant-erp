@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * API-23b's expansion of an `inventory_item_id`: `{id, sku, name}`.
  *
@@ -28,8 +30,11 @@ namespace App\Modules\Sales\ApiResource;
 final readonly class SalesItemReference
 {
     public function __construct(
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
+        #[ApiProperty(required: true)]
         public string $sku,
+        #[ApiProperty(required: true)]
         public string $name,
     ) {
     }

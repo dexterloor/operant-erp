@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Suppliers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * API-23b's expansion of an `inventory_item_id`: `{id, sku, name}` (clause (ii), owner ruling Q-A of 2026-09-15: every
  * reference to `inventory_item` carries `sku`).
@@ -16,8 +18,11 @@ namespace App\Modules\Suppliers\ApiResource;
 final readonly class SupplierItemReference
 {
     public function __construct(
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
+        #[ApiProperty(required: true)]
         public string $sku,
+        #[ApiProperty(required: true)]
         public string $name,
     ) {
     }

@@ -104,11 +104,13 @@ final class FulfilmentResource
         public string $fulfilmentNumber,
         #[SerializedName('shipped_at')]
         public string $shippedAt,
+        #[ApiProperty(schema: SalesReferenceSchema::ORDER)]
         #[SerializedName('sales_order')]
         public SalesOrderRef $salesOrder,
         #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
         public array $lines,
         /** Owner ruling R6 / PC-11 (4a): who declared the goods shipped. Evidence for SoD-4, not enforcement. */
+        #[ApiProperty(schema: SalesReferenceSchema::ACTOR)]
         #[SerializedName('shipped_by')]
         public SalesActorRef $shippedBy,
     ) {

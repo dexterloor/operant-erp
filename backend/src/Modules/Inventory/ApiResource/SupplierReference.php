@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * API-23b — a foreign-key reference is returned expanded as
  * `{id, <display field>}` and never as a bare uuid. `supplier` has a `name`, so
@@ -17,7 +19,9 @@ namespace App\Modules\Inventory\ApiResource;
 final readonly class SupplierReference
 {
     public function __construct(
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
+        #[ApiProperty(required: true)]
         public string $name,
     ) {
     }

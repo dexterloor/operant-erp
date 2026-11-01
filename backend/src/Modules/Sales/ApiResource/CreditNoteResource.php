@@ -156,8 +156,10 @@ final class CreditNoteResource
         #[SerializedName('credit_note_number')]
         public string $creditNoteNumber,
         public string $reason,
+        #[ApiProperty(schema: SalesReferenceSchema::INVOICE)]
         public InvoiceNumberRef $invoice,
         /** The return credited; null for an adjustment (C1b). A PC-15 reference. */
+        #[ApiProperty(schema: SalesReferenceSchema::SALES_RETURN_OR_NULL)]
         #[SerializedName('sales_return')]
         public ?SalesReturnNumberRef $salesReturn,
         #[SerializedName('currency_code')]
@@ -167,6 +169,7 @@ final class CreditNoteResource
         #[SerializedName('issued_at')]
         public string $issuedAt,
         /** PC-11 (4a): who issued it — SoD-5's evidence, not enforcement. */
+        #[ApiProperty(schema: SalesReferenceSchema::ACTOR)]
         #[SerializedName('issued_by')]
         public SalesActorRef $issuedBy,
         #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]
