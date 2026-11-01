@@ -199,7 +199,9 @@ describe('PermissionChecklist — built-in and read-only', () => {
     render(<ChecklistHarness role={CUSTOM_ROLE} canEdit={false} />);
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     expect(within(groupOf('Purchasing')).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['View purchase orders, including what goods cost', 'Create purchase orders']);
-    expect(screen.queryByRole('status')).toBeNull();
+    // The after-save region is mounted in every mode (restore-role-design.md R1 M-5: a restore turns this list editable
+    // without a new node), and stays empty while nothing can be saved.
+    expect(savedRegion()).toHaveTextContent('');
   });
 });
 

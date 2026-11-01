@@ -27,3 +27,26 @@ export type SaveRoleResult = RoleSaved | Refused | NotFound | Forbidden | Sessio
  * action is treated as `unreachable`.
  */
 export type SaveRoleAction = (permissionCodes: readonly string[]) => Promise<SaveRoleResult>;
+
+/**
+ * `RestoreRole` (`POST /api/v1/roles/{id}/restoration`, 200 + the role, no key): `restored` with the live role. `already`
+ * is true when the server answered `role.is_not_archived` and the re-read found the role live (restore-role-design.md
+ * R1-D4): the restore has happened, by this press or another. `page-took-over`: that re-read failed and the page shows
+ * its own region error or swaps (ST-4b / ST-5), so the component shows nothing.
+ */
+export type RestoreRoleResult =
+  | { kind: 'restored'; role: Role; already: boolean }
+  | { kind: 'page-took-over' }
+  | Refused
+  | NotFound
+  | Forbidden
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/**
+ * The injected restore. Caller contract: resolve `restored` (and a refusal after a re-read) only after `setRole` has
+ * committed the role it carries, so the page's branch on `archived_at` has swapped when the component reads the result.
+ * A thrown action is treated as `unreachable`, and the component clears its busy state either way.
+ */
+export type RestoreRoleAction = () => Promise<RestoreRoleResult>;

@@ -201,14 +201,16 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   'src/lib': 54,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
-  'src/components': 51,
+  // Restore role added: components/permissions/RoleRestoreActions.tsx.
+  'src/components': 52,
   'src/lib/api': 5,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
   'src/components/roles': 4,
-  'src/components/permissions': 2,
+  // Restore role added: components/permissions/RoleRestoreActions.tsx.
+  'src/components/permissions': 3,
   'src/components/bulk': 6,
   'src/components/people': 4,
   'src/components/ui': 11,

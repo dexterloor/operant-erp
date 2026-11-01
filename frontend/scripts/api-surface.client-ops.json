@@ -12,6 +12,7 @@
   "ListRoles",
   "ListUsers",
   "RejectRoleGrantProposal",
+  "RestoreRole",
   "RestoreUser",
   "RevokeRole",
   "UpdateRole"

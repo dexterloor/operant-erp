@@ -11,9 +11,9 @@ import { RolesDenied } from '../RoleStates';
 import { RolePage } from './RolePage';
 
 // `/admin/roles/[id]` (b3b-design.md §9.4, §10; ux-copy-b3b.md C7-2). First render: GetRole + ListPermissions (both
-// `role.view`) over the server transport, once per request (shared with the title). `canEdit` = UpdateRole's codes.
-// 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws
-// to the error page (there is no role to show).
+// `role.view`) over the server transport, once per request (shared with the title). `canEdit` = UpdateRole's codes,
+// `canRestore` = RestoreRole's. 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5
+// (`not-found.tsx`); any other failure throws to the error page (there is no role to show).
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -43,5 +43,5 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'forbidden') return <RolesDenied />;
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The role could not be read.');
-  return <RolePage initial={{ role: first.role, permissions: first.permissions }} canEdit={viewerMay('UpdateRole', viewer.permissionCodes)} />;
+  return <RolePage initial={{ role: first.role, permissions: first.permissions }} canEdit={viewerMay('UpdateRole', viewer.permissionCodes)} canRestore={viewerMay('RestoreRole', viewer.permissionCodes)} />;
 }

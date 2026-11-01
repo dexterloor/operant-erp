@@ -153,6 +153,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  RestoreRole: {
+    method: 'POST',
+    template: '/api/v1/roles/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['role.delete'],
+    },
+  },
   RestoreUser: {
     method: 'POST',
     template: '/api/v1/users/{id}/restoration',

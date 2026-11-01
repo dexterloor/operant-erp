@@ -173,3 +173,25 @@ export const SAVE_REFUSALS: Refused[] = [
     message: 'Only an owner can change this role, because it makes, or would make, the people given it owners.',
   },
 ];
+
+/** A deleted custom role (`archived_at` set): the role page shows its banner and, for a `RestoreRole` holder, Restore role. */
+export const DELETED_ROLE: Role = { ...CUSTOM_ROLE, archived_at: '2026-10-22T06:05:00Z' };
+
+/**
+ * Restore refusals quoted from shipped code (`RoleRestoration.php`), restricted to the sentences UX confirmed as written
+ * (restore-role-ux.md item 1f): the client keeps no copy of them; the preview only shows how a server sentence renders.
+ */
+export const RESTORE_REFUSALS: Refused[] = [
+  {
+    kind: 'refused',
+    rule: 'role.exceeds_actor_permissions',
+    // `RoleRestoration.php:79` (`EXCEEDS`).
+    message: "This role includes permissions you don't have yourself, and a role can only be restored by someone who holds all of its permissions. Ask an owner to restore it.",
+  },
+  {
+    kind: 'refused',
+    rule: 'role.marker_needs_owner',
+    // `RoleRestoration.php:77` (`MARKER_NEEDS_OWNER`).
+    message: 'Only an owner can restore this role, because it makes the people given it owners.',
+  },
+];

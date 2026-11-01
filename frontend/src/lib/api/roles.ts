@@ -47,6 +47,15 @@ export const REFUSAL = {
 } as const;
 export type KnownRefusal = (typeof REFUSAL)[keyof typeof REFUSAL];
 
+/**
+ * The one `RestoreRole` refusal code the role page branches on (restore-role-design.md R1-D4): a restore that meets an
+ * already-live role re-reads it and shows "already restored". Kept apart from `REFUSAL`, whose copy table belongs to the
+ * picker. Every other `RestoreRole` refusal is rendered as the server's sentence and never branched on.
+ */
+export const ROLE_RESTORE_REFUSAL = {
+  notArchived: 'role.is_not_archived',
+} as const;
+
 /** One `conflicts_with` entry: another live role this one conflicts with, one entry per SoD row (`RoleConflictReference`). */
 export interface RoleConflict {
   role: { id: string; name: string };

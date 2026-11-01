@@ -137,3 +137,39 @@
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
 }
+
+/*
+ * Restore role on the deleted role's page (RoleRestoreActions, restore-role-design.md F-2): the same surface module, the
+ * person page's after-message shape (People.module.css). The wrapper is always mounted (R4-4 L-2): idle it has no box.
+ */
+.restore {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.restoreAfterIdle {
+  display: contents;
+}
+.restoreAfter {
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  width: min(100%, 380px);
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e2);
+}
+.restoreAfterIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--success-solid);
+}
+.restoreAfterMessage {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--font-weight-semibold);
+}

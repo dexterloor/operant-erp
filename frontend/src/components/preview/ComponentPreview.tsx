@@ -26,14 +26,17 @@ import { LIST_STATES } from '@/copy/shell';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonResult, RestorePersonResult } from '@/lib/people/results';
 import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
+import { RoleRestoreActions } from '@/components/permissions/RoleRestoreActions';
 import type { Role } from '@/lib/api/roles';
-import type { SaveRoleResult } from '@/lib/permissions/results';
+import type { RestoreRoleResult, SaveRoleResult } from '@/lib/permissions/results';
 import {
   CUSTOM_ROLE,
+  DELETED_ROLE,
   MARGIN_ROLE,
   OWNER_ROLE,
   PERMISSIONS,
   PURCHASING_MANAGER_ROLE,
+  RESTORE_REFUSALS as ROLE_RESTORE_REFUSALS,
   SAVE_REFUSALS,
   UNLABELLED_PERMISSION,
 } from './fixtures/permissions';
@@ -223,6 +226,7 @@ export function ComponentPreview() {
         <PeoplePreview />
         <BulkPreview />
         <PermissionsPreview />
+        <RoleRestorePreview />
         <RolePickerPreview />
 
         <section className={styles.section} aria-labelledby="pv-messages">
@@ -545,6 +549,57 @@ function PermissionsPreview() {
       </h3>
       <p className={styles.muted}>{role.description}</p>
       <PermissionChecklist role={role} permissions={PREVIEW_PERMISSIONS} canEdit={CHECKLIST_SCENARIOS[scenario]!.canEdit} save={save} fallbackFocusRef={h1} />
+    </section>
+  );
+}
+
+type RestorePreviewAnswer = 'ok' | 'already' | 'unreachable' | 'forbidden' | number;
+
+/**
+ * Restore role on a deleted role's page, driven by the one fixture copy. The preview is the route: it owns the heading and
+ * sets the restored role before resolving (the caller contract). Preview-only labels are not product copy.
+ */
+function RoleRestorePreview() {
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const [role, setRole] = useState<Role>(DELETED_ROLE);
+  const [answer, setAnswer] = useState<RestorePreviewAnswer>('ok');
+  const restoreRole = async (): Promise<RestoreRoleResult> => {
+    if (answer === 'unreachable') return { kind: 'unreachable' };
+    if (answer === 'forbidden') return { kind: 'forbidden' };
+    if (typeof answer === 'number') return ROLE_RESTORE_REFUSALS[answer] ?? { kind: 'server-error' };
+    const restored = { ...role, archived_at: null };
+    setRole(restored);
+    return { kind: 'restored', role: restored, already: answer === 'already' };
+  };
+  return (
+    <section className={styles.section} aria-labelledby="pv-role-restore" data-fixture={FIXTURE_ONLY}>
+      <h2 id="pv-role-restore">Restore a deleted role</h2>
+      <div className={styles.row}>
+        <Button size="sm" onClick={() => setRole(DELETED_ROLE)}>
+          Preview: delete it again
+        </Button>
+        <Button size="sm" aria-pressed={answer === 'ok'} onClick={() => setAnswer('ok')}>
+          Preview answer: success
+        </Button>
+        <Button size="sm" aria-pressed={answer === 'already'} onClick={() => setAnswer('already')}>
+          Preview answer: already restored
+        </Button>
+        {ROLE_RESTORE_REFUSALS.map((r, i) => (
+          <Button key={r.rule} size="sm" aria-pressed={answer === i} onClick={() => setAnswer(i)}>
+            {`Preview answer: refusal ${i + 1}`}
+          </Button>
+        ))}
+        <Button size="sm" aria-pressed={answer === 'forbidden'} onClick={() => setAnswer('forbidden')}>
+          Preview answer: permission lost
+        </Button>
+        <Button size="sm" aria-pressed={answer === 'unreachable'} onClick={() => setAnswer('unreachable')}>
+          Preview answer: unreachable
+        </Button>
+      </div>
+      <h3 ref={h1} tabIndex={-1}>
+        {role.name}
+      </h3>
+      <RoleRestoreActions role={role} canRestore restoreRole={restoreRole} fallbackFocusRef={h1} timeZone="UTC" />
     </section>
   );
 }

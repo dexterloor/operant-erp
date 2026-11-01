@@ -246,3 +246,21 @@ export const ROLE_PAGE = {
   deletedBannerBefore: 'This role was deleted on ',
   deletedBannerAfter: '.',
 } as const;
+
+/**
+ * Restore role on a deleted role's page (restore-role-design.md Revision 2 F-2; CONFIRMED by restore-role-ux.md items
+ * 6a–6e). The R1-1 headings and the no-message body are shared (`copy/headings.ts`); a refusal's body is the server's
+ * sentence, never stored here (ST-3). `forbidden` is R1-5's form, split so the label renders in `<em>`; the label equals
+ * `PERMISSION_LABELS['role.delete'].label` but is fixed copy, as `PERSON_FORBIDDEN` is.
+ */
+export const RESTORE_ROLE = {
+  action: 'Restore role',
+  after: (name: string) => `${name} was restored.`,
+  alreadyRestored: (name: string) => `${name} was already restored.`,
+  interruptedBody: (name: string) => `We can't tell whether ${name} was restored. Press Restore role to try again.`,
+  forbidden: {
+    before: 'This needs the ',
+    label: 'Delete and restore roles',
+    after: ' permission, which you no longer have. Your workspace administrator can grant it.',
+  },
+} as const;

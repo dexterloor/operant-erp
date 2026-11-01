@@ -3,8 +3,9 @@ import { ACTION_DEADLINES_MS } from '@/lib/bff/deadline';
 import { readOf } from '@/lib/bff/reads';
 import { operation } from '@/lib/bff/surface';
 import { loadRolePage, loadRoles } from '@/lib/permissions/load';
-import { roleSave } from '@/lib/permissions/wired';
-import { ROLE_A, json, later, page, problem, refused, role, stubFetch, testCaller } from './harness';
+import { roleRestore, roleSave } from '@/lib/permissions/wired';
+import { createApiCaller } from '@/lib/bff/apiCall';
+import { ROLE_A, SID, json, later, page, problem, refused, role, stubFetch, testCaller } from './harness';
 
 // b3b-design.md §9.4 (UpdateRole: PATCH, `{permission_codes: [...sorted]}`, 200 → saved, then GetRole re-read without a
 // remount), §6.2 (Checklist save: 30 s for request + re-read), T-I1, and the role loaders (§10).
@@ -86,5 +87,91 @@ describe('Save changes (UpdateRole) — §9.4', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(r).toEqual({ kind: 'saved', role: role(ROLE_A, 'Buyer') });
     expect(w.order).toEqual(['failed:unreachable']);
+  });
+});
+
+describe('Restore role (RestoreRole) — restore-role-design.md Revision 2 F-2 "The wired action"', () => {
+  const DELETED = { ...role(ROLE_A, 'Buyer'), archived_at: '2026-09-02T10:00:00Z' };
+  const LIVE = role(ROLE_A, 'Buyer');
+  const restoring = () => {
+    const w = wiring();
+    return { ...w, restore: roleRestore({ caller: testCaller(), id: ROLE_A, setRole: w.setRole, onRereadFailed: w.onRereadFailed }) };
+  };
+
+  it('POST …/restoration, no body, no key; the 200 role is set (committed) before restored resolves', async () => {
+    const calls = stubFetch([json(200, LIVE)]);
+    const w = restoring();
+    const r = await w.restore();
+    w.order.push('resolved');
+    expect(r).toEqual({ kind: 'restored', role: LIVE, already: false });
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`POST /bff/api/roles/${ROLE_A}/restoration`]);
+    expect(calls[0]!.body).toBeNull();
+    expect(calls[0]!.headers.has('idempotency-key')).toBe(operation('RestoreRole').idempotencyKeyRequired);
+    expect(w.order).toEqual(['set:', 'committed', 'resolved']);
+  });
+
+  it('409 is_not_archived → GetRole: live → already; deleted again → refused with no message; failure → page-took-over', async () => {
+    stubFetch([refused('role.is_not_archived', 'X-planted sentence'), json(200, LIVE)]);
+    expect(await restoring().restore()).toEqual({ kind: 'restored', role: LIVE, already: true });
+    stubFetch([refused('role.is_not_archived', 'X-planted sentence'), json(200, DELETED)]);
+    expect(await restoring().restore()).toEqual({ kind: 'refused', rule: 'role.is_not_archived', message: '' });
+    stubFetch([refused('role.is_not_archived', 'X-planted sentence'), json(500, {})]);
+    const w = restoring();
+    expect(await w.restore()).toEqual({ kind: 'page-took-over' });
+    expect(w.order).toEqual(['failed:server-error']);
+  });
+
+  it('any other refusal passes through, never re-read', async () => {
+    const calls = stubFetch([refused('role.name_taken', 'X-planted name sentence')]);
+    expect(await restoring().restore()).toEqual({ kind: 'refused', rule: 'role.name_taken', message: 'X-planted name sentence' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('a 200 whose body is not a role → server-error, nothing set', async () => {
+    stubFetch([json(200, { nope: 1 })]);
+    const w = restoring();
+    expect(await w.restore()).toEqual({ kind: 'server-error' });
+    expect(w.order).toEqual([]);
+  });
+
+  it('T-15: a 429 and an expired key cannot come from RestoreRole → server-error', async () => {
+    stubFetch([problem(429, 'rate-limited')]);
+    expect(await restoring().restore()).toEqual({ kind: 'server-error' });
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '#Idempotency-Key', code: 'key_expired', message: 'x' }] })]);
+    expect(await restoring().restore()).toEqual({ kind: 'server-error' });
+  });
+
+  it('a 401 (session ended) → session-ended, and the caller navigates to sign-in once (T-13, the transport half)', async () => {
+    stubFetch([new Response(JSON.stringify({ type: 'urn:erp:bff:session-ended', title: 'x', status: 401 }), { status: 401, headers: { 'content-type': 'application/problem+json' } })]);
+    const navigate = vi.fn();
+    const caller = createApiCaller({ sid: SID, navigate, reload: vi.fn(), onFixedError: vi.fn(), here: () => `/admin/roles/${ROLE_A}`, storage: { get: () => null, set: () => {}, delete: () => {} }, development: true });
+    const w = wiring();
+    expect(await roleRestore({ caller, id: ROLE_A, setRole: w.setRole, onRereadFailed: w.onRereadFailed })()).toEqual({ kind: 'session-ended' });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  // T-10b. A lone request never reaches the 30 s action deadline (the transport's own 20 s limit passes first, as in
+  // people-actions T-R2), so the deadline is proven where only it can end the wait: the POST answers at 19 s, the re-read
+  // hangs, and at 30 s from the press the shared deadline ends it (without it, the re-read's own limit would end at 39 s).
+  it('T-10b: one 30 s bound covers the request and the re-read', async () => {
+    vi.useFakeTimers();
+    stubFetch([later(19_000, () => refused('role.is_not_archived', 'X-planted sentence')), 'hang']);
+    const w = restoring();
+    let r: unknown = null;
+    void w.restore().then((x) => (r = x));
+    await vi.advanceTimersByTimeAsync(ACTION_DEADLINES_MS.roleRestore - 1);
+    expect(r).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r).toEqual({ kind: 'page-took-over' });
+    expect(w.order).toEqual(['failed:unreachable']);
+  });
+
+  it('a lone POST that never answers → unreachable (at the transport limit, inside the action deadline)', async () => {
+    vi.useFakeTimers();
+    stubFetch(['hang']);
+    let r: unknown = null;
+    void restoring().restore().then((x) => (r = x));
+    await vi.advanceTimersByTimeAsync(ACTION_DEADLINES_MS.roleRestore);
+    expect(r).toEqual({ kind: 'unreachable' });
   });
 });

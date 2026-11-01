@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
+import { RoleRestoreActions } from '@/components/permissions/RoleRestoreActions';
 import { RegionError } from '@/components/states/PageStates';
-import { Banner } from '@/components/ui/Banner';
-import { DateTime } from '@/components/ui/DateTime';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { ROLE_PAGE } from '@/copy/roles';
 import type { Permission } from '@/lib/api/permissions';
@@ -12,7 +12,7 @@ import type { Role } from '@/lib/api/roles';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { loadRole } from '@/lib/permissions/load';
-import { roleSave } from '@/lib/permissions/wired';
+import { roleRestore, roleSave } from '@/lib/permissions/wired';
 import { useApiCaller, useViewerTimeZone } from '../../../BffProvider';
 import { useCommittedState } from '../../../useCommittedState';
 import { RoleNotFound, RolesDenied } from '../RoleStates';
@@ -23,6 +23,8 @@ export interface RolePageProps {
   initial: { role: Role; permissions: Permission[] };
   /** Holds UpdateRole's codes (from the contract): ST-4c. */
   canEdit: boolean;
+  /** Holds RestoreRole's codes (from the contract): ST-4c. Without it a deleted role shows its banner and no button. */
+  canRestore: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -34,11 +36,14 @@ type Cause = 'unreachable' | 'server-error';
  *
  * A deleted role (`archived_at` set) is read-only whatever the viewer holds — the API refuses its update (409
  * `role.is_archived`) — so the checklist shows its read-only list, under a persistent banner with the deletion date
- * (b3b-followup C-7, D-28; no live role: it is page content, not an announcement). No Restore here: RestoreRole is not
- * wired (carry).
+ * (b3b-followup C-7, D-28; no live role: it is page content, not an announcement). The banner and its **Restore role**
+ * action are `RoleRestoreActions` (restore-role-design.md Revision 2 F-2): a restore sets the served role here, so the
+ * checklist turns live without a remount. After a restore's message is on screen the router cache is refreshed once
+ * (F-1 L-13, branch R: the Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
  */
-export function RolePage({ initial, canEdit }: RolePageProps) {
+export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
   const caller = useApiCaller();
+  const router = useRouter();
   const timeZone = useViewerTimeZone();
   const [role, setRole] = useCommittedState(initial.role);
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
@@ -58,6 +63,9 @@ export function RolePage({ initial, canEdit }: RolePageProps) {
   }, []);
 
   const save = useMemo(() => roleSave({ caller, id, setRole, onRereadFailed: failed }), [caller, id, setRole, failed]);
+  const restoreRole = useMemo(() => roleRestore({ caller, id, setRole, onRereadFailed: failed }), [caller, id, setRole, failed]);
+  // Cache invalidation only (never the commit signal): the Archived list must not show this role after Back.
+  const refreshAfterRestore = useCallback(() => router.refresh(), [router]);
 
   const retry = async () => {
     if (retrying) return;
@@ -86,19 +94,7 @@ export function RolePage({ initial, canEdit }: RolePageProps) {
       {rereadError ? (
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ROLE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
-      {role.archived_at !== null ? (
-        <Banner
-          tone="neutral"
-          live="none"
-          heading={
-            <>
-              {ROLE_PAGE.deletedBannerBefore}
-              <DateTime value={role.archived_at} form="date" timeZone={timeZone} />
-              {ROLE_PAGE.deletedBannerAfter}
-            </>
-          }
-        />
-      ) : null}
+      <RoleRestoreActions role={role} canRestore={canRestore} restoreRole={restoreRole} fallbackFocusRef={h1} timeZone={timeZone} onRestored={refreshAfterRestore} />
       <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit && role.archived_at === null} save={save} fallbackFocusRef={h1} />
     </section>
   );

@@ -9,6 +9,8 @@ export const ACTION_DEADLINES_MS = {
   proposalAction: 30_000,
   /** Checklist save, request + re-read. */
   checklistSave: 30_000,
+  /** Restore role: the request + the re-read after an already-restored answer. */
+  roleRestore: 30_000,
   /** Save roles: every request + the re-read. */
   saveRoles: 60_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */

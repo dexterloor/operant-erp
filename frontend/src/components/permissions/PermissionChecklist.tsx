@@ -225,7 +225,8 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
           </Button>
         </div>
       ) : null}
-      {canEdit ? <LiveRegion message={savedStatus.message} className={styles.status} /> : null}
+      {/* Always mounted (restore-role-design.md R1 M-5): a restore turns a read-only list editable without a new node. */}
+      <LiveRegion message={savedStatus.message} className={styles.status} />
     </div>
   );
 }

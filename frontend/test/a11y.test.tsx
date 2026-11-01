@@ -1,6 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { describe, expect, it } from 'vitest';
+import { useState } from 'react';
 import { ComponentPreview } from '@/components/preview/ComponentPreview';
 import RootError from '@/app/error';
 import RootNotFound from '@/app/not-found';
@@ -17,7 +18,9 @@ import { BulkHarness } from './bulk/harness';
 import { ChecklistHarness } from './permissions/harness';
 import { HELD_PAIR_PERSON, JONAS, OFFERED_HELD_PAIR_BY_ADMIN, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_EXPIRED, PROPOSAL_FINANCE, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
 import { PickerHarness, scene as pickerScene } from './roles/harness';
-import { CUSTOM_ROLE, MARGIN_ROLE, OWNER_ROLE, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
+import { CUSTOM_ROLE, DELETED_ROLE, MARGIN_ROLE, OWNER_ROLE, RESTORE_REFUSALS as ROLE_RESTORE_REFUSALS, SAVE_REFUSALS } from '@/components/preview/fixtures/permissions';
+import { RoleRestoreActions } from '@/components/permissions/RoleRestoreActions';
+import type { RestoreRoleResult } from '@/lib/permissions/results';
 import { BULK_CONTENTION } from '@/components/preview/fixtures/bulk';
 import { DELETE_REFUSALS, PERSON_ACTIVE, PERSON_DELETED_ACTIVE, PERSON_DELETED_SWITCHED_OFF, PERSON_SELF, RESTORE_REFUSALS, VIEWER_ID } from '@/components/preview/fixtures/people';
 
@@ -201,6 +204,66 @@ describe('axe — B-4 permission checklist', () => {
     expect(await axeDoc()).toEqual([]);
     second.unmount();
     render(<ChecklistHarness role={CUSTOM_ROLE} canEdit={false} />);
+    expect(await axeDoc()).toEqual([]);
+  });
+});
+
+// Restore role (restore-role-design.md F-2 T-17): axe only; no paired mutation.
+describe('axe — Restore role', () => {
+  const axeDoc = async () => {
+    const result = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+  };
+  function Surface({ answer }: { answer: RestoreRoleResult }) {
+    const ref = { current: null as HTMLElement | null };
+    return (
+      <TooltipProvider>
+        <main>
+          <h1 tabIndex={-1}>{DELETED_ROLE.name}</h1>
+          <RoleRestoreActions role={DELETED_ROLE} canRestore restoreRole={async () => answer} fallbackFocusRef={ref} timeZone="UTC" />
+        </main>
+      </TooltipProvider>
+    );
+  }
+
+  it('deleted with the button, then a refusal under it: no violations', async () => {
+    render(<Surface answer={ROLE_RESTORE_REFUSALS[0]!} />);
+    expect(await axeDoc()).toEqual([]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Restore role' }));
+    await settled();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+    expect(await axeDoc()).toEqual([]);
+  });
+
+  it('the after-message with Dismiss message: no violations', async () => {
+    function Restorable() {
+      const [role, setRole] = useState(DELETED_ROLE);
+      const ref = { current: null as HTMLElement | null };
+      return (
+        <TooltipProvider>
+          <main>
+            <h1 tabIndex={-1}>{role.name}</h1>
+            <RoleRestoreActions
+              role={role}
+              canRestore
+              restoreRole={async () => {
+                const live = { ...role, archived_at: null };
+                setRole(live);
+                return { kind: 'restored', role: live, already: false };
+              }}
+              fallbackFocusRef={ref}
+              timeZone="UTC"
+            />
+          </main>
+        </TooltipProvider>
+      );
+    }
+    render(<Restorable />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Restore role' }));
+    expect(await screen.findByText('Sample role was restored.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss message' })).toBeInTheDocument();
     expect(await axeDoc()).toEqual([]);
   });
 });
