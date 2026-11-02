@@ -430,14 +430,30 @@ describe('/admin/roles/[id] — R-15, the refresh after a Save', () => {
     expect(nav.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('T-15: UpdateRole 200 + GetRole 403 → 0 (the page swaps); UpdateRole refused → 0', async () => {
-    stubFetch([later(5, () => json(200, SAVED_ROLE)), later(5, () => problem(403, 'permission-denied'))]);
+  // FE-R1 R-15a: the UpdateRole 200 changed the Roles list and the swap unmounts the checklist before it can report, so
+  // the page refreshes once itself, with the swap page's <h1> already in the DOM. (GetRole's 404 is unreachable through the
+  // product — a deleted role answers 200 with `archived_at`, r15-red.md L-4 — but the page treats it the same.)
+  it('T-15: UpdateRole 200 + GetRole 403 / 404 → the swap page and 1 refresh from the page; UpdateRole refused → 0', async () => {
     const u = userEvent.setup();
-    let v = show();
-    await tickEditAndSave(u);
-    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to roles." })).toBeInTheDocument();
-    await quiet();
-    v.unmount();
+    let v: ReturnType<typeof show>;
+    for (const [reply, heading] of [
+      [() => problem(403, 'permission-denied'), "You don't have access to roles."],
+      [() => problem(404, 'not-found'), "We couldn't find that."],
+    ] as const) {
+      const atRefresh: string[] = [];
+      nav.refresh.mockImplementation(() => {
+        atRefresh.push(screen.getByRole('heading', { level: 1 }).textContent ?? '');
+      });
+      stubFetch([later(5, () => json(200, SAVED_ROLE)), later(5, reply)]);
+      v = show();
+      await tickEditAndSave(u);
+      expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+      await quiet();
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      expect(atRefresh).toEqual([heading]);
+      v.unmount();
+      nav.refresh.mockReset();
+    }
     stubFetch([later(5, () => refused('role.planted', 'X-planted save refusal'))]);
     v = show();
     await tickEditAndSave(u);

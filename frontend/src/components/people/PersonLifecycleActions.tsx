@@ -39,6 +39,13 @@ export interface PersonLifecycleActionsProps {
   onRestored?: () => void;
   /** Called once after a delete's message has been committed (the page refreshes its router cache then). */
   onDeleted?: () => void;
+  /**
+   * A delete answered `pageTookOver` (FE-R1: R-14b, FE-D1b): called once the dialog's close has committed, so the page
+   * shows what it recorded — its region error, ST-4b or ST-5 — and moves focus there itself, synchronously. Only after
+   * it returns is the after-message written (and the refresh generation bumped); on a swap this surface has unmounted by
+   * then, so it writes nothing.
+   */
+  onPageTookOver?: () => void;
 }
 
 type Action = 'delete' | 'restore';
@@ -88,7 +95,8 @@ function noticeFor(action: Action, failure: PersonActionFailure, name: string, i
  * landed, never before. This rests on React flushing a sync commit's passive effects at its end (Radix's trap teardown
  * and `hideOthers` cleanup run there), and on the dialog having NO exit animation: an exit animation would keep the
  * content mounted and the page `aria-hidden` while focus moves (see `Dialog.module.css`). `test/fe-d1-order.test.tsx`
- * guards the order.
+ * guards the order. When the delete's re-read did not answer a person (`pageTookOver`), the page moves focus instead,
+ * through `onPageTookOver`, and the message is written after it returns (FE-R1 FE-D1b).
  */
 export function PersonLifecycleActions({
   person,
@@ -102,6 +110,7 @@ export function PersonLifecycleActions({
   timeZone,
   onRestored,
   onDeleted,
+  onPageTookOver,
 }: PersonLifecycleActionsProps) {
   const live = useLiveRegion();
   const [open, setOpen] = useState<Action | null>(null);
@@ -155,7 +164,10 @@ export function PersonLifecycleActions({
         setNotice(null);
         setOfferGiveRole(false);
       });
-      fallbackFocusRef.current?.focus();
+      // FE-D1b (fe-d1-ux-confirm.md): when the page takes over, focus moves ONCE, to where the page puts it, and the
+      // message follows that move — never an <h1> stop with the message racing the region error's heading.
+      if (result.pageTookOver && onPageTookOver) onPageTookOver();
+      else fallbackFocusRef.current?.focus();
       live.announce(DELETE_PERSON.after(name));
       setDeletedGen((g) => g + 1);
     } else if (result.kind === 'restored') {

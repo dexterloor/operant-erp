@@ -14,7 +14,10 @@ export interface PersonWiring {
   readonly id: string;
   /** Sets the person and resolves after the commit that shows it. */
   readonly setPerson: (person: User) => Promise<void>;
-  /** The re-read after a delete did not answer a person: the page shows its region error, or swaps (ST-4b / ST-5). */
+  /**
+   * The re-read after a delete did not answer a person. Called BEFORE `deleted` resolves, while the dialog is still open:
+   * the page records it and applies it when the component calls its `onPageTookOver` (region error, ST-4b or ST-5).
+   */
   readonly onRereadFailed: (failure: ReadFailure) => void;
 }
 
@@ -42,11 +45,15 @@ export function personActions(w: PersonWiring): { deletePerson: DeletePersonActi
       const r = await w.caller.call('DeleteUser', { id: w.id }, undefined, { signal: deadline.signal });
       if (r.kind !== 'ok') return personFailureOf(r);
       // §9.1: a 204, then the person is re-read (served with `archived_at`). If that read fails or hits the deadline the
-      // delete still happened: resolve `deleted`, and the page shows its region error for the person read.
+      // delete still happened: resolve `deleted`, and the page shows its region error for the person read — or swaps.
+      // A 401 navigates to sign-in (R1-4), so the page takes nothing over for it.
       const again = await loadPerson(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setPerson(again.person);
-      else w.onRereadFailed(again.kind);
-      return { kind: 'deleted' };
+      if (again.kind === 'ok') {
+        await w.setPerson(again.person);
+        return { kind: 'deleted' };
+      }
+      w.onRereadFailed(again.kind);
+      return again.kind === 'session-ended' ? { kind: 'deleted' } : { kind: 'deleted', pageTookOver: true };
     } finally {
       deadline.cancel();
     }

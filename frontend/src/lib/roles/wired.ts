@@ -16,7 +16,13 @@ import type { AssignResult, ProposeResult, RereadAction, RereadResult, RevokeRes
 
 /** What the re-read follows, for the page's banner heading when it takes over (§10, ux-copy-b3b.md C6-1). */
 export type RereadContext =
-  | { readonly kind: 'save'; /** Requests in the save that did not answer 2xx. */ readonly notDone: number }
+  | {
+      readonly kind: 'save';
+      /** Requests in the save that did not answer 2xx. */
+      readonly notDone: number;
+      /** Requests in the save that answered 2xx: something changed, so the lists are stale (FE-R1 R-15a / R-15b). */
+      readonly done: number;
+    }
   | { readonly kind: 'proposal'; readonly act: 'confirm' | 'reject' | 'withdraw'; readonly ok: boolean }
   | { readonly kind: 'none' };
 
@@ -76,8 +82,10 @@ export function pickerActions(w: RoleWiring): RolePickerActions {
   const deadline = deadlineHolder(ACTION_DEADLINES_MS.saveRoles);
   const newKey = w.newKey ?? (() => crypto.randomUUID());
   let notDone = 0;
+  let done = 0;
   const track = <T extends { kind: string }>(r: T, success: string): T => {
     if (r.kind !== success) notDone += 1;
+    else done += 1;
     return r;
   };
 
@@ -101,8 +109,9 @@ export function pickerActions(w: RoleWiring): RolePickerActions {
       deadline.reread((signal, shared) => {
         // Only requests that were SENT are counted: runSave marks the rest `not-sent` without calling here, so the page
         // reads `notDone > 0` as "something in this save was not saved", never as an exact figure (deviation D-22).
-        const context: RereadContext = shared ? { kind: 'save', notDone } : { kind: 'none' };
+        const context: RereadContext = shared ? { kind: 'save', notDone, done } : { kind: 'none' };
         notDone = 0;
+        done = 0;
         return w.reread(signal, context);
       }),
   };

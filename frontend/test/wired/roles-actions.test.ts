@@ -115,14 +115,14 @@ describe('T-I1 — the key header is sent exactly when each wired write requires
 });
 
 describe('the re-read context (what the page heads its banner with when it takes over, §10)', () => {
-  it('after a save: how many sent requests did not answer 2xx; a standalone re-read: none', async () => {
+  it('after a save: how many sent requests did not answer 2xx, and how many did (FE-R1); a standalone re-read: none', async () => {
     stubFetch([refused('user_role.separation_of_duty', 'x'), json(201, role(ROLE_B, 'Finance')), ...Array.from({ length: 6 }, () => json(200, {}))]);
     const p = picker();
     await p.actions.assign(ROLE_A);
     await p.actions.assign(ROLE_B);
     await p.actions.reread();
     await p.actions.reread();
-    expect(p.contexts).toEqual([{ kind: 'save', notDone: 1 }, { kind: 'none' }]);
+    expect(p.contexts).toEqual([{ kind: 'save', notDone: 1, done: 1 }, { kind: 'none' }]);
   });
 
   it('after a group action: which, and whether it succeeded', async () => {

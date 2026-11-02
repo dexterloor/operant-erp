@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
 import { RolePicker } from '@/components/roles/RolePicker';
@@ -55,6 +56,13 @@ function headingAfter(c: RereadContext): string | null {
   return null;
 }
 
+/** Whether the action the re-read follows changed something the lists show (FE-R1 R-15a / R-15b). */
+function wroteSomething(c: RereadContext): boolean {
+  if (c.kind === 'save') return c.done > 0;
+  if (c.kind === 'proposal') return c.ok;
+  return false;
+}
+
 /**
  * The person page's container (b3b-design.md §9.1–§9.3, §10 per-read table; A-10). It holds the whole read in state,
  * wires the B-4 components through the BFF and decides — never the components — what a re-read's answer does:
@@ -71,7 +79,18 @@ function headingAfter(c: RereadContext): string | null {
  * delete's message is on screen (R-14: the live list was measured still showing the deleted person after Back). And once
  * after a role change's message is on screen — a Save roles that changed something, or a Confirm, Reject or Withdraw —
  * when its re-read was shown (R-15: the People list's Roles column was measured stale after Back). The components decide
- * when; no refresh after a re-read that was taken over (R-15a, R-15b) or failed and was never shown again (R-15a).
+ * when. When the page itself takes over after a write that succeeded — the component that would refresh has unmounted
+ * or stood down — the page refreshes once instead, after the commit that shows what took over (FE-R1): a delete whose
+ * re-read swapped to ST-4b/ST-5 (R-14b); a restore whose follow-up re-read swapped before the restore's own refresh ran
+ * (R-13b, exactly once in either order); a role write whose re-read swapped (R-15a) or found `role.assign` lost (R-15b).
+ * On a swap, `router.refresh()` re-renders the route on the server, which returns the same ST-4b/ST-5 page as a new
+ * element: it remounts with the same heading and takes focus again (r14-gap-red.md M-1; accepted). Still no refresh
+ * after a re-read that failed and was never shown again (R-15's rule: refresh only after a shown re-read).
+ *
+ * A delete whose re-read did not answer a person (FE-D1b, R-14b): `personActions` reports it while the dialog is open;
+ * the page records it and applies it in `onPageTookOver`, after the dialog's close has committed, with `flushSync` — so
+ * focus moves once, straight to the region error's heading (or the swap page's `<h1>`), and the component writes the
+ * after-message only after that.
  */
 export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const caller = useApiCaller();
@@ -95,6 +114,12 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const pageStatus = useLiveRegion();
   const announcePage = pageStatus.announce;
   const [focusH1, setFocusH1] = useState(0);
+  // FE-R1: a refresh the page owes because it took over after a write that succeeded (see the docblock).
+  const [takeoverRefreshGen, setTakeoverRefreshGen] = useState(0);
+  // A delete's failed re-read, recorded while the dialog is open and applied by `takeOverAfterDelete`.
+  const deleteRereadFailure = useRef<ReadFailure | null>(null);
+  // R-13b: a restore's own refresh has not run yet while its follow-up re-read is in flight.
+  const restoreRefreshOwed = useRef(false);
   const id = initial.person.id;
 
   const gatesNow = useCallback((): ViewGates => ({ assign: gates.assign && !lostRef.current.assign, view: gates.view && !lostRef.current.view }), [gates.assign, gates.view]);
@@ -106,6 +131,11 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
       if (r.kind === 'session-ended') return { kind: 'failed', failure: 'unreachable' };
       if (r.kind === 'forbidden' || r.kind === 'not-found') {
         setSwap(r.kind);
+        // R-15a (a role write changed the lists) / R-13b (the restore's own refresh has not run): the swap unmounts the
+        // component that would refresh, so the page does, once, after the swap commits.
+        const owedByRestore = restoreRefreshOwed.current;
+        restoreRefreshOwed.current = false;
+        if (owedByRestore || wroteSomething(context)) setTakeoverRefreshGen((g) => g + 1);
         return { kind: 'failed', failure: r.kind };
       }
       if (r.kind !== 'ok') return { kind: 'failed', failure: r.kind };
@@ -113,6 +143,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
       const nowDeleted = before.person.archived_at === null && r.view.person.archived_at !== null;
       const heading = headingAfter(context);
       if (r.lost.assign || r.lost.view) setLost((cur) => ({ assign: cur.assign || r.lost.assign, view: cur.view || r.lost.view }));
+      // R-15b: the write changed the lists, and the picker / Waiting group now unmount without reporting it; no swap, so
+      // the refresh re-renders this same page (in the commit that shows the R1-5 banner or its sentence).
+      if (r.lost.assign && wroteSomething(context)) setTakeoverRefreshGen((g) => g + 1);
       if (r.lost.assign) {
         setBanner((cur) => ({
           gen: (cur?.gen ?? 0) + 1,
@@ -158,6 +191,7 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
       await setView({ ...viewRef.current, person });
       // A restore brings the person back: their offered roles were read for a deleted person, so read them again.
       if (wasArchived && person.archived_at === null && (gatesNow().assign || gatesNow().view)) {
+        restoreRefreshOwed.current = true; // R-13b: cleared by the restore's own refresh, or taken by a swap first.
         const d = startDeadline(ACTION_DEADLINES_MS.reread);
         void reread(d.signal, { kind: 'none' }).finally(() => d.cancel());
       }
@@ -177,6 +211,25 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
+  // FE-R1 (R-14b, FE-D1b): a delete's re-read failed. Recorded now (the dialog is still open); shown by the next callback.
+  const deleteRereadFailed = useCallback((f: ReadFailure) => {
+    deleteRereadFailure.current = f;
+  }, []);
+  // Called by the lifecycle component once the dialog's close has committed. `flushSync`: the region error (or ST-4b /
+  // ST-5) mounts and its heading takes focus inside this call (a sync commit flushes its passive effects at its end), so
+  // the component's after-message, written when this returns, follows the one focus move.
+  const takeOverAfterDelete = useCallback(() => {
+    const f = deleteRereadFailure.current;
+    deleteRereadFailure.current = null;
+    if (f === null || f === 'session-ended') return;
+    flushSync(() => {
+      if (f === 'forbidden' || f === 'not-found') {
+        setSwap(f);
+        setTakeoverRefreshGen((g) => g + 1); // R-14b: the component unmounts before its own refresh can run.
+      } else setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f }));
+    });
+  }, []);
+
   const showPage = useCallback(
     async (direction: 'after' | 'before', cursor: string, signal: AbortSignal) => {
       const p = await loadProposalPage(readOf(caller), id, { direction, value: cursor }, signal);
@@ -194,7 +247,7 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   // Each wrapper calls the latest callback when the action runs, never while rendering: the factories only store them,
   // so the refs those callbacks read are read after render (the lint rule cannot see that the factories do not call).
   // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
-  const lifecycle = useMemo(() => personActions({ caller, id, setPerson: (p) => setPersonOnly(p), onRereadFailed: (f) => failed(f) }), [caller, id, setPersonOnly, failed]);
+  const lifecycle = useMemo(() => personActions({ caller, id, setPerson: (p) => setPersonOnly(p), onRereadFailed: (f) => deleteRereadFailed(f) }), [caller, id, setPersonOnly, deleteRereadFailed]);
   // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
   const picker = useMemo(() => pickerActions({ caller, personId: id, reread: (s, c) => reread(s, c) }), [caller, id, reread]);
   const proposals = useMemo(
@@ -206,6 +259,17 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   // Cache invalidation only (never the commit signal): after Back, neither the Archived list (restore) nor the live list
   // (delete) may show this person where they no longer are, nor the lists their old roles (R-15). One call per event.
   const refreshRouterCache = useCallback(() => router.refresh(), [router]);
+  // The restore's own refresh (R-13); a swap that lands first takes it over instead (R-13b).
+  const onRestored = useCallback(() => {
+    restoreRefreshOwed.current = false;
+    refreshRouterCache();
+  }, [refreshRouterCache]);
+  // FE-R1: after the commit that shows what the page took over with (above the swap returns: hook order).
+  useEffect(() => {
+    if (takeoverRefreshGen > 0) refreshRouterCache();
+    // Once per takeover only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverRefreshGen]);
 
   const retry = async () => {
     if (retrying) return;
@@ -262,8 +326,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
         onGiveRole={() => document.querySelector<HTMLInputElement>('[data-surface="role-picker"] input')?.focus()}
         fallbackFocusRef={h1}
         timeZone={timeZone}
-        onRestored={refreshRouterCache}
+        onRestored={onRestored}
         onDeleted={refreshRouterCache}
+        onPageTookOver={takeOverAfterDelete}
       />
       {showAccess ? (
         <>

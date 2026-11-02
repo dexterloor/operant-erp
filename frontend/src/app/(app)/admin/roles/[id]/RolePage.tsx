@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
 import { RoleRestoreActions } from '@/components/permissions/RoleRestoreActions';
@@ -43,7 +43,10 @@ type Cause = 'unreachable' | 'server-error';
  * (F-1 L-13, branch R: the Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
  * The same once after a Save's message is on screen, when the save's re-read was shown (R-15: the Roles list's
  * Permissions count). A save whose re-read failed owes it to the Retry that shows the role; any refresh issued clears
- * what is owed. No refresh when the re-read was taken over (R-15a).
+ * what is owed. When a save's re-read was taken over by a 403/404 swap, the checklist unmounts without reporting, so the
+ * page refreshes once itself, after the swap commits (FE-R1 R-15a); the refresh re-renders the route on the server, which
+ * returns the same ST-4b/ST-5 page as a new element (remount, same heading, focus again — r14-gap-red.md M-1; accepted).
+ * A save whose re-read failed and is never retried still owes its refresh (R-15's rule: only after a shown re-read).
  */
 export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
   const caller = useApiCaller();
@@ -58,6 +61,8 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
   // R-15: set when the current save's re-read did not show the role; a refresh owed to the Retry that does.
   const saveRereadFailed = useRef(false);
   const refreshOwed = useRef(false);
+  // FE-R1 R-15a: a refresh the page owes because a save's re-read swapped.
+  const [takeoverRefreshGen, setTakeoverRefreshGen] = useState(0);
 
   const failed = useCallback((f: ReadFailure) => {
     if (f === 'session-ended') return;
@@ -75,6 +80,8 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
     (f: ReadFailure) => {
       saveRereadFailed.current = true;
       failed(f);
+      // The UpdateRole 200 changed the Roles list (wired.ts calls this only after it): refresh after the swap commits.
+      if (f === 'forbidden' || f === 'not-found') setTakeoverRefreshGen((g) => g + 1);
     },
     [failed],
   );
@@ -99,6 +106,13 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
     if (saveRereadFailed.current) refreshOwed.current = true;
     else refreshRouterCache();
   }, [refreshRouterCache]);
+
+  // FE-R1 R-15a: after the commit that shows the swap page (above the swap returns: hook order).
+  useEffect(() => {
+    if (takeoverRefreshGen > 0) refreshRouterCache();
+    // Once per takeover only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverRefreshGen]);
 
   const retry = async () => {
     if (retrying) return;

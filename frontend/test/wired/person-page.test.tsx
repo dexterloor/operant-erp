@@ -57,14 +57,16 @@ describe('/admin/users/[id] — wired', () => {
     const u = userEvent.setup();
     show();
     await u.click(screen.getByRole('button', { name: 'Delete person' }));
-    // FE-D1 (disclosed change, fe-d1-red.md M-2 / spar P-2): the component focuses the <h1> as the dialog closes, then the
-    // page's region error takes focus a task later. Pinned: the focus SEQUENCE from the confirm click on. Deliberately
-    // not pinned: where the after-message's text falls between the two moves (in a browser the order of the region
-    // error's timer and React's scheduler task is not fixed).
+    // FE-R1 FE-D1b (fe-d1-ux-confirm.md): focus moves ONCE, from the dialog's button straight to the region error's
+    // heading — no <h1> stop — and the after-message is written only after that move. Both are pinned: the focus
+    // SEQUENCE from the confirm click on, and (synchronously, at the focusin) that no region holds the message yet.
+    const MESSAGE = "Ada Lovelace was deleted. They're now in the archived people.";
     const focusSeq: string[] = [];
+    let messageAtErrorFocus: boolean | null = null;
     const onFocusIn = (e: FocusEvent) => {
       const t = e.target as HTMLElement;
       focusSeq.push(`${t.tagName} ${t.textContent ?? ''}`);
+      if (t.tagName === 'H2') messageAtErrorFocus = [...document.querySelectorAll('[role="status"]')].some((r) => r.textContent?.includes(MESSAGE));
     };
     document.addEventListener('focusin', onFocusIn);
     await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete person' }));
@@ -76,8 +78,9 @@ describe('/admin/users/[id] — wired', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(heading).toHaveFocus();
     document.removeEventListener('focusin', onFocusIn);
-    expect(focusSeq).toEqual(['BUTTON Delete person', 'H1 Ada Lovelace', `${heading.tagName} Something went wrong on our side.`]);
-    expect(screen.getAllByRole('status').map((r) => r.textContent)).toContain("Ada Lovelace was deleted. They're now in the archived people.");
+    expect(focusSeq).toEqual(['BUTTON Delete person', `${heading.tagName} Something went wrong on our side.`]);
+    expect(messageAtErrorFocus).toBe(false);
+    expect(screen.getAllByRole('status').map((r) => r.textContent)).toContain(MESSAGE);
     stubFetch([json(200, DELETED)]);
     await u.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeNull());
@@ -109,6 +112,34 @@ describe('/admin/users/[id] — wired', () => {
     expect(await screen.findByRole('heading', { level: 1, name: "We couldn't find that." })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to the list' })).toHaveAttribute('href', '/admin/users');
     expect(screen.queryByText(/was deleted/)).toBeNull();
+  });
+
+  // FE-R1 R-14b (r14-gap-recommendation.md option B, as corrected by r14-gap-red.md M-1, L-5): a delete whose re-read
+  // answers 403 / 404 swaps the page; the lifecycle component has stood down, so the page refreshes once, after the swap
+  // commits — the swap page's <h1> is in the DOM at the call — and never adds a sentence of its own.
+  it('R-14b: delete, then a GetUser re-read 403 / 404 → the swap page, then exactly one refresh with its <h1> on screen', async () => {
+    const u = userEvent.setup();
+    for (const [reread, heading] of [
+      [problem(403, 'permission-denied'), "You don't have access to people."],
+      [problem(404, 'not-found'), "We couldn't find that."],
+    ] as const) {
+      const atRefresh: string[] = [];
+      nav.refresh.mockImplementation(() => {
+        atRefresh.push(screen.getByRole('heading', { level: 1 }).textContent ?? '');
+      });
+      stubFetch([empty(204), reread]);
+      const v = show();
+      await deleteIt(u);
+      const h1 = await screen.findByRole('heading', { level: 1, name: heading });
+      await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      expect(atRefresh).toEqual([heading]);
+      await waitFor(() => expect(h1).toHaveFocus());
+      expect(screen.queryByText(/was deleted/)).toBeNull();
+      v.unmount();
+      nav.refresh.mockReset();
+    }
   });
 
   it('dates are in the zone the person signed in from (the session tz), never the browser default (A-9)', () => {

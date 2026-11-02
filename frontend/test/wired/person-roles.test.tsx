@@ -224,7 +224,7 @@ describe('R-15 — the router cache is refreshed once after a role change is on 
     return seen;
   };
 
-  it('T-13: AssignRole 201 + the re-read 200 → refresh once, after "Given: Buyer."; AssignRole 201 + GetUser 403 → 0, the denied page', async () => {
+  it('T-13: AssignRole 201 + the re-read 200 → refresh once, after "Given: Buyer."; AssignRole 201 + GetUser 403 / 404 → once, from the page, after the swap (FE-R1 R-15a)', async () => {
     const seen = recordAtRefresh(() => pickerStatus()?.textContent ?? '(no picker)');
     const u = userEvent.setup();
     const r = rereadOf();
@@ -237,30 +237,119 @@ describe('R-15 — the router cache is refreshed once after a role change is on 
     expect(seen).toEqual(['Given: Buyer.']);
     v.unmount();
     nav.refresh.mockClear();
-    stubFetch([later(5, () => json(201, BUYER)), later(5, () => problem(403, 'permission-denied'))]);
-    v = show();
+    // R-15a (FE-R1): the give changed the lists and the swap unmounts the picker before it can report, so the page
+    // refreshes once itself, with the swap page's <h1> already in the DOM (r14-gap-red.md L-5).
+    for (const [reply, heading] of [
+      [() => problem(403, 'permission-denied'), "You don't have access to people."],
+      [() => problem(404, 'not-found'), "We couldn't find that."],
+    ] as const) {
+      const atRefresh = recordAtRefresh(() => screen.getByRole('heading', { level: 1 }).textContent ?? '');
+      stubFetch([later(5, () => json(201, BUYER)), later(5, reply)]);
+      v = show();
+      await giveBuyer(u);
+      expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+      await quiet();
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      expect(atRefresh).toEqual([heading]);
+      v.unmount();
+      nav.refresh.mockClear();
+    }
+  });
+
+  // r14-gap-red.md M-2 (k′), re-specified by FE-R1 D-2: a swap that follows NO successful write gives 0 calls — a save
+  // that was entirely refused, or a Confirm that was refused, then a 403 re-read.
+  it("(k′): a refused give or a refused Confirm, then a GetUser 403 → the denied page and 0 refreshes", async () => {
+    const u = userEvent.setup();
+    stubFetch([later(5, () => problem(409, 'business-rule-violated', { rule: 'user_role.planted', message: 'X-planted give sentence' })), later(5, () => problem(403, 'permission-denied'))]);
+    let v = show();
     await giveBuyer(u);
     expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
     await quiet();
+    v.unmount();
+    const pending = proposal(PROPOSAL_1, ROLE_B, 'Finance');
+    stubFetch([later(5, () => problem(409, 'business-rule-violated', { rule: 'role_grant_proposal.planted', message: 'X-planted confirm sentence' })), later(5, () => problem(403, 'permission-denied'))]);
+    v = show(ALL, view({ access: { offered: [offered(ROLE_A, 'Buyer'), offered(ROLE_B, 'Finance')], pending: [pending], page: page([pending]) } }));
+    await u.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
+    await quiet();
+    v.unmount();
     expect(nav.refresh).not.toHaveBeenCalled();
   });
 
+  it('R-15a: Confirm 200, then GetUser 403 → once, from the page, after the swap', async () => {
+    const atRefresh = recordAtRefresh(() => screen.getByRole('heading', { level: 1 }).textContent ?? '');
+    const pending = proposal(PROPOSAL_1, ROLE_B, 'Finance');
+    stubFetch([later(5, () => json(200, { ...pending, status: 'confirmed' })), later(5, () => problem(403, 'permission-denied'))]);
+    const u = userEvent.setup();
+    show(ALL, view({ access: { offered: [offered(ROLE_A, 'Buyer'), offered(ROLE_B, 'Finance')], pending: [pending], page: page([pending]) } }));
+    await u.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(atRefresh).toEqual(["You don't have access to people."]);
+  });
+
   /**
-   * T-7's wired twin. This pins a KNOWN GAP (R-15b, r15-red.md H-1), not a desired behaviour: the give succeeded, the
-   * re-read found `role.assign` lost, the page stays (no swap) and the picker unmounts, so no refresh is issued and Back
-   * may show the old Roles cell. A refresh would be safe here; closing it needs a page-level report from the re-read.
+   * T-7's wired twin. Until FE-R1 this pinned the known gap R-15b (r15-red.md H-1): the give succeeded, the re-read found
+   * `role.assign` lost, the page stays (no swap) and the picker unmounts without reporting. The page now reports it from
+   * its re-read: one refresh, with the R1-5 banner already on screen; a give that changed nothing gives none.
    */
-  it('T-7 (wired): AssignRole 201, GetUser 200, ListOfferedRoles 403 → 0 refreshes, the R1-5 banner, the person still shown (R-15b)', async () => {
+  it('T-7 (wired): AssignRole 201, GetUser 200, ListOfferedRoles 403 → the R1-5 banner, the person still shown, and 1 refresh from the page (R-15b closed)', async () => {
+    const atRefresh = recordAtRefresh(() => screen.queryByText(/needs the/, { selector: 'p' })?.textContent ?? '(no banner)');
     const u = userEvent.setup();
     const r = rereadOf({ offered: problem(403, 'permission-denied') });
     stubFetch([later(5, () => json(201, BUYER)), later(5, () => r[0]! as Response), r[1]!, r[3]!, r[4]!]);
-    show();
+    const first = show();
     await giveBuyer(u);
     await waitFor(() => expect(screen.queryByRole('button', { name: PICKER.save })).toBeNull());
     expect(screen.getByText(/needs the/, { selector: 'p' })).toHaveTextContent(ROLES_FORBIDDEN_SENTENCE);
     expect(screen.getByRole('heading', { level: 1, name: 'Ada Lovelace' })).toBeInTheDocument();
     await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(atRefresh).toEqual([ROLES_FORBIDDEN_SENTENCE]);
+    first.unmount();
+    nav.refresh.mockClear();
+    // The same answer after a give that was refused: nothing changed, nothing to refresh.
+    const r2 = rereadOf({ offered: problem(403, 'permission-denied') });
+    stubFetch([later(5, () => problem(409, 'business-rule-violated', { rule: 'user_role.planted', message: 'X-planted give sentence' })), later(5, () => r2[0]! as Response), r2[1]!, r2[3]!, r2[4]!]);
+    const v = show();
+    await giveBuyer(u);
+    await waitFor(() => expect(within(v.container).queryByRole('button', { name: PICKER.save })).toBeNull());
+    await quiet();
     expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  // R-13b (r14-gap-red.md M-2 (ii), M-3): after a restore the page re-reads the role reads; if that re-read swaps, the
+  // restore's own refresh must still happen exactly once, whichever lands first. Two orders, made deterministic: the
+  // re-read answering a network round trip later (the restore's own refresh runs first), and answering at once (the
+  // swap can land before the restore's refresh effect has run; the page then refreshes instead).
+  it('R-13b: restore, then the follow-up re-read answers 403 later or at once → exactly 1 refresh in both orders', async () => {
+    const RESTORED = 'Ada Lovelace was restored. Give them a role so they can work.';
+    const u = userEvent.setup();
+    const deleted = view({ person: user({ archived_at: '2026-10-28T10:00:00Z' }) });
+    for (const replies of [
+      [later(5, () => json(200, user())), later(60, () => problem(403, 'permission-denied'))],
+      [json(200, user()), problem(403, 'permission-denied')],
+    ] as const) {
+      stubFetch([...replies]);
+      const v = show(ALL, deleted);
+      await u.click(screen.getByRole('button', { name: 'Restore person' }));
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Restore person' }));
+      expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      v.unmount();
+      nav.refresh.mockClear();
+    }
+    // The delayed order: the restore's own refresh ran, with its message on screen, before the swap.
+    const atRefresh = recordAtRefresh(() => screen.queryByText(RESTORED)?.textContent ?? '(no message)');
+    stubFetch([later(5, () => json(200, user())), later(60, () => problem(403, 'permission-denied'))]);
+    show(ALL, deleted);
+    await u.click(screen.getByRole('button', { name: 'Restore person' }));
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Restore person' }));
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(atRefresh).toEqual([RESTORED]);
   });
 
   it('T-14: Confirm 200 + the re-read 200 → refresh once, after the confirmation message', async () => {

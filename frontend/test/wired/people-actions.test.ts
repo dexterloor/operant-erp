@@ -90,11 +90,24 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     expect((await wiring().actions.deletePerson()).kind).toBe(kind);
   });
 
-  it('204 but the re-read fails: still deleted, and the page is told the read failed (its region error)', async () => {
+  it('204 but the re-read fails: still deleted, the page is told the read failed and takes over (FE-R1); a 401 re-read does not take over', async () => {
     stubFetch([empty(204), json(500, {})]);
     const w = wiring();
-    expect(await w.actions.deletePerson()).toEqual({ kind: 'deleted' });
+    expect(await w.actions.deletePerson()).toEqual({ kind: 'deleted', pageTookOver: true });
     expect(w.order).toEqual(['failed:server-error']);
+    for (const [reread, failure] of [
+      [problem(403, 'permission-denied'), 'forbidden'],
+      [problem(404, 'not-found'), 'not-found'],
+    ] as const) {
+      stubFetch([empty(204), reread]);
+      const v = wiring();
+      expect(await v.actions.deletePerson()).toEqual({ kind: 'deleted', pageTookOver: true });
+      expect(v.order).toEqual([`failed:${failure}`]);
+    }
+    stubFetch([empty(204), new Response(JSON.stringify({ type: 'urn:erp:bff:session-ended', title: 'x', status: 401 }), { status: 401, headers: { 'content-type': 'application/problem+json' } })]);
+    const v = wiring();
+    expect(await v.actions.deletePerson()).toEqual({ kind: 'deleted' });
+    expect(v.order).toEqual(['failed:session-ended']);
   });
 
   it('T-R2: the request answers (after 15 s) and the re-read hangs → the action resolves at 30 s, not at the re-read\'s own 20 s limit', async () => {
@@ -106,7 +119,7 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     await vi.advanceTimersByTimeAsync(THIRTY_SECONDS - 1);
     expect(done).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
-    expect(done).toEqual({ kind: 'deleted' });
+    expect(done).toEqual({ kind: 'deleted', pageTookOver: true });
     expect(w.order).toEqual(['failed:unreachable']);
   });
 
