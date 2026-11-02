@@ -10,7 +10,7 @@ import type { Role } from '@/lib/api/roles';
 import { PAGE_STATES } from '@/copy/shell';
 import { formatDate } from '@/lib/format/dates';
 import { TooltipProvider } from '@/components/ui/Tooltip';
-import { ROLE_A, SID, TZ, json, problem, refused, renderWired, role, stubFetch } from './harness';
+import { ROLE_A, SID, TZ, json, later, problem, refused, renderWired, role, stubFetch } from './harness';
 
 // ux-copy-b3b.md C7-2 and b3b-design.md §9.4: the role page wires the checklist's Save changes; a 200 then a GetRole
 // re-read passes the role without a remount; a failed re-read shows the region error; 403 → ST-4b; 404 → ST-5.
@@ -373,5 +373,119 @@ describe('/admin/roles/[id] — Restore role (restore-role-design.md Revision 2 
     }
     expect(nav.refresh).not.toHaveBeenCalled();
     nav.refresh.mockReset();
+  });
+});
+
+// R-15 (r15-red.md > r15-recommendation.md §2.2, §3): after a Save's message is on screen the page refreshes the router
+// cache once, if the save's re-read was shown; else it owes the refresh to the Retry that shows the role. Any refresh issued
+// clears what is owed. Replies arrive on a timer, so the re-read cannot finish in the write's microtask drain.
+describe('/admin/roles/[id] — R-15, the refresh after a Save', () => {
+  const SAVED = 'Your changes to this role are saved.';
+  const SAVED_ROLE = role(ROLE_A, 'Buyer', ['role.edit', 'role.view']);
+  const quiet = () => new Promise((r) => setTimeout(r, 30));
+  const settledPage = () => waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+  let seen: string[] = [];
+  const record = () => {
+    seen = [];
+    nav.refresh.mockImplementation(() => {
+      seen.push(screen.queryByText(SAVED)?.textContent ?? '(no message)');
+    });
+  };
+  const retry = async (u: ReturnType<typeof userEvent.setup>) => {
+    await u.click(await screen.findByRole('button', { name: 'Retry' }));
+    await settledPage();
+  };
+
+  it('T-15: UpdateRole 200 + GetRole 200 → refresh once, after the saved message', async () => {
+    record();
+    stubFetch([later(5, () => json(200, SAVED_ROLE)), later(5, () => json(200, SAVED_ROLE))]);
+    const u = userEvent.setup();
+    show();
+    await tickEditAndSave(u);
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([SAVED]);
+  });
+
+  it('T-15: UpdateRole 200 + GetRole unreachable → 0; then Retry ok → once', async () => {
+    record();
+    stubFetch([
+      later(5, () => json(200, SAVED_ROLE)),
+      () => {
+        throw new TypeError('offline');
+      },
+      later(5, () => json(200, SAVED_ROLE)),
+    ]);
+    const u = userEvent.setup();
+    show();
+    await tickEditAndSave(u);
+    expect(await screen.findByText("We couldn't load this role again, so what's shown may be out of date.")).toBeInTheDocument();
+    await screen.findByText(SAVED);
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(0);
+    await retry(u);
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('T-15: UpdateRole 200 + GetRole 403 → 0 (the page swaps); UpdateRole refused → 0', async () => {
+    stubFetch([later(5, () => json(200, SAVED_ROLE)), later(5, () => problem(403, 'permission-denied'))]);
+    const u = userEvent.setup();
+    let v = show();
+    await tickEditAndSave(u);
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to roles." })).toBeInTheDocument();
+    await quiet();
+    v.unmount();
+    stubFetch([later(5, () => refused('role.planted', 'X-planted save refusal'))]);
+    v = show();
+    await tickEditAndSave(u);
+    expect(await screen.findByText('X-planted save refusal')).toBeInTheDocument();
+    await quiet();
+    v.unmount();
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it('T-15 (RED M-1): Save A with the re-read unreachable → 0; Save B ok → 1; then Retry on A\'s error ok → still 1', async () => {
+    record();
+    const ROLE_B_SAVED = role(ROLE_A, 'Buyer', ['role.view']);
+    stubFetch([
+      later(5, () => json(200, SAVED_ROLE)),
+      () => {
+        throw new TypeError('offline');
+      },
+      later(5, () => json(200, ROLE_B_SAVED)),
+      later(5, () => json(200, ROLE_B_SAVED)),
+      later(5, () => json(200, ROLE_B_SAVED)),
+    ]);
+    const u = userEvent.setup();
+    show();
+    await tickEditAndSave(u);
+    expect(await screen.findByText("We couldn't load this role again, so what's shown may be out of date.")).toBeInTheDocument();
+    await screen.findByText(SAVED);
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(0);
+    await tickEditAndSave(u);
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(1));
+    await quiet();
+    // The region error from Save A is still on screen (a save does not clear it); its Retry owes nothing now.
+    await retry(u);
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('T-15 (RED L-4): a Save whose re-read finds the role deleted meanwhile → 1; then Restore → 2', async () => {
+    const DELETED_SAVED = { ...SAVED_ROLE, archived_at: '2026-10-30T10:00:00Z' };
+    stubFetch([later(5, () => json(200, SAVED_ROLE)), later(5, () => json(200, DELETED_SAVED)), later(5, () => json(200, { ...SAVED_ROLE, archived_at: null }))]);
+    const u = userEvent.setup();
+    show(true, BUYER, true);
+    await tickEditAndSave(u);
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(1));
+    await u.click(await screen.findByRole('button', { name: 'Restore role' }));
+    await screen.findByText('Buyer was restored.');
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(2);
   });
 });

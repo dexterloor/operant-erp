@@ -44,6 +44,9 @@ export interface PickerHarnessProps {
   roles?: readonly Role[];
   permissions?: readonly Permission[];
   onPage?: (direction: 'after' | 'before', cursor: string) => void;
+  /** R-15: the picker's and the group's reports (the page refreshes its router cache on each). */
+  onRolesChanged?: () => void;
+  onProposalChanged?: () => void;
 }
 
 const delay = () => new Promise((r) => setTimeout(r, 5));
@@ -98,6 +101,7 @@ export function PickerHarness(props: PickerHarnessProps) {
             revoke: (id) => (log?.push(`revoke:${roleOf(id).name}`), answer(props.revoke, id, { kind: 'taken-away' })),
             reread,
           }}
+          onRolesChanged={props.onRolesChanged}
         />
         {showProposals ? (
           <RoleProposals
@@ -106,6 +110,7 @@ export function PickerHarness(props: PickerHarnessProps) {
             marginExposure={scene.person.margin_exposure}
             fallbackFocusRef={h1}
             timeZone="Asia/Manila"
+            onProposalChanged={props.onProposalChanged}
             actions={{
               confirm: (id) => (log?.push(`confirm:${id}`), answer(props.confirm, id, { kind: 'unreachable' })),
               reject: (id) => (log?.push(`reject:${id}`), answer(props.reject, id, { kind: 'unreachable' })),

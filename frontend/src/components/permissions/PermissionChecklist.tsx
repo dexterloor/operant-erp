@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Permission } from '@/lib/api/permissions';
 import type { Role } from '@/lib/api/roles';
 import { formatList } from '@/lib/format/lists';
@@ -27,6 +27,12 @@ export interface PermissionChecklistProps {
   save: SaveRoleAction;
   /** The page's `<h1>`, owned by the route: focus goes there when a save succeeds and the dirty bar goes. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
+  /**
+   * Called once per Save answered `saved`, after the saved message is on screen (R-15; restore-role-design.md F-1 L-13).
+   * The page decides whether to refresh its router cache then (it knows whether the re-read was shown): cache invalidation
+   * only, never the commit signal. Never after a refusal or a failure.
+   */
+  onSaved?: () => void;
 }
 
 interface Notice {
@@ -81,7 +87,7 @@ function noticeFor(result: Exclude<SaveRoleResult, { kind: 'saved' }>, id: numbe
  * State is the ticked set, keyed by the role it was edited from: a new role, or the same role with new codes (a re-read
  * after a save), resets it in render (RED M-8's derived reset) — an unchanged re-read keeps the edits.
  */
-export function PermissionChecklist({ role, permissions, canEdit, save, fallbackFocusRef }: PermissionChecklistProps) {
+export function PermissionChecklist({ role, permissions, canEdit, save, fallbackFocusRef, onSaved }: PermissionChecklistProps) {
   const [saved, setSaved] = useState<{ for: Role; role: Role } | null>(null);
   // The role as last read or saved. A save's 200 counts until the caller passes a re-read role.
   const current = saved && saved.for === role ? saved.role : role;
@@ -97,6 +103,7 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
   // ux-confirm-b4.md §2.6: the after-save line. Written after the h1 focus, in a layout effect gated on a generation.
   const savedStatus = useLiveRegion();
   const [savedNote, setSavedNote] = useState<{ gen: number; withMargin: boolean } | null>(null);
+  const [changedGen, setChangedGen] = useState(0);
   // Scoped by useId (b4-final-red L-4): two checklists on one page never share an id.
   const uid = useId();
   const builtInLineId = `${uid}-role-${role.id}-built-in`;
@@ -119,9 +126,19 @@ export function PermissionChecklist({ role, permissions, canEdit, save, fallback
     if (savedGen === null || !savedNote) return;
     fallbackFocusRef.current?.focus();
     savedStatus.announce(CHECKLIST.savedAnnouncement(savedNote.withMargin));
+    // After the announcement, so the report's effect runs in the commit that shows it (F-1 L-13, T-21; R-15 §2.1).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setChangedGen((g) => g + 1);
     // Runs once per successful save only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedGen]);
+
+  // R-15: after the commit that put the saved message on screen; the page decides whether to refresh its router cache.
+  useEffect(() => {
+    if (changedGen > 0) onSaved?.();
+    // Once per successful save only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changedGen]);
 
   const mode: GroupMode = !canEdit ? 'read' : current.is_system ? 'built-in' : 'edit';
   const editable = mode === 'edit';

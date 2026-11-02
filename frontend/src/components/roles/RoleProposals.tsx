@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Collection } from '@/lib/api/envelope';
 import type { RoleGrantProposal } from '@/lib/api/proposals';
 import { isTakenOver, type ConfirmResult, type RejectResult, type RereadResult, type RoleProposalActions, type WithdrawResult } from '@/lib/roles/results';
@@ -41,6 +41,12 @@ export interface RoleProposalsProps {
    * it from false to true, the RULED held-form sentence is appended to the confirmation message (4b-2's "made it appear").
    */
   marginExposure: boolean;
+  /**
+   * Called once per Confirm, Reject or Withdraw answered 2xx whose re-read was shown, after its message is on screen
+   * (R-15; restore-role-design.md F-1 L-13). The page refreshes its router cache then: cache invalidation only, never the
+   * commit signal. Never after a refusal, a failure, a failed re-read or a re-read the page took over.
+   */
+  onProposalChanged?: () => void;
 }
 
 interface Notice {
@@ -87,7 +93,7 @@ function noticeFor(act: Act, result: Exclude<ActResult, { kind: 'confirmed' | 'r
  * viewer); the server refuses a non-proposer after the click. The outermost element is always rendered, so its banner
  * shows even when the group has no rows; the group itself is not rendered without rows (R4-1).
  */
-export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef, timeZone, marginExposure }: RoleProposalsProps) {
+export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef, timeZone, marginExposure, onProposalChanged }: RoleProposalsProps) {
   const headingId = useId();
   const [busy, setBusy] = useState<{ id: string; act: Act } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -99,6 +105,7 @@ export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef
   const noticeHeading = useRef<HTMLParagraphElement>(null);
   const groupHeading = useRef<HTMLHeadingElement>(null);
   const status = useLiveRegion();
+  const [changedGen, setChangedGen] = useState(0);
 
   const gen = after?.gen ?? null;
   // Layout effect: focus moves in the commit that shows the result, never a task later.
@@ -113,12 +120,24 @@ export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef
       if (!done.rereadOk) parts.push(WAITING.listStale);
       else if (done.act === 'confirm' && !done.marginBefore && marginExposure) parts.push(PICKER.marginHeld);
       status.announce(parts.join(' '));
+      if (done.rereadOk) {
+        // After the announcement, so the report's effect runs in the commit that shows it (F-1 L-13, T-21; R-15 §2.1).
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setChangedGen((g) => g + 1);
+      }
       return;
     }
     // A failure always shows a banner (a 401 returns before `after` is set), so focus always has a heading to go to.
     noticeHeading.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gen]);
+
+  // R-15: after the commit that put the action's message on screen; the page refreshes its router cache.
+  useEffect(() => {
+    if (changedGen > 0) onProposalChanged?.();
+    // Once per reported action only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changedGen]);
 
   const run = async (act: Act, proposal: RoleGrantProposal) => {
     if (busy) return;

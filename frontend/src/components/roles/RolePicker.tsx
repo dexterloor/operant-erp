@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Permission } from '@/lib/api/permissions';
 import type { OfferedRole, Role } from '@/lib/api/roles';
 import type { User } from '@/lib/api/users';
@@ -40,6 +40,14 @@ export interface RolePickerProps {
   roles?: readonly Role[];
   permissions?: readonly Permission[];
   actions: RolePickerActions;
+  /**
+   * Called once per Save roles that changed something (a give, a proposal or a take-away answered 2xx), after the save's
+   * summary is on screen and only once the re-read has been shown (R-15; restore-role-design.md F-1 L-13). The page
+   * refreshes its router cache then: cache invalidation only, never the commit signal. A re-read that failed owes the
+   * call to the next re-read that is shown (Load roles again, or a later save's); never on a refusal, a stop with
+   * nothing saved, a session end or a re-read the page took over.
+   */
+  onRolesChanged?: () => void;
 }
 
 type Intended = { personId: string; intents: Intents };
@@ -85,7 +93,7 @@ const stillMarkedOf = (post: Post, intents: Intents) => [...intents.keys()].filt
  * Not rendered for a deleted person (the page's own banner explains); an inactive person gets one banner instead.
  * `RoleProposals` is a SIBLING the page composes (RED M-3), not a child.
  */
-export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, permissions, actions }: RolePickerProps) {
+export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, permissions, actions, onRolesChanged }: RolePickerProps) {
   const [intended, setIntended] = useState<Intended>({ personId: person.id, intents: EMPTY });
   const [chips, setChips] = useState<Chips>({ personId: person.id, byRole: new Map() });
   const [busy, setBusy] = useState(false);
@@ -94,6 +102,9 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
   const status = useLiveRegion();
   const saveRef = useRef<HTMLButtonElement>(null);
   const firstBannerRef = useRef<HTMLParagraphElement>(null);
+  // R-15: a save changed something and the router cache has not yet been refreshed for it (OR across saves, RED M-1).
+  const refreshOwed = useRef(false);
+  const [changedGen, setChangedGen] = useState(0);
 
   const heldIds = useMemo(() => new Set(person.roles.map((r) => r.id)), [person.roles]);
   const ownPage = viewerId === person.id;
@@ -177,6 +188,8 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
     // A-10: a 403 / 404 during the re-read is the page's to show (ST-4b, the R1-5 banner, ST-5); the picker adds nothing.
     const reread = ownReread(answered);
     if (reread === null) return;
+    // R-15 (RED M-1): OR, never assignment — a later save that changes nothing must not drop an earlier save's refresh.
+    refreshOwed.current = refreshOwed.current || run.outcomes.some((o) => isSuccess(o.result));
     const undecidedIds = new Set(run.outcomes.filter((o) => UNDECIDED.has(o.result.kind)).map((o) => o.request.roleId));
     setPost((cur) => ({ gen: (cur?.gen ?? 0) + 1, run, reread, marginBefore, reloaded: false, undecidedIds }));
   };
@@ -300,22 +313,41 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
   const postGen = post?.gen ?? null;
   useLayoutEffect(() => {
     if (postGen === null || !post) return;
-    if (post.run.stop === 'session-ended') return; // R1-4: the fetch wrapper navigates; nothing in-page.
+    if (post.run.stop === 'session-ended') {
+      refreshOwed.current = false; // R-15: nothing to refresh for a session that ended.
+      return; // R1-4: the fetch wrapper navigates; nothing in-page.
+    }
     if (firstBannerRef.current) firstBannerRef.current.focus();
     else saveRef.current?.focus();
     const interrupted = isInterrupt(post.run.stop);
-    // Gaps Rev 1 P-3: Load roles again succeeded after a save that was not interrupted (case D/E) — focus as built,
-    // then this one sentence.
     if (post.reloaded && !interrupted) {
+      // Gaps Rev 1 P-3: Load roles again succeeded after a save that was not interrupted (case D/E) — focus as built,
+      // then this one sentence.
       status.announce(PICKER_STATUS.reloaded);
-      return;
+    } else {
+      const nothingStillMarked = post.reread.kind === 'ok' && stillMarkedOf(post, intents).length === 0;
+      const heldForm = post.reread.kind === 'ok' && !post.marginBefore && person.margin_exposure ? PICKER.marginHeld : null;
+      status.announce(saveSummary(PICKER_STATUS, formatList, { outcomes: post.run.outcomes, interrupted, nothingStillMarked, heldForm }));
     }
-    const nothingStillMarked = post.reread.kind === 'ok' && stillMarkedOf(post, intents).length === 0;
-    const heldForm = post.reread.kind === 'ok' && !post.marginBefore && person.margin_exposure ? PICKER.marginHeld : null;
-    status.announce(saveSummary(PICKER_STATUS, formatList, { outcomes: post.run.outcomes, interrupted, nothingStillMarked, heldForm }));
+    // R-15: report a save that changed something once a re-read has been shown (a failed one leaves it owed).
+    if (refreshOwed.current && post.reread.kind === 'ok') {
+      refreshOwed.current = false;
+      // After the announcement, so the report's effect runs in the commit that shows it (F-1 L-13, T-21; R-15 §2.1).
+      // No set-state-in-effect directive here: the rule does not analyse this component today (eslint reports such a
+      // directive as unused). If it starts to, add `eslint-disable-next-line react-hooks/set-state-in-effect` with this
+      // reason; never move the bump next to `setPost` instead (R-15 §2.1, mutation M-5).
+      setChangedGen((g) => g + 1);
+    }
     // Runs once per save / reload generation only; the values read are this commit's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postGen]);
+
+  // R-15: after the commit that put the save's summary on screen; the page refreshes its router cache.
+  useEffect(() => {
+    if (changedGen > 0) onRolesChanged?.();
+    // Once per reported save only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changedGen]);
 
   if (person.archived_at !== null) return null;
   if (!person.is_active) {

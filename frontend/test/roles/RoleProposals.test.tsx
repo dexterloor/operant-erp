@@ -236,3 +236,69 @@ describe('RoleProposals — gaps fix P-4 / L-4 (b4-step5-gaps.md Rev 2 > Rev 1)'
     await waitFor(() => expect(groupStatus().textContent).toBe('Proposal confirmed: finance is now given to this person.'));
   });
 });
+
+// R-15 (r15-red.md > r15-recommendation.md §2.2, §3; the ruling: Reject and Withdraw DO report): a Confirm, Reject or
+// Withdraw answered 2xx whose re-read was shown is reported once, after its message is on screen.
+describe('RoleProposals — R-15, the report after an action', () => {
+  const groupStatus = () => screen.getAllByRole('status').find((n) => !n.closest('[data-surface="role-picker"]'))!;
+  const quiet = () => new Promise((r) => setTimeout(r, 30));
+  const reportSpy = () => {
+    const seen: string[] = [];
+    const fn = vi.fn(() => {
+      seen.push(groupStatus().textContent ?? '');
+    });
+    return { fn, seen };
+  };
+  const answers = {
+    confirm: { kind: 'confirmed', proposal: { ...PROPOSAL_FINANCE, status: 'confirmed' } },
+    reject: { kind: 'rejected', proposal: { ...PROPOSAL_FINANCE, status: 'rejected' } },
+    withdraw: { kind: 'withdrawn', proposal: { ...PROPOSAL_FINANCE, status: 'withdrawn' } },
+  } as const;
+  const label = { confirm: WAITING.confirm, reject: WAITING.reject, withdraw: WAITING.withdraw } as const;
+
+  it.each(['confirm', 'reject', 'withdraw'] as const)('T-11: %s 200 with the re-read ok → exactly once, after WAITING.done', async (act) => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(
+      <PickerHarness
+        scene={withProposals(PROPOSAL_FINANCE, PROPOSAL_BY_OTHER)}
+        canConfirm
+        onProposalChanged={r.fn}
+        {...{ [act]: answers[act] }}
+        reread={(s) => ({ ...s, proposals: page([PROPOSAL_BY_OTHER]) })}
+      />,
+    );
+    await user.click(within(rowOf('finance')).getByRole('button', { name: label[act] }));
+    await settled();
+    await waitFor(() => expect(r.fn).toHaveBeenCalled());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual([WAITING.done[act]('finance')]);
+  });
+
+  it('T-11: Confirm refused → 0; Confirm 200 with the re-read failed → 0; Confirm 200 with the re-read taken over → 0', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    const press = async () => {
+      await user.click(within(rowOf('finance')).getByRole('button', { name: WAITING.confirm }));
+      await settled();
+    };
+    let v = render(<PickerHarness scene={withProposals(PROPOSAL_FINANCE)} canConfirm onProposalChanged={r.fn} confirm={PROPOSAL_REFUSALS.alreadyConfirmed} />);
+    await press();
+    await waitFor(() => expect(screen.getByText('Not confirmed')).toHaveFocus());
+    await quiet();
+    v.unmount();
+    v = render(<PickerHarness scene={withProposals(PROPOSAL_FINANCE)} canConfirm onProposalChanged={r.fn} confirm={answers.confirm} reread={() => ({ kind: 'failed', failure: 'unreachable' })} />);
+    await press();
+    await waitFor(() => expect(groupStatus()).toHaveTextContent(WAITING.listStale));
+    await quiet();
+    v.unmount();
+    for (const failure of ['forbidden', 'not-found'] as const) {
+      v = render(<PickerHarness scene={withProposals(PROPOSAL_FINANCE)} canConfirm onProposalChanged={r.fn} confirm={answers.confirm} reread={() => ({ kind: 'failed', failure })} />);
+      await press();
+      await quiet();
+      v.unmount();
+    }
+    expect(r.fn).not.toHaveBeenCalled();
+  });
+});

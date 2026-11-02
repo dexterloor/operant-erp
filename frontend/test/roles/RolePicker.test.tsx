@@ -618,3 +618,216 @@ describe('RolePicker — gaps fix (b4-step5-gaps.md Rev 2 > Rev 1)', () => {
     expect(screen.queryByText(PICKER_BANNERS.loadFirst)).toBeNull();
   });
 });
+
+// R-15 (r15-red.md > r15-recommendation.md §2.2, §3): the picker reports a Save roles that changed something once, after
+// the save's summary is on screen and only once a re-read has been shown. The report is the page's router-cache refresh
+// (cache invalidation only, restore-role-design.md F-1 L-13); it is never the commit signal.
+describe('RolePicker — R-15, the report after a save that changed something', () => {
+  /** A report spy that records the picker's status text at the moment it is called. */
+  const reportSpy = () => {
+    const seen: string[] = [];
+    const fn = vi.fn(() => {
+      seen.push(status().textContent ?? '');
+    });
+    return { fn, seen };
+  };
+  /** Let any later effect or timer run, so a late or second report would be counted. */
+  const quiet = () => new Promise((r) => setTimeout(r, 30));
+  const refusal = (message: string) => ({ kind: 'refused' as const, rule: 'user_role.planted', message });
+  const giveOnly = (name: string) => (id: string) => (id === roleRef(name).id ? { kind: 'given' as const, role: ROLES.find((r) => r.id === id)! } : refusal('X-planted give refusal'));
+
+  it('T-1: one give 201, re-read ok → exactly once, with "Given: viewer." already in the status line', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} reread={(s) => ({ ...s, person: holding(JONAS, 'buyer', 'viewer') })} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(r.fn).toHaveBeenCalled());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual(['Given: viewer.']);
+  });
+
+  it('T-2: one take-away 204 → exactly once, after its summary', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} reread={(s) => ({ ...s, person: holding(JONAS) })} />);
+    await user.click(box('buyer'));
+    await save(user);
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual(['Taken away: buyer.']);
+  });
+
+  it('T-3: partial — a take-away refused and a give 201 → exactly once', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} revoke={refusal('X-planted take-away refusal')} />);
+    await user.click(box('buyer'));
+    await user.click(box('viewer'));
+    await save(user);
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen[0]).toMatch(/^Given: viewer\. Not taken away: buyer\./);
+  });
+
+  it('T-3b: a take-away 204 AND a give 201 in one save → exactly once (never once per request)', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} reread={(s) => ({ ...s, person: holding(JONAS, 'viewer') })} />);
+    await user.click(box('buyer'));
+    await user.click(box('viewer'));
+    await save(user);
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual(['Given: viewer. Taken away: buyer.']);
+  });
+
+  it('T-4: every request refused → 0; the only request unreachable with the re-read ok → 0', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    const { unmount } = render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} assign={refusal('X-planted give refusal')} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not given: viewer')).toHaveFocus());
+    await quiet();
+    unmount();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} assign={{ kind: 'unreachable' }} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not saved: 1 change')).toHaveFocus());
+    await quiet();
+    expect(r.fn).not.toHaveBeenCalled();
+  });
+
+  it('T-5: a take-away 204, then the give unreachable (the save stops), re-read ok → exactly once', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} assign={{ kind: 'unreachable' }} reread={(s) => ({ ...s, person: holding(JONAS) })} />);
+    await user.click(box('buyer'));
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not saved: 1 change')).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual(["Taken away: buyer. The save didn't finish. A message says what wasn't saved."]);
+  });
+
+  it('T-6: a give 201 with the re-read failed → 0 (owed); Load roles again ok → exactly once, after its sentence; not offered again', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    let fail = true;
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} reread={(s) => (fail ? { kind: 'failed', failure: 'unreachable' } : { ...s, person: holding(JONAS, 'buyer', 'viewer') })} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText("We couldn't reach the server.")).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(0); // the intermediate 0 (mutation M-3)
+    fail = false;
+    await user.click(screen.getByRole('button', { name: PICKER_BANNERS.loadAgain }));
+    await settled();
+    await waitFor(() => expect(r.fn).toHaveBeenCalled());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen).toEqual([PICKER_STATUS.reloaded]);
+    expect(screen.queryByRole('button', { name: PICKER_BANNERS.loadAgain })).toBeNull();
+  });
+
+  it('T-6b: save 1 gives (201) with the re-read failed → 0; save 2 is all refused with the re-read ok → exactly once, after save 2\'s message', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    let fail = true;
+    render(
+      <PickerHarness
+        scene={jonas()}
+        onRolesChanged={r.fn}
+        assign={giveOnly('viewer')}
+        reread={(s) => (fail ? { kind: 'failed', failure: 'unreachable' } : { ...s, person: holding(JONAS, 'buyer', 'viewer') })}
+      />,
+    );
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText("We couldn't reach the server.")).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(0);
+    fail = false;
+    await user.click(box('admin'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not given: admin')).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+    expect(r.seen[0]).toMatch(/^Not given: admin\./);
+  });
+
+  it.each(['forbidden', 'not-found'] as const)('T-7: the re-read taken over (%s, either case) → 0, recorded as R-15a / R-15b', async (failure) => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} reread={() => ({ kind: 'failed', failure })} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await quiet();
+    expect(r.fn).not.toHaveBeenCalled();
+  });
+
+  it('T-8: a take-away 204, then the give forbidden (the save stops), re-read ok → exactly once', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} assign={{ kind: 'forbidden' }} reread={(s) => ({ ...s, person: holding(JONAS) })} />);
+    await user.click(box('buyer'));
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not saved: 1 change')).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('T-9: session ended → 0, even after an earlier save left a report owed', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    let n = 0;
+    render(
+      <PickerHarness
+        scene={jonas()}
+        onRolesChanged={r.fn}
+        assign={(id) => (id === roleRef('viewer').id ? { kind: 'given', role: ROLES.find((x) => x.id === id)! } : { kind: 'session-ended' })}
+        reread={(s) => ((n += 1) === 1 ? { kind: 'failed', failure: 'unreachable' } : s)}
+      />,
+    );
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText("We couldn't reach the server.")).toHaveFocus());
+    await user.click(box('admin'));
+    await save(user);
+    await quiet();
+    expect(r.fn).not.toHaveBeenCalled();
+  });
+
+  it('T-10: two saves in a row, each with one 2xx → 2 in total, one after each save\'s message', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(r.fn).toHaveBeenCalledTimes(1));
+    await user.click(box('admin'));
+    await save(user);
+    await waitFor(() => expect(r.fn).toHaveBeenCalledTimes(2));
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(2);
+    expect(r.seen.map((t) => t.split('.')[0])).toEqual(['Given: viewer', 'Given: admin']);
+  });
+
+  it('T-10b: save 1 gives (201) with the re-read ok → 1; save 2 is all refused with the re-read ok → still 1 (the owed flag was cleared)', async () => {
+    const user = userEvent.setup();
+    const r = reportSpy();
+    render(<PickerHarness scene={jonas()} onRolesChanged={r.fn} assign={giveOnly('viewer')} />);
+    await user.click(box('viewer'));
+    await save(user);
+    await waitFor(() => expect(r.fn).toHaveBeenCalledTimes(1));
+    await user.click(box('admin'));
+    await save(user);
+    await waitFor(() => expect(screen.getByText('Not given: admin')).toHaveFocus());
+    await quiet();
+    expect(r.fn).toHaveBeenCalledTimes(1);
+  });
+});

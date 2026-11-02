@@ -1,8 +1,10 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// PersonPage refreshes the router cache after a restore (R-13); outside Next there is no router, so it is stubbed.
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => undefined }) }));
+// PersonPage refreshes the router cache after a restore (R-13), a delete (R-14) and a role change (R-15); outside Next
+// there is no router, so `refresh` is a spy.
+const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { PersonPage, type PersonPageGates } from '@/app/(app)/admin/users/[id]/PersonPage';
 import { PERSON_DELETED_WHILE_OPEN, PICKER, ROLES_FORBIDDEN_SENTENCE } from '@/copy/roles';
 import type { PersonView } from '@/lib/people/load';
@@ -12,7 +14,10 @@ import { ID, PROPOSAL_1, ROLE_A, ROLE_B, VIEWER_ID, empty, json, later, offered,
 // the page — never the B-4 components — decides what a re-read's 403 / 404 / newly-deleted answer does, and the
 // "deleted while open" sentence is announced from a page-level region that is still in the DOM after the re-render.
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  nav.refresh.mockReset();
+});
 
 const BUYER = role(ROLE_A, 'Buyer');
 const FINANCE = role(ROLE_B, 'Finance');
@@ -203,5 +208,73 @@ describe('the Waiting group (§9.3) through the page', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Waiting for an owner' })).toBeNull());
     expect(calls[0]!.url).toBe(`/bff/api/role-grant-proposals/${PROPOSAL_1}/confirmation`);
     expect(calls).toHaveLength(6);
+  });
+});
+
+// R-15 (r15-red.md > r15-recommendation.md §3): the page wires the picker's and the Waiting group's reports to its one
+// `refreshRouterCache`. Replies arrive on a timer, so the re-read cannot finish in the write's microtask drain.
+describe('R-15 — the router cache is refreshed once after a role change is on screen', () => {
+  const pickerStatus = () => document.querySelector<HTMLElement>('[data-surface="role-picker"] [role="status"]');
+  const quiet = () => new Promise((r) => setTimeout(r, 30));
+  const recordAtRefresh = (read: () => string) => {
+    const seen: string[] = [];
+    nav.refresh.mockImplementation(() => {
+      seen.push(read());
+    });
+    return seen;
+  };
+
+  it('T-13: AssignRole 201 + the re-read 200 → refresh once, after "Given: Buyer."; AssignRole 201 + GetUser 403 → 0, the denied page', async () => {
+    const seen = recordAtRefresh(() => pickerStatus()?.textContent ?? '(no picker)');
+    const u = userEvent.setup();
+    const r = rereadOf();
+    stubFetch([later(5, () => json(201, BUYER)), later(5, () => r[0]! as Response), ...r.slice(1)]);
+    let v = show();
+    await giveBuyer(u);
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual(['Given: Buyer.']);
+    v.unmount();
+    nav.refresh.mockClear();
+    stubFetch([later(5, () => json(201, BUYER)), later(5, () => problem(403, 'permission-denied'))]);
+    v = show();
+    await giveBuyer(u);
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to people." })).toBeInTheDocument();
+    await quiet();
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  /**
+   * T-7's wired twin. This pins a KNOWN GAP (R-15b, r15-red.md H-1), not a desired behaviour: the give succeeded, the
+   * re-read found `role.assign` lost, the page stays (no swap) and the picker unmounts, so no refresh is issued and Back
+   * may show the old Roles cell. A refresh would be safe here; closing it needs a page-level report from the re-read.
+   */
+  it('T-7 (wired): AssignRole 201, GetUser 200, ListOfferedRoles 403 → 0 refreshes, the R1-5 banner, the person still shown (R-15b)', async () => {
+    const u = userEvent.setup();
+    const r = rereadOf({ offered: problem(403, 'permission-denied') });
+    stubFetch([later(5, () => json(201, BUYER)), later(5, () => r[0]! as Response), r[1]!, r[3]!, r[4]!]);
+    show();
+    await giveBuyer(u);
+    await waitFor(() => expect(screen.queryByRole('button', { name: PICKER.save })).toBeNull());
+    expect(screen.getByText(/needs the/, { selector: 'p' })).toHaveTextContent(ROLES_FORBIDDEN_SENTENCE);
+    expect(screen.getByRole('heading', { level: 1, name: 'Ada Lovelace' })).toBeInTheDocument();
+    await quiet();
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it('T-14: Confirm 200 + the re-read 200 → refresh once, after the confirmation message', async () => {
+    const MESSAGE = 'Proposal confirmed: Finance is now given to this person.';
+    const seen = recordAtRefresh(() => screen.queryByText(MESSAGE)?.textContent ?? '(no message)');
+    const pending = proposal(PROPOSAL_1, ROLE_B, 'Finance');
+    const r = rereadOf();
+    stubFetch([later(5, () => json(200, { ...pending, status: 'confirmed' })), later(5, () => r[0]! as Response), ...r.slice(1)]);
+    const u = userEvent.setup();
+    show(ALL, view({ access: { offered: [offered(ROLE_A, 'Buyer'), offered(ROLE_B, 'Finance')], pending: [pending], page: page([pending]) } }));
+    await u.click(screen.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    await quiet();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([MESSAGE]);
   });
 });

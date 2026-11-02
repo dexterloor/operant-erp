@@ -9,6 +9,7 @@ import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { ROLE_PAGE } from '@/copy/roles';
 import type { Permission } from '@/lib/api/permissions';
 import type { Role } from '@/lib/api/roles';
+import type { SaveRoleAction } from '@/lib/permissions/results';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { loadRole } from '@/lib/permissions/load';
@@ -40,6 +41,9 @@ type Cause = 'unreachable' | 'server-error';
  * action are `RoleRestoreActions` (restore-role-design.md Revision 2 F-2): a restore sets the served role here, so the
  * checklist turns live without a remount. After a restore's message is on screen the router cache is refreshed once
  * (F-1 L-13, branch R: the Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
+ * The same once after a Save's message is on screen, when the save's re-read was shown (R-15: the Roles list's
+ * Permissions count). A save whose re-read failed owes it to the Retry that shows the role; any refresh issued clears
+ * what is owed. No refresh when the re-read was taken over (R-15a).
  */
 export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
   const caller = useApiCaller();
@@ -51,6 +55,9 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
   const [retrying, setRetrying] = useState(false);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.role.id;
+  // R-15: set when the current save's re-read did not show the role; a refresh owed to the Retry that does.
+  const saveRereadFailed = useRef(false);
+  const refreshOwed = useRef(false);
 
   const failed = useCallback((f: ReadFailure) => {
     if (f === 'session-ended') return;
@@ -62,10 +69,36 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  const save = useMemo(() => roleSave({ caller, id, setRole, onRereadFailed: failed }), [caller, id, setRole, failed]);
+  // R-15: a save's re-read that did not show the role. Synchronous, before the action returns `saved` (wired.ts), so
+  // `onSaved` reads it set.
+  const saveRereadDidNotShow = useCallback(
+    (f: ReadFailure) => {
+      saveRereadFailed.current = true;
+      failed(f);
+    },
+    [failed],
+  );
+  // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
+  const wiredSave = useMemo(() => roleSave({ caller, id, setRole, onRereadFailed: saveRereadDidNotShow }), [caller, id, setRole, saveRereadDidNotShow]);
+  const save = useCallback<SaveRoleAction>(
+    (codes) => {
+      saveRereadFailed.current = false;
+      return wiredSave(codes);
+    },
+    [wiredSave],
+  );
   const restoreRole = useMemo(() => roleRestore({ caller, id, setRole, onRereadFailed: failed }), [caller, id, setRole, failed]);
-  // Cache invalidation only (never the commit signal): the Archived list must not show this role after Back.
-  const refreshAfterRestore = useCallback(() => router.refresh(), [router]);
+  // Cache invalidation only (never the commit signal): after Back, the Archived list must not show this role (restore)
+  // and the Roles list must not show its old permissions count (save, R-15). One call per event; any call clears `owed`.
+  const refreshRouterCache = useCallback(() => {
+    refreshOwed.current = false;
+    router.refresh();
+  }, [router]);
+  // R-15: the checklist's saved message is on screen. Refresh now if the re-read was shown, else owe it to Retry.
+  const onSaved = useCallback(() => {
+    if (saveRereadFailed.current) refreshOwed.current = true;
+    else refreshRouterCache();
+  }, [refreshRouterCache]);
 
   const retry = async () => {
     if (retrying) return;
@@ -78,6 +111,7 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
       await setRole(r.role);
       setRereadError(null);
       h1.current?.focus();
+      if (refreshOwed.current) refreshRouterCache(); // R-15: after the commit that shows the re-read role.
     } else failed(r.kind);
   };
 
@@ -94,8 +128,8 @@ export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
       {rereadError ? (
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ROLE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
-      <RoleRestoreActions role={role} canRestore={canRestore} restoreRole={restoreRole} fallbackFocusRef={h1} timeZone={timeZone} onRestored={refreshAfterRestore} />
-      <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit && role.archived_at === null} save={save} fallbackFocusRef={h1} />
+      <RoleRestoreActions role={role} canRestore={canRestore} restoreRole={restoreRole} fallbackFocusRef={h1} timeZone={timeZone} onRestored={refreshRouterCache} />
+      <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit && role.archived_at === null} save={save} fallbackFocusRef={h1} onSaved={onSaved} />
     </section>
   );
 }

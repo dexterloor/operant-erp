@@ -480,3 +480,37 @@ describe('PermissionChecklist — an SoD id with no clause (G-c)', () => {
     vi.restoreAllMocks();
   });
 });
+
+// R-15 (r15-red.md > r15-recommendation.md §2.2, §3): every committed `saved` is reported once, after the saved message is
+// on screen; the page decides whether to refresh (it knows whether its re-read was shown). Never after a non-success.
+describe('PermissionChecklist — R-15, the report after a save', () => {
+  const quiet = () => new Promise((r) => setTimeout(r, 30));
+
+  it('T-12: saved → onSaved exactly once, with the saved announcement already in the region', async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    const onSaved = vi.fn(() => {
+      seen.push(savedRegion().textContent ?? '');
+    });
+    render(<ChecklistHarness role={CUSTOM_ROLE} onSaved={onSaved} />);
+    await user.click(box('View customers'));
+    await save(user);
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await quiet();
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([SAVED]);
+  });
+
+  it('T-12: refused, unreachable and forbidden → 0', async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    for (const answer of [SAVE_REFUSALS[0]!, { kind: 'unreachable' as const }, { kind: 'forbidden' as const }]) {
+      const v = render(<ChecklistHarness role={CUSTOM_ROLE} onSaved={onSaved} answer={answer} />);
+      await user.click(box('View customers'));
+      await save(user);
+      await quiet();
+      v.unmount();
+    }
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});

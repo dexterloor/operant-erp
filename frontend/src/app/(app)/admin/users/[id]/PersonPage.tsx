@@ -68,7 +68,10 @@ function headingAfter(c: RereadContext): string | null {
  *   delete.
  * After a restore's message is on screen the router cache is refreshed once (restore-role-design.md F-1 L-13, R-13: the
  * Archived list was measured stale after Back); `useCommittedState` stays the commit signal. The same once after a
- * delete's message is on screen (R-14: the live list was measured still showing the deleted person after Back).
+ * delete's message is on screen (R-14: the live list was measured still showing the deleted person after Back). And once
+ * after a role change's message is on screen — a Save roles that changed something, or a Confirm, Reject or Withdraw —
+ * when its re-read was shown (R-15: the People list's Roles column was measured stale after Back). The components decide
+ * when; no refresh after a re-read that was taken over (R-15a, R-15b) or failed and was never shown again (R-15a).
  */
 export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const caller = useApiCaller();
@@ -201,7 +204,7 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   );
 
   // Cache invalidation only (never the commit signal): after Back, neither the Archived list (restore) nor the live list
-  // (delete) may show this person where they no longer are. One call per event.
+  // (delete) may show this person where they no longer are, nor the lists their old roles (R-15). One call per event.
   const refreshRouterCache = useCallback(() => router.refresh(), [router]);
 
   const retry = async () => {
@@ -272,8 +275,9 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
             roles={gates.view && !lost.view ? catalogue?.roles : undefined}
             permissions={gates.view && !lost.view ? catalogue?.permissions : undefined}
             actions={picker}
+            onRolesChanged={refreshRouterCache}
           />
-          {!own ? <RoleProposals proposals={access.page} canConfirm={gates.confirm} actions={proposals} fallbackFocusRef={h1} timeZone={timeZone} marginExposure={person.margin_exposure} /> : null}
+          {!own ? <RoleProposals proposals={access.page} canConfirm={gates.confirm} actions={proposals} fallbackFocusRef={h1} timeZone={timeZone} marginExposure={person.margin_exposure} onProposalChanged={refreshRouterCache} /> : null}
         </>
       ) : null}
     </section>

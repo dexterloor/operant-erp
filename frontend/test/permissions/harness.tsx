@@ -19,9 +19,11 @@ export interface ChecklistHarnessProps {
   onSave?: (codes: readonly string[]) => void;
   /** False: the caller never re-reads after a save (to see what the 200 alone does). */
   reread?: boolean;
+  /** R-15: the checklist's report after a saved message (the page decides whether to refresh). */
+  onSaved?: () => void;
 }
 
-export function ChecklistHarness({ role: initial, permissions = PERMISSIONS, canEdit = true, answer, onSave, reread = true }: ChecklistHarnessProps) {
+export function ChecklistHarness({ role: initial, permissions = PERMISSIONS, canEdit = true, answer, onSave, reread = true, onSaved }: ChecklistHarnessProps) {
   const h1 = useRef<HTMLHeadingElement>(null);
   const [role, setRole] = useState(initial);
   return (
@@ -34,6 +36,7 @@ export function ChecklistHarness({ role: initial, permissions = PERMISSIONS, can
         permissions={permissions}
         canEdit={canEdit}
         fallbackFocusRef={h1}
+        onSaved={onSaved}
         save={async (codes) => {
           onSave?.(codes);
           await new Promise((r) => setTimeout(r, 5));
