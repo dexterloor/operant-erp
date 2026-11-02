@@ -1,6 +1,6 @@
 import 'server-only';
 import { apiBaseOrigin, apiFetch } from './apiClient';
-import { NO_STORE, bffProblem, isBffProblem, readRequestBody, refuseCrossSiteMutation } from './origin';
+import { NO_STORE, bffProblem, isBffProblem, readRequestBody, refuseCrossSiteMutation, unsentProblem } from './origin';
 import { clearedSessionCookie, cookieValue, tokenOf, unsealSession } from './session';
 import { allOperations, proxyAllowlist } from './surface';
 
@@ -14,12 +14,13 @@ import { allOperations, proxyAllowlist } from './surface';
 //   5. the cookie: none → 401 session-ended; one that does not open or has passed its sealed exp → 401 session-ended
 //      and the cookie deleted;
 //   6. X-ERP-Session ≠ the cookie's sid → 409 session-changed.
-// Then one apiFetch with the session's bearer. The answer keeps its status, Content-Type, Content-Disposition and body;
+// Then one apiFetch with the session's bearer; if it refuses before sending (configuration, or a call it cannot build)
+// → 503 not-sent, zero API calls. The answer keeps its status, Content-Type, Content-Disposition and body;
 // Set-Cookie / WWW-Authenticate and every other upstream header are dropped; Location is rewritten from /api/v1/… to
 // /bff/api/… (Content-Location dropped). An API 401 becomes 401 session-ended WITHOUT deleting the cookie. A 5xx, or
 // an error whose body is not a problem document, becomes the BFF's generic problem (L-2). Every answer: no-store, private,
 // X-Content-Type-Options: nosniff (code RED L-3).
-// Code RED hardening: a session key that cannot be read → 502 server-error, zero API calls (L-1); a request body over
+// Code RED hardening: a session key that cannot be read → 503 not-sent, zero API calls (L-1; config-refusal); a request body over
 // 1 MiB → 413, one not arrived in 10 s → 408 (L-2, origin.ts); a 1xx or 3xx answer → 502, whatever its body, since the
 // proxy never relays a redirect; 204/205 carry no body (L-4); an absolute Location on the configured API origin is
 // rewritten like a relative one, any other origin dropped (L-6).
@@ -94,8 +95,9 @@ async function proxied(request: Request): Promise<Response> {
   try {
     session = await unsealSession(value);
   } catch {
-    // The keyring could not be read (unset or malformed BFF_SESSION_KEY): the BFF's problem, never Next's raw 500.
-    return bffProblem(502, 'urn:erp:bff:server-error');
+    // The keyring could not be read (unset or malformed BFF_SESSION_KEY): the BFF's problem, never Next's raw 500. No API
+    // call has been made, so it is 503 not-sent. Nothing else goes in this try.
+    return unsentProblem();
   }
   if (session === null) return sessionEnded(true);
   if (h.get('x-erp-session') !== session.sid) return bffProblem(409, 'urn:erp:bff:session-changed');
@@ -117,7 +119,9 @@ async function proxied(request: Request): Promise<Response> {
       idempotencyKey: key === null ? undefined : key,
     });
   } catch {
-    return bffProblem(502, 'urn:erp:bff:server-error');
+    // Not sent: apiFetch throws only before it sends (apiClient.ts). Nothing that runs after apiFetch goes in this try.
+    // The screens still read any 5xx as server-error (problem.ts); only the server's answer is exact here.
+    return unsentProblem();
   }
   return translate(upstream);
 }

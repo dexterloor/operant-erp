@@ -18,9 +18,10 @@ async function typeOf(response: Response): Promise<string | null> {
 }
 
 /**
- * The answers the web app's server gives WITHOUT calling the API (origin.ts and handlers.ts `notSentRefusal`), keyed by
- * type with the status each comes with (c10 FINAL A.1). Every one is produced before the upstream call, so nothing was
- * sent: the outcome is known.
+ * The answers the web app's server gives WITHOUT calling the API (origin.ts, handlers.ts `notSentRefusal`, and origin.ts
+ * `unsentProblem`: a configuration refusal before any call), keyed by type with the status each comes with (c10 FINAL
+ * A.1). Every one is produced before the upstream call, so nothing was sent: the outcome is known. Type AND status must
+ * match: 503 is the only status `unsentProblem` answers, and no upstream answer can carry that type with it.
  */
 const NOT_SENT: Readonly<Record<string, readonly number[]>> = {
   'urn:erp:bff:request-refused': [403, 400],
@@ -28,6 +29,7 @@ const NOT_SENT: Readonly<Record<string, readonly number[]>> = {
   'urn:erp:bff:payload-too-large': [413],
   'urn:erp:bff:request-timeout': [408],
   'urn:erp:bff:request-invalid': [422],
+  'urn:erp:bff:not-sent': [503],
 };
 
 /** True when the answer is one the web app's server made before sending anything to the API. Reads a clone. */

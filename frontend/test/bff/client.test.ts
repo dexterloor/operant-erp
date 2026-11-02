@@ -65,6 +65,9 @@ describe('T-P — problem.ts, one case per §6.3 row', () => {
     ['500', 500, { type: 'urn:erp:bff:server-error' }, 'server-error'],
     ['502', 502, { type: 'urn:erp:bff:server-error' }, 'server-error'],
     ['504 upstream-timeout', 504, { type: 'urn:erp:bff:upstream-timeout' }, 'server-error'],
+    // config-refusal Option A: the proxy now answers 503 not-sent for a configuration refusal, but the proxy screens keep
+    // server-error until Option B (config-refusal-not-sent.md §8 R-c). Changing this is a deliberate pin move.
+    ['503 not-sent (Option B deferred)', 503, { type: 'urn:erp:bff:not-sent' }, 'server-error'],
     ['default: 401 of another type', 401, { type: 'urn:erp:problem:authentication-failed' }, 'server-error'],
     ['default: an unlisted status', 418, { type: 'urn:erp:problem:x' }, 'server-error'],
     ['default: 409 unknown type', 409, { type: 'urn:erp:problem:other' }, 'server-error'],

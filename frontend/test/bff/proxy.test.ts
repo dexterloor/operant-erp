@@ -284,19 +284,67 @@ describe('T-11 / T-3 — no caching, no logging', () => {
 
 const problemJson = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/problem+json' } });
 
+// Pin moved on purpose (config-refusal-not-sent.md Option A, step 3): this was 502 server-error; nothing has been sent
+// when the key cannot be read, so the server answers 503 not-sent. The screens are unchanged (problem.ts: any 5xx is
+// server-error), pinned below.
 describe('code RED L-1 — an unreadable session key is the BFF problem, never a raw 500', () => {
   it.each([
     ['unset', undefined],
     ['malformed', 'not a key'],
-  ])('BFF_SESSION_KEY %s → 502 urn:erp:bff:server-error, zero API calls', async (_n, value) => {
+  ])('BFF_SESSION_KEY %s → 503 urn:erp:bff:not-sent, zero API calls', async (_n, value) => {
     vi.stubEnv('BFF_SESSION_KEY', value as string);
     stubApi(() => json(200, {}));
     const r = await (await proxy())(req(`/bff/api/users/${ID}`));
-    expect(r.status).toBe(502);
-    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe('urn:erp:bff:not-sent');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('config-refusal — a configuration refusal before sending is 503 not-sent; nothing that may have been sent is', () => {
+  it.each([
+    ['the API base URL unset', 'ERP_API_BASE_URL', undefined],
+    ['the API base URL not loopback', 'ERP_API_BASE_URL', 'https://api.example.com'],
+    ['a client-address source other than none', 'BFF_CLIENT_IP_SOURCE', 'vercel'],
+    // A read only: a write meets the Origin wrapper first (403).
+    ['APP_PUBLIC_ORIGIN unset (a read)', 'APP_PUBLIC_ORIGIN', undefined],
+  ])('%s → 503 not-sent, zero API calls', async (_n, name, value) => {
+    vi.stubEnv(name, value as string);
+    stubApi(() => json(200, {}));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe('urn:erp:bff:not-sent');
+    expect(r.headers.get('cache-control')).toBe('no-store, private');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('a write whose base URL is refused → 503 not-sent, zero API calls', async () => {
+    vi.stubEnv('ERP_API_BASE_URL', undefined as unknown as string);
+    stubApi(() => json(201, {}));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: '{}', headers: { 'idempotency-key': 'k' } }));
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe('urn:erp:bff:not-sent');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('the network failing (it may have been sent) → the generic 502, never not-sent', async () => {
+    fetchSpy = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await (await proxy())(req(`/bff/api/users/${ID}/roles`, { method: 'POST', body: '{}', headers: { 'idempotency-key': 'k' } }));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+  });
+
+  it('M7: an upstream 503 whose body says urn:erp:bff:not-sent is replaced by the generic 502 (identity, not the body)', async () => {
+    stubApi(() => json(503, { type: 'urn:erp:bff:not-sent', status: 503 }));
+    const r = await (await proxy())(req(`/bff/api/users/${ID}`));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+  });
+});
+
 
 describe('code RED L-2 — the request body has a size cap and a read time limit', () => {
   it('a body over 1 MiB → 413 urn:erp:bff:payload-too-large, zero API calls', async () => {

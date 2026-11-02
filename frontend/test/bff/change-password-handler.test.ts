@@ -142,16 +142,18 @@ describe('H-4 — the cookie', () => {
   });
 });
 
-describe('H-4b — a session key that cannot be read', () => {
+// Pin moved on purpose (config-refusal-not-sent.md Option A): this was 502 server-error ("we can't tell"), but nothing
+// has been sent when the key cannot be read, so it is 503 not-sent.
+describe('H-4b — a session key that cannot be read is "not sent" (refused before any API call)', () => {
   it.each([
     ['unset', undefined],
     ['malformed', 'not a key'],
-  ])('BFF_SESSION_KEY %s → 502 server-error, no Set-Cookie, zero API calls', async (_n, value) => {
+  ])('BFF_SESSION_KEY %s → 503 not-sent, no Set-Cookie, zero API calls', async (_n, value) => {
     vi.stubEnv('BFF_SESSION_KEY', value as string);
     stubApi(() => json(200, { changed_at: 'x' }));
     const r = await (await handler())(req());
-    expect(r.status).toBe(502);
-    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe('urn:erp:bff:not-sent');
     expect(r.headers.get('set-cookie')).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -298,5 +300,32 @@ describe('H-11 — nothing is logged', () => {
       expect(s).not.toHaveBeenCalled();
       s.mockRestore();
     }
+  });
+});
+
+// config-refusal-not-sent.md Option A as built (config-refusal-red.md M-1, M-2(c)). APP_PUBLIC_ORIGIN is not a case: the
+// Origin wrapper refuses first (403, H-1).
+describe('a configuration refusal before sending is "not sent"; nothing that may have been sent is', () => {
+  it.each([
+    ['the API base URL unset', 'ERP_API_BASE_URL', undefined],
+    ['the API base URL not loopback', 'ERP_API_BASE_URL', 'https://api.example.com'],
+    ['the API base URL with a path', 'ERP_API_BASE_URL', 'http://127.0.0.1:8082/api'],
+    ['a client-address source other than none', 'BFF_CLIENT_IP_SOURCE', 'vercel'],
+  ])('%s → 503 not-sent, the cookie kept, zero API calls', async (_n, name, value) => {
+    vi.stubEnv(name, value as string);
+    stubApi(() => json(200, { changed_at: 'x' }));
+    const r = await (await handler())(req());
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe('urn:erp:bff:not-sent');
+    expect(r.headers.get('set-cookie')).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([503, 422, 429])('RED M-1: an upstream %i whose body says urn:erp:bff:not-sent → the generic 502, never not-sent', async (status) => {
+    stubApi(() => json(status, { type: 'urn:erp:bff:not-sent' }));
+    const r = await (await handler())(req());
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(r.headers.get('set-cookie')).toBeNull();
   });
 });

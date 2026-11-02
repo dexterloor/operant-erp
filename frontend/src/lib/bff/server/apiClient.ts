@@ -82,7 +82,10 @@ export interface ApiCall {
 
 /**
  * One API call. Resolves to the upstream Response, or to a BFF problem for a timeout (504) or a network failure (502).
- * Throws (with no request made) when the URL or the base cannot be built: callers turn that into their generic problem.
+ * Throws (with no request made) when the configuration, the URL, a header or the body cannot be built: the credential
+ * handlers and the proxy turn that into 503 urn:erp:bff:not-sent (`unsentProblem`, origin.ts).
+ * Every throw happens before `fetch`: everything from `fetch` on is inside the `try` below, whose `catch` returns. A later
+ * throw (a guard moved after `fetch`, or out of the `try`) would make a request that may have been sent read as "not sent".
  */
 export async function apiFetch(operationId: string, call: ApiCall = {}): Promise<Response> {
   clientIpSource();

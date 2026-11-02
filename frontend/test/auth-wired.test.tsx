@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { wiredChangePassword, wiredRedeemReset, wiredRequestReset } from '@/lib/auth/wired';
 import type { ChangePasswordResult } from '@/lib/auth/results';
 import { ResetPasswordRoute } from '@/app/(auth)/reset-password/ResetPasswordRoute';
+import { ForgotPasswordRoute } from '@/app/(auth)/forgot-password/ForgotPasswordRoute';
+import { ChangePasswordForm } from '@/components/auth/ChangePasswordForm';
 
 // The wired credential actions (b3b-design.md §9.6, §6.1 authCalls, T-AU's redemption half, T-R8): each maps the BFF's
 // answer onto the page's result union; neither sends X-ERP-Session; a redemption 401 is "link refused" and never
@@ -93,6 +95,8 @@ const NOT_SENT_ANSWERS: readonly [number, string][] = [
   [413, 'urn:erp:bff:payload-too-large'],
   [408, 'urn:erp:bff:request-timeout'],
   [422, 'urn:erp:bff:request-invalid'],
+  // config-refusal-not-sent.md Option A: a configuration refusal before sending.
+  [503, 'urn:erp:bff:not-sent'],
 ];
 
 describe('F-1 — a refusal the web app\'s server made before sending is "not sent" (both reset calls)', () => {
@@ -115,6 +119,19 @@ describe('F-1 — a refusal the web app\'s server made before sending is "not se
   it('a not-sent type on another status is not trusted (the pair must match)', async () => {
     stub(() => problem(502, { type: 'urn:erp:bff:request-invalid' }));
     expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+  });
+
+  // config-refusal: the 503 row is trusted only as the exact pair, on all three credential calls.
+  it.each([
+    [502, 'urn:erp:bff:not-sent'],
+    [422, 'urn:erp:bff:not-sent'],
+    [500, 'urn:erp:bff:not-sent'],
+    [503, 'urn:erp:bff:server-error'],
+  ])('%i %s is not "not sent" (the pair must match) on every credential call', async (status, type) => {
+    stub(() => problem(status, { type, status }));
+    expect(await wiredRequestReset({ workspace: 'a', email: 'e' })).toEqual({ kind: 'server-error' });
+    expect(await wiredRedeemReset({ token: TOKEN, password: 'p' })).toEqual({ kind: 'server-error' });
+    expect(await wiredChangePassword('S-1')({ current_password: 'a', new_password: 'b' })).toEqual({ kind: 'server-error' });
   });
 
   it("the BFF's generic 502 and a 504 stay \"outcome unknown\" (server-error), never not-sent", async () => {
@@ -186,5 +203,48 @@ describe('A-1 — wiredChangePassword(sid) — POST /bff/me/password (c10 FINAL 
     expect(window.location.href).toBe(before);
     expect(err).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+// config-refusal-not-sent.md Option A, wired through to the page: a configuration refusal shows the shipped not-sent banner
+// (UX ruling ux-f5-ruling.md (a): unchanged), never the "we can't tell" body.
+describe('config-refusal — a 503 not-sent reaches each credential page as the not-sent banner', () => {
+  const notSent = () => problem(503, { type: 'urn:erp:bff:not-sent', status: 503 });
+  const CANT_TELL = "We can't tell";
+
+  it('forgot password', async () => {
+    stub(notSent);
+    render(<ForgotPasswordRoute />);
+    fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'acme' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'pat@example.com' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send link' }));
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(document.body.textContent).not.toContain(CANT_TELL);
+  });
+
+  it('reset password', async () => {
+    window.history.replaceState(null, '', `/reset-password#token=${TOKEN}`);
+    stub(notSent);
+    render(<ResetPasswordRoute />);
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'correct horse battery' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Set password' }));
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(document.body.textContent).not.toContain(CANT_TELL);
+  });
+
+  it('change password', async () => {
+    stub(notSent);
+    render(<ChangePasswordForm changePassword={wiredChangePassword('S-1')} onSessionEnded={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'old password here' } });
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a brand new password' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('Something went wrong on our side.Try again in a moment.');
+    expect(document.body.textContent).not.toContain(CANT_TELL);
   });
 });

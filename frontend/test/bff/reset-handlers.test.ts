@@ -169,3 +169,67 @@ describe('c10 FINAL A.3 — the password is not capped here: the API says "too l
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+// config-refusal-not-sent.md Option A as built (config-refusal-red.md H-1, M-1, M-2(c)). A refusal this server makes
+// before sending anything — its configuration is missing or wrong — is 503 urn:erp:bff:not-sent; anything that may have
+// been sent stays the generic 502. (APP_PUBLIC_ORIGIN is not a case here: the Origin wrapper refuses first, 403.)
+const CONFIG_REFUSALS: readonly [string, string, string | undefined][] = [
+  ['the API base URL unset', 'ERP_API_BASE_URL', undefined],
+  ['the API base URL not loopback', 'ERP_API_BASE_URL', 'https://api.example.com'],
+  ['the API base URL with a path', 'ERP_API_BASE_URL', 'http://127.0.0.1:8082/api'],
+  ['a client-address source other than none', 'BFF_CLIENT_IP_SOURCE', 'vercel'],
+];
+const NOT_SENT_TYPE = 'urn:erp:bff:not-sent';
+
+describe.each([
+  ['POST /bff/password-resets', 'handleResetRequest', '/bff/password-resets', { workspace: 'acme', email: 'e@example.com' }],
+  ['POST /bff/password-resets/redemption', 'handleResetRedemption', '/bff/password-resets/redemption', { token: TOKEN, password: 'p' }],
+] as const)('%s — a configuration refusal is "not sent"', (_name, fn, url, body) => {
+  it.each(CONFIG_REFUSALS)('%s → 503 not-sent, no Set-Cookie, zero API calls', async (_n, name, value) => {
+    vi.stubEnv(name, value as string);
+    stubApi(() => Response.json({ changed_at: 'x' }));
+    const h = await handlers();
+    const r = await h[fn](post(url, body));
+    expect(r.status).toBe(503);
+    expect((await r.json()).type).toBe(NOT_SENT_TYPE);
+    expect(r.headers.get('set-cookie')).toBeNull();
+    expect(r.headers.get('cache-control')).toBe('no-store, private');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('the network failing (it may have been sent) → the generic 502, never not-sent', async () => {
+    fetchSpy = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const h = await handlers();
+    const r = await h[fn](post(url, body));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // RED M-1: an upstream answer can never carry the not-sent type through, whatever its status.
+  it.each([503, 422, 429])('an upstream %i whose body says urn:erp:bff:not-sent → the generic 502, never not-sent', async (status) => {
+    stubApi(() => problem(status, NOT_SENT_TYPE));
+    const h = await handlers();
+    const r = await h[fn](post(url, body));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+  });
+});
+
+describe('RED H-1 — a redemption that committed but whose 200 cannot be read is never "not sent"', () => {
+  it.each([
+    ['a 200 with no changed_at', () => Response.json({})],
+    ['a 200 that is not JSON', () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } })],
+  ])('%s → 502 server-error (the reset committed: outcome unknown to the page), cookie unchanged', async (_n, answer) => {
+    stubApi(answer);
+    const { handleResetRedemption } = await handlers();
+    const r = await handleResetRedemption(post('/bff/password-resets/redemption', { token: TOKEN, password: 'p' }));
+    expect(r.status).toBe(502);
+    expect((await r.json()).type).toBe('urn:erp:bff:server-error');
+    expect(r.headers.get('set-cookie')).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});

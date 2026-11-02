@@ -20,6 +20,16 @@ export function bffProblem(status: number, type: string, extra: Record<string, u
   return r;
 }
 
+/**
+ * 503 urn:erp:bff:not-sent: this server refused the call before sending anything to the API — its configuration is
+ * missing or wrong (a base URL, origin or client-address source that `apiFetch` refuses, or a session key that cannot be
+ * read), or the call could not be built. Answered ONLY from a `catch` that wraps nothing but the pre-send steps (an
+ * `apiFetch` call, or the session unseal before any call). A 5xx on purpose: the proxy replaces every upstream 5xx that is
+ * not this module's own Response (identity, below) and the credential handlers pass no upstream 5xx, so no upstream answer
+ * can ever arrive carrying this type. The type says only "not sent", never which setting is wrong.
+ */
+export const unsentProblem = (): Response => bffProblem(503, 'urn:erp:bff:not-sent');
+
 /** True for a Response made by bffProblem (identity, not a header an upstream could copy). */
 export function isBffProblem(r: Response): boolean {
   return OWN.has(r);
