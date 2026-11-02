@@ -84,7 +84,7 @@ backend/src/
     Sales  Suppliers  UserManagement  Warehouses
   Platform/       tenancy, security, HTTP conventions, messaging, runtime guards
   SharedKernel/   value objects and display helpers any module may use
-backend/migrations/   Doctrine migrations (136 so far), run by the schema owner only
+backend/migrations/   Doctrine migrations, run by the schema owner only
 backend/tests/        Api, Tenancy, Auth, Architecture, Security, Messaging, Runtime, ...
 infra/                Compose file, PgBouncer config, database role bootstrap
 ```
@@ -107,6 +107,10 @@ code yet.
 - Composer.
 - Docker with Compose.
 - Free host ports for Postgres, PgBouncer, Redis and Mailpit. The defaults are in `.env.infra.example`.
+- The checkout in a directory your Docker engine shares with its VM. The stack bind-mounts
+  `infra/postgres/init` and the PgBouncer config; Colima shares only your home directory by default, and
+  Docker Desktop only the paths in its file-sharing settings. A clone under `/tmp` gets empty mounts, so the
+  database logins are never created.
 
 The `Makefile` uses the Docker context `colima`. If yours differs, run `docker context ls` and pass it on
 every command, for example `make DOCKER_CONTEXT=default up`.
@@ -117,7 +121,7 @@ interfaces, so run the stack on a network you trust.
 **1. Create the settings files.**
 
 ```sh
-make env    # copies the four .env*.example templates to .env, .env.infra, .env.test and .env.worker
+make env    # copies .env.example, .env.infra.example, .env.test.example and .env.worker.example (not .env.demo.example)
 ```
 
 The four files are split by who may read them. `.env.infra` is read only by Docker Compose and holds every
@@ -155,8 +159,17 @@ make test       # the full PHPUnit suite; it can take tens of minutes on a lapto
 make deptrac    # module boundary check
 ```
 
+`composer install` and `make reset` regenerate `backend/config/reference.php`, which is tracked; `git status`
+shows it modified. The next test run (`APP_ENV=test`) writes it back; or `git checkout backend/config/reference.php`.
+
 `make reset` should end by printing `N migrations executed`. If it prints "Already at the latest version"
 instead, the database it reset is not the one the suite uses. Stop and check your Docker context.
+`make reset` prints each migration's SQL; the last lines are the ones to read.
+
+If `make reset` stops at `assert-clean-database` with a connection error, run `docker logs erp_postgres`. A
+line `ignoring /docker-entrypoint-initdb.d/*` means the init scripts were not mounted (see "You need");
+`password authentication failed` means the passwords in `.env.test` and `.env.infra` differ, or the volume was
+created with older ones (run `make reset` again).
 
 **4. Optional: the mail worker.**
 
