@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -26,6 +27,7 @@ final class CreateCustomerInput
     public ?string $currencyCode = null;
 
     #[SerializedName('payment_terms_days')]
+    #[ApiProperty(schema: ['type' => 'integer'])]
     public mixed $paymentTermsDays;
 
     /** @return array<string, mixed> wire name => value, for the fields the body carried (absent ones omitted) */

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * `RejectRoleGrantProposal`'s accepted request fields (§4.2): one optional field, `reason` (roles slice 3, C3; design
  * §4.4 step 6).
@@ -16,5 +18,6 @@ namespace App\Modules\UserManagement\ApiResource;
  */
 final class RejectRoleGrantProposalInput
 {
+    #[ApiProperty(schema: ['type' => ['string', 'null']])]
     public mixed $reason = null;
 }

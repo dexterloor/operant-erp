@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -15,6 +16,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class UpdateSettingsInput
 {
     #[SerializedName('display_name')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public mixed $displayName;
 
     /**

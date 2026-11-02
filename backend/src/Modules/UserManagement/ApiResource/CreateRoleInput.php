@@ -17,7 +17,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateRoleInput
 {
+    #[ApiProperty(schema: ['type' => 'string'])]
     public mixed $name = null;
+
+    #[ApiProperty(schema: ['type' => ['string', 'null']])]
 
     public mixed $description = null;
 

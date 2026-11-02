@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -24,6 +25,7 @@ final class UpdateCustomerInput
     public ?string $currencyCode;
 
     #[SerializedName('payment_terms_days')]
+    #[ApiProperty(schema: ['type' => 'integer'])]
     public mixed $paymentTermsDays;
 
     private const WIRE = [

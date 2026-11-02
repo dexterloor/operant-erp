@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -15,9 +16,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateUserInput
 {
+    #[ApiProperty(schema: ['type' => 'string'])]
     public mixed $email = null;
 
     #[SerializedName('display_name')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public mixed $displayName = null;
 
     /** @return array<string, mixed> wire name => value */

@@ -772,10 +772,7 @@
                         ]
                     },
                     "payment_terms_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -808,10 +805,7 @@
                         ]
                     },
                     "payment_terms_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -999,10 +993,7 @@
                         ]
                     },
                     "is_primary": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "boolean"
                     },
                     "name": {
                         "type": [
@@ -1029,10 +1020,7 @@
                         ]
                     },
                     "is_primary": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "boolean"
                     },
                     "name": {
                         "type": [
@@ -1127,13 +1115,19 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "type": "object"
+                        "type": [
+                            "object",
+                            "null"
+                        ]
                     },
                     "resource": {
                         "type": "string"
                     },
                     "sort": {
-                        "type": "string"
+                        "type": [
+                            "string",
+                            "null"
+                        ]
                     }
                 },
                 "required": [
@@ -2820,10 +2814,7 @@
                         ]
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "permission_codes": {
                         "items": {
@@ -2844,10 +2835,7 @@
                         ]
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "permission_codes": {
                         "items": {
@@ -3783,10 +3771,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -4191,10 +4176,7 @@
                         ]
                     },
                     "payment_terms_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4227,10 +4209,7 @@
                         ]
                     },
                     "payment_terms_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4317,10 +4296,7 @@
                         ]
                     },
                     "lead_time_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     },
                     "minimum_order_quantity": {
                         "type": [
@@ -4347,10 +4323,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "lead_time_days": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "integer"
                     },
                     "minimum_order_quantity": {
                         "type": [
@@ -4493,16 +4466,10 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "email": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -4511,16 +4478,10 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "is_active": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
