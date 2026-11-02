@@ -28,6 +28,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class RoleCreateTest extends ApiTestCase
 {
+    use BulkRaceHolder;
+
     /** 201; `Location` = `GetRole`'s URI; the body IS `GetRole`'s body, read after the writes; one audit row, cell by cell. */
     #[Test]
     public function aRoleIsCreatedReadBackAndAudited(): void
@@ -125,6 +127,43 @@ final class RoleCreateTest extends ApiTestCase
         self::assertSame(201, $this->httpStatus(), 'An archived role\'s name is not taken. '.(string) $this->client()->getResponse()->getContent());
         $this->create('old clerks', []);
         self::assertSame([409, 'role.name_taken'], [$this->httpStatus(), $this->json()['rule'] ?? null], 'A retry is told the name is taken.');
+    }
+
+    /**
+     * **Step 4's `23505` backstop, reached** (BK-17 follow-up, `docs/session13/bk17-backstop-recommendation.md` Revision 1 —
+     * FINAL; §4.2's `Idem` cell is `unique:role_tenant_name_live`). The threat is any writer that skips the role lock
+     * (`erp_app` or owner SQL); these tests model `erp_app`. The holder, as `erp_app`, inserts a live role with the TRIMMED
+     * name and holds it uncommitted, so step 4's plain read cannot see it; the request's role INSERT waits at
+     * `role_tenant_name_live` (no tuple lock) and meets the `23505` once the holder commits. Caught outside `run()` and
+     * answered as the rule, echoing the caller's typed name TRIMMED (the request's name leads with U+00A0, which only this
+     * arm's own trim removes from the echo): the literal 409, no role and no audit row from the request. *Mutations:*
+     * `translated()` returning null, or naming another index → 500; an inlined sentence in the arm → a different body
+     * (`aNameCollidesWithAnyLiveRoleIgnoringCaseSpacingAndSeparators` stays green under each).
+     */
+    #[Test]
+    public function aNameTakenByAnOutOfBandWriterDuringTheCreateIsRefusedNot500(): void
+    {
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $before = $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM role');
+
+        $holder = $this->raceAgainstAHolder([[
+            'INSERT INTO role (id, tenant_id, name, description) VALUES (gen_random_uuid(), ?::uuid, ?, \'\')',
+            [self::TENANT_A, 'Night auditors'],
+        ]], fn () => $this->create("\u{00A0}Night auditors", ['role.view']));
+
+        self::assertTrue($holder['waiter_seen'], 'The create never waited on the holder: '.json_encode($holder));
+        self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
+        self::assertSame([], array_values(array_filter($holder['waiter_locks'], static fn (array $l): bool => 'tuple' === $l['locktype'])),
+            'The request waited on a ROW, not at the unique: '.json_encode($holder));
+        self::assertContains(['locktype' => 'transactionid', 'relation' => null, 'mode' => 'ShareLock', 'granted' => false, 'xid' => $holder['holder_xid']],
+            $holder['waiter_locks'], 'The request did not wait on the holder\'s transaction: '.json_encode($holder));
+        self::assertSame([409, 'role.name_taken', 'There\'s already a role named "Night auditors", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        self::assertSame($before + 1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM role'), 'The refused create wrote a role (or the holder\'s did not land).');
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role WHERE name = 'Night auditors' AND deleted_at IS NULL"),
+            'The out-of-band role is not committed and live.');
+        self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM audit_log WHERE event_type = 'role.permissions_changed'"),
+            'The refused create wrote a role.permissions_changed row.');
     }
 
     /**

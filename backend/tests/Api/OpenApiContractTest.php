@@ -1047,18 +1047,16 @@ final class OpenApiContractTest extends ApiTestCase
 
     /**
      * BK-13 T-5. Every `public mixed` property of a request input class declares its schema, or is pinned as not yet
-     * typed (BK-15's list), two-way.
+     * typed (BK-15's list), two-way. BK-15 K2 (2026-11-02) typed the Customers, Suppliers and UserManagement fields and
+     * shrank this list by those 18; K3 types the rest and deletes it, so untyped == []. Public because
+     * {@see MixedInputSchemaProbeTest} holds its cases equal to the reflected set minus this list.
      */
-    private const MIXED_INPUTS_NOT_YET_TYPED = [
+    public const MIXED_INPUTS_NOT_YET_TYPED = [
         'CreateAdjustmentDecisionInput::$creditNoteLineId',
         'CreateAdjustmentDecisionInput::$kind',
         'CreateAdjustmentDecisionInput::$quantity',
         'CreateAdjustmentDecisionInput::$reversesDecisionId',
         'CreateAdjustmentDecisionInput::$salesReturnLineId',
-        'CreateCustomerContactInput::$isPrimary',
-        'CreateCustomerInput::$paymentTermsDays',
-        'CreateRoleInput::$description',
-        'CreateRoleInput::$name',
         'CreateSalesReturnInput::$reason',
         'CreateStockAdjustmentInput::$countedQuantity',
         'CreateStockAdjustmentInput::$inventoryItemId',
@@ -1070,23 +1068,9 @@ final class OpenApiContractTest extends ApiTestCase
         'CreateStockTransferInput::$note',
         'CreateStockTransferInput::$quantity',
         'CreateStockTransferInput::$sourceStorageLocationId',
-        'CreateSupplierInput::$paymentTermsDays',
-        'CreateSupplierProductInput::$leadTimeDays',
-        'CreateUserInput::$displayName',
-        'CreateUserInput::$email',
         'IssueAdjustmentCreditNoteInput::$reason',
         'IssueCreditNoteInput::$reason',
         'IssueCreditNoteInput::$salesReturnId',
-        'RejectRoleGrantProposalInput::$reason',
-        'UpdateCustomerContactInput::$isPrimary',
-        'UpdateCustomerInput::$paymentTermsDays',
-        'UpdateRoleInput::$description',
-        'UpdateRoleInput::$name',
-        'UpdateSettingsInput::$displayName',
-        'UpdateSupplierInput::$paymentTermsDays',
-        'UpdateSupplierProductInput::$leadTimeDays',
-        'UpdateUserInput::$displayName',
-        'UpdateUserInput::$isActive',
     ];
 
     #[Test]
@@ -1094,10 +1078,35 @@ final class OpenApiContractTest extends ApiTestCase
     {
         $reflected = [];
         $untyped = [];
+        foreach (self::mixedInputFields() as $field) {
+            $reflected[$field['key']] = true;
+            if (null === $field['schema']) {
+                $untyped[$field['key']] = true;
+            }
+        }
+
+        self::assertNotEmpty($reflected);
+        self::assertArrayHasKey('CreateRoleInput::$permissionCodes', $reflected);
+        $untyped = array_keys($untyped);
+        sort($untyped);
+        $expected = self::MIXED_INPUTS_NOT_YET_TYPED;
+        sort($expected);
+        self::assertSame($expected, $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
+    }
+
+    /**
+     * Every `public mixed` property of every operation's `input:` class, one entry per (operation, property): the
+     * operation name, the property's `Class::$property` key, its wire name (`SerializedName`, else the property name) and
+     * the `#[ApiProperty(schema:)]` it declares, or null when that schema carries no `type` (served as string|null).
+     *
+     * @return list<array{operation: string, key: string, wire: string, schema: ?array<string, mixed>}>
+     */
+    public static function mixedInputFields(): array
+    {
+        $fields = [];
         foreach (array_keys(self::apiResourceClasses()) as $class) {
-            $reflection = new \ReflectionClass($class);
             $operations = [];
-            foreach ($reflection->getAttributes() as $attribute) {
+            foreach ((new \ReflectionClass($class))->getAttributes() as $attribute) {
                 $instance = $attribute->newInstance();
                 if ($instance instanceof ApiResource) {
                     $operations = [...$operations, ...iterator_to_array($instance->getOperations() ?? [])];
@@ -1111,30 +1120,33 @@ final class OpenApiContractTest extends ApiTestCase
                 if (!\is_string($inputClass) || !class_exists($inputClass)) {
                     continue;
                 }
-                foreach ((new \ReflectionClass($inputClass))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                $inputReflection = new \ReflectionClass($inputClass);
+                foreach ($inputReflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
                     if ('mixed' !== (string) $property->getType()) {
                         continue;
                     }
-                    $key = (new \ReflectionClass($inputClass))->getShortName().'::$'.$property->getName();
-                    $reflected[$key] = true;
-                    $typed = false;
+                    $schema = null;
                     foreach ($property->getAttributes(ApiProperty::class) as $attribute) {
-                        $typed = $typed || isset($attribute->newInstance()->getSchema()['type']);
+                        $declared = $attribute->newInstance()->getSchema();
+                        if (isset($declared['type'])) {
+                            $schema = $declared;
+                        }
                     }
-                    if (!$typed) {
-                        $untyped[$key] = true;
+                    $wire = $property->getName();
+                    foreach ($property->getAttributes(SerializedName::class) as $attribute) {
+                        $wire = $attribute->newInstance()->serializedName;
                     }
+                    $fields[] = [
+                        'operation' => (string) $operation->getName(),
+                        'key' => $inputReflection->getShortName().'::$'.$property->getName(),
+                        'wire' => $wire,
+                        'schema' => $schema,
+                    ];
                 }
             }
         }
 
-        self::assertNotEmpty($reflected);
-        self::assertArrayHasKey('CreateRoleInput::$permissionCodes', $reflected);
-        $untyped = array_keys($untyped);
-        sort($untyped);
-        $expected = self::MIXED_INPUTS_NOT_YET_TYPED;
-        sort($expected);
-        self::assertSame($expected, $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
+        return $fields;
     }
 
     /**

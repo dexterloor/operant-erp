@@ -9,9 +9,10 @@ use Symfony\Component\Uid\Uuid;
 /**
  * The two-connection race harness the bulk tests share (G5-C2): connection A is `support/hold_order_lock.php` on the
  * UNPOOLED endpoint, connection B the real HTTP request. One copy for the bulk classes (the earlier copies' reason for
- * not extracting across modules does not apply inside one operation's tests).
+ * not extracting across modules does not apply inside one operation's tests). It needs only `ApiTestCase`'s members
+ * (`self::TENANT_A` comes from `TenancyTestCase`), so the role tests' backstop races use it too (BK-17 follow-up).
  *
- * @phpstan-require-extends PurchaseOrderTestCase
+ * @phpstan-require-extends ApiTestCase
  */
 trait BulkRaceHolder
 {
@@ -20,7 +21,7 @@ trait BulkRaceHolder
      *
      * @param list<array{0: string, 1: list<string|int|null>}> $before
      *
-     * @return array{waiter_seen: bool, committed: bool, sqlstate: ?string, error: ?string}
+     * @return array{waiter_seen: bool, committed: bool, sqlstate: ?string, error: ?string, waiter_locks: list<array<string, mixed>>, holder_xid: ?string, report: list<list<array<string, mixed>>>}
      */
     protected function raceAgainstAHolder(array $before, callable $request, array $after = []): array
     {

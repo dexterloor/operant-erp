@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Suppliers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -21,6 +22,7 @@ final class UpdateSupplierProductInput
     public ?string $unitCost;
 
     #[SerializedName('lead_time_days')]
+    #[ApiProperty(schema: ['type' => 'integer'])]
     public mixed $leadTimeDays;
 
     #[SerializedName('minimum_order_quantity')]

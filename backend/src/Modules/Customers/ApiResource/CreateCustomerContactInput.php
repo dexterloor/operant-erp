@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -22,6 +23,7 @@ final class CreateCustomerContactInput
     public ?string $phone;
 
     #[SerializedName('is_primary')]
+    #[ApiProperty(schema: ['type' => 'boolean'])]
     public mixed $isPrimary;
 
     private const WIRE = [
