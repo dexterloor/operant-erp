@@ -27,6 +27,7 @@ use Symfony\Component\Uid\Uuid;
  */
 final class RoleUpdateTest extends ApiTestCase
 {
+    use BulkRaceHolder;
     use RoleGrantFixtures;
 
     private const MARKER = OwnerMarker::CODE;
@@ -229,6 +230,41 @@ final class RoleUpdateTest extends ApiTestCase
         self::assertSame([409, 'role.name_taken', 'There\'s already a role named "Purchasing Manager", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         $this->assertUnchanged($role, $before);
+    }
+
+    /**
+     * **Step 6's `23505` backstop on a rename, reached** (BK-17 follow-up, `docs/session13/bk17-backstop-recommendation.md`
+     * Revision 1 — FINAL). The threat is any writer that skips the role lock (`erp_app` or owner SQL); these tests model
+     * `erp_app`. The holder, as `erp_app`, inserts a live role with the new name and holds it uncommitted, so the name read
+     * cannot see it; the PATCH changes the NAME ONLY (no `permission_codes`, so no earlier refusal and the name really
+     * changes), and its role UPDATE waits at `role_tenant_name_live` (no tuple lock), meeting the `23505` once the holder
+     * commits. Caught outside `run()` and answered as the rule: the literal 409, the role untouched, no definition event.
+     * *Mutations:* `translated()` returning null, or naming another index → 500; an inlined sentence in the arm → a different
+     * body (`aRenameCannotTakeAnotherLiveRolesName` stays green under each).
+     */
+    #[Test]
+    public function aNameTakenByAnOutOfBandWriterDuringARenameIsRefusedNot500(): void
+    {
+        $role = $this->composedRole(['role.view']);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $before = $this->snapshot($role);
+
+        $holder = $this->raceAgainstAHolder([[
+            'INSERT INTO role (id, tenant_id, name, description) VALUES (gen_random_uuid(), ?::uuid, ?, \'\')',
+            [self::TENANT_A, 'Night auditors'],
+        ]], fn () => $this->patch($role, ['name' => 'Night auditors']));
+
+        self::assertTrue($holder['waiter_seen'], 'The rename never waited on the holder: '.json_encode($holder));
+        self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
+        self::assertSame([], array_values(array_filter($holder['waiter_locks'], static fn (array $l): bool => 'tuple' === $l['locktype'])),
+            'The request waited on a ROW, not at the unique: '.json_encode($holder));
+        self::assertContains(['locktype' => 'transactionid', 'relation' => null, 'mode' => 'ShareLock', 'granted' => false, 'xid' => $holder['holder_xid']],
+            $holder['waiter_locks'], 'The request did not wait on the holder\'s transaction: '.json_encode($holder));
+        self::assertSame([409, 'role.name_taken', 'There\'s already a role named "Night auditors", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.'],
+            [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
+        $this->assertUnchanged($role, $before);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM role WHERE name = 'Night auditors' AND deleted_at IS NULL AND id <> ?::uuid", [$role]),
+            'The out-of-band role is not committed and live.');
     }
 
     /**

@@ -22,6 +22,7 @@ use Symfony\Component\Uid\Uuid;
  */
 final class RoleRestoreTest extends ApiTestCase
 {
+    use BulkRaceHolder;
     use RoleGrantFixtures;
 
     /**
@@ -255,6 +256,41 @@ final class RoleRestoreTest extends ApiTestCase
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         $this->restore($role);
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+    }
+
+    /**
+     * **Step 13's `23505` backstop, reached** (BK-17 follow-up, `docs/session13/bk17-backstop-recommendation.md` Revision 1 —
+     * FINAL). The threat is any writer that skips the role lock (`erp_app` or owner SQL); these tests model `erp_app`. The
+     * holder, as `erp_app`, inserts a live role with the archived role's exact name and holds it UNCOMMITTED, so step 13's
+     * plain read cannot see it; step 14's UPDATE then waits at `role_tenant_name_live` (no tuple lock — a unique-index wait
+     * on the holder's transaction) and meets the `23505` once the holder commits. Caught outside `run()` and answered as the
+     * rule: the literal 409, nothing changed, no `role.restored` row. Step 13 never blocks, so `waiter_seen` proves the 409
+     * came from the backstop. *Mutations:* `translated()` returning null, or naming another index → 500; an inlined
+     * sentence in its arm → a different body (`aRoleWhoseNameIsNowTakenIsNotRestored` stays green under each).
+     */
+    #[Test]
+    public function aNameTakenByAnOutOfBandWriterDuringTheRestoreIsRefusedNot500(): void
+    {
+        $role = $this->archivedRole(['role.view']);
+        $name = (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT name FROM role WHERE id = ?::uuid', [$role])[0]['name'];
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::ADMIN));
+        $before = $this->state($role);
+
+        $holder = $this->raceAgainstAHolder([[
+            'INSERT INTO role (id, tenant_id, name, description) VALUES (gen_random_uuid(), ?::uuid, ?, \'\')',
+            [self::TENANT_A, $name],
+        ]], fn () => $this->restore($role));
+
+        self::assertTrue($holder['waiter_seen'], 'The restore never waited on the holder: '.json_encode($holder));
+        self::assertTrue($holder['committed'], 'The holder did not commit: '.json_encode($holder));
+        self::assertSame([], array_values(array_filter($holder['waiter_locks'], static fn (array $l): bool => 'tuple' === $l['locktype'])),
+            'The request waited on a ROW, not at the unique: '.json_encode($holder));
+        self::assertContains(['locktype' => 'transactionid', 'relation' => null, 'mode' => 'ShareLock', 'granted' => false, 'xid' => $holder['holder_xid']],
+            $holder['waiter_locks'], 'The request did not wait on the holder\'s transaction: '.json_encode($holder));
+        self::assertSame([409, 'role.name_taken', 'Another role now has this role\'s name, or one that differs from it only in capitals, spaces, dashes or underscores, so this one can\'t be restored.'], $this->refusal());
+        $this->assertUntouched($role, $before);
+        self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM role WHERE name = ? AND deleted_at IS NULL AND id <> ?::uuid', [$name, $role]),
+            'The out-of-band role is not committed and live.');
     }
 
     /**
