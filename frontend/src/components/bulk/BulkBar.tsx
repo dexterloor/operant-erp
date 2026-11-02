@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { Archive, ArchiveRestore } from 'lucide-react';
 import type { BulkResult, BulkRunAction } from '@/lib/bulk/results';
 import { isOverCap } from '@/lib/bulk/selection';
@@ -80,8 +81,10 @@ function failureFor(mode: BulkMode, result: Exclude<BulkResult, { kind: 'done' }
  *
  * Selection after a run (R1-9): a finished run clears it (and the caller re-reads, A-5); `bulk.contention`, a lost
  * connection, a 5xx and a 403 keep it WITH ITS KEY, so pressing again replays rather than re-runs; `key-expired` clears
- * it (R1-8) and so mints no new key for the same selection. When the bar goes, focus goes to the list's `<h1>`.
- * The after-message speaks through the parent's `BulkResultMessage`; this component renders no live region.
+ * it (R1-8) and so mints no new key for the same selection. When the bar goes, focus goes to the list's `<h1>`, and
+ * only then is the after-message (or the key-expired notice) written (FE-D1: the close is committed with `flushSync`
+ * first; the dialog must have no exit animation, see `Dialog.module.css`). The after-message speaks through the
+ * parent's `BulkResultMessage`; this component renders no live region.
  */
 export function BulkBar({ bulk, mode, nouns, maxMembers, run, onReread, fallbackFocusRef }: BulkBarProps) {
   const [open, setOpen] = useState(false);
@@ -112,9 +115,16 @@ export function BulkBar({ bulk, mode, nouns, maxMembers, run, onReread, fallback
     setBusy(false);
 
     if (result.kind === 'done' || result.kind === 'key-expired') {
-      setOpen(false);
-      setDialogNotice(null);
-      bulk.clear();
+      // Focus first, then speak (FE-D1). The bar goes and, in delete mode, the dialog closes: commit that synchronously,
+      // so the dialog, its focus trap and its aria-hidden on the page are gone, then move focus to the list's <h1>
+      // (Dialog's pageTookFocus guard keeps it there), then announce. Restore mode has no dialog; the same order is kept
+      // so both modes read alike. The re-read is still requested last, after the message.
+      flushSync(() => {
+        setOpen(false);
+        setDialogNotice(null);
+        bulk.clear();
+      });
+      fallbackFocusRef.current?.focus();
       if (result.kind === 'done') {
         const { applied, requested } = result;
         const head = mode === 'delete' ? BULK_AFTER.deleted(applied, requested) : BULK_AFTER.restored(applied, requested);
@@ -124,9 +134,6 @@ export function BulkBar({ bulk, mode, nouns, maxMembers, run, onReread, fallback
       } else {
         bulk.showNotice({ heading: BULK_ALREADY_SENT.heading, body: BULK_ALREADY_SENT.body, focus: false, tone: 'info' });
       }
-      // The bar goes. Delete: the dialog's close returns focus to its opener, which is gone, so to the fallback. Restore
-      // has no dialog: move it here.
-      if (mode === 'restore') fallbackFocusRef.current?.focus();
       onReread();
       return;
     }

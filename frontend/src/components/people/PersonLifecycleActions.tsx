@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { ArchiveRestore, CircleCheck, Trash2, X } from 'lucide-react';
 import type { User } from '@/lib/api/users';
 import type { DeletePersonAction, PersonActionFailure, RestorePersonAction } from '@/lib/people/results';
@@ -81,6 +82,13 @@ function noticeFor(action: Action, failure: PersonActionFailure, name: string, i
  * after-message's live region ABOVE the branch on `archived_at` (R4-4 L-2, RED M-6): the region node is mounted, empty,
  * from first render and survives the delete → archived swap; only its text changes. Refusals are after the click and
  * render inside the open dialog (4b-4); nothing here reads a role, a permission code or a refusal code.
+ *
+ * On success (FE-D1) the close is committed with `flushSync`, then focus moves to the page's `<h1>`, then the
+ * after-message is announced, then the refresh generation is bumped: a screen reader hears the message after focus has
+ * landed, never before. This rests on React flushing a sync commit's passive effects at its end (Radix's trap teardown
+ * and `hideOthers` cleanup run there), and on the dialog having NO exit animation: an exit animation would keep the
+ * content mounted and the page `aria-hidden` while focus moves (see `Dialog.module.css`). `test/fe-d1-order.test.tsx`
+ * guards the order.
  */
 export function PersonLifecycleActions({
   person,
@@ -140,16 +148,25 @@ export function PersonLifecycleActions({
     }
     setBusy(false);
     if (result.kind === 'deleted') {
-      setOpen(null);
-      setNotice(null);
-      setOfferGiveRole(false);
+      // Focus first, then speak (FE-D1): the close is committed synchronously, so the dialog, its focus trap and its
+      // aria-hidden on the page are gone before focus moves; Dialog's pageTookFocus guard then keeps focus here.
+      flushSync(() => {
+        setOpen(null);
+        setNotice(null);
+        setOfferGiveRole(false);
+      });
+      fallbackFocusRef.current?.focus();
       live.announce(DELETE_PERSON.after(name));
       setDeletedGen((g) => g + 1);
     } else if (result.kind === 'restored') {
       const active = result.person.is_active;
-      setOpen(null);
-      setNotice(null);
-      setOfferGiveRole(active);
+      // Focus first, then speak (FE-D1), as above.
+      flushSync(() => {
+        setOpen(null);
+        setNotice(null);
+        setOfferGiveRole(active);
+      });
+      fallbackFocusRef.current?.focus();
       live.announce(active ? `${RESTORE_PERSON.after(name)} ${RESTORE_PERSON.afterActive}` : RESTORE_PERSON.after(name));
       setRestoredGen((g) => g + 1);
     } else {

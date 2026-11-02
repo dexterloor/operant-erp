@@ -14,7 +14,9 @@ import styles from './LiveRegion.module.css';
  *
  * Announce from event handlers or after an awaited action, never from a mount effect (RED L-8: StrictMode double-runs
  * effects, so an effect-driven announcement would fire twice). A layout effect gated on a generation counter is the
- * pattern for text that must follow a focus move (b4-final-red L-5; `RolePicker`, `RoleProposals`).
+ * pattern for text that must follow a focus move (b4-final-red L-5; `RolePicker`, `RoleProposals`). When the success
+ * also closes a dialog, commit the close with `flushSync`, then focus, then announce (FE-D1; `PersonLifecycleActions`,
+ * `BulkBar`): an effect would run while the dialog's aria-hidden still covers the page.
  */
 export function LiveRegion({ message, visuallyHidden = false, className, id }: { message: string; visuallyHidden?: boolean; className?: string; id?: string }) {
   return (

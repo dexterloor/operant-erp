@@ -1,3 +1,10 @@
+/*
+ * FE-D1: NO EXIT ANIMATION on the dialog. Radix's Presence keeps the content mounted while a closed-state animation runs
+ * (it does so only when the animation name changes at close), and for that span the page stays aria-hidden and the focus
+ * trap stays on. PersonLifecycleActions and BulkBar commit the close with flushSync and then move focus to the page's
+ * <h1>: with an exit animation, focus would land under aria-hidden. Keep `animation: fade` for both states, add no
+ * [data-state] rule here, and no other keyframes name. test/dialog-css.test.ts enforces this.
+ */
 .overlay {
   position: fixed;
   inset: 0;

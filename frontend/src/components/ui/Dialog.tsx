@@ -58,6 +58,9 @@ const pageTookFocus = () => {
  * close it returns to the element that had focus when the dialog opened if that element is still in the document, else
  * to `fallbackFocusRef` (Radix alone would drop it on `body` once the opener is removed — RED M-7) — unless the page has
  * already put focus on an element of its own by the time the dialog has gone, which it keeps.
+ *
+ * FE-D1: callers that close on success commit the close with `flushSync`, focus the page, then announce. That needs this
+ * dialog to have no exit animation (`Dialog.module.css`; `test/dialog-css.test.ts`).
  */
 export function Dialog({ open, onOpenChange, title, description, children, initialFocusRef, fallbackFocusRef, refusal, busy = false, tone = 'default' }: DialogProps) {
   const opener = useRef<HTMLElement | null>(null);

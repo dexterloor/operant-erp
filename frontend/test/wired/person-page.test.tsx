@@ -56,7 +56,18 @@ describe('/admin/users/[id] — wired', () => {
     stubFetch([empty(204), json(500, {})]);
     const u = userEvent.setup();
     show();
-    await deleteIt(u);
+    await u.click(screen.getByRole('button', { name: 'Delete person' }));
+    // FE-D1 (disclosed change, fe-d1-red.md M-2 / spar P-2): the component focuses the <h1> as the dialog closes, then the
+    // page's region error takes focus a task later. Pinned: the focus SEQUENCE from the confirm click on. Deliberately
+    // not pinned: where the after-message's text falls between the two moves (in a browser the order of the region
+    // error's timer and React's scheduler task is not fixed).
+    const focusSeq: string[] = [];
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement;
+      focusSeq.push(`${t.tagName} ${t.textContent ?? ''}`);
+    };
+    document.addEventListener('focusin', onFocusIn);
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete person' }));
     expect(await screen.findByText("Ada Lovelace was deleted. They're now in the archived people.")).toBeInTheDocument();
     const heading = await screen.findByRole('heading', { name: 'Something went wrong on our side.' });
     expect(screen.getByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeInTheDocument();
@@ -64,6 +75,9 @@ describe('/admin/users/[id] — wired', () => {
     // Focus must stay there once the dialog's own close timers have run, not merely arrive (b3b-dialog-focus-red L-3).
     await new Promise((r) => setTimeout(r, 50));
     expect(heading).toHaveFocus();
+    document.removeEventListener('focusin', onFocusIn);
+    expect(focusSeq).toEqual(['BUTTON Delete person', 'H1 Ada Lovelace', `${heading.tagName} Something went wrong on our side.`]);
+    expect(screen.getAllByRole('status').map((r) => r.textContent)).toContain("Ada Lovelace was deleted. They're now in the archived people.");
     stubFetch([json(200, DELETED)]);
     await u.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeNull());
