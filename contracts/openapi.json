@@ -606,10 +606,11 @@
                         "type": "array"
                     },
                     "reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "damaged_goods_kept",
+                            "short_shipped"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -636,16 +637,14 @@
                         "type": "array"
                     },
                     "reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "goods_returned"
+                        ],
+                        "type": "string"
                     },
                     "sales_return_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3652,16 +3651,19 @@
                         ]
                     },
                     "credit_note_line_id": {
+                        "format": "uuid",
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "kind": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "same",
+                            "distinct",
+                            "reversal"
+                        ],
+                        "type": "string"
                     },
                     "quantity": {
                         "type": [
@@ -3670,12 +3672,14 @@
                         ]
                     },
                     "reverses_decision_id": {
+                        "format": "uuid",
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "sales_return_line_id": {
+                        "format": "uuid",
                         "type": [
                             "string",
                             "null"
@@ -3713,10 +3717,15 @@
                         "type": "array"
                     },
                     "reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "damaged_in_transit",
+                            "wrong_item_shipped",
+                            "defective",
+                            "no_longer_wanted",
+                            "other",
+                            "recorded_in_error"
+                        ],
+                        "type": "string"
                     },
                     "returned_at": {
                         "type": [
@@ -3943,32 +3952,22 @@
                 "additionalProperties": false,
                 "properties": {
                     "counted_quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "inventory_item_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "note": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "storage_location_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "version": {
                         "type": [
-                            "string",
+                            "integer",
                             "null"
                         ]
                     }
@@ -3979,16 +3978,12 @@
                 "additionalProperties": false,
                 "properties": {
                     "destination_storage_location_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "inventory_item_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "note": {
                         "type": [
@@ -3997,16 +3992,11 @@
                         ]
                     },
                     "quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "source_storage_location_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
                 "type": "object"

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -18,16 +19,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateStockTransferInput
 {
     #[SerializedName('inventory_item_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $inventoryItemId;
 
     #[SerializedName('source_storage_location_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $sourceStorageLocationId;
 
     #[SerializedName('destination_storage_location_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $destinationStorageLocationId;
 
+    #[ApiProperty(schema: ['type' => 'string'])]
     public mixed $quantity;
 
+    #[ApiProperty(schema: ['type' => ['string', 'null']])]
     public mixed $note;
 
     /** @return array<string, mixed> wire name => value, for exactly the fields the body carried */

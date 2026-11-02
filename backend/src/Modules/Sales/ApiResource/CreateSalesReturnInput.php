@@ -22,6 +22,7 @@ final class CreateSalesReturnInput
     public ?string $returnedAt = null;
 
     /** One of `SalesReturnWriter::REASONS`. Checked by the writer, so an unknown value is a 422 naming the field. */
+    #[ApiProperty(schema: ['type' => 'string', 'enum' => SalesReturnWriter::REASONS])]
     public mixed $reason = null;
 
     /** @var array<mixed>|null */

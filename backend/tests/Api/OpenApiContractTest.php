@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Operation;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
+use App\Modules\Sales\Application\AdjustmentDecisionWriter;
 use App\Modules\Sales\Application\CreditNoteWriter;
 use App\Modules\Sales\Application\FulfilmentWriter;
 use App\Modules\Sales\Application\SalesOrderWriter;
@@ -1046,33 +1047,11 @@ final class OpenApiContractTest extends ApiTestCase
     }
 
     /**
-     * BK-13 T-5. Every `public mixed` property of a request input class declares its schema, or is pinned as not yet
-     * typed (BK-15's list), two-way. BK-15 K2 (2026-11-02) typed the Customers, Suppliers and UserManagement fields and
-     * shrank this list by those 18; K3 types the rest and deletes it, so untyped == []. Public because
-     * {@see MixedInputSchemaProbeTest} holds its cases equal to the reflected set minus this list.
+     * BK-13 T-5. Every `public mixed` property of a request input class declares its schema: none is left served as
+     * string|null. BK-15 K2 (2026-11-02) typed the Customers, Suppliers and UserManagement fields; K3 typed the Inventory
+     * and Sales fields and DELETED the not-yet-typed pin, so a new untyped `mixed` input is red here with no list to add
+     * it to. {@see MixedInputSchemaProbeTest} holds its probed cases equal to this reflected set.
      */
-    public const MIXED_INPUTS_NOT_YET_TYPED = [
-        'CreateAdjustmentDecisionInput::$creditNoteLineId',
-        'CreateAdjustmentDecisionInput::$kind',
-        'CreateAdjustmentDecisionInput::$quantity',
-        'CreateAdjustmentDecisionInput::$reversesDecisionId',
-        'CreateAdjustmentDecisionInput::$salesReturnLineId',
-        'CreateSalesReturnInput::$reason',
-        'CreateStockAdjustmentInput::$countedQuantity',
-        'CreateStockAdjustmentInput::$inventoryItemId',
-        'CreateStockAdjustmentInput::$note',
-        'CreateStockAdjustmentInput::$storageLocationId',
-        'CreateStockAdjustmentInput::$version',
-        'CreateStockTransferInput::$destinationStorageLocationId',
-        'CreateStockTransferInput::$inventoryItemId',
-        'CreateStockTransferInput::$note',
-        'CreateStockTransferInput::$quantity',
-        'CreateStockTransferInput::$sourceStorageLocationId',
-        'IssueAdjustmentCreditNoteInput::$reason',
-        'IssueCreditNoteInput::$reason',
-        'IssueCreditNoteInput::$salesReturnId',
-    ];
-
     #[Test]
     public function everyMixedInputPropertyDeclaresItsSchema(): void
     {
@@ -1081,17 +1060,15 @@ final class OpenApiContractTest extends ApiTestCase
         foreach (self::mixedInputFields() as $field) {
             $reflected[$field['key']] = true;
             if (null === $field['schema']) {
-                $untyped[$field['key']] = true;
+                $untyped[] = $field['key'];
             }
         }
 
         self::assertNotEmpty($reflected);
         self::assertArrayHasKey('CreateRoleInput::$permissionCodes', $reflected);
-        $untyped = array_keys($untyped);
+        self::assertArrayHasKey('CreateStockAdjustmentInput::$version', $reflected);
         sort($untyped);
-        $expected = self::MIXED_INPUTS_NOT_YET_TYPED;
-        sort($expected);
-        self::assertSame($expected, $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
+        self::assertSame([], $untyped, 'A `public mixed` request field is served as string|null. Declare #[ApiProperty(schema: [...])] on it.');
     }
 
     /**
@@ -1282,6 +1259,87 @@ final class OpenApiContractTest extends ApiTestCase
         foreach (self::VALUE_LIST_SCHEMAS as $path => $schema) {
             self::assertEquals(self::canonical($schema), self::canonical($served[$path]), $path);
         }
+    }
+
+    /**
+     * BK-15 T-16b. The request enums, each named by `<operationId>.<pointer below the body>` and held equal to the public
+     * constant its writer checks against. Never a literal list: a literal is a second copy nobody updates.
+     */
+    private const REQUEST_ENUMS = [
+        'CreateAdjustmentDecision.kind' => AdjustmentDecisionWriter::KINDS,
+        'CreateSalesReturn.reason' => SalesReturnWriter::REASONS,
+        'IssueAdjustmentCreditNote.reason' => CreditNoteWriter::ADJUST_REASONS,
+        'IssueCreditNote.reason' => CreditNoteWriter::ISSUE_REASONS,
+    ];
+
+    /**
+     * BK-15 T-16b (final RED FM-1: lands with K3, where its four fields are typed). Every `enum` node anywhere in a request
+     * schema is its writer's constant, two-way: an enum the map does not name is red, and so is a pinned one the spec no
+     * longer serves. Each is compared SORTED against the constant, so an enum NARROWER or WIDER than what the writer
+     * accepts is red here (T-16's probe 5 sees only a wider one). Anti-vacuity: the collector must see an enum planted
+     * into a copy of the spec, at a nested pointer, before its answer on the real spec is trusted.
+     */
+    #[Test]
+    public function everyRequestEnumIsItsWritersConstant(): void
+    {
+        $spec = $this->regenerate();
+        $schemas = $this->requestSchemas($spec);
+
+        $planted = $schemas;
+        self::assertArrayHasKey('CreateSalesReturn', $planted);
+        $planted['CreateSalesReturn'][1]['properties']['lines']['items']['properties']['quantity']['enum'] = ['zz'];
+        self::assertSame(['zz'], self::requestEnums($planted)['CreateSalesReturn.lines/items/quantity'] ?? null,
+            'The enum collector did not see an enum planted at a nested pointer, so its answer below proves nothing.');
+
+        $served = self::requestEnums($schemas);
+        ksort($served);
+        $pinned = self::REQUEST_ENUMS;
+        ksort($pinned);
+        self::assertSame(array_keys($pinned), array_keys($served), 'The request enums in the served spec, by operation and field.');
+        foreach ($pinned as $key => $constant) {
+            $expected = array_values($constant);
+            sort($expected);
+            $actual = array_values($served[$key]);
+            sort($actual);
+            self::assertSame($expected, $actual, $key.' is not its writer\'s constant.');
+        }
+    }
+
+    /**
+     * @param array<string, array{0: string, 1: array<string, mixed>}> $schemas {@see self::requestSchemas()}
+     *
+     * @return array<string, list<mixed>> `<operationId>.<pointer>` => the enum served there
+     */
+    private static function requestEnums(array $schemas): array
+    {
+        $found = [];
+        $walk = static function (mixed $node, string $path) use (&$walk, &$found): void {
+            if (!\is_array($node)) {
+                return;
+            }
+            if (isset($node['enum']) && \is_array($node['enum'])) {
+                $found[$path] = array_values($node['enum']);
+            }
+            foreach ($node['properties'] ?? [] as $name => $child) {
+                $walk($child, (str_ends_with($path, '.') ? $path : $path.'/').$name);
+            }
+            if (isset($node['items'])) {
+                $walk($node['items'], $path.'/items');
+            }
+            if (\is_array($node['additionalProperties'] ?? null)) {
+                $walk($node['additionalProperties'], $path.'/additionalProperties');
+            }
+            foreach (['anyOf', 'oneOf', 'allOf'] as $combinator) {
+                foreach ($node[$combinator] ?? [] as $index => $branch) {
+                    $walk($branch, $path.'/'.$combinator.'/'.$index);
+                }
+            }
+        };
+        foreach ($schemas as $operationId => [, $schema]) {
+            $walk($schema, $operationId.'.');
+        }
+
+        return $found;
     }
 
     /**
