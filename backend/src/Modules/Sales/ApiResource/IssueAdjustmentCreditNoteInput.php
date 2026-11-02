@@ -17,6 +17,7 @@ use App\Modules\Sales\Application\CreditNoteWriter;
 final class IssueAdjustmentCreditNoteInput
 {
     /** One of `CreditNoteWriter::ADJUST_REASONS` (`damaged_goods_kept`, `short_shipped`). */
+    #[ApiProperty(schema: ['type' => 'string', 'enum' => CreditNoteWriter::ADJUST_REASONS])]
     public mixed $reason = null;
 
     /** @var array<mixed>|null */

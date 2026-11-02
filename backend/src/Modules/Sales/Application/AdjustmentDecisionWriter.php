@@ -58,7 +58,8 @@ final readonly class AdjustmentDecisionWriter
 
     public const REVERSAL = 'reversal';
 
-    private const KINDS = [self::SAME, self::DISTINCT, self::REVERSAL];
+    /** Public: `CreateAdjustmentDecisionInput::$kind` serves it as its `enum` (BK-15). */
+    public const KINDS = [self::SAME, self::DISTINCT, self::REVERSAL];
 
     /** numeric(19,6): `CreditNoteWriter::QUANTITY`'s rule. */
     private const QUANTITY = '/\A\d{1,13}(\.\d{1,6})?\z/';
