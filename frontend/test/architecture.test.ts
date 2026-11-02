@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
@@ -26,21 +27,48 @@ interface SourceFile {
   source: string;
 }
 
-function walk(dirRel: string): SourceFile[] {
+// How the files reach the guards (it changes nothing about what any guard checks). `src` and `test` are read from disk
+// ONCE, eagerly, while this module loads, into a frozen snapshot; every `walk(dir)` returns a fresh array filtered from it,
+// in the same depth-first, name-sorted order the disk walk produces. Measured 2026-11-02: under four concurrent full
+// suites a file open here becomes ~40× slower, and re-reading the tree in every guard (~10× the files needed) pushed the
+// first tests past vitest's 5 s limit. The reads now happen during collection, which vitest does not time: that is a
+// relocation of the cost, not a weakening, and a refused read now fails the whole file loudly instead of one test.
+// `walk` throws for any directory outside `src`/`test` or not in normal form (`src/../x`, `src/x/`), so a walk can never
+// silently see nothing because the snapshot does not hold it. A directory under `src`/`test` that does not exist yet still
+// counts as 0. This file needs no DOM, so it runs in the node environment.
+function walkDisk(dirRel: string): SourceFile[] {
   const abs = path.join(ROOT, dirRel);
   if (!existsSync(abs)) return [];
   const out: SourceFile[] = [];
   for (const name of readdirSync(abs).sort()) {
     const childRel = `${dirRel}/${name}`;
     const childAbs = path.join(abs, name);
-    if (statSync(childAbs).isDirectory()) out.push(...walk(childRel));
+    if (statSync(childAbs).isDirectory()) out.push(...walkDisk(childRel));
     else if (/\.(ts|tsx)$/.test(name) && !name.endsWith('.d.ts')) out.push({ file: childRel, source: readFileSync(childAbs, 'utf8') });
   }
   return out;
 }
 
-const parse = ({ file, source }: SourceFile) =>
-  ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+const SNAPSHOT: readonly SourceFile[] = Object.freeze([...walkDisk('src'), ...walkDisk('test')].map((f) => Object.freeze(f)));
+
+function walk(dirRel: string): SourceFile[] {
+  const inSnapshot = dirRel === 'src' || dirRel === 'test' || dirRel.startsWith('src/') || dirRel.startsWith('test/');
+  const normal = path.posix.normalize(dirRel) === dirRel && !dirRel.endsWith('/') && !dirRel.split('/').includes('..');
+  if (!inSnapshot || !normal) throw new Error(`walk('${dirRel}'): only normalised directories under src/ or test/ are in the snapshot`);
+  return SNAPSHOT.filter((f) => f.file.startsWith(`${dirRel}/`));
+}
+
+// Parsed once per file object: the snapshot's objects are frozen, and a planted control is always a different object, so a
+// real file's tree can never answer for a planted source (or the other way round).
+const PARSED = new WeakMap<SourceFile, ts.SourceFile>();
+const parse = (sf: SourceFile): ts.SourceFile => {
+  let tree = PARSED.get(sf);
+  if (!tree) {
+    tree = ts.createSourceFile(sf.file, sf.source, ts.ScriptTarget.Latest, true, sf.file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    PARSED.set(sf, tree);
+  }
+  return tree;
+};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Import direction
