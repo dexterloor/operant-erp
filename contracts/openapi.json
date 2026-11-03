@@ -4042,6 +4042,13 @@
                         "type": "string"
                     },
                     "kind": {
+                        "enum": [
+                            "bin",
+                            "shelf",
+                            "zone",
+                            "staging",
+                            "quarantine"
+                        ],
                         "type": "string"
                     }
                 },
@@ -4057,10 +4064,15 @@
                         ]
                     },
                     "kind": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "default": "bin",
+                        "enum": [
+                            "bin",
+                            "shelf",
+                            "zone",
+                            "staging",
+                            "quarantine"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -4075,10 +4087,14 @@
                         ]
                     },
                     "kind": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "bin",
+                            "shelf",
+                            "zone",
+                            "staging",
+                            "quarantine"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
