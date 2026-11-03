@@ -30,10 +30,11 @@ interface HarnessProps {
   onGiveRole?: () => void;
   deleteAnswer?: Answer<DeletePersonResult>;
   restoreAnswer?: Answer<RestorePersonResult>;
+  onPageTookOver?: (failure: string) => void;
 }
 
 /** A route-shaped wrapper: owns the <h1> and the person prop, and re-reads (replaces the prop) on success. */
-function Harness({ initial, canDelete = true, canAssign = true, onGiveRole = () => undefined, deleteAnswer = { kind: 'deleted' }, restoreAnswer }: HarnessProps) {
+function Harness({ initial, canDelete = true, canAssign = true, onGiveRole = () => undefined, deleteAnswer = { kind: 'deleted' }, restoreAnswer, onPageTookOver = () => undefined }: HarnessProps) {
   const h1 = useRef<HTMLHeadingElement>(null);
   const [person, setPerson] = useState(initial);
   const resolve = async <R,>(a: Answer<R>): Promise<R> => {
@@ -52,6 +53,7 @@ function Harness({ initial, canDelete = true, canAssign = true, onGiveRole = () 
           canDelete={canDelete}
           canAssign={canAssign}
           onGiveRole={onGiveRole}
+          onPageTookOver={onPageTookOver}
           fallbackFocusRef={h1}
           timeZone="UTC"
           deletePerson={async () => {
@@ -455,5 +457,42 @@ describe('no server sentence is stored in client code (ST-3, review L-6)', () =>
     const norm = (s: string) => s.replace(/\\'/g, "'").replace(/[‘’]/g, "'");
     const leaked = messages.filter((m) => sources.some((src) => norm(src).includes(norm(m))));
     expect(leaked).toEqual([]);
+  });
+});
+
+// FE-R1 L-2 (fe-r1-red.md): a delete whose re-read did not answer a person carries the failure in its result, and the
+// component hands it to the page — the one required callback, no fallback stop on the <h1> — before it speaks.
+describe('§2.2 Delete — the page takes over (FE-R1 FE-D1b / R-14b)', () => {
+  it.each(['server-error', 'unreachable', 'forbidden', 'not-found'] as const)('pageTookOver %s: the page is called once with it, no <h1> stop, the message after the call', async (failure) => {
+    const MESSAGE = "Sample Person was deleted. They're now in the archived people.";
+    const calls: { failure: string; statusAtCall: string }[] = [];
+    // Stands in for the page's region error / swap heading: the page moves focus there itself, inside the call.
+    const target = document.createElement('h2');
+    target.tabIndex = -1;
+    target.textContent = 'page target';
+    document.body.appendChild(target);
+    render(
+      <Harness
+        initial={PERSON_ACTIVE}
+        deleteAnswer={{ kind: 'deleted', pageTookOver: failure }}
+        onPageTookOver={(f) => {
+          calls.push({ failure: f, statusAtCall: screen.getByRole('status').textContent ?? '' });
+          target.focus();
+        }}
+      />,
+    );
+    const { user, dialog } = await openDelete();
+    const focusSeq: string[] = [];
+    const onFocusIn = (e: FocusEvent) => focusSeq.push((e.target as HTMLElement).tagName);
+    document.addEventListener('focusin', onFocusIn);
+    await user.click(within(dialog).getByRole('button', { name: 'Delete person' }));
+    await settled();
+    await new Promise((r) => setTimeout(r, 50));
+    document.removeEventListener('focusin', onFocusIn);
+    expect(calls).toEqual([{ failure, statusAtCall: '' }]);
+    expect(focusSeq).toEqual(['BUTTON', 'H2']);
+    expect(target).toHaveFocus();
+    expect(status()).toHaveTextContent(MESSAGE);
+    target.remove();
   });
 });

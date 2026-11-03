@@ -217,6 +217,7 @@ function PersonSurface({ initial }: { initial: User }) {
         canDelete
         canAssign
         onGiveRole={() => undefined}
+        onPageTookOver={() => undefined}
         fallbackFocusRef={h1}
         timeZone="UTC"
         deletePerson={async () => {

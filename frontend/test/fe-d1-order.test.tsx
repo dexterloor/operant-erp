@@ -75,6 +75,7 @@ function PersonHarness({ initial, onDeleted, onRestored }: { initial: User; onDe
           canDelete
           canAssign
           onGiveRole={() => undefined}
+          onPageTookOver={() => undefined}
           fallbackFocusRef={h1}
           timeZone="UTC"
           onDeleted={onDeleted}

@@ -40,7 +40,7 @@ describe('focus moves in the commit that shows the banner (late answer)', () => 
         <TooltipProvider>
           <main>
             <h1 ref={h1} tabIndex={-1}>Sample Person</h1>
-            <PersonLifecycleActions person={PERSON_ACTIVE} viewerId={VIEWER_ID} canDelete canAssign fallbackFocusRef={h1} timeZone="UTC" deletePerson={answer} restorePerson={async () => ({ kind: 'unreachable' })} />
+            <PersonLifecycleActions person={PERSON_ACTIVE} viewerId={VIEWER_ID} canDelete canAssign onPageTookOver={() => undefined} fallbackFocusRef={h1} timeZone="UTC" deletePerson={answer} restorePerson={async () => ({ kind: 'unreachable' })} />
           </main>
         </TooltipProvider>
       );
