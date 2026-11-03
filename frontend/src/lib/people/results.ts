@@ -8,12 +8,16 @@ import type { Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachab
 /** What either action can answer besides success. A refusal's `message` is the server's sentence (ST-3), verbatim. */
 export type PersonActionFailure = Refused | NotFound | Forbidden | SessionEnded | Unreachable | ServerError;
 
+/** Why a delete's re-read did not answer a person, when the page takes over (a 401 navigates instead: R1-4). */
+export type DeleteTakeover = 'forbidden' | 'not-found' | 'unreachable' | 'server-error';
+
 /**
  * `DELETE /api/v1/users/{id}` → 204 (no body). `pageTookOver`: the delete happened but the re-read did not answer a
  * person, so the page shows what follows (its region error, ST-4b or ST-5) once the dialog has closed (FE-R1: R-14b,
- * FE-D1b) — the component then neither focuses the page `<h1>` nor speaks before the page has.
+ * FE-D1b) — the component then neither focuses the page `<h1>` nor speaks before the page has. The failure travels in
+ * the result, so nothing has to be recorded on the side and handed over later (fe-r1-red.md L-2).
  */
-export type DeletePersonResult = { kind: 'deleted'; pageTookOver?: true } | PersonActionFailure;
+export type DeletePersonResult = { kind: 'deleted'; pageTookOver?: DeleteTakeover } | PersonActionFailure;
 
 /** `POST /api/v1/users/{id}/restoration` → 200 + the person (`RestoreUser`, API-21 branch 5). */
 export type RestorePersonResult = { kind: 'restored'; person: User } | PersonActionFailure;

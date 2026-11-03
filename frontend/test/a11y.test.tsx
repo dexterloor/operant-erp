@@ -84,7 +84,7 @@ describe('axe — B-4 person delete/restore', () => {
       <TooltipProvider>
         <main>
           <h1 tabIndex={-1}>{person.display_name}</h1>
-          <PersonLifecycleActions person={person} viewerId={VIEWER_ID} canDelete canAssign onGiveRole={() => undefined} fallbackFocusRef={ref} timeZone="UTC" deletePerson={async () => del} restorePerson={async () => res} />
+          <PersonLifecycleActions person={person} viewerId={VIEWER_ID} canDelete canAssign onGiveRole={() => undefined} onPageTookOver={() => undefined} fallbackFocusRef={ref} timeZone="UTC" deletePerson={async () => del} restorePerson={async () => res} />
         </main>
       </TooltipProvider>
     );

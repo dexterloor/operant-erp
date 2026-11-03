@@ -4,7 +4,7 @@ import { useEffect, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { ArchiveRestore, CircleCheck, Trash2, X } from 'lucide-react';
 import type { User } from '@/lib/api/users';
-import type { DeletePersonAction, PersonActionFailure, RestorePersonAction } from '@/lib/people/results';
+import type { DeletePersonAction, DeleteTakeover, PersonActionFailure, RestorePersonAction } from '@/lib/people/results';
 import { COULD_NOT_REACH, NOT_DELETED, NOT_RESTORED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { DELETE_PERSON, INTERRUPTED, PERSON, PERSON_FORBIDDEN, RESTORE_PERSON } from '@/copy/people';
 import { PAGE_STATES } from '@/copy/shell';
@@ -40,12 +40,13 @@ export interface PersonLifecycleActionsProps {
   /** Called once after a delete's message has been committed (the page refreshes its router cache then). */
   onDeleted?: () => void;
   /**
-   * A delete answered `pageTookOver` (FE-R1: R-14b, FE-D1b): called once the dialog's close has committed, so the page
-   * shows what it recorded — its region error, ST-4b or ST-5 — and moves focus there itself, synchronously. Only after
-   * it returns is the after-message written (and the refresh generation bumped); on a swap this surface has unmounted by
-   * then, so it writes nothing.
+   * A delete answered `pageTookOver` (FE-R1: R-14b, FE-D1b): called with that failure once the dialog's close has
+   * committed, so the page shows what follows — its region error, ST-4b or ST-5 — and moves focus there itself,
+   * synchronously. Only after it returns is the after-message written (and the refresh generation bumped); on a swap this
+   * surface has unmounted by then, so it writes nothing. Required (fe-r1-red.md L-2): there is no fallback, so a consumer
+   * cannot leave the takeover out and silently show a stale live page under a "was deleted" message.
    */
-  onPageTookOver?: () => void;
+  onPageTookOver: (failure: DeleteTakeover) => void;
 }
 
 type Action = 'delete' | 'restore';
@@ -166,7 +167,7 @@ export function PersonLifecycleActions({
       });
       // FE-D1b (fe-d1-ux-confirm.md): when the page takes over, focus moves ONCE, to where the page puts it, and the
       // message follows that move — never an <h1> stop with the message racing the region error's heading.
-      if (result.pageTookOver && onPageTookOver) onPageTookOver();
+      if (result.pageTookOver !== undefined) onPageTookOver(result.pageTookOver);
       else fallbackFocusRef.current?.focus();
       live.announce(DELETE_PERSON.after(name));
       setDeletedGen((g) => g + 1);

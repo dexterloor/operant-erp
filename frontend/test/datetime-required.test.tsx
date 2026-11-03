@@ -15,7 +15,7 @@ export const missing = [
   // @ts-expect-error timeZone is required (rule M-4)
   <ArchivedPersonBanner key="2" archivedAt="2026-10-27T23:30:00Z" />,
   // @ts-expect-error timeZone is required (rule M-4)
-  <PersonLifecycleActions key="3" person={PERSON_ACTIVE} viewerId={VIEWER_ID} canDelete canAssign fallbackFocusRef={{ current: null }} deletePerson={async () => ({ kind: 'unreachable' })} restorePerson={async () => ({ kind: 'unreachable' })} />,
+  <PersonLifecycleActions key="3" person={PERSON_ACTIVE} viewerId={VIEWER_ID} canDelete canAssign onPageTookOver={() => undefined} fallbackFocusRef={{ current: null }} deletePerson={async () => ({ kind: 'unreachable' })} restorePerson={async () => ({ kind: 'unreachable' })} />,
   // @ts-expect-error timeZone is required (rule M-4)
   <RoleProposals key="4" proposals={{ items: [], next_cursor: null, previous_cursor: null, tenant_has_rows: false }} canConfirm={false} marginExposure={false} fallbackFocusRef={{ current: null }} actions={{ confirm: async () => ({ kind: 'unreachable' }), reject: async () => ({ kind: 'unreachable' }), withdraw: async () => ({ kind: 'unreachable' }), reread: async () => ({ kind: 'ok' }), onPage: () => undefined }} />,
 ];

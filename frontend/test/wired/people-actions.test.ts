@@ -22,9 +22,8 @@ const wiring = () => {
     await new Promise((r) => setTimeout(r, 5));
     order.push('committed');
   });
-  const onRereadFailed = vi.fn((f: string) => order.push(`failed:${f}`));
-  const actions = personActions({ caller: testCaller(), id: ID, setPerson, onRereadFailed });
-  return { actions, setPerson, onRereadFailed, order };
+  const actions = personActions({ caller: testCaller(), id: ID, setPerson });
+  return { actions, setPerson, order };
 };
 
 describe('loadUsers / loadPerson — the pure loaders (§10)', () => {
@@ -90,24 +89,21 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     expect((await wiring().actions.deletePerson()).kind).toBe(kind);
   });
 
-  it('204 but the re-read fails: still deleted, the page is told the read failed and takes over (FE-R1); a 401 re-read does not take over', async () => {
-    stubFetch([empty(204), json(500, {})]);
-    const w = wiring();
-    expect(await w.actions.deletePerson()).toEqual({ kind: 'deleted', pageTookOver: true });
-    expect(w.order).toEqual(['failed:server-error']);
+  it('204 but the re-read fails: still deleted, and the failure travels in the result for the page to take over (FE-R1, L-2); a 401 re-read does not take over', async () => {
     for (const [reread, failure] of [
+      [json(500, {}), 'server-error'],
       [problem(403, 'permission-denied'), 'forbidden'],
       [problem(404, 'not-found'), 'not-found'],
     ] as const) {
       stubFetch([empty(204), reread]);
       const v = wiring();
-      expect(await v.actions.deletePerson()).toEqual({ kind: 'deleted', pageTookOver: true });
-      expect(v.order).toEqual([`failed:${failure}`]);
+      expect(await v.actions.deletePerson()).toEqual({ kind: 'deleted', pageTookOver: failure });
+      expect(v.setPerson).not.toHaveBeenCalled();
     }
     stubFetch([empty(204), new Response(JSON.stringify({ type: 'urn:erp:bff:session-ended', title: 'x', status: 401 }), { status: 401, headers: { 'content-type': 'application/problem+json' } })]);
     const v = wiring();
     expect(await v.actions.deletePerson()).toEqual({ kind: 'deleted' });
-    expect(v.order).toEqual(['failed:session-ended']);
+    expect(v.setPerson).not.toHaveBeenCalled();
   });
 
   it('T-R2: the request answers (after 15 s) and the re-read hangs → the action resolves at 30 s, not at the re-read\'s own 20 s limit', async () => {
@@ -119,8 +115,8 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     await vi.advanceTimersByTimeAsync(THIRTY_SECONDS - 1);
     expect(done).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
-    expect(done).toEqual({ kind: 'deleted', pageTookOver: true });
-    expect(w.order).toEqual(['failed:unreachable']);
+    expect(done).toEqual({ kind: 'deleted', pageTookOver: 'unreachable' });
+    expect(w.setPerson).not.toHaveBeenCalled();
   });
 
   // A lone request never reaches the 30 s action deadline: the request's own 20 s limit (`transport.ts`) passes first

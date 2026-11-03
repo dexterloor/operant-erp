@@ -383,6 +383,7 @@ function PeoplePreview() {
         deletePerson={deletePerson}
         restorePerson={restorePerson}
         onGiveRole={() => undefined}
+        onPageTookOver={() => undefined}
         fallbackFocusRef={h1}
         timeZone="UTC"
       />

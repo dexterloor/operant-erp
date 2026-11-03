@@ -17,6 +17,7 @@ import type { User } from '@/lib/api/users';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { loadPersonView, type PersonView, type ViewGates } from '@/lib/people/load';
+import type { DeleteTakeover } from '@/lib/people/results';
 import { personActions } from '@/lib/people/wired';
 import { loadProposalPage } from '@/lib/roles/load';
 import type { RereadResult } from '@/lib/roles/results';
@@ -87,8 +88,8 @@ function wroteSomething(c: RereadContext): boolean {
  * element: it remounts with the same heading and takes focus again (r14-gap-red.md M-1; accepted). Still no refresh
  * after a re-read that failed and was never shown again (R-15's rule: refresh only after a shown re-read).
  *
- * A delete whose re-read did not answer a person (FE-D1b, R-14b): `personActions` reports it while the dialog is open;
- * the page records it and applies it in `onPageTookOver`, after the dialog's close has committed, with `flushSync` — so
+ * A delete whose re-read did not answer a person (FE-D1b, R-14b): the failure travels in the delete's result, and the
+ * page applies it in `onPageTookOver` (required), after the dialog's close has committed, with `flushSync` — so
  * focus moves once, straight to the region error's heading (or the swap page's `<h1>`), and the component writes the
  * after-message only after that.
  */
@@ -116,10 +117,10 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   const [focusH1, setFocusH1] = useState(0);
   // FE-R1: a refresh the page owes because it took over after a write that succeeded (see the docblock).
   const [takeoverRefreshGen, setTakeoverRefreshGen] = useState(0);
-  // A delete's failed re-read, recorded while the dialog is open and applied by `takeOverAfterDelete`.
-  const deleteRereadFailure = useRef<ReadFailure | null>(null);
   // R-13b: a restore's own refresh has not run yet while its follow-up re-read is in flight.
   const restoreRefreshOwed = useRef(false);
+  // R-13b: a swap after no successful write; its effect refreshes only if the restore's refresh is still owed then.
+  const [restoreSwapGen, setRestoreSwapGen] = useState(0);
   const id = initial.person.id;
 
   const gatesNow = useCallback((): ViewGates => ({ assign: gates.assign && !lostRef.current.assign, view: gates.view && !lostRef.current.view }), [gates.assign, gates.view]);
@@ -131,11 +132,12 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
       if (r.kind === 'session-ended') return { kind: 'failed', failure: 'unreachable' };
       if (r.kind === 'forbidden' || r.kind === 'not-found') {
         setSwap(r.kind);
-        // R-15a (a role write changed the lists) / R-13b (the restore's own refresh has not run): the swap unmounts the
-        // component that would refresh, so the page does, once, after the swap commits.
-        const owedByRestore = restoreRefreshOwed.current;
-        restoreRefreshOwed.current = false;
-        if (owedByRestore || wroteSomething(context)) setTakeoverRefreshGen((g) => g + 1);
+        // R-15a (a role write changed the lists): the swap unmounts the component that would refresh, so the page does,
+        // once, after the swap commits. R-13b (a restore's own refresh may not have run): decided in the effect, not
+        // here — whichever of `onRestored` and that effect runs first clears the owed flag, and the other skips
+        // (fe-r1-red.md L-3), so the order of React's passive effects cannot make it twice.
+        if (wroteSomething(context)) setTakeoverRefreshGen((g) => g + 1);
+        else setRestoreSwapGen((g) => g + 1);
         return { kind: 'failed', failure: r.kind };
       }
       if (r.kind !== 'ok') return { kind: 'failed', failure: r.kind };
@@ -211,17 +213,11 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  // FE-R1 (R-14b, FE-D1b): a delete's re-read failed. Recorded now (the dialog is still open); shown by the next callback.
-  const deleteRereadFailed = useCallback((f: ReadFailure) => {
-    deleteRereadFailure.current = f;
-  }, []);
-  // Called by the lifecycle component once the dialog's close has committed. `flushSync`: the region error (or ST-4b /
-  // ST-5) mounts and its heading takes focus inside this call (a sync commit flushes its passive effects at its end), so
-  // the component's after-message, written when this returns, follows the one focus move.
-  const takeOverAfterDelete = useCallback(() => {
-    const f = deleteRereadFailure.current;
-    deleteRereadFailure.current = null;
-    if (f === null || f === 'session-ended') return;
+  // FE-R1 (R-14b, FE-D1b): a delete's re-read failed; the failure arrives in the delete's result, and the lifecycle
+  // component calls this once the dialog's close has committed. `flushSync`: the region error (or ST-4b / ST-5) mounts
+  // and its heading takes focus inside this call (a sync commit flushes its passive effects at its end), so the
+  // component's after-message, written when this returns, follows the one focus move.
+  const takeOverAfterDelete = useCallback((f: DeleteTakeover) => {
     flushSync(() => {
       if (f === 'forbidden' || f === 'not-found') {
         setSwap(f);
@@ -247,7 +243,7 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   // Each wrapper calls the latest callback when the action runs, never while rendering: the factories only store them,
   // so the refs those callbacks read are read after render (the lint rule cannot see that the factories do not call).
   // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
-  const lifecycle = useMemo(() => personActions({ caller, id, setPerson: (p) => setPersonOnly(p), onRereadFailed: (f) => deleteRereadFailed(f) }), [caller, id, setPersonOnly, deleteRereadFailed]);
+  const lifecycle = useMemo(() => personActions({ caller, id, setPerson: (p) => setPersonOnly(p) }), [caller, id, setPersonOnly]);
   // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
   const picker = useMemo(() => pickerActions({ caller, personId: id, reread: (s, c) => reread(s, c) }), [caller, id, reread]);
   const proposals = useMemo(
@@ -266,10 +262,22 @@ export function PersonPage({ initial, viewerId, gates }: PersonPageProps) {
   }, [refreshRouterCache]);
   // FE-R1: after the commit that shows what the page took over with (above the swap returns: hook order).
   useEffect(() => {
-    if (takeoverRefreshGen > 0) refreshRouterCache();
+    if (takeoverRefreshGen > 0) {
+      restoreRefreshOwed.current = false; // this refresh also covers a restore's, if one is still owed
+      refreshRouterCache();
+    }
     // Once per takeover only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [takeoverRefreshGen]);
+  // R-13b: a swap after no write refreshes only if the restore's own refresh has still not run when this effect does.
+  useEffect(() => {
+    if (restoreSwapGen > 0 && restoreRefreshOwed.current) {
+      restoreRefreshOwed.current = false;
+      refreshRouterCache();
+    }
+    // Once per swap only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreSwapGen]);
 
   const retry = async () => {
     if (retrying) return;

@@ -71,6 +71,7 @@ describe('T-M4a — the same markup on the server and in the browser, in differe
         viewerId={VIEWER_ID}
         canDelete
         canAssign
+        onPageTookOver={() => undefined}
         fallbackFocusRef={{ current: null }}
         timeZone="Asia/Manila"
         deletePerson={async () => ({ kind: 'unreachable' })}

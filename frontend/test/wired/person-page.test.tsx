@@ -52,8 +52,14 @@ describe('/admin/users/[id] — wired', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE /bff/api/users/${ID}`, `GET /bff/api/users/${ID}`]);
   });
 
-  it('deleted, but the re-read failed: the after-message and the region error (one body), focus on its heading; Retry re-reads', async () => {
-    stubFetch([empty(204), json(500, {})]);
+  // FE-R1 L-1 (fe-r1-red.md): both failure kinds the region error shows — a 500 and a thrown fetch (unreachable).
+  it.each([
+    ['server error', () => json(500, {}), 'Something went wrong on our side.'],
+    ['unreachable', () => () => {
+      throw new TypeError('fetch failed');
+    }, "We couldn't reach the server."],
+  ] as const)('deleted, but the re-read failed (%s): the after-message and the region error (one body), focus on its heading; Retry re-reads', async (_kind, reread, errorHeading) => {
+    stubFetch([empty(204), reread()]);
     const u = userEvent.setup();
     show();
     await u.click(screen.getByRole('button', { name: 'Delete person' }));
@@ -71,14 +77,14 @@ describe('/admin/users/[id] — wired', () => {
     document.addEventListener('focusin', onFocusIn);
     await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete person' }));
     expect(await screen.findByText("Ada Lovelace was deleted. They're now in the archived people.")).toBeInTheDocument();
-    const heading = await screen.findByRole('heading', { name: 'Something went wrong on our side.' });
+    const heading = await screen.findByRole('heading', { name: errorHeading });
     expect(screen.getByText("We couldn't load this person's details again, so what's shown may be out of date.")).toBeInTheDocument();
     await waitFor(() => expect(heading).toHaveFocus());
     // Focus must stay there once the dialog's own close timers have run, not merely arrive (b3b-dialog-focus-red L-3).
     await new Promise((r) => setTimeout(r, 50));
     expect(heading).toHaveFocus();
     document.removeEventListener('focusin', onFocusIn);
-    expect(focusSeq).toEqual(['BUTTON Delete person', `${heading.tagName} Something went wrong on our side.`]);
+    expect(focusSeq).toEqual(['BUTTON Delete person', `${heading.tagName} ${errorHeading}`]);
     expect(messageAtErrorFocus).toBe(false);
     expect(screen.getAllByRole('status').map((r) => r.textContent)).toContain(MESSAGE);
     stubFetch([json(200, DELETED)]);
@@ -129,13 +135,25 @@ describe('/admin/users/[id] — wired', () => {
       });
       stubFetch([empty(204), reread]);
       const v = show();
-      await deleteIt(u);
+      // FE-R1 L-1 (fe-r1-red.md): focus moves ONCE, from the dialog's button straight to the swap page's <h1> — no stop
+      // on the person's <h1> first. Recorded from the confirm click on.
+      await u.click(screen.getByRole('button', { name: 'Delete person' }));
+      const focusSeq: string[] = [];
+      const onFocusIn = (e: FocusEvent) => {
+        const t = e.target as HTMLElement;
+        focusSeq.push(`${t.tagName} ${t.textContent ?? ''}`);
+      };
+      document.addEventListener('focusin', onFocusIn);
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete person' }));
       const h1 = await screen.findByRole('heading', { level: 1, name: heading });
       await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
       await new Promise((r) => setTimeout(r, 20));
       expect(nav.refresh).toHaveBeenCalledTimes(1);
       expect(atRefresh).toEqual([heading]);
       await waitFor(() => expect(h1).toHaveFocus());
+      await new Promise((r) => setTimeout(r, 50));
+      document.removeEventListener('focusin', onFocusIn);
+      expect(focusSeq).toEqual(['BUTTON Delete person', `H1 ${heading}`]);
       expect(screen.queryByText(/was deleted/)).toBeNull();
       v.unmount();
       nav.refresh.mockReset();
