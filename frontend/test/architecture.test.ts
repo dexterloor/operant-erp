@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -36,20 +36,47 @@ interface SourceFile {
 // `walk` throws for any directory outside `src`/`test` or not in normal form (`src/../x`, `src/x/`), so a walk can never
 // silently see nothing because the snapshot does not hold it. A directory under `src`/`test` that does not exist yet still
 // counts as 0. This file needs no DOM, so it runs in the node environment.
-function walkDisk(dirRel: string): SourceFile[] {
+//
+// The same walk also records, for `src` only, EVERY entry it meets (any extension, directories and symlinks included)
+// into ALL_SRC_ENTRIES, with the contents of every regular file — a file reached through a symlink included, as the
+// backend reads it. A FIFO, socket or device is recorded but never read, so it cannot hang or fail the walk for every guard
+// here (twin RED L-1). Only the pick-route twin (end of this file) reads ALL_SRC_ENTRIES: Next.js serves
+// `page.js`/`page.jsx` too, and the backend check it twins searches every file under frontend/src for the pick
+// operations. SNAPSHOT is unchanged by it: same files, same order, same contents.
+interface DiskEntry {
+  /** Path relative to the frontend root, POSIX separators. */
+  file: string;
+  /** Contents of a regular file (through a symlink too); null for a directory or a non-regular file. */
+  source: string | null;
+  link: boolean;
+  dir: boolean;
+}
+
+function walkDisk(dirRel: string, everything?: DiskEntry[]): SourceFile[] {
   const abs = path.join(ROOT, dirRel);
   if (!existsSync(abs)) return [];
   const out: SourceFile[] = [];
   for (const name of readdirSync(abs).sort()) {
     const childRel = `${dirRel}/${name}`;
     const childAbs = path.join(abs, name);
-    if (statSync(childAbs).isDirectory()) out.push(...walkDisk(childRel));
-    else if (/\.(ts|tsx)$/.test(name) && !name.endsWith('.d.ts')) out.push({ file: childRel, source: readFileSync(childAbs, 'utf8') });
+    const stat = statSync(childAbs);
+    const isDir = stat.isDirectory();
+    const tsSource = !isDir && /\.(ts|tsx)$/.test(name) && !name.endsWith('.d.ts');
+    let source: string | null = null;
+    if (everything) {
+      const link = lstatSync(childAbs).isSymbolicLink();
+      if (stat.isFile()) source = readFileSync(childAbs, 'utf8');
+      everything.push({ file: childRel, source, link, dir: isDir });
+    }
+    if (isDir) out.push(...walkDisk(childRel, everything));
+    else if (tsSource) out.push({ file: childRel, source: source ?? readFileSync(childAbs, 'utf8') });
   }
   return out;
 }
 
-const SNAPSHOT: readonly SourceFile[] = Object.freeze([...walkDisk('src'), ...walkDisk('test')].map((f) => Object.freeze(f)));
+const SRC_ENTRIES: DiskEntry[] = [];
+const SNAPSHOT: readonly SourceFile[] = Object.freeze([...walkDisk('src', SRC_ENTRIES), ...walkDisk('test')].map((f) => Object.freeze(f)));
+const ALL_SRC_ENTRIES: readonly DiskEntry[] = Object.freeze(SRC_ENTRIES.map((e) => Object.freeze(e)));
 
 function walk(dirRel: string): SourceFile[] {
   const inSnapshot = dirRel === 'src' || dirRel === 'test' || dirRel.startsWith('src/') || dirRel.startsWith('test/');
@@ -1204,5 +1231,199 @@ describe('architecture — G-8: the session id reaches only the account-page rou
       'src/components/people/Y.tsx — names useSessionId at line 1',
       'src/lib/bff/z.ts — names useSessionId at line 1',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FE-R2 (a): the pick screen's trigger — twin of the backend's OwedAmendmentTripwireTest::noFrontendShipsWithoutThePickRouteCarry
+// ---------------------------------------------------------------------------------------------------------------------
+// V2-S-1b clause 5's FRONTEND half and B1N-12's screen (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on
+// 2026-11-03, docs/design/fe-merge-r8-ruling.md, to-do 2; docs/design/frontend-residuals.md FE-R2). The backend check runs
+// only when this app reaches main; this twin runs on every frontend gate, so the trigger fires on the commit that crosses
+// it. Same rule, ported line for line (keep the two in step — a change to one is a change to both):
+//   every page.{tsx,ts,jsx,js} under src/app gets the URL Next.js serves a static-segment page at (pageUrl). Antecedent (a): some page's URL
+//   is /sales-orders or below. Antecedent (b): CreateFulfilment or GetPickList is named in a file under src outside
+//   src/generated/. Either requires BOTH a page at exactly /sales-orders/[<one param>]/fulfil AND a use of GetPickList
+//   outside src/generated/. Keyed on the URL (fixed by IA N-8a and lib/navigation.ts), never on a guessed folder.
+// Not checkable here, and said so: R1 (on-hand per bin, never an available figure) and B1N-12 (show the order's resulting
+// status after a CreateFulfilment 201). A stub page that names GetPickList satisfies the implication, and nothing here
+// stops that. Nor can the URL model see a page that serves /sales-orders through a dynamic first segment (`[x]`, `[...x]`,
+// `[[...x]]` at the app root), a middleware/proxy rewrite, a `rewrites()`/`redirects()` in next.config, or a config value
+// imported from another module; the real-tree controls refuse the first three while none exists (twin RED M-2), and a
+// person must teach the walk before adding one. The walk reads file symlinks and refuses any symlink under src; the
+// backend reads file links but does not descend into directory links. The last control ("the trigger is still false") is what forces a person to look: the day the trigger turns
+// true it goes red, and the commit that builds the screen checks R1 and B1N-12 by hand, says so, and removes that control
+// here and in the backend test together.
+
+const PAGE_FILES = ['page.tsx', 'page.ts', 'page.jsx', 'page.js'];
+/** The identifiers that make the pick screen due (antecedent (b)); `GetPickList` alone is the consequent's use. */
+const PICK_OPERATION_TOKEN = /\b(?:CreateFulfilment|GetPickList)\b/;
+/** Exactly one single-segment dynamic parameter, then `fulfil`: no catch-all, no optional catch-all. */
+const PICK_ROUTE_URL = /^\/sales-orders\/\[[A-Za-z][A-Za-z0-9]*\]\/fulfil$/;
+const ROUTE_GROUP = /^\((?!\.)[^()]+\)$/;
+
+/**
+ * The URL Next.js serves a file at, or null when the file is not a page or is not routable. `page` is relative to
+ * `src/app`. Only page.{tsx,ts,jsx,js} is a page. A `_` segment is a private folder. A route group `(name)` and a parallel
+ * slot `@name` add nothing to the URL, at any depth. An intercepting segment (`(.)x`, `(..)x`) is kept verbatim: it can
+ * make the screen due but never satisfy it (fail-closed).
+ */
+function pageUrl(page: string): string | null {
+  const segments = page.replace(/\\/g, '/').split('/');
+  if (!PAGE_FILES.includes(segments.pop()!)) return null;
+  const url: string[] = [];
+  for (const segment of segments) {
+    if (segment.startsWith('_')) return null;
+    if (ROUTE_GROUP.test(segment) || segment.startsWith('@')) continue;
+    url.push(segment);
+  }
+  return `/${url.join('/')}`;
+}
+
+/** `pages`: files relative to src/app. `sources`: file contents keyed by path relative to src. */
+function pickRouteIsDue(pages: readonly string[], sources: Readonly<Record<string, string>>): boolean {
+  for (const page of pages) {
+    const url = pageUrl(page);
+    if (url !== null && (url === '/sales-orders' || url.startsWith('/sales-orders/'))) return true;
+  }
+  return Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
+}
+
+function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<string, string>>): string[] {
+  if (!pickRouteIsDue(pages, sources)) return [];
+  const defects: string[] = [];
+  if (!pages.some((page) => PICK_ROUTE_URL.test(pageUrl(page) ?? ''))) {
+    defects.push('the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil');
+  }
+  if (!Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && /\bGetPickList\b/.test(text))) {
+    defects.push('no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)');
+  }
+  return defects;
+}
+
+const PICK_ROUTE_MESSAGE =
+  "V2-S-1b clause 5's FRONTEND half is owed (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on\n" +
+  '2026-11-03, docs/design/fe-merge-r8-ruling.md: a page at /sales-orders or below, or frontend source outside\n' +
+  'src/generated/ naming CreateFulfilment or GetPickList; owner FE + UX).\n\n' +
+  '  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n' +
+  '    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n' +
+  "  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n" +
+  '    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n' +
+  "  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n" +
+  '  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n' +
+  'Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n' +
+  'shipped IN PART and must not be called discharged.';
+
+/** Pages under src/app allowed a dynamic first URL segment. Empty: none exists, and each one added needs a reason. */
+const DYNAMIC_ROOT_PAGES_ALLOWED: readonly string[] = [];
+
+/** Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve /sales-orders unseen. */
+function dynamicRootPages(pages: readonly string[], allowed: readonly string[]): string[] {
+  return pages.filter((page) => {
+    const first = pageUrl(page)?.split('/')[1];
+    return first !== undefined && first.startsWith('[') && !allowed.includes(page);
+  });
+}
+
+const APP_PREFIX = 'src/app/';
+const realAppEntries = () => ALL_SRC_ENTRIES.filter((e) => e.file.startsWith(APP_PREFIX));
+const realPages = () => realAppEntries().filter((e) => !e.link && !e.dir).map((e) => e.file.slice(APP_PREFIX.length));
+const realSources = (): Record<string, string> =>
+  Object.fromEntries(ALL_SRC_ENTRIES.filter((e) => e.source !== null).map((e) => [e.file.slice('src/'.length), e.source!]));
+
+describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
+  it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {
+    const uses = { 'lib/api/pick.ts': "viewerMay('GetPickList')" };
+    const planted: [string, string[], Record<string, string>, boolean][] = [
+      ['a sales-orders list alone', ['(app)/sales-orders/page.tsx'], uses, false],
+      ['the list and the fulfil page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], uses, true],
+      ['the fulfil page under a nested group', ['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx'], uses, true],
+      ['the fulfil page under a parallel slot', ['(app)/sales-orders/[id]/@panel/fulfil/page.tsx'], uses, true],
+      ['a component preview of the fulfil page', ['(dev)/component-preview/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], uses, false],
+      ['a catch-all under sales-orders', ['(app)/sales-orders/[...rest]/page.tsx'], uses, false],
+      ['an optional catch-all as the param', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[[...id]]/fulfil/page.tsx'], uses, false],
+      ['a route handler, not a page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/route.ts'], uses, false],
+      ['a layout, not a page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/layout.tsx'], uses, false],
+      ['a fulfil page in a private folder', ['_wip/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], uses, false],
+      ['an intercepting segment', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/(.)fulfil/page.tsx'], uses, false],
+      ['a fulfil page one level too deep', ['(app)/sales-orders/x/[id]/fulfil/page.tsx'], uses, false],
+      ['the fulfil page without GetPickList', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], {}, false],
+      ['GetPickList only in generated code', ['(app)/admin/page.tsx'], { 'generated/api-surface.server.ts': 'GetPickList' }, true],
+      ['CreateFulfilment used with no fulfil page', ['(app)/admin/page.tsx'], { 'components/Ship.tsx': 'CreateFulfilment' }, false],
+      ['a frontend with no sales screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, true],
+      // Each tree below isolates ONE rule (empty or generated-only sources, so antecedent (b) cannot carry it; twin RED H-1).
+      // Mirror them in the backend's planted set.
+      ['a page.jsx counts as a page', ['(app)/sales-orders/page.jsx'], {}, false],
+      ['a page.js counts as a page', ['(app)/sales-orders/page.js'], {}, false],
+      ['a page below /sales-orders makes the screen due', ['(app)/sales-orders/[id]/page.tsx'], {}, false],
+      ['GetPickList named only in generated code does not satisfy the screen', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], { 'generated/api-surface.server.ts': 'GetPickList' }, false],
+      ['a sales-orders page in a private folder is not routable', ['(app)/_wip/sales-orders/page.tsx'], {}, true],
+      ['a private folder below sales-orders is not routable', ['(app)/sales-orders/_wip/page.tsx'], {}, true],
+    ];
+    const verdicts = planted.map(([name, pages, sources]) => [name, pickRouteDefects(pages, sources).length === 0]);
+    expect(verdicts).toEqual(planted.map(([name, , , passes]) => [name, passes]));
+    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {})).toEqual([
+      'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil',
+      'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)',
+    ]);
+  });
+
+  it('planted controls: a page with a dynamic first segment is caught unless allowed; a deeper one is not', () => {
+    const pages = ['(app)/[module]/page.tsx', '[...slug]/page.tsx', '(app)/[[...all]]/page.tsx', '(app)/admin/roles/[id]/page.tsx', '(app)/page.tsx', '_x/[y]/page.tsx', 'bff/[...p]/route.ts'];
+    expect(dynamicRootPages(pages, [])).toEqual(['(app)/[module]/page.tsx', '[...slug]/page.tsx', '(app)/[[...all]]/page.tsx']);
+    expect(dynamicRootPages(pages, ['[...slug]/page.tsx'])).toEqual(['(app)/[module]/page.tsx', '(app)/[[...all]]/page.tsx']);
+  });
+
+  it('real-tree controls: the walk sees what the routes it knows can serve, and the generated boundary is real', () => {
+    expect(existsSync(path.join(ROOT, 'src/app')), 'Positive control: src/app is not where the walk looks, so it would find no page and pass on everything.').toBe(true);
+    for (const router of ['app', 'pages', 'src/pages']) {
+      expect(existsSync(path.join(ROOT, router)), `frontend/${router} exists: Next.js routes from it, and this check reads only src/app. Teach the walk that router before trusting it.`).toBe(false);
+    }
+    const configs = readdirSync(ROOT).filter((name) => name.startsWith('next.config.'));
+    expect(configs.length, 'Positive control: no next.config.* found, so the pageExtensions check below reads nothing.').toBeGreaterThan(0);
+    for (const config of configs) {
+      const text = readFileSync(path.join(ROOT, config), 'utf8');
+      expect(text, `${config} sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read the configured extensions.`).not.toContain('pageExtensions');
+      for (const key of ['rewrites', 'redirects']) {
+        expect(text, `${config} sets ${key}, so a URL may now be served by a page this walk derives differently. Teach the walk before trusting it.`).not.toContain(key);
+      }
+    }
+    expect(
+      ALL_SRC_ENTRIES.filter((e) => e.link).map((e) => e.file),
+      'A symlink under src: this walk reads file links and descends into directory links, while the backend check reads file links but never descends into a directory link, so the two would disagree about what is behind it. Remove the link, or teach both walks before trusting them.',
+    ).toEqual([]);
+    for (const dir of ['', 'src/']) {
+      const routers = readdirSync(path.join(ROOT, dir)).filter((name) => /^(middleware|proxy)\./.test(name));
+      expect(routers, `frontend/${dir}${routers[0] ?? ''} exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. Teach the walk before trusting it.`).toEqual([]);
+    }
+
+    const pages = realPages();
+    expect(
+      dynamicRootPages(pages, DYNAMIC_ROOT_PAGES_ALLOWED),
+      'A page whose first URL segment is dynamic can serve /sales-orders, and this walk would derive its URL as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).',
+    ).toEqual([]);
+    const urls = pages.map(pageUrl).filter((u): u is string => u !== null);
+    expect(urls.length, 'The walk found no page under src/app, so the implication would hold over nothing.').toBeGreaterThan(0);
+    const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
+    expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
+
+    const generatedNamesIt = Object.entries(realSources()).filter(([file, text]) => file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
+    expect(generatedNamesIt.length, 'Positive control: src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves nothing about where the boundary is. Re-derive the token or the folder.').toBeGreaterThan(0);
+  });
+
+  it('the real tree: a /sales-orders page or a pick operation brings the pick screen with it', () => {
+    const defects = pickRouteDefects(realPages(), realSources());
+    expect(defects, `  ${defects.join('\n  ')}\n\n${PICK_ROUTE_MESSAGE}`).toEqual([]);
+  });
+
+  it("the trigger is still false on the real tree (remove only in the pick screen's commit, after the hand check)", () => {
+    expect(
+      pickRouteIsDue(realPages(), realSources()),
+      "The pick screen's trigger is now TRUE on the real tree and the implication above holds -- the screen is being\n" +
+        'built. R1 and B1N-12 cannot be checked mechanically: check both by hand against the screen, say so in the\n' +
+        'commit, and only then remove this control in that commit.\n' +
+        "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
+        PICK_ROUTE_MESSAGE,
+    ).toBe(false);
   });
 });
