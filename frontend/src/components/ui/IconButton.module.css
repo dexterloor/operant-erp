@@ -1,0 +1,46 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.button:hover {
+  background: var(--bg-hover);
+  color: var(--fg-default);
+}
+
+.button:active {
+  background: var(--bg-pressed);
+}
+
+.sm {
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+}
+
+.md {
+  width: var(--size-control-md);
+  height: var(--size-control-md);
+}
+
+.shell {
+  color: var(--shell-fg);
+}
+
+.shell:hover,
+.shell:active {
+  background: var(--shell-hover);
+  color: var(--shell-fg);
+}
+
+.shell:focus-visible {
+  outline-color: var(--shell-focus);
+}

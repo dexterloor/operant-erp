@@ -1,0 +1,7 @@
+.time {
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--fg-subtle);
+  text-underline-offset: 3px;
+}

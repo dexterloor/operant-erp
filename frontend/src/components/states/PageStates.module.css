@@ -1,0 +1,97 @@
+.full {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  max-width: 560px;
+  padding: var(--space-11) 0;
+}
+
+.motif {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-full);
+  background: var(--brand-motif);
+  color: var(--brand-motif-fg);
+}
+
+.body {
+  color: var(--fg-muted);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-target-min);
+  color: var(--fg-link);
+  font-weight: var(--font-weight-medium);
+}
+
+.region {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.regionIcon {
+  flex: none;
+  margin-top: 4px;
+  color: var(--danger-subtle-fg);
+}
+
+.regionText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.regionHeading {
+  font-family: var(--font-sans);
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-line);
+  font-weight: var(--type-h3-weight);
+  letter-spacing: 0;
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.skeletonRow {
+  display: block;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  animation: erp-shimmer var(--motion-shimmer) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonRow {
+    animation: none;
+  }
+}
+
+/* No opacity, no filter, no overlay: refetching never dims (ST-1a). */
+.refetchable {
+  position: relative;
+}
+
+@media (max-width: 480px) {
+  .region {
+    flex-wrap: wrap;
+  }
+}

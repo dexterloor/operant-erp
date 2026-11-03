@@ -1,0 +1,163 @@
+.sidebar,
+.rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--shell-bg);
+  color: var(--shell-fg);
+}
+
+.sidebar {
+  width: var(--size-sidebar);
+  padding: var(--space-5) var(--space-4);
+}
+
+.rail {
+  width: var(--size-rail);
+  align-items: center;
+  padding: var(--space-5) 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.brandRail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  margin-bottom: var(--space-4);
+}
+
+.mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--brand-mark);
+  box-shadow: 0 6px 16px -6px rgba(56, 211, 193, 0.6);
+}
+
+.group + .group {
+  margin-top: var(--space-2);
+}
+
+.groupLabel {
+  display: block;
+  padding: var(--space-5) var(--space-5) var(--space-2);
+  color: var(--shell-group);
+  font-size: var(--type-overline-size);
+  line-height: var(--type-overline-line);
+  font-weight: var(--type-overline-weight);
+  letter-spacing: var(--type-overline-tracking);
+  text-transform: var(--type-overline-transform);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  height: var(--size-control-md);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  color: var(--shell-fg);
+  text-decoration: none;
+  transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.icon {
+  flex: none;
+  color: var(--shell-muted);
+}
+
+.item:hover {
+  background: var(--shell-hover);
+}
+
+.item[aria-current='page'] {
+  background: var(--shell-active-bg);
+  color: var(--shell-active-fg);
+  font-weight: var(--font-weight-medium);
+}
+
+.item[aria-current='page'] .icon {
+  color: currentColor;
+}
+
+.item:focus-visible,
+.railItem:focus-visible {
+  outline: var(--size-focus-ring) solid var(--shell-focus);
+  outline-offset: -2px;
+}
+
+.indicator {
+  position: absolute;
+  left: calc(-1 * var(--space-4));
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--shell-indicator);
+}
+
+.railGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.divider {
+  display: block;
+  width: 24px;
+  height: 1px;
+  margin: var(--space-4) 0;
+  background: var(--shell-hover);
+}
+
+.railItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-lg);
+  height: var(--size-control-lg);
+  border-radius: var(--radius-md);
+  color: var(--shell-muted);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.railItem:hover {
+  background: var(--shell-hover);
+  color: var(--shell-fg);
+}
+
+.railItem[aria-current='page'] {
+  background: var(--shell-active-bg);
+  color: var(--shell-active-fg);
+}
+
+.railIndicator {
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--shell-indicator);
+}

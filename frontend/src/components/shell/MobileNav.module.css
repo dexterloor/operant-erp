@@ -1,0 +1,87 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-md);
+  height: var(--size-control-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-default);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--bg-hover);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  background: var(--bg-overlay);
+  animation: fade var(--motion-slow) var(--ease-enter);
+}
+
+.sheet {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-dialog);
+  width: min(320px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--shell-solid);
+  box-shadow: var(--elevation-e3);
+  animation: slide var(--motion-slow) var(--ease-emphasized);
+}
+
+.sheet > nav {
+  width: 100%;
+  flex: 1;
+}
+
+.close {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-md);
+  height: var(--size-control-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--shell-fg);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--shell-hover);
+}
+
+.close:focus-visible {
+  outline-color: var(--shell-focus);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: fade var(--motion-reduced) linear;
+  }
+}

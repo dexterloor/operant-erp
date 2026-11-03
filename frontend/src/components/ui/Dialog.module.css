@@ -1,0 +1,86 @@
+/*
+ * FE-D1: NO EXIT ANIMATION on the dialog. Radix's Presence keeps the content mounted while a closed-state animation runs
+ * (it does so only when the animation name changes at close), and for that span the page stays aria-hidden and the focus
+ * trap stays on. PersonLifecycleActions and BulkBar commit the close with flushSync and then move focus to the page's
+ * <h1>: with an exit animation, focus would land under aria-hidden. Keep `animation: fade` for both states, add no
+ * [data-state] rule here, and no other keyframes name. test/dialog-css.test.ts enforces this.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  background: var(--bg-overlay);
+  animation: fade var(--motion-fast) var(--ease-enter);
+}
+
+.content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--z-dialog);
+  width: min(480px, calc(100vw - 2 * var(--space-6)));
+  max-height: calc(100vh - 2 * var(--space-6));
+  overflow: auto;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-8);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  color: var(--fg-default);
+  box-shadow: var(--elevation-e3);
+  animation: fade var(--motion-fast) var(--ease-enter);
+}
+
+.danger {
+  border-top: 3px solid var(--danger-solid);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--type-h2-size);
+  line-height: var(--type-h2-line);
+  font-weight: var(--type-h2-weight);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  color: var(--fg-default);
+}
+
+.body > p {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .content {
+    animation: none;
+  }
+}
+
+.refusal {
+  display: block;
+}

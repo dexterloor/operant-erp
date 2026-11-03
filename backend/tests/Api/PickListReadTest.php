@@ -30,7 +30,9 @@ use Symfony\Component\Uid\Uuid;
  *    `docs/`, disclosed);
  *  - clause 2 is `ResponseShapeTest`'s; clause 4 is `AiToolDtoTest`'s pin
  *    (re-carried to `SEC`); clause 5's frontend half is
- *    `OwedAmendmentTripwireTest::noFrontendShipsWithoutThePickRouteCarry`.
+ *    `OwedAmendmentTripwireTest::noFrontendShipsWithoutThePickRouteCarry`
+ *    (re-anchored 2026-11-03: it fires on a `/sales-orders` page, or on frontend
+ *    use of `CreateFulfilment`/`GetPickList`, without the pick page).
  */
 final class PickListReadTest extends PurchaseOrderTestCase
 {

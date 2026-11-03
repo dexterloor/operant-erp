@@ -1,0 +1,8 @@
+/* A frame-less page (root error / not-found): the page itself is the main landmark, so it carries the side padding the
+   app frame would otherwise give. */
+.standalone {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 0 var(--space-6);
+}

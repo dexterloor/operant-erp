@@ -1,0 +1,120 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-canvas);
+  color: var(--fg-default);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  font-weight: var(--type-body-weight);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--type-h1-family);
+  font-size: var(--type-h1-size);
+  line-height: var(--type-h1-line);
+  font-weight: var(--type-h1-weight);
+  letter-spacing: var(--type-h1-tracking);
+}
+
+h2 {
+  font-family: var(--type-h2-family);
+  font-size: var(--type-h2-size);
+  line-height: var(--type-h2-line);
+  font-weight: var(--type-h2-weight);
+  letter-spacing: var(--type-h2-tracking);
+}
+
+h3 {
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-line);
+  font-weight: var(--type-h3-weight);
+}
+
+/* Figures are tabular everywhere, including in the display face (M-10: Bricolage Grotesque ships tnum). */
+.figure,
+td,
+th,
+input {
+  font-variant-numeric: var(--font-numeric);
+}
+
+a {
+  color: var(--fg-link);
+}
+
+/* One focus treatment for every control: 2 px ring, 2 px offset, keyboard focus only, never removed (§5.1). */
+:focus-visible {
+  outline: var(--size-focus-ring) solid var(--border-focus);
+  outline-offset: var(--size-focus-offset);
+}
+
+/* Headings that receive programmatic focus (route change, page states) show no ring for a mouse user. */
+[tabindex='-1']:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* §6: the commit highlight. Colour only, so it survives reduced motion (--motion-highlight stays 1200 ms there). */
+@keyframes erp-highlight {
+  from {
+    background-color: var(--accent-subtle-bg);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.erp-highlight {
+  animation: erp-highlight var(--motion-highlight) var(--ease-standard) 1;
+}
+
+@keyframes erp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes erp-shimmer {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 1;
+  }
+}

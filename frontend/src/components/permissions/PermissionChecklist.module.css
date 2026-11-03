@@ -1,0 +1,175 @@
+/* One module for the permission checklist surface (RED L-9: a surface may share one module). Tokens only. Layout from
+   R6 Permission Checklist.dc.html (layout only; its scripts and sample data are not normative). */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-5);
+}
+
+.builtInLine {
+  flex-basis: 100%;
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.total,
+.count,
+.changeCount {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-variant-numeric: tabular-nums;
+}
+
+.groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.groupHeading {
+  flex: 1;
+  margin: 0;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  font-weight: var(--font-weight-bold);
+}
+
+/* The "Left out" region is always mounted (R4-4 L-2): empty it draws nothing, filled it is a sunken strip. */
+.leftOut {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-sunken);
+}
+.leftOut:empty {
+  padding: 0;
+  border: 0;
+}
+
+.rows,
+.readList {
+  margin: 0;
+  padding: var(--space-2) 0;
+  list-style: none;
+}
+.readList li {
+  padding: var(--space-3) var(--space-5);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-5) var(--space-2) var(--space-3);
+}
+
+.markers {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.help,
+.reason {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: calc(var(--size-target-min) + var(--space-4));
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line);
+}
+.help {
+  color: var(--fg-muted);
+}
+.reason {
+  color: var(--fg-default);
+}
+
+.dirtyBar {
+  position: sticky;
+  bottom: var(--space-5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e2);
+}
+.changeCount {
+  margin-right: auto;
+}
+
+/* ux-confirm-b4.md §2.6: the visible after-save line, styled like the role picker's status line. */
+.status {
+  min-height: var(--type-caption-line);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+/*
+ * Restore role on the deleted role's page (RoleRestoreActions, restore-role-design.md F-2): the same surface module, the
+ * person page's after-message shape (People.module.css). The wrapper is always mounted (R4-4 L-2): idle it has no box.
+ */
+.restore {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.restoreAfterIdle {
+  display: contents;
+}
+.restoreAfter {
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  width: min(100%, 380px);
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e2);
+}
+.restoreAfterIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--success-solid);
+}
+.restoreAfterMessage {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--font-weight-semibold);
+}

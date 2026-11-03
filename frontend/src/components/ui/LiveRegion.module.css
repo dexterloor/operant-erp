@@ -1,0 +1,10 @@
+.region {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  color: var(--fg-default);
+}
+
+/* Empty: takes no space, but the node stays mounted (R4-4 L-2). */
+.region:empty {
+  display: contents;
+}

@@ -1,0 +1,149 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { PermissionChecklist } from '@/components/permissions/PermissionChecklist';
+import { RoleRestoreActions } from '@/components/permissions/RoleRestoreActions';
+import { RegionError } from '@/components/states/PageStates';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { ROLE_PAGE } from '@/copy/roles';
+import type { Permission } from '@/lib/api/permissions';
+import type { Role } from '@/lib/api/roles';
+import type { SaveRoleAction } from '@/lib/permissions/results';
+import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
+import { readOf, type ReadFailure } from '@/lib/bff/reads';
+import { loadRole } from '@/lib/permissions/load';
+import { roleRestore, roleSave } from '@/lib/permissions/wired';
+import { useApiCaller, useViewerTimeZone } from '../../../BffProvider';
+import { useCommittedState } from '../../../useCommittedState';
+import { RoleNotFound, RolesDenied } from '../RoleStates';
+import styles from '../../Lists.module.css';
+
+export interface RolePageProps {
+  /** GetRole + ListPermissions on first render. */
+  initial: { role: Role; permissions: Permission[] };
+  /** Holds UpdateRole's codes (from the contract): ST-4c. */
+  canEdit: boolean;
+  /** Holds RestoreRole's codes (from the contract): ST-4c. Without it a deleted role shows its banner and no button. */
+  canRestore: boolean;
+}
+
+type Cause = 'unreachable' | 'server-error';
+
+/**
+ * The role page's container (b3b-design.md §9.4, §10; ux-copy-b3b.md C7-2). It holds the role in state and passes the
+ * re-read role to the checklist without a remount. A failed re-read → the region error (focus on its heading); 403 →
+ * ST-4b; 404 → ST-5. The checklist renders nothing for `session-ended`.
+ *
+ * A deleted role (`archived_at` set) is read-only whatever the viewer holds — the API refuses its update (409
+ * `role.is_archived`) — so the checklist shows its read-only list, under a persistent banner with the deletion date
+ * (b3b-followup C-7, D-28; no live role: it is page content, not an announcement). The banner and its **Restore role**
+ * action are `RoleRestoreActions` (restore-role-design.md Revision 2 F-2): a restore sets the served role here, so the
+ * checklist turns live without a remount. After a restore's message is on screen the router cache is refreshed once
+ * (F-1 L-13, branch R: the Archived list was measured stale after Back); `useCommittedState` stays the commit signal.
+ * The same once after a Save's message is on screen, when the save's re-read was shown (R-15: the Roles list's
+ * Permissions count). A save whose re-read failed owes it to the Retry that shows the role; any refresh issued clears
+ * what is owed. When a save's re-read was taken over by a 403/404 swap, the checklist unmounts without reporting, so the
+ * page refreshes once itself, after the swap commits (FE-R1 R-15a); the refresh re-renders the route on the server, which
+ * returns the same ST-4b/ST-5 page as a new element (remount, same heading, focus again — r14-gap-red.md M-1; accepted).
+ * A save whose re-read failed and is never retried still owes its refresh (R-15's rule: only after a shown re-read).
+ */
+export function RolePage({ initial, canEdit, canRestore }: RolePageProps) {
+  const caller = useApiCaller();
+  const router = useRouter();
+  const timeZone = useViewerTimeZone();
+  const [role, setRole] = useCommittedState(initial.role);
+  const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
+  const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const id = initial.role.id;
+  // R-15: set when the current save's re-read did not show the role; a refresh owed to the Retry that does.
+  const saveRereadFailed = useRef(false);
+  const refreshOwed = useRef(false);
+  // FE-R1 R-15a: a refresh the page owes because a save's re-read swapped.
+  const [takeoverRefreshGen, setTakeoverRefreshGen] = useState(0);
+
+  const failed = useCallback((f: ReadFailure) => {
+    if (f === 'session-ended') return;
+    if (f === 'forbidden' || f === 'not-found') {
+      setSwap(f);
+      return;
+    }
+    // After the checklist's own after-save focus, so the region error's heading takes it.
+    setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
+  }, []);
+
+  // R-15: a save's re-read that did not show the role. Synchronous, before the action returns `saved` (wired.ts), so
+  // `onSaved` reads it set.
+  const saveRereadDidNotShow = useCallback(
+    (f: ReadFailure) => {
+      saveRereadFailed.current = true;
+      failed(f);
+      // The UpdateRole 200 changed the Roles list (wired.ts calls this only after it): refresh after the swap commits.
+      if (f === 'forbidden' || f === 'not-found') setTakeoverRefreshGen((g) => g + 1);
+    },
+    [failed],
+  );
+  // eslint-disable-next-line react-hooks/refs -- stored, not called, during render
+  const wiredSave = useMemo(() => roleSave({ caller, id, setRole, onRereadFailed: saveRereadDidNotShow }), [caller, id, setRole, saveRereadDidNotShow]);
+  const save = useCallback<SaveRoleAction>(
+    (codes) => {
+      saveRereadFailed.current = false;
+      return wiredSave(codes);
+    },
+    [wiredSave],
+  );
+  const restoreRole = useMemo(() => roleRestore({ caller, id, setRole, onRereadFailed: failed }), [caller, id, setRole, failed]);
+  // Cache invalidation only (never the commit signal): after Back, the Archived list must not show this role (restore)
+  // and the Roles list must not show its old permissions count (save, R-15). One call per event; any call clears `owed`.
+  const refreshRouterCache = useCallback(() => {
+    refreshOwed.current = false;
+    router.refresh();
+  }, [router]);
+  // R-15: the checklist's saved message is on screen. Refresh now if the re-read was shown, else owe it to Retry.
+  const onSaved = useCallback(() => {
+    if (saveRereadFailed.current) refreshOwed.current = true;
+    else refreshRouterCache();
+  }, [refreshRouterCache]);
+
+  // FE-R1 R-15a: after the commit that shows the swap page (above the swap returns: hook order).
+  useEffect(() => {
+    if (takeoverRefreshGen > 0) refreshRouterCache();
+    // Once per takeover only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverRefreshGen]);
+
+  const retry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    const r = await loadRole(readOf(caller), id, d.signal);
+    d.cancel();
+    setRetrying(false);
+    if (r.kind === 'ok') {
+      await setRole(r.role);
+      setRereadError(null);
+      h1.current?.focus();
+      if (refreshOwed.current) refreshRouterCache(); // R-15: after the commit that shows the re-read role.
+    } else failed(r.kind);
+  };
+
+  if (swap === 'forbidden') return <RolesDenied />;
+  if (swap === 'not-found') return <RoleNotFound />;
+
+  return (
+    <section className={styles.page}>
+      <header className={styles.header}>
+        <h1 ref={h1} tabIndex={-1}>
+          {role.name}
+        </h1>
+      </header>
+      {rereadError ? (
+        <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ROLE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
+      ) : null}
+      <RoleRestoreActions role={role} canRestore={canRestore} restoreRole={restoreRole} fallbackFocusRef={h1} timeZone={timeZone} onRestored={refreshRouterCache} />
+      <PermissionChecklist role={role} permissions={initial.permissions} canEdit={canEdit && role.archived_at === null} save={save} fallbackFocusRef={h1} onSaved={onSaved} />
+    </section>
+  );
+}

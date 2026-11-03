@@ -24,7 +24,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * `fulfilment.view` and not `sales_order.view` (clause 3). **V2-S-1b ships IN
  * PART here** (ruling R8): clause 4 (no `sales_order` table under PC-8) is
  * re-carried to `SEC` on `AiToolDtoTest`'s pin, and clause 5's frontend half to
- * `FE` + `UX` on `OwedAmendmentTripwireTest::noFrontendShipsWithoutThePickRouteCarry`.
+ * `FE` + `UX` on `OwedAmendmentTripwireTest::noFrontendShipsWithoutThePickRouteCarry`
+ * (trigger re-anchored by the owner on 2026-11-03: a frontend page at
+ * `/sales-orders` or below, or frontend use of `CreateFulfilment`/`GetPickList`,
+ * owes the pick page at `/sales-orders/[id]/fulfil`).
  *
  * The id in the path is the sales order's, and it is this resource's `id`: a
  * pick list is a view of one order, not a row of its own. Its shape is

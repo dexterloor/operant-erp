@@ -1,0 +1,72 @@
+/* One module for the person lifecycle surface (RED L-9: a surface may share one module). Tokens only. */
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* The after-message wrapper is always mounted (R4-4 L-2): idle it has no box, filled it draws one. */
+.afterIdle {
+  display: contents;
+}
+
+.after {
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  width: min(100%, 380px);
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e2);
+}
+
+.afterIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--success-solid);
+}
+
+.afterText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.afterMessage {
+  font-weight: var(--font-weight-semibold);
+}
+
+.archived {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius-md);
+  background: var(--neutral-subtle-bg);
+  color: var(--neutral-subtle-fg);
+}
+
+.archivedIcon {
+  flex: none;
+}
+
+.archivedText {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}

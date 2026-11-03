@@ -1,0 +1,231 @@
+/* Harbour auth card: a centred card over the navy shell gradient with aqua and cobalt glows (DECISIONS §7.1). Shared by sign-in and the three credential pages (L-5). */
+.page {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-8) var(--space-6);
+  overflow: hidden;
+  background: var(--shell-bg);
+}
+
+.page::before,
+.page::after {
+  content: '';
+  position: absolute;
+  border-radius: var(--radius-full);
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.page::before {
+  width: 420px;
+  height: 420px;
+  top: -120px;
+  right: -80px;
+  background: rgba(56, 211, 193, 0.28);
+}
+
+.page::after {
+  width: 480px;
+  height: 480px;
+  bottom: -160px;
+  left: -120px;
+  background: rgba(43, 75, 214, 0.35);
+}
+
+.card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-9);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e3);
+}
+
+.mark {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--brand-mark);
+  box-shadow: 0 8px 20px -8px rgba(56, 211, 193, 0.7);
+}
+
+.title {
+  font-family: var(--type-h1-family);
+}
+
+.secondary {
+  margin-top: var(--space-2);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.field input {
+  height: var(--size-control-lg);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font: inherit;
+}
+
+.field input:hover {
+  background: var(--bg-hover);
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.inlineLink {
+  min-height: var(--size-target-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.submit {
+  width: 100%;
+}
+
+/* 320 px: the glow shrinks to a strip and the form fills the width (DECISIONS §7.1). */
+@media (max-width: 480px) {
+  .page {
+    align-items: flex-start;
+    padding: 88px 0 0;
+    background: var(--bg-canvas);
+  }
+  .page::before,
+  .page::after {
+    display: none;
+  }
+  .page {
+    background-image: var(--shell-bg);
+    background-size: 100% 88px;
+    background-repeat: no-repeat;
+  }
+  .card {
+    max-width: none;
+    min-height: calc(100vh - 88px);
+    padding: var(--space-8) var(--space-6);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: none;
+  }
+}
+
+.embedded {
+  min-height: 0;
+  padding: var(--space-9) var(--space-6);
+  border-radius: var(--radius-lg);
+}
+
+/* ---- Credential pages (B-3a2) ---- */
+.intro {
+  color: var(--fg-muted);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--danger-solid);
+}
+
+.fieldError {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.fieldError svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.toggle {
+  min-height: var(--size-target-min);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-target-min);
+  color: var(--fg-link);
+  text-decoration: underline;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.centered {
+  align-self: center;
+}
+
+/* In-app page (change password): the same card, no backdrop (the app frame owns the page). */
+.inApp {
+  display: flex;
+  justify-content: flex-start;
+  padding: var(--space-8) var(--space-6);
+}
+
+.inApp .card {
+  max-width: 480px;
+  box-shadow: var(--elevation-e1);
+}
