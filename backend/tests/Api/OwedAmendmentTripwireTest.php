@@ -928,7 +928,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."  4. It confers NO `sales_order` table under PC-8 -- RE-CARRIED to SEC on AiToolDtoTest's pin (the\n"
             ."     first class under src/Modules/Ai), not met by anything here.\n"
             ."  5. IA N-3/N-8: it lives on `/sales-orders/[id]/fulfil`. The BACKEND half is this read; the\n"
-            ."     FRONTEND half + B1N-12's screen are RE-CARRIED to FE + UX on noFrontendShipsWithoutThePickRouteCarry.\n"
+            ."     FRONTEND half + B1N-12's screen are RE-CARRIED to FE + UX on noFrontendShipsWithoutThePickRouteCarry\n"
+            ."     (trigger re-anchored 2026-11-03: a /sales-orders page, or frontend use of CreateFulfilment/GetPickList).\n"
             ."  6. PC-9's SECOND DELIBERATE EXCEPTION names its columns -- held by\n"
             ."     PickListReadTest::pc9sSecondExceptionNamesExactlyTheColumnsThisReadProjects.\n\n"
             ."CreateFulfilment may never be in the spec without the pick read, gated as above. Do not clear the map\n"
@@ -943,20 +944,38 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * **V2-S-1b clause 5's FRONTEND half and B1N-12's screen, re-carried to `FE` + `UX` by owner ruling R8
-     * (2026-09-22) — carried by a mechanism, keyed on the directory existing, not on a guessed path.**
+     * (2026-09-22), trigger RE-ANCHORED by the owner on 2026-11-03 (`docs/design/fe-merge-r8-ruling.md`).**
      *
-     * The backend half shipped with `GetPickList`. The route (`/sales-orders/[id]/fulfil`, IA N-8a) and the
-     * screen that shows the resulting order status (B1N-12) belong to Output 6, and there is no frontend in
-     * this repository (`ls` at the root: `backend docs infra`). This goes red the moment a `frontend/`
-     * directory appears beside `backend/`, whatever it contains.
+     * **History.** Until 2026-11-03 this asserted that no `frontend/` directory existed beside `backend/` (R8's
+     * written trigger: "the first `frontend/` commit"). That trigger was crossed on 2026-10-27 on the frontend's
+     * own branch, unenforced, because this test runs only in the backend suite. The owner re-anchored it when the
+     * frontend branch merged into main. **Nothing is discharged: V2-S-1b stays shipped IN PART.**
      *
-     * **Deliberately NOT keyed on a frontend file path.** Guessing `frontend/src/app/sales-orders/…` would
-     * repeat the coin-flip-path defect `1076ba3` removed: a guess that loses never fires. The cost is
-     * coarseness — it fires on the first frontend commit, whatever that commit is — and that is the
-     * owner-visible trade (design §4 C3, OQ-B).
+     * **The implication now.** Every `page.{tsx,ts,jsx,js}` under `frontend/src/app` is given the URL Next.js
+     * serves it at ({@see self::frontendPageUrl()}). Antecedent (a): some page's URL is `/sales-orders` or below
+     * it. Antecedent (b): `CreateFulfilment` or `GetPickList` is named in frontend source outside
+     * `frontend/src/generated/`. Either one requires BOTH a page at exactly `/sales-orders/[<one param>]/fulfil`
+     * AND a use of `GetPickList` outside `src/generated/`. Keyed on the URL, never on a guessed file path: the
+     * URL is fixed by IA N-8a and by the frontend's own navigation (`/sales-orders`), while the folder that holds
+     * it is the frontend's choice — a path guess that loses never fires (`1076ba3`).
      *
-     * **Positive control:** `backend/` is resolved by the same path arithmetic, so a wrong root fails loudly
-     * instead of reporting a `frontend/` that is simply looked for in the wrong place.
+     * **What it cannot check, and says so.** R1 (the screen shows on-hand per bin, never an available figure) and
+     * B1N-12 (after a CreateFulfilment 201 the screen shows the order's resulting status) are not mechanically
+     * checkable; they travel in the failure message. A stub page that names `GetPickList` satisfies the
+     * implication, and nothing here stops that — the same residual the sibling pins carry. The second real-tree
+     * control below is what forces a person to look: the day either antecedent becomes true, that control goes
+     * red, and the commit that turns it green must state that R1 and B1N-12 were checked by hand.
+     *
+     * **Where it runs.** This is the merge-time backstop: it fires when the frontend reaches main, not when the
+     * frontend commits. The frontend owes a twin of this check in its own suite (`frontend/test/architecture.test.ts`,
+     * ruling to-do 2). Keep this one after the twin exists.
+     *
+     * **Planted controls, same test:** the predicate is a pure function of a path list and a source map, run here
+     * on synthetic trees that must trip and must pass — including a component preview at
+     * `(dev)/component-preview/sales-orders/[id]/fulfil` (URL `/component-preview/…`, which must NOT satisfy it).
+     * **Real-tree controls:** `backend/` and `frontend/src/app` resolve; the walk finds pages, at least one of them
+     * under a dropped group; `src/generated/` really holds the token the exclusion boundary removes; no symlink,
+     * no root `app/` or `pages/` router and no `pageExtensions` setting can hide a page from the walk.
      */
     #[Test]
     public function noFrontendShipsWithoutThePickRouteCarry(): void
@@ -967,17 +986,186 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'Positive control: the repository root was not resolved (no backend/ beside where frontend/ is looked for), '
             .'so the check below would pass by looking in the wrong place.');
 
-        self::assertDirectoryDoesNotExist($root.'/frontend',
-            "A frontend/ directory exists, and V2-S-1b clause 5's FRONTEND half is owed with it (owner ruling R8, "
-            ."2026-09-22; owner FE + UX).\n\n"
+        // Planted controls first: the predicate must be able to fail and to pass, whatever the real tree holds.
+        $uses = ['lib/api/pick.ts' => "viewerMay('GetPickList')"];
+        $planted = [
+            'a sales-orders list alone' => [['(app)/sales-orders/page.tsx'], $uses, false],
+            'the list and the fulfil page' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], $uses, true],
+            'the fulfil page under a nested group' => [['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx'], $uses, true],
+            'the fulfil page under a parallel slot' => [['(app)/sales-orders/[id]/@panel/fulfil/page.tsx'], $uses, true],
+            'a component preview of the fulfil page' => [['(dev)/component-preview/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], $uses, false],
+            'a catch-all under sales-orders' => [['(app)/sales-orders/[...rest]/page.tsx'], $uses, false],
+            'an optional catch-all as the param' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[[...id]]/fulfil/page.tsx'], $uses, false],
+            'a route handler, not a page' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/route.ts'], $uses, false],
+            'a layout, not a page' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/layout.tsx'], $uses, false],
+            'a fulfil page in a private folder' => [['_wip/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], $uses, false],
+            'an intercepting segment' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/(.)fulfil/page.tsx'], $uses, false],
+            'a fulfil page one level too deep' => [['(app)/sales-orders/x/[id]/fulfil/page.tsx'], $uses, false],
+            'the fulfil page without GetPickList' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], [], false],
+            'GetPickList only in generated code' => [['(app)/admin/page.tsx'], ['generated/api-surface.server.ts' => 'GetPickList'], true],
+            'CreateFulfilment used with no fulfil page' => [['(app)/admin/page.tsx'], ['components/Ship.tsx' => 'CreateFulfilment'], false],
+            'a frontend with no sales screens' => [['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], [], true],
+        ];
+        foreach ($planted as $name => [$pages, $sources, $passes]) {
+            $defects = self::pickRouteCarryDefects($pages, $sources);
+            self::assertSame($passes, [] === $defects, \sprintf(
+                'Planted control "%s" should %s, but the predicate reported: %s. The URL model or the token search is '
+                .'broken, so its verdict on the real tree below means nothing.',
+                $name, $passes ? 'pass' : 'trip', [] === $defects ? 'no defect' : implode(' | ', $defects)));
+        }
+
+        // Real-tree controls (L-1): nothing may hide a page from the walk.
+        $frontend = $root.'/frontend';
+        $app = $frontend.'/src/app';
+        self::assertDirectoryExists($app,
+            'Positive control: frontend/src/app is not where the walk looks, so it would find no page and pass on everything.');
+        foreach (['/app', '/pages', '/src/pages'] as $router) {
+            self::assertDirectoryDoesNotExist($frontend.$router, \sprintf(
+                'frontend%s exists: Next.js routes from it, and this check reads only frontend/src/app. Teach the walk '
+                .'that router before trusting it.', $router));
+        }
+        foreach (glob($frontend.'/next.config.*') ?: [] as $config) {
+            self::assertStringNotContainsString('pageExtensions', (string) file_get_contents($config), \sprintf(
+                '%s sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read '
+                .'the configured extensions.', basename($config)));
+        }
+
+        $pages = [];
+        $appFiles = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($app, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($appFiles as $file) {
+            /** @var \SplFileInfo $file */
+            self::assertFalse($file->isLink(), \sprintf(
+                '%s is a symlink: the walk does not follow links, so a page behind it would be invisible here.',
+                $file->getPathname()));
+            if ($file->isFile()) {
+                $pages[] = substr($file->getPathname(), \strlen($app) + 1);
+            }
+        }
+        $urls = array_filter(array_map(self::frontendPageUrl(...), $pages), \is_string(...));
+        self::assertNotSame([], $urls, 'The walk found no page under frontend/src/app, so the implication would hold over nothing.');
+        $underAGroup = array_filter($pages, static fn (string $page): bool => null !== self::frontendPageUrl($page)
+            && 1 === preg_match('~(^|/)\((?!\.)[^()/]+\)/~', $page));
+        self::assertNotSame([], $underAGroup,
+            'No real page sits under a route group, so the walk never exercised the group drop on the real tree.');
+
+        $sources = [];
+        $srcFiles = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($frontend.'/src', \FilesystemIterator::SKIP_DOTS));
+        foreach ($srcFiles as $file) {
+            /** @var \SplFileInfo $file */
+            if ($file->isFile()) {
+                $sources[substr($file->getPathname(), \strlen($frontend.'/src') + 1)] = (string) file_get_contents($file->getPathname());
+            }
+        }
+        $generatedNamesIt = array_filter($sources, static fn (string $text, string $path): bool => str_starts_with($path, 'generated/')
+            && 1 === preg_match(self::PICK_OPERATION_TOKEN, $text), \ARRAY_FILTER_USE_BOTH);
+        self::assertNotSame([], $generatedNamesIt,
+            'Positive control: frontend/src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves '
+            .'nothing about where the boundary is. Re-derive the token or the folder.');
+
+        $message = "V2-S-1b clause 5's FRONTEND half is owed (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on\n"
+            ."2026-11-03, docs/design/fe-merge-r8-ruling.md: a page at /sales-orders or below, or frontend source outside\n"
+            ."src/generated/ naming CreateFulfilment or GetPickList; owner FE + UX).\n\n"
             ."  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n"
             ."    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n"
             ."  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n"
             ."    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n"
             ."  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n"
             ."  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n"
-            ."Do this in the commit that builds the screen, then move this test deliberately -- key it on the route's\n"
-            ."real file once it exists. Until then V2-S-1b is shipped IN PART and must not be called discharged.");
+            ."Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n"
+            ."shipped IN PART and must not be called discharged.";
+
+        $defects = self::pickRouteCarryDefects($pages, $sources);
+        self::assertSame([], $defects, "  ".implode("\n  ", $defects)."\n\n".$message);
+
+        // The second real-tree control: while neither antecedent holds, the implication above is vacuous on the real
+        // tree. The day one does, the screen is being built -- R1 and B1N-12 cannot be checked here, so a person must.
+        self::assertFalse(self::pickRouteCarryIsDue($pages, $sources),
+            "The pick screen's trigger is now TRUE on the real tree and the implication above holds -- the screen is being\n"
+            ."built. R1 and B1N-12 cannot be checked mechanically: check both by hand against the screen, say so in the\n"
+            ."commit, and only then remove this control in that commit.\n\n".$message);
+    }
+
+    /** The identifiers that make the pick screen due (antecedent (b)); `GetPickList` alone is the consequent's use. */
+    private const PICK_OPERATION_TOKEN = '/\b(?:CreateFulfilment|GetPickList)\b/';
+
+    /** Exactly one single-segment dynamic parameter, then `fulfil`: no catch-all, no optional catch-all. */
+    private const PICK_ROUTE_URL = '~^/sales-orders/\[[A-Za-z][A-Za-z0-9]*\]/fulfil$~';
+
+    /**
+     * The URL Next.js serves a file at, or null when the file is not a page or is not routable.
+     *
+     * `$path` is relative to `frontend/src/app`. Only `page.{tsx,ts,jsx,js}` is a page (`route.ts`, `layout.tsx`,
+     * `default.tsx` are not). A segment starting with `_` is a private folder, so nothing beneath it is routable.
+     * A route group `(name)` and a parallel slot `@name` add nothing to the URL, at any depth. An intercepting
+     * segment (`(.)x`, `(..)x`, `(...)x`) is kept verbatim: it is not a URL a person navigates to, so it can make
+     * the screen due but can never satisfy it — fail-closed.
+     */
+    private static function frontendPageUrl(string $path): ?string
+    {
+        $segments = explode('/', str_replace('\\', '/', $path));
+        if (!\in_array(array_pop($segments), ['page.tsx', 'page.ts', 'page.jsx', 'page.js'], true)) {
+            return null;
+        }
+        $url = [];
+        foreach ($segments as $segment) {
+            if (str_starts_with($segment, '_')) {
+                return null;
+            }
+            if (1 === preg_match('/^\((?!\.)[^()]+\)$/', $segment) || str_starts_with($segment, '@')) {
+                continue;
+            }
+            $url[] = $segment;
+        }
+
+        return '/'.implode('/', $url);
+    }
+
+    /**
+     * @param list<string>          $pages   files relative to `frontend/src/app`
+     * @param array<string, string> $sources contents of files, keyed by path relative to `frontend/src`
+     */
+    private static function pickRouteCarryIsDue(array $pages, array $sources): bool
+    {
+        foreach ($pages as $page) {
+            $url = self::frontendPageUrl($page);
+            if (null !== $url && ('/sales-orders' === $url || str_starts_with($url, '/sales-orders/'))) {
+                return true;
+            }
+        }
+        foreach ($sources as $path => $text) {
+            if (!str_starts_with($path, 'generated/') && 1 === preg_match(self::PICK_OPERATION_TOKEN, $text)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<string>          $pages   files relative to `frontend/src/app`
+     * @param array<string, string> $sources contents of files, keyed by path relative to `frontend/src`
+     *
+     * @return list<string>
+     */
+    private static function pickRouteCarryDefects(array $pages, array $sources): array
+    {
+        if (!self::pickRouteCarryIsDue($pages, $sources)) {
+            return [];
+        }
+        $defects = [];
+        $routed = array_filter($pages, static fn (string $page): bool => 1 === preg_match(self::PICK_ROUTE_URL, (string) self::frontendPageUrl($page)));
+        if ([] === $routed) {
+            $defects[] = 'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly '
+                .'/sales-orders/[param]/fulfil';
+        }
+        $used = array_filter($sources, static fn (string $text, string $path): bool => !str_starts_with($path, 'generated/')
+            && 1 === preg_match('/\bGetPickList\b/', $text), \ARRAY_FILTER_USE_BOTH);
+        if ([] === $used) {
+            $defects[] = 'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)';
+        }
+
+        return $defects;
     }
 
     /**

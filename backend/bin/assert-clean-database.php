@@ -84,11 +84,37 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     ]);
 } catch (PDOException $e) {
-    // Deliberately not echoing the DSN -- it carries a password.
+    // The DSN is never echoed -- it carries a password. The server's own message is, because it names the cause
+    // (an authentication failure reads very differently from a refused connection), but only after every copy of
+    // the password and any `password=` pair has been removed from it. A server message names the login, never
+    // its password; the scrub is a second line of defence, not the first.
+    $secret = (string) ($parts['pass'] ?? '');
+    $message = $e->getMessage();
+    foreach (array_unique([$secret, rawurldecode($secret)]) as $copy) {
+        if ('' !== $copy) {
+            $message = str_replace($copy, '[redacted]', $message);
+        }
+    }
+    $message = (string) preg_replace('/password\s*=\s*\S+/i', 'password=[redacted]', $message);
+    $message = trim((string) preg_replace(['/^SQLSTATE\[\w+\]\s*(\[\d+\]\s*)?/', '/\s+/'], ['', ' '], $message));
+    $sqlState = \is_array($e->errorInfo) && isset($e->errorInfo[0]) ? (string) $e->errorInfo[0] : (string) $e->getCode();
+
+    // Only a refused or unreachable socket means the stack is down. Anything else (08006 with "password
+    // authentication failed", a missing database, a missing login) means a server answered and refused.
+    $unreachable = 1 === preg_match('/connection refused|could not connect|no such file or directory|timeout expired|could not translate host name/i', $message)
+        && 1 !== preg_match('/authentication failed|does not exist/i', $message);
+
     fwrite(STDERR, sprintf(
-        "assert-clean-database: cannot connect to %s:%d. Is the stack up?\n",
+        "assert-clean-database: cannot connect to %s:%d (SQLSTATE %s).\n  %s\n%s",
         $parts['host'],
         $parts['port'],
+        '' !== $sqlState ? $sqlState : 'unknown',
+        '' !== $message ? $message : '(no message)',
+        $unreachable
+            ? "  Is the stack up? (`make up`, and check `docker context ls`)\n"
+            : "  A server answered and refused. Run `docker logs erp_postgres`: 'ignoring /docker-entrypoint-initdb.d/*'\n"
+              ."  means the init scripts were not mounted (the checkout must be in a directory your Docker VM shares);\n"
+              ."  'password authentication failed' means .env.test and .env.infra disagree, or the volume predates them.\n",
     ));
     exit(2);
 }
