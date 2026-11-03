@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 import { Refetchable, RefetchFailedBanner, RegionError } from '@/components/states/PageStates';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { LIST_STATES } from '@/copy/shell';
@@ -64,7 +66,10 @@ export interface ArchivableListProps<T> {
  * after a failed first load retries the view the address names. The Archived control is derived from the rows on screen, so a
  * failed switch leaves it on the view actually shown (RED round 2 R2-L2) under `LIST_STATES.refetchFailed`. The settled
  * announcement starts after the first interaction (first paint is not announced, ST-2a) and never says "0 shown": an
- * empty result speaks its empty heading.
+ * empty result speaks its empty heading. The status region is mounted empty from first render at the section root, so
+ * a successful Retry after a failed first load is a change it announces (principle 6; RED M-3). That Retry's button
+ * unmounts with the error, so focus moves to the h1 — with the rows on screen — and only then is the sentence written
+ * (RED X-2; the RolePage/PersonPage re-read precedent; FE-D1 order).
  */
 export function ArchivableList<T extends { id: string; archived_at: string | null }>({ initial, initialArchived = false, load, matches, columns, copy, denied }: ArchivableListProps<T>) {
   const caller = useApiCaller();
@@ -80,7 +85,10 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const [q, setQ] = useState('');
   const [settledQ, setSettledQ] = useState('');
   const [interacted, setInteracted] = useState(false);
+  /** While true, the settled sentence waits: a Retry of a failed first load writes it only after the h1 took focus. */
+  const [quiet, setQuiet] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const h1 = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setSettledQ(q), SEARCH_SETTLE_MS);
@@ -95,10 +103,20 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     deadline.cancel();
     setBusy(false);
     if (r.kind === 'ok') {
-      setShown({ archived, items: r.items });
-      setFirstError(null);
-      setRefetchError(null);
-      setInteracted(true);
+      const recovering = shown === null;
+      // X-2: a Retry of a failed first load unmounts its own button. Commit the rows first (sentence held), then focus
+      // the h1, then let the sentence through — focus first, then announce (FE-D1's flushSync order).
+      flushSync(() => {
+        if (recovering) setQuiet(true);
+        setShown({ archived, items: r.items });
+        setFirstError(null);
+        setRefetchError(null);
+        setInteracted(true);
+      });
+      if (recovering) {
+        h1.current?.focus();
+        setQuiet(false);
+      }
       if (archived !== addressArchived.current) {
         addressArchived.current = archived;
         router.replace(pathname + (archived ? '?archived=true' : ''), { scroll: false });
@@ -125,7 +143,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
 
   const emptyHeadingFor = (query: string) => (query !== '' ? (archived ? copy.noArchivedMatch(query) : copy.noMatch(query)) : archived ? copy.noneArchived : copy.noneLive);
   const settledCount = filter(settledQ).length;
-  const announcement = !interacted || !shown ? '' : settledCount > 0 ? copy.shown(settledCount, settledQ, archived) : (emptyHeadingFor(settledQ) ?? '');
+  const announcement = !interacted || !shown || quiet || busy ? '' : settledCount > 0 ? copy.shown(settledCount, settledQ, archived) : (emptyHeadingFor(settledQ) ?? '');
   const emptyHeading = shown && rows.length === 0 ? emptyHeadingFor(q) : null;
   const cols = columns(archived);
 
@@ -137,8 +155,12 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <h1 tabIndex={-1}>{copy.heading}</h1>
+        <h1 ref={h1} tabIndex={-1}>
+          {copy.heading}
+        </h1>
       </header>
+      {/* Mounted from first render, above every branch below, so it never arrives already speaking (principle 6). */}
+      <LiveRegion message={announcement} visuallyHidden />
       {firstError ? (
         <RegionError key={firstError.gen} heading={headingOf(firstError.cause)} body={copy.loadFailed} retrying={busy} autoFocus={firstError.gen > 0} onRetry={() => void fetchView(initialArchived)} />
       ) : null}
@@ -164,7 +186,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
             </label>
           </div>
           {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived)} /> : null}
-          <Refetchable busy={busy} announcement={announcement}>
+          <Refetchable busy={busy} liveRegion={false}>
             {emptyHeading !== null ? (
               <div className={styles.empty}>
                 <p className={styles.emptyHeading}>{emptyHeading}</p>

@@ -129,14 +129,18 @@ export function Skeleton({ rows = 3, label }: { rows?: number; label: string }) 
  * Refetching (ST-1a): existing content stays at full contrast and clickable — no overlay, no dimming, no skeleton
  * swap. aria-busy is set on the region while loading; progress shows on the control that caused it (`indicator`).
  * When it settles, `announcement` (the ruled refresh sentence, supplied by the caller) is read politely.
+ * `liveRegion={false}`: the caller owns a `LiveRegion` mounted from first render above any branch that can hide this
+ * wrapper (principle 6; the users/roles lists, whose wrapper is absent while a first load has failed — RED M-3).
  */
-export function Refetchable({ busy, announcement, children }: { busy: boolean; announcement?: string; children: ReactNode }) {
+export function Refetchable({ busy, announcement, liveRegion = true, children }: { busy: boolean; announcement?: string; liveRegion?: boolean; children: ReactNode }) {
   return (
     <div className={styles.refetchable} aria-busy={busy || undefined}>
       {children}
-      <span className="visually-hidden" role="status" aria-live="polite">
-        {busy ? '' : (announcement ?? '')}
-      </span>
+      {liveRegion ? (
+        <span className="visually-hidden" role="status" aria-live="polite">
+          {busy ? '' : (announcement ?? '')}
+        </span>
+      ) : null}
     </div>
   );
 }
