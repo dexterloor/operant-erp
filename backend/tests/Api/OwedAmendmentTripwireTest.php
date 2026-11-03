@@ -952,7 +952,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * frontend branch merged into main. **Nothing is discharged: V2-S-1b stays shipped IN PART.**
      *
      * **The implication now.** Every `page.{tsx,ts,jsx,js}` under `frontend/src/app` is given the URL Next.js
-     * serves it at ({@see self::frontendPageUrl()}). Antecedent (a): some page's URL is `/sales-orders` or below
+     * serves a static-segment page at ({@see self::frontendPageUrl()}). Antecedent (a): some page's URL is `/sales-orders` or below
      * it. Antecedent (b): `CreateFulfilment` or `GetPickList` is named in frontend source outside
      * `frontend/src/generated/`. Either one requires BOTH a page at exactly `/sales-orders/[<one param>]/fulfil`
      * AND a use of `GetPickList` outside `src/generated/`. Keyed on the URL, never on a guessed file path: the
@@ -966,26 +966,37 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * control below is what forces a person to look: the day either antecedent becomes true, that control goes
      * red, and the commit that turns it green must state that R1 and B1N-12 were checked by hand.
      *
+     * **Routes the URL model cannot see, and how each is held (twin RED M-2, 2026-11-03).** A page whose first
+     * URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]` at the app root) can serve `/sales-orders` while its URL
+     * derives as `/[x]`; a `middleware.*` or `proxy.*` file can rewrite a URL to any page; `rewrites` or `redirects`
+     * in `next.config.*` can do the same. None exists today, and {@see self::frontendTree()} refuses all three
+     * (the dynamic-segment allow-list is empty), so a person must teach the walk before adding one. A config value
+     * imported from another module (`next.config.ts` already imports `./src/lib/bff/loopback`) is invisible to a
+     * text search of the config. An intercepting segment (`(..)x`) is kept verbatim (see below).
+     *
+     * **Symlinks (twin RED M-1).** The `src/app` walk refuses any symlink. The `src` source walk reads a file
+     * symlink's target (`isFile()` follows it) but does NOT descend into a directory symlink
+     * (`RecursiveDirectoryIterator` defaults to not following links), so a source behind a linked directory is
+     * invisible here. The frontend twin refuses every symlink under `src`, so the two walks cannot disagree while
+     * its control holds.
+     *
      * **Where it runs.** This is the merge-time backstop: it fires when the frontend reaches main, not when the
-     * frontend commits. The frontend owes a twin of this check in its own suite (`frontend/test/architecture.test.ts`,
-     * ruling to-do 2). Keep this one after the twin exists.
+     * frontend commits. Its twin runs on every frontend gate: `frontend/test/architecture.test.ts`, block "FE-R2"
+     * (landed `f199cee`, merged at `af08775`). Keep this one after the twin exists. A merge into main confirms by
+     * hand that the twin still exists and that its suite ran green at the merged head (no byte-parity check: R-5).
      *
      * **Planted controls, same test:** the predicate is a pure function of a path list and a source map, run here
      * on synthetic trees that must trip and must pass — including a component preview at
      * `(dev)/component-preview/sales-orders/[id]/fulfil` (URL `/component-preview/…`, which must NOT satisfy it).
-     * **Real-tree controls:** `backend/` and `frontend/src/app` resolve; the walk finds pages, at least one of them
-     * under a dropped group; `src/generated/` really holds the token the exclusion boundary removes; no symlink,
-     * no root `app/` or `pages/` router and no `pageExtensions` setting can hide a page from the walk.
+     * The last six trees each isolate ONE rule (empty or generated-only sources, so antecedent (b) cannot carry the
+     * verdict; twin RED H-1): `page.jsx`, `page.js`, "or below", the consequent's `generated/` exclusion, and the
+     * `_` rule above and below `sales-orders`. Same names and verdicts as the twin's planted table.
+     * **Real-tree controls:** {@see self::frontendTree()}'s, which every frontend tripwire in this class shares;
+     * plus, per method, that `src/generated/` really holds the token the exclusion boundary removes.
      */
     #[Test]
     public function noFrontendShipsWithoutThePickRouteCarry(): void
     {
-        $root = \dirname(__DIR__, 3);
-
-        self::assertDirectoryExists($root.'/backend',
-            'Positive control: the repository root was not resolved (no backend/ beside where frontend/ is looked for), '
-            .'so the check below would pass by looking in the wrong place.');
-
         // Planted controls first: the predicate must be able to fail and to pass, whatever the real tree holds.
         $uses = ['lib/api/pick.ts' => "viewerMay('GetPickList')"];
         $planted = [
@@ -1005,6 +1016,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'GetPickList only in generated code' => [['(app)/admin/page.tsx'], ['generated/api-surface.server.ts' => 'GetPickList'], true],
             'CreateFulfilment used with no fulfil page' => [['(app)/admin/page.tsx'], ['components/Ship.tsx' => 'CreateFulfilment'], false],
             'a frontend with no sales screens' => [['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], [], true],
+            // Each tree below isolates ONE rule (empty or generated-only sources, so antecedent (b) cannot carry it;
+            // twin RED H-1). Mirrored from the twin's planted table, same names and verdicts.
+            'a page.jsx counts as a page' => [['(app)/sales-orders/page.jsx'], [], false],
+            'a page.js counts as a page' => [['(app)/sales-orders/page.js'], [], false],
+            'a page below /sales-orders makes the screen due' => [['(app)/sales-orders/[id]/page.tsx'], [], false],
+            'GetPickList named only in generated code does not satisfy the screen' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], ['generated/api-surface.server.ts' => 'GetPickList'], false],
+            'a sales-orders page in a private folder is not routable' => [['(app)/_wip/sales-orders/page.tsx'], [], true],
+            'a private folder below sales-orders is not routable' => [['(app)/sales-orders/_wip/page.tsx'], [], true],
         ];
         foreach ($planted as $name => [$pages, $sources, $passes]) {
             $defects = self::pickRouteCarryDefects($pages, $sources);
@@ -1013,50 +1032,16 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
                 .'broken, so its verdict on the real tree below means nothing.',
                 $name, $passes ? 'pass' : 'trip', [] === $defects ? 'no defect' : implode(' | ', $defects)));
         }
+        // Planted control for the shared dynamic-first-segment refusal (twin RED M-2): caught unless allowed; a
+        // deeper one, a private folder and a route handler are not.
+        $dynamic = ['(app)/[module]/page.tsx', '[...slug]/page.tsx', '(app)/[[...all]]/page.tsx', '(app)/admin/roles/[id]/page.tsx',
+            '(app)/page.tsx', '_x/[y]/page.tsx', 'bff/[...p]/route.ts'];
+        self::assertSame(['(app)/[module]/page.tsx', '[...slug]/page.tsx', '(app)/[[...all]]/page.tsx'], self::dynamicRootPages($dynamic, []),
+            'Planted control: the dynamic-first-segment refusal does not catch exactly the three root dynamic pages.');
+        self::assertSame(['(app)/[module]/page.tsx', '(app)/[[...all]]/page.tsx'], self::dynamicRootPages($dynamic, ['[...slug]/page.tsx']),
+            'Planted control: the dynamic-first-segment allow-list does not let an allowed page through.');
 
-        // Real-tree controls (L-1): nothing may hide a page from the walk.
-        $frontend = $root.'/frontend';
-        $app = $frontend.'/src/app';
-        self::assertDirectoryExists($app,
-            'Positive control: frontend/src/app is not where the walk looks, so it would find no page and pass on everything.');
-        foreach (['/app', '/pages', '/src/pages'] as $router) {
-            self::assertDirectoryDoesNotExist($frontend.$router, \sprintf(
-                'frontend%s exists: Next.js routes from it, and this check reads only frontend/src/app. Teach the walk '
-                .'that router before trusting it.', $router));
-        }
-        foreach (glob($frontend.'/next.config.*') ?: [] as $config) {
-            self::assertStringNotContainsString('pageExtensions', (string) file_get_contents($config), \sprintf(
-                '%s sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read '
-                .'the configured extensions.', basename($config)));
-        }
-
-        $pages = [];
-        $appFiles = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($app, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST);
-        foreach ($appFiles as $file) {
-            /** @var \SplFileInfo $file */
-            self::assertFalse($file->isLink(), \sprintf(
-                '%s is a symlink: the walk does not follow links, so a page behind it would be invisible here.',
-                $file->getPathname()));
-            if ($file->isFile()) {
-                $pages[] = substr($file->getPathname(), \strlen($app) + 1);
-            }
-        }
-        $urls = array_filter(array_map(self::frontendPageUrl(...), $pages), \is_string(...));
-        self::assertNotSame([], $urls, 'The walk found no page under frontend/src/app, so the implication would hold over nothing.');
-        $underAGroup = array_filter($pages, static fn (string $page): bool => null !== self::frontendPageUrl($page)
-            && 1 === preg_match('~(^|/)\((?!\.)[^()/]+\)/~', $page));
-        self::assertNotSame([], $underAGroup,
-            'No real page sits under a route group, so the walk never exercised the group drop on the real tree.');
-
-        $sources = [];
-        $srcFiles = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($frontend.'/src', \FilesystemIterator::SKIP_DOTS));
-        foreach ($srcFiles as $file) {
-            /** @var \SplFileInfo $file */
-            if ($file->isFile()) {
-                $sources[substr($file->getPathname(), \strlen($frontend.'/src') + 1)] = (string) file_get_contents($file->getPathname());
-            }
-        }
+        ['pages' => $pages, 'sources' => $sources] = self::frontendTree();
         $generatedNamesIt = array_filter($sources, static fn (string $text, string $path): bool => str_starts_with($path, 'generated/')
             && 1 === preg_match(self::PICK_OPERATION_TOKEN, $text), \ARRAY_FILTER_USE_BOTH);
         self::assertNotSame([], $generatedNamesIt,
@@ -1068,9 +1053,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."src/generated/ naming CreateFulfilment or GetPickList; owner FE + UX).\n\n"
             ."  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n"
             ."    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n"
-            ."  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n"
+            ."  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's current status (re-read the\n"
             ."    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n"
-            ."  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n"
+            ."  - docs/ux/FLOWS.md F-5 (UX, 2026-11-03) now holds the corrected gate and step 6's recommendation: after\n"
+            ."    the 201, re-read the pick list and say \"The order is now partly shipped / fully shipped / cancelled\";\n"
+            ."    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n"
+            ."    TO CONFIRM FE-LEAD.\n"
             ."  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n"
             ."Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n"
             ."shipped IN PART and must not be called discharged.";
@@ -1083,14 +1071,18 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertFalse(self::pickRouteCarryIsDue($pages, $sources),
             "The pick screen's trigger is now TRUE on the real tree and the implication above holds -- the screen is being\n"
             ."built. R1 and B1N-12 cannot be checked mechanically: check both by hand against the screen, say so in the\n"
-            ."commit, and only then remove this control in that commit.\n\n".$message);
+            ."commit, and only then remove this control in that commit.\n"
+            ."The frontend twin carries the same control (frontend/test/architecture.test.ts, FE-R2: \"the trigger is\n"
+            ."still false on the real tree (remove only in the pick screen's commit, after the hand check)\"). It moves in\n"
+            ."the frontend commit that builds the screen; this one moves in the merge that brings that commit to main,\n"
+            ."citing that commit's hand check.\n\n".$message);
     }
 
     /** The identifiers that make the pick screen due (antecedent (b)); `GetPickList` alone is the consequent's use. */
     private const PICK_OPERATION_TOKEN = '/\b(?:CreateFulfilment|GetPickList)\b/';
 
     /** Exactly one single-segment dynamic parameter, then `fulfil`: no catch-all, no optional catch-all. */
-    private const PICK_ROUTE_URL = '~^/sales-orders/\[[A-Za-z][A-Za-z0-9]*\]/fulfil$~';
+    private const PICK_ROUTE_URL = '~^/sales-orders/\[[A-Za-z][A-Za-z0-9]*\]/fulfil$~D';
 
     /**
      * The URL Next.js serves a file at, or null when the file is not a page or is not routable.
@@ -1112,7 +1104,7 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             if (str_starts_with($segment, '_')) {
                 return null;
             }
-            if (1 === preg_match('/^\((?!\.)[^()]+\)$/', $segment) || str_starts_with($segment, '@')) {
+            if (1 === preg_match('/^\((?!\.)[^()]+\)$/D', $segment) || str_starts_with($segment, '@')) {
                 continue;
             }
             $url[] = $segment;
@@ -1166,6 +1158,118 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return $defects;
+    }
+
+    /**
+     * Pages under `frontend/src/app` allowed a dynamic first URL segment. Empty: none exists, and each one added
+     * needs a reason (twin RED M-2). Same list as the twin's `DYNAMIC_ROOT_PAGES_ALLOWED`.
+     *
+     * @var list<string>
+     */
+    private const DYNAMIC_ROOT_PAGES_ALLOWED = [];
+
+    /**
+     * Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve any first segment
+     * unseen by a check keyed on the derived URL.
+     *
+     * @param list<string> $pages   files relative to `frontend/src/app`
+     * @param list<string> $allowed
+     *
+     * @return list<string>
+     */
+    private static function dynamicRootPages(array $pages, array $allowed): array
+    {
+        return array_values(array_filter($pages, static function (string $page) use ($allowed): bool {
+            $url = self::frontendPageUrl($page);
+            $first = null === $url ? null : (explode('/', $url)[1] ?? '');
+
+            return null !== $first && str_starts_with($first, '[') && !\in_array($page, $allowed, true);
+        }));
+    }
+
+    /**
+     * The real frontend tree every frontend tripwire in this class reads, and the controls that make its walk
+     * trustworthy (R8 RED L-1; twin RED M-1, M-2; G-47 RED A-M4). Pure walk: no method-specific token control
+     * lives here.
+     *
+     * Asserts: the repository root resolves; `frontend/src/app` exists; no root `app/`, `pages/` or `src/pages/`
+     * router; a `next.config.*` exists and sets no `pageExtensions`, `rewrites` or `redirects` (a value imported
+     * from another module is invisible to this text search); no `middleware.*` or `proxy.*` at `frontend/` or
+     * `frontend/src/`; no symlink under `src/app`; at least one page, one of them under a dropped route group; no
+     * page with a dynamic first URL segment outside {@see self::DYNAMIC_ROOT_PAGES_ALLOWED}. Then returns every
+     * file under `src/app` (relative to it) and the contents of every file under `src` (keyed relative to it). The
+     * `src` walk reads file symlinks and does not descend into directory symlinks.
+     *
+     * @return array{pages: list<string>, sources: array<string, string>}
+     */
+    private static function frontendTree(): array
+    {
+        $root = \dirname(__DIR__, 3);
+        self::assertDirectoryExists($root.'/backend',
+            'Positive control: the repository root was not resolved (no backend/ beside where frontend/ is looked for), '
+            .'so the check below would pass by looking in the wrong place.');
+
+        $frontend = $root.'/frontend';
+        $app = $frontend.'/src/app';
+        self::assertDirectoryExists($app,
+            'Positive control: frontend/src/app is not where the walk looks, so it would find no page and pass on everything.');
+        foreach (['/app', '/pages', '/src/pages'] as $router) {
+            self::assertDirectoryDoesNotExist($frontend.$router, \sprintf(
+                'frontend%s exists: Next.js routes from it, and this check reads only frontend/src/app. Teach the walk '
+                .'that router before trusting it.', $router));
+        }
+        $configs = glob($frontend.'/next.config.*') ?: [];
+        self::assertNotSame([], $configs, 'Positive control: no frontend/next.config.* found, so the config checks below read nothing.');
+        foreach ($configs as $config) {
+            $text = (string) file_get_contents($config);
+            self::assertStringNotContainsString('pageExtensions', $text, \sprintf(
+                '%s sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read '
+                .'the configured extensions.', basename($config)));
+            foreach (['rewrites', 'redirects'] as $key) {
+                self::assertStringNotContainsString($key, $text, \sprintf(
+                    '%s sets %s, so a URL may now be served by a page this walk derives differently. Teach the walk '
+                    .'before trusting it.', basename($config), $key));
+            }
+        }
+        foreach (['', '/src'] as $dir) {
+            $routers = [...(glob($frontend.$dir.'/middleware.*') ?: []), ...(glob($frontend.$dir.'/proxy.*') ?: [])];
+            self::assertSame([], $routers, \sprintf(
+                'frontend%s/%s exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. '
+                .'Teach the walk before trusting it.', $dir, basename($routers[0] ?? '')));
+        }
+
+        $pages = [];
+        $appFiles = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($app, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($appFiles as $file) {
+            /** @var \SplFileInfo $file */
+            self::assertFalse($file->isLink(), \sprintf(
+                '%s is a symlink: the walk does not follow links, so a page behind it would be invisible here.',
+                $file->getPathname()));
+            if ($file->isFile()) {
+                $pages[] = substr($file->getPathname(), \strlen($app) + 1);
+            }
+        }
+        $urls = array_filter(array_map(self::frontendPageUrl(...), $pages), \is_string(...));
+        self::assertNotSame([], $urls, 'The walk found no page under frontend/src/app, so the implication would hold over nothing.');
+        $underAGroup = array_filter($pages, static fn (string $page): bool => null !== self::frontendPageUrl($page)
+            && 1 === preg_match('~(^|/)\((?!\.)[^()/]+\)/~', $page));
+        self::assertNotSame([], $underAGroup,
+            'No real page sits under a route group, so the walk never exercised the group drop on the real tree.');
+        self::assertSame([], self::dynamicRootPages($pages, self::DYNAMIC_ROOT_PAGES_ALLOWED),
+            'A page whose first URL segment is dynamic can serve any first segment, and this walk would derive its URL '
+            .'as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).');
+
+        $sources = [];
+        $srcFiles = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($frontend.'/src', \FilesystemIterator::SKIP_DOTS));
+        foreach ($srcFiles as $file) {
+            /** @var \SplFileInfo $file */
+            if ($file->isFile()) {
+                $sources[substr($file->getPathname(), \strlen($frontend.'/src') + 1)] = (string) file_get_contents($file->getPathname());
+            }
+        }
+
+        return ['pages' => $pages, 'sources' => $sources];
     }
 
     /**

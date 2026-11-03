@@ -87,10 +87,11 @@ use Symfony\Component\Uid\Uuid;
  * *"per line, `quantity − quantity_fulfilled` … **derived and never written into
  * `quantity`**"*, and **no new status is added**. So there is no line statement to
  * issue — which is why `erp_app` holds no `DELETE` on either sales table and none
- * is asked for. The `partially_fulfilled` source is also **unreachable today**
- * (nothing writes `quantity_fulfilled`; `RESIDUAL_GAPS.md` G-7), so that half of
- * the rule is a forward declaration with `CreateFulfilment` as its hard trigger —
- * stated in `SalesOrder::cancel()`'s docblock rather than carried as prose.
+ * is asked for. The `partially_fulfilled` source has been **reachable since
+ * `CreateFulfilment` shipped (2026-09-22)**: `FulfilmentWriter` writes
+ * `quantity_fulfilled` and `SalesOrder::recordFulfilment()` sets the status. Until
+ * then that half of the rule was a forward declaration with `CreateFulfilment` as
+ * its hard trigger; `SalesOrder::cancel()`'s docblock records the change.
  *
  * **V2-C-14(b) is the decision this commit was forced to take** and it is recorded
  * in `docs/API.md` §15.1 with a mechanism rather than a sentence:
