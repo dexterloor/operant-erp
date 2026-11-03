@@ -991,7 +991,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * The last six trees each isolate ONE rule (empty or generated-only sources, so antecedent (b) cannot carry the
      * verdict; twin RED H-1): `page.jsx`, `page.js`, "or below", the consequent's `generated/` exclusion, and the
      * `_` rule above and below `sales-orders`. Same names and verdicts as the twin's planted table.
-     * **Real-tree controls:** {@see self::frontendTree()}'s, which every frontend tripwire in this class shares;
+     * **Real-tree controls:** {@see self::frontendTree()}'s, shared with
+     * {@see self::noFrontendShowsStockRowsWhileG47IsOpen()};
      * plus, per method, that `src/generated/` really holds the token the exclusion boundary removes.
      */
     #[Test]
@@ -1270,6 +1271,404 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         }
 
         return ['pages' => $pages, 'sources' => $sources];
+    }
+
+    /**
+     * **G-47's frontend trigger, re-put by the owner's delegation on 2026-11-03** (`docs/design/g47-ruling.md`;
+     * `g47-owner-questions-recommendation.md` FINAL R-1…R-3). G-47 (Low; owner `UX` + `SEC`): a `ListStockLevels`
+     * row does not say whether its bin can be picked — quarantine bins, archived bins and bins of an archived
+     * warehouse look like pickable ones. **G-47 is NOT closed and nothing here may be read as closing it.**
+     *
+     * **History.** The written trigger was "the first `frontend/` commit rendering `/stock`" (2026-10-14). Read as a
+     * routed page, it was never crossed. Read as the menu link, it was crossed for about 22 hours on the frontend
+     * branch only (`2331d11` 2026-10-28 → `f7dd0c3` 2026-10-29, a link to a 404; never on main, no stock row shown).
+     *
+     * **The trigger T** (outside `frontend/src/generated/`): (a) a page served at `/stock` or below (the shared URL
+     * model, {@see self::frontendPageUrl()}); (b) source naming `ListStockLevels`, minus the one navigation-map
+     * `operation:` entry in `lib/navigation.ts` (path AND shape, never path alone); (c) source naming the stock path
+     * `/api/v1/stock` or `/bff/api/stock` (not `/stock-movements`); (d) `frontend/scripts/api-surface.client-ops.json`
+     * wiring `ListStockLevels` for the browser.
+     *
+     * **The implication T ⇒ C1 (FINAL R-3, option 2).** Stock rows may render only to a viewer holding BOTH
+     * `storage_location.view` and `warehouse.view`, with a text badge (`Quarantine` / `Archived`) drawn client-side
+     * from `ListStorageLocations` (live and `?archived=true`) and the warehouse's archived state, failing closed.
+     * C1: every file making T true through (a), (b) or (c), together with the modules it imports one level down
+     * (relative or `@/` path, resolved by text, no AST), names `ListStorageLocations`, `'storage_location.view'` and
+     * `'warehouse.view'`. When T holds through (d) alone, no file can be checked, so the pin fails closed. C2 (the
+     * badge copy key) joins in the screen's commit, once UX fixes the key — a guessed key is the `1076ba3` coin flip.
+     *
+     * **Weaker than option (1), and said so.** A stub naming the three tokens satisfies C1; the safety of this rests
+     * on the seven hand checks in the failure message, exactly as R8's pick screen does. Option (1), a pin that T
+     * stays false, is the fallback offered to the owner. A later step-up: a pure `stockRowMarker()` with its own unit
+     * tests, which C1 then names instead of the raw tokens (FE-LEAD's call at the screen's design).
+     *
+     * **Known limits, stated:** a path or operation name built by concatenation or a template literal evades (b) and
+     * (c); a comment or docblock naming a token fires them (loud and safe); a nav-driven generic page (`[module]`) is
+     * held on its route half by {@see self::frontendTree()}'s dynamic-segment refusal and on its client half by (d),
+     * and not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a link to `/stock`
+     * from a caller of `deriveNavigation()` without the built filter is not watched (a link to a 404 shows no rows);
+     * a source behind a symlinked directory is not read. Movements (`/stock-movements`, `GetStockMovement`) are out of
+     * G-47's scope (FINAL R-4), but a new member on the shared location schema reaches them too.
+     *
+     * **Row-shape control (G-47 RED A-M5).** While this pin stands, the generated spec's stock row carries exactly
+     * `id, inventory_item, qty_on_hand, storage_location, version, warehouse`, and its location and warehouse
+     * references exactly `{id, code}` and `{id, name}`. A marker field arriving on the row (or a `kind` on the
+     * shared location reference) turns this red in that backend commit, so the closing design starts there.
+     *
+     * **Where it runs.** Merge-time backstop. Its frontend twin is owed next on the frontend track (FE-LEAD), in
+     * `frontend/test/architecture.test.ts`; until it lands, the rule is enforced only when frontend work merges into
+     * main, and the frontend gate runs only locally.
+     *
+     * **Controls, same test:** planted trees, each isolating ONE rule (page trees carry no sources; token trees carry
+     * `(app)/admin/page.tsx` as their only page); planted implication trees (each token dropped, one import level
+     * down by `./` and `@/`, two levels down, (d) alone); the exact trigger lines of a multi-reason tree. Real-tree:
+     * {@see self::frontendTree()}'s; `src/generated/` names `ListStockLevels` and the stock path; the navigation
+     * entry's shape occurs exactly once in `lib/navigation.ts`; the client wiring list exists and is read; T is
+     * false on main today.
+     */
+    #[Test]
+    public function noFrontendShowsStockRowsWhileG47IsOpen(): void
+    {
+        // Planted trigger trees: [pages, sources, client ops, due?]. One rule per tree (G-47 RED A-H1 step 3).
+        $admin = ['(app)/admin/page.tsx'];
+        $nav = ['lib/navigation.ts' => "{ label: 'Stock on hand', href: '/stock', operation: 'ListStockLevels', permission: 'stock_level.view' }"];
+        $triggers = [
+            'a /stock page' => [['(app)/stock/page.tsx'], [], [], true],
+            'a /stock page outside any group' => [['stock/page.tsx'], [], [], true],
+            'a /stock page.jsx' => [['(app)/stock/page.jsx'], [], [], true],
+            'a /stock page.js' => [['(app)/stock/page.js'], [], [], true],
+            'a page below /stock' => [['(app)/stock/[id]/page.tsx'], [], [], true],
+            'a /stock page under a nested group' => [['(app)/(inventory)/stock/page.tsx'], [], [], true],
+            'a /stock page under a parallel slot' => [['(app)/stock/@panel/page.tsx'], [], [], true],
+            'a /stock page in a private folder' => [['(app)/_wip/stock/page.tsx'], [], [], false],
+            'a private folder below /stock' => [['(app)/stock/_wip/page.tsx'], [], [], false],
+            'a /stock-movements page' => [['(app)/stock-movements/page.tsx'], [], [], false],
+            'a /stock layout or route handler, not a page' => [['(app)/stock/layout.tsx', '(app)/stock/route.ts'], [], [], false],
+            'a component preview of a stock screen' => [['(dev)/component-preview/stock/page.tsx'], [], [], false],
+            'an intercepting (..)stock segment (a stated limit)' => [['(app)/items/(..)stock/page.tsx'], [], [], false],
+            'the stock read named in a library file' => [$admin, ['lib/api/stock.ts' => "read('ListStockLevels')"], [], true],
+            'the stock read only in generated code, and the nav entry' => [$admin, ['generated/api-surface.server.ts' => 'ListStockLevels'] + $nav, [], false],
+            'the stock read called from the navigation file' => [$admin, ['lib/navigation.ts' => "read('ListStockLevels')"], [], true],
+            'the nav entry shape in another file' => [$admin, ['components/X.tsx' => "operation: 'ListStockLevels'"], [], true],
+            'a raw browser fetch of /bff/api/stock' => [$admin, ['lib/x.ts' => "bffFetch('/bff/api/stock')"], [], true],
+            'a raw browser fetch of /bff/api/stock-movements' => [$admin, ['lib/x.ts' => "bffFetch('/bff/api/stock-movements')"], [], false],
+            'a raw server path /api/v1/stock with a query' => [$admin, ['lib/x.ts' => "'/api/v1/stock?item=1'"], [], true],
+            'a raw server path /api/v1/stock-movements' => [$admin, ['lib/x.ts' => "'/api/v1/stock-movements'"], [], false],
+            'the stock path only in generated code' => [$admin, ['generated/api-surface.server.ts' => "template: '/api/v1/stock',"], [], false],
+            'the stock read wired for the browser' => [$admin, [], ['ListUsers', 'ListStockLevels'], true],
+            'only the movements read wired for the browser' => [$admin, [], ['ListStockMovements'], false],
+            'a frontend with no stock screens' => [['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], [], ['ListUsers'], false],
+        ];
+        foreach ($triggers as $name => [$pages, $sources, $clientOps, $due]) {
+            $lines = self::stockRowTriggers($pages, $sources, $clientOps);
+            self::assertSame($due, [] !== $lines, \sprintf(
+                'Planted trigger "%s" should %s, but the predicate reported: %s. The URL model or a token search is '
+                .'broken, so its verdict on the real tree below means nothing.',
+                $name, $due ? 'be due' : 'not be due', [] === $lines ? 'not due' : implode(' | ', $lines)));
+        }
+
+        // Planted implication trees: [pages, sources, client ops, passes?].
+        $marker = "listLocations('ListStorageLocations'); need('storage_location.view'); need('warehouse.view');";
+        $page = ['(app)/stock/page.tsx'];
+        $implications = [
+            'the screen names all three marker inputs' => [$page, ['app/(app)/stock/page.tsx' => $marker], [], true],
+            'the screen without ListStorageLocations' => [$page, ['app/(app)/stock/page.tsx' => "need('storage_location.view'); need('warehouse.view');"], [], false],
+            'the screen without storage_location.view' => [$page, ['app/(app)/stock/page.tsx' => "x('ListStorageLocations'); need('warehouse.view');"], [], false],
+            'the screen without warehouse.view' => [$page, ['app/(app)/stock/page.tsx' => "x('ListStorageLocations'); need('storage_location.view');"], [], false],
+            'the screen with no source at all' => [$page, [], [], false],
+            'the marker one level down by a relative import' => [$page, ['app/(app)/stock/page.tsx' => "import { m } from './marker';", 'app/(app)/stock/marker.ts' => $marker], [], true],
+            'the marker one level down by an @/ import' => [$page, ['app/(app)/stock/page.tsx' => "import { m } from '@/lib/stock/marker';", 'lib/stock/marker.ts' => $marker], [], true],
+            'the marker two levels down' => [$page, ['app/(app)/stock/page.tsx' => "import { a } from './a';", 'app/(app)/stock/a.ts' => "import { m } from './marker';", 'app/(app)/stock/marker.ts' => $marker], [], false],
+            'a stock panel naming the read and the marker' => [$admin, ['components/StockPanel.tsx' => "read('ListStockLevels'); ".$marker], [], true],
+            'a stock panel naming the read alone' => [$admin, ['components/StockPanel.tsx' => "read('ListStockLevels')"], [], false],
+            'the stock read wired for the browser, no file to check' => [$admin, [], ['ListStockLevels'], false],
+            'no stock screen at all' => [$admin, [], [], true],
+        ];
+        foreach ($implications as $name => [$pages, $sources, $clientOps, $passes]) {
+            $defects = self::stockRowDefects($pages, $sources, $clientOps);
+            self::assertSame($passes, [] === $defects, \sprintf(
+                'Planted implication "%s" should %s, but the check reported: %s. C1 or its import resolution is broken.',
+                $name, $passes ? 'pass' : 'trip', [] === $defects ? 'no defect' : implode(' | ', $defects)));
+        }
+        self::assertSame([
+            'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
+            'src/components/A.tsx names ListStockLevels outside src/generated/',
+            'src/lib/x.ts names the stock path (/api/v1/stock or /bff/api/stock) outside src/generated/',
+            'scripts/api-surface.client-ops.json wires ListStockLevels for the browser',
+        ], self::stockRowTriggers(['(app)/stock/page.tsx'], ['lib/x.ts' => "'/bff/api/stock'", 'components/A.tsx' => 'ListStockLevels'], ['ListStockLevels']),
+            'Planted control: the trigger lines for a four-reason tree are not the exact lines, in order, that a red run prints.');
+
+        // Real tree.
+        ['pages' => $pages, 'sources' => $sources] = self::frontendTree();
+        $generated = array_filter($sources, static fn (string $text, string $path): bool => str_starts_with($path, 'generated/')
+            && 1 === preg_match(self::STOCK_OPERATION_TOKEN, $text) && 1 === preg_match(self::STOCK_PATH_TOKEN, $text), \ARRAY_FILTER_USE_BOTH);
+        self::assertNotSame([], $generated,
+            'Positive control: frontend/src/generated/ no longer names ListStockLevels and its path, so excluding it proves '
+            .'nothing about where the boundary is. Re-derive the tokens or the folder.');
+        self::assertSame(1, preg_match_all(self::STOCK_NAV_ENTRY, $sources[self::STOCK_NAV_FILE] ?? ''), \sprintf(
+            '%s does not hold the navigation entry `operation: \'ListStockLevels\'` exactly once. The exclusion below removes '
+            .'that shape from that file only, on the premise that the nav map renders nothing but built links; it has '
+            .'moved or changed shape, so re-derive the exclusion before trusting it.', 'frontend/src/'.self::STOCK_NAV_FILE));
+        $opsFile = \dirname(__DIR__, 3).'/frontend/'.self::CLIENT_OPS_FILE;
+        self::assertFileExists($opsFile, 'Positive control: the client wiring list moved, so trigger (d) reads nothing.');
+        $clientOps = json_decode((string) file_get_contents($opsFile), true);
+        self::assertIsArray($clientOps, 'Positive control: the client wiring list is not a JSON list, so trigger (d) reads nothing.');
+        self::assertContains('ListUsers', $clientOps, 'Positive control: the client wiring list no longer holds ListUsers, so it is not the list trigger (d) means.');
+
+        // Row-shape control (A-M5): a marker field on the stock row is G-47's closing work arriving -- design it here.
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+        $row = self::stockRowSchema($spec);
+        $shape = static function (array $schema): array {
+            $names = array_map('strval', array_keys((array) ($schema['properties'] ?? [])));
+            sort($names);
+
+            return $names;
+        };
+        $rowShape = "The stock row (ListStockLevels' items) changed shape. If this is G-47's marker field (or a member on the\n"
+            ."shared location reference, which StockMovement reuses), the closing design starts in THIS backend commit:\n"
+            ."move this pin to the implication docs/design/g47-ruling.md describes, and close or re-put G-47 in\n"
+            ."docs/RESIDUAL_GAPS.md. Otherwise update the expected shape with a stated reason.";
+        self::assertSame(['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse'], $shape($row), $rowShape);
+        self::assertSame(['code', 'id'], $shape(self::resolveRef($spec, (array) ($row['properties']['storage_location'] ?? []))), $rowShape);
+        self::assertSame(['id', 'name'], $shape(self::resolveRef($spec, (array) ($row['properties']['warehouse'] ?? []))), $rowShape);
+
+        $message = "G-47 is open (docs/RESIDUAL_GAPS.md G-47, Low; owner UX + SEC): a stock row (ListStockLevels) does not say\n"
+            ."whether its bin can be picked -- quarantine bins, archived bins and bins of an archived warehouse look like\n"
+            ."pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md, adopted under the\n"
+            ."owner's delegation; the owner may strike it): stock rows may render in the web app ONLY to a viewer holding\n"
+            ."BOTH storage_location.view and warehouse.view, with a text badge (Quarantine / Archived) drawn client-side\n"
+            ."from ListStorageLocations (live and ?archived=true: kind, archived_at) and the warehouse's archived state\n"
+            ."(GetWarehouse / ListWarehouses?archived). Everyone else sees no stock rows until G-47 closes.\n\n"
+            ."FAIL CLOSED: a row whose marker inputs did not all load is never shown as pickable (a text state such as\n"
+            ."'Status unknown' -- UX wording -- or the rows withheld behind a retry).\n\n"
+            ."This check proves only that the marker inputs are NAMED. A stub naming them passes, so it is weaker than\n"
+            ."option (1), the full block, which the owner was offered as the fallback. The commit that builds the screen\n"
+            ."checks these seven by hand and says so:\n"
+            ."  1. rows render only when the viewer holds both codes; otherwise the H-3a hint and an empty state, no rows;\n"
+            ."  2. the badge uses all three inputs: kind = quarantine, the bin's archived_at, the warehouse's archived_at;\n"
+            ."  3. fail closed, as above;\n"
+            ."  4. the badge is text, never colour only;\n"
+            ."  5. IA.md H-3a's hint stays under qty_on_hand;\n"
+            ."  6. an item-scoped view covers every warehouse its rows name;\n"
+            ."  7. the server-side first render applies the same gate as the browser re-read.\n"
+            ."In that commit also add C2 (the badge copy key UX fixes) to this check and to its frontend twin, which is\n"
+            ."owed next on the frontend track (frontend/test/architecture.test.ts, FE-LEAD). G-47 itself stays open:\n"
+            ."closing it needs SEC's ruling on a row field, the owner's word, and UX's badge (RESIDUAL_GAPS.md G-47).";
+
+        $defects = self::stockRowDefects($pages, $sources, $clientOps);
+        self::assertSame([], $defects, "  ".implode("\n  ", $defects)."\n\n".$message);
+
+        // While T is false the implication above holds over nothing. The day it turns true a stock screen is being
+        // built, and the seven checks cannot be made here, so a person must.
+        $lines = self::stockRowTriggers($pages, $sources, $clientOps);
+        self::assertSame([], $lines, "  ".implode("\n  ", $lines)."\n\n"
+            ."G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n"
+            ."being built. Check the seven items below by hand against the screen, say so in the commit, and only then\n"
+            ."remove this control in that commit. Its frontend twin (owed, frontend/test/architecture.test.ts) will carry\n"
+            ."the same control; it moves in the frontend commit that builds the screen, and this one in the merge that\n"
+            ."brings that commit to main, citing that commit's hand check.\n\n".$message);
+    }
+
+    /** G-47 trigger (b): the stock read's operationId. */
+    private const STOCK_OPERATION_TOKEN = '/\bListStockLevels\b/';
+
+    /** G-47 trigger (c): the stock path the server (`/api/v1/stock`) or the browser (`/bff/api/stock`) uses. */
+    private const STOCK_PATH_TOKEN = '~(?:/api/v1|/bff/api)/stock(?![-A-Za-z0-9_])~';
+
+    /** The one navigation-map entry excluded from (b), in {@see self::STOCK_NAV_FILE} only. */
+    private const STOCK_NAV_ENTRY = "/operation:\\s*'ListStockLevels'/";
+
+    private const STOCK_NAV_FILE = 'lib/navigation.ts';
+
+    /** G-47 trigger (d), relative to `frontend/`. */
+    private const CLIENT_OPS_FILE = 'scripts/api-surface.client-ops.json';
+
+    /** C1: what a file making the trigger true, or a module it imports one level down, must name. */
+    private const STOCK_MARKER_INPUTS = [
+        'ListStorageLocations' => '/\bListStorageLocations\b/',
+        "'storage_location.view'" => "/'storage_location\\.view'/",
+        "'warehouse.view'" => "/'warehouse\\.view'/",
+    ];
+
+    /**
+     * One line per reason G-47's frontend trigger is true; empty when it is not. Pages first, then sources (byte
+     * order), then the client wiring list.
+     *
+     * @param list<string>          $pages     files relative to `frontend/src/app`
+     * @param array<string, string> $sources   contents keyed by path relative to `frontend/src`
+     * @param list<mixed>           $clientOps operationIds in the client wiring list
+     *
+     * @return list<string>
+     */
+    private static function stockRowTriggers(array $pages, array $sources, array $clientOps): array
+    {
+        $lines = [];
+        $stockPages = self::stockPages($pages);
+        sort($stockPages, \SORT_STRING);
+        foreach ($stockPages as $page) {
+            $lines[] = \sprintf('the frontend serves a page at %s (src/app/%s)', self::frontendPageUrl($page), $page);
+        }
+        ksort($sources, \SORT_STRING);
+        foreach ($sources as $path => $text) {
+            foreach (self::stockSourceReasons((string) $path, $text) as $reason) {
+                $lines[] = 'src/'.$path.' '.$reason.' outside src/generated/';
+            }
+        }
+        if (\in_array('ListStockLevels', $clientOps, true)) {
+            $lines[] = self::CLIENT_OPS_FILE.' wires ListStockLevels for the browser';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param list<string> $pages
+     *
+     * @return list<string>
+     */
+    private static function stockPages(array $pages): array
+    {
+        return array_values(array_filter($pages, static function (string $page): bool {
+            $url = self::frontendPageUrl($page);
+
+            return null !== $url && ('/stock' === $url || str_starts_with($url, '/stock/'));
+        }));
+    }
+
+    /** @return list<string> */
+    private static function stockSourceReasons(string $path, string $text): array
+    {
+        if (str_starts_with($path, 'generated/')) {
+            return [];
+        }
+        $reasons = [];
+        $searched = self::STOCK_NAV_FILE === $path ? (string) preg_replace(self::STOCK_NAV_ENTRY, '', $text) : $text;
+        if (1 === preg_match(self::STOCK_OPERATION_TOKEN, $searched)) {
+            $reasons[] = 'names ListStockLevels';
+        }
+        if (1 === preg_match(self::STOCK_PATH_TOKEN, $text)) {
+            $reasons[] = 'names the stock path (/api/v1/stock or /bff/api/stock)';
+        }
+
+        return $reasons;
+    }
+
+    /**
+     * C1 over every file that makes the trigger true. Fails closed when the trigger holds only through the client
+     * wiring list, since then no file can be checked.
+     *
+     * @param list<string>          $pages
+     * @param array<string, string> $sources
+     * @param list<mixed>           $clientOps
+     *
+     * @return list<string>
+     */
+    private static function stockRowDefects(array $pages, array $sources, array $clientOps): array
+    {
+        if ([] === self::stockRowTriggers($pages, $sources, $clientOps)) {
+            return [];
+        }
+        $files = array_map(static fn (string $page): string => 'app/'.$page, self::stockPages($pages));
+        foreach ($sources as $path => $text) {
+            if ([] !== self::stockSourceReasons((string) $path, $text)) {
+                $files[] = (string) $path;
+            }
+        }
+        $files = array_values(array_unique($files));
+        sort($files, \SORT_STRING);
+        if ([] === $files) {
+            return ['the client wiring list wires ListStockLevels, but no frontend source outside src/generated/ names it, '
+                .'so no file can be checked for the marker inputs (fail closed: name the stock read where it is used)'];
+        }
+        $defects = [];
+        foreach ($files as $file) {
+            $text = $sources[$file] ?? '';
+            foreach (self::directImports($file, $text) as $import) {
+                $text .= "\n".($sources[$import] ?? '');
+            }
+            $missing = array_keys(array_filter(self::STOCK_MARKER_INPUTS, static fn (string $pattern): bool => 1 !== preg_match($pattern, $text)));
+            if ([] !== $missing) {
+                $defects[] = \sprintf('src/%s makes the stock trigger true, but neither it nor a module it imports names %s',
+                    $file, implode(', ', $missing));
+            }
+        }
+
+        return $defects;
+    }
+
+    /**
+     * Modules a file imports by a relative or `@/` specifier, resolved by text to paths relative to `frontend/src`
+     * (`.ts`, `.tsx`, `.js`, `.jsx`, or an `index.*` in a folder). Unresolved specifiers are dropped.
+     *
+     * @return list<string>
+     */
+    private static function directImports(string $file, string $text): array
+    {
+        preg_match_all('~(?:\bfrom|\bimport)\s*\(?\s*[\'"]((?:\./|\.\./|@/)[^\'"]+)[\'"]~', $text, $matches);
+        $found = [];
+        foreach ($matches[1] as $specifier) {
+            if (str_starts_with($specifier, '@/')) {
+                $parts = explode('/', substr($specifier, 2));
+            } else {
+                $parts = [...\array_slice(explode('/', $file), 0, -1), ...explode('/', $specifier)];
+            }
+            $path = [];
+            foreach ($parts as $part) {
+                if ('..' === $part) {
+                    array_pop($path);
+                } elseif ('.' !== $part && '' !== $part) {
+                    $path[] = $part;
+                }
+            }
+            $base = implode('/', $path);
+            foreach (['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js', '/index.jsx'] as $suffix) {
+                $found[] = $base.$suffix;
+            }
+        }
+
+        return array_values(array_unique($found));
+    }
+
+    /**
+     * The item schema of `ListStockLevels`' 200 response, found by operationId, `$ref`s resolved.
+     *
+     * @param array<string, mixed> $spec
+     *
+     * @return array<string, mixed>
+     */
+    private static function stockRowSchema(array $spec): array
+    {
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            if ('ListStockLevels' !== ($data['operation']['operationId'] ?? null)) {
+                continue;
+            }
+            foreach ((array) ($data['operation']['responses']['200']['content'] ?? []) as $content) {
+                $collection = self::resolveRef($spec, (array) ($content['schema'] ?? []));
+                $items = self::resolveRef($spec, (array) ($collection['properties']['items'] ?? []));
+
+                return self::resolveRef($spec, (array) ($items['items'] ?? []));
+            }
+        }
+        self::fail('ListStockLevels has no 200 response schema in the generated spec, so the row-shape control reads nothing.');
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     * @param array<string, mixed> $schema
+     *
+     * @return array<string, mixed>
+     */
+    private static function resolveRef(array $spec, array $schema): array
+    {
+        while (isset($schema['$ref']) && \is_string($schema['$ref'])) {
+            $target = $spec;
+            foreach (\array_slice(explode('/', $schema['$ref']), 1) as $segment) {
+                $target = \is_array($target) ? ($target[$segment] ?? []) : [];
+            }
+            $schema = \is_array($target) ? $target : [];
+        }
+
+        return $schema;
     }
 
     /**
