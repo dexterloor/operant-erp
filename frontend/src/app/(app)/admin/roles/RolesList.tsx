@@ -19,7 +19,7 @@ import styles from '../../Lists.module.css';
 const matches = (r: Role, lowerQ: string) => r.name.toLowerCase().startsWith(lowerQ);
 const asList = (r: RolesLoad): ListLoad<Role> => (r.kind === 'ok' ? { kind: 'ok', items: r.roles } : r);
 const load = async (read: Read, archived: boolean, signal: AbortSignal) => asList(await loadRoles(read, archived, signal));
-const EMPTY = searchEmptyStates(ROLES_LIST);
+export const EMPTY = searchEmptyStates(ROLES_LIST);
 const ARCHIVED_VIEW = { order: 'newest-deleted-first', caption: ROLES_LIST.archivedOrder, rows: 'plain' } as const;
 
 /**

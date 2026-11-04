@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
+import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -194,11 +194,20 @@ interface Loaded<T> {
  * (Revision 7 A-17). It never touches the address: the caller passes `initialArchived` and, to keep the view in the
  * address, `onViewLoaded={useArchivedAddress()}` (A-17 item 1). Search filters on the client; the only refetches are a
  * view switch, a Retry and `controller.reread()`. The view control is derived from the rows on screen, so a failed
- * switch leaves it on the view actually shown (RED round 2 R2-L2) under `LIST_STATES.refetchFailed`. The settled
- * announcement starts after the first interaction (first paint is not announced, ST-2a) and never says "0 shown": an
- * empty result speaks its empty heading — `empty` is called with the settled query for the announcement and with the
- * live query for the empty state on screen. The status region is mounted empty from first render at the section root,
- * so a successful Retry after a failed first load is a change it announces (principle 6; RED M-3).
+ * switch leaves it on the view actually shown (RED round 2 R2-L2) under `LIST_STATES.refetchFailed`. The status region
+ * is mounted empty from first render at the section root, so a successful Retry after a failed first load is a change it
+ * announces (principle 6; RED M-3).
+ *
+ * The region (FE-R4, fe-r4-ux.md Revision 1). Its text is one string written explicitly, never derived on render, and
+ * only at four moments: a switch or Retry starts (blank), succeeds (the settled sentence), or fails (the banner's
+ * heading), and a search settles. A keystroke never writes it, so while a search is unsettled the region keeps what it
+ * holds. A settle writes only when its query differs from the last settled one, or when it clears a failure heading the
+ * user searched past (FE-R3); so the mount settle and a type-and-erase say nothing, and announcements start at the first
+ * changed settle or the first successful fetch, whichever comes first (first paint is not announced, ST-2a). A success
+ * settles a pending search at once: its sentence is for the query in the box. The sentence never says "0 shown": an
+ * empty result speaks its empty heading — `empty` is called with the settled query for the region and with the live
+ * query for the empty state on screen (the two may differ while a search is unsettled). Every settled sentence and
+ * non-null empty heading for a non-empty query must name the query (rule 6), or two queries with one count read alike.
  *
  * Focus (FE-R3, fe-r3-ux.md Revision 1 incl. H-1/H-2). The list's heading is the `h1` when `copy.heading` is given, else
  * the element named by `headingId` (which must carry `tabIndex={-1}`); with neither, or with a `headingId` that names no
@@ -211,7 +220,7 @@ interface Loaded<T> {
  * user went while waiting (M-3) — and every success holds the sentence until after any focus move. A failed switch or
  * Retry writes the banner's heading into this list's one status region (the banner has no live role of its own,
  * principle 6) and never leaves the settled sentence there (defect A, M-2); the region is blanked while a switch or
- * Retry is in flight (`busy`), so a repeat failure with the same cause is still a text change (defect B, M-4). A reread
+ * Retry is in flight (the explicit blank at fetch start, and `inFlight` holding a settle back), so a repeat failure with the same cause is still a text change (defect B, M-4). A reread
  * does neither: its count is never announced (M-2), and a failed reread raises no banner.
  */
 export function ArchivableList<T extends { id: string; archived_at: string | null }>(props: ArchivableListProps<T>) {
@@ -228,27 +237,38 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const lastLoaded = useRef(initialArchived);
   const [shown, setShownState] = useState<Loaded<T> | null>(firstShown);
   const shownRef = useRef<Loaded<T> | null>(firstShown);
-  /** What the settled announcement counts: the rows of the last switch, Retry or settled search — never a reread's (M-2). */
-  const [announced, setAnnounced] = useState<Loaded<T> | null>(firstShown);
   const [firstError, setFirstError] = useState<{ gen: number; cause: Cause } | null>(initial.kind === 'ok' || initial.kind === 'forbidden' ? null : { gen: 0, cause: causeOf(initial.kind) });
   const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean } | null>(null);
   const [isDenied, setDenied] = useState(initial.kind === 'forbidden');
   const [busy, setBusy] = useState(false);
-  const [q, setQ] = useState('');
-  const [settledQ, setSettledQ] = useState('');
-  const [interacted, setInteracted] = useState(false);
-  /** While true, the settled sentence waits: a successful fetch writes it only after any focus move. */
-  const [quiet, setQuiet] = useState(false);
-  /** The heading of the last failed refetch, spoken in place of the settled sentence until a fetch succeeds or a search the user typed settles. */
-  const [failureNote, setFailureNote] = useState<string | null>(null);
+  const [q, setQState] = useState('');
+  /** The search box's text for handlers that outlive a render (a success settles the query in the box, rule 2). */
+  const qRef = useRef('');
+  /** The list's one status region (FE-R4): written only by a fetch's start, success or failure, and a search's settle. */
+  const [said, setSaid] = useState('');
+  /** The query the region last spoke for (or would have, under a failure heading or a fetch in flight). */
+  const settledQ = useRef('');
+  /** The heading of the last failed refetch, held in the region until a fetch succeeds or a search the user typed settles. */
+  const failureNote = useRef<string | null>(null);
   /** The user changed the search since the last failure: the note clears when that search settles, never on the keystroke. */
   const searchedSinceFailure = useRef(false);
+  /** A switch or Retry is in flight: the region stays blank until it ends (FE-R3 defect B). */
+  const inFlight = useRef(false);
   const viewControlRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   /** Loads run one after another: a reread waits for a load in flight (L-8), and a switch for a reread. */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
+  const setQ = (next: string) => {
+    qRef.current = next;
+    setQState(next);
+  };
+  /** The settled sentence for a view and query (ST-1a); a count of 0 speaks the empty heading instead (ST-2a). Inert actions: only the heading is read. */
+  const sentenceFor = (view: Loaded<T>, query: string) => {
+    const n = matches ? view.items.filter((i) => matches(i, query.toLowerCase())).length : view.items.length;
+    return n > 0 ? copy.shown(n, query, view.archived) : (empty({ archived: view.archived, q: query, tenantHasRows: view.tenantHasRows, busy: false, switchTo: NOOP, clearSearch: NOOP })?.heading ?? '');
+  };
   const setShown = (next: Loaded<T>) => {
     shownRef.current = next;
     setShownState(next);
@@ -279,15 +299,24 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     }
   }, [isDenied, copy.heading, headingId]);
 
+  // FE-R4 rules 3–5: a settle writes only for a changed query, or to clear a failure heading the user searched past. The
+  // mount settle (`q = ''`) and a type-and-erase change nothing. A failure heading the user did not search past keeps the
+  // region, and a fetch in flight keeps it blank; either way the query counts as settled.
+  const onSettle = useEffectEvent((query: string) => {
+    const changed = query !== settledQ.current;
+    const clearsFailure = failureNote.current !== null && searchedSinceFailure.current;
+    settledQ.current = query;
+    if (clearsFailure) {
+      searchedSinceFailure.current = false;
+      failureNote.current = null;
+    }
+    if (!changed && !clearsFailure) return;
+    const view = shownRef.current;
+    if (failureNote.current !== null || inFlight.current || view === null) return;
+    setSaid(sentenceFor(view, query));
+  });
   useEffect(() => {
-    const t = setTimeout(() => {
-      setSettledQ(q);
-      setAnnounced(shownRef.current);
-      if (searchedSinceFailure.current) {
-        searchedSinceFailure.current = false;
-        setFailureNote(null);
-      }
-    }, SEARCH_SETTLE_MS);
+    const t = setTimeout(() => onSettle(q), SEARCH_SETTLE_MS);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -296,28 +325,35 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     /** The control the person used, if it had focus (a mouse click in Safari leaves `<body>`): removed by the new view → focus is moved. */
     const started = document.activeElement;
     setBusy(true);
+    inFlight.current = true;
+    // Blank while in flight, so a repeat failure (same heading) or a success is a text change (FE-R3 defect B, M-4).
+    setSaid('');
     const r = await run(() => readView(archived));
     setBusy(false);
+    inFlight.current = false;
     if (r.kind === 'ok') {
-      // X-2 / FE-R3: commit the rows first (sentence held), then, only if focus was lost, focus the list's heading (first
-      // load) or the new view's switch control (banner; a switch whose own control is gone), then let the sentence
-      // through — focus first, then announce (FE-D1's flushSync order).
+      // X-2 / FE-R3: commit the rows first (the region still blank), then, only if focus was lost, focus the list's heading
+      // (first load) or the new view's switch control (banner; a switch whose own control is gone), then write the
+      // sentence — focus first, then announce (FE-D1's flushSync order).
       const next = { archived, items: r.items, tenantHasRows: r.tenantHasRows };
       flushSync(() => {
-        setQuiet(true);
         setShown(next);
-        setAnnounced(next);
         setFirstError(null);
         setRefetchError(null);
-        setFailureNote(null);
-        setInteracted(true);
       });
+      // Defensive, unobservable (RED L-2): the reset of `searchedSinceFailure` plus any later changed query already
+      // clears a stale note before it is read; kept so the note's meaning, "cleared by a successful fetch", is literal.
+      failureNote.current = null;
+      searchedSinceFailure.current = false;
       const controlGone = started instanceof HTMLElement && started !== document.body && !started.isConnected;
       if (focusWasLost()) {
         if (from === 'first') listHeading()?.focus();
         else if (from === 'banner' || controlGone) (connected(viewControlRef.current) ?? listHeading())?.focus();
       }
-      setQuiet(false);
+      // FE-R4 rule 2: a success settles a pending search at once — the sentence is for the query in the box, and the
+      // pending settle then finds nothing changed.
+      settledQ.current = qRef.current;
+      setSaid(sentenceFor(next, qRef.current));
       viewLoaded(archived);
       return;
     }
@@ -330,7 +366,8 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     else {
       setRefetchError({ cause: causeOf(r.kind), archived });
       searchedSinceFailure.current = false;
-      setFailureNote(headingOf(causeOf(r.kind)));
+      failureNote.current = headingOf(causeOf(r.kind));
+      setSaid(failureNote.current);
     }
   };
 
@@ -365,11 +402,6 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     setQ('');
     searchRef.current?.focus();
   };
-  // The announcement reads only the heading, so it is asked with inert actions (never rendered).
-  const emptyHeadingFor = (view: Loaded<T>, query: string) => empty({ archived: view.archived, q: query, tenantHasRows: view.tenantHasRows, busy, switchTo: NOOP, clearSearch: NOOP })?.heading ?? '';
-  const settledCount = announced ? (matches ? announced.items.filter((i) => matches(i, settledQ.toLowerCase())).length : announced.items.length) : 0;
-  // `busy` blanks the region while a fetch is in flight, so the next failure (same heading) or success is a text change.
-  const announcement = busy ? '' : failureNote !== null ? failureNote : !interacted || !announced || quiet ? '' : settledCount > 0 ? copy.shown(settledCount, settledQ, announced.archived) : emptyHeadingFor(announced, settledQ);
   const cols = columns(archived);
   const headingText = typeof copy.heading === 'function' ? copy.heading(archived) : copy.heading;
   const searchLabel = searchCopy ? (typeof searchCopy.label === 'function' ? searchCopy.label(archived) : searchCopy.label) : '';
@@ -385,7 +417,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         </header>
       ) : null}
       {/* Mounted from first render, above every branch below, so it never arrives already speaking (principle 6). */}
-      <LiveRegion message={announcement} visuallyHidden />
+      <LiveRegion message={said} visuallyHidden />
       {header || shown ? (
         <div className={styles.toolbar}>
           {header ? <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef }} /> : <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />}
@@ -399,8 +431,8 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
                 placeholder={searchCopy.placeholder}
                 value={q}
                 onChange={(e) => {
+                  // FE-R4 rule 1: a keystroke never writes the region; its settle does.
                   setQ(e.target.value);
-                  setInteracted(true);
                   searchedSinceFailure.current = true;
                 }}
               />

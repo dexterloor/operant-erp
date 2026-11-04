@@ -15,7 +15,7 @@ import { PeopleDenied } from './PeopleStates';
 export { SEARCH_SETTLE_MS } from '../../ArchivableList';
 
 /** C5-1: the live view has no empty state (the viewer is always a live row). */
-const EMPTY = searchEmptyStates({ ...USERS_LIST, noneLive: null });
+export const EMPTY = searchEmptyStates({ ...USERS_LIST, noneLive: null });
 const ARCHIVED_VIEW = { order: 'newest-deleted-first', caption: USERS_LIST.archivedOrder, rows: 'plain' } as const;
 
 /** The server's `q` is a case-insensitive prefix of the email (UserReader.php); the client lower-cases the same way. */

@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/users' }));
 import { UsersList } from '@/app/(app)/admin/users/UsersList';
+import { SEARCH_SETTLE_MS } from '@/app/(app)/ArchivableList';
 import { formatDate } from '@/lib/format/dates';
-import { ID, TZ, VIEWER_ID, json, page, renderWired, stubFetch, user } from './harness';
+import { ID, TZ, VIEWER_ID, json, page, renderWired, stubFetch, textsOf, user } from './harness';
 
 // ux-copy-b3b.md C5-1 (`/admin/users`) and RED round 2 R2-L2: columns, cells, order, search (client-side, a
 // case-insensitive email prefix), the empty states, the settled announcement, the region error on first load and the
@@ -195,5 +196,80 @@ describe('/admin/users — the Archived view is in the address (b3b-followup C-4
     expect(calls[0]!.url).toBe('/bff/api/users?archived=true');
     expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'true');
     expect(nav.replace).not.toHaveBeenCalled();
+  });
+});
+
+// FE-R4 (fe-r4-ux.md Revision 1, final rule and test list): a keystroke never writes the list's status region; the first write
+// caused by typing is the settled result for the new query. A switch that succeeds while a search is settling settles it at
+// once. The mount settle and a type-and-erase start nothing. Recorded with `textsOf` (every text the region held, in order).
+describe('/admin/users — FE-R4: what the status region holds while a search is unsettled', () => {
+  const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
+
+  /** 1. The settle, not a fetch, is what starts announcements here; no fetch happens (`calls` is empty). */
+  it('1. the first search, with no prior interaction, speaks only its settled result — never the previous count', async () => {
+    const calls = stubFetch([]);
+    const u = userEvent.setup();
+    show();
+    const log = textsOf(status());
+    await u.type(screen.getByRole('searchbox'), 'ADA');
+    await waitFor(() => expect(status()).toHaveTextContent('1 person shown. Email starts with “ADA”.'));
+    await wait(SEARCH_SETTLE_MS + 200);
+    log.stop();
+    expect(log.texts).toEqual(['', '1 person shown. Email starts with “ADA”.']);
+    expect(log.texts).not.toContain('2 people shown.');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('2. a first search that matches nothing speaks only its settled empty heading', async () => {
+    stubFetch([]);
+    const u = userEvent.setup();
+    show();
+    const log = textsOf(status());
+    await u.type(screen.getByRole('searchbox'), 'zz');
+    await waitFor(() => expect(status()).toHaveTextContent("No one's email starts with “zz”."));
+    await wait(SEARCH_SETTLE_MS + 200);
+    log.stop();
+    expect(log.texts).toEqual(['', "No one's email starts with “zz”."]);
+  });
+
+  it('3. pin: after a successful Archived switch, typing leaves the region unchanged until the settle', async () => {
+    stubFetch([json(200, page([OLD, NEW]))]);
+    const u = userEvent.setup();
+    show();
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(status()).toHaveTextContent('2 people shown. Archived.'));
+    const log = textsOf(status());
+    await u.type(screen.getByRole('searchbox'), 'n');
+    expect(status()).toHaveTextContent('2 people shown. Archived.');
+    await waitFor(() => expect(status()).toHaveTextContent('1 person shown. Email starts with “n”. Archived.'));
+    log.stop();
+    expect(log.texts).toEqual(['2 people shown. Archived.', '1 person shown. Email starts with “n”. Archived.']);
+  });
+
+  it('5. a switch that succeeds while a search is settling speaks the result for the query in the box, once', async () => {
+    stubFetch([json(200, page([OLD, NEW]))]);
+    const u = userEvent.setup();
+    show();
+    const log = textsOf(status());
+    await u.type(screen.getByRole('searchbox'), 'ADA');
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(status()).toHaveTextContent("No archived person's email starts with “ADA”."));
+    await wait(SEARCH_SETTLE_MS + 200);
+    log.stop();
+    expect(log.texts).toEqual(['', "No archived person's email starts with “ADA”."]);
+    expect(log.texts).not.toContain('2 people shown. Archived.');
+  });
+
+  it('7. with no interaction the mount settle speaks nothing; typing and erasing within the settle window speaks nothing', async () => {
+    stubFetch([]);
+    const u = userEvent.setup();
+    show();
+    const log = textsOf(status());
+    await wait(SEARCH_SETTLE_MS + 200);
+    expect(log.texts).toEqual(['']);
+    await u.type(screen.getByRole('searchbox'), 'a{Backspace}');
+    await wait(SEARCH_SETTLE_MS + 200);
+    log.stop();
+    expect(log.texts).toEqual(['']);
   });
 });

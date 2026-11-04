@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }),
 import { UsersList } from '@/app/(app)/admin/users/UsersList';
 import { RolesList } from '@/app/(app)/admin/roles/RolesList';
 import { SEARCH_SETTLE_MS } from '@/app/(app)/ArchivableList';
-import { ROLE_A, VIEWER_ID, json, page, renderWired, role, stubFetch, user } from './harness';
+import { ROLE_A, VIEWER_ID, json, page, renderWired, role, stubFetch, textsOf, user } from './harness';
 
 // A Retry after a failed FIRST load (owner-questions-2026-11-03-red.md Q-1 M-3 and X-2):
 // - M-3 / principle 6 (b4-architecture.md): the status region is in the DOM, empty, from first render — including while
@@ -89,17 +89,6 @@ const listRegion = () => {
   expect(region).not.toBeNull();
   return region!;
 };
-
-/** Every text the region has held, in order (a MutationObserver: the region's text is what a screen reader is given). */
-function textsOf(region: HTMLElement) {
-  const texts: string[] = [region.textContent ?? ''];
-  const obs = new MutationObserver(() => {
-    const t = region.textContent ?? '';
-    if (t !== texts[texts.length - 1]) texts.push(t);
-  });
-  obs.observe(region, { childList: true, characterData: true, subtree: true });
-  return { texts, stop: () => obs.disconnect() };
-}
 
 const BANNER_BODY = "The list couldn't be updated, so it still shows the earlier results.";
 const WENT_WRONG_TEXT = 'Something went wrong on our side.';
@@ -256,13 +245,43 @@ describe.each(BANNER_CASES)('$name — the "couldn\'t refresh" banner (FE-R3)', 
     await waitFor(() => expect(region).toHaveTextContent(WENT_WRONG_TEXT));
     // The failure arrived while the search's settle timer was still pending.
     expect(log.texts).not.toContain(settledSearch);
-    // Let the pending timer fire: the search settled before the failure, so the heading stays.
+    // Let the pending timer fire: the search was typed before the failure, so its settle keeps the heading.
     await act(() => new Promise((r) => setTimeout(r, SEARCH_SETTLE_MS + 200)));
     log.stop();
     expect(region).toHaveTextContent(WENT_WRONG_TEXT);
-    // From the failure on, the region holds only the heading. (Before it, the first keystroke's unsettled sentence is
-    // the list's existing search behaviour, not an after-failure sentence.)
-    expect(log.texts.slice(log.texts.indexOf(WENT_WRONG_TEXT))).toEqual([WENT_WRONG_TEXT]);
+    // FE-R4 (fe-r4-ux.md Revision 1, M-2): a keystroke never writes the region, so it goes from blank straight to the heading.
+    expect(log.texts).toEqual(['', WENT_WRONG_TEXT]);
+  });
+
+  it('8. typing and erasing back to the same query while the heading is up replaces it with that query\'s sentence once, the banner staying (FE-R4 rule 4)', async () => {
+    stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(ui());
+    await failedSwitch(u);
+    const region = listRegion();
+    const log = textsOf(region);
+    await u.type(screen.getByRole('searchbox'), 'a{Backspace}');
+    await act(() => new Promise((r) => setTimeout(r, SEARCH_SETTLE_MS + 200)));
+    log.stop();
+    expect(log.texts).toEqual([WENT_WRONG_TEXT, settledLive]);
+    expect(screen.getByText(BANNER_BODY)).toBeInTheDocument();
+  });
+
+  it('9. a search that settles while a switch is in flight leaves the region blank until the switch ends (FE-R3 defect B, FE-R4 rule 1)', async () => {
+    const reply = deferred();
+    stubFetch([() => reply.promise]);
+    const u = userEvent.setup();
+    renderWired(ui());
+    const region = listRegion();
+    const log = textsOf(region);
+    await u.type(screen.getByRole('searchbox'), liveRow.slice(0, 2));
+    await u.click(toggle());
+    await act(() => new Promise((r) => setTimeout(r, SEARCH_SETTLE_MS + 200)));
+    expect(region.textContent).toBe('');
+    reply.resolve(json(503, {}));
+    await waitFor(() => expect(region).toHaveTextContent(WENT_WRONG_TEXT));
+    log.stop();
+    expect(log.texts).toEqual(['', WENT_WRONG_TEXT]);
   });
 
   it('6. a successful press of the Archived toggle never moves focus, even when the browser left focus on <body> (ST-1a)', async () => {

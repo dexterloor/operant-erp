@@ -6,11 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // The users wrapper keeps its view in the address; the core list must not (Revision 7 A-17 item 1).
 const nav = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/users' }));
-import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ArchivableListProps, type ListLoad } from '@/app/(app)/ArchivableList';
-import { UsersList } from '@/app/(app)/admin/users/UsersList';
+import { ArchivableList, ArchivedToggle, SEARCH_SETTLE_MS, type ArchivableListHandle, type ArchivableListProps, type ListLoad } from '@/app/(app)/ArchivableList';
+import { USERS_LIST } from '@/copy/people';
+import { ROLES_LIST } from '@/copy/roles';
+import { EMPTY as USERS_EMPTY, UsersList } from '@/app/(app)/admin/users/UsersList';
+import { EMPTY as ROLES_EMPTY } from '@/app/(app)/admin/roles/RolesList';
 import { Button } from '@/components/ui/Button';
 import styles from '@/app/(app)/Lists.module.css';
-import { VIEWER_ID, json, page, renderWired, stubFetch, user } from './harness';
+import { VIEWER_ID, json, page, renderWired, stubFetch, textsOf, user } from './harness';
 
 // Revision 7 A-17 (b4-architecture-r7-proposal.md Rev 2, as amended by Revision 3 R3-1/R3-2) and the FE-R3 obligations
 // owed to this commit (fe-r3-ux.md Revision 1 H-1/H-2). The call sites here are TEST fixtures: a page with a `header`, and a
@@ -506,5 +509,37 @@ describe('FE-R3 H-1/H-2 — where focus goes after a Retry on a header list or a
     await act(async () => calls[0]!.resolve(ok([gone('Z9', '2026-01-01T00:00:00Z')])));
     expect(document.activeElement).toBe(h2);
     expect(within(document.querySelector('section')!).getByText('Z9')).toBeInTheDocument();
+  });
+});
+
+// FE-R4 (fe-r4-ux.md Revision 1): test 7's no-interaction half on the section (`search: false` still runs the mount settle),
+// and rule 6's copy precondition (test 8, decided as a test over every shipped list's copy — see fe-r4-progress.md).
+describe('FE-R4 — the mount settle and the copy precondition', () => {
+  it('7. a section nobody touched speaks nothing after the mount settle', async () => {
+    renderWired(<SectionFixture initial={ok([live('A1')])} load={scriptedLoad().load} />);
+    const log = textsOf(region());
+    await act(() => new Promise((r) => setTimeout(r, SEARCH_SETTLE_MS + 200)));
+    log.stop();
+    expect(log.texts).toEqual(['']);
+  });
+
+  // Rule 6: a settled sentence or empty heading that does not name a non-empty query reads the same for two queries with
+  // the same count, so the second result would never be spoken. Every shipped list's copy is checked, in both views, for a
+  // count of 1 and of many, and the call site's own exported `EMPTY` for its no-match heading. A new list adds itself here
+  // (the warehouses list when built).
+  const SHIPPED = [
+    { name: 'users', shown: USERS_LIST.shown, empty: USERS_EMPTY },
+    { name: 'roles', shown: ROLES_LIST.shown, empty: ROLES_EMPTY },
+  ];
+  it.each(SHIPPED)('8. $name: every settled sentence and non-null empty heading for a non-empty query names the query', ({ shown, empty }) => {
+    const q = 'Qx9';
+    for (const archived of [false, true]) {
+      for (const n of [1, 2]) expect(shown(n, q, archived)).toContain(`“${q}”`);
+      for (const tenantHasRows of [true, false, undefined]) {
+        const e = empty({ archived, q, tenantHasRows, busy: false, switchTo: () => {}, clearSearch: () => {} });
+        expect(e, 'a list whose empty is null for a non-empty query must say what it announces instead (UX)').not.toBeNull();
+        expect(e!.heading).toContain(`“${q}”`);
+      }
+    }
   });
 });
