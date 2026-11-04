@@ -8,12 +8,15 @@ import type { Read } from '@/lib/bff/reads';
 import { formatList } from '@/lib/format/lists';
 import { loadUsers, type UsersLoad } from '@/lib/people/load';
 import { useViewerTimeZone } from '../../BffProvider';
-import { ArchivableList, type Column, type ListLoad } from '../../ArchivableList';
+import { ArchivableList, searchEmptyStates, type Column, type ListLoad } from '../../ArchivableList';
+import { useArchivedAddress } from '../../useArchivedAddress';
 import { PeopleDenied } from './PeopleStates';
 
 export { SEARCH_SETTLE_MS } from '../../ArchivableList';
 
-const COPY = { ...USERS_LIST, noneLive: null };
+/** C5-1: the live view has no empty state (the viewer is always a live row). */
+const EMPTY = searchEmptyStates({ ...USERS_LIST, noneLive: null });
+const ARCHIVED_VIEW = { order: 'newest-deleted-first', caption: USERS_LIST.archivedOrder, rows: 'plain' } as const;
 
 /** The server's `q` is a case-insensitive prefix of the email (UserReader.php); the client lower-cases the same way. */
 const matches = (u: User, lowerQ: string) => u.email.toLowerCase().startsWith(lowerQ);
@@ -34,6 +37,7 @@ export interface UsersListProps {
  */
 export function UsersList({ initial, initialArchived = false, viewerId }: UsersListProps) {
   const timeZone = useViewerTimeZone();
+  const onViewLoaded = useArchivedAddress();
   const columns = (archived: boolean): Column<User>[] => [
     { header: USERS_LIST.name, cell: (u) => <Link href={`/admin/users/${u.id}`}>{u.id === viewerId ? PERSON.ownName(u.display_name) : u.display_name}</Link> },
     { header: USERS_LIST.email, cell: (u) => u.email },
@@ -44,5 +48,18 @@ export function UsersList({ initial, initialArchived = false, viewerId }: UsersL
           { header: USERS_LIST.status, cell: (u: User) => (u.is_active ? USERS_LIST.active : USERS_LIST.switchedOff) },
         ]),
   ];
-  return <ArchivableList initial={asList(initial)} initialArchived={initialArchived} load={load} matches={matches} columns={columns} copy={COPY} denied={<PeopleDenied />} />;
+  return (
+    <ArchivableList
+      initial={asList(initial)}
+      initialArchived={initialArchived}
+      onViewLoaded={onViewLoaded}
+      load={load}
+      matches={matches}
+      columns={columns}
+      copy={USERS_LIST}
+      empty={EMPTY}
+      archivedView={ARCHIVED_VIEW}
+      denied={<PeopleDenied />}
+    />
+  );
 }

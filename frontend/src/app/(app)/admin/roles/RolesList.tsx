@@ -10,7 +10,8 @@ import type { Role } from '@/lib/api/roles';
 import type { Read } from '@/lib/bff/reads';
 import { loadRoles, type RolesLoad } from '@/lib/permissions/load';
 import { useViewerTimeZone } from '../../BffProvider';
-import { ArchivableList, type Column, type ListLoad } from '../../ArchivableList';
+import { ArchivableList, searchEmptyStates, type Column, type ListLoad } from '../../ArchivableList';
+import { useArchivedAddress } from '../../useArchivedAddress';
 import { RolesDenied } from './RoleStates';
 import styles from '../../Lists.module.css';
 
@@ -18,6 +19,8 @@ import styles from '../../Lists.module.css';
 const matches = (r: Role, lowerQ: string) => r.name.toLowerCase().startsWith(lowerQ);
 const asList = (r: RolesLoad): ListLoad<Role> => (r.kind === 'ok' ? { kind: 'ok', items: r.roles } : r);
 const load = async (read: Read, archived: boolean, signal: AbortSignal) => asList(await loadRoles(read, archived, signal));
+const EMPTY = searchEmptyStates(ROLES_LIST);
+const ARCHIVED_VIEW = { order: 'newest-deleted-first', caption: ROLES_LIST.archivedOrder, rows: 'plain' } as const;
 
 /**
  * `/admin/roles` (ux-copy-b3b.md C7-1): Name · People · Permissions live (a count of holders, never names; the count of
@@ -26,6 +29,7 @@ const load = async (read: Read, archived: boolean, signal: AbortSignal) => asLis
  */
 export function RolesList({ initial, initialArchived = false }: { initial: RolesLoad; initialArchived?: boolean }) {
   const timeZone = useViewerTimeZone();
+  const onViewLoaded = useArchivedAddress();
   const name: Column<Role> = {
     header: ROLES_LIST.name,
     cell: (r) => (
@@ -45,5 +49,18 @@ export function RolesList({ initial, initialArchived = false }: { initial: Roles
     archived
       ? [name, { header: PERSON.deletedOnColumn, cell: (r) => (r.archived_at !== null ? <DateTime value={r.archived_at} form="date" timeZone={timeZone} /> : null) }]
       : [name, { header: ROLES_LIST.people, cell: (r) => String(r.holder_count) }, { header: ROLES_LIST.permissions, cell: (r) => String(r.permission_codes.length) }];
-  return <ArchivableList initial={asList(initial)} initialArchived={initialArchived} load={load} matches={matches} columns={columns} copy={ROLES_LIST} denied={<RolesDenied />} />;
+  return (
+    <ArchivableList
+      initial={asList(initial)}
+      initialArchived={initialArchived}
+      onViewLoaded={onViewLoaded}
+      load={load}
+      matches={matches}
+      columns={columns}
+      copy={ROLES_LIST}
+      empty={EMPTY}
+      archivedView={ARCHIVED_VIEW}
+      denied={<RolesDenied />}
+    />
+  );
 }

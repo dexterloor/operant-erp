@@ -289,7 +289,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
   // ChangePasswordRoute}.tsx → app/(app)/account/password/ (Revision 6 A-13).
   // Session-expiry return path added: app/(app)/SessionEndedReturn.tsx.
-  'src/app': 40,
+  // Revision 7 step 2 (A-17 item 1) added: app/(app)/useArchivedAddress.ts (the list's only address writer).
+  'src/app': 41,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -331,6 +332,44 @@ describe('architecture — import direction (RED H-5 item 5, Revision 2 C-2)', (
       "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '@/copy/roles'",
       "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '../../copy/roles'",
       "src/components/ui/Banner.tsx — src never imports test/**: imports '@/../test/fixtures/x'",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 7 A-17 item 1 (RED M-1): the list core holds its view in state and never touches the address. The one address
+// writer is `useArchivedAddress.ts` beside it; a list that keeps no view in the address (a section) simply does not call it.
+// Checked on module specifiers (static imports, re-exports, `import()`, `require()`), never by substring.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const LIST_CORE = 'src/app/(app)/ArchivableList.tsx';
+
+function listCoreNavigationViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (sf.file !== LIST_CORE) continue;
+    for (const spec of specifiersOf(sf)) if (spec === 'next/navigation' || spec.startsWith('next/navigation/')) out.push({ file: sf.file, detail: `imports '${spec}'` });
+  }
+  return out;
+}
+
+describe('architecture — the list core never imports next/navigation (Revision 7 A-17 item 1)', () => {
+  it('the real core imports no next/navigation, and the real core is the file the guard reads (not vacuous)', () => {
+    const files = walk('src');
+    expect(files.filter((f) => f.file === LIST_CORE)).toHaveLength(1);
+    expect(files.some((f) => f.file === 'src/app/(app)/useArchivedAddress.ts' && specifiersOf(f).includes('next/navigation'))).toBe(true);
+    expect(listCoreNavigationViolations(files)).toEqual([]);
+  });
+
+  it('planted: the core importing next/navigation (static or dynamic) goes red; useArchivedAddress.ts importing it does not', () => {
+    const planted: SourceFile[] = [
+      { file: LIST_CORE, source: "import { useRouter } from 'next/navigation';" },
+      { file: LIST_CORE, source: "const nav = await import('next/navigation');" },
+      { file: 'src/app/(app)/useArchivedAddress.ts', source: "import { useRouter, usePathname } from 'next/navigation';" },
+    ];
+    expect(listCoreNavigationViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/app/(app)/ArchivableList.tsx — imports 'next/navigation'",
+      "src/app/(app)/ArchivableList.tsx — imports 'next/navigation'",
     ]);
   });
 });

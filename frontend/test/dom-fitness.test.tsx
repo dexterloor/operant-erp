@@ -1,5 +1,5 @@
-import { StrictMode, useRef, useState, type ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode, createRef, useRef, useState, type ReactNode, type Ref } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +20,8 @@ import type { AssignResult } from '@/lib/roles/results';
 import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_REFUSALS, ROLES, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
 import { PickerHarness, scene as pickerScene } from './roles/harness';
 import { AppShell } from '@/app/(app)/AppShell';
+import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ListLoad } from '@/app/(app)/ArchivableList';
+import { renderWired } from './wired/harness';
 
 // The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
 const shellIo = vi.hoisted(() => ({ signOut: vi.fn() }));
@@ -438,5 +440,79 @@ describe('DOM fitness — the app shell after a failed sign-out (b3b-followup C-
     await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
     expect(await screen.findByText('You may still be signed in on this device. Open your account menu and press Sign out again.')).toBeInTheDocument();
     expect(regions.check()).toEqual([]);
+  });
+});
+
+// Revision 7 A-17 (Rev 1 M-2; R3-1, R3-2): a Locations-style SECTION on the list core (no h1, an h2 named by headingId, no
+// search, never in the address). A TEST fixture call site — no warehouses code exists yet. One status region, empty at first
+// render, the same node through a switch and a reread; and after a failed first load then Retry, the same region node with
+// no new region, the section h2 present and aria-labelledby resolving to it.
+interface Loc {
+  id: string;
+  archived_at: string | null;
+  code: string;
+}
+function LocationsSection({ initial, load, controller }: { initial: ListLoad<Loc>; load: () => Promise<ListLoad<Loc>>; controller?: Ref<ArchivableListHandle> }) {
+  return (
+    <ArchivableList<Loc>
+      initial={initial}
+      load={load}
+      controller={controller}
+      columns={() => [{ header: 'Code', cell: (l) => l.code }]}
+      copy={{ heading: null, archived: 'Archived', loadFailed: "The locations couldn't be loaded.", shown: (n, _q, archived) => `${n} locations shown.${archived ? ' Archived.' : ''}` }}
+      headingId="loc-h"
+      search={false}
+      empty={({ archived }) => ({ heading: archived ? 'No archived locations.' : 'No locations in this warehouse yet.' })}
+      archivedView={{ order: 'as-served', rows: 'struck' }}
+      denied={<p>Denied.</p>}
+      header={({ archived, busy, loaded, switchTo, viewControlRef }) => (
+        <>
+          <h2 id="loc-h" tabIndex={-1}>
+            {archived ? 'Archived locations' : 'Locations'}
+          </h2>
+          {loaded && archived ? (
+            <Button ref={viewControlRef} onClick={() => switchTo(false)}>
+              Back to locations
+            </Button>
+          ) : null}
+          {loaded && !archived ? <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(true)} label="Archived" /> : null}
+        </>
+      )}
+    />
+  );
+}
+const LIVE_LOC: Loc = { id: 'l1', archived_at: null, code: 'A-01' };
+const GONE_LOC: Loc = { id: 'l2', archived_at: '2026-01-01T00:00:00Z', code: 'Z-99' };
+
+describe('DOM fitness — Revision 7 list core, Locations section', () => {
+  it('no [disabled]; one region, empty at first render, the same node after a switch and a reread', async () => {
+    const answers: ListLoad<Loc>[] = [{ kind: 'ok', items: [GONE_LOC] }, { kind: 'ok', items: [GONE_LOC] }];
+    const controller = createRef<ArchivableListHandle>();
+    renderWired(<LocationsSection initial={{ kind: 'ok', items: [LIVE_LOC] }} load={async () => answers.shift()!} controller={controller} />);
+    const regions = trackRegions();
+    expect(regions.count).toBe(1);
+    expect(regions.firstRender).toEqual([]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Z-99')).toBeInTheDocument();
+    expect(regions.check()).toEqual([]);
+    await act(async () => void (await controller.current!.reread()));
+    expect(regions.check()).toEqual([]);
+    expect(screen.getByRole('status')).toHaveTextContent('1 locations shown. Archived.');
+  });
+
+  it('a failed first load, then Retry: the same region node, no new region; the h2 is present and aria-labelledby resolves to it', async () => {
+    renderWired(<LocationsSection initial={{ kind: 'unreachable' }} load={async () => ({ kind: 'ok', items: [LIVE_LOC] })} />);
+    const regions = trackRegions();
+    expect(regions.count).toBe(1);
+    expect(regions.firstRender).toEqual([]);
+    const labelled = () => document.getElementById(document.querySelector('section[aria-labelledby]')!.getAttribute('aria-labelledby')!);
+    expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('A-01')).toBeInTheDocument();
+    expect(regions.check()).toEqual([]);
+    expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 locations shown.'));
   });
 });
