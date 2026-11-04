@@ -62,15 +62,18 @@ describe('Page states (RULED copy)', () => {
     expect(retry).toHaveBeenCalled();
   });
 
-  it('refetch failed: the earlier data stays; the R1-1 heading and body are the caller\'s; polite, focus does not move', () => {
-    render(<RefetchFailedBanner heading="We couldn't reach the server." body="The list couldn't be updated, so it still shows the earlier results." onRetry={() => {}} />);
-    expect(screen.getByRole('status')).toHaveTextContent("We couldn't reach the server.");
+  it('refetch failed: the earlier data stays; the R1-1 heading and body are the caller\'s; no live role of its own (the caller\'s one region speaks, FE-R3), focus does not move', () => {
+    const { container } = render(<RefetchFailedBanner heading="We couldn't reach the server." body="The list couldn't be updated, so it still shows the earlier results." onRetry={() => {}} />);
+    expect(screen.getByText("We couldn't reach the server.")).toBeInTheDocument();
+    expect(container.querySelector('[role="status"], [role="alert"], [aria-live]')).toBeNull();
     expect(screen.getByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument();
     expect(document.body).toHaveFocus();
   });
 
   it('refetching sets aria-busy and leaves content untouched (no dimming wrapper styles)', () => {
-    render(<Refetchable busy><button>Row link</button></Refetchable>);
+    const { container } = render(<Refetchable busy><button>Row link</button></Refetchable>);
+    // FE-R3 L-1: the wrapper builds no status region; the caller owns one, mounted from first render.
+    expect(container.querySelector('[role="status"], [aria-live]')).toBeNull();
     const btn = screen.getByRole('button', { name: 'Row link' });
     const region = btn.parentElement as HTMLElement;
     expect(region).toHaveAttribute('aria-busy', 'true');

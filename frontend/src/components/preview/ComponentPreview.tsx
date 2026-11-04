@@ -214,7 +214,8 @@ export function ComponentPreview() {
               Refresh (refetching keeps content at full contrast)
             </Button>
           </div>
-          <Refetchable busy={busy} announcement={counter ? `Preview refreshed ${counter} time${counter === 1 ? '' : 's'}.` : undefined}>
+          <LiveRegion message={busy || !counter ? '' : `Preview refreshed ${counter} time${counter === 1 ? '' : 's'}.`} visuallyHidden />
+          <Refetchable busy={busy}>
             <p className={`${styles.refetchContent} erp-highlight`} key={counter}>
               This block stays readable and clickable while it refreshes. Refreshed {counter} time{counter === 1 ? '' : 's'}.
             </p>

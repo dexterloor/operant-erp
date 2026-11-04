@@ -115,7 +115,9 @@ describe('/admin/users — the Archived view', () => {
     show();
     await u.click(screen.getByRole('button', { name: 'Archived' }));
     expect(await screen.findByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument();
-    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    // The banner shows the heading; the list's one status region speaks it (FE-R3: the banner has no live role).
+    expect(screen.getByText('Something went wrong on our side.', { selector: 'p' })).toBeInTheDocument();
+    expect(status()).toHaveTextContent('Something went wrong on our side.');
     expect(screen.getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
     stubFetch([json(200, page([NEW]))]);

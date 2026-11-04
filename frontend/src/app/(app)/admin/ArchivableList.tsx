@@ -17,6 +17,17 @@ import styles from './Lists.module.css';
 export const SEARCH_SETTLE_MS = 400;
 
 type Cause = 'unreachable' | 'server-error';
+/** Which control started a fetch: the Archived toggle, the banner's Retry, or the first-load Retry. */
+type Origin = 'toggle' | 'banner' | 'first';
+/**
+ * Focus fell out of the page: onto `<body>`, or with an element that has since been removed (M-3). When a focused node is
+ * removed, browsers report `<body>`; the null and detached checks are belt-and-braces. A focused row removed by the new
+ * view also counts as lost.
+ */
+const focusWasLost = () => {
+  const el = document.activeElement;
+  return el === null || el === document.body || !el.isConnected;
+};
 const causeOf = (kind: string): Cause => (kind === 'unreachable' ? 'unreachable' : 'server-error');
 const headingOf = (c: Cause) => (c === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG);
 const newestDeletedFirst = (a: { archived_at: string | null }, b: { archived_at: string | null }) => Date.parse(b.archived_at ?? '') - Date.parse(a.archived_at ?? '');
@@ -70,6 +81,14 @@ export interface ArchivableListProps<T> {
  * a successful Retry after a failed first load is a change it announces (principle 6; RED M-3). That Retry's button
  * unmounts with the error, so focus moves to the h1 — with the rows on screen — and only then is the sentence written
  * (RED X-2; the RolePage/PersonPage re-read precedent; FE-D1 order).
+ *
+ * FE-R3 (fe-r3-ux.md Revision 1): a successful Retry in the "couldn't refresh" banner removes the banner with its focused
+ * Retry, so focus moves to the Archived toggle, whose pressed state names the view now shown. Either Retry moves focus
+ * only if focus was lost (inside the removed banner or region error, or on `<body>`) — never away from where the user
+ * went while waiting (M-3). Every success holds the sentence until after any focus move. A failed refetch writes the
+ * banner's heading into this list's one status region (the banner has no live role of its own, principle 6) and never
+ * leaves the settled sentence there (defect A, M-2); the region is blanked while any refetch is in flight (`busy`), so a
+ * repeat failure with the same cause is still a text change (defect B, M-4).
  */
 export function ArchivableList<T extends { id: string; archived_at: string | null }>({ initial, initialArchived = false, load, matches, columns, copy, denied }: ArchivableListProps<T>) {
   const caller = useApiCaller();
@@ -85,17 +104,28 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const [q, setQ] = useState('');
   const [settledQ, setSettledQ] = useState('');
   const [interacted, setInteracted] = useState(false);
-  /** While true, the settled sentence waits: a Retry of a failed first load writes it only after the h1 took focus. */
+  /** While true, the settled sentence waits: a successful fetch writes it only after any focus move. */
   const [quiet, setQuiet] = useState(false);
+  /** The heading of the last failed refetch, spoken in place of the settled sentence until a fetch succeeds or a search the user typed settles. */
+  const [failureNote, setFailureNote] = useState<string | null>(null);
+  /** The user changed the search since the last failure: the note clears when that search settles, never on the keystroke. */
+  const searchedSinceFailure = useRef(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setSettledQ(q), SEARCH_SETTLE_MS);
+    const t = setTimeout(() => {
+      setSettledQ(q);
+      if (searchedSinceFailure.current) {
+        searchedSinceFailure.current = false;
+        setFailureNote(null);
+      }
+    }, SEARCH_SETTLE_MS);
     return () => clearTimeout(t);
   }, [q]);
 
-  const fetchView = async (archived: boolean) => {
+  const fetchView = async (archived: boolean, from: Origin) => {
     if (busy) return;
     setBusy(true);
     const deadline = startDeadline(ACTION_DEADLINES_MS.reread);
@@ -103,20 +133,20 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     deadline.cancel();
     setBusy(false);
     if (r.kind === 'ok') {
-      const recovering = shown === null;
-      // X-2: a Retry of a failed first load unmounts its own button. Commit the rows first (sentence held), then focus
-      // the h1, then let the sentence through — focus first, then announce (FE-D1's flushSync order).
+      // X-2 / FE-R3: a Retry unmounts its own button with the error or the banner. Commit the rows first (sentence held),
+      // then, only if focus was lost, focus the h1 (first load) or the Archived toggle (banner), then let the sentence
+      // through — focus first, then announce (FE-D1's flushSync order). A toggle press never moves focus (ST-1a), even
+      // where a mouse click left focus on <body> (Safari, Firefox on macOS).
       flushSync(() => {
-        if (recovering) setQuiet(true);
+        setQuiet(true);
         setShown({ archived, items: r.items });
         setFirstError(null);
         setRefetchError(null);
+        setFailureNote(null);
         setInteracted(true);
       });
-      if (recovering) {
-        h1.current?.focus();
-        setQuiet(false);
-      }
+      if (from !== 'toggle' && focusWasLost()) (from === 'first' ? h1.current : (toggleRef.current ?? h1.current))?.focus();
+      setQuiet(false);
       if (archived !== addressArchived.current) {
         addressArchived.current = archived;
         router.replace(pathname + (archived ? '?archived=true' : ''), { scroll: false });
@@ -129,7 +159,11 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       return;
     }
     if (shown === null) setFirstError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: causeOf(r.kind) }));
-    else setRefetchError({ cause: causeOf(r.kind), archived });
+    else {
+      setRefetchError({ cause: causeOf(r.kind), archived });
+      searchedSinceFailure.current = false;
+      setFailureNote(headingOf(causeOf(r.kind)));
+    }
   };
 
   const archived = shown?.archived ?? false;
@@ -143,11 +177,13 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
 
   const emptyHeadingFor = (query: string) => (query !== '' ? (archived ? copy.noArchivedMatch(query) : copy.noMatch(query)) : archived ? copy.noneArchived : copy.noneLive);
   const settledCount = filter(settledQ).length;
-  const announcement = !interacted || !shown || quiet || busy ? '' : settledCount > 0 ? copy.shown(settledCount, settledQ, archived) : (emptyHeadingFor(settledQ) ?? '');
+  // `busy` blanks the region while a fetch is in flight, so the next failure (same heading) or success is a text change.
+  const announcement = busy ? '' : failureNote !== null ? failureNote : !interacted || !shown || quiet ? '' : settledCount > 0 ? copy.shown(settledCount, settledQ, archived) : (emptyHeadingFor(settledQ) ?? '');
   const emptyHeading = shown && rows.length === 0 ? emptyHeadingFor(q) : null;
   const cols = columns(archived);
 
   const clearSearch = () => {
+    searchedSinceFailure.current = true;
     setQ('');
     searchRef.current?.focus();
   };
@@ -162,12 +198,12 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       {/* Mounted from first render, above every branch below, so it never arrives already speaking (principle 6). */}
       <LiveRegion message={announcement} visuallyHidden />
       {firstError ? (
-        <RegionError key={firstError.gen} heading={headingOf(firstError.cause)} body={copy.loadFailed} retrying={busy} autoFocus={firstError.gen > 0} onRetry={() => void fetchView(initialArchived)} />
+        <RegionError key={firstError.gen} heading={headingOf(firstError.cause)} body={copy.loadFailed} retrying={busy} autoFocus={firstError.gen > 0} onRetry={() => void fetchView(initialArchived, 'first')} />
       ) : null}
       {shown ? (
         <>
           <div className={styles.toolbar}>
-            <Button aria-pressed={archived} loading={busy} onClick={() => void fetchView(!archived)}>
+            <Button ref={toggleRef} aria-pressed={archived} loading={busy} onClick={() => void fetchView(!archived, 'toggle')}>
               {copy.archived}
             </Button>
             <label className={styles.search}>
@@ -181,12 +217,13 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
                 onChange={(e) => {
                   setQ(e.target.value);
                   setInteracted(true);
+                  searchedSinceFailure.current = true;
                 }}
               />
             </label>
           </div>
-          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived)} /> : null}
-          <Refetchable busy={busy} liveRegion={false}>
+          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner')} /> : null}
+          <Refetchable busy={busy}>
             {emptyHeading !== null ? (
               <div className={styles.empty}>
                 <p className={styles.emptyHeading}>{emptyHeading}</p>
