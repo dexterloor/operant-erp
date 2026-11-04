@@ -19,7 +19,7 @@ use Symfony\Component\Uid\Uuid;
  * **Warehouses slice 1 C2 — `CreateWarehouse`, `UpdateWarehouse`** (`docs/session13/warehouses-s1-design.md` §3 and FINAL
  * item 3; final RED `warehouses-s1-final-red.md` M-4). `SupplierWriteTest`'s shape.
  *
- * Each refusal's literal sentence is pinned once here. The warehouse copy is a **placeholder** (`UX` owes it); the two
+ * Each refusal's literal sentence is pinned once here. The warehouse copy is final (`UX` 2026-11-03); the two
  * sentences shared with customers are held equal to `CustomerWriter`'s constants (one sentence per code across the house).
  *
  * **One live unique** (`warehouse_tenant_code_live`), on create AND update; **the name is not unique** (no index).

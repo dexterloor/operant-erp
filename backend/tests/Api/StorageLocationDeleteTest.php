@@ -182,7 +182,7 @@ final class StorageLocationDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), $kind.': '.(string) $this->client()->getResponse()->getContent());
         self::assertSame('storage_location.holds_stock', $this->json()['rule']);
-        self::assertSame('This location still holds stock, so it can\'t be deleted until all of it is moved to another location or counted off.', $this->json()['detail']);
+        self::assertSame('This location still holds stock, so it can\'t be deleted until no stock is left in it.', $this->json()['detail']);
         self::assertSame(StorageLocationWriter::HOLDS_STOCK, $this->json()['detail']);
         self::assertNull($this->stored($location)['deleted_at']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::STORAGE_LOCATION_DELETED), 'A refused delete wrote a trail row.');
@@ -236,8 +236,8 @@ final class StorageLocationDeleteTest extends PurchaseOrderTestCase
         self::assertSame(204, $this->httpStatus(), 'DeleteItem refused a stocked item: G-51\'s closing work has landed — retire or reword G-51 deliberately. '
             .(string) $this->client()->getResponse()->getContent());
 
-        $sentence = 'This location still holds stock, so it can\'t be deleted until all of it is moved to another location or counted off. '
-            .'Stock of an archived item can be moved or counted off only once that item is restored.';
+        $sentence = 'This location still holds stock, so it can\'t be deleted until no stock is left in it. '
+            .'Some or all of that stock belongs to archived items.';
         foreach ([$all, $part] as $location) {
             $this->delete($warehouse, $location);
             self::assertSame(409, $this->httpStatus());

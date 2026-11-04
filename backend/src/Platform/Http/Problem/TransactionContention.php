@@ -28,7 +28,7 @@ final class TransactionContention
 {
     public const RULE = 'transaction.contention';
 
-    /** Placeholder copy, `UX` to confirm (with `bulk.contention`'s). */
+    /** Final copy (`UX` 2026-11-03), for every operation that returns it. `bulk.contention`'s sentence stays owed to `UX`. */
     public const MESSAGE = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 
     /** `40P01` deadlock_detected, `40001` serialization_failure (unreachable: no SERIALIZABLE / REPEATABLE READ anywhere), `55P03` lock_not_available. */

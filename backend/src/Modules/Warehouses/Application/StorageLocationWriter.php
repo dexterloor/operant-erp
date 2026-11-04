@@ -30,7 +30,7 @@ use Symfony\Component\Uid\Uuid;
  * neither: it is written only by {@see self::restore()} (warehouse/location delete-restore C2, `Version20261020000300`)
  * and {@see self::delete()} (C3, `DeleteStorageLocation`; G-27).
  *
- * **Refusals, in order** (design §4.1; placeholder copy, `UX` owes it): the parent warehouse (absent or another
+ * **Refusals, in order** (design §4.1; copy final, `UX` 2026-11-03, `warehouses-ux-copy.md` §A-4): the parent warehouse (absent or another
  * workspace's → 404) → (update) the location **of this warehouse** (another warehouse's location under this path is the
  * same 404, ST-5) → archived parent → 409 `warehouse.is_archived` → archived location → 409 `storage_location.is_archived`
  * → shape (422; `kind` one of {@see LocationKinds::ALL}, else `not_a_location_kind`) → (update) the release rule → write.
@@ -129,13 +129,13 @@ final readonly class StorageLocationWriter
     public const ALREADY_ARCHIVED = 'This location is already archived. It\'s in this warehouse\'s archived locations.';
 
     /** `DeleteStorageLocation` on a location holding stock, any kind, quarantine included (owner Q-1; `UX` U-1 C3). Passive. */
-    public const HOLDS_STOCK = 'This location still holds stock, so it can\'t be deleted until all of it is moved to another location or counted off.';
+    public const HOLDS_STOCK = 'This location still holds stock, so it can\'t be deleted until no stock is left in it.';
 
     /**
      * Appended to {@see self::HOLDS_STOCK} with one space when any of the stock is an archived item's (`UX` U-4, design
      * Revision 2 L-5): one sentence true for "some" and "all". `RESIDUAL_GAPS.md` G-51.
      */
-    public const ARCHIVED_ITEM_STOCK = 'Stock of an archived item can be moved or counted off only once that item is restored.';
+    public const ARCHIVED_ITEM_STOCK = 'Some or all of that stock belongs to archived items.';
 
     /** `RestoreStorageLocation` on a location of an archived warehouse (owner Q-2 (a); `UX` U-1). Passive (R-3). */
     public const WAREHOUSE_ARCHIVED_ON_RESTORE = 'This location\'s warehouse is archived, so the location can\'t be restored until the warehouse is restored.';

@@ -30,7 +30,8 @@ use Symfony\Component\Uid\Uuid;
  * delete-restore C1, `Version20261020000100`) and {@see self::delete()} (C4, `DeleteWarehouse`). A 42501 from either is fixed by removing the column from the statement, never by
  * widening the grant.
  *
- * **Refusals, in order** (placeholder copy; `UX` owes the warehouse copy):
+ * **Refusals, in order** (copy final, `UX` 2026-11-03, `warehouses-ux-copy.md` §A-4; the delete refusals state the
+ * blocking condition, not a remedy the web app cannot carry out):
  *  1. shape, before any transaction: required/null, blank (empty after trimming — the value is stored as sent, no trim),
  *     country code shape;
  *  2. (update) the row: absent or foreign → 404; archived → 409 `warehouse.is_archived` ({@see self::refuseIfArchived()},
@@ -84,16 +85,16 @@ final readonly class WarehouseWriter
     public const ALREADY_ARCHIVED = 'This warehouse is already archived. It\'s in the archived warehouses.';
 
     /** API-O-34, first leg (`UX` U-1 C4, U-3 precedence). `%s` from {@see self::openPurchaseOrders()}. Passive (R-3). */
-    public const HAS_OPEN_PURCHASE_ORDERS = 'This warehouse still has %s, so it can\'t be deleted until each open order is received in full or cancelled. A draft can be moved to another warehouse or simply deleted.';
+    public const HAS_OPEN_PURCHASE_ORDERS = 'This warehouse still has %s, so it can\'t be deleted while it has any. Drafts count as open.';
 
     /** API-O-34, second leg. `%s` from {@see self::openSalesOrders()}. */
-    public const HAS_OPEN_SALES_ORDERS = 'This warehouse still has %s, so it can\'t be deleted until each open order is shipped in full or cancelled. A draft can be moved to another warehouse or simply deleted.';
+    public const HAS_OPEN_SALES_ORDERS = 'This warehouse still has %s, so it can\'t be deleted while it has any. Drafts count as open.';
 
     /** API-O-34, third leg: stock in any of its locations, live or archived. `%s` from {@see self::locations()}. */
-    public const HOLDS_STOCK = 'This warehouse still holds stock in %s, so it can\'t be deleted until all of it is moved to another warehouse or counted off.';
+    public const HOLDS_STOCK = 'This warehouse still holds stock in %s, so it can\'t be deleted until no stock is left in it.';
 
     /** Appended with one space when any of that stock is an archived item's (`UX` U-4; `RESIDUAL_GAPS.md` G-51). */
-    public const ARCHIVED_ITEM_STOCK = 'Stock of an archived item can be moved or counted off only once that item is restored.';
+    public const ARCHIVED_ITEM_STOCK = 'Some or all of that stock belongs to archived items.';
 
     public const COUNTRY_UNSUPPORTED = 'This country isn\'t supported yet.';
 

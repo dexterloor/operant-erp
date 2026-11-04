@@ -26,7 +26,7 @@ use Symfony\Component\Uid\Uuid;
  * **Warehouses slice 1 C3 — `CreateStorageLocation`, `UpdateStorageLocation`** (`docs/session13/warehouses-s1-design.md` §4
  * and FINAL item 4; final RED `warehouses-s1-final-red.md` §3 H-2, M-1, M-2, M-4, L-1, L-5). `WarehouseWriteTest`'s shape.
  *
- * Each refusal's literal sentence is pinned once here; the location copy is a **placeholder** (`UX` owes it).
+ * Each refusal's literal sentence is pinned once here; the location copy is final (`UX` 2026-11-03).
  *
  * **The quarantine rule (owner Q-W1 (d)):** a hold (into `quarantine`) is always allowed; a release (out of `quarantine`)
  * of a location holding stock is the owner's alone — `admin` and `warehouse_operator` are refused 409
