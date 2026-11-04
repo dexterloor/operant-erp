@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Warehouses\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
@@ -15,6 +16,7 @@ use App\Modules\Warehouses\ApiResource\State\DeleteStorageLocationProcessor;
 use App\Modules\Warehouses\ApiResource\State\RestoreStorageLocationProcessor;
 use App\Modules\Warehouses\ApiResource\State\StorageLocationProvider;
 use App\Modules\Warehouses\ApiResource\State\UpdateStorageLocationProcessor;
+use App\Modules\Warehouses\Application\Contract\LocationKinds;
 use App\Modules\Warehouses\Application\StorageLocationView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
@@ -149,6 +151,8 @@ final class StorageLocationResource
     public function __construct(
         public string $id,
         public string $code,
+        /** One of {@see LocationKinds::ALL}, served as that enum (BK-19). */
+        #[ApiProperty(schema: ['type' => 'string', 'enum' => LocationKinds::ALL])]
         public string $kind,
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
