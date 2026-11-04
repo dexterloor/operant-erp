@@ -40,9 +40,9 @@ interface SourceFile {
 // The same walk also records, for `src` only, EVERY entry it meets (any extension, directories and symlinks included)
 // into ALL_SRC_ENTRIES, with the contents of every regular file — a file reached through a symlink included, as the
 // backend reads it. A FIFO, socket or device is recorded but never read, so it cannot hang or fail the walk for every guard
-// here (twin RED L-1). Only the pick-route twin (end of this file) reads ALL_SRC_ENTRIES: Next.js serves
-// `page.js`/`page.jsx` too, and the backend check it twins searches every file under frontend/src for the pick
-// operations. SNAPSHOT is unchanged by it: same files, same order, same contents.
+// here (twin RED L-1). Only the two backend twins at the end of this file (FE-R2 pick route, G-47 stock rows) read
+// ALL_SRC_ENTRIES: Next.js serves `page.js`/`page.jsx` too, and the backend checks they twin search every file under
+// frontend/src for their tokens. SNAPSHOT is unchanged by it: same files, same order, same contents.
 interface DiskEntry {
   /** Path relative to the frontend root, POSIX separators. */
   file: string;
@@ -1307,9 +1307,12 @@ const PICK_ROUTE_MESSAGE =
   'src/generated/ naming CreateFulfilment or GetPickList; owner FE + UX).\n\n' +
   '  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n' +
   '    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n' +
-  "  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n" +
+  "  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's current status (re-read the\n" +
   '    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n' +
-  "  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n" +
+  "  - docs/ux/FLOWS.md F-5 (UX, 2026-11-03) now holds the corrected gate and step 6's recommendation: after\n" +
+  '    the 201, re-read the pick list and say "The order is now partly shipped / fully shipped / cancelled";\n' +
+  "    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n" +
+  '    TO CONFIRM FE-LEAD.\n' +
   '  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n' +
   'Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n' +
   'shipped IN PART and must not be called discharged.';
@@ -1330,6 +1333,45 @@ const realAppEntries = () => ALL_SRC_ENTRIES.filter((e) => e.file.startsWith(APP
 const realPages = () => realAppEntries().filter((e) => !e.link && !e.dir).map((e) => e.file.slice(APP_PREFIX.length));
 const realSources = (): Record<string, string> =>
   Object.fromEntries(ALL_SRC_ENTRIES.filter((e) => e.source !== null).map((e) => [e.file.slice('src/'.length), e.source!]));
+
+/**
+ * The controls that make the walk of the real tree trustworthy, shared by both frontend tripwire twins in this file
+ * (FE-R2 and G-47), as the backend's OwedAmendmentTripwireTest::frontendTree() is shared by its two methods. Pure walk: no
+ * method-specific token control lives here (each block keeps its own generated-boundary control).
+ */
+function assertFrontendTreeIsWalkable(): void {
+  expect(existsSync(path.join(ROOT, 'src/app')), 'Positive control: src/app is not where the walk looks, so it would find no page and pass on everything.').toBe(true);
+  for (const router of ['app', 'pages', 'src/pages']) {
+    expect(existsSync(path.join(ROOT, router)), `frontend/${router} exists: Next.js routes from it, and this check reads only src/app. Teach the walk that router before trusting it.`).toBe(false);
+  }
+  const configs = readdirSync(ROOT).filter((name) => name.startsWith('next.config.'));
+  expect(configs.length, 'Positive control: no next.config.* found, so the pageExtensions check below reads nothing.').toBeGreaterThan(0);
+  for (const config of configs) {
+    const text = readFileSync(path.join(ROOT, config), 'utf8');
+    expect(text, `${config} sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read the configured extensions.`).not.toContain('pageExtensions');
+    for (const key of ['rewrites', 'redirects']) {
+      expect(text, `${config} sets ${key}, so a URL may now be served by a page this walk derives differently. Teach the walk before trusting it.`).not.toContain(key);
+    }
+  }
+  expect(
+    ALL_SRC_ENTRIES.filter((e) => e.link).map((e) => e.file),
+    'A symlink under src: this walk reads file links and descends into directory links, while the backend check reads file links but never descends into a directory link, so the two would disagree about what is behind it. Remove the link, or teach both walks before trusting them.',
+  ).toEqual([]);
+  for (const dir of ['', 'src/']) {
+    const routers = readdirSync(path.join(ROOT, dir)).filter((name) => /^(middleware|proxy)\./.test(name));
+    expect(routers, `frontend/${dir}${routers[0] ?? ''} exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. Teach the walk before trusting it.`).toEqual([]);
+  }
+
+  const pages = realPages();
+  expect(
+    dynamicRootPages(pages, DYNAMIC_ROOT_PAGES_ALLOWED),
+    'A page whose first URL segment is dynamic can serve any first segment, and this walk would derive its URL as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).',
+  ).toEqual([]);
+  const urls = pages.map(pageUrl).filter((u): u is string => u !== null);
+  expect(urls.length, 'The walk found no page under src/app, so the implication would hold over nothing.').toBeGreaterThan(0);
+  const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
+  expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
+}
 
 describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
   it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {
@@ -1375,37 +1417,7 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
   });
 
   it('real-tree controls: the walk sees what the routes it knows can serve, and the generated boundary is real', () => {
-    expect(existsSync(path.join(ROOT, 'src/app')), 'Positive control: src/app is not where the walk looks, so it would find no page and pass on everything.').toBe(true);
-    for (const router of ['app', 'pages', 'src/pages']) {
-      expect(existsSync(path.join(ROOT, router)), `frontend/${router} exists: Next.js routes from it, and this check reads only src/app. Teach the walk that router before trusting it.`).toBe(false);
-    }
-    const configs = readdirSync(ROOT).filter((name) => name.startsWith('next.config.'));
-    expect(configs.length, 'Positive control: no next.config.* found, so the pageExtensions check below reads nothing.').toBeGreaterThan(0);
-    for (const config of configs) {
-      const text = readFileSync(path.join(ROOT, config), 'utf8');
-      expect(text, `${config} sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read the configured extensions.`).not.toContain('pageExtensions');
-      for (const key of ['rewrites', 'redirects']) {
-        expect(text, `${config} sets ${key}, so a URL may now be served by a page this walk derives differently. Teach the walk before trusting it.`).not.toContain(key);
-      }
-    }
-    expect(
-      ALL_SRC_ENTRIES.filter((e) => e.link).map((e) => e.file),
-      'A symlink under src: this walk reads file links and descends into directory links, while the backend check reads file links but never descends into a directory link, so the two would disagree about what is behind it. Remove the link, or teach both walks before trusting them.',
-    ).toEqual([]);
-    for (const dir of ['', 'src/']) {
-      const routers = readdirSync(path.join(ROOT, dir)).filter((name) => /^(middleware|proxy)\./.test(name));
-      expect(routers, `frontend/${dir}${routers[0] ?? ''} exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. Teach the walk before trusting it.`).toEqual([]);
-    }
-
-    const pages = realPages();
-    expect(
-      dynamicRootPages(pages, DYNAMIC_ROOT_PAGES_ALLOWED),
-      'A page whose first URL segment is dynamic can serve /sales-orders, and this walk would derive its URL as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).',
-    ).toEqual([]);
-    const urls = pages.map(pageUrl).filter((u): u is string => u !== null);
-    expect(urls.length, 'The walk found no page under src/app, so the implication would hold over nothing.').toBeGreaterThan(0);
-    const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
-    expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
+    assertFrontendTreeIsWalkable();
 
     const generatedNamesIt = Object.entries(realSources()).filter(([file, text]) => file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
     expect(generatedNamesIt.length, 'Positive control: src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves nothing about where the boundary is. Re-derive the token or the folder.').toBeGreaterThan(0);
@@ -1425,5 +1437,299 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
         "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
         PICK_ROUTE_MESSAGE,
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// G-47: no stock rows on a screen while G-47 is open — twin of the backend's
+// OwedAmendmentTripwireTest::noFrontendShowsStockRowsWhileG47IsOpen
+// ---------------------------------------------------------------------------------------------------------------------
+// G-47 (docs/RESIDUAL_GAPS.md, Low; owner UX + SEC): a ListStockLevels row does not say whether its bin can be picked --
+// quarantine bins, archived bins and bins of an archived warehouse look like pickable ones. G-47 is NOT closed and nothing
+// here may be read as closing it. Trigger re-put by the owner's delegation on 2026-11-03 (docs/design/g47-ruling.md;
+// g47-owner-questions-recommendation.md FINAL R-1…R-3). The backend check runs only when this app reaches main; this twin
+// runs on every frontend gate. Same rule, ported line for line from the backend method (keep the two in step — a change
+// to one is a change to both):
+//   The trigger T (outside src/generated/): (a) a page served at /stock or below (pageUrl, shared with FE-R2); (b) source
+//   naming ListStockLevels, minus the one navigation-map `operation:` entry in lib/navigation.ts (path AND shape, never
+//   path alone); (c) source naming the stock path /api/v1/stock or /bff/api/stock (not /stock-movements); (d)
+//   scripts/api-surface.client-ops.json wiring ListStockLevels for the browser.
+//   T ⇒ C1 (FINAL R-3, option 2): every file making T true through (a), (b) or (c), together with the modules it imports
+//   one level down (relative or `@/` path, resolved by text, no AST), names ListStorageLocations, 'storage_location.view'
+//   and 'warehouse.view'. When T holds through (d) alone no file can be checked, so the pin fails closed. C2 (the badge
+//   copy key) joins in the screen's commit, once UX fixes the key.
+// Weaker than option (1), and said so: a stub naming the three tokens satisfies C1; the safety rests on the seven hand
+// checks in the failure message. Known limits (as the backend states them): a path or operation name built by
+// concatenation or a template literal evades (b) and (c); a comment naming a token fires them (loud and safe); a
+// nav-driven generic page (`[module]`) is held on its route half by the shared dynamic-segment refusal and on its client
+// half by (d), and not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a link to
+// /stock from a caller of deriveNavigation() without the built filter is not watched; this walk refuses every symlink
+// under src (the backend reads file links and does not descend into directory links). Movements (/stock-movements,
+// GetStockMovement) are out of G-47's scope (FINAL R-4), but a new member on the shared location schema reaches them too.
+// Row-shape control (G-47 RED A-M5): read here from the committed contract ../contracts/openapi.json (the backend reads
+// the spec it regenerates; `npm run surface -- --check` ties src/generated/ to the same file).
+
+/** G-47 trigger (b): the stock read's operationId. */
+const STOCK_OPERATION_TOKEN = /\bListStockLevels\b/;
+/** G-47 trigger (c): the stock path the server (`/api/v1/stock`) or the browser (`/bff/api/stock`) uses. */
+const STOCK_PATH_TOKEN = /(?:\/api\/v1|\/bff\/api)\/stock(?![-A-Za-z0-9_])/;
+/** The one navigation-map entry excluded from (b), in STOCK_NAV_FILE only. Global: removed and counted at every occurrence. */
+const STOCK_NAV_ENTRY = /operation:\s*'ListStockLevels'/g;
+const STOCK_NAV_FILE = 'lib/navigation.ts';
+/** G-47 trigger (d), relative to `frontend/`. */
+const CLIENT_OPS_FILE = 'scripts/api-surface.client-ops.json';
+/** C1: what a file making the trigger true, or a module it imports one level down, must name. */
+const STOCK_MARKER_INPUTS: readonly (readonly [string, RegExp])[] = [
+  ['ListStorageLocations', /\bListStorageLocations\b/],
+  ["'storage_location.view'", /'storage_location\.view'/],
+  ["'warehouse.view'", /'warehouse\.view'/],
+];
+
+/** Byte-order sort, as the backend's `sort(…, SORT_STRING)` / `ksort(…, SORT_STRING)` (code-unit order; ASCII paths). */
+const byteOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const own = (sources: Readonly<Record<string, string>>, file: string): string => (Object.hasOwn(sources, file) ? (sources[file] ?? '') : '');
+
+function stockPages(pages: readonly string[]): string[] {
+  return pages.filter((page) => {
+    const url = pageUrl(page);
+    return url !== null && (url === '/stock' || url.startsWith('/stock/'));
+  });
+}
+
+function stockSourceReasons(file: string, text: string): string[] {
+  if (file.startsWith('generated/')) return [];
+  const reasons: string[] = [];
+  const searched = file === STOCK_NAV_FILE ? text.replace(STOCK_NAV_ENTRY, '') : text;
+  if (STOCK_OPERATION_TOKEN.test(searched)) reasons.push('names ListStockLevels');
+  if (STOCK_PATH_TOKEN.test(text)) reasons.push('names the stock path (/api/v1/stock or /bff/api/stock)');
+  return reasons;
+}
+
+/** One line per reason G-47's frontend trigger is true; empty when it is not. Pages first, then sources (byte order), then the client wiring list. */
+function stockRowTriggers(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+  const lines: string[] = [];
+  for (const page of [...stockPages(pages)].sort(byteOrder)) lines.push(`the frontend serves a page at ${pageUrl(page)} (src/app/${page})`);
+  for (const [file, text] of Object.entries(sources).sort(([a], [b]) => byteOrder(a, b))) {
+    for (const reason of stockSourceReasons(file, text)) lines.push(`src/${file} ${reason} outside src/generated/`);
+  }
+  if (clientOps.includes('ListStockLevels')) lines.push(`${CLIENT_OPS_FILE} wires ListStockLevels for the browser`);
+  return lines;
+}
+
+/**
+ * Modules a file imports by a relative or `@/` specifier, resolved by text to paths relative to `src` (`.ts`, `.tsx`,
+ * `.js`, `.jsx`, or an `index.*` in a folder). Unresolved specifiers are dropped by the caller (a missing key reads '').
+ */
+function directImports(file: string, text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"]((?:\.\/|\.\.\/|@\/)[^'"]+)['"]/g)) {
+    const specifier = match[1] ?? ''; // the group is not optional, so this is always the captured text
+    const parts = specifier.startsWith('@/') ? specifier.slice(2).split('/') : [...file.split('/').slice(0, -1), ...specifier.split('/')];
+    const resolved: string[] = [];
+    for (const part of parts) {
+      if (part === '..') resolved.pop();
+      else if (part !== '.' && part !== '') resolved.push(part);
+    }
+    const base = resolved.join('/');
+    for (const suffix of ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js', '/index.jsx']) found.add(base + suffix);
+  }
+  return [...found];
+}
+
+/** C1 over every file that makes the trigger true. Fails closed when the trigger holds only through the client wiring list. */
+function stockRowDefects(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+  if (stockRowTriggers(pages, sources, clientOps).length === 0) return [];
+  const files = stockPages(pages).map((page) => `app/${page}`);
+  for (const [file, text] of Object.entries(sources)) {
+    if (stockSourceReasons(file, text).length > 0) files.push(file);
+  }
+  const unique = [...new Set(files)].sort(byteOrder);
+  if (unique.length === 0) {
+    return [
+      'the client wiring list wires ListStockLevels, but no frontend source outside src/generated/ names it, ' +
+        'so no file can be checked for the marker inputs (fail closed: name the stock read where it is used)',
+    ];
+  }
+  const defects: string[] = [];
+  for (const file of unique) {
+    let text = own(sources, file);
+    for (const imported of directImports(file, text)) text += `\n${own(sources, imported)}`;
+    const missing = STOCK_MARKER_INPUTS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
+    if (missing.length > 0) defects.push(`src/${file} makes the stock trigger true, but neither it nor a module it imports names ${missing.join(', ')}`);
+  }
+  return defects;
+}
+
+type Json = Record<string, unknown>;
+const asObject = (value: unknown): Json => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : {});
+
+function resolveRef(spec: Json, schema: Json): Json {
+  let current = schema;
+  while (typeof current.$ref === 'string') {
+    let target: unknown = spec;
+    for (const segment of current.$ref.split('/').slice(1)) target = asObject(target)[segment] ?? {};
+    current = asObject(target);
+  }
+  return current;
+}
+
+/** The item schema of ListStockLevels' 200 response, found by operationId, `$ref`s resolved; null when the spec has none. */
+function stockRowSchema(spec: Json): Json | null {
+  for (const item of Object.values(asObject(spec.paths))) {
+    for (const [method, operation] of Object.entries(asObject(item))) {
+      if (['parameters', 'summary', 'description', 'servers', '$ref'].includes(method)) continue;
+      if (asObject(operation).operationId !== 'ListStockLevels') continue;
+      for (const content of Object.values(asObject(asObject(asObject(asObject(operation).responses)['200']).content))) {
+        const collection = resolveRef(spec, asObject(asObject(content).schema));
+        const items = resolveRef(spec, asObject(asObject(collection.properties).items));
+        return resolveRef(spec, asObject(items.items));
+      }
+    }
+  }
+  return null;
+}
+
+const schemaShape = (schema: Json) => Object.keys(asObject(schema.properties)).map(String).sort(byteOrder);
+
+const G47_MESSAGE =
+  'G-47 is open (docs/RESIDUAL_GAPS.md G-47, Low; owner UX + SEC): a stock row (ListStockLevels) does not say\n' +
+  'whether its bin can be picked -- quarantine bins, archived bins and bins of an archived warehouse look like\n' +
+  'pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md, adopted under the\n' +
+  "owner's delegation; the owner may strike it): stock rows may render in the web app ONLY to a viewer holding\n" +
+  'BOTH storage_location.view and warehouse.view, with a text badge (Quarantine / Archived) drawn client-side\n' +
+  'from ListStorageLocations (live and ?archived=true: kind, archived_at) and the warehouse\'s archived state\n' +
+  '(GetWarehouse / ListWarehouses?archived). Everyone else sees no stock rows until G-47 closes.\n\n' +
+  'FAIL CLOSED: a row whose marker inputs did not all load is never shown as pickable (a text state such as\n' +
+  "'Status unknown' -- UX wording -- or the rows withheld behind a retry).\n\n" +
+  'This check proves only that the marker inputs are NAMED. A stub naming them passes, so it is weaker than\n' +
+  'option (1), the full block, which the owner was offered as the fallback. The commit that builds the screen\n' +
+  'checks these seven by hand and says so:\n' +
+  '  1. rows render only when the viewer holds both codes; otherwise the H-3a hint and an empty state, no rows;\n' +
+  "  2. the badge uses all three inputs: kind = quarantine, the bin's archived_at, the warehouse's archived_at;\n" +
+  '  3. fail closed, as above;\n' +
+  '  4. the badge is text, never colour only;\n' +
+  "  5. IA.md H-3a's hint stays under qty_on_hand;\n" +
+  '  6. an item-scoped view covers every warehouse its rows name;\n' +
+  '  7. the server-side first render applies the same gate as the browser re-read.\n' +
+  'In that commit also add C2 (the badge copy key UX fixes) to this check and to its frontend twin, which is\n' +
+  'owed next on the frontend track (frontend/test/architecture.test.ts, FE-LEAD). G-47 itself stays open:\n' +
+  "closing it needs SEC's ruling on a row field, the owner's word, and UX's badge (RESIDUAL_GAPS.md G-47).";
+
+const G47_ROW_SHAPE_MESSAGE =
+  "The stock row (ListStockLevels' items) changed shape. If this is G-47's marker field (or a member on the\n" +
+  'shared location reference, which StockMovement reuses), the closing design starts in THIS backend commit:\n' +
+  'move this pin to the implication docs/design/g47-ruling.md describes, and close or re-put G-47 in\n' +
+  'docs/RESIDUAL_GAPS.md. Otherwise update the expected shape with a stated reason.';
+
+const realClientOps = (): unknown => JSON.parse(readFileSync(path.join(ROOT, CLIENT_OPS_FILE), 'utf8'));
+
+describe('architecture — G-47: no stock rows without the marker inputs while G-47 is open (twin of the backend G-47 check)', () => {
+  it('planted trigger trees: each isolates one rule and is due or not exactly as the backend check says', () => {
+    const admin = ['(app)/admin/page.tsx'];
+    const nav = { 'lib/navigation.ts': "{ label: 'Stock on hand', href: '/stock', operation: 'ListStockLevels', permission: 'stock_level.view' }" };
+    const triggers: [string, string[], Record<string, string>, string[], boolean][] = [
+      ['a /stock page', ['(app)/stock/page.tsx'], {}, [], true],
+      ['a /stock page outside any group', ['stock/page.tsx'], {}, [], true],
+      ['a /stock page.jsx', ['(app)/stock/page.jsx'], {}, [], true],
+      ['a /stock page.js', ['(app)/stock/page.js'], {}, [], true],
+      ['a page below /stock', ['(app)/stock/[id]/page.tsx'], {}, [], true],
+      ['a /stock page under a nested group', ['(app)/(inventory)/stock/page.tsx'], {}, [], true],
+      ['a /stock page under a parallel slot', ['(app)/stock/@panel/page.tsx'], {}, [], true],
+      ['a /stock page in a private folder', ['(app)/_wip/stock/page.tsx'], {}, [], false],
+      ['a private folder below /stock', ['(app)/stock/_wip/page.tsx'], {}, [], false],
+      ['a /stock-movements page', ['(app)/stock-movements/page.tsx'], {}, [], false],
+      ['a /stock layout or route handler, not a page', ['(app)/stock/layout.tsx', '(app)/stock/route.ts'], {}, [], false],
+      ['a component preview of a stock screen', ['(dev)/component-preview/stock/page.tsx'], {}, [], false],
+      ['an intercepting (..)stock segment (a stated limit)', ['(app)/items/(..)stock/page.tsx'], {}, [], false],
+      ['the stock read named in a library file', admin, { 'lib/api/stock.ts': "read('ListStockLevels')" }, [], true],
+      ['the stock read only in generated code, and the nav entry', admin, { 'generated/api-surface.server.ts': 'ListStockLevels', ...nav }, [], false],
+      ['the stock read called from the navigation file', admin, { 'lib/navigation.ts': "read('ListStockLevels')" }, [], true],
+      ['the nav entry shape in another file', admin, { 'components/X.tsx': "operation: 'ListStockLevels'" }, [], true],
+      ['a raw browser fetch of /bff/api/stock', admin, { 'lib/x.ts': "bffFetch('/bff/api/stock')" }, [], true],
+      ['a raw browser fetch of /bff/api/stock-movements', admin, { 'lib/x.ts': "bffFetch('/bff/api/stock-movements')" }, [], false],
+      ['a raw server path /api/v1/stock with a query', admin, { 'lib/x.ts': "'/api/v1/stock?item=1'" }, [], true],
+      ['a raw server path /api/v1/stock-movements', admin, { 'lib/x.ts': "'/api/v1/stock-movements'" }, [], false],
+      ['the stock path only in generated code', admin, { 'generated/api-surface.server.ts': "template: '/api/v1/stock'," }, [], false],
+      ['the stock read wired for the browser', admin, {}, ['ListUsers', 'ListStockLevels'], true],
+      ['only the movements read wired for the browser', admin, {}, ['ListStockMovements'], false],
+      ['a frontend with no stock screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, ['ListUsers'], false],
+    ];
+    const verdicts = triggers.map(([name, pages, sources, clientOps]) => [name, stockRowTriggers(pages, sources, clientOps).length > 0]);
+    expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));
+  });
+
+  it('planted implication trees: C1 and its one-level import resolution trip and pass exactly as the backend check says', () => {
+    const admin = ['(app)/admin/page.tsx'];
+    const marker = "listLocations('ListStorageLocations'); need('storage_location.view'); need('warehouse.view');";
+    const page = ['(app)/stock/page.tsx'];
+    const implications: [string, string[], Record<string, string>, string[], boolean][] = [
+      ['the screen names all three marker inputs', page, { 'app/(app)/stock/page.tsx': marker }, [], true],
+      ['the screen without ListStorageLocations', page, { 'app/(app)/stock/page.tsx': "need('storage_location.view'); need('warehouse.view');" }, [], false],
+      ['the screen without storage_location.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('warehouse.view');" }, [], false],
+      ['the screen without warehouse.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('storage_location.view');" }, [], false],
+      ['the screen with no source at all', page, {}, [], false],
+      ['the marker one level down by a relative import', page, { 'app/(app)/stock/page.tsx': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], true],
+      ['the marker one level down by an @/ import', page, { 'app/(app)/stock/page.tsx': "import { m } from '@/lib/stock/marker';", 'lib/stock/marker.ts': marker }, [], true],
+      ['the marker two levels down', page, { 'app/(app)/stock/page.tsx': "import { a } from './a';", 'app/(app)/stock/a.ts': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], false],
+      ['a stock panel naming the read and the marker', admin, { 'components/StockPanel.tsx': `read('ListStockLevels'); ${marker}` }, [], true],
+      ['a stock panel naming the read alone', admin, { 'components/StockPanel.tsx': "read('ListStockLevels')" }, [], false],
+      ['the stock read wired for the browser, no file to check', admin, {}, ['ListStockLevels'], false],
+      ['no stock screen at all', admin, {}, [], true],
+    ];
+    const verdicts = implications.map(([name, pages, sources, clientOps]) => [name, stockRowDefects(pages, sources, clientOps).length === 0]);
+    expect(verdicts).toEqual(implications.map(([name, , , , passes]) => [name, passes]));
+  });
+
+  it('planted control: the trigger lines for a four-reason tree are the exact lines, in order, that a red run prints', () => {
+    expect(stockRowTriggers(['(app)/stock/page.tsx'], { 'lib/x.ts': "'/bff/api/stock'", 'components/A.tsx': 'ListStockLevels' }, ['ListStockLevels'])).toEqual([
+      'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
+      'src/components/A.tsx names ListStockLevels outside src/generated/',
+      'src/lib/x.ts names the stock path (/api/v1/stock or /bff/api/stock) outside src/generated/',
+      'scripts/api-surface.client-ops.json wires ListStockLevels for the browser',
+    ]);
+  });
+
+  it('real-tree controls: the walk, the generated boundary, the nav exclusion, the client wiring list and the row shape', () => {
+    assertFrontendTreeIsWalkable();
+    const sources = realSources();
+    const generated = Object.entries(sources).filter(([file, text]) => file.startsWith('generated/') && STOCK_OPERATION_TOKEN.test(text) && STOCK_PATH_TOKEN.test(text));
+    expect(generated.length, 'Positive control: src/generated/ no longer names ListStockLevels and its path, so excluding it proves nothing about where the boundary is. Re-derive the tokens or the folder.').toBeGreaterThan(0);
+    expect(
+      (own(sources, STOCK_NAV_FILE).match(STOCK_NAV_ENTRY) ?? []).length,
+      `src/${STOCK_NAV_FILE} does not hold the navigation entry \`operation: 'ListStockLevels'\` exactly once. The exclusion below removes that shape from that file only, on the premise that the nav map renders nothing but built links; it has moved or changed shape, so re-derive the exclusion before trusting it.`,
+    ).toBe(1);
+    expect(existsSync(path.join(ROOT, CLIENT_OPS_FILE)), 'Positive control: the client wiring list moved, so trigger (d) reads nothing.').toBe(true);
+    const clientOps = realClientOps();
+    expect(Array.isArray(clientOps), 'Positive control: the client wiring list is not a JSON list, so trigger (d) reads nothing.').toBe(true);
+    expect(clientOps as unknown[], 'Positive control: the client wiring list no longer holds ListUsers, so it is not the list trigger (d) means.').toContain('ListUsers');
+
+    // Row-shape control (A-M5): a marker field on the stock row is G-47's closing work arriving -- design it there.
+    const contract = path.join(ROOT, '../contracts/openapi.json');
+    expect(existsSync(contract), 'Positive control: ../contracts/openapi.json is not where the row-shape control looks, so it reads nothing.').toBe(true);
+    const spec = asObject(JSON.parse(readFileSync(contract, 'utf8')));
+    const row = stockRowSchema(spec);
+    expect(row, 'ListStockLevels has no 200 response schema in the committed contract, so the row-shape control reads nothing.').not.toBeNull();
+    const rowProperties = asObject(row!.properties);
+    expect(schemaShape(row!), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse']);
+    expect(schemaShape(resolveRef(spec, asObject(rowProperties.storage_location))), G47_ROW_SHAPE_MESSAGE).toEqual(['code', 'id']);
+    expect(schemaShape(resolveRef(spec, asObject(rowProperties.warehouse))), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'name']);
+  });
+
+  it('the real tree: anything that makes the stock trigger true names the marker inputs', () => {
+    const defects = stockRowDefects(realPages(), realSources(), realClientOps() as unknown[]);
+    expect(defects, `  ${defects.join('\n  ')}\n\n${G47_MESSAGE}`).toEqual([]);
+  });
+
+  it("the trigger is still false on the real tree (remove only in the stock screen's commit, after the hand check)", () => {
+    const lines = stockRowTriggers(realPages(), realSources(), realClientOps() as unknown[]);
+    expect(
+      lines,
+      `  ${lines.join('\n  ')}\n\n` +
+        "G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n" +
+        'being built. Check the seven items below by hand against the screen, say so in the commit, and only then\n' +
+        'remove this control in that commit.\n' +
+        "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
+        G47_MESSAGE,
+    ).toEqual([]);
   });
 });
