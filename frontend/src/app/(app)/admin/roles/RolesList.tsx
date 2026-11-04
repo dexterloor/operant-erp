@@ -10,9 +10,9 @@ import type { Role } from '@/lib/api/roles';
 import type { Read } from '@/lib/bff/reads';
 import { loadRoles, type RolesLoad } from '@/lib/permissions/load';
 import { useViewerTimeZone } from '../../BffProvider';
-import { ArchivableList, type Column, type ListLoad } from '../ArchivableList';
+import { ArchivableList, type Column, type ListLoad } from '../../ArchivableList';
 import { RolesDenied } from './RoleStates';
-import styles from '../Lists.module.css';
+import styles from '../../Lists.module.css';
 
 /** The server's `q` is a case-insensitive prefix of `role.name` (RoleReader.php); the client lower-cases the same way. */
 const matches = (r: Role, lowerQ: string) => r.name.toLowerCase().startsWith(lowerQ);

@@ -281,7 +281,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C5 added: lib/bff/reads.ts, lib/bff/server/reads.ts, lib/people/{load,wired}.ts; app/(app)/useCommittedState.ts,
   // app/(app)/admin/users/{page,UsersList,PeopleStates}.tsx, app/(app)/admin/users/[id]/{page,PersonPage,not-found}.tsx.
   // B-3b C6 added: lib/roles/{load,wired}.ts.
-  // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/admin/ArchivableList.tsx (the list both pages share),
+  // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/ArchivableList.tsx (the list both pages share; moved from admin/ by Revision 7 A-16, count unchanged),
   // app/(app)/admin/roles/{page,RolesList,RoleStates}.tsx, app/(app)/admin/roles/[id]/{page,RolePage,not-found}.tsx.
   'src/lib/bff': 16,
   'src/lib/bff/server': 7,
@@ -1320,7 +1320,7 @@ const PICK_ROUTE_MESSAGE =
 /** Pages under src/app allowed a dynamic first URL segment. Empty: none exists, and each one added needs a reason. */
 const DYNAMIC_ROOT_PAGES_ALLOWED: readonly string[] = [];
 
-/** Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve /sales-orders unseen. */
+/** Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve any first segment unseen by a check keyed on the derived URL. */
 function dynamicRootPages(pages: readonly string[], allowed: readonly string[]): string[] {
   return pages.filter((page) => {
     const first = pageUrl(page)?.split('/')[1];

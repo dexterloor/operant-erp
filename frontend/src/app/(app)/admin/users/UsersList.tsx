@@ -8,10 +8,10 @@ import type { Read } from '@/lib/bff/reads';
 import { formatList } from '@/lib/format/lists';
 import { loadUsers, type UsersLoad } from '@/lib/people/load';
 import { useViewerTimeZone } from '../../BffProvider';
-import { ArchivableList, type Column, type ListLoad } from '../ArchivableList';
+import { ArchivableList, type Column, type ListLoad } from '../../ArchivableList';
 import { PeopleDenied } from './PeopleStates';
 
-export { SEARCH_SETTLE_MS } from '../ArchivableList';
+export { SEARCH_SETTLE_MS } from '../../ArchivableList';
 
 const COPY = { ...USERS_LIST, noneLive: null };
 

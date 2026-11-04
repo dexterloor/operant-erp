@@ -10,7 +10,7 @@ import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { LIST_STATES } from '@/copy/shell';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type Read, type ReadFailure } from '@/lib/bff/reads';
-import { useApiCaller } from '../BffProvider';
+import { useApiCaller } from './BffProvider';
 import styles from './Lists.module.css';
 
 /** How long the search box must be still before the filter is announced (ST-1a: on the settled filter, never per key). */

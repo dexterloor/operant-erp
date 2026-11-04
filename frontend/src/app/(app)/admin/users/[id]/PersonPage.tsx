@@ -25,7 +25,7 @@ import { pickerActions, proposalActions, type RereadContext } from '@/lib/roles/
 import { useApiCaller, useViewerTimeZone } from '../../../BffProvider';
 import { useCommittedState } from '../../../useCommittedState';
 import { PeopleDenied, PersonNotFound } from '../PeopleStates';
-import styles from '../../Lists.module.css';
+import styles from '../../../Lists.module.css';
 
 export interface PersonPageGates extends ViewGates {
   /** DeleteUser's codes: Delete / Restore person (ST-4c). */

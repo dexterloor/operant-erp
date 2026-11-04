@@ -8,7 +8,7 @@ const nav = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/users' }));
 import { UsersList } from '@/app/(app)/admin/users/UsersList';
 import { RolesList } from '@/app/(app)/admin/roles/RolesList';
-import { SEARCH_SETTLE_MS } from '@/app/(app)/admin/ArchivableList';
+import { SEARCH_SETTLE_MS } from '@/app/(app)/ArchivableList';
 import { ROLE_A, VIEWER_ID, json, page, renderWired, role, stubFetch, user } from './harness';
 
 // A Retry after a failed FIRST load (owner-questions-2026-11-03-red.md Q-1 M-3 and X-2):

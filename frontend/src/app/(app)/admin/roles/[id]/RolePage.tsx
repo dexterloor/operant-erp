@@ -17,7 +17,7 @@ import { roleRestore, roleSave } from '@/lib/permissions/wired';
 import { useApiCaller, useViewerTimeZone } from '../../../BffProvider';
 import { useCommittedState } from '../../../useCommittedState';
 import { RoleNotFound, RolesDenied } from '../RoleStates';
-import styles from '../../Lists.module.css';
+import styles from '../../../Lists.module.css';
 
 export interface RolePageProps {
   /** GetRole + ListPermissions on first render. */
