@@ -7,6 +7,7 @@ namespace App\Tests\SharedKernel;
 use App\Modules\Customers\Application\CustomerWriter;
 use App\Modules\Suppliers\Application\SupplierWriter;
 use App\Modules\UserManagement\Application\RefusalCounts;
+use App\Modules\Warehouses\Application\WarehouseWriter;
 use App\SharedKernel\Display\Counted;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -90,6 +91,9 @@ final class CountedTest extends TestCase
             CustomerWriter::HAS_UNBILLED_SHIPMENTS,
             CustomerWriter::HAS_UNPAID_INVOICES,
             CustomerWriter::IS_OWED_A_CREDIT,
+            WarehouseWriter::HAS_OPEN_PURCHASE_ORDERS,
+            WarehouseWriter::HAS_OPEN_SALES_ORDERS,
+            WarehouseWriter::HOLDS_STOCK,
         ] as $sentence) {
             self::assertSame(1, substr_count($sentence, '%s'), $sentence);
             self::assertStringNotContainsString('%d', $sentence);

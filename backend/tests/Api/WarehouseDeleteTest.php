@@ -172,7 +172,7 @@ final class WarehouseDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('warehouse.has_open_purchase_orders', $this->json()['rule']);
-        self::assertSame('This warehouse still has 1 open purchase order, so it can\'t be deleted until each open order is received in full or cancelled. A draft can be moved to another warehouse or simply deleted.',
+        self::assertSame('This warehouse still has 1 open purchase order, so it can\'t be deleted while it has any. Drafts count as open.',
             $this->json()['detail']);
         self::assertNull($this->stored($warehouse)['deleted_at']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::WAREHOUSE_DELETED));
@@ -202,7 +202,7 @@ final class WarehouseDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('warehouse.has_open_sales_orders', $this->json()['rule']);
-        self::assertSame('This warehouse still has 2 open sales orders, so it can\'t be deleted until each open order is shipped in full or cancelled. A draft can be moved to another warehouse or simply deleted.',
+        self::assertSame('This warehouse still has 2 open sales orders, so it can\'t be deleted while it has any. Drafts count as open.',
             $this->json()['detail']);
         self::assertSame(\sprintf(WarehouseWriter::HAS_OPEN_SALES_ORDERS, WarehouseWriter::openSalesOrders(2)), $this->json()['detail']);
         self::assertNull($this->stored($warehouse)['deleted_at']);
@@ -266,7 +266,7 @@ final class WarehouseDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('warehouse.holds_stock', $this->json()['rule']);
-        self::assertSame('This warehouse still holds stock in 2 locations, so it can\'t be deleted until all of it is moved to another warehouse or counted off.', $this->json()['detail']);
+        self::assertSame('This warehouse still holds stock in 2 locations, so it can\'t be deleted until no stock is left in it.', $this->json()['detail']);
         self::assertNull($this->stored($warehouse)['deleted_at']);
     }
 
@@ -283,7 +283,7 @@ final class WarehouseDeleteTest extends PurchaseOrderTestCase
         $this->delete($warehouse);
 
         self::assertSame(409, $this->httpStatus());
-        self::assertSame('This warehouse still holds stock in 1 location, so it can\'t be deleted until all of it is moved to another warehouse or counted off.', $this->json()['detail']);
+        self::assertSame('This warehouse still holds stock in 1 location, so it can\'t be deleted until no stock is left in it.', $this->json()['detail']);
     }
 
     /** G-51 (`UX` U-4): an archived item's stock adds the sentence; the item is archived through `DeleteItem` (204). */
@@ -302,8 +302,8 @@ final class WarehouseDeleteTest extends PurchaseOrderTestCase
 
         self::assertSame(409, $this->httpStatus());
         self::assertSame(\sprintf(WarehouseWriter::HOLDS_STOCK, '1 location').' '.WarehouseWriter::ARCHIVED_ITEM_STOCK, $this->json()['detail']);
-        self::assertSame('This warehouse still holds stock in 1 location, so it can\'t be deleted until all of it is moved to another warehouse or counted off. '
-            .'Stock of an archived item can be moved or counted off only once that item is restored.', $this->json()['detail']);
+        self::assertSame('This warehouse still holds stock in 1 location, so it can\'t be deleted until no stock is left in it. '
+            .'Some or all of that stock belongs to archived items.', $this->json()['detail']);
     }
 
     /** `UX` U-3 (mutation M16): open purchase orders are named before open sales orders, and both before stock. */
