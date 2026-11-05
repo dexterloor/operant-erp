@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { DateTime } from '@/components/ui/DateTime';
@@ -20,11 +21,14 @@ const load = async (read: Read, archived: boolean, signal: AbortSignal) => asLis
 const ARCHIVED_VIEW = { order: 'as-served', rows: 'struck' } as const;
 const SEARCH = { label: WAREHOUSES_LIST.searchFor, placeholder: WAREHOUSES_LIST.searchPlaceholder };
 
+/** B-1's Create warehouse empty-state action: a link to `/warehouses/new`, shown only with `CreateWarehouse`'s codes. */
+const createAction = (canCreate: boolean) => (canCreate ? <Link href="/warehouses/new">{WAREHOUSES_LIST.createWarehouse}</Link> : null);
+
 /**
- * B-1's empty states (ST-2). `tenant_has_rows` counts archived rows too (U-6). No Create warehouse action yet: it enters
- * with the commit that wires `CreateWarehouse` (§2 step 4.3).
+ * B-1's empty states (ST-2). `tenant_has_rows` counts archived rows too (U-6). **Create warehouse** (§2 step 4.3) on the
+ * two live, unsearched rows, for a viewer holding `CreateWarehouse`'s codes only.
  */
-export const EMPTY: EmptyState = ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
+export const emptyFor = (canCreate: boolean): EmptyState => ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
   if (q !== '') {
     return {
       heading: archived ? WAREHOUSES_LIST.noArchivedMatch(q) : WAREHOUSES_LIST.noMatch(q),
@@ -40,21 +44,44 @@ export const EMPTY: EmptyState = ({ archived, q, tenantHasRows, clearSearch, swi
     return {
       heading: WAREHOUSES_LIST.allArchived,
       actions: (
-        <Button size="sm" onClick={() => switchTo(true)}>
-          {WAREHOUSES_LIST.viewArchived}
-        </Button>
+        <>
+          {createAction(canCreate)}
+          <Button size="sm" onClick={() => switchTo(true)}>
+            {WAREHOUSES_LIST.viewArchived}
+          </Button>
+        </>
       ),
     };
   }
-  return { heading: WAREHOUSES_LIST.noneYet };
+  const create = createAction(canCreate);
+  return create !== null ? { heading: WAREHOUSES_LIST.noneYet, actions: create } : { heading: WAREHOUSES_LIST.noneYet };
 };
 
+/** The empty states for a viewer without `CreateWarehouse`. */
+export const EMPTY: EmptyState = emptyFor(false);
+
 /**
- * The header control (B-1, B-2): **Archived** in the live view; **Back to warehouses** in the Archived view, and only
- * once a view has loaded (R3-1: no Back to… before a view has loaded; D-3).
+ * The header controls (B-1, B-2): **New warehouse** (with `CreateWarehouse`'s codes, §2 step 4.3) and **Archived** in
+ * the live view; **Back to warehouses** replaces both in the Archived view, and only once a view has loaded (R3-1: no
+ * Back to… before a view has loaded; D-3).
  */
-export function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
-  if (!archived) return <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={WAREHOUSES_LIST.archived} />;
+export const headerFor = (canCreate: boolean) =>
+  function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
+    if (!archived) {
+      const toggle = <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={WAREHOUSES_LIST.archived} />;
+      return canCreate ? (
+        <>
+          <Link href="/warehouses/new">{WAREHOUSES_LIST.newWarehouse}</Link>
+          {toggle}
+        </>
+      ) : (
+        toggle
+      );
+    }
+    return archivedHeader({ busy, loaded, switchTo, viewControlRef });
+  };
+
+function archivedHeader({ busy, loaded, switchTo, viewControlRef }: Pick<HeaderView, 'busy' | 'loaded' | 'switchTo' | 'viewControlRef'>) {
   if (!loaded) return null;
   return (
     <Button ref={viewControlRef} loading={busy} onClick={() => switchTo(false)}>
@@ -64,9 +91,11 @@ export function header({ archived, busy, loaded, switchTo, viewControlRef }: Hea
 }
 
 /** `/warehouses` (B-1, B-2): Code · Name · Country live; + Archived on archived. The code is the row's link (B-1 Row). */
-export function WarehousesList({ initial, initialArchived = false }: { initial: WarehousesLoad; initialArchived?: boolean }) {
+export function WarehousesList({ initial, initialArchived = false, canCreate = false }: { initial: WarehousesLoad; initialArchived?: boolean; canCreate?: boolean }) {
   const timeZone = useViewerTimeZone();
   const onViewLoaded = useArchivedAddress();
+  const header = useMemo(() => headerFor(canCreate), [canCreate]);
+  const empty = useMemo(() => emptyFor(canCreate), [canCreate]);
   const base: Column<Warehouse>[] = [
     { header: WAREHOUSES_LIST.code, cell: (w) => <Link href={`/warehouses/${w.id}`}>{w.code}</Link> },
     { header: WAREHOUSES_LIST.name, cell: (w) => w.name },
@@ -85,7 +114,7 @@ export function WarehousesList({ initial, initialArchived = false }: { initial: 
       columns={columns}
       copy={WAREHOUSES_LIST}
       header={header}
-      empty={EMPTY}
+      empty={empty}
       archivedView={ARCHIVED_VIEW}
       denied={<WarehousesDenied />}
     />

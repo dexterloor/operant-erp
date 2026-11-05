@@ -133,7 +133,7 @@ describe('the session-ended return path: every (app) page answers with its own a
 
   it('derives every page, whatever its extension, and each one is clean', () => {
     const pages = pagesOf(files);
-    expect(pages.map((p) => p.file).sort()).toEqual(['account/password/page.tsx', 'admin/roles/[id]/page.tsx', 'admin/roles/page.tsx', 'admin/users/[id]/page.tsx', 'admin/users/page.tsx', 'page.tsx', 'warehouses/[id]/page.tsx', 'warehouses/page.tsx']);
+    expect(pages.map((p) => p.file).sort()).toEqual(['account/password/page.tsx', 'admin/roles/[id]/page.tsx', 'admin/roles/page.tsx', 'admin/users/[id]/page.tsx', 'admin/users/page.tsx', 'page.tsx', 'warehouses/[id]/page.tsx', 'warehouses/new/page.tsx', 'warehouses/page.tsx']);
     expect(pages.flatMap(pageViolations)).toEqual([]);
   });
 

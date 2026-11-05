@@ -1,7 +1,7 @@
 // Typed results of the warehouse page's injected actions (Revision 7 A-19 item 5), on the shared kinds in
 // `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { UpdateWarehouseInput, Warehouse } from '../api/warehouses';
+import type { CreateWarehouseInput, UpdateWarehouseInput, Warehouse } from '../api/warehouses';
 import type { FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -42,3 +42,20 @@ export type RestoreWarehouseResult =
 
 /** The archived page's Restore warehouse. Caller contract: `restored` resolves after the re-read warehouse is committed. */
 export type RestoreWarehouseAction = () => Promise<RestoreWarehouseResult>;
+
+/** The create form's fields, in screen order; a name the mirrored create input lacks is a type error (step-3 L-3). */
+export const CREATE_WAREHOUSE_FIELDS = ['code', 'name', 'country_code'] as const satisfies readonly (keyof CreateWarehouseInput & string)[];
+
+/**
+ * `POST /warehouses` (Idempotency-Key required, a fresh one per submit; A-19 item 6). `created` carries the 201 body.
+ * `invalid` is a 422 mapped onto the form; `refused` a 409 (W1 code taken, P1 contention), shown at form level as sent.
+ * A create whose answer was lost and is submitted again gets W1 for the warehouse it did create (the key is not stored,
+ * F-6); it is not suppressed or re-worded.
+ */
+export type CreateWarehouseResult =
+  | { kind: 'created'; warehouse: Warehouse }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<WarehouseField>; formErrors: string[] }
+  | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/** The create page's submit: the body holds all three fields as typed. */
+export type CreateWarehouseAction = (input: Required<CreateWarehouseInput>) => Promise<CreateWarehouseResult>;

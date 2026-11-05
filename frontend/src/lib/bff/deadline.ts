@@ -17,6 +17,8 @@ export const ACTION_DEADLINES_MS = {
   warehouseSave: 30_000,
   /** Restore a warehouse: the request + the GetWarehouse re-read. */
   warehouseRestore: 30_000,
+  /** Create a warehouse: the request alone (the page navigates to the new warehouse, which reads it). */
+  warehouseCreate: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

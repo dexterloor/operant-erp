@@ -4,7 +4,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { isWarehouse, loadWarehouse } from './load';
-import { WAREHOUSE_FIELDS, type RestoreWarehouseAction, type SaveWarehouseAction } from './results';
+import { CREATE_WAREHOUSE_FIELDS, WAREHOUSE_FIELDS, type CreateWarehouseAction, type RestoreWarehouseAction, type SaveWarehouseAction } from './results';
 
 // The warehouse page's Save over the BFF (Revision 7 A-18, A-19). `UpdateWarehouse` is a merge patch with no
 // Idempotency-Key: a repeat of a committed save finds nothing to change, so it is safe to press again. One deadline
@@ -97,6 +97,37 @@ export function warehouseRestore(w: WarehouseSaveWiring): RestoreWarehouseAction
         w.onRereadFailed(again.kind);
       }
       return { kind: 'restored', warehouse: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Create warehouse over the BFF (Revision 7 §2 step 4.3; A-19 items 1, 6). `CreateWarehouse` requires an Idempotency-Key
+// but does not replay on it (`WarehouseWriter.php:42-43`), so a fresh key is minted for EVERY submit (`newKey`, the B-3b
+// action precedent) and never stored (F-6). A 201 is the new warehouse; the page navigates to it, which reads it.
+export function warehouseCreate(caller: ApiCaller, newKey: () => string = () => crypto.randomUUID()): CreateWarehouseAction {
+  return async (input) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.warehouseCreate);
+    try {
+      const r = await caller.call('CreateWarehouse', {}, input, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_WAREHOUSE_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isWarehouse(r.body)) return { kind: 'server-error' };
+      return { kind: 'created', warehouse: r.body };
     } finally {
       deadline.cancel();
     }

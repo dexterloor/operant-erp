@@ -44,6 +44,7 @@ const MIRRORED = {
   RoleConflict: ['OfferedRoleCollection', 'properties', 'items', 'items', 'properties', 'conflicts_with', 'items'],
   Collection: ['RoleCollection'],
   Warehouse: ['Warehouse'],
+  'Warehouse.CreateWarehouseInput': ['Warehouse.CreateWarehouseInput'],
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['Warehouse.UpdateWarehouseInput.jsonMergePatch'],
 };
 

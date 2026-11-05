@@ -63,6 +63,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateWarehouse: {
+    method: 'POST',
+    template: '/api/v1/warehouses',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.create'],
+    },
+  },
   DeleteUser: {
     method: 'DELETE',
     template: '/api/v1/users/{id}',
@@ -298,5 +308,6 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],
   Warehouse: ['archived_at', 'code', 'country_code', 'id', 'name'],
+  'Warehouse.CreateWarehouseInput': ['code', 'country_code', 'name'],
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['code', 'country_code', 'name'],
 };

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NAVIGATION } from '@/lib/navigation';
-import { ACCOUNT_PAGE_HREFS, BUILT_PAGE_HREFS, DECLARED_ROUTES, startDestination } from '@/lib/routes';
+import { ACCOUNT_PAGE_HREFS, BUILT_PAGE_HREFS, CHILD_PAGE_HREFS, DECLARED_ROUTES, startDestination } from '@/lib/routes';
 import { safeReturnPath } from '@/lib/session';
 
 // C-2c and T-ST (i) (b3b-design.md §10a, §15 C2; ux-copy-b3b.md C2-1 SEC condition 2).
@@ -27,14 +27,14 @@ const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 
 /** The (app) page folders on disk that neither list names, and the listed pages with no folder (C-2c, both ways). */
 function unlisted(onDisk: readonly string[], built: readonly string[], account: readonly string[]) {
-  const listed = [...built, ...account];
+  const listed = [...built, ...account, ...CHILD_PAGE_HREFS];
   return { notListed: onDisk.filter((r) => !listed.includes(r)), noFolder: listed.filter((h) => !onDisk.includes(h)) };
 }
 
 describe('C-2c — DECLARED_ROUTES are the built (app) pages, derived from navigation (Revision 6 A-13)', () => {
-  it('BUILT_PAGE_HREFS ∪ ACCOUNT_PAGE_HREFS equals the (app) page folders on disk (excluding dynamic children), both ways', () => {
+  it('BUILT_PAGE_HREFS ∪ ACCOUNT_PAGE_HREFS ∪ CHILD_PAGE_HREFS equals the (app) page folders on disk (excluding dynamic children), both ways', () => {
     const onDisk = builtAppRoutes().filter((r) => r !== '/' && !/\[/.test(r));
-    expect([...BUILT_PAGE_HREFS, ...ACCOUNT_PAGE_HREFS].sort()).toEqual(onDisk.sort());
+    expect([...BUILT_PAGE_HREFS, ...ACCOUNT_PAGE_HREFS, ...CHILD_PAGE_HREFS].sort()).toEqual(onDisk.sort());
     expect(unlisted(onDisk, BUILT_PAGE_HREFS, ACCOUNT_PAGE_HREFS)).toEqual({ notListed: [], noFolder: [] });
     expect(builtAppRoutes()).toContain('/');
     expect(builtAppRoutes()).toContain('/account/password');
@@ -53,6 +53,18 @@ describe('C-2c — DECLARED_ROUTES are the built (app) pages, derived from navig
     expect(ACCOUNT_PAGE_HREFS.filter((h) => BUILT_PAGE_HREFS.includes(h))).toEqual([]);
     for (const h of ACCOUNT_PAGE_HREFS) expect(DECLARED_ROUTES).not.toContain(h.split('/')[1]);
     expect(ACCOUNT_PAGE_HREFS).not.toContain(startDestination(NAV_ITEMS.map((i) => i.permission)));
+  });
+
+  it('child pages (§2 step 4.3) are never navigation items, account pages or built (nav) pages; planted entries are red', () => {
+    const navHrefs = NAV_ITEMS.map((i) => i.href);
+    expect(CHILD_PAGE_HREFS).toEqual(['/warehouses/new']);
+    const overlap = (child: readonly string[], other: readonly string[]) => child.filter((h) => other.includes(h));
+    expect(overlap(CHILD_PAGE_HREFS, navHrefs)).toEqual([]);
+    expect(overlap(CHILD_PAGE_HREFS, ACCOUNT_PAGE_HREFS)).toEqual([]);
+    expect(overlap(CHILD_PAGE_HREFS, BUILT_PAGE_HREFS)).toEqual([]);
+    expect(overlap([...CHILD_PAGE_HREFS, '/account/password'], ACCOUNT_PAGE_HREFS)).toEqual(['/account/password']);
+    expect(overlap([...CHILD_PAGE_HREFS, '/warehouses'], BUILT_PAGE_HREFS)).toEqual(['/warehouses']);
+    expect(CHILD_PAGE_HREFS).not.toContain(startDestination(NAV_ITEMS.map((i) => i.permission)));
   });
 
   it('a return path to an account page falls back to /', () => {

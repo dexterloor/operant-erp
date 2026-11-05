@@ -268,7 +268,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
   // Revision 7 step 4.1 added: components/warehouses/WarehouseForm.tsx.
   // Revision 7 step 4.2 added: components/warehouses/WarehouseRestoreActions.tsx.
-  'src/components': 55,
+  // Revision 7 step 4.3 added: components/warehouses/WarehouseCreateForm.tsx.
+  'src/components': 56,
   'src/lib/api': 6,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
@@ -284,7 +285,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/bulk': 6,
   'src/components/people': 4,
   // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx.
-  'src/components/warehouses': 2,
+  'src/components/warehouses': 3,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -310,7 +311,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 2 (A-17 item 1) added: app/(app)/useArchivedAddress.ts (the list's only address writer).
   // Revision 7 step 4.1 added: app/(app)/warehouses/{page,WarehousesList,WarehouseStates}.tsx, app/(app)/warehouses/[id]/{page,WarehousePage,
   // not-found}.tsx.
-  'src/app': 47,
+  // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
+  'src/app': 50,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1166,6 +1168,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
+      // Revision 7 step 4.3: the create page's form.
+      'src/components/warehouses/WarehouseCreateForm.tsx',
       'src/components/warehouses/WarehouseForm.tsx',
     ]);
   });

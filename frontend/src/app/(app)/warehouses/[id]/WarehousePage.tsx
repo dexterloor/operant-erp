@@ -16,6 +16,7 @@ import { gateCode } from '@/lib/bff/surface';
 import { loadWarehouse } from '@/lib/warehouses/load';
 import { warehouseRestore, warehouseSave } from '@/lib/warehouses/wired';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
+import { useArrivalMessage } from '../../arrivalMessage';
 import { useCommittedState } from '../../useCommittedState';
 import { WarehouseNotFound, WarehousesDenied } from '../WarehouseStates';
 import listStyles from '../../Lists.module.css';
@@ -51,6 +52,8 @@ export function WarehousePage({ initial, canEdit, canRestore }: WarehousePagePro
   const [retrying, setRetrying] = useState(false);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
+  // After a create (§2 step 4.3): the create page left *"{code} was created."* for this address (A-19 item 7, S-5).
+  useArrivalMessage(`/warehouses/${id}`, region.announce);
 
   const failed = useCallback((f: ReadFailure) => {
     if (f === 'session-ended') return;

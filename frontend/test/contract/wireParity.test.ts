@@ -4,7 +4,7 @@ import type { Permission, SodRowRef } from '@/lib/api/permissions';
 import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposals';
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
-import type { UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
+import type { CreateWarehouseInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
 // C-1 (b3b §14): every hand-written wire type in lib/api has exactly the served property names. The literal is a
@@ -64,6 +64,7 @@ const MIRRORED: Record<string, string[]> = {
   // Revision 7 A-18 (step 4.1): the warehouse and its update input; the create input and the location shapes join with
   // the commits that wire them.
   Warehouse: keysOf<Warehouse>()({ id: true, code: true, name: true, country_code: true, archived_at: true }),
+  'Warehouse.CreateWarehouseInput': keysOf<CreateWarehouseInput>()({ code: true, name: true, country_code: true }),
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': keysOf<UpdateWarehouseInput>()({ code: true, name: true, country_code: true }),
 };
 

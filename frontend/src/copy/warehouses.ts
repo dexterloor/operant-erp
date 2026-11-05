@@ -1,7 +1,7 @@
 // Every warehouse screen sentence (Revision 7 A-18), from `docs/design/warehouses-ux-copy.md` Part B + Revision 1 (as
 // attacked by `warehouses-ux-copy-red.md`); each entry names its row. Server refusals are never stored here: they render
 // as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): the app has
-// Restore warehouse (§2 step 4.2) but no Create, Delete or Locations yet, so no sentence here offers those.
+// Restore warehouse (§2 step 4.2) and Create (§2 step 4.3) but no Delete or Locations yet, so no sentence here offers those.
 
 /** B-1 (live list), B-2 (Archived view). */
 export const WAREHOUSES_LIST = {
@@ -35,6 +35,10 @@ export const WAREHOUSES_LIST = {
   noneArchived: 'No archived warehouses. Warehouses that are deleted appear here and can be restored from here.',
   noArchivedMatch: (q: string) => `No archived warehouse's code or name starts with “${q}”.`,
   clearSearch: 'Clear search',
+  /** B-1 header action (`warehouse.create`, RULED §3 New/Create) → `/warehouses/new`. */
+  newWarehouse: 'New warehouse',
+  /** B-1 empty-state action (live, no search; with `warehouse.create`). */
+  createWarehouse: 'Create warehouse',
 } as const;
 
 /** B-3: the warehouse page (the detail page is the editor, IA L-4). */
@@ -74,4 +78,19 @@ export const RESTORE_WAREHOUSE = {
 export const WAREHOUSE_FORBIDDEN = {
   before: 'This needs the ',
   after: ' permission, which you no longer have. Your workspace administrator can grant it.',
+} as const;
+
+/** B-4: `/warehouses/new`. Fields are B-3's Code and Country hints; no Name hint (G-43: nothing names it yet). */
+export const NEW_WAREHOUSE = {
+  /** h1 and title (NEW). */
+  heading: 'New warehouse',
+  /** ST-4b heading noun for `/warehouses/new` without `warehouse.create` (D-3, UX TO CONFIRM). */
+  deniedResource: 'new warehouses',
+  /** Submit · cancel (RULED §3). */
+  submit: 'Create warehouse',
+  cancel: 'Cancel',
+  /** After (NEW): spoken on the new warehouse's page (FE-LEAD's call, UX TO CONFIRM). */
+  after: (code: string) => `${code} was created.`,
+  /** Interrupted (NEW): not "press Create to try again" — the create does not replay on its key. */
+  interrupted: (code: string) => `We can't tell whether ${code} was created. Check the list of warehouses before you try again.`,
 } as const;

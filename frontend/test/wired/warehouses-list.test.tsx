@@ -9,7 +9,7 @@ import { formatDate } from '@/lib/format/dates';
 import { TZ, json, page, renderWired, stubFetch } from './harness';
 
 // warehouses-ux-copy.md B-1, B-2; Revision 7 A-17 (`header`, `as-served`, struck), R3-1 (no Back to… before a view has
-// loaded), R3-7 (no New warehouse / Create warehouse action in 4.1), R3-8 (the interim archived empty state).
+// loaded), R3-7 (New warehouse / Create warehouse from 4.3, gated), R3-8 (the interim archived empty state).
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -34,11 +34,30 @@ describe('/warehouses — the live view (B-1)', () => {
     expect(within(row).getByText('GB')).toBeInTheDocument();
   });
 
-  it('offers no New warehouse or Create warehouse action (CreateWarehouse is not wired, R3-7)', () => {
+  it('without CreateWarehouse: no New warehouse or Create warehouse action (ST-4c)', () => {
     renderWired(<WarehousesList initial={ok([], false)} />);
     expect(screen.getByText('No warehouses yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /warehouse/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /new|create/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /new|create/i })).toBeNull();
+  });
+
+  it('with CreateWarehouse: New warehouse in the header and Create warehouse in the empty state, both to /warehouses/new (§2 step 4.3)', () => {
+    renderWired(<WarehousesList initial={ok([], false)} canCreate />);
+    expect(screen.getByRole('link', { name: 'New warehouse' })).toHaveAttribute('href', '/warehouses/new');
+    expect(screen.getByRole('link', { name: 'Create warehouse' })).toHaveAttribute('href', '/warehouses/new');
+  });
+
+  it('with CreateWarehouse, all archived: Create warehouse beside View archived warehouses', () => {
+    renderWired(<WarehousesList initial={ok([], true)} canCreate />);
+    expect(screen.getByText("No warehouses to show. Every warehouse here has been deleted, and they're in the archived warehouses.")).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create warehouse' })).toHaveAttribute('href', '/warehouses/new');
+    expect(screen.getByRole('button', { name: 'View archived warehouses' })).toBeInTheDocument();
+  });
+
+  it('with CreateWarehouse and rows: New warehouse but no Create warehouse (no empty state)', () => {
+    renderWired(<WarehousesList initial={ok([A])} canCreate />);
+    expect(screen.getByRole('link', { name: 'New warehouse' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create warehouse' })).toBeNull();
   });
 
   it('search is a case-insensitive prefix on code or name, and the settled sentence names the query', async () => {

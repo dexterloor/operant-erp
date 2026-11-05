@@ -24,5 +24,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const first = await loadWarehouses(serverRead(session), archived);
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/warehouses', query));
   if (first.kind === 'forbidden') return <WarehousesDenied />;
-  return <WarehousesList initial={first} initialArchived={archived} />;
+  return <WarehousesList initial={first} initialArchived={archived} canCreate={viewerMay('CreateWarehouse', viewer.permissionCodes)} />;
 }
