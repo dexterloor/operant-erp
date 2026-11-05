@@ -16,7 +16,7 @@ use Firebase\JWT\Key;
  * Why this is Platform and minting is not (API-O-26, ruled 2026-09-14)
  * ---------------------------------------------------------------------------
  * `ARCHITECTURE.md` §4 splits the two: Platform owns "JWT verification",
- * UserManagement owns "JWT minting/refresh". One class used to do both, and
+ * UserManagement owns "JWT minting" (no refresh, D-14). One class used to do both, and
  * `AuthenticationGate` depending on it was a registered A-1 deviation. The class
  * was split rather than moved whole: every module — `Ai` included — may import
  * `PlatformSecurity`, so a Platform class that could *mint* would make a signed
