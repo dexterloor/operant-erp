@@ -58,3 +58,31 @@ export interface Violation {
 
 /** Field name → the server's sentence for it (moved here from `lib/auth/results.ts` by Revision 7 A-19 item 4). */
 export type FieldErrors<F extends string> = Partial<Record<F, string>>;
+
+/**
+ * A refused write whose `rule` is `transaction.contention` (P1, A-18 S-1): its sentence tells the reader to try again, so
+ * a Delete dialog shows it and keeps its Delete button (warehouses-ux-copy.md B-7 "Exception"). Mapped only in a family's
+ * `wired.ts` (the one `lib/api/problems` importer per family). Moved here from `lib/warehouses/results.ts` by Revision 8
+ * R8-3 (items plan I-0a), so the shared record dialogs in `components/records/` name no family's results.
+ */
+export interface Contention {
+  kind: 'contention';
+  message: string;
+}
+
+/**
+ * A record-level `DELETE` (204, no body, no key), any family (R8-3). `deleted` resolves after the caller's re-read is
+ * committed, or after the page was told the re-read failed. `refused` is any other 409, shown in the dialog as sent, which
+ * then offers Close only (ST-9b). `contention` keeps Delete.
+ */
+export type DeleteResult = { kind: 'deleted' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/**
+ * A record-level restore (`POST …/restoration`, no body, no key), any family (R8-3). `S` is the family's payload, e.g.
+ * `{ warehouse: Warehouse }`. `already-live`: a refusal after which the re-read found the record live (an interrupted press
+ * that committed, another tab); `message` is the server's sentence, spoken as sent.
+ */
+export type RestoreResult<S> = ({ kind: 'restored' } & S) | ({ kind: 'already-live'; message: string } & S) | RestoreFailure;
+
+/** Every answer of a record-level restore that leaves the record archived. */
+export type RestoreFailure = Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;

@@ -3,10 +3,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { ArchiveRestore } from 'lucide-react';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { AddLocationForm } from '@/components/warehouses/AddLocationForm';
-import { DeleteDialog } from '@/components/warehouses/DeleteDialog';
 import { LocationForm } from '@/components/warehouses/LocationForm';
 import { COULD_NOT_REACH, NOT_RESTORED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
@@ -297,7 +297,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
       {deleting !== null && canDelete && !warehouseArchived ? (
         <DeleteDialog
           key={deleting.id}
-          copy={{ title: DELETE_LOCATION.title(deleting.code), body: DELETE_LOCATION.body, confirm: DELETE_LOCATION.confirm, cancel: DELETE_LOCATION.cancel, close: DELETE_LOCATION.close, interrupted: DELETE_LOCATION.interrupted(deleting.code) }}
+          copy={{ title: DELETE_LOCATION.title(deleting.code), body: DELETE_LOCATION.body, confirm: DELETE_LOCATION.confirm, cancel: DELETE_LOCATION.cancel, close: DELETE_LOCATION.close, interrupted: DELETE_LOCATION.interrupted(deleting.code), forbidden: WAREHOUSE_FORBIDDEN }}
           run={() => remove(deleting.id)}
           deleteCode={gateCode('DeleteStorageLocation')}
           onClose={(o) => void closeDelete(deleting, o)}

@@ -3,15 +3,15 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
+import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
 import { Button } from '@/components/ui/Button';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
-import { DeleteDialog } from '@/components/warehouses/DeleteDialog';
 import { WarehouseForm } from '@/components/warehouses/WarehouseForm';
-import { WarehouseRestoreActions } from '@/components/warehouses/WarehouseRestoreActions';
 import styles from '@/components/warehouses/Warehouses.module.css';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
-import { DELETE_WAREHOUSE, WAREHOUSE_PAGE } from '@/copy/warehouses';
+import { DELETE_WAREHOUSE, RESTORE_WAREHOUSE, WAREHOUSE_FORBIDDEN, WAREHOUSE_PAGE } from '@/copy/warehouses';
 import type { Warehouse } from '@/lib/api/warehouses';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
@@ -48,7 +48,7 @@ type Cause = 'unreachable' | 'server-error';
  * state and passes the re-read one to the form without a remount. A failed re-read → the region error (focus on its
  * heading), Retry re-reads; 403 → ST-4b; 404 → ST-5. An archived warehouse is read-only whatever the viewer holds (the
  * API refuses its update, W3), under the persistent ST-9b banner *"This warehouse was archived on {date}."* with **Restore warehouse** for a
- * `RestoreWarehouse` holder (§2 step 4.2, `WarehouseRestoreActions`): a restore sets the re-read warehouse here, so the
+ * `RestoreWarehouse` holder (§2 step 4.2, `components/records/RestoreActions`): a restore sets the re-read warehouse here, so the
  * page turns live without a remount. After a save's or restore's message is on screen the router cache is refreshed once,
  * so Back to the list shows the saved code and name, or the warehouse in the live list. Under the fields, the Locations
  * section (§2 step 4.4, `LocationsSection`) for a ListStorageLocations holder only; it is read-only while the warehouse is
@@ -162,10 +162,18 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={WAREHOUSE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
       {warehouse.archived_at !== null ? (
-        <WarehouseRestoreActions
-          warehouse={{ ...warehouse, archived_at: warehouse.archived_at }}
+        <RestoreActions
+          archivedAt={warehouse.archived_at}
+          copy={{
+            archivedBefore: WAREHOUSE_PAGE.archivedOn,
+            archivedAfter: WAREHOUSE_PAGE.archivedAfter,
+            action: RESTORE_WAREHOUSE.action,
+            after: (r) => RESTORE_WAREHOUSE.after(r.warehouse.code),
+            interrupted: RESTORE_WAREHOUSE.interrupted(warehouse.code),
+            forbidden: WAREHOUSE_FORBIDDEN,
+          }}
           canRestore={canRestore}
-          restoreWarehouse={restore}
+          restore={restore}
           restoreCode={gateCode('RestoreWarehouse')}
           timeZone={timeZone}
           announce={region.announce}
@@ -192,7 +200,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       ) : null}
       {deleting ? (
         <DeleteDialog
-          copy={{ title: DELETE_WAREHOUSE.title(warehouse.code, warehouse.name), body: DELETE_WAREHOUSE.body, confirm: DELETE_WAREHOUSE.confirm, cancel: DELETE_WAREHOUSE.cancel, close: DELETE_WAREHOUSE.close, interrupted: DELETE_WAREHOUSE.interrupted(warehouse.code) }}
+          copy={{ title: DELETE_WAREHOUSE.title(warehouse.code, warehouse.name), body: DELETE_WAREHOUSE.body, confirm: DELETE_WAREHOUSE.confirm, cancel: DELETE_WAREHOUSE.cancel, close: DELETE_WAREHOUSE.close, interrupted: DELETE_WAREHOUSE.interrupted(warehouse.code), forbidden: WAREHOUSE_FORBIDDEN }}
           run={remove}
           deleteCode={gateCode('DeleteWarehouse')}
           onClose={(o) => void closeDelete(o)}

@@ -201,7 +201,7 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
-    expect(dialog()).toHaveTextContent('This needs the Delete and restore warehouses permission');
+    expect(dialog()).toHaveTextContent('This needs the Delete and restore warehouses permission, which you no longer have. Your workspace administrator can grant it.');
   });
 });
 
@@ -290,7 +290,7 @@ describe('/warehouses/[id] — Delete location (B-7, step 4.6)', () => {
     showSection();
     await u.click(screen.getByRole('button', { name: 'Delete A1' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
-    await waitFor(() => expect(dialog()).toHaveTextContent('This needs the Delete and restore locations permission'));
+    await waitFor(() => expect(dialog()).toHaveTextContent('This needs the Delete and restore locations permission, which you no longer have. Your workspace administrator can grant it.'));
   });
 
   it('a successful delete clears an earlier Restore location refusal (D-8; RED L-3)', async () => {

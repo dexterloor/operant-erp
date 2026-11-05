@@ -40,9 +40,9 @@ interface SourceFile {
 // The same walk also records, for `src` only, EVERY entry it meets (any extension, directories and symlinks included)
 // into ALL_SRC_ENTRIES, with the contents of every regular file — a file reached through a symlink included, as the
 // backend reads it. A FIFO, socket or device is recorded but never read, so it cannot hang or fail the walk for every guard
-// here (twin RED L-1). Only the two backend twins at the end of this file (FE-R2 pick route, G-47 stock rows) read
+// here (twin RED L-1). The two backend twins at the end of this file (FE-R2 pick route, G-47 stock rows) read
 // ALL_SRC_ENTRIES: Next.js serves `page.js`/`page.jsx` too, and the backend checks they twin search every file under
-// frontend/src for their tokens. SNAPSHOT is unchanged by it: same files, same order, same contents.
+// frontend/src for their tokens. The guard-enrolment check (items I-0a, M-2) reads only its directory entries. SNAPSHOT is unchanged by it: same files, same order, same contents.
 interface DiskEntry {
   /** Path relative to the frontend root, POSIX separators. */
   file: string;
@@ -113,6 +113,12 @@ function specifiersOf(sf: SourceFile): string[] {
       const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
       if ((isImport || isRequire) && ts.isStringLiteralLike(arg)) found.push(arg.text);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      // `type W = import('x').T` (items I-0a RED M-2): an inline type import names a module too.
+      found.push(node.argument.literal.text);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression)) {
+      // `import x = require('x')` (items I-0a RED M-2 / L-5; tsc also refuses it under module esnext, TS1202).
+      found.push(node.moduleReference.expression.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -186,6 +192,16 @@ const LITERAL_SCAN_DIRS = [
   'src/components/bulk',
   'src/components/people',
   'src/components/warehouses',
+  // Revision 8 R8-3 (items I-0a): the shared record dialogs, moved out of src/components/warehouses.
+  'src/components/records',
+  // items I-0a RED M-3: folders that already passed this scan, enrolled so a literal typed there later goes red.
+  'src/components/auth',
+  'src/components/shell',
+  'src/components/states',
+  'src/components/theme',
+  'src/components/ui',
+  'src/lib/auth',
+  'src/lib/format',
   // Revision 5 A-8 G-7 (B-3b C2): the pages and route handlers, and the BFF's own code.
   'src/app',
   'src/lib/bff',
@@ -311,6 +327,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.5 added: components/warehouses/AddLocationForm.tsx (the Add location dialog) and KindField.tsx
   // (the Kind select both location dialogs use).
   // Revision 7 step 4.6 added: components/warehouses/DeleteDialog.tsx (Delete warehouse and Delete location, B-7).
+  // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
+  // → components/records/{DeleteDialog,RestoreActions}.tsx.
   'src/components': 60,
   // Revision 7 step 4.6 added: lib/api/problems.ts.
   'src/lib/api': 7,
@@ -329,8 +347,19 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/people': 4,
   // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx. Step 4.3 added:
   // WarehouseCreateForm.tsx. Step 4.4 added: LocationForm.tsx (the code-only Edit location dialog). Step 4.5 added:
-  // AddLocationForm.tsx and KindField.tsx.
-  'src/components/warehouses': 7,
+  // AddLocationForm.tsx and KindField.tsx. Revision 8 R8-3 (items I-0a) moved out: DeleteDialog.tsx and
+  // WarehouseRestoreActions.tsx (now components/records/).
+  'src/components/warehouses': 5,
+  // Revision 8 R8-3 (items I-0a) added: DeleteDialog.tsx, RestoreActions.tsx (moved from components/warehouses/).
+  'src/components/records': 2,
+  // items I-0a RED M-3: per-folder counts for the folders enrolled in the scans above (contents unchanged).
+  'src/components/auth': 5,
+  'src/components/shell': 11,
+  'src/components/states': 1,
+  'src/components/theme': 2,
+  'src/components/preview': 5,
+  'src/lib/auth': 2,
+  'src/lib/format': 3,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -400,6 +429,13 @@ describe('architecture — import direction (RED H-5 item 5, Revision 2 C-2)', (
       "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '@/copy/roles'",
       "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '../../copy/roles'",
       "src/components/ui/Banner.tsx — src never imports test/**: imports '@/../test/fixtures/x'",
+    ]);
+  });
+
+  it('an inline type import is an import too (items I-0a RED M-2)', () => {
+    const planted: SourceFile[] = [{ file: 'src/lib/roles/margin.ts', source: "export type R = import('@/copy/roles').RoleCopy;" }];
+    expect(importViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '@/copy/roles'",
     ]);
   });
 });
@@ -579,8 +615,22 @@ describe('architecture — no clock in expiry, no identity for Withdraw (RED H-5
 // wired actions live.
 // ---------------------------------------------------------------------------------------------------------------------
 
-// Revision 7 step 4.1 (A-18): + src/components/warehouses.
-const NETWORK_SCAN_DIRS = ['src/components/ui', 'src/components/roles', 'src/components/permissions', 'src/components/bulk', 'src/components/people', 'src/components/warehouses'] as const;
+// Revision 7 step 4.1 (A-18): + src/components/warehouses. Revision 8 R8-3 (items I-0a): + src/components/records.
+// items I-0a RED M-3: + auth, shell, states, theme and preview, which already passed it.
+const NETWORK_SCAN_DIRS = [
+  'src/components/ui',
+  'src/components/roles',
+  'src/components/permissions',
+  'src/components/bulk',
+  'src/components/people',
+  'src/components/warehouses',
+  'src/components/records',
+  'src/components/auth',
+  'src/components/shell',
+  'src/components/states',
+  'src/components/theme',
+  'src/components/preview',
+] as const;
 const GLOBAL_OBJECTS = ['window', 'globalThis', 'self'];
 const NETWORK_GLOBALS = ['fetch', 'XMLHttpRequest', 'EventSource', 'WebSocket'];
 
@@ -766,7 +816,21 @@ describe('architecture — G-2: the generated surface is read through its two re
 });
 
 // Revision 7 step 4.1 (A-18): + src/lib/warehouses (bulk for this family comes later).
-const BULK_LITERAL_DIRS = ['src/components', 'src/app', 'src/lib/bulk', 'src/lib/bff', 'src/lib/warehouses'] as const;
+// items I-0a RED M-3: + src/lib/{api,auth,format,forms,people,permissions}, which already passed it (src/lib/roles: see
+// GUARD_EXEMPT.bulk).
+const BULK_LITERAL_DIRS = [
+  'src/components',
+  'src/app',
+  'src/lib/bulk',
+  'src/lib/bff',
+  'src/lib/warehouses',
+  'src/lib/api',
+  'src/lib/auth',
+  'src/lib/format',
+  'src/lib/forms',
+  'src/lib/people',
+  'src/lib/permissions',
+] as const;
 const BULK_LITERAL_EXCLUDED = [FIXTURE_DIR] as const;
 
 function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly string[], cap: number): Violation[] {
@@ -1519,6 +1583,222 @@ function assertFrontendTreeIsWalkable(): void {
   const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
   expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 8 R8-3 (items plan I-0a): the shared record dialogs, and guard enrolment (items-red.md M-2, L-6)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * What `src/components/records/` may import (R8-3): packages, the design-system primitives, the shared (non-family) copy
+ * and the shared result kinds. A family's `copy/<family>.ts`, `lib/<family>/*`, `lib/api/<family>.ts` or
+ * `components/<family>/*` comes in as props instead, so one family's sentence or type cannot leak into another's dialog.
+ */
+const RECORDS_DIR = 'src/components/records';
+const RECORDS_MAY_IMPORT: readonly string[] = ['src/components/ui', 'src/copy/headings', 'src/copy/permissionLabels', 'src/copy/shell', 'src/lib/results'];
+
+/**
+ * The same rule one step down (items I-0a RED L-4): what records may import must itself name no family, or a family
+ * sentence could reach a records dialog through a `ui` primitive. Every file in this closure may import only packages and
+ * the closure itself (today `ui/DateTime` reads `lib/format`, and `ui/StatusMessages` reads `styles/tokens`).
+ */
+const SHARED_CLOSURE: readonly string[] = [...RECORDS_MAY_IMPORT, 'src/lib/format', 'src/styles'];
+
+function sharedClosureViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!SHARED_CLOSURE.some((d) => under(sf.file.replace(/\.tsx?$/, ''), d))) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (/\.css$/.test(spec)) continue;
+      const t = targetOf(sf.file, spec).replace(/\.tsx?$/, '');
+      if (t.startsWith('pkg:') || SHARED_CLOSURE.some((d) => under(t, d))) continue;
+      out.push({ file: sf.file, detail: `what components/records may import names no family either (R8-3, RED L-4): imports '${spec}'` });
+    }
+  }
+  return out;
+}
+
+function recordsImportViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, RECORDS_DIR)) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (/\.css$/.test(spec)) continue;
+      const t = targetOf(sf.file, spec).replace(/\.tsx?$/, '');
+      if (t.startsWith('pkg:') || under(t, RECORDS_DIR) || RECORDS_MAY_IMPORT.some((d) => under(t, d))) continue;
+      out.push({ file: sf.file, detail: `components/records imports no family copy, lib or component (R8-3): imports '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — R8-3: components/records is props-only and names no family (items I-0a)', () => {
+  it('the real folder holds the two moved components and imports nothing family-specific', () => {
+    const files = walk(RECORDS_DIR);
+    expect(files.map((f) => f.file)).toEqual(['src/components/records/DeleteDialog.tsx', 'src/components/records/RestoreActions.tsx']);
+    expect(recordsImportViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: a family copy, lib, api or component import goes red in every literal import spelling (a computed import() is out of reach); the shared ones do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/records/A.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+      { file: 'src/components/records/B.tsx', source: "import type { DeleteWarehouseResult } from '@/lib/warehouses/results';" },
+      { file: 'src/components/records/C.tsx', source: "import type { DeleteWarehouseResult } from '../../lib/warehouses/results.ts';" },
+      { file: 'src/components/records/D.tsx', source: "import type { Warehouse } from '@/lib/api/warehouses';" },
+      { file: 'src/components/records/E.tsx', source: "import { KindField } from '@/components/warehouses/KindField';" },
+      { file: 'src/components/records/F.tsx', source: "export { ITEMS } from '@/copy/items';" },
+      // RED M-2: an inline type import and an import-equals require.
+      { file: 'src/components/records/T1.tsx', source: "type W = import('@/lib/api/warehouses').Warehouse;\nexport const w = (x: W) => x;" },
+      { file: 'src/components/records/T2.tsx', source: "import W = require('@/copy/warehouses');\nexport const w = W;" },
+      {
+        file: 'src/components/records/G.tsx',
+        source:
+          "import { useState } from 'react';\nimport { Banner } from '@/components/ui/Banner';\nimport { NOT_DELETED } from '@/copy/headings';\nimport { PAGE_STATES } from '../../copy/shell';\nimport type { DeleteResult } from '@/lib/results';\nimport { RestoreActions } from './RestoreActions';",
+      },
+      { file: 'src/components/warehouses/H.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+    ];
+    expect(recordsImportViolations(planted).map((v) => v.file)).toEqual([
+      'src/components/records/A.tsx',
+      'src/components/records/B.tsx',
+      'src/components/records/C.tsx',
+      'src/components/records/D.tsx',
+      'src/components/records/E.tsx',
+      'src/components/records/F.tsx',
+      'src/components/records/T1.tsx',
+      'src/components/records/T2.tsx',
+    ]);
+  });
+
+  it('what records may import (ui, the shared copy, lib/results, and what they read) names no family either (RED L-4)', () => {
+    const files = SNAPSHOT.filter((f) => f.file.startsWith('src/') && SHARED_CLOSURE.some((d) => under(f.file.replace(/\.tsx?$/, ''), d)));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/components/ui/DateTime.tsx', 'src/copy/shell.ts', 'src/lib/results.ts', 'src/lib/format/dates.ts']));
+    expect(sharedClosureViolations(files)).toEqual([]);
+  });
+
+  it('planted controls for the closure: a ui primitive or a shared copy file naming a family goes red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/ui/X.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+      { file: 'src/components/ui/Y.tsx', source: "type W = import('../../lib/api/warehouses').Warehouse;\nexport const y = (w: W) => w;" },
+      { file: 'src/copy/shell.ts', source: "export { ROLE_PAGE } from './roles';" },
+      { file: 'src/copy/headings.ts', source: "import type { Role } from '@/lib/api/roles';" },
+      { file: 'src/lib/format/z.ts', source: "import { thing } from '@/lib/warehouses/load';" },
+      { file: 'src/components/ui/Ok.tsx', source: "import { Spinner } from './Spinner';\nimport { PAGE_STATES } from '@/copy/shell';\nimport { formatDate } from '@/lib/format/dates';\nimport { tokens } from '@/styles/tokens';" },
+      { file: 'src/components/warehouses/NotInClosure.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+    ];
+    expect(sharedClosureViolations(planted).map((v) => v.file)).toEqual([
+      'src/components/ui/X.tsx',
+      'src/components/ui/Y.tsx',
+      'src/copy/shell.ts',
+      'src/copy/headings.ts',
+      'src/lib/format/z.ts',
+    ]);
+  });
+});
+
+/**
+ * Guard enrolment (items-red.md M-2): LITERAL_SCAN_DIRS, NETWORK_SCAN_DIRS (component dirs only), BULK_LITERAL_DIRS and
+ * EXPECTED_COUNTS are hand lists, so a new folder under `src/components` or `src/lib` used to be unscanned unless someone
+ * remembered it. Every such folder must now be enrolled in each applicable list, or named below with the fact that keeps
+ * it out (the scan would be red for a reason that is not a defect). A reason shorter than ten characters is a gap, and a
+ * stale exemption is red too. Limit, stated: the domain is the direct folders of `src/components` and `src/lib`; loose
+ * files there (`src/lib/results.ts`, `src/lib/routes.ts`, …) and other top-level `src/*` folders are outside it.
+ */
+type GuardList = 'literal' | 'network' | 'bulk' | 'counts';
+const GUARD_EXEMPT: Readonly<Record<GuardList, Readonly<Record<string, string>>>> = {
+  literal: {
+    'src/components/preview': 'red if scanned: its fixtures carry the built-in role names by design (the BUILT_IN_ROLE_NAMES header this backstop reads)',
+  },
+  network: {},
+  bulk: {
+    'src/lib/roles': 'red if scanned: lib/roles/load.ts PENDING_WALK_MAX_PAGES = 50 equals the bulk cap, and the guard cannot tell a page cap from the bulk cap',
+  },
+  counts: {},
+};
+
+/** The folders each list applies to: every direct sub-folder of `src/components` and `src/lib` (network: components only). */
+function guardedFolders(entries: readonly DiskEntry[]): string[] {
+  return entries.filter((e) => e.dir && /^src\/(components|lib)\/[^/]+$/.test(e.file)).map((e) => e.file);
+}
+
+interface GuardLists {
+  literal: readonly string[];
+  network: readonly string[];
+  bulk: readonly string[];
+  counts: readonly string[];
+}
+
+/** Every folder missing from an applicable list without an exemption, and every exemption that is stale. */
+function enrolmentGaps(folders: readonly string[], lists: GuardLists, exempt: typeof GUARD_EXEMPT): string[] {
+  const out: string[] = [];
+  const covered: Record<GuardList, (d: string) => boolean> = {
+    literal: (d) => lists.literal.includes(d),
+    network: (d) => lists.network.includes(d),
+    bulk: (d) => lists.bulk.some((b) => under(d, b)),
+    counts: (d) => lists.counts.includes(d),
+  };
+  for (const list of ['literal', 'network', 'bulk', 'counts'] as const) {
+    const applies = folders.filter((d) => list !== 'network' || under(d, 'src/components'));
+    for (const d of applies) {
+      const reason = exempt[list][d];
+      if (!covered[list](d)) {
+        if (reason === undefined) out.push(`${list}: ${d} is in no list and has no exemption`);
+        else if (reason.trim().length < 10) out.push(`${list}: ${d}'s exemption has no reason`);
+      }
+      if (covered[list](d) && reason !== undefined) out.push(`${list}: ${d} is enrolled, so its exemption is stale`);
+    }
+    for (const d of Object.keys(exempt[list])) {
+      if (!applies.includes(d)) out.push(`${list}: exemption for ${d}, which is not a folder this list applies to`);
+    }
+  }
+  return out;
+}
+
+const REAL_GUARD_LISTS: GuardLists = {
+  literal: LITERAL_SCAN_DIRS,
+  network: NETWORK_SCAN_DIRS,
+  bulk: BULK_LITERAL_DIRS,
+  counts: Object.keys(EXPECTED_COUNTS),
+};
+
+describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
+  it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
+    const folders = guardedFolders(ALL_SRC_ENTRIES);
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses']));
+    expect(folders.length).toBeGreaterThan(15);
+    expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
+  });
+
+  it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
+    const folders = guardedFolders(ALL_SRC_ENTRIES);
+    // A new folder nobody enrolled (the items family's folders, before I-1).
+    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/items is in no list and has no exemption',
+      'literal: src/lib/items is in no list and has no exemption',
+      'network: src/components/items is in no list and has no exemption',
+      'bulk: src/lib/items is in no list and has no exemption',
+      'counts: src/components/items is in no list and has no exemption',
+      'counts: src/lib/items is in no list and has no exemption',
+    ]);
+    // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
+    const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
+    expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
+    // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/items': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/items': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/items's exemption has no reason",
+      'literal: src/lib/items is in no list and has no exemption',
+      'network: src/components/items is in no list and has no exemption',
+      "bulk: src/lib/items's exemption has no reason",
+      'counts: src/components/items is in no list and has no exemption',
+      'counts: src/lib/items is in no list and has no exemption',
+    ]);
+    // An exemption left behind after enrolment, and one naming a folder that does not exist.
+    const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };
+    expect(enrolmentGaps(folders, REAL_GUARD_LISTS, stale)).toEqual([
+      'literal: src/components/records is enrolled, so its exemption is stale',
+      'literal: exemption for src/lib/nowhere, which is not a folder this list applies to',
+    ]);
+  });
+});
 
 describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
   it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {

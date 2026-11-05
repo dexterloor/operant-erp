@@ -2,7 +2,10 @@
 // `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '../api/warehouses';
-import type { FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
+import type { DeleteResult, FieldErrors, RestoreResult, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
+
+/** P1 contention: one copy, in `lib/results.ts` (Revision 8 R8-3); re-exported so this family's imports read as before. */
+export type { Contention } from '../results';
 
 /**
  * The warehouse form's fields, in screen order (step-3 RED L-3): a name the mirrored input lacks is a type error, and
@@ -35,10 +38,7 @@ export type SaveWarehouseAction = (changes: UpdateWarehouseInput) => Promise<Sav
  * which the re-read found the warehouse live (an interrupted press that committed, another tab); `message` is the
  * server's sentence, spoken as sent.
  */
-export type RestoreWarehouseResult =
-  | { kind: 'restored'; warehouse: Warehouse }
-  | { kind: 'already-live'; warehouse: Warehouse; message: string }
-  | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+export type RestoreWarehouseResult = RestoreResult<{ warehouse: Warehouse }>;
 
 /** The archived page's Restore warehouse. Caller contract: `restored` resolves after the re-read warehouse is committed. */
 export type RestoreWarehouseAction = () => Promise<RestoreWarehouseResult>;
@@ -111,20 +111,11 @@ export type RestoreLocationResult = { kind: 'restored'; location: StorageLocatio
 export type RestoreLocationAction = (locationId: string) => Promise<RestoreLocationResult>;
 
 /**
- * A refused Delete whose `rule` is `transaction.contention` (P1, A-18 S-1): its sentence tells the reader to try again, so
- * the dialog shows it and keeps its Delete button (warehouses-ux-copy.md B-7 "Exception"). Mapped in `wired.ts` only.
- */
-export interface Contention {
-  kind: 'contention';
-  message: string;
-}
-
-/**
  * `DELETE /warehouses/{id}` (204, no body, no key). `deleted` resolves after the re-read warehouse (now archived) is
  * committed, or, when that re-read failed, after the page was told (`onRereadFailed`). `refused` is any other 409
  * (W6–W10), shown in the dialog as sent, which then offers Close only (ST-9b).
  */
-export type DeleteWarehouseResult = { kind: 'deleted' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+export type DeleteWarehouseResult = DeleteResult;
 
 /** The live warehouse page's Delete warehouse. */
 export type DeleteWarehouseAction = () => Promise<DeleteWarehouseResult>;
@@ -133,7 +124,7 @@ export type DeleteWarehouseAction = () => Promise<DeleteWarehouseResult>;
  * `DELETE /warehouses/{id}/locations/{locationId}` (204, no body, no key). `refused` is any other 409 (L6–L9), shown in
  * the dialog as sent, which then offers Close only (ST-9b). The section re-reads its view after the dialog closes.
  */
-export type DeleteLocationResult = { kind: 'deleted' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+export type DeleteLocationResult = DeleteResult;
 
 /** Delete for one live row. */
 export type DeleteLocationAction = (locationId: string) => Promise<DeleteLocationResult>;
