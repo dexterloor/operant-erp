@@ -521,6 +521,44 @@ describe('DOM fitness — Revision 7 list core, Locations section', () => {
   });
 });
 
+// Step 4.2: an archived warehouse's Restore warehouse. A refusal (W5, re-read still archived), then a restore that turns the page live: the one
+// region stays the same node, empty at first render; no [disabled].
+describe('DOM fitness — Restore warehouse (Revision 7 step 4.2)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal and restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'warehouse.code_is_unique_per_workspace', message: "Another warehouse now uses this warehouse's code, so it can't be restored." }, 'application/problem+json'),
+        // The refusal's re-read (RED H-1): still archived, so the refusal shows.
+        reply(200, { ...W, archived_at: '2026-03-04T10:00:00Z' }),
+        reply(200, W),
+        reply(200, W),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={{ ...W, archived_at: '2026-03-04T10:00:00Z' }} canEdit canRestore />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Restore warehouse' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore warehouse' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MAIN was restored.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
 // Revision 7 step 4.1 (A-19 "Guards and tests affected": the warehouse form joins the rendered surfaces). The page owns
 // the one region; the form writes it. Scripted: an edit, a 409 refusal, a 422 field error, a save.
 describe('DOM fitness — the warehouse page and its form (Revision 7 step 4.1)', () => {
@@ -537,7 +575,7 @@ describe('DOM fitness — the warehouse page and its form (Revision 7 step 4.1)'
       ];
       vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
       const user = userEvent.setup();
-      const ui = <WarehousePage initial={W} canEdit />;
+      const ui = <WarehousePage initial={W} canEdit canRestore={false} />;
       renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
       const tracker = trackRegions();
       const failures = [...tracker.firstRender];

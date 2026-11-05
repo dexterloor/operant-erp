@@ -291,7 +291,7 @@ describe('T-SC — session-changed: reload once, stay silent while it is pending
 
 describe('T-R2 — deadline.ts', () => {
   it('names each per-action bound once', () => {
-    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, warehouseSave: 30_000, bulkRun: 30_000, reread: 30_000 });
+    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, warehouseSave: 30_000, warehouseRestore: 30_000, bulkRun: 30_000, reread: 30_000 });
   });
 
   it('a deadline aborts its signal at its bound, not before; cancel clears it', async () => {

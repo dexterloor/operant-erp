@@ -5,13 +5,15 @@ const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
 import type { Warehouse } from '@/lib/api/warehouses';
+import { REFUSED_WITHOUT_MESSAGE } from '@/copy/headings';
 import { PAGE_STATES } from '@/copy/shell';
 import { formatDate } from '@/lib/format/dates';
 import { TZ, json, problem, refused, renderWired, stubFetch } from './harness';
 
 // warehouses-ux-copy.md B-3 (Revision 1), Revision 7 A-19, step 4.1: the warehouse page is the editor. Code, Name and
 // Country only; Save sends the changed fields alone; a 422's field sentences show beside their fields; a 409 shows the
-// server's sentence under "Not saved"; an archived warehouse is read-only under its ST-9b banner, with no Restore yet.
+// server's sentence under "Not saved"; an archived warehouse is read-only under its ST-9b banner. Step 4.2: that banner
+// carries **Restore warehouse** for a RestoreWarehouse holder (B-7: no dialog; refusals under "Not restored", as sent).
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -20,7 +22,7 @@ afterEach(() => {
 
 const WID = '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const MAIN: Warehouse = { id: WID, code: 'MAIN', name: 'Main warehouse', country_code: 'GB', archived_at: null };
-const show = (w: Warehouse = MAIN, canEdit = true) => renderWired(<WarehousePage initial={w} canEdit={canEdit} />);
+const show = (w: Warehouse = MAIN, canEdit = true, canRestore = false) => renderWired(<WarehousePage initial={w} canEdit={canEdit} canRestore={canRestore} />);
 const region = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
 const field = (name: string) => screen.getByRole('textbox', { name });
 const save = () => screen.getByRole('button', { name: 'Save' });
@@ -193,12 +195,136 @@ describe('/warehouses/[id] — read-only', () => {
     expect(within(dl).getByText('GB')).toBeInTheDocument();
   });
 
-  it('an archived warehouse: the ST-9b banner with its date, read-only even with UpdateWarehouse, and no Restore yet (R3-8)', () => {
+  it('an archived warehouse: the ST-9b banner with its date, read-only even with UpdateWarehouse, and no Restore without RestoreWarehouse', () => {
     const at = '2026-03-04T10:00:00Z';
-    show({ ...MAIN, archived_at: at }, true);
+    show({ ...MAIN, archived_at: at }, true, false);
     expect(screen.getByText(/This warehouse was archived on/)).toHaveTextContent(`This warehouse was archived on ${formatDate(at, TZ)}.`);
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
     expect(document.body).not.toHaveTextContent(/restore/i);
+  });
+
+  it('a live warehouse never shows Restore warehouse, whatever the viewer holds', () => {
+    show(MAIN, true, true);
+    expect(screen.queryByRole('button', { name: 'Restore warehouse' })).toBeNull();
+  });
+});
+
+describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
+  const AT = '2026-03-04T10:00:00Z';
+  const ARCHIVED: Warehouse = { ...MAIN, archived_at: AT };
+  const restore = () => screen.getByRole('button', { name: 'Restore warehouse' });
+
+  it('is in the archived banner, no dialog: POST …/restoration with no body, re-reads, says "{code} was restored.", focuses the h1 and turns the page live', async () => {
+    // The re-read differs from the 200, so the test sees which one the page shows.
+    const calls = stubFetch([json(200, MAIN), json(200, { ...MAIN, name: 'Main warehouse (re-read)' })]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    await waitFor(() => expect(region()).toHaveTextContent('MAIN was restored.'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET']);
+    expect(calls[0]!.url).toContain(`/bff/api/warehouses/${WID}/restoration`);
+    expect(calls[0]!.body ?? null).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Main warehouse (re-read)');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Restore warehouse' })).toBeNull();
+    expect(field('Code')).toHaveValue('MAIN');
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('W5: the code collision shows verbatim under "Not restored", focus on its heading, the button stays', async () => {
+    const sentence = "Another warehouse now uses this warehouse's code, so it can't be restored. It can be restored once that warehouse's code is changed.";
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', sentence)]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Not restored')).toHaveFocus());
+    expect(restore()).toBeInTheDocument();
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it('a 403: the lost-permission sentence names "Delete and restore warehouses" (B-8)', async () => {
+    stubFetch([problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(/which you no longer have/)).toHaveTextContent('This needs the Delete and restore warehouses permission, which you no longer have. Your workspace administrator can grant it.');
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+  });
+
+  it('offline, then a repeat press answers W4 and the re-read finds it live: the page turns live and speaks W4 as sent (RED H-1)', async () => {
+    const w4 = 'This warehouse is not archived, so there is nothing to restore.';
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n += 1;
+      if (n === 1) throw new TypeError('offline');
+      if (n === 2) return refused('warehouse.is_not_archived', w4);
+      return json(200, MAIN);
+    }));
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText("We can't tell whether MAIN was restored. Press Restore warehouse to try again.")).toBeInTheDocument();
+    await u.click(restore());
+    await waitFor(() => expect(region()).toHaveTextContent(w4));
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Restore warehouse' })).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('W5 then a re-read that still reads archived: the refusal shows and the button stays (RED H-1)', async () => {
+    const sentence = "Another warehouse now uses this warehouse's code, so it can't be restored. It can be restored once that warehouse's code is changed.";
+    const calls = stubFetch([refused('warehouse.code_is_unique_per_workspace', sentence), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET']);
+    expect(restore()).toBeInTheDocument();
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it('restored, but the re-read fails: the 200 body is committed, the editor shows, the region error shows, "MAIN was restored." is spoken (RED M-1)', async () => {
+    stubFetch([json(200, MAIN), json(500, {})]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Restore warehouse' })).toBeNull();
+    expect(field('Code')).toHaveValue('MAIN');
+    expect(region()).toHaveTextContent('MAIN was restored.');
+  });
+
+  it('a 409 with an empty message: "Not restored" with the no-message sentence (RED L-1)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', ''), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(REFUSED_WITHOUT_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+  });
+
+  it('a 404: "Not restored" with ST-5\'s inline words (RED L-1)', async () => {
+    stubFetch([problem(404, 'not-found')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(PAGE_STATES.notFoundInline)).toBeInTheDocument();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+  });
+
+  it('a lost connection: "We can\'t tell whether {code} was restored. Press Restore warehouse to try again."', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText("We can't tell whether MAIN was restored. Press Restore warehouse to try again.")).toBeInTheDocument();
+    expect(restore()).toBeInTheDocument();
   });
 });

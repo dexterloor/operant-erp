@@ -193,6 +193,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.delete'],
     },
   },
+  RestoreWarehouse: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.delete'],
+    },
+  },
   RevokeRole: {
     method: 'DELETE',
     template: '/api/v1/users/{id}/roles/{roleId}',

@@ -18,7 +18,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('@/lib/bff/server/reads', () => ({ serverRead: () => 'read' }));
-const MAIN = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+const MAIN = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: '2026-03-04T10:00:00Z' };
 vi.mock('@/lib/warehouses/load', () => ({ loadWarehouse: async () => ({ kind: 'ok', warehouse: MAIN }) }));
 
 const { default: Page } = await import('@/app/(app)/warehouses/[id]/page');
@@ -42,5 +42,17 @@ describe('/warehouses/[id] — the edit gate is UpdateWarehouse’s (ST-4c)', ()
 
   it('(c) without warehouse.view the page is ST-4b', async () => {
     expect((await render([])).type).toBe(WarehousesDenied);
+  });
+});
+
+describe('/warehouses/[id] — the restore gate is RestoreWarehouse’s (ST-4c, step 4.2)', () => {
+  const canRestore = (el: ReactElement) => (el.props as { canRestore: boolean }).canRestore;
+
+  it('(a) warehouse.view and warehouse.edit alone get no Restore warehouse', async () => {
+    expect(canRestore(await render(['warehouse.view', 'warehouse.edit']))).toBe(false);
+  });
+
+  it('(b) a holder of warehouse.delete gets Restore warehouse', async () => {
+    expect(canRestore(await render(['warehouse.view', 'warehouse.delete']))).toBe(true);
   });
 });

@@ -267,7 +267,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
   // Revision 7 step 4.1 added: components/warehouses/WarehouseForm.tsx.
-  'src/components': 54,
+  // Revision 7 step 4.2 added: components/warehouses/WarehouseRestoreActions.tsx.
+  'src/components': 55,
   'src/lib/api': 6,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
@@ -282,8 +283,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/permissions': 3,
   'src/components/bulk': 6,
   'src/components/people': 4,
-  // Revision 7 step 4.1 added: WarehouseForm.tsx.
-  'src/components/warehouses': 1,
+  // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx.
+  'src/components/warehouses': 2,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,

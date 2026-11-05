@@ -83,10 +83,10 @@ describe('/warehouses?archived=true — the Archived view (B-2)', () => {
     expect(screen.getByRole('searchbox', { name: 'Search archived warehouses by code or name' })).toBeInTheDocument();
   });
 
-  it('empty: the interim sentence without "can be restored from here" (R3-8), no action', () => {
+  it('empty: the RULED sentence, "…and can be restored from here" (U-6; true from step 4.2), no action', () => {
     renderWired(<WarehousesList initial={ok([], true)} initialArchived />);
-    expect(screen.getByText('No archived warehouses. Warehouses that are deleted appear here.')).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent(/restore/i);
+    expect(screen.getByText('No archived warehouses. Warehouses that are deleted appear here and can be restored from here.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /restore/i })).toBeNull();
   });
 
   it('Back to warehouses returns to the live view and the plain address', async () => {

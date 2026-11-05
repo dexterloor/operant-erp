@@ -11,9 +11,10 @@ import { WarehousesDenied } from '../WarehouseStates';
 import { WarehousePage } from './WarehousePage';
 
 // `/warehouses/[id]` (warehouses-ux-copy.md B-3; Revision 7 A-15, A-20). First render: GetWarehouse over the server
-// transport, once per request (shared with the title). `canEdit` = UpdateWarehouse's codes. 401 → the session-ended
+// transport, once per request (shared with the title). `canEdit` = UpdateWarehouse's codes; `canRestore` =
+// RestoreWarehouse's (§2 step 4.2). 401 → the session-ended
 // notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws to the error page.
-// No Locations section, Restore or Delete yet (§2 steps 4.2, 4.4, 4.6).
+// No Locations section or Delete yet (§2 steps 4.4, 4.6).
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -41,5 +42,5 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'forbidden') return <WarehousesDenied />;
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The warehouse could not be read.');
-  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', viewer.permissionCodes)} />;
+  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', viewer.permissionCodes)} canRestore={viewerMay('RestoreWarehouse', viewer.permissionCodes)} />;
 }

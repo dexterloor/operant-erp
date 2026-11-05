@@ -16,6 +16,7 @@
   "RejectRoleGrantProposal",
   "RestoreRole",
   "RestoreUser",
+  "RestoreWarehouse",
   "RevokeRole",
   "UpdateRole",
   "UpdateWarehouse"

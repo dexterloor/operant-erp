@@ -3,10 +3,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RegionError } from '@/components/states/PageStates';
-import { Banner } from '@/components/ui/Banner';
-import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { WarehouseForm } from '@/components/warehouses/WarehouseForm';
+import { WarehouseRestoreActions } from '@/components/warehouses/WarehouseRestoreActions';
 import styles from '@/components/warehouses/Warehouses.module.css';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { WAREHOUSE_PAGE } from '@/copy/warehouses';
@@ -15,7 +14,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { loadWarehouse } from '@/lib/warehouses/load';
-import { warehouseSave } from '@/lib/warehouses/wired';
+import { warehouseRestore, warehouseSave } from '@/lib/warehouses/wired';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
 import { WarehouseNotFound, WarehousesDenied } from '../WarehouseStates';
@@ -26,6 +25,8 @@ export interface WarehousePageProps {
   initial: Warehouse;
   /** Holds UpdateWarehouse's codes (from the contract): ST-4c. Without it the fields are plain text. */
   canEdit: boolean;
+  /** Holds RestoreWarehouse's codes (from the contract): ST-4c. Without it an archived warehouse shows its banner, no button. */
+  canRestore: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -34,11 +35,12 @@ type Cause = 'unreachable' | 'server-error';
  * The warehouse page (warehouses-ux-copy.md B-3; IA L-4: the detail page is the editor). It holds the warehouse in
  * state and passes the re-read one to the form without a remount. A failed re-read → the region error (focus on its
  * heading), Retry re-reads; 403 → ST-4b; 404 → ST-5. An archived warehouse is read-only whatever the viewer holds (the
- * API refuses its update, W3), under the persistent ST-9b banner *"This warehouse was archived on {date}."*, which names
- * no action and so holds without **Restore warehouse** (R3-8 "Silent"; Restore arrives at §2 step 4.2). After a save's
- * message is on screen the router cache is refreshed once, so Back to the list shows the saved code and name.
+ * API refuses its update, W3), under the persistent ST-9b banner *"This warehouse was archived on {date}."* with **Restore warehouse** for a
+ * `RestoreWarehouse` holder (§2 step 4.2, `WarehouseRestoreActions`): a restore sets the re-read warehouse here, so the
+ * page turns live without a remount. After a save's or restore's message is on screen the router cache is refreshed once,
+ * so Back to the list shows the saved code and name, or the warehouse in the live list.
  */
-export function WarehousePage({ initial, canEdit }: WarehousePageProps) {
+export function WarehousePage({ initial, canEdit, canRestore }: WarehousePageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -61,6 +63,7 @@ export function WarehousePage({ initial, canEdit }: WarehousePageProps) {
   }, []);
 
   const save = useMemo(() => warehouseSave({ caller, id, setWarehouse, onRereadFailed: failed }), [caller, id, setWarehouse, failed]);
+  const restore = useMemo(() => warehouseRestore({ caller, id, setWarehouse, onRereadFailed: failed }), [caller, id, setWarehouse, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
 
   const retry = async () => {
@@ -93,8 +96,17 @@ export function WarehousePage({ initial, canEdit }: WarehousePageProps) {
       {rereadError ? (
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={WAREHOUSE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
-      {archived ? (
-        <Banner tone="neutral" heading={<>{WAREHOUSE_PAGE.archivedOn}<DateTime value={warehouse.archived_at!} form="date" timeZone={timeZone} />{WAREHOUSE_PAGE.archivedAfter}</>} />
+      {warehouse.archived_at !== null ? (
+        <WarehouseRestoreActions
+          warehouse={{ ...warehouse, archived_at: warehouse.archived_at }}
+          canRestore={canRestore}
+          restoreWarehouse={restore}
+          restoreCode={gateCode('RestoreWarehouse')}
+          timeZone={timeZone}
+          announce={region.announce}
+          fallbackFocusRef={h1}
+          onRestored={onSaved}
+        />
       ) : null}
       {canEdit && !archived ? (
         <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} />

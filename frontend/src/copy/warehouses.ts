@@ -1,7 +1,7 @@
 // Every warehouse screen sentence (Revision 7 A-18), from `docs/design/warehouses-ux-copy.md` Part B + Revision 1 (as
 // attacked by `warehouses-ux-copy-red.md`); each entry names its row. Server refusals are never stored here: they render
-// as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): this commit has
-// no Create, Restore, Delete or Locations, so no sentence here offers them.
+// as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): the app has
+// Restore warehouse (§2 step 4.2) but no Create, Delete or Locations yet, so no sentence here offers those.
 
 /** B-1 (live list), B-2 (Archived view). */
 export const WAREHOUSES_LIST = {
@@ -31,11 +31,8 @@ export const WAREHOUSES_LIST = {
   allArchived: "No warehouses to show. Every warehouse here has been deleted, and they're in the archived warehouses.",
   viewArchived: 'View archived warehouses',
   noMatch: (q: string) => `No warehouse's code or name starts with “${q}”.`,
-  /**
-   * B-1 archived/no-search row, INTERIM (R3-8; UX TO CONFIRM): the RULED sentence without *"and can be restored from
-   * here"*, because Restore warehouse is not in this commit. The full sentence returns with Restore (§2 step 4.2).
-   */
-  noneArchived: 'No archived warehouses. Warehouses that are deleted appear here.',
+  /** B-1 archived/no-search row (RULED, U-6). True from §2 step 4.2, which gives the archived page Restore warehouse. */
+  noneArchived: 'No archived warehouses. Warehouses that are deleted appear here and can be restored from here.',
   noArchivedMatch: (q: string) => `No archived warehouse's code or name starts with “${q}”.`,
   clearSearch: 'Clear search',
 } as const;
@@ -61,9 +58,16 @@ export const WAREHOUSE_PAGE = {
   interrupted: (code: string) => `We can't tell whether your changes to ${code} were saved. Reload the page to check.`,
   /** Re-read failed (NEW, the ROLE_PAGE.rereadFailed shape). */
   rereadFailed: "We couldn't load this warehouse again, so what's shown may be out of date.",
-  /** Archived warehouse page banner (RULED, ST-9b). Its **Restore warehouse** action arrives with §2 step 4.2. */
+  /** Archived warehouse page banner (RULED, ST-9b). Its **Restore warehouse** action is `RESTORE_WAREHOUSE.action`. */
   archivedOn: 'This warehouse was archived on ',
   archivedAfter: '.',
+} as const;
+
+/** B-7 restore rows (RULED, U-7 / ST-9b): in the archived banner, no dialog. */
+export const RESTORE_WAREHOUSE = {
+  action: 'Restore warehouse',
+  after: (code: string) => `${code} was restored.`,
+  interrupted: (code: string) => `We can't tell whether ${code} was restored. Press Restore warehouse to try again.`,
 } as const;
 
 /** B-8: lost permission mid-action (R1-5's form, RULED). The label is read from `permissionLabels.ts` by code (L-9). */

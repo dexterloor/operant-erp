@@ -28,3 +28,17 @@ export type SaveWarehouseResult =
 
 /** The form's Save: only the changed fields are sent (the caller builds the body with `changedFields`). */
 export type SaveWarehouseAction = (changes: UpdateWarehouseInput) => Promise<SaveWarehouseResult>;
+
+/**
+ * `POST /warehouses/{id}/restoration` (no body, no key). `restored` carries the 200 body. `refused` is a 409 (W4 not
+ * archived, W5 code taken, P1 contention), shown under the archived banner as sent. `already-live`: a refusal after
+ * which the re-read found the warehouse live (an interrupted press that committed, another tab); `message` is the
+ * server's sentence, spoken as sent.
+ */
+export type RestoreWarehouseResult =
+  | { kind: 'restored'; warehouse: Warehouse }
+  | { kind: 'already-live'; warehouse: Warehouse; message: string }
+  | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/** The archived page's Restore warehouse. Caller contract: `restored` resolves after the re-read warehouse is committed. */
+export type RestoreWarehouseAction = () => Promise<RestoreWarehouseResult>;

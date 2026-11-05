@@ -15,6 +15,8 @@ export const ACTION_DEADLINES_MS = {
   saveRoles: 60_000,
   /** Save a warehouse: the request + the GetWarehouse re-read. */
   warehouseSave: 30_000,
+  /** Restore a warehouse: the request + the GetWarehouse re-read. */
+  warehouseRestore: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */
