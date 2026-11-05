@@ -6,14 +6,17 @@
   "DeleteUser",
   "GetRole",
   "GetUser",
+  "GetWarehouse",
   "ListOfferedRoles",
   "ListPermissions",
   "ListRoleGrantProposals",
   "ListRoles",
   "ListUsers",
+  "ListWarehouses",
   "RejectRoleGrantProposal",
   "RestoreRole",
   "RestoreUser",
   "RevokeRole",
-  "UpdateRole"
+  "UpdateRole",
+  "UpdateWarehouse"
 ]

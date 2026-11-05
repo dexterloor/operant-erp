@@ -8,6 +8,7 @@ const nav = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace }), usePathname: () => '/admin/users' }));
 import { UsersList } from '@/app/(app)/admin/users/UsersList';
 import { RolesList } from '@/app/(app)/admin/roles/RolesList';
+import { WarehousesList } from '@/app/(app)/warehouses/WarehousesList';
 import { SEARCH_SETTLE_MS } from '@/app/(app)/ArchivableList';
 import { ROLE_A, VIEWER_ID, json, page, renderWired, role, stubFetch, textsOf, user } from './harness';
 
@@ -31,6 +32,9 @@ function deferred() {
 const CASES: { name: string; ui: ReactElement; h1: string; body: () => unknown; settled: string; row: string }[] = [
   { name: '/admin/users', ui: <UsersList initial={{ kind: 'unreachable' }} viewerId={VIEWER_ID} />, h1: 'Users', body: () => page([user()]), settled: '1 person shown.', row: 'Ada Lovelace' },
   { name: '/admin/roles', ui: <RolesList initial={{ kind: 'server-error' }} />, h1: 'Roles', body: () => page([role(ROLE_A, 'Buyer', [])]), settled: '1 role shown.', row: 'Buyer' },
+  // Revision 7 step 4.1: the warehouses list joins FE-R3's first-load rules (its banner case is in warehouses-list.test.tsx:
+  // its Archived view's control is Back to warehouses, not the pressed toggle).
+  { name: '/warehouses', ui: <WarehousesList initial={{ kind: 'unreachable' }} />, h1: 'Warehouses', body: () => page([{ id: 'f1e2d3c4-b5a6-4789-8abc-def012345678', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null }]), settled: '1 warehouse shown.', row: 'Main' },
 ];
 
 describe.each(CASES)('$name — a successful Retry after a failed first load', ({ ui, h1, body, settled, row }) => {

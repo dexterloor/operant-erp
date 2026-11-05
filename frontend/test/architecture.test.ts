@@ -173,10 +173,13 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/people',
   // Revision 7 step 3 (§5 ledger, LITERAL_SCAN_DIRS row): the forms helpers.
   'src/lib/forms',
+  // Revision 7 step 4.1 (A-18 guards): the warehouse logic and components.
+  'src/lib/warehouses',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
   'src/components/people',
+  'src/components/warehouses',
   // Revision 5 A-8 G-7 (B-3b C2): the pages and route handlers, and the BFF's own code.
   'src/app',
   'src/lib/bff',
@@ -254,26 +257,33 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Step 5 added: copy/roles.ts; lib/api/{envelope,proposals}.ts, lib/roles/{availability,conflictLines,effectivePreview,
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
-  'src/copy': 8,
+  // Revision 7 step 4.1 added: copy/warehouses.ts.
+  'src/copy': 9,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
-  'src/lib': 55,
+  // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
+  'src/lib': 59,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
-  'src/components': 53,
-  'src/lib/api': 5,
+  // Revision 7 step 4.1 added: components/warehouses/WarehouseForm.tsx.
+  'src/components': 54,
+  'src/lib/api': 6,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
   // Revision 7 step 3 (A-19 item 4): the forms helpers.
   'src/lib/forms': 1,
+  // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
+  'src/lib/warehouses': 3,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
   'src/components/bulk': 6,
   'src/components/people': 4,
+  // Revision 7 step 4.1 added: WarehouseForm.tsx.
+  'src/components/warehouses': 1,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -297,7 +307,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // ChangePasswordRoute}.tsx → app/(app)/account/password/ (Revision 6 A-13).
   // Session-expiry return path added: app/(app)/SessionEndedReturn.tsx.
   // Revision 7 step 2 (A-17 item 1) added: app/(app)/useArchivedAddress.ts (the list's only address writer).
-  'src/app': 41,
+  // Revision 7 step 4.1 added: app/(app)/warehouses/{page,WarehousesList,WarehouseStates}.tsx, app/(app)/warehouses/[id]/{page,WarehousePage,
+  // not-found}.tsx.
+  'src/app': 47,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -488,7 +500,8 @@ describe('architecture — no clock in expiry, no identity for Withdraw (RED H-5
 // wired actions live.
 // ---------------------------------------------------------------------------------------------------------------------
 
-const NETWORK_SCAN_DIRS = ['src/components/ui', 'src/components/roles', 'src/components/permissions', 'src/components/bulk', 'src/components/people'] as const;
+// Revision 7 step 4.1 (A-18): + src/components/warehouses.
+const NETWORK_SCAN_DIRS = ['src/components/ui', 'src/components/roles', 'src/components/permissions', 'src/components/bulk', 'src/components/people', 'src/components/warehouses'] as const;
 const GLOBAL_OBJECTS = ['window', 'globalThis', 'self'];
 const NETWORK_GLOBALS = ['fetch', 'XMLHttpRequest', 'EventSource', 'WebSocket'];
 
@@ -673,7 +686,8 @@ describe('architecture — G-2: the generated surface is read through its two re
   });
 });
 
-const BULK_LITERAL_DIRS = ['src/components', 'src/app', 'src/lib/bulk', 'src/lib/bff'] as const;
+// Revision 7 step 4.1 (A-18): + src/lib/warehouses (bulk for this family comes later).
+const BULK_LITERAL_DIRS = ['src/components', 'src/app', 'src/lib/bulk', 'src/lib/bff', 'src/lib/warehouses'] as const;
 const BULK_LITERAL_EXCLUDED = [FIXTURE_DIR] as const;
 
 function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly string[], cap: number): Violation[] {
@@ -1150,6 +1164,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
+      'src/components/warehouses/WarehouseForm.tsx',
     ]);
   });
 

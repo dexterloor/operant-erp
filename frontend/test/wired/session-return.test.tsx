@@ -68,6 +68,8 @@ const { default: UsersPage } = await import('@/app/(app)/admin/users/page');
 const { default: RolesPage } = await import('@/app/(app)/admin/roles/page');
 const person = await import('@/app/(app)/admin/users/[id]/page');
 const role = await import('@/app/(app)/admin/roles/[id]/page');
+const { default: WarehousesPage } = await import('@/app/(app)/warehouses/page');
+const warehouse = await import('@/app/(app)/warehouses/[id]/page');
 const { default: AccountPage } = await import('@/app/(app)/account/password/page');
 const { default: AppLayout } = await import('@/app/(app)/layout');
 const { SessionEndedReturn } = await import('@/app/(app)/SessionEndedReturn');
@@ -83,6 +85,7 @@ describe('a page whose session has ended returns to itself after sign-in', () =>
   for (const [name, Page] of [
     ['/admin/users', UsersPage as ListPage],
     ['/admin/roles', RolesPage as ListPage],
+    ['/warehouses', WarehousesPage as ListPage],
   ] as const) {
     it(`${name}?archived=true → ${name}?archived=true; the live view → ${name}`, async () => {
       expect(landsOn(await redirectOf(Page({ searchParams: Promise.resolve({ archived: 'true' }) })))).toBe(`${name}?archived=true`);
@@ -93,6 +96,7 @@ describe('a page whose session has ended returns to itself after sign-in', () =>
   for (const [name, mod] of [
     ['/admin/users', person],
     ['/admin/roles', role],
+    ['/warehouses', warehouse],
   ] as const) {
     it(`${name}/<id> and its title → ${name}/<id>`, async () => {
       const params = () => Promise.resolve({ id: ID });

@@ -10,7 +10,7 @@ import { NAVIGATION, type PermissionCodes } from './navigation';
  * The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. The
  * sidebar, rail and 320 px menu read it too (b3b-followup C-3): they offer only these pages.
  */
-export const BUILT_PAGE_HREFS: readonly string[] = ['/admin/users', '/admin/roles'];
+export const BUILT_PAGE_HREFS: readonly string[] = ['/warehouses', '/admin/users', '/admin/roles'];
 
 /**
  * Pages inside the signed-in frame reached from the user menu, not from navigation (Revision 6 A-13). Never navigation

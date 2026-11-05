@@ -26,7 +26,8 @@ import { renderWired } from './wired/harness';
 
 // The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
 const shellIo = vi.hoisted(() => ({ signOut: vi.fn() }));
-vi.mock('next/navigation', () => ({ usePathname: () => '/admin/users' }));
+// `useRouter` for the warehouse page (step 4.1): it refreshes the router cache after a save.
+vi.mock('next/navigation', () => ({ usePathname: () => '/admin/users', useRouter: () => ({ refresh: () => {} }) }));
 vi.mock('@/lib/bff/authCalls', () => ({ signOut: shellIo.signOut }));
 
 /** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
@@ -518,4 +519,44 @@ describe('DOM fitness — Revision 7 list core, Locations section', () => {
     expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 locations shown.'));
   });
+});
+
+// Revision 7 step 4.1 (A-19 "Guards and tests affected": the warehouse form joins the rendered surfaces). The page owns
+// the one region; the form writes it. Scripted: an edit, a 409 refusal, a 422 field error, a save.
+describe('DOM fitness — the warehouse page and its form (Revision 7 step 4.1)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal, field error and save${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'warehouse.code_is_unique_per_workspace', message: 'Another warehouse already uses this code.' }, 'application/problem+json'),
+        reply(422, { type: 'urn:erp:problem:validation-failed', title: 'x', status: 422, errors: [{ pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] }, 'application/problem+json'),
+        reply(200, { ...W, name: 'Mainx' }),
+        reply(200, { ...W, name: 'Mainx' }),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const name = () => screen.getByRole('textbox', { name: 'Name' });
+      const steps: Array<() => Promise<void>> = [
+        () => user.type(name(), 'x'),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MAIN was saved.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
 });

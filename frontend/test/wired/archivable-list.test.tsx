@@ -11,6 +11,8 @@ import { USERS_LIST } from '@/copy/people';
 import { ROLES_LIST } from '@/copy/roles';
 import { EMPTY as USERS_EMPTY, UsersList } from '@/app/(app)/admin/users/UsersList';
 import { EMPTY as ROLES_EMPTY } from '@/app/(app)/admin/roles/RolesList';
+import { EMPTY as WAREHOUSES_EMPTY } from '@/app/(app)/warehouses/WarehousesList';
+import { WAREHOUSES_LIST } from '@/copy/warehouses';
 import { Button } from '@/components/ui/Button';
 import styles from '@/app/(app)/Lists.module.css';
 import { VIEWER_ID, json, page, renderWired, stubFetch, textsOf, user } from './harness';
@@ -530,6 +532,8 @@ describe('FE-R4 — the mount settle and the copy precondition', () => {
   const SHIPPED = [
     { name: 'users', shown: USERS_LIST.shown, empty: USERS_EMPTY },
     { name: 'roles', shown: ROLES_LIST.shown, empty: ROLES_EMPTY },
+    // Revision 7 step 4.1: the warehouses list joins (handoff carry).
+    { name: 'warehouses', shown: WAREHOUSES_LIST.shown, empty: WAREHOUSES_EMPTY },
   ];
   it.each(SHIPPED)('8. $name: every settled sentence and non-null empty heading for a non-empty query names the query', ({ shown, empty }) => {
     const q = 'Qx9';

@@ -7,11 +7,11 @@ import { safeReturnPath } from '@/lib/session';
 // Next 16 hands `searchParams` to a page as a Promise (final-red L-2), so the page awaits it. The viewer, the server
 // transport and the loaders are stubbed: only the page's own choice is under test.
 
-const load = vi.hoisted(() => ({ users: vi.fn(), roles: vi.fn() }));
+const load = vi.hoisted(() => ({ users: vi.fn(), roles: vi.fn(), warehouses: vi.fn() }));
 // The real `sessionEndedPath` (the return address is under test); only the viewer read is stubbed.
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
-  currentViewer: async () => ({ session: { sid: 's' }, viewer: { id: 'v', permissionCodes: ['app_user.view', 'role.view'] } }),
+  currentViewer: async () => ({ session: { sid: 's' }, viewer: { id: 'v', permissionCodes: ['app_user.view', 'role.view', 'warehouse.view'] } }),
 }));
 class Redirected extends Error {
   constructor(readonly to: string) {
@@ -26,19 +26,23 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/bff/server/reads', () => ({ serverRead: () => 'read' }));
 vi.mock('@/lib/people/load', () => ({ loadUsers: load.users }));
 vi.mock('@/lib/permissions/load', () => ({ loadRoles: load.roles }));
+vi.mock('@/lib/warehouses/load', () => ({ loadWarehouses: load.warehouses }));
 
 const { default: UsersPage } = await import('@/app/(app)/admin/users/page');
 const { default: RolesPage } = await import('@/app/(app)/admin/roles/page');
+const { default: WarehousesPage } = await import('@/app/(app)/warehouses/page');
 
 type Page = (p: { searchParams: Promise<Record<string, string | string[] | undefined>> }) => Promise<ReactElement>;
 const cases: [string, Page, typeof load.users, object][] = [
   ['/admin/users', UsersPage as Page, load.users, { kind: 'ok', users: [] }],
   ['/admin/roles', RolesPage as Page, load.roles, { kind: 'ok', roles: [] }],
+  ['/warehouses', WarehousesPage as Page, load.warehouses, { kind: 'ok', warehouses: [], tenantHasRows: false }],
 ];
 
 afterEach(() => {
   load.users.mockReset();
   load.roles.mockReset();
+  load.warehouses.mockReset();
 });
 
 describe('list pages read the Archived view from the address (b3b-followup C-4)', () => {

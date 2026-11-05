@@ -93,6 +93,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.view'],
     },
   },
+  GetWarehouse: {
+    method: 'GET',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.view'],
+    },
+  },
   ListOfferedRoles: {
     method: 'GET',
     template: '/api/v1/users/{id}/offered-roles',
@@ -143,6 +153,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['app_user.view'],
     },
   },
+  ListWarehouses: {
+    method: 'GET',
+    template: '/api/v1/warehouses',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.view'],
+    },
+  },
   RejectRoleGrantProposal: {
     method: 'POST',
     template: '/api/v1/role-grant-proposals/{id}/rejection',
@@ -191,6 +211,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.edit'],
+    },
+  },
+  UpdateWarehouse: {
+    method: 'PATCH',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.edit'],
     },
   },
 };
@@ -257,4 +287,6 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],
+  Warehouse: ['archived_at', 'code', 'country_code', 'id', 'name'],
+  'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['code', 'country_code', 'name'],
 };

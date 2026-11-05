@@ -43,6 +43,8 @@ const MIRRORED = {
   OfferedRole: ['OfferedRoleCollection', 'properties', 'items', 'items'],
   RoleConflict: ['OfferedRoleCollection', 'properties', 'items', 'items', 'properties', 'conflicts_with', 'items'],
   Collection: ['RoleCollection'],
+  Warehouse: ['Warehouse'],
+  'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['Warehouse.UpdateWarehouseInput.jsonMergePatch'],
 };
 
 const BANNER =
