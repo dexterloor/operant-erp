@@ -377,6 +377,9 @@ final class TenantClaimProbeTest extends PurchaseOrderTestCase
         // baseline has to SUCCEED -- a draft is not-found here by design (E-2), and a probe whose baseline is
         // refused compares a refusal with a refusal. `confirmed_sales_order` is seeded in both tenants.
         'GetPickList' => ['vars' => ['id' => 'confirmed_sales_order']],
+        // BK-21: the pick queue, unfiltered. `confirmed_sales_order` is seeded in both tenants WITH an `ordered_at`, so the
+        // baseline page is non-empty and a supplied tenant id that moved the read would list B's order.
+        'ListPickQueueEntries' => [],
         // Added 2026-09-22 with the fulfilment create (sales step 5 C4). The confirmed order's line, shipped from
         // this tenant's `@bin`, which `freshState()` stocks with the line's item -- per-tenant symbols, so a supplied
         // tenant id that moved the write would take B's stock or post against B's order, which the digest names.

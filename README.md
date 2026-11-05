@@ -1,12 +1,12 @@
 # Operant ERP
 
-An AI-powered, multi-tenant ERP backend for small businesses, served as a versioned JSON API. Its AI
-assistant is designed, not built. Solo portfolio project. Source-available, not open source (see
+An AI-powered, multi-tenant ERP for small businesses: a versioned JSON API and the start of its web app. Its
+AI assistant is designed, not built. Solo portfolio project. Source-available, not open source (see
 [Licence](#licence)).
 
 ## For recruiters and hiring managers
 
-**What it is.** The backend of a business system for small companies: inventory, warehouses and storage
+**What it is.** A business system for small companies, mostly its backend: inventory, warehouses and storage
 locations, purchasing and goods receipts, sales orders, shipments, invoices, returns and credit notes,
 customers, suppliers, reorder suggestions, data exports, an audit trail, and user and role management. Each
 business gets its own workspace, and PostgreSQL itself keeps one workspace's rows out of another's queries.
@@ -23,10 +23,16 @@ not a real inbox.
 - **The AI assistant.** A read-only assistant that answers questions about a workspace's data. It would use
   its own database login, which can only read, and only inside one workspace. The design exists; the code
   does not.
-- **A frontend.** This repository is the backend only.
-- **A way to create a workspace.** No command or endpoint creates a workspace or its first owner yet, so a
-  server you start has nobody who can sign in. The test suite creates its own workspaces. A demo seed is
-  planned.
+- **Most of the web app.** The `frontend/` directory holds the web application (Next.js, React and TypeScript), which
+  calls the API through its own server rather than from the browser. Its built screens include signing in, forgotten
+  and reset passwords, changing a password, viewing users, removing and restoring them and setting their roles, and
+  editing and restoring roles. None of the business screens (stock, purchasing, sales, invoices and the rest) is built
+  yet, and this README does not yet explain how to run the web app.
+- **A way to create a workspace.** There is no supported way to create a workspace or its first owner, so a fresh
+  server has nobody who can sign in. The test suite creates its own workspaces. A local demo seed exists
+  (`backend/bin/demo-seed.php`: one workspace, its built-in roles and one owner), but it is set up for the author's
+  machine: apart from the test suite's own check, it runs only against a local database created as a demo database,
+  and `make demo-seed` refuses the default Docker context. It is not yet a documented step for a fresh clone.
 - **CI and hosting.** There is no CI pipeline and no public deployment.
 
 **How the work was done.** Most features followed the same loop:
@@ -178,8 +184,9 @@ make worker        # consumes the mail queue for up to an hour, then exits
 make worker-loop   # the same, restarted whenever it exits
 ```
 
-Mail the worker sends goes to Mailpit. Its inbox is at `http://127.0.0.1:58025` with the default ports. Links
-in that mail point at a frontend that is not built yet.
+Mail the worker sends goes to Mailpit. Its inbox is at `http://127.0.0.1:58025` with the default ports. Invitation and
+password-reset links open `/reset-password` at the address in `APP_PUBLIC_URL` (`.env.worker`). That page is part of
+the web app, which this README does not yet explain how to run; set `APP_PUBLIC_URL` to wherever you run it.
 
 ### Checks
 

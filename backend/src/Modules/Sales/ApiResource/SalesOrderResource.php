@@ -290,7 +290,8 @@ final class SalesOrderResource
         #[SerializedName('total_amount')]
         public string $totalAmount,
         /**
-         * Null exactly while the order is `draft`. **Non-null from `ConfirmSalesOrder` on** — that operation
+         * Null while the order is `draft`, and on an order cancelled while a draft. Nothing but direct SQL leaves it
+         * null on any other status (`RESIDUAL_GAPS.md` G-94). **Non-null from `ConfirmSalesOrder` on** — that operation
          * sets it in the same transition that leaves `draft`, so the sentence this comment carried until then
          * (*"nothing confirms one yet, so it is null on every row"*) is no longer true and is not kept.
          */

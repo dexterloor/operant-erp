@@ -15,7 +15,7 @@ use Firebase\JWT\JWT;
  * ---------------------------------------------------------------------------
  * Why minting stays in UserManagement (API-O-26, ruled 2026-09-14)
  * ---------------------------------------------------------------------------
- * `ARCHITECTURE.md` §4 gives UserManagement "JWT minting/refresh" and Platform
+ * `ARCHITECTURE.md` §4 gives UserManagement "JWT minting" (no refresh, D-14) and Platform
  * "JWT verification". Verifying moved to `Platform\Security\AccessTokenVerifier`;
  * minting did not follow it, because every module — `Ai` included — may import
  * `PlatformSecurity`, and a Platform class that signs would put a token within

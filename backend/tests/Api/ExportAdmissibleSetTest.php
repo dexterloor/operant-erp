@@ -33,6 +33,14 @@ final class ExportAdmissibleSetTest extends ApiTestCase
         'ListRoleGrantProposals' => 'privilege history gated on role.assign (§5.2.3), Departure 2; SEC to confirm or strike',
     ];
 
+    /**
+     * Ruled out, not pending: lists whose own `SECURITY_MODEL.md` exception names exporting as a violation. Named, so the
+     * exclusion is visible, and held live by the same test as {@see self::PENDING_SEC}.
+     */
+    public const NEVER_EXPORTED = [
+        'ListPickQueueEntries' => 'PC-9\'s fifth exception (BK-21): sales_order columns under fulfilment.create, and exporting this set violates it',
+    ];
+
     #[Test]
     public function theExportableListsAreExactlyTheDerivedSet(): void
     {
@@ -55,7 +63,7 @@ final class ExportAdmissibleSetTest extends ApiTestCase
     public function eachExclusionHoldsOverABuiltListTheRulesWouldAdmit(): void
     {
         $registry = TransactionBoundaryTest::contractOperations();
-        foreach (array_keys(self::PENDING_SEC) as $name) {
+        foreach ([...array_keys(self::PENDING_SEC), ...array_keys(self::NEVER_EXPORTED)] as $name) {
             self::assertArrayHasKey($name, $registry, $name.' is excluded but not built: the exclusion holds over nothing.');
             self::assertTrue(self::passesRulesOneToThree($registry[$name]), $name.' is excluded by name but rules (1)-(3) already exclude it; the name is not the reason.');
         }
@@ -86,7 +94,7 @@ final class ExportAdmissibleSetTest extends ApiTestCase
     {
         $derived = [];
         foreach ($registry as $name => $operation) {
-            if (self::passesRulesOneToThree($operation) && !\array_key_exists($name, self::PENDING_SEC)) {
+            if (self::passesRulesOneToThree($operation) && !\array_key_exists($name, self::PENDING_SEC) && !\array_key_exists($name, self::NEVER_EXPORTED)) {
                 $derived[] = $name;
             }
         }

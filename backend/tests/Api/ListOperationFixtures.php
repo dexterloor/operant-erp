@@ -188,6 +188,27 @@ trait ListOperationFixtures
                         'views' => ['', 'sales_order_id='.$order]];
                 }];
             },
+            'ListPickQueueEntries' => function (): array {
+                $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Pick Queue');
+                $customer = $this->seedCustomer(self::TENANT_A, 'Pick Queue Customer');
+
+                return ['/pick-queue', function (int $rows) use ($warehouse, $customer): array {
+                    // BK-21: confirmed orders in ONE warehouse, as the owner, each with an EXPLICIT, distinct `ordered_at`
+                    // -- `seedSalesOrder()` defaults it to NULL, and the queue's row predicate hides a NULL-dated row
+                    // (bk21-design.md R3). Numbered `SO-88xxxx` so they cannot collide with an order a success recipe
+                    // raised through the API. A draft beside them must never appear.
+                    $this->seedSalesOrder(self::TENANT_A, 'SO-889999', $customer, $warehouse);
+                    for ($i = 1; $i <= $rows; ++$i) {
+                        $this->seedSalesOrder(self::TENANT_A, \sprintf('SO-88%04d', $i), $customer, $warehouse,
+                            SalesOrder::STATUS_CONFIRMED, \sprintf('2026-01-%02dT00:00:00+00:00', $i));
+                    }
+
+                    // `warehouse_id` is the only filter; TB-5 names `order_number`; no `sort` (one order), so the two
+                    // views are the whole queue and one warehouse's.
+                    return ['filter' => ['warehouse_id' => $warehouse], 'search' => 'SO-88',
+                        'views' => ['', 'warehouse_id='.$warehouse]];
+                }];
+            },
             'ListSalesReturns' => function (): array {
                 $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH Returns');
                 $order = $this->seedSalesOrder(self::TENANT_A, 'SO-153000', null, $warehouse,

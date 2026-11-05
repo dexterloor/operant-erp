@@ -854,6 +854,15 @@
                 "kind": "all_of"
             }
         },
+        "ListPickQueueEntries": {
+            "idempotency_key_required": false,
+            "permission": {
+                "codes": [
+                    "fulfilment.create"
+                ],
+                "kind": "all_of"
+            }
+        },
         "ListPurchaseOrderLines": {
             "idempotency_key_required": false,
             "permission": {

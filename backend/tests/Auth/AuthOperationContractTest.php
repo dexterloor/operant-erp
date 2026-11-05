@@ -152,6 +152,8 @@ final class AuthOperationContractTest extends ApiTestCase
             array_keys(\App\Tests\Api\StockLevelReadTest::PINNED_STOCK_LEVEL_OPERATIONS),
             // Stock reads C2: the `/stock-movements` path family.
             array_keys(\App\Tests\Api\StockMovementReadTest::PINNED_STOCK_MOVEMENT_OPERATIONS),
+            // BK-21: the `/pick-queue` path family (`ListPickQueueEntries`).
+            array_keys(\App\Tests\Api\PickQueueReadTest::PINNED_PICK_QUEUE_OPERATIONS),
             // Audit reads C1: the `/audit-log` path family (`ListAuditRecords` joined it at C2).
             array_keys(\App\Tests\Api\AuditLogReadTest::PINNED_AUDIT_OPERATIONS),
             // Remaining-ops G7a: the `/settings` path family (`UpdateSettings` joins it at G7b).

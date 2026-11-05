@@ -402,6 +402,14 @@ trait OperationSuccessRecipes
 
                 return [200, 'create, confirm, fulfil, then list the fulfilments'];
             }],
+            // BK-21: the pick queue, read after an order the API raised, confirmed and part-fulfilled, so the row every
+            // reference walker sees is a real `partially_fulfilled` one with a date `confirm()` wrote.
+            'ListPickQueueEntries' => [fn (): array => $stockedSalesWorkspace('SO-861000'), function (array $c) use ($raiseConfirmAndFulfil): array {
+                $raiseConfirmAndFulfil($c);
+                $this->send('GET', '/pick-queue');
+
+                return [200, 'create, confirm, part-fulfil, then list the pick queue'];
+            }],
             // Sales step 6, C3: an invoice issued THROUGH THE API on a shipment the API wrote, so the row every
             // reference, scale and audit walker sees is a real one (`total_amount` is numeric(19,4) — WireScaleTest
             // must observe it, and `IssueInvoice` writes `invoice.issued`, which AuditWriterTest classifies).
