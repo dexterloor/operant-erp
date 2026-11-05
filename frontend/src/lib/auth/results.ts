@@ -7,9 +7,9 @@
 // (ux-copy-frontend.md §1.4, the one named exception).
 
 // Unreachable, ServerError and RateLimited now live once in `lib/results.ts` (B-4 step 1, Revision 2 C-3); they are
-// re-exported here so every B-3a import is unchanged.
-import type { RateLimited, ServerError, Unreachable } from '../results';
-export type { RateLimited, ServerError, Unreachable } from '../results';
+// re-exported here so every B-3a import is unchanged. `FieldErrors` moved there too (Revision 7 A-19 item 4), the same way.
+import type { FieldErrors, RateLimited, ServerError, Unreachable } from '../results';
+export type { FieldErrors, RateLimited, ServerError, Unreachable } from '../results';
 
 /**
  * The web app's server refused the request before sending it to the API (its origin, size, time or shape checks), so
@@ -19,9 +19,6 @@ export type { RateLimited, ServerError, Unreachable } from '../results';
 export interface NotSent {
   kind: 'not-sent';
 }
-
-/** Field pointer → the server's sentence for it. */
-export type FieldErrors<F extends string> = Partial<Record<F, string>>;
 
 /** `POST /auth/password-resets` `{workspace, email}`. */
 export type RequestResetResult =

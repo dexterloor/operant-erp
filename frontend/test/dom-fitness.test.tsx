@@ -8,6 +8,7 @@ import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
+import { TextField } from '@/components/ui/TextField';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
 import type { User } from '@/lib/api/users';
@@ -92,6 +93,8 @@ function Primitives() {
       <Checkbox label="Unavailable" checked={false} onCheckedChange={() => {}} unavailable describedBy="why" />
       <p id="why">Only an owner can give this role.</p>
       <Chip tone="info">Built-in</Chip>
+      {/* Revision 7 step 3: the in-app form field, with an error showing (no region, no [disabled]). */}
+      <TextField id="p-code" label="Code" hint="Short and unique." error="That code is taken." />
       <DateTime value="2026-10-22T06:05:00Z" form="date" timeZone="UTC" />
       <Button unavailableReason="Select fewer.">Archive</Button>
       <Button onClick={() => setOpen(true)}>Open dialog</Button>

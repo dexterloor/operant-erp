@@ -41,4 +41,20 @@ export interface Refused {
   kind: 'refused';
   rule: string;
   message: string;
+  /**
+   * Set only on a 422 (Revision 7 A-19 item 3): every entry of the problem's `errors[]`, in order, keeping only entries
+   * whose `pointer`, `code` and `message` are all strings, each projected to exactly those three (a served extra member
+   * is never carried). `rule` and `message` above stay the first served entry's, as before. A 409 carries none.
+   */
+  violations?: readonly Violation[];
 }
+
+/** One entry of a 422 problem's `errors[]`, projected (A-19 item 3). `message` is the server's sentence, verbatim. */
+export interface Violation {
+  readonly pointer: string;
+  readonly code: string;
+  readonly message: string;
+}
+
+/** Field name → the server's sentence for it (moved here from `lib/auth/results.ts` by Revision 7 A-19 item 4). */
+export type FieldErrors<F extends string> = Partial<Record<F, string>>;

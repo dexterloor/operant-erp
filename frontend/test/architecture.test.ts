@@ -171,6 +171,8 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/permissions',
   'src/lib/bulk',
   'src/lib/people',
+  // Revision 7 step 3 (§5 ledger, LITERAL_SCAN_DIRS row): the forms helpers.
+  'src/lib/forms',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -254,21 +256,26 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   'src/copy': 8,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
-  'src/lib': 54,
+  // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
+  'src/lib': 55,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
-  'src/components': 52,
+  // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
+  'src/components': 53,
   'src/lib/api': 5,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
+  // Revision 7 step 3 (A-19 item 4): the forms helpers.
+  'src/lib/forms': 1,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
   'src/components/bulk': 6,
   'src/components/people': 4,
-  'src/components/ui': 11,
+  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
+  'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
   // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
   'src/generated': 2,
