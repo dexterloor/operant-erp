@@ -598,3 +598,50 @@ describe('DOM fitness — the warehouse page and its form (Revision 7 step 4.1)'
     });
   }
 });
+
+// Revision 7 step 4.4 (A-17 M-2, A-19 "Guards and tests affected"): the real Locations section and the code-only Edit
+// location dialog join the rendered surfaces. Two regions — the page's (row-action messages) and the section's (its own
+// switches) — both empty at first render and the same nodes through an edit refusal, a save, a switch and a restore.
+describe('DOM fitness — the Locations section and Edit location (Revision 7 step 4.4)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; two regions, empty at first render, the same nodes through edit, refusal, save, switch and restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const A1 = { id: '11111111-1111-4111-8111-111111111111', code: 'A1', kind: 'bin', archived_at: null };
+      const B1 = { id: '44444444-4444-4444-8444-444444444444', code: 'B1', kind: 'shelf', archived_at: '2026-04-01T09:00:00Z' };
+      const coll = (items: unknown[]) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'storage_location.code_is_unique_per_warehouse', message: 'Another location in this warehouse already uses this code.' }, 'application/problem+json'),
+        reply(200, { ...A1, code: 'A1x' }),
+        reply(200, coll([{ ...A1, code: 'A1x' }])),
+        reply(200, coll([B1])),
+        reply(200, { ...B1, archived_at: null }),
+        reply(200, coll([])),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true }} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Edit A1' })),
+        () => user.type(screen.getByRole('textbox', { name: 'Code' }), 'x'),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Archived' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore location B1' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByText('No archived locations in this warehouse.')).toBeInTheDocument());
+      expect(tracker.count).toBe(2);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});

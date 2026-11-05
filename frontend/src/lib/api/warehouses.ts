@@ -1,8 +1,8 @@
 // Hand-mirrored from `backend/src/Modules/Warehouses/ApiResource/WarehouseResource.php` (served schemas `Warehouse` and
 // `Warehouse.UpdateWarehouseInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`): a member the server adds or drops fails there before a form can send the wrong
-// set. This file imports nothing (A-18). Wire field names stay snake_case, as served. The location shapes and their
-// inputs join with the commits that wire their operations (§2 steps 4.4–4.5).
+// set. This file imports nothing (A-18). Wire field names stay snake_case, as served. The location shape and its update
+// input join at §2 step 4.4 (`StorageLocationResource.php`); the create input joins with Add location (step 4.5).
 
 /** `GetWarehouse` / `ListWarehouses` item / `UpdateWarehouse`'s 200 body. Exactly these five (G-36: nothing else is served). */
 export interface Warehouse {
@@ -32,4 +32,26 @@ export interface CreateWarehouseInput {
   code?: string;
   name?: string;
   country_code?: string;
+}
+
+/**
+ * `ListStorageLocations` item / `UpdateStorageLocation` and `RestoreStorageLocation`'s 200 body (served schema
+ * `StorageLocation`, §2 step 4.4). `kind` is held as a string: the screen renders it through `KIND_LABELS` (A-21) and
+ * never decides anything from it.
+ */
+export interface StorageLocation {
+  id: string;
+  code: string;
+  kind: string;
+  archived_at: string | null;
+}
+
+/**
+ * `UpdateStorageLocation`'s merge-patch body (served schema `StorageLocation.UpdateStorageLocationInput.jsonMergePatch`).
+ * Both members are optional. Until §2 step 4.5 the web app sends `code` alone (R3-7: a code-only edit cannot reach the
+ * quarantine release); the `kind` member is mirrored so C-1 keeps this shape honest.
+ */
+export interface UpdateStorageLocationInput {
+  code?: string;
+  kind?: string;
 }

@@ -12,13 +12,16 @@
   "ListPermissions",
   "ListRoleGrantProposals",
   "ListRoles",
+  "ListStorageLocations",
   "ListUsers",
   "ListWarehouses",
   "RejectRoleGrantProposal",
   "RestoreRole",
+  "RestoreStorageLocation",
   "RestoreUser",
   "RestoreWarehouse",
   "RevokeRole",
   "UpdateRole",
+  "UpdateStorageLocation",
   "UpdateWarehouse"
 ]

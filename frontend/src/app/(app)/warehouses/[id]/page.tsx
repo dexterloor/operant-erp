@@ -5,7 +5,7 @@ import { WAREHOUSE_PAGE, WAREHOUSES_LIST } from '@/copy/warehouses';
 import { isRecordId } from '@/lib/bff/paths';
 import { serverRead } from '@/lib/bff/server/reads';
 import { viewerMay } from '@/lib/bff/surface';
-import { loadWarehouse } from '@/lib/warehouses/load';
+import { loadLocations, loadWarehouse } from '@/lib/warehouses/load';
 import { currentViewer, sessionEndedPath } from '../../currentViewer';
 import { WarehousesDenied } from '../WarehouseStates';
 import { WarehousePage } from './WarehousePage';
@@ -14,7 +14,8 @@ import { WarehousePage } from './WarehousePage';
 // transport, once per request (shared with the title). `canEdit` = UpdateWarehouse's codes; `canRestore` =
 // RestoreWarehouse's (§2 step 4.2). 401 → the session-ended
 // notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws to the error page.
-// No Locations section or Delete yet (§2 steps 4.4, 4.6).
+// The Locations section (§2 step 4.4) is read and rendered only for a viewer holding ListStorageLocations' codes (A-20):
+// for anyone else it is absent and not fetched. No Add location or Delete yet (§2 steps 4.5, 4.6).
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -42,5 +43,13 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'forbidden') return <WarehousesDenied />;
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The warehouse could not be read.');
-  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', viewer.permissionCodes)} canRestore={viewerMay('RestoreWarehouse', viewer.permissionCodes)} />;
+  const codes = viewer.permissionCodes;
+  let locations = null;
+  if (viewerMay('ListStorageLocations', codes)) {
+    const { session } = await currentViewer(sessionEndedPath(`/warehouses/${encodeURIComponent(id)}`));
+    const initial = await loadLocations(serverRead(session), id, false);
+    if (initial.kind === 'session-ended') redirect(sessionEndedPath(`/warehouses/${encodeURIComponent(id)}`));
+    locations = { initial, canEdit: viewerMay('UpdateStorageLocation', codes), canRestore: viewerMay('RestoreStorageLocation', codes) };
+  }
+  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', codes)} canRestore={viewerMay('RestoreWarehouse', codes)} locations={locations} />;
 }

@@ -1,7 +1,8 @@
 // Every warehouse screen sentence (Revision 7 A-18), from `docs/design/warehouses-ux-copy.md` Part B + Revision 1 (as
 // attacked by `warehouses-ux-copy-red.md`); each entry names its row. Server refusals are never stored here: they render
 // as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): the app has
-// Restore warehouse (§2 step 4.2) and Create (§2 step 4.3) but no Delete or Locations yet, so no sentence here offers those.
+// Restore warehouse (§2 step 4.2), Create (§2 step 4.3) and the Locations section with a code-only Edit and Restore
+// location (§2 step 4.4), but no Add location (step 4.5) and no Delete (step 4.6), so no sentence here offers those.
 
 /** B-1 (live list), B-2 (Archived view). */
 export const WAREHOUSES_LIST = {
@@ -93,4 +94,94 @@ export const NEW_WAREHOUSE = {
   after: (code: string) => `${code} was created.`,
   /** Interrupted (NEW): not "press Create to try again" — the create does not replay on its key. */
   interrupted: (code: string) => `We can't tell whether ${code} was created. Check the list of warehouses before you try again.`,
+} as const;
+
+/** A-21: one kind's words. `optionHelp`, `editHint` and `sectionNote` render from §2 step 4.5 / when UX decides (R3-7, R3-9). */
+export interface KindCopy {
+  label: string;
+  optionHelp?: string;
+  editHint?: string;
+  sectionNote?: string;
+}
+
+/**
+ * B-5 kind labels, keyed by the served value (`LocationKinds::ALL`). A served value with no entry renders as sent. The
+ * keys are held equal to the kinds' list by `test/warehouses/kinds.test.ts` (A-21). Kind-dependent copy is chosen through
+ * an entry, never by comparing a kind value in code. The quarantine entry carries B-5's option help, B-6's Edit hint and
+ * B-5's under-table note; until §2 step 4.5 the Edit dialog never shows the hint (R3-9), and the under-table note is not
+ * rendered (R3-7 "Silent": not decided).
+ */
+export const KIND_LABELS: Readonly<Record<string, KindCopy>> = {
+  bin: { label: 'Bin' },
+  shelf: { label: 'Shelf' },
+  zone: { label: 'Zone' },
+  staging: { label: 'Staging' },
+  quarantine: {
+    label: 'Quarantine',
+    optionHelp: "Stock here is on hold: it's never picked for a shipment.",
+    editHint: 'If this location holds stock, only an owner can take it out of quarantine.',
+    sectionNote: "Stock in a quarantine location is on hold: it's never picked for a shipment.",
+  },
+};
+
+/** The label for a served kind (B-5: a value with no entry renders as sent). */
+export const kindLabel = (kind: string): string => KIND_LABELS[kind]?.label ?? kind;
+
+/** B-5: the Locations section on the warehouse page (§2 step 4.4). No Add location until step 4.5. */
+export const LOCATIONS_SECTION = {
+  /** h2 (NEW) · Archived view heading (NEW). */
+  heading: (archived: boolean) => (archived ? 'Archived locations' : 'Locations'),
+  /** Section control (RULED, ST-9b) · Back to… (RULED). */
+  archived: 'Archived',
+  backToList: 'Back to locations',
+  /** Columns (NEW). */
+  code: 'Code',
+  kind: 'Kind',
+  /** The row-action column's header (NEW, placeholder: UX TO CONFIRM; a header cell is never empty). */
+  actions: 'Actions',
+  /** Row actions: Edit (`storage_location.edit`, NEW) · Archived view: Restore location (RULED). */
+  edit: 'Edit',
+  /** Empty (live), RULED heading; its **Add location** action enters at step 4.5 (interim: heading alone, UX TO CONFIRM). */
+  noneLive: 'No locations in this warehouse yet.',
+  /** Empty (Archived), RULED. */
+  noneArchived: 'No archived locations in this warehouse.',
+  /** Section load failed (NEW). */
+  loadFailed: "The locations couldn't be loaded.",
+  /** Settled announcement (NEW; FE-LEAD: the section announces only on its own switch, A-17 item 10). */
+  shown: (n: number, q: string, archived: boolean): string => {
+    void q; // the section has no search (B-5)
+    return [n === 1 ? '1 location shown.' : `${n} locations shown.`, archived ? 'Archived.' : null].filter(Boolean).join(' ');
+  },
+  /** ST-4b sized for the section, for a 403 on its read (A-20 L-7). NEW, placeholder: UX TO CONFIRM. */
+  denied: "You don't have access to this warehouse's locations.",
+  /** ST-9b: the archived warehouse's section, live view (RULED). */
+  archivedParentLive: "These locations can't be used while the warehouse is archived. They'll be back in use as soon as it's restored.",
+  /** ST-9b: the archived warehouse's section, Archived view (RULED). */
+  archivedParentArchived: 'These can be restored once the warehouse is restored.',
+} as const;
+
+/** B-5 Edit location (dialog), code only until step 4.5: Kind shown as a label, no quarantine hint (R3-7). */
+export const EDIT_LOCATION = {
+  /** Title (NEW). */
+  title: (code: string) => `Edit location ${code}`,
+  code: 'Code',
+  /** Code hint, G-43 half (ii) (NEW, recommended; PO TO CONFIRM). */
+  codeHint: 'A new code also changes it everywhere this location is already named, including receipts, shipments, returns and its stock history.',
+  kind: 'Kind',
+  save: 'Save',
+  cancel: 'Cancel',
+  saveNothing: 'Nothing to save.',
+  /** After (NEW). */
+  saved: (code: string) => `${code} was saved.`,
+  /** Interrupted (NEW): closing the dialog re-reads the section (L-8). */
+  interrupted: (code: string) => `We can't tell whether your changes to ${code} were saved. Close this and check the location before you try again.`,
+} as const;
+
+/** ST-9b Restore location (RULED action and after; interrupted sentence NEW on RESTORE_WAREHOUSE's shape, UX TO CONFIRM). */
+export const RESTORE_LOCATION = {
+  action: 'Restore location',
+  after: (code: string) => `${code} was restored.`,
+  interrupted: (code: string) => `We can't tell whether ${code} was restored. If it's still listed here, press Restore location to try again.`,
+  /** On every other row's Restore location while one restore is in flight (NEW, placeholder: UX TO CONFIRM; RED L-6). */
+  busyOther: 'Another location is being restored. Wait for it to finish.',
 } as const;

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 // RED r7-step41 M-2 (ST-4c): the warehouse page offers its editor only to an `UpdateWarehouse` holder. The page tests
 // inject `canEdit`; this one reads it off the server page, with the viewer's codes as the only input.
 
-const v = vi.hoisted(() => ({ codes: [] as string[] }));
+const v = vi.hoisted(() => ({ codes: [] as string[], locationReads: 0 }));
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
   currentViewer: async () => ({ session: { sid: 's' }, viewer: { id: 'v', permissionCodes: v.codes } }),
@@ -19,7 +19,14 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/bff/server/reads', () => ({ serverRead: () => 'read' }));
 const MAIN = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: '2026-03-04T10:00:00Z' };
-vi.mock('@/lib/warehouses/load', () => ({ loadWarehouse: async () => ({ kind: 'ok', warehouse: MAIN }), loadWarehouses: async () => ({ kind: 'ok', warehouses: [], tenantHasRows: false }) }));
+vi.mock('@/lib/warehouses/load', () => ({
+  loadWarehouse: async () => ({ kind: 'ok', warehouse: MAIN }),
+  loadWarehouses: async () => ({ kind: 'ok', warehouses: [], tenantHasRows: false }),
+  loadLocations: async () => {
+    v.locationReads += 1;
+    return { kind: 'ok', locations: [] };
+  },
+}));
 
 const { default: Page } = await import('@/app/(app)/warehouses/[id]/page');
 const { WarehousesDenied } = await import('@/app/(app)/warehouses/WarehouseStates');
@@ -91,5 +98,45 @@ describe('/warehouses and /warehouses/new — the create gate is CreateWarehouse
     render(WarehouseCreateDenied());
     expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/access to new warehouses\./);
     expect(document.body.textContent).toContain('Create warehouses');
+  });
+});
+
+// Revision 7 A-20 (§2 step 4.4): the Locations section is read and rendered only for a ListStorageLocations holder;
+// each row action is gated on its own operation. One case per default-role shape, built from codes, never role names.
+describe('/warehouses/[id] — the Locations section and its actions are gated per operation (A-20, step 4.4)', () => {
+  type Locs = { canEdit: boolean; canRestore: boolean } | null;
+  const locs = (el: ReactElement) => (el.props as { locations: Locs }).locations;
+  const at = async (codes: string[]) => {
+    v.locationReads = 0;
+    const el = await render(codes);
+    return { locations: locs(el), reads: v.locationReads };
+  };
+
+  it('buyer shape (warehouse.view, no storage_location.view): no section and no ListStorageLocations read', async () => {
+    expect(await at(['warehouse.view', 'purchase_order.view'])).toEqual({ locations: null, reads: 0 });
+  });
+
+  it('viewer shape (storage_location.view only): the section, read once, with no Edit and no Restore location', async () => {
+    expect(await at(['warehouse.view', 'storage_location.view'])).toEqual({ locations: { initial: { kind: 'ok', locations: [] }, canEdit: false, canRestore: false }, reads: 1 });
+  });
+
+  it('warehouse_operator shape (storage_location.view + .edit): Edit, no Restore location', async () => {
+    const r = await at(['warehouse.view', 'warehouse.edit', 'storage_location.view', 'storage_location.edit']);
+    expect(r.reads).toBe(1);
+    expect(r.locations).toMatchObject({ canEdit: true, canRestore: false });
+  });
+
+  it('storage_location.delete holder: Restore location', async () => {
+    expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.delete'])).locations).toMatchObject({ canEdit: false, canRestore: true });
+  });
+
+  // RED M-2: each action on its own operation (F-13), told apart from the warehouse's own codes.
+  it('Edit follows storage_location.edit, not warehouse.edit (each action on its own operation)', async () => {
+    expect((await at(['warehouse.view', 'warehouse.edit', 'storage_location.view'])).locations).toMatchObject({ canEdit: false });
+    expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.edit'])).locations).toMatchObject({ canEdit: true });
+  });
+
+  it('Restore location follows storage_location.delete, not warehouse.delete', async () => {
+    expect((await at(['warehouse.view', 'warehouse.delete', 'storage_location.view'])).locations).toMatchObject({ canRestore: false });
   });
 });

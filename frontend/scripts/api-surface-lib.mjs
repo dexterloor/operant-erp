@@ -46,6 +46,8 @@ const MIRRORED = {
   Warehouse: ['Warehouse'],
   'Warehouse.CreateWarehouseInput': ['Warehouse.CreateWarehouseInput'],
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['Warehouse.UpdateWarehouseInput.jsonMergePatch'],
+  StorageLocation: ['StorageLocation'],
+  'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['StorageLocation.UpdateStorageLocationInput.jsonMergePatch'],
 };
 
 const BANNER =

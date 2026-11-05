@@ -153,6 +153,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListStorageLocations: {
+    method: 'GET',
+    template: '/api/v1/warehouses/{id}/locations',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.view'],
+    },
+  },
   ListUsers: {
     method: 'GET',
     template: '/api/v1/users',
@@ -193,6 +203,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.delete'],
     },
   },
+  RestoreStorageLocation: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}/restoration',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.delete'],
+    },
+  },
   RestoreUser: {
     method: 'POST',
     template: '/api/v1/users/{id}/restoration',
@@ -231,6 +251,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.edit'],
+    },
+  },
+  UpdateStorageLocation: {
+    method: 'PATCH',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.edit'],
     },
   },
   UpdateWarehouse: {
@@ -304,6 +334,8 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleGrantProposal: ['decided_at', 'decided_by', 'expires_at', 'id', 'is_expired', 'lapse_reason', 'permission_codes', 'proposed_at', 'proposed_by', 'reason', 'role', 'status', 'user'],
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
+  StorageLocation: ['archived_at', 'code', 'id', 'kind'],
+  'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],

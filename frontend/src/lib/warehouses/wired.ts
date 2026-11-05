@@ -3,8 +3,8 @@ import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
-import { isWarehouse, loadWarehouse } from './load';
-import { CREATE_WAREHOUSE_FIELDS, WAREHOUSE_FIELDS, type CreateWarehouseAction, type RestoreWarehouseAction, type SaveWarehouseAction } from './results';
+import { isStorageLocation, isWarehouse, loadWarehouse } from './load';
+import { CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREHOUSE_FIELDS, type CreateWarehouseAction, type RestoreLocationAction, type RestoreWarehouseAction, type SaveLocationAction, type SaveWarehouseAction } from './results';
 
 // The warehouse page's Save over the BFF (Revision 7 A-18, A-19). `UpdateWarehouse` is a merge patch with no
 // Idempotency-Key: a repeat of a committed save finds nothing to change, so it is safe to press again. One deadline
@@ -128,6 +128,64 @@ export function warehouseCreate(caller: ApiCaller, newKey: () => string = () => 
       }
       if (!isWarehouse(r.body)) return { kind: 'server-error' };
       return { kind: 'created', warehouse: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// The Locations section's two actions over the BFF (Revision 7 §2 step 4.4). Neither takes an Idempotency-Key: the
+// update is a merge patch (a repeat finds nothing to change) and the restore is guarded by `deleted_at` (a repeat is
+// refused L11), so pressing again is safe. Neither re-reads here: the section re-reads its own view through its list
+// controller after the dialog has closed or the row's message is spoken (FE-D1: close → focus → announce → refresh).
+// No refusal code is compared.
+export function locationSave(caller: ApiCaller, warehouseId: string): SaveLocationAction {
+  return async (locationId, change) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.locationSave);
+    try {
+      // The body is the code alone (R3-7): built here from the one field, never from a spread, so nothing else is sent.
+      const r = await caller.call('UpdateStorageLocation', { id: warehouseId, locationId }, { code: change.code }, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, LOCATION_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isStorageLocation(r.body) ? { kind: 'saved', location: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+export function locationRestore(caller: ApiCaller, warehouseId: string): RestoreLocationAction {
+  return async (locationId) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.locationRestore);
+    try {
+      const r = await caller.call('RestoreStorageLocation', { id: warehouseId, locationId }, undefined, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isStorageLocation(r.body) ? { kind: 'restored', location: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

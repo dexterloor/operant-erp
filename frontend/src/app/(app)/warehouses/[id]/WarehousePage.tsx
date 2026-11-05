@@ -13,12 +13,13 @@ import type { Warehouse } from '@/lib/api/warehouses';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
-import { loadWarehouse } from '@/lib/warehouses/load';
+import { loadWarehouse, type LocationsLoad } from '@/lib/warehouses/load';
 import { warehouseRestore, warehouseSave } from '@/lib/warehouses/wired';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useCommittedState } from '../../useCommittedState';
 import { WarehouseNotFound, WarehousesDenied } from '../WarehouseStates';
+import { LocationsSection } from './LocationsSection';
 import listStyles from '../../Lists.module.css';
 
 export interface WarehousePageProps {
@@ -28,6 +29,11 @@ export interface WarehousePageProps {
   canEdit: boolean;
   /** Holds RestoreWarehouse's codes (from the contract): ST-4c. Without it an archived warehouse shows its banner, no button. */
   canRestore: boolean;
+  /**
+   * The Locations section (§2 step 4.4): its first read and its action gates, or `null` when the viewer lacks
+   * ListStorageLocations' codes (A-20: absent and not fetched).
+   */
+  locations?: { initial: LocationsLoad; canEdit: boolean; canRestore: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -39,9 +45,11 @@ type Cause = 'unreachable' | 'server-error';
  * API refuses its update, W3), under the persistent ST-9b banner *"This warehouse was archived on {date}."* with **Restore warehouse** for a
  * `RestoreWarehouse` holder (§2 step 4.2, `WarehouseRestoreActions`): a restore sets the re-read warehouse here, so the
  * page turns live without a remount. After a save's or restore's message is on screen the router cache is refreshed once,
- * so Back to the list shows the saved code and name, or the warehouse in the live list.
+ * so Back to the list shows the saved code and name, or the warehouse in the live list. Under the fields, the Locations
+ * section (§2 step 4.4, `LocationsSection`) for a ListStorageLocations holder only; it is read-only while the warehouse is
+ * archived and turns live with it. Its row-action messages are spoken in this page's region.
  */
-export function WarehousePage({ initial, canEdit, canRestore }: WarehousePageProps) {
+export function WarehousePage({ initial, canEdit, canRestore, locations = null }: WarehousePageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -123,6 +131,11 @@ export function WarehousePage({ initial, canEdit, canRestore }: WarehousePagePro
           <dd>{warehouse.country_code}</dd>
         </dl>
       )}
+      {locations !== null ? (
+        <div className={styles.locations}>
+          <LocationsSection warehouseId={id} initial={locations.initial} warehouseArchived={archived} canEdit={locations.canEdit} canRestore={locations.canRestore} announce={region.announce} />
+        </div>
+      ) : null}
     </section>
   );
 }
