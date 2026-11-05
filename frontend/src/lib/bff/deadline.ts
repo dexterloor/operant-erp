@@ -25,6 +25,10 @@ export const ACTION_DEADLINES_MS = {
   locationSave: 30_000,
   /** Restore a location: the request alone (the section re-reads its view after). */
   locationRestore: 30_000,
+  /** Delete a warehouse: the request + the GetWarehouse re-read (the page turns archived, §2 step 4.6). */
+  warehouseDelete: 30_000,
+  /** Delete a location: the request alone (the section re-reads its view after the dialog closes). */
+  locationDelete: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

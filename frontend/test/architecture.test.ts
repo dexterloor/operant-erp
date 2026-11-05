@@ -138,6 +138,9 @@ interface Violation {
   detail: string;
 }
 
+/** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/warehouses/wired.ts'];
+
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
   const out: Violation[] = [];
@@ -152,6 +155,9 @@ function importViolations(files: readonly SourceFile[]): Violation[] {
       if (under(sf.file, 'src/lib') && (isFramework(t) || under(t, 'src/components'))) breach('lib/** never imports react, next or components');
       if (under(sf.file, 'src/lib') && under(t, 'src/copy')) breach('lib/** never imports copy/** (Revision 4 A-6)');
       if (under(sf.file, 'src') && under(t, 'test')) breach('src never imports test/**');
+      // A-18 S-1 (RED M-2 of step 4.6): the platform refusal rule is compared in one place, so only that file imports it.
+      // A comparison through the constant holds no literal, which REFUSAL_HOMES cannot see; this pin can.
+      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only lib/warehouses/wired.ts imports lib/api/problems (A-18 S-1)');
       if (under(t, 'src/components/preview/fixtures') && !under(sf.file, 'src/components/preview')) {
         breach('only components/preview (and tests) import the preview fixtures (RED L-1)');
       }
@@ -218,12 +224,43 @@ function inTopLevelDeclaration(node: ts.Node): boolean {
   return false;
 }
 
+/**
+ * The refusal homes (Revision 7 A-18 S-2, R3-4): the only files whose top-level declarations may hold code-shaped
+ * literals, each pinned to exactly the literals it holds (`exemptedLiterals` must equal its list). A new constant in a
+ * home is a deliberate edit here. `problems.ts` joined at §2 step 4.6 (its first consumer, Delete warehouse/location).
+ */
+const REFUSAL_HOMES: Record<string, readonly string[]> = {
+  'src/lib/api/roles.ts': [
+    'user_role.already_held',
+    'user_role.separation_of_duty',
+    'user_role.marker_needs_owner',
+    'user_role.exceeds_actor_permissions',
+    'user_role.actor_is_subject',
+    'user_role.subject_is_inactive',
+    'user_role.subject_is_deleted',
+    'role.is_not_archived',
+    'tenant_settings.edit',
+  ],
+  'src/lib/api/problems.ts': ['transaction.contention'],
+};
+
+/** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
+function exemptedLiterals(sf: SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && CODE_SHAPE.test(node.text) && inTopLevelDeclaration(node) && !inTypePosition(node)) out.push(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(sf));
+  return out;
+}
+
 /** Every string literal / template text in the scanned files that looks like a served code or a built-in role name. */
 function literalViolations(files: readonly SourceFile[], roleNames: readonly string[]): Violation[] {
   const out: Violation[] = [];
   for (const sf of files) {
     const inApi = under(sf.file, 'src/lib/api');
-    const isRefusalHome = sf.file === 'src/lib/api/roles.ts';
+    const isRefusalHome = Object.hasOwn(REFUSAL_HOMES, sf.file);
     const visit = (node: ts.Node) => {
       let text: string | null = null;
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) text = node.text;
@@ -262,7 +299,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
-  'src/lib': 59,
+  // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
+  'src/lib': 60,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -272,8 +310,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.4 added: components/warehouses/LocationForm.tsx.
   // Revision 7 step 4.5 added: components/warehouses/AddLocationForm.tsx (the Add location dialog) and KindField.tsx
   // (the Kind select both location dialogs use).
-  'src/components': 59,
-  'src/lib/api': 6,
+  // Revision 7 step 4.6 added: components/warehouses/DeleteDialog.tsx (Delete warehouse and Delete location, B-7).
+  'src/components': 60,
+  // Revision 7 step 4.6 added: lib/api/problems.ts.
+  'src/lib/api': 7,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -290,7 +330,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx. Step 4.3 added:
   // WarehouseCreateForm.tsx. Step 4.4 added: LocationForm.tsx (the code-only Edit location dialog). Step 4.5 added:
   // AddLocationForm.tsx and KindField.tsx.
-  'src/components/warehouses': 6,
+  'src/components/warehouses': 7,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -422,6 +462,36 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
       expect(first, sf.file).toContain("'__FIXTURE_ONLY__'");
       expect(first, sf.file).toMatch(/BUILT_IN_ROLE_NAMES:\s*[a-z_]+/);
     }
+  });
+
+  it('REFUSAL_HOMES: each home holds exactly its pinned literals (A-18 S-2), and every home exists', () => {
+    for (const [file, pinned] of Object.entries(REFUSAL_HOMES)) {
+      const sf = walk('src/lib/api').find((f) => f.file === file);
+      expect(sf, file).toBeDefined();
+      expect(exemptedLiterals(sf!), file).toEqual([...pinned]);
+    }
+  });
+
+  it('problems.ts import pin (RED M-2): wired.ts may import it; a component importing it is red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/warehouses/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/components/warehouses/x.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
+      { file: 'src/lib/warehouses/y.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems.ts';" },
+    ];
+    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts']);
+  });
+
+  it('REFUSAL_HOMES planted controls (§2 step 4.6): only a home\'s top-level declarations are exempt', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/api/problems.ts', source: "export const PLATFORM_REFUSAL = { contention: 'transaction.contention' } as const;\nexport function f() { return 'transaction.contention'; }" },
+      { file: 'src/components/warehouses/x.tsx', source: "export const c = 'transaction.contention';" },
+      { file: 'src/lib/api/warehouses.ts', source: "export const R = { held: 'warehouse.holds_stock' } as const;" },
+    ];
+    expect(literalViolations(planted, []).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/lib/api/problems.ts — literal 'transaction.contention'",
+      "src/components/warehouses/x.tsx — literal 'transaction.contention'",
+      "src/lib/api/warehouses.ts — literal 'warehouse.holds_stock'",
+    ]);
   });
 
   it('positive controls: code-shaped and role-name literals go red; only lib/api declarations and types are exempt', () => {

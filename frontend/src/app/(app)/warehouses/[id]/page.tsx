@@ -15,8 +15,8 @@ import { WarehousePage } from './WarehousePage';
 // RestoreWarehouse's (§2 step 4.2). 401 → the session-ended
 // notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws to the error page.
 // The Locations section (§2 step 4.4) is read and rendered only for a viewer holding ListStorageLocations' codes (A-20):
-// for anyone else it is absent and not fetched. Add location (§2 step 4.5) follows CreateStorageLocation's codes. No
-// Delete yet (§2 step 4.6).
+// for anyone else it is absent and not fetched. Add location (§2 step 4.5) follows CreateStorageLocation's codes. Delete
+// warehouse / Delete location (§2 step 4.6) follow DeleteWarehouse's / DeleteStorageLocation's codes.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -50,7 +50,7 @@ export default async function Page({ params }: Params) {
     const { session } = await currentViewer(sessionEndedPath(`/warehouses/${encodeURIComponent(id)}`));
     const initial = await loadLocations(serverRead(session), id, false);
     if (initial.kind === 'session-ended') redirect(sessionEndedPath(`/warehouses/${encodeURIComponent(id)}`));
-    locations = { initial, canEdit: viewerMay('UpdateStorageLocation', codes), canRestore: viewerMay('RestoreStorageLocation', codes), canCreate: viewerMay('CreateStorageLocation', codes) };
+    locations = { initial, canEdit: viewerMay('UpdateStorageLocation', codes), canRestore: viewerMay('RestoreStorageLocation', codes), canCreate: viewerMay('CreateStorageLocation', codes), canDelete: viewerMay('DeleteStorageLocation', codes) };
   }
-  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', codes)} canRestore={viewerMay('RestoreWarehouse', codes)} locations={locations} />;
+  return <WarehousePage initial={first.warehouse} canEdit={viewerMay('UpdateWarehouse', codes)} canRestore={viewerMay('RestoreWarehouse', codes)} canDelete={viewerMay('DeleteWarehouse', codes)} locations={locations} />;
 }

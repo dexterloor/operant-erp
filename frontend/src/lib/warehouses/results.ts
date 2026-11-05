@@ -109,3 +109,31 @@ export type RestoreLocationResult = { kind: 'restored'; location: StorageLocatio
 
 /** Restore location for one archived row. */
 export type RestoreLocationAction = (locationId: string) => Promise<RestoreLocationResult>;
+
+/**
+ * A refused Delete whose `rule` is `transaction.contention` (P1, A-18 S-1): its sentence tells the reader to try again, so
+ * the dialog shows it and keeps its Delete button (warehouses-ux-copy.md B-7 "Exception"). Mapped in `wired.ts` only.
+ */
+export interface Contention {
+  kind: 'contention';
+  message: string;
+}
+
+/**
+ * `DELETE /warehouses/{id}` (204, no body, no key). `deleted` resolves after the re-read warehouse (now archived) is
+ * committed, or, when that re-read failed, after the page was told (`onRereadFailed`). `refused` is any other 409
+ * (W6–W10), shown in the dialog as sent, which then offers Close only (ST-9b).
+ */
+export type DeleteWarehouseResult = { kind: 'deleted' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/** The live warehouse page's Delete warehouse. */
+export type DeleteWarehouseAction = () => Promise<DeleteWarehouseResult>;
+
+/**
+ * `DELETE /warehouses/{id}/locations/{locationId}` (204, no body, no key). `refused` is any other 409 (L6–L9), shown in
+ * the dialog as sent, which then offers Close only (ST-9b). The section re-reads its view after the dialog closes.
+ */
+export type DeleteLocationResult = { kind: 'deleted' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/** Delete for one live row. */
+export type DeleteLocationAction = (locationId: string) => Promise<DeleteLocationResult>;

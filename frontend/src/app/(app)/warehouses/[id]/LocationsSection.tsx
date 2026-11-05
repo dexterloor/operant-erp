@@ -6,18 +6,19 @@ import { ArchiveRestore } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { AddLocationForm } from '@/components/warehouses/AddLocationForm';
+import { DeleteDialog } from '@/components/warehouses/DeleteDialog';
 import { LocationForm } from '@/components/warehouses/LocationForm';
 import { COULD_NOT_REACH, NOT_RESTORED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
-import { ADD_LOCATION, EDIT_LOCATION, kindLabel, LOCATIONS_SECTION, RESTORE_LOCATION, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
+import { ADD_LOCATION, DELETE_LOCATION, EDIT_LOCATION, kindLabel, LOCATIONS_SECTION, RESTORE_LOCATION, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation } from '@/lib/api/warehouses';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type Read } from '@/lib/bff/reads';
 import { gateCode, wireEnum } from '@/lib/bff/surface';
 import { loadLocations, type LocationsLoad } from '@/lib/warehouses/load';
 import type { RestoreLocationResult } from '@/lib/warehouses/results';
-import { locationCreate, locationRestore, locationSave } from '@/lib/warehouses/wired';
+import { locationCreate, locationDelete, locationRestore, locationSave } from '@/lib/warehouses/wired';
 import { useApiCaller } from '../../BffProvider';
 import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type Column, type EmptyState, type HeaderView, type ListLoad } from '../../ArchivableList';
 
@@ -55,6 +56,8 @@ export interface LocationsSectionProps {
   canRestore: boolean;
   /** Holds `CreateStorageLocation`'s codes: Add location in the header and the live empty state (§2 step 4.5). */
   canCreate: boolean;
+  /** Holds `DeleteStorageLocation`'s codes: **Delete** on a live row of a live warehouse (§2 step 4.6). */
+  canDelete?: boolean;
   /** Writes the page's status region (row-action messages; the section's own region speaks only its switches). */
   announce: (text: string) => void;
 }
@@ -71,20 +74,24 @@ interface Notice {
  * sent; nothing is decided from a kind). Live rows offer **Edit** (code only); Archived rows offer **Restore location**;
  * an archived warehouse's section offers neither and carries ST-9b's note. **Add location** (§2 step 4.5) is in the live
  * view's header and its empty state, for a `CreateStorageLocation` holder on a live warehouse only. After a dialog or a
- * row action: close → focus → announce → re-read the view (FE-D1). No Delete yet (step 4.6).
+ * row action: close → focus → announce → re-read the view (FE-D1). **Delete** (§2 step 4.6) is a live row's action
+ * for a `DeleteStorageLocation` holder on a live warehouse; after it the row is in the Archived view, where Restore
+ * location brings it back.
  */
-export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, announce }: LocationsSectionProps) {
+export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, canDelete = false, announce }: LocationsSectionProps) {
   const caller = useApiCaller();
   const list = useRef<ArchivableListHandle>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeHeading = useRef<HTMLParagraphElement>(null);
   const [editing, setEditing] = useState<StorageLocation | null>(null);
   const [adding, setAdding] = useState(false);
+  const [deleting, setDeleting] = useState<StorageLocation | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const save = useMemo(() => locationSave(caller, warehouseId), [caller, warehouseId]);
   const restore = useMemo(() => locationRestore(caller, warehouseId), [caller, warehouseId]);
   const create = useMemo(() => locationCreate(caller, warehouseId), [caller, warehouseId]);
+  const remove = useMemo(() => locationDelete(caller, warehouseId), [caller, warehouseId]);
   const mayAdd = canCreate && !warehouseArchived;
   const load = useCallback(async (read: Read, archived: boolean, signal: AbortSignal) => asLocationList(await loadLocations(read, warehouseId, archived, signal)), [warehouseId]);
 
@@ -176,6 +183,19 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
     if (reread) await list.current?.reread();
   };
 
+  const closeDelete = async (l: StorageLocation, { deleted, reread }: { deleted: boolean; reread: boolean }) => {
+    // FE-D1: commit the close. On a 204 the row (and its Delete button) leaves the live view, so focus the section
+    // heading, speak B-7's "After", then re-read. Any other close after an answer re-reads too (the delete may have
+    // committed, or the row was archived elsewhere: L7), with focus returned to the opener by the dialog.
+    flushSync(() => setDeleting(null));
+    if (deleted) {
+      setNotice(null);
+      heading.current?.focus();
+      announce(DELETE_LOCATION.after(l.code));
+    }
+    if (reread) await list.current?.reread();
+  };
+
   const addButton = (size?: 'sm') => (
     <Button size={size} onClick={() => setAdding(true)}>
       {LOCATIONS_SECTION.addLocation}
@@ -208,15 +228,24 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
       { header: LOCATIONS_SECTION.kind, cell: (l) => kindLabel(l.kind) },
     ];
     if (warehouseArchived) return base;
-    if (!archived && canEdit) {
+    if (!archived && (canEdit || canDelete)) {
       return [
         ...base,
         {
           header: LOCATIONS_SECTION.actions,
           cell: (l) => (
-            <Button size="sm" aria-label={`${LOCATIONS_SECTION.edit} ${l.code}`} onClick={() => setEditing(l)}>
-              {LOCATIONS_SECTION.edit}
-            </Button>
+            <>
+              {canEdit ? (
+                <Button size="sm" aria-label={`${LOCATIONS_SECTION.edit} ${l.code}`} onClick={() => setEditing(l)}>
+                  {LOCATIONS_SECTION.edit}
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button size="sm" variant="destructive" aria-label={`${DELETE_LOCATION.action} ${l.code}`} onClick={() => setDeleting(l)}>
+                  {DELETE_LOCATION.action}
+                </Button>
+              ) : null}
+            </>
           ),
         },
       ];
@@ -265,6 +294,16 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
         denied={<p>{LOCATIONS_SECTION.denied}</p>}
       />
       {adding && mayAdd ? <AddLocationForm warehouseCode={warehouseCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateStorageLocation')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} /> : null}
+      {deleting !== null && canDelete && !warehouseArchived ? (
+        <DeleteDialog
+          key={deleting.id}
+          copy={{ title: DELETE_LOCATION.title(deleting.code), body: DELETE_LOCATION.body, confirm: DELETE_LOCATION.confirm, cancel: DELETE_LOCATION.cancel, close: DELETE_LOCATION.close, interrupted: DELETE_LOCATION.interrupted(deleting.code) }}
+          run={() => remove(deleting.id)}
+          deleteCode={gateCode('DeleteStorageLocation')}
+          onClose={(o) => void closeDelete(deleting, o)}
+          fallbackFocusRef={heading}
+        />
+      ) : null}
       {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} /> : null}
     </>
   );

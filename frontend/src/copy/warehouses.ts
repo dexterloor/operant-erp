@@ -2,7 +2,7 @@
 // attacked by `warehouses-ux-copy-red.md`); each entry names its row. Server refusals are never stored here: they render
 // as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): the app has
 // Restore warehouse (§2 step 4.2), Create (§2 step 4.3), the Locations section with Edit and Restore location (§2 step
-// 4.4) and Add location with the Kind select (§2 step 4.5), but no Delete (step 4.6), so no sentence here offers one.
+// 4.4), Add location with the Kind select (§2 step 4.5), and Delete warehouse / Delete location (§2 step 4.6).
 
 /** B-1 (live list), B-2 (Archived view). */
 export const WAREHOUSES_LIST = {
@@ -73,6 +73,31 @@ export const RESTORE_WAREHOUSE = {
   action: 'Restore warehouse',
   after: (code: string) => `${code} was restored.`,
   interrupted: (code: string) => `We can't tell whether ${code} was restored. Press Restore warehouse to try again.`,
+} as const;
+
+/** B-7 Delete warehouse (RULED, U-7 / ST-9b): the page action, its dialog, and what it says after. Heading `NOT_DELETED`. */
+export const DELETE_WAREHOUSE = {
+  action: 'Delete warehouse',
+  title: (code: string, name: string) => `Delete ${code} — ${name}?`,
+  body: "It moves to the archived warehouses. Its locations can't be used, and returns of goods shipped from it can't be recorded, until it's restored. Orders, receipts and shipments that already name it keep showing it.",
+  confirm: 'Delete warehouse',
+  cancel: 'Cancel',
+  /** ST-9b: after a refusal other than P1 the Delete button is removed and only this remains. */
+  close: 'Close',
+  after: (code: string) => `${code} was deleted. It's now in the archived warehouses.`,
+  interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete warehouse to try again.`,
+} as const;
+
+/** B-7 Delete location (RULED, U-7 / ST-9b): the row action, its dialog, and what it says after. Heading `NOT_DELETED`. */
+export const DELETE_LOCATION = {
+  action: 'Delete',
+  title: (code: string) => `Delete location ${code}?`,
+  body: "It moves to this warehouse's archived locations and can't be used for receiving, shipping, counting or moving stock until it's restored. Movements and documents that already name it keep showing it.",
+  confirm: 'Delete location',
+  cancel: 'Cancel',
+  close: 'Close',
+  after: (code: string) => `${code} was deleted. It's now in this warehouse's archived locations.`,
+  interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete location to try again.`,
 } as const;
 
 /** B-8: lost permission mid-action (R1-5's form, RULED). The label is read from `permissionLabels.ts` by code (L-9). */

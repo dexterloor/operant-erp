@@ -1,10 +1,11 @@
+import { PLATFORM_REFUSAL } from '../api/problems';
 import type { Warehouse } from '../api/warehouses';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { isStorageLocation, isWarehouse, loadWarehouse } from './load';
-import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREHOUSE_FIELDS, type CreateLocationAction, type CreateWarehouseAction, type LocationChange, type RestoreLocationAction, type RestoreWarehouseAction, type SaveLocationAction, type SaveWarehouseAction } from './results';
+import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREHOUSE_FIELDS, type CreateLocationAction, type CreateWarehouseAction, type DeleteLocationAction, type DeleteLocationResult, type DeleteWarehouseAction, type DeleteWarehouseResult, type LocationChange, type RestoreLocationAction, type RestoreWarehouseAction, type SaveLocationAction, type SaveWarehouseAction } from './results';
 
 // The warehouse page's Save over the BFF (Revision 7 A-18, A-19). `UpdateWarehouse` is a merge patch with no
 // Idempotency-Key: a repeat of a committed save finds nothing to change, so it is safe to press again. One deadline
@@ -221,6 +222,61 @@ export function locationRestore(caller: ApiCaller, warehouseId: string): Restore
         }
       }
       return isStorageLocation(r.body) ? { kind: 'restored', location: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Delete warehouse / Delete location over the BFF (Revision 7 §2 step 4.6). Both are `DELETE` with no body; the contract
+// declares no Idempotency-Key on either, so none is sent (a repeat after a committed delete is refused W6 / L7, which is
+// true). The ONE refusal rule compared anywhere on the warehouse screens is here: `PLATFORM_REFUSAL.contention` becomes
+// `{ kind: 'contention' }`, so the dialog keeps its Delete button (B-7 "Exception"); every other refusal is returned as
+// sent and the dialog offers Close only (ST-9b). The dialog branches on `kind`, never on a code.
+function deleteFailure(r: Exclude<Awaited<ReturnType<ApiCaller['call']>>, { kind: 'ok' }>): Exclude<DeleteWarehouseResult & DeleteLocationResult, { kind: 'deleted' }> {
+  switch (r.kind) {
+    case 'refused':
+      return r.rule === PLATFORM_REFUSAL.contention ? { kind: 'contention', message: r.message } : r;
+    case 'not-found':
+    case 'forbidden':
+    case 'session-ended':
+    case 'unreachable':
+    case 'server-error':
+      return r;
+    default:
+      return { kind: 'server-error' };
+  }
+}
+
+/**
+ * One deadline covers the request AND the GetWarehouse re-read (the Save/Restore precedent). After the 204 the page stays
+ * where it is: the warehouse is archived, not gone, so the re-read warehouse is committed and the page turns to its
+ * archived state (ST-9b banner, Restore warehouse for a holder). A failed re-read still resolves `deleted` (the delete
+ * happened); the page is told through `onRereadFailed` and shows its region error, or swaps.
+ */
+export function warehouseDelete(w: WarehouseSaveWiring): DeleteWarehouseAction {
+  return async () => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.warehouseDelete);
+    try {
+      const r = await w.caller.call('DeleteWarehouse', { id: w.id }, undefined, { signal: deadline.signal });
+      if (r.kind !== 'ok') return deleteFailure(r);
+      const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
+      if (again.kind === 'ok') await w.setWarehouse(again.warehouse);
+      else w.onRereadFailed(again.kind);
+      return { kind: 'deleted' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/** No re-read here: the section re-reads its view after the dialog has closed (FE-D1). */
+export function locationDelete(caller: ApiCaller, warehouseId: string): DeleteLocationAction {
+  return async (locationId) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.locationDelete);
+    try {
+      const r = await caller.call('DeleteStorageLocation', { id: warehouseId, locationId }, undefined, { signal: deadline.signal });
+      return r.kind === 'ok' ? { kind: 'deleted' } : deleteFailure(r);
     } finally {
       deadline.cancel();
     }

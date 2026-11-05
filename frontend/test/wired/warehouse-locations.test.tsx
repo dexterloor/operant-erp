@@ -12,7 +12,7 @@ import { json, problem, refused, renderWired, stubFetch } from './harness';
 // Revision 7 §2 step 4.4 (R3-7, A-20, A-21), warehouses-ux-copy.md B-5 and STATES.md ST-9b: the Locations section on the
 // warehouse page. Columns Code · Kind (the label, or the value as sent); Edit changes the code only (Kind shown as a label,
 // no quarantine hint); Restore location on an Archived row; an archived warehouse's section is read-only under ST-9b's
-// notes. No Delete (step 4.6). From step 4.5 Edit also offers Kind (a select); Add location is tested in
+// notes. Delete (step 4.6) is tested in `warehouse-delete.test.tsx`. From step 4.5 Edit also offers Kind (a select); Add location is tested in
 // `warehouse-add-location.test.tsx` — here `canCreate` defaults to false, so these tests describe a viewer without it.
 
 afterEach(() => {

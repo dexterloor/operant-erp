@@ -64,6 +64,18 @@ describe('/warehouses/[id] — the restore gate is RestoreWarehouse’s (ST-4c, 
   });
 });
 
+// §2 step 4.6: Delete warehouse on its own operation (DeleteWarehouse), told apart from every neighbouring code — each
+// refused shape holds a neighbour (edit, create, storage_location.delete) but not the gate's own.
+describe('/warehouses/[id] — the delete gate is DeleteWarehouse’s (ST-4c, step 4.6)', () => {
+  const canDelete = (el: ReactElement) => (el.props as { canDelete: boolean }).canDelete;
+  it('neighbouring codes alone get no Delete warehouse', async () => {
+    expect(canDelete(await render(['warehouse.view', 'warehouse.edit', 'warehouse.create', 'storage_location.view', 'storage_location.delete']))).toBe(false);
+  });
+  it('a holder of warehouse.delete gets Delete warehouse', async () => {
+    expect(canDelete(await render(['warehouse.view', 'warehouse.delete']))).toBe(true);
+  });
+});
+
 describe('/warehouses and /warehouses/new — the create gate is CreateWarehouse’s (ST-4c, step 4.3)', () => {
   it('the list offers create only to a warehouse.create holder', async () => {
     const { default: ListPage } = await import('@/app/(app)/warehouses/page');
@@ -117,7 +129,7 @@ describe('/warehouses/[id] — the Locations section and its actions are gated p
   });
 
   it('viewer shape (storage_location.view only): the section, read once, with no Edit and no Restore location', async () => {
-    expect(await at(['warehouse.view', 'storage_location.view'])).toEqual({ locations: { initial: { kind: 'ok', locations: [] }, canEdit: false, canRestore: false, canCreate: false }, reads: 1 });
+    expect(await at(['warehouse.view', 'storage_location.view'])).toEqual({ locations: { initial: { kind: 'ok', locations: [] }, canEdit: false, canRestore: false, canCreate: false, canDelete: false }, reads: 1 });
   });
 
   it('warehouse_operator shape (storage_location.view + .edit): Edit, no Restore location', async () => {
@@ -146,6 +158,13 @@ describe('/warehouses/[id] — the Locations section and its actions are gated p
     expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.edit', 'storage_location.delete'])).locations).toMatchObject({ canCreate: false });
     expect((await at(['warehouse.view', 'warehouse.create', 'storage_location.view'])).locations).toMatchObject({ canCreate: false });
     expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.create'])).locations).toMatchObject({ canCreate: true, canEdit: false, canRestore: false });
+  });
+
+  // §2 step 4.6: Delete location on its own operation (DeleteStorageLocation), told apart from warehouse.delete and from
+  // the other location codes; the delete holder gets it without Edit or Add.
+  it('Delete location follows DeleteStorageLocation alone', async () => {
+    expect((await at(['warehouse.view', 'warehouse.delete', 'storage_location.view', 'storage_location.edit', 'storage_location.create'])).locations).toMatchObject({ canDelete: false });
+    expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.delete'])).locations).toMatchObject({ canDelete: true, canEdit: false, canCreate: false });
   });
 
   it('warehouse_operator shape: no Add location (it edits but does not create, B-5)', async () => {

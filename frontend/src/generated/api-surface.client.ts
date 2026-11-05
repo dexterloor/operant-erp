@@ -83,6 +83,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.create'],
     },
   },
+  DeleteStorageLocation: {
+    method: 'DELETE',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.delete'],
+    },
+  },
   DeleteUser: {
     method: 'DELETE',
     template: '/api/v1/users/{id}',
@@ -91,6 +101,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.delete'],
+    },
+  },
+  DeleteWarehouse: {
+    method: 'DELETE',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.delete'],
     },
   },
   GetRole: {
