@@ -33,7 +33,7 @@ export interface WarehousePageProps {
    * The Locations section (§2 step 4.4): its first read and its action gates, or `null` when the viewer lacks
    * ListStorageLocations' codes (A-20: absent and not fetched).
    */
-  locations?: { initial: LocationsLoad; canEdit: boolean; canRestore: boolean } | null;
+  locations?: { initial: LocationsLoad; canEdit: boolean; canRestore: boolean; canCreate: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -133,7 +133,7 @@ export function WarehousePage({ initial, canEdit, canRestore, locations = null }
       )}
       {locations !== null ? (
         <div className={styles.locations}>
-          <LocationsSection warehouseId={id} initial={locations.initial} warehouseArchived={archived} canEdit={locations.canEdit} canRestore={locations.canRestore} announce={region.announce} />
+          <LocationsSection warehouseId={id} warehouseCode={warehouse.code} initial={locations.initial} warehouseArchived={archived} canEdit={locations.canEdit} canRestore={locations.canRestore} canCreate={locations.canCreate} announce={region.announce} />
         </div>
       ) : null}
     </section>

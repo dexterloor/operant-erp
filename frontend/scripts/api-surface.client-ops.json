@@ -3,6 +3,7 @@
   "CancelRoleGrantProposal",
   "ConfirmRoleGrantProposal",
   "CreateRoleGrantProposal",
+  "CreateStorageLocation",
   "CreateWarehouse",
   "DeleteUser",
   "GetRole",

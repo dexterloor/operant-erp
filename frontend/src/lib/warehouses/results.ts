@@ -1,7 +1,7 @@
 // Typed results of the warehouse page's injected actions (Revision 7 A-19 item 5), on the shared kinds in
 // `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '../api/warehouses';
+import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '../api/warehouses';
 import type { FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -61,17 +61,37 @@ export type CreateWarehouseResult =
 export type CreateWarehouseAction = (input: Required<CreateWarehouseInput>) => Promise<CreateWarehouseResult>;
 
 /**
- * The Edit location dialog's fields until §2 step 4.5: the code alone (R3-7, R3-9). Kind is shown as a label and never
- * sent, so this edit cannot reach the quarantine release (`storage_location.release_needs_owner`).
+ * The location dialogs' fields, in screen order (§2 step 4.5): Code and Kind. A name the mirrored update input lacks is a
+ * type error. Edit sends only the members that changed (`changedFields`), so a code-only change sends no `kind` and
+ * cannot reach the quarantine release (`storage_location.release_needs_owner`).
  */
-export const LOCATION_FIELDS = ['code'] as const satisfies readonly (keyof UpdateStorageLocationInput & string)[];
+export const LOCATION_FIELDS = ['code', 'kind'] as const satisfies readonly (keyof UpdateStorageLocationInput & string)[];
 export type LocationField = (typeof LOCATION_FIELDS)[number];
-/** The body Edit location sends: exactly `{ code }`. A `kind` member is a type error until step 4.5. */
-export type LocationCodeChange = Required<Pick<UpdateStorageLocationInput, LocationField>>;
+/** The body Edit location sends: the changed members only (never empty: Save is unavailable while nothing changed). */
+export type LocationChange = Partial<Pick<UpdateStorageLocationInput, LocationField>>;
+
+/** Add location's fields, in screen order; a name the mirrored create input lacks is a type error (step-3 L-3). */
+export const CREATE_LOCATION_FIELDS = ['code', 'kind'] as const satisfies readonly (keyof CreateStorageLocationInput & string)[];
+
+/**
+ * `POST /warehouses/{id}/locations` (Idempotency-Key required, a fresh one per submit; A-19 item 6 — the create does not
+ * replay on its key, `CreateStorageLocationProcessor.php:15-16`). `created` carries the 201 body; `invalid` a 422 mapped
+ * beside Code and Kind; `refused` a 409 (L1 code taken, L3 warehouse archived, P1 contention), shown in the dialog as
+ * sent. A create whose answer was lost and is submitted again gets L1 for the location it did create; it is not
+ * suppressed or re-worded.
+ */
+export type CreateLocationResult =
+  | { kind: 'created'; location: StorageLocation }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<LocationField>; formErrors: string[] }
+  | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/** Add location's submit: the body holds both fields as chosen. */
+export type CreateLocationAction = (input: Required<CreateStorageLocationInput>) => Promise<CreateLocationResult>;
 
 /**
  * `PATCH /warehouses/{id}/locations/{locationId}`. `saved` carries the 200 body; `invalid` a 422 mapped beside Code;
- * `refused` a 409 (L2 code taken, L4 warehouse archived, L5 location archived, P1 contention), shown in the dialog as sent.
+ * `refused` a 409 (L2 code taken, L4 warehouse archived, L5 location archived, L13 release needs an owner, P1 contention),
+ * shown in the dialog as sent.
  */
 export type SaveLocationResult =
   | { kind: 'saved'; location: StorageLocation }
@@ -79,7 +99,7 @@ export type SaveLocationResult =
   | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
 
 /** Edit location's Save for one row. */
-export type SaveLocationAction = (locationId: string, change: LocationCodeChange) => Promise<SaveLocationResult>;
+export type SaveLocationAction = (locationId: string, change: LocationChange) => Promise<SaveLocationResult>;
 
 /**
  * `POST /warehouses/{id}/locations/{locationId}/restoration` (no body, no key). `restored` carries the 200 body;

@@ -1,8 +1,8 @@
 // Every warehouse screen sentence (Revision 7 A-18), from `docs/design/warehouses-ux-copy.md` Part B + Revision 1 (as
 // attacked by `warehouses-ux-copy-red.md`); each entry names its row. Server refusals are never stored here: they render
 // as sent (Part A). Each sentence holds for the web app in the commit that renders it (`STATES.md:140`): the app has
-// Restore warehouse (§2 step 4.2), Create (§2 step 4.3) and the Locations section with a code-only Edit and Restore
-// location (§2 step 4.4), but no Add location (step 4.5) and no Delete (step 4.6), so no sentence here offers those.
+// Restore warehouse (§2 step 4.2), Create (§2 step 4.3), the Locations section with Edit and Restore location (§2 step
+// 4.4) and Add location with the Kind select (§2 step 4.5), but no Delete (step 4.6), so no sentence here offers one.
 
 /** B-1 (live list), B-2 (Archived view). */
 export const WAREHOUSES_LIST = {
@@ -96,7 +96,10 @@ export const NEW_WAREHOUSE = {
   interrupted: (code: string) => `We can't tell whether ${code} was created. Check the list of warehouses before you try again.`,
 } as const;
 
-/** A-21: one kind's words. `optionHelp`, `editHint` and `sectionNote` render from §2 step 4.5 / when UX decides (R3-7, R3-9). */
+/**
+ * A-21: one kind's words. From §2 step 4.5 `optionHelp` shows under the Kind select for the chosen kind and `editHint`
+ * in Edit location for the served current kind; `sectionNote` is not rendered (R3-7 "Silent": not decided, step 4.5 D-4).
+ */
 export interface KindCopy {
   label: string;
   optionHelp?: string;
@@ -108,8 +111,7 @@ export interface KindCopy {
  * B-5 kind labels, keyed by the served value (`LocationKinds::ALL`). A served value with no entry renders as sent. The
  * keys are held equal to the kinds' list by `test/warehouses/kinds.test.ts` (A-21). Kind-dependent copy is chosen through
  * an entry, never by comparing a kind value in code. The quarantine entry carries B-5's option help, B-6's Edit hint and
- * B-5's under-table note; until §2 step 4.5 the Edit dialog never shows the hint (R3-9), and the under-table note is not
- * rendered (R3-7 "Silent": not decided).
+ * B-5's under-table note. The parity test holds the keys equal to the served enum (`wireEnum`, §2 step 4.5).
  */
 export const KIND_LABELS: Readonly<Record<string, KindCopy>> = {
   bin: { label: 'Bin' },
@@ -127,7 +129,7 @@ export const KIND_LABELS: Readonly<Record<string, KindCopy>> = {
 /** The label for a served kind (B-5: a value with no entry renders as sent). */
 export const kindLabel = (kind: string): string => KIND_LABELS[kind]?.label ?? kind;
 
-/** B-5: the Locations section on the warehouse page (§2 step 4.4). No Add location until step 4.5. */
+/** B-5: the Locations section on the warehouse page (§2 steps 4.4, 4.5). */
 export const LOCATIONS_SECTION = {
   /** h2 (NEW) · Archived view heading (NEW). */
   heading: (archived: boolean) => (archived ? 'Archived locations' : 'Locations'),
@@ -139,9 +141,11 @@ export const LOCATIONS_SECTION = {
   kind: 'Kind',
   /** The row-action column's header (NEW, placeholder: UX TO CONFIRM; a header cell is never empty). */
   actions: 'Actions',
+  /** Section action and live empty-state action (`storage_location.create`, RULED ST-9b), from §2 step 4.5. */
+  addLocation: 'Add location',
   /** Row actions: Edit (`storage_location.edit`, NEW) · Archived view: Restore location (RULED). */
   edit: 'Edit',
-  /** Empty (live), RULED heading; its **Add location** action enters at step 4.5 (interim: heading alone, UX TO CONFIRM). */
+  /** Empty (live), RULED: the heading **+ Add location** (if held; step 4.5 ends 4.4's heading-alone interim). */
   noneLive: 'No locations in this warehouse yet.',
   /** Empty (Archived), RULED. */
   noneArchived: 'No archived locations in this warehouse.',
@@ -160,7 +164,7 @@ export const LOCATIONS_SECTION = {
   archivedParentArchived: 'These can be restored once the warehouse is restored.',
 } as const;
 
-/** B-5 Edit location (dialog), code only until step 4.5: Kind shown as a label, no quarantine hint (R3-7). */
+/** B-5 Edit location (dialog): Code and Kind (§2 step 4.5); the Kind hint comes from the served current kind's entry. */
 export const EDIT_LOCATION = {
   /** Title (NEW). */
   title: (code: string) => `Edit location ${code}`,
@@ -184,4 +188,25 @@ export const RESTORE_LOCATION = {
   interrupted: (code: string) => `We can't tell whether ${code} was restored. If it's still listed here, press Restore location to try again.`,
   /** On every other row's Restore location while one restore is in flight (NEW, placeholder: UX TO CONFIRM; RED L-6). */
   busyOther: 'Another location is being restored. Wait for it to finish.',
+} as const;
+
+/** B-5 Add location (dialog, §2 step 4.5). All NEW. The refusal heading is `NOT_ADDED` (copy/headings.ts). */
+export const ADD_LOCATION = {
+  /** Title (NEW). */
+  title: (warehouseCode: string) => `Add a location to ${warehouseCode}`,
+  code: 'Code',
+  /** Code hint (NEW). */
+  codeHint: 'Each location in this warehouse needs its own code.',
+  kind: 'Kind',
+  /** The Kind select's empty first option (UX FINAL, `kind-preselection-ux.md`): no kind is preselected (A-21, S-7). */
+  kindPrompt: 'Choose a kind',
+  /** Client refusal beside Kind when Add location is pressed with nothing chosen; no request is sent (UX FINAL, same file). */
+  kindRequired: 'Choose a kind for this location.',
+  /** Submit · cancel (NEW). */
+  submit: 'Add location',
+  cancel: 'Cancel',
+  /** After (NEW). */
+  after: (code: string) => `${code} was added.`,
+  /** Interrupted (NEW, B-4's reason: the create does not replay). Closing the dialog re-reads the section. */
+  interrupted: (code: string) => `We can't tell whether ${code} was added. Check this warehouse's locations before you try again.`,
 } as const;

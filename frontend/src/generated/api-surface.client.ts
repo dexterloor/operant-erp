@@ -63,6 +63,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateStorageLocation: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/locations',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.create'],
+    },
+  },
   CreateWarehouse: {
     method: 'POST',
     template: '/api/v1/warehouses',
@@ -335,6 +345,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
   StorageLocation: ['archived_at', 'code', 'id', 'kind'],
+  'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
@@ -342,4 +353,20 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   Warehouse: ['archived_at', 'code', 'country_code', 'id', 'name'],
   'Warehouse.CreateWarehouseInput': ['code', 'country_code', 'name'],
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['code', 'country_code', 'name'],
+};
+
+/** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
+export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  SodRowRef: {
+    half: ['preparing', 'controlled'],
+  },
+  StorageLocation: {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  'StorageLocation.CreateStorageLocationInput': {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
 };

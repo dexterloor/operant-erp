@@ -2,7 +2,7 @@
 // `Warehouse.UpdateWarehouseInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`): a member the server adds or drops fails there before a form can send the wrong
 // set. This file imports nothing (A-18). Wire field names stay snake_case, as served. The location shape and its update
-// input join at §2 step 4.4 (`StorageLocationResource.php`); the create input joins with Add location (step 4.5).
+// input join at §2 step 4.4 (`StorageLocationResource.php`); the create input joined with Add location (step 4.5).
 
 /** `GetWarehouse` / `ListWarehouses` item / `UpdateWarehouse`'s 200 body. Exactly these five (G-36: nothing else is served). */
 export interface Warehouse {
@@ -48,10 +48,20 @@ export interface StorageLocation {
 
 /**
  * `UpdateStorageLocation`'s merge-patch body (served schema `StorageLocation.UpdateStorageLocationInput.jsonMergePatch`).
- * Both members are optional. Until §2 step 4.5 the web app sends `code` alone (R3-7: a code-only edit cannot reach the
- * quarantine release); the `kind` member is mirrored so C-1 keeps this shape honest.
+ * Both members are optional; from §2 step 4.5 the Edit dialog sends only the members that changed (`changedFields`),
+ * so a code-only change still never sends `kind` and cannot reach the quarantine release.
  */
 export interface UpdateStorageLocationInput {
+  code?: string;
+  kind?: string;
+}
+
+/**
+ * `CreateStorageLocation`'s body (served schema `StorageLocation.CreateStorageLocationInput`, §2 step 4.5). `code` is
+ * served nullable but the form always sends a string (L15: an empty code is refused beside it); `kind` is one of the
+ * served enum and the form always sends it (preselected to the served default, A-21).
+ */
+export interface CreateStorageLocationInput {
   code?: string;
   kind?: string;
 }

@@ -8,6 +8,8 @@ export const NOT_DELETED = 'Not deleted';
 export const NOT_RESTORED = 'Not restored';
 /** warehouses-ux-copy.md B-4 refusal heading (RULED, the heading rule): the create page's banner. */
 export const NOT_CREATED = 'Not created';
+/** B-5 Add location's refusal heading (the button is Add; warehouses-ux-copy.md, NEW). */
+export const NOT_ADDED = 'Not added';
 
 /**
  * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -8,15 +8,19 @@ import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
-import { EDIT_LOCATION, kindLabel, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
-import type { StorageLocation } from '@/lib/api/warehouses';
+import { EDIT_LOCATION, KIND_LABELS, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
+import type { StorageLocation, UpdateStorageLocationInput } from '@/lib/api/warehouses';
+import { changedFields } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
-import type { LocationField, SaveLocationAction, SaveLocationResult } from '@/lib/warehouses/results';
+import { LOCATION_FIELDS, type LocationField, type SaveLocationAction, type SaveLocationResult } from '@/lib/warehouses/results';
+import { KindField } from './KindField';
 import styles from './Warehouses.module.css';
 
 export interface LocationFormProps {
   /** The row being edited (there is no `GetStorageLocation`: the section's row is the served state, B-5). */
   location: StorageLocation;
+  /** The served kinds, in served order (`wireEnum('StorageLocation.UpdateStorageLocationInput.jsonMergePatch', 'kind')`). */
+  kinds: readonly string[];
   save: SaveLocationAction;
   /** `gateCode('UpdateStorageLocation')`, for the lost-permission sentence's label (B-8, L-9). */
   editCode: string | null;
@@ -33,23 +37,41 @@ interface Notice {
 }
 
 /**
- * Edit location (warehouses-ux-copy.md B-5; Revision 7 §2 step 4.4, R3-7), props-only. **The code only**: Kind is shown
- * as a label through `KIND_LABELS` (or the value as sent), with no quarantine hint and no Kind control until step 4.5, so
- * the body is exactly `{ code }` and cannot reach the quarantine release. Save is `aria-disabled` with *Nothing to save.*
- * while the code is unchanged (compared exactly). A 422's field sentence shows beside Code, everything else in the
+ * Edit location (warehouses-ux-copy.md B-5, B-6; Revision 7 §2 steps 4.4, 4.5), props-only. Code and Kind (a select over
+ * the served kinds, A-21). The body is the changed members only (`changedFields`, compared exactly), so a code-only change
+ * sends no `kind` and cannot reach the quarantine release; a kind change is decided by the server alone (L13 shows as
+ * sent under **Not saved**, B-6 — nothing here compares a kind). The Kind hint is the served CURRENT kind's `editHint`,
+ * then the chosen kind's `optionHelp`, both through `KIND_LABELS`. Save is `aria-disabled` with *Nothing to save.* while
+ * nothing changed. A 422's field sentence shows beside Code, everything else in the
  * dialog's refusal banner as sent (ST-3); the dialog stays open and Save stays available (B-7: P1 asks for another press).
  * An interruption says so; after it, or after any refusal, closing re-reads the section (L-8, RED M-1). A 401 renders nothing (the caller navigates).
  */
-export function LocationForm({ location, save, editCode, onClose, fallbackFocusRef }: LocationFormProps) {
+export function LocationForm({ location, kinds, save, editCode, onClose, fallbackFocusRef }: LocationFormProps) {
   const [code, setCode] = useState(location.code);
+  const [kind, setKind] = useState(location.kind);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<LocationField>>({});
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [unsure, setUnsure] = useState(false);
   const codeRef = useRef<HTMLInputElement>(null);
+  const kindRef = useRef<HTMLSelectElement>(null);
   const bannerRef = useRef<HTMLHeadingElement>(null);
   const gen = useRef(0);
-  const nothing = code === location.code;
+  // Field focus moves only after the commit that renders the field's error and links it (aria-invalid,
+  // aria-describedby), so a screen reader hears the sentence when focus lands (step 4.5 RED-2 M-1; the step-3
+  // WarehouseCreateForm `focusTarget` pattern).
+  const [focusTarget, setFocusTarget] = useState<{ gen: number; to: LocationField } | null>(null);
+  useLayoutEffect(() => {
+    if (focusTarget === null) return;
+    (focusTarget.to === 'code' ? codeRef : kindRef).current?.focus();
+  }, [focusTarget]);
+  const focusField = (to: LocationField) => {
+    gen.current += 1;
+    setFocusTarget({ gen: gen.current, to });
+  };
+  const changes = changedFields<UpdateStorageLocationInput, LocationField>(LOCATION_FIELDS, { code: location.code, kind: location.kind }, { code, kind });
+  const nothing = Object.keys(changes).length === 0;
+  const hints = [KIND_LABELS[location.kind]?.editHint, KIND_LABELS[kind]?.optionHelp].filter((h): h is string => h !== undefined);
 
   const show = (heading: string, body: ReactNode) => {
     setFieldErrors({});
@@ -66,7 +88,7 @@ export function LocationForm({ location, save, editCode, onClose, fallbackFocusR
         if (r.formErrors.length > 0) show(NOT_SAVED, r.formErrors.map((m) => <p key={m}>{m}</p>));
         else setNotice(null);
         setFieldErrors(r.fieldErrors);
-        if (r.formErrors.length === 0) codeRef.current?.focus();
+        if (r.formErrors.length === 0) focusField(r.fieldErrors.code !== undefined ? 'code' : 'kind');
         return;
       case 'refused':
         // L4/L5 are "stale page" refusals (the location or its warehouse was archived meanwhile): closing re-reads (RED M-1).
@@ -109,7 +131,7 @@ export function LocationForm({ location, save, editCode, onClose, fallbackFocusR
     setBusy(true);
     let r: SaveLocationResult;
     try {
-      r = await save(location.id, { code });
+      r = await save(location.id, changes);
     } catch {
       r = { kind: 'unreachable' };
     }
@@ -124,12 +146,7 @@ export function LocationForm({ location, save, editCode, onClose, fallbackFocusR
         if (!open && !busy) onClose({ saved: null, reread: unsure });
       }}
       title={EDIT_LOCATION.title(location.code)}
-      description={
-        <dl className={styles.fields}>
-          <dt>{EDIT_LOCATION.kind}</dt>
-          <dd>{kindLabel(location.kind)}</dd>
-        </dl>
-      }
+      description={null}
       initialFocusRef={codeRef}
       fallbackFocusRef={fallbackFocusRef}
       busy={busy}
@@ -149,6 +166,7 @@ export function LocationForm({ location, save, editCode, onClose, fallbackFocusR
     >
       <form method="post" noValidate className={styles.form} onSubmit={(e) => void onSubmit(e)}>
         <TextField ref={codeRef} id="location-code" name="code" label={EDIT_LOCATION.code} hint={EDIT_LOCATION.codeHint} error={fieldErrors.code} value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" spellCheck={false} />
+        <KindField ref={kindRef} id="location-kind" label={EDIT_LOCATION.kind} kinds={kinds} value={kind} onChange={setKind} hints={hints} error={fieldErrors.kind} />
         <div className={styles.actions}>
           {busy ? null : <Button onClick={() => onClose({ saved: null, reread: unsure })}>{EDIT_LOCATION.cancel}</Button>}
           <Button type="submit" variant="primary" loading={busy} unavailableReason={nothing ? EDIT_LOCATION.saveNothing : undefined}>

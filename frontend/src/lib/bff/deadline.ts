@@ -19,7 +19,9 @@ export const ACTION_DEADLINES_MS = {
   warehouseRestore: 30_000,
   /** Create a warehouse: the request alone (the page navigates to the new warehouse, which reads it). */
   warehouseCreate: 30_000,
-  /** Save a location's code: the request alone (the section re-reads its view after the dialog closes). */
+  /** Add a location: the request alone (the section re-reads its view after the dialog closes). */
+  locationCreate: 30_000,
+  /** Save a location's code and/or kind: the request alone (the section re-reads its view after the dialog closes). */
   locationSave: 30_000,
   /** Restore a location: the request alone (the section re-reads its view after). */
   locationRestore: 30_000,

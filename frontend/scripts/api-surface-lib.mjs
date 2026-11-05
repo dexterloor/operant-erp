@@ -2,7 +2,8 @@
 // ../contracts/ are the only source: openapi.json (the served spec) and api-surface.json (gates, Idempotency-Key, bulk).
 // This module turns them into two generated TypeScript modules:
 //   src/generated/api-surface.server.ts  OPERATIONS (every operation, /auth/* included), PROXY_ALLOWLIST, SOURCE_SHA256
-//   src/generated/api-surface.client.ts  CLIENT_OPERATIONS (only the wired ones), BULK, BULK_MAX_IDS, WIRE_FIELDS
+//   src/generated/api-surface.client.ts  CLIENT_OPERATIONS (only the wired ones), BULK, BULK_MAX_IDS, WIRE_FIELDS,
+//                                        WIRE_ENUMS (Revision 7 A-21, §2 step 4.5)
 // Pure functions only, so the drift test can call them without touching the disk. Everything that depends on the
 // contract's key names or on API Platform's schema names lives here and nowhere else (b3b §4 items 1–5).
 import { createHash } from 'node:crypto';
@@ -47,6 +48,7 @@ const MIRRORED = {
   'Warehouse.CreateWarehouseInput': ['Warehouse.CreateWarehouseInput'],
   'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['Warehouse.UpdateWarehouseInput.jsonMergePatch'],
   StorageLocation: ['StorageLocation'],
+  'StorageLocation.CreateStorageLocationInput': ['StorageLocation.CreateStorageLocationInput'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['StorageLocation.UpdateStorageLocationInput.jsonMergePatch'],
 };
 
@@ -104,6 +106,26 @@ function schemaAt(openapi, trail) {
   return node;
 }
 
+/**
+ * Revision 7 A-21 (§2 step 4.5): each `enum` property of a mirrored schema, values in served order. Only schemas that
+ * have one appear. An enum that is not a non-empty list of distinct strings throws. Served `default`s are not emitted:
+ * the web app never preselects a served default (UX, `kind-preselection-ux.md`, step 4.5 D-1).
+ */
+function enumsOf(openapi) {
+  const WIRE_ENUMS = {};
+  for (const name of sortedKeys(MIRRORED)) {
+    const props = schemaAt(openapi, MIRRORED[name]).properties;
+    for (const prop of sortedKeys(props)) {
+      const p = props[prop];
+      if (p.enum === undefined) continue;
+      const ok = Array.isArray(p.enum) && p.enum.length > 0 && p.enum.every((v) => typeof v === 'string') && new Set(p.enum).size === p.enum.length;
+      if (!ok) throw new Error(`${name}.${prop}: enum must be a non-empty list of distinct strings`);
+      (WIRE_ENUMS[name] ??= {})[prop] = [...p.enum];
+    }
+  }
+  return WIRE_ENUMS;
+}
+
 /** The plain data both modules print; exported so tests can check it without parsing TypeScript. */
 export function surfaceData(inputs, clientOps = inputs.clientOps) {
   const { openapi, surface } = inputs;
@@ -128,9 +150,10 @@ export function surfaceData(inputs, clientOps = inputs.clientOps) {
   const BULK_MAX_IDS = surface.bulk.max_ids;
   if (!Number.isInteger(BULK_MAX_IDS) || BULK_MAX_IDS < 1) throw new Error('bulk.max_ids must be a positive integer');
   const WIRE_FIELDS = Object.fromEntries(sortedKeys(MIRRORED).map((name) => [name, sortedKeys(schemaAt(openapi, MIRRORED[name]).properties)]));
+  const WIRE_ENUMS = enumsOf(openapi);
   return {
     server: { OPERATIONS, PROXY_ALLOWLIST, SOURCE_SHA256: inputs.sha256 },
-    client: { CLIENT_OPERATIONS, BULK, BULK_MAX_IDS, WIRE_FIELDS },
+    client: { CLIENT_OPERATIONS, BULK, BULK_MAX_IDS, WIRE_FIELDS, WIRE_ENUMS },
   };
 }
 
@@ -208,6 +231,9 @@ export const BULK_MAX_IDS: number = ${ts(data.client.BULK_MAX_IDS)};
 
 /** Sorted served property names of each schema a hand-written lib/api type mirrors (checked by test C-1). */
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = ${ts(data.client.WIRE_FIELDS)};
+
+/** Each served \`enum\` of a mirrored schema's property, in served order (Revision 7 A-21). */
+export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = ${ts(data.client.WIRE_ENUMS)};
 `;
   return { server, client, serverData: data.server, clientData: data.client };
 }

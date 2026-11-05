@@ -25,3 +25,54 @@
 .locations {
   margin-top: var(--space-6);
 }
+
+/* The Kind select (Revision 7 A-21, §2 step 4.5): TextField's field look, tokens only. The focus ring is global. */
+.kindField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.kindField label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.kindField select {
+  height: var(--size-control-lg);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font: inherit;
+}
+
+.kindField select:hover {
+  background: var(--bg-hover);
+}
+
+.kindField select[aria-invalid='true'] {
+  border-color: var(--danger-solid);
+}
+
+.kindHint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.kindError {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.kindError svg {
+  flex: none;
+  margin-top: 2px;
+}

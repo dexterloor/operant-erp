@@ -3,44 +3,49 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KIND_LABELS, kindLabel } from '@/copy/warehouses';
+import { wireEnum } from '@/lib/bff/surface';
 
-// Revision 7 A-21 (as narrowed by Revision 3 R3-9), from §2 step 4.4: the location kinds' two copies and the rule that
-// the client never decides anything from a kind value.
+// Revision 7 A-21 (as narrowed by Revision 3 R3-9): the location kinds and the rule that the client never decides
+// anything from a kind value.
 //
-// THE TEMPORARY LIST. Until the frontend reads the served enum (`wireEnum('StorageLocation', 'kind')`, step 4.5), the five
-// values live twice: `KIND_LABELS`' keys in `src/copy/warehouses.ts`, and this list. The test holds them equal, in order.
-// BK-19 has already landed (the contract serves `StorageLocation.kind` as an enum), so this test ALSO holds the temporary
-// list equal to the served enum read straight from `contracts/openapi.json` — a test-side read only: `src/` still has one
-// reader of the contract (G-2), and the `WIRE_ENUMS` emitter arrives at step 4.5 with the switch that deletes this list.
-const TEMPORARY_KINDS = ['bin', 'shelf', 'zone', 'staging', 'quarantine'] as const;
+// §2 step 4.5 (BK-19's consuming commit): the parity check reads the SERVED enum through the one contract reader
+// (`wireEnum`, G-2), so the temporary list and the direct `contracts/openapi.json` read of step 4.4 (its X-1) are deleted.
+// `KIND_LABELS`' keys are now the only frontend copy of the kinds, and this test holds them equal to the server's.
+const SERVED_KINDS = wireEnum('StorageLocation', 'kind');
+const CREATE_INPUT = 'StorageLocation.CreateStorageLocationInput';
+const UPDATE_INPUT = 'StorageLocation.UpdateStorageLocationInput.jsonMergePatch';
 
 const FRONTEND = path.resolve(__dirname, '../..');
-const OPENAPI = path.resolve(FRONTEND, '../contracts/openapi.json');
 
 /** The parity rule, over any label map (so the planted control runs the same code). */
 const keysMatch = (labels: Readonly<Record<string, unknown>>, kinds: readonly string[]) => JSON.stringify(Object.keys(labels)) === JSON.stringify([...kinds]);
 
-describe('A-21 — KIND_LABELS against the kinds list (from step 4.4)', () => {
-  it('KIND_LABELS keys equal the temporary list, in order', () => {
-    expect(Object.keys(KIND_LABELS)).toEqual([...TEMPORARY_KINDS]);
+describe('A-21 — KIND_LABELS against the served kinds (wireEnum, from step 4.5)', () => {
+  it('KIND_LABELS keys equal wireEnum("StorageLocation", "kind"), in served order', () => {
+    expect(SERVED_KINDS.length).toBeGreaterThan(0);
+    expect(Object.keys(KIND_LABELS)).toEqual(SERVED_KINDS);
   });
 
   it('planted control: an extra key, a missing key or a reordering is red', () => {
-    expect(keysMatch(KIND_LABELS, TEMPORARY_KINDS)).toBe(true);
-    expect(keysMatch({ ...KIND_LABELS, pallet: { label: 'Pallet' } }, TEMPORARY_KINDS)).toBe(false);
-    const missing = Object.fromEntries(Object.entries(KIND_LABELS).filter(([k]) => k !== 'bin'));
-    expect(keysMatch(missing, TEMPORARY_KINDS)).toBe(false);
-    expect(keysMatch({ shelf: {}, bin: {}, zone: {}, staging: {}, quarantine: {} }, TEMPORARY_KINDS)).toBe(false);
+    expect(keysMatch(KIND_LABELS, SERVED_KINDS)).toBe(true);
+    expect(keysMatch({ ...KIND_LABELS, pallet: { label: 'Pallet' } }, SERVED_KINDS)).toBe(false);
+    const missing = Object.fromEntries(Object.entries(KIND_LABELS).filter(([k]) => k !== SERVED_KINDS[0]));
+    expect(keysMatch(missing, SERVED_KINDS)).toBe(false);
+    const reordered = Object.fromEntries([...Object.entries(KIND_LABELS)].reverse());
+    expect(keysMatch(reordered, SERVED_KINDS)).toBe(false);
   });
 
-  it('the temporary list equals the served StorageLocation.kind enum, in served order (BK-19 has landed)', () => {
-    const spec = JSON.parse(readFileSync(OPENAPI, 'utf8')) as { components: { schemas: Record<string, { properties?: Record<string, { enum?: string[] }> }> } };
-    const served = spec.components.schemas.StorageLocation?.properties?.kind?.enum;
-    expect(served).toEqual([...TEMPORARY_KINDS]);
+  it('the two inputs the dialogs offer serve the same kinds, in the same order, as the read schema', () => {
+    expect(wireEnum(CREATE_INPUT, 'kind')).toEqual(SERVED_KINDS);
+    expect(wireEnum(UPDATE_INPUT, 'kind')).toEqual(SERVED_KINDS);
+  });
+
+  it('a property with no served enum throws (wireEnum reads only what is served)', () => {
+    expect(() => wireEnum('Warehouse', 'code')).toThrow(/no served enum/);
   });
 
   it('a served value with no entry renders as sent (B-5); a known one renders its label', () => {
-    expect(kindLabel('quarantine')).toBe('Quarantine');
+    expect(kindLabel(SERVED_KINDS[SERVED_KINDS.length - 1]!)).toBe(KIND_LABELS[SERVED_KINDS[SERVED_KINDS.length - 1]!]!.label);
     expect(kindLabel('pallet')).toBe('pallet');
   });
 });
@@ -71,9 +76,9 @@ function walk(dir: string): SourceFile[] {
   });
 }
 
-const literal = new RegExp(`(['"\`])(${TEMPORARY_KINDS.join('|')})\\1`);
+const literal = new RegExp(`(['"\`])(${SERVED_KINDS.join('|')})\\1`);
 /** RED L-4: a kind named through the label map (`KIND_LABELS.quarantine`, `KIND_LABELS['bin']`) decides from a kind with no quoted literal. A dynamic `KIND_LABELS[l.kind]` stays allowed. */
-const viaLabels = new RegExp(`\\bKIND_LABELS\\s*(?:\\.\\s*|\\[\\s*['"\`])(${TEMPORARY_KINDS.join('|')})\\b`);
+const viaLabels = new RegExp(`\\bKIND_LABELS\\s*(?:\\.\\s*|\\[\\s*['"\`])(${SERVED_KINDS.join('|')})\\b`);
 /** Files in the scanned dirs (fixtures excluded) holding a kind value as a quoted literal. */
 const kindLiteralViolations = (files: readonly SourceFile[]) =>
   files.filter((f) => SCANNED.some((d) => f.file.startsWith(`${d}/`)) && !f.file.startsWith(EXCLUDED) && (literal.test(f.source) || viaLabels.test(f.source))).map((f) => f.file);
@@ -84,6 +89,8 @@ describe('A-21 — the kind-literal scan (holds from step 4.4)', () => {
     expect(files.length).toBeGreaterThan(100);
     expect(files.some((f) => f.file === 'src/app/(app)/warehouses/[id]/LocationsSection.tsx')).toBe(true);
     expect(files.some((f) => f.file === 'src/components/warehouses/LocationForm.tsx')).toBe(true);
+    expect(files.some((f) => f.file === 'src/components/warehouses/AddLocationForm.tsx')).toBe(true);
+    expect(files.some((f) => f.file === 'src/components/warehouses/KindField.tsx')).toBe(true);
     expect(kindLiteralViolations(files)).toEqual([]);
   });
 

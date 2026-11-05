@@ -12,7 +12,8 @@ import { json, problem, refused, renderWired, stubFetch } from './harness';
 // Revision 7 §2 step 4.4 (R3-7, A-20, A-21), warehouses-ux-copy.md B-5 and STATES.md ST-9b: the Locations section on the
 // warehouse page. Columns Code · Kind (the label, or the value as sent); Edit changes the code only (Kind shown as a label,
 // no quarantine hint); Restore location on an Archived row; an archived warehouse's section is read-only under ST-9b's
-// notes. No Add location (step 4.5) and no Delete (step 4.6).
+// notes. No Delete (step 4.6). From step 4.5 Edit also offers Kind (a select); Add location is tested in
+// `warehouse-add-location.test.tsx` — here `canCreate` defaults to false, so these tests describe a viewer without it.
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,8 +30,8 @@ const P1 = loc('33333333-3333-4333-8333-333333333333', 'P1', 'pallet');
 const B1 = loc('44444444-4444-4444-8444-444444444444', 'B1', 'shelf', '2026-04-01T09:00:00Z');
 const coll = (items: StorageLocation[]) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
 
-function show(o: { w?: Warehouse; initial?: LocationsLoad; canEdit?: boolean; canRestore?: boolean } = {}) {
-  const locations = { initial: o.initial ?? { kind: 'ok', locations: [A1, Q1, P1] }, canEdit: o.canEdit ?? true, canRestore: o.canRestore ?? true };
+function show(o: { w?: Warehouse; initial?: LocationsLoad; canEdit?: boolean; canRestore?: boolean; canCreate?: boolean } = {}) {
+  const locations = { initial: o.initial ?? { kind: 'ok', locations: [A1, Q1, P1] }, canEdit: o.canEdit ?? true, canRestore: o.canRestore ?? true, canCreate: o.canCreate ?? false };
   return renderWired(<WarehousePage initial={o.w ?? MAIN} canEdit={false} canRestore={false} locations={locations} />);
 }
 const pageRegion = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
@@ -39,7 +40,7 @@ const rows = () => within(section()).getAllByRole('row').slice(1);
 const cellsOf = (r: HTMLElement) => within(r).getAllByRole('cell').map((c) => c.textContent);
 
 describe('/warehouses/[id] — the Locations section (B-5, step 4.4)', () => {
-  it('h2 Locations; Code · Kind with the kind label, an unknown kind as sent; Edit per row; no Add location', () => {
+  it('h2 Locations; Code · Kind with the kind label, an unknown kind as sent; Edit per row; no Add location without CreateStorageLocation', () => {
     show();
     expect(screen.getByRole('heading', { level: 2, name: 'Locations' })).toBeInTheDocument();
     expect(rows().map((r) => cellsOf(r).slice(0, 2))).toEqual([
@@ -60,7 +61,7 @@ describe('/warehouses/[id] — the Locations section (B-5, step 4.4)', () => {
     expect(within(section()).queryByRole('button', { name: /^Edit/ })).toBeNull();
   });
 
-  it('the live empty state is the heading alone (no Add location until step 4.5)', () => {
+  it('without CreateStorageLocation the live empty state is the heading alone', () => {
     show({ initial: { kind: 'ok', locations: [] } });
     expect(within(section()).getByText('No locations in this warehouse yet.')).toBeInTheDocument();
     expect(within(section()).queryByRole('link')).toBeNull();
@@ -97,21 +98,19 @@ describe('/warehouses/[id] — the Locations section (B-5, step 4.4)', () => {
   });
 });
 
-describe('Edit location — the code only (R3-7, R3-9)', () => {
-  it('Kind is a label, never a control; no quarantine hint even for a quarantine location', async () => {
+describe('Edit location — Code and Kind (§2 steps 4.4, 4.5)', () => {
+  it('Code and a Kind select holding the current kind; Save starts unavailable', async () => {
     const u = userEvent.setup();
     show();
     await u.click(within(section()).getByRole('button', { name: 'Edit Q1' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit location Q1' });
     expect(within(dialog).getAllByRole('textbox').map((i) => i.getAttribute('name'))).toEqual(['code']);
-    expect(within(dialog).queryByRole('combobox')).toBeNull();
-    expect(within(dialog).getByText('Quarantine')).toBeInTheDocument();
-    expect(within(dialog).queryByText(/only an owner can take it out of quarantine/)).toBeNull();
+    expect(within(dialog).getByRole('combobox', { name: 'Kind' })).toHaveValue('quarantine');
     expect(within(dialog).getByRole('textbox', { name: 'Code' })).toHaveFocus();
     expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('Save sends exactly { code } to the location, then closes, says "{code} was saved." and re-reads the view', async () => {
+  it('a code-only change sends exactly { code } (never kind) to the location, then closes, says "{code} was saved." and re-reads the view', async () => {
     const saved = { ...A1, code: 'A2' };
     const calls = stubFetch([json(200, saved), json(200, coll([saved, Q1, P1]))]);
     const u = userEvent.setup();

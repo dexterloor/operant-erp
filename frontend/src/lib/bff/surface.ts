@@ -1,7 +1,7 @@
 // The ONE reader of the generated client projection (b4-architecture.md Revision 5 A-7, guard G-2). Everything the
 // browser knows about the API's shape — which operations are wired, their templates and gates, the bulk resources and
 // cap, the served field names — comes through here, never typed by hand (G-3 refuses a typed bulk key or cap).
-import { BULK, BULK_MAX_IDS, CLIENT_OPERATIONS, WIRE_FIELDS, type BulkResource, type SurfaceOperation, type SurfacePermission } from '@/generated/api-surface.client';
+import { BULK, BULK_MAX_IDS, CLIENT_OPERATIONS, WIRE_ENUMS, WIRE_FIELDS, type BulkResource, type SurfaceOperation, type SurfacePermission } from '@/generated/api-surface.client';
 
 export type { BulkResource, SurfaceOperation, SurfacePermission } from '@/generated/api-surface.client';
 
@@ -39,6 +39,16 @@ export function wireFields(name: string): string[] {
   const f = WIRE_FIELDS[name];
   if (!f) throw new Error(`${name} is not a mirrored schema.`);
   return [...f];
+}
+
+/**
+ * The served `enum` of one mirrored schema's property, in served order (Revision 7 A-21, §2 step 4.5). A property with
+ * no served enum is a programming error, so it throws.
+ */
+export function wireEnum(schema: string, property: string): string[] {
+  const e = WIRE_ENUMS[schema]?.[property];
+  if (!e) throw new Error(`${schema}.${property} has no served enum.`);
+  return [...e];
 }
 
 /**

@@ -104,7 +104,7 @@ describe('/warehouses and /warehouses/new — the create gate is CreateWarehouse
 // Revision 7 A-20 (§2 step 4.4): the Locations section is read and rendered only for a ListStorageLocations holder;
 // each row action is gated on its own operation. One case per default-role shape, built from codes, never role names.
 describe('/warehouses/[id] — the Locations section and its actions are gated per operation (A-20, step 4.4)', () => {
-  type Locs = { canEdit: boolean; canRestore: boolean } | null;
+  type Locs = { canEdit: boolean; canRestore: boolean; canCreate: boolean } | null;
   const locs = (el: ReactElement) => (el.props as { locations: Locs }).locations;
   const at = async (codes: string[]) => {
     v.locationReads = 0;
@@ -117,7 +117,7 @@ describe('/warehouses/[id] — the Locations section and its actions are gated p
   });
 
   it('viewer shape (storage_location.view only): the section, read once, with no Edit and no Restore location', async () => {
-    expect(await at(['warehouse.view', 'storage_location.view'])).toEqual({ locations: { initial: { kind: 'ok', locations: [] }, canEdit: false, canRestore: false }, reads: 1 });
+    expect(await at(['warehouse.view', 'storage_location.view'])).toEqual({ locations: { initial: { kind: 'ok', locations: [] }, canEdit: false, canRestore: false, canCreate: false }, reads: 1 });
   });
 
   it('warehouse_operator shape (storage_location.view + .edit): Edit, no Restore location', async () => {
@@ -138,5 +138,17 @@ describe('/warehouses/[id] — the Locations section and its actions are gated p
 
   it('Restore location follows storage_location.delete, not warehouse.delete', async () => {
     expect((await at(['warehouse.view', 'warehouse.delete', 'storage_location.view'])).locations).toMatchObject({ canRestore: false });
+  });
+
+  // §2 step 4.5: Add location on its own operation (CreateStorageLocation = storage_location.create), told apart from
+  // every other location code and from warehouse.create — each shape holds one neighbouring code but not the gate's.
+  it('Add location follows storage_location.create alone', async () => {
+    expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.edit', 'storage_location.delete'])).locations).toMatchObject({ canCreate: false });
+    expect((await at(['warehouse.view', 'warehouse.create', 'storage_location.view'])).locations).toMatchObject({ canCreate: false });
+    expect((await at(['warehouse.view', 'storage_location.view', 'storage_location.create'])).locations).toMatchObject({ canCreate: true, canEdit: false, canRestore: false });
+  });
+
+  it('warehouse_operator shape: no Add location (it edits but does not create, B-5)', async () => {
+    expect((await at(['warehouse.view', 'warehouse.edit', 'storage_location.view', 'storage_location.edit'])).locations).toMatchObject({ canCreate: false });
   });
 });

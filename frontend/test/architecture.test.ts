@@ -270,7 +270,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.2 added: components/warehouses/WarehouseRestoreActions.tsx.
   // Revision 7 step 4.3 added: components/warehouses/WarehouseCreateForm.tsx.
   // Revision 7 step 4.4 added: components/warehouses/LocationForm.tsx.
-  'src/components': 57,
+  // Revision 7 step 4.5 added: components/warehouses/AddLocationForm.tsx (the Add location dialog) and KindField.tsx
+  // (the Kind select both location dialogs use).
+  'src/components': 59,
   'src/lib/api': 6,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
@@ -286,8 +288,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/bulk': 6,
   'src/components/people': 4,
   // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx. Step 4.3 added:
-  // WarehouseCreateForm.tsx. Step 4.4 added: LocationForm.tsx (the code-only Edit location dialog).
-  'src/components/warehouses': 4,
+  // WarehouseCreateForm.tsx. Step 4.4 added: LocationForm.tsx (the code-only Edit location dialog). Step 4.5 added:
+  // AddLocationForm.tsx and KindField.tsx.
+  'src/components/warehouses': 6,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -1173,6 +1176,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
       // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
+      // Revision 7 step 4.5 (G-F2 row): the Add location dialog is a <form>, so it joins here (KindField.tsx is a field, no form).
+      'src/components/warehouses/AddLocationForm.tsx',
       'src/components/warehouses/LocationForm.tsx',
       'src/components/warehouses/WarehouseCreateForm.tsx',
       'src/components/warehouses/WarehouseForm.tsx',

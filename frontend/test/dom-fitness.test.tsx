@@ -1,5 +1,5 @@
 import { StrictMode, createRef, useRef, useState, type ReactNode, type Ref } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
@@ -621,7 +621,7 @@ describe('DOM fitness — the Locations section and Edit location (Revision 7 st
       ];
       vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
       const user = userEvent.setup();
-      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true }} />;
+      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: false }} />;
       renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
       const tracker = trackRegions();
       const failures = [...tracker.firstRender];
@@ -639,6 +639,56 @@ describe('DOM fitness — the Locations section and Edit location (Revision 7 st
         failures.push(...tracker.check());
       }
       await waitFor(() => expect(screen.getByText('No archived locations in this warehouse.')).toBeInTheDocument());
+      expect(tracker.count).toBe(2);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
+// Revision 7 step 4.5: Add location (from the empty state) and the Kind select join the rendered surfaces. Same two
+// regions, the same nodes through an add refusal, an add, and an Edit kind change; no [disabled] anywhere (ST-4e).
+describe('DOM fitness — Add location and the Kind select (Revision 7 step 4.5)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; two regions, the same nodes through an add refusal, an add and a kind change${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const { wireEnum } = await import('@/lib/bff/surface');
+      const kinds = wireEnum('StorageLocation', 'kind');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const C1 = { id: '11111111-1111-4111-8111-111111111111', code: 'C1', kind: kinds[0]!, archived_at: null };
+      const coll = (items: unknown[]) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'storage_location.code_is_unique_per_warehouse', message: 'Another location in this warehouse already uses this code. Choose a different code.' }, 'application/problem+json'),
+        reply(201, C1),
+        reply(200, coll([C1])),
+        reply(200, { ...C1, kind: kinds[1]! }),
+        reply(200, coll([{ ...C1, kind: kinds[1]! }])),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [] }, canEdit: true, canRestore: true, canCreate: true }} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getAllByRole('button', { name: 'Add location' })[1]!),
+        () => user.type(screen.getByRole('textbox', { name: 'Code' }), 'C1'),
+        // The no-choice client refusal (beside Kind, no request), then a chosen kind.
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.selectOptions(screen.getByRole('combobox', { name: 'Kind' }), kinds[0]!),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.click(screen.getByRole('button', { name: 'Edit C1' })),
+        () => user.selectOptions(screen.getByRole('combobox', { name: 'Kind' }), kinds[1]!),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(tracker.count).toBe(2);
       expect(failures).toEqual([]);
       vi.unstubAllGlobals();

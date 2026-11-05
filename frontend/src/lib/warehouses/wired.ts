@@ -4,7 +4,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { isStorageLocation, isWarehouse, loadWarehouse } from './load';
-import { CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREHOUSE_FIELDS, type CreateWarehouseAction, type RestoreLocationAction, type RestoreWarehouseAction, type SaveLocationAction, type SaveWarehouseAction } from './results';
+import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREHOUSE_FIELDS, type CreateLocationAction, type CreateWarehouseAction, type LocationChange, type RestoreLocationAction, type RestoreWarehouseAction, type SaveLocationAction, type SaveWarehouseAction } from './results';
 
 // The warehouse page's Save over the BFF (Revision 7 A-18, A-19). `UpdateWarehouse` is a merge patch with no
 // Idempotency-Key: a repeat of a committed save finds nothing to change, so it is safe to press again. One deadline
@@ -134,7 +134,38 @@ export function warehouseCreate(caller: ApiCaller, newKey: () => string = () => 
   };
 }
 
-// The Locations section's two actions over the BFF (Revision 7 §2 step 4.4). Neither takes an Idempotency-Key: the
+// Add location over the BFF (Revision 7 §2 step 4.5; A-19 item 6). `CreateStorageLocation` requires an Idempotency-Key
+// but does not replay on it (`CreateStorageLocationProcessor.php:15-16`: the live (warehouse, code) unique refuses a
+// repeat), so a fresh key is minted for EVERY submit (`newKey`, the `warehouseCreate` precedent) and never stored. No
+// re-read here: the section re-reads its view after the dialog closes (FE-D1). No refusal code is compared.
+export function locationCreate(caller: ApiCaller, warehouseId: string, newKey: () => string = () => crypto.randomUUID()): CreateLocationAction {
+  return async (input) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.locationCreate);
+    try {
+      const r = await caller.call('CreateStorageLocation', { id: warehouseId }, input, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_LOCATION_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isStorageLocation(r.body) ? { kind: 'created', location: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// The Locations section's row actions over the BFF (Revision 7 §2 steps 4.4, 4.5). Neither takes an Idempotency-Key: the
 // update is a merge patch (a repeat finds nothing to change) and the restore is guarded by `deleted_at` (a repeat is
 // refused L11), so pressing again is safe. Neither re-reads here: the section re-reads its own view through its list
 // controller after the dialog has closed or the row's message is spoken (FE-D1: close → focus → announce → refresh).
@@ -143,8 +174,12 @@ export function locationSave(caller: ApiCaller, warehouseId: string): SaveLocati
   return async (locationId, change) => {
     const deadline = startDeadline(ACTION_DEADLINES_MS.locationSave);
     try {
-      // The body is the code alone (R3-7): built here from the one field, never from a spread, so nothing else is sent.
-      const r = await caller.call('UpdateStorageLocation', { id: warehouseId, locationId }, { code: change.code }, { signal: deadline.signal });
+      // The body is the changed members only (§2 step 4.5), copied by name from the two fields, never from a spread, so
+      // nothing else is sent and an unchanged kind is never sent.
+      const body: LocationChange = {};
+      if (change.code !== undefined) body.code = change.code;
+      if (change.kind !== undefined) body.kind = change.kind;
+      const r = await caller.call('UpdateStorageLocation', { id: warehouseId, locationId }, body, { signal: deadline.signal });
       if (r.kind !== 'ok') {
         switch (r.kind) {
           case 'refused':

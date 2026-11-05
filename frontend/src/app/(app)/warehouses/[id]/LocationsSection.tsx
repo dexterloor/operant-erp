@@ -5,18 +5,19 @@ import { flushSync } from 'react-dom';
 import { ArchiveRestore } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
+import { AddLocationForm } from '@/components/warehouses/AddLocationForm';
 import { LocationForm } from '@/components/warehouses/LocationForm';
 import { COULD_NOT_REACH, NOT_RESTORED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
-import { EDIT_LOCATION, kindLabel, LOCATIONS_SECTION, RESTORE_LOCATION, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
+import { ADD_LOCATION, EDIT_LOCATION, kindLabel, LOCATIONS_SECTION, RESTORE_LOCATION, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation } from '@/lib/api/warehouses';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type Read } from '@/lib/bff/reads';
-import { gateCode } from '@/lib/bff/surface';
+import { gateCode, wireEnum } from '@/lib/bff/surface';
 import { loadLocations, type LocationsLoad } from '@/lib/warehouses/load';
 import type { RestoreLocationResult } from '@/lib/warehouses/results';
-import { locationRestore, locationSave } from '@/lib/warehouses/wired';
+import { locationCreate, locationRestore, locationSave } from '@/lib/warehouses/wired';
 import { useApiCaller } from '../../BffProvider';
 import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type Column, type EmptyState, type HeaderView, type ListLoad } from '../../ArchivableList';
 
@@ -27,11 +28,23 @@ const COPY = { heading: null, archived: LOCATIONS_SECTION.archived, loadFailed: 
 
 export const asLocationList = (r: LocationsLoad): ListLoad<StorageLocation> => (r.kind === 'ok' ? { kind: 'ok', items: r.locations } : r);
 
-/** B-5 empty states. Live: the heading alone until Add location is wired (§2 step 4.5; interim, UX TO CONFIRM). */
-export const LOCATIONS_EMPTY: EmptyState = ({ archived }) => ({ heading: archived ? LOCATIONS_SECTION.noneArchived : LOCATIONS_SECTION.noneLive });
+/** The served kinds the dialogs offer, in served order (A-21; read through the one contract reader, G-2). */
+const CREATE_INPUT = 'StorageLocation.CreateStorageLocationInput';
+const UPDATE_INPUT = 'StorageLocation.UpdateStorageLocationInput.jsonMergePatch';
+
+/**
+ * B-5 empty states. Live: the heading **+ Add location** when `add` is given (the viewer holds `CreateStorageLocation`'s
+ * codes and the warehouse is live); §2 step 4.5 ends 4.4's heading-alone interim. Archived: the heading alone.
+ */
+export const locationsEmpty =
+  (add: ReactNode | null): EmptyState =>
+  ({ archived }) =>
+    archived ? { heading: LOCATIONS_SECTION.noneArchived } : add !== null ? { heading: LOCATIONS_SECTION.noneLive, actions: add } : { heading: LOCATIONS_SECTION.noneLive };
 
 export interface LocationsSectionProps {
   warehouseId: string;
+  /** The warehouse's code, for Add location's title. */
+  warehouseCode: string;
   /** `ListStorageLocations` on first render (the page issues it only for a viewer it gates, A-20). */
   initial: LocationsLoad;
   /** The warehouse is archived: read-only, no row actions, ST-9b's notes above the rows. */
@@ -40,6 +53,8 @@ export interface LocationsSectionProps {
   canEdit: boolean;
   /** Holds `RestoreStorageLocation`'s codes: Restore location on an archived row. */
   canRestore: boolean;
+  /** Holds `CreateStorageLocation`'s codes: Add location in the header and the live empty state (§2 step 4.5). */
+  canCreate: boolean;
   /** Writes the page's status region (row-action messages; the section's own region speaks only its switches). */
   announce: (text: string) => void;
 }
@@ -54,19 +69,23 @@ interface Notice {
  * The Locations section of the warehouse page (warehouses-ux-copy.md B-5, ST-9b; Revision 7 §2 step 4.4, A-17 section use,
  * A-20, A-21). No search, never in the address. Columns Code · Kind (the label through `KIND_LABELS`, or the value as
  * sent; nothing is decided from a kind). Live rows offer **Edit** (code only); Archived rows offer **Restore location**;
- * an archived warehouse's section offers neither and carries ST-9b's note. After a row action: close → focus → announce
- * → re-read the view (FE-D1). No Add location (step 4.5) and no Delete (step 4.6) yet.
+ * an archived warehouse's section offers neither and carries ST-9b's note. **Add location** (§2 step 4.5) is in the live
+ * view's header and its empty state, for a `CreateStorageLocation` holder on a live warehouse only. After a dialog or a
+ * row action: close → focus → announce → re-read the view (FE-D1). No Delete yet (step 4.6).
  */
-export function LocationsSection({ warehouseId, initial, warehouseArchived, canEdit, canRestore, announce }: LocationsSectionProps) {
+export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, announce }: LocationsSectionProps) {
   const caller = useApiCaller();
   const list = useRef<ArchivableListHandle>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeHeading = useRef<HTMLParagraphElement>(null);
   const [editing, setEditing] = useState<StorageLocation | null>(null);
+  const [adding, setAdding] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const save = useMemo(() => locationSave(caller, warehouseId), [caller, warehouseId]);
   const restore = useMemo(() => locationRestore(caller, warehouseId), [caller, warehouseId]);
+  const create = useMemo(() => locationCreate(caller, warehouseId), [caller, warehouseId]);
+  const mayAdd = canCreate && !warehouseArchived;
   const load = useCallback(async (read: Read, archived: boolean, signal: AbortSignal) => asLocationList(await loadLocations(read, warehouseId, archived, signal)), [warehouseId]);
 
   const noticeId = notice?.id ?? null;
@@ -150,6 +169,19 @@ export function LocationsSection({ warehouseId, initial, warehouseArchived, canE
     if (reread) await list.current?.reread();
   };
 
+  const closeAdd = async ({ created, reread }: { created: StorageLocation | null; reread: boolean }) => {
+    // FE-D1: commit the close, let the dialog return focus to its opener (else the heading), speak, refresh.
+    flushSync(() => setAdding(false));
+    if (created !== null) announce(ADD_LOCATION.after(created.code));
+    if (reread) await list.current?.reread();
+  };
+
+  const addButton = (size?: 'sm') => (
+    <Button size={size} onClick={() => setAdding(true)}>
+      {LOCATIONS_SECTION.addLocation}
+    </Button>
+  );
+
   const header = ({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) => (
     <>
       <h2 id={HEADING_ID} ref={heading} tabIndex={-1}>
@@ -162,7 +194,10 @@ export function LocationsSection({ warehouseId, initial, warehouseArchived, canE
           </Button>
         ) : null
       ) : (
-        <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={LOCATIONS_SECTION.archived} />
+        <>
+          {mayAdd ? addButton() : null}
+          <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={LOCATIONS_SECTION.archived} />
+        </>
       )}
     </>
   );
@@ -223,13 +258,14 @@ export function LocationsSection({ warehouseId, initial, warehouseArchived, canE
         headingId={HEADING_ID}
         search={false}
         header={header}
-        empty={LOCATIONS_EMPTY}
+        empty={locationsEmpty(mayAdd ? addButton('sm') : null)}
         archivedView={ARCHIVED_VIEW}
         notice={noticeFor}
         controller={list}
         denied={<p>{LOCATIONS_SECTION.denied}</p>}
       />
-      {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} /> : null}
+      {adding && mayAdd ? <AddLocationForm warehouseCode={warehouseCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateStorageLocation')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} /> : null}
+      {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} /> : null}
     </>
   );
 }
