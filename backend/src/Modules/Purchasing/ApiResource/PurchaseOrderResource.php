@@ -269,7 +269,7 @@ final class PurchaseOrderResource
         public string $status,
         #[SerializedName('total_amount')]
         public string $totalAmount,
-        /** Null exactly while the order is `draft` (`purchase_order_ordered_at_set`). */
+        /** Null while the order is `draft`, and on an order cancelled while a draft (`purchase_order_ordered_at_set`). */
         #[SerializedName('ordered_at')]
         public ?string $orderedAt,
         /**

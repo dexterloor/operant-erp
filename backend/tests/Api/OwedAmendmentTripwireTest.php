@@ -985,8 +985,18 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * (landed `f199cee`, merged at `af08775`). Keep this one after the twin exists. A merge into main confirms by
      * hand that the twin still exists and that its suite ran green at the merged head (no byte-parity check: R-5).
      *
-     * **Planted controls, same test:** the predicate is a pure function of a path list and a source map, run here
-     * on synthetic trees that must trip and must pass — including a component preview at
+     * **The operator's way in (BK-21, 2026-11-05; owner D-5 of 2026-11-03, N-2).** When the check is due it also
+     * demands (i) that the generated spec carries {@see self::QUEUE_OPERATION_ID}, keyed on the `operationId` and never
+     * on a path (`1076ba3`), and (ii) a page served at exactly {@see self::QUEUE_PAGE_URL} whose own page file names
+     * that operation. The URL is binding unless UX writes another before the BK-21 commit (final review M-3); **if UX
+     * changes it later, one frontend commit plus its merge moves all of these together:** the constant here, the
+     * `IA.md` §5.6 `/pick-queue` rows (or adds the API-19a mapping row), the twin's constant and the planted rows. Both
+     * consequents are vacuous on the real tree until the screen's commit, which is correct: the queue and the screen
+     * come due together. **Honest limit:** a stub page that merely names the operation satisfies (ii), the same residual
+     * the `GetPickList` consequent carries; the screen commit's hand check covers it.
+     *
+     * **Planted controls, same test:** the predicate is a pure function of a path list, a source map and the spec's
+     * operation set, run here on synthetic trees that must trip and must pass — including a component preview at
      * `(dev)/component-preview/sales-orders/[id]/fulfil` (URL `/component-preview/…`, which must NOT satisfy it).
      * The last six trees each isolate ONE rule (empty or generated-only sources, so antecedent (b) cannot carry the
      * verdict; twin RED H-1): `page.jsx`, `page.js`, "or below", the consequent's `generated/` exclusion, and the
@@ -1000,11 +1010,18 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     {
         // Planted controls first: the predicate must be able to fail and to pass, whatever the real tree holds.
         $uses = ['lib/api/pick.ts' => "viewerMay('GetPickList')"];
+        // BK-21: every tree states its spec set; a due tree that passes also carries the queue page, its source keyed
+        // `app/<page>` as `frontendTree()` keys it.
+        $withQueue = [self::QUEUE_OPERATION_ID, 'GetPickList', 'CreateFulfilment'];
+        $withoutQueue = ['GetPickList', 'CreateFulfilment'];
+        $queuePage = '(app)/pick-queue/page.tsx';
+        $queueUses = $uses + ['app/'.$queuePage => "viewerMay('".self::QUEUE_OPERATION_ID."')"];
+        $due = ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'];
         $planted = [
             'a sales-orders list alone' => [['(app)/sales-orders/page.tsx'], $uses, false],
-            'the list and the fulfil page' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], $uses, true],
-            'the fulfil page under a nested group' => [['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx'], $uses, true],
-            'the fulfil page under a parallel slot' => [['(app)/sales-orders/[id]/@panel/fulfil/page.tsx'], $uses, true],
+            'the list and the fulfil page' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx', $queuePage], $queueUses, true],
+            'the fulfil page under a nested group' => [['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx', $queuePage], $queueUses, true],
+            'the fulfil page under a parallel slot' => [['(app)/sales-orders/[id]/@panel/fulfil/page.tsx', $queuePage], $queueUses, true],
             'a component preview of the fulfil page' => [['(dev)/component-preview/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], $uses, false],
             'a catch-all under sales-orders' => [['(app)/sales-orders/[...rest]/page.tsx'], $uses, false],
             'an optional catch-all as the param' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[[...id]]/fulfil/page.tsx'], $uses, false],
@@ -1025,9 +1042,23 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'GetPickList named only in generated code does not satisfy the screen' => [['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], ['generated/api-surface.server.ts' => 'GetPickList'], false],
             'a sales-orders page in a private folder is not routable' => [['(app)/_wip/sales-orders/page.tsx'], [], true],
             'a private folder below sales-orders is not routable' => [['(app)/sales-orders/_wip/page.tsx'], [], true],
+            // BK-21's two consequents (design R4; final review M-3). Each row below is due unless it says otherwise.
+            'the queue page names the queue operation' => [[...$due, $queuePage], $queueUses, true, $withQueue],
+            'the queue operation named only on the fulfilments page' => [[...$due, '(app)/fulfilments/page.tsx'], $uses + ['app/(app)/fulfilments/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page at the wrong URL' => [[...$due, '(app)/admin/pick-queue/page.tsx'], $uses + ['app/(app)/admin/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page source keyed without app/' => [[...$due, $queuePage], $uses + [$queuePage => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the spec without the queue operation' => [[...$due, $queuePage], $queueUses, false, $withoutQueue],
+            'no queue page' => [$due, $uses, false, $withQueue],
+            'the queue operation only in generated code' => [[...$due, $queuePage], $uses + ['generated/api-surface.server.ts' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue operation only in a component' => [[...$due, $queuePage], $uses + ['components/PickQueue.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page in a private folder' => [[...$due, '(app)/_wip/pick-queue/page.tsx'], $uses + ['app/(app)/_wip/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page in a component preview' => [[...$due, '(dev)/component-preview/pick-queue/page.tsx'], $uses + ['app/(dev)/component-preview/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page under a route group' => [[...$due, '(app)/(ops)/pick-queue/page.tsx'], $uses + ['app/(app)/(ops)/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], true, $withQueue],
+            'not due, no queue page, spec without the queue operation' => [['(app)/admin/users/page.tsx'], [], true, $withoutQueue],
         ];
-        foreach ($planted as $name => [$pages, $sources, $passes]) {
-            $defects = self::pickRouteCarryDefects($pages, $sources);
+        foreach ($planted as $name => $row) {
+            [$pages, $sources, $passes] = $row;
+            $defects = self::pickRouteCarryDefects($pages, $sources, $row[3] ?? $withQueue);
             self::assertSame($passes, [] === $defects, \sprintf(
                 'Planted control "%s" should %s, but the predicate reported: %s. The URL model or the token search is '
                 .'broken, so its verdict on the real tree below means nothing.',
@@ -1043,6 +1074,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'Planted control: the dynamic-first-segment allow-list does not let an allowed page through.');
 
         ['pages' => $pages, 'sources' => $sources] = self::frontendTree();
+        // BK-21 real-tree control (design R4, L-5): the source map keys a page file as `app/<page>`, so consequent (ii)'s
+        // lookup has a real subject. Read the real key first.
+        self::assertContains('(app)/page.tsx', $pages, 'Real-tree control: the known page (app)/page.tsx is gone; pick another.');
+        self::assertArrayHasKey('app/(app)/page.tsx', $sources,
+            'Real-tree control: frontendTree() no longer keys page sources as app/<page>, so consequent (ii) reads nothing.');
+        $specOperationIds = array_keys($this->builtOperationIds());
         $generatedNamesIt = array_filter($sources, static fn (string $text, string $path): bool => str_starts_with($path, 'generated/')
             && 1 === preg_match(self::PICK_OPERATION_TOKEN, $text), \ARRAY_FILTER_USE_BOTH);
         self::assertNotSame([], $generatedNamesIt,
@@ -1061,10 +1098,14 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n"
             ."    TO CONFIRM FE-LEAD.\n"
             ."  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n"
+            ."  - The operator's way in (BK-21; D-5, N-7): a page at exactly /pick-queue (its own Sales nav item, gated\n"
+            ."    fulfilment.create) lists ListPickQueueEntries; the fulfil page gates on GetPickList; its back link is\n"
+            ."    three-way -- GetSalesOrder -> the order, else the queue operation -> the queue, else /fulfilments if\n"
+            ."    permitted, else none (TO CONFIRM UX).\n"
             ."Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n"
             ."shipped IN PART and must not be called discharged.";
 
-        $defects = self::pickRouteCarryDefects($pages, $sources);
+        $defects = self::pickRouteCarryDefects($pages, $sources, $specOperationIds);
         self::assertSame([], $defects, "  ".implode("\n  ", $defects)."\n\n".$message);
 
         // The second real-tree control: while neither antecedent holds, the implication above is vacuous on the real
@@ -1078,6 +1119,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."the frontend commit that builds the screen; this one moves in the merge that brings that commit to main,\n"
             ."citing that commit's hand check.\n\n".$message);
     }
+
+    /** BK-21: the queue's `operationId` (consequent (i)) and the token its page names (consequent (ii)). */
+    private const QUEUE_OPERATION_ID = 'ListPickQueueEntries';
+
+    /** BK-21: the queue page's one exact URL (final review M-3: binding unless UX writes another before the commit). */
+    private const QUEUE_PAGE_URL = '/pick-queue';
 
     /** The identifiers that make the pick screen due (antecedent (b)); `GetPickList` alone is the consequent's use. */
     private const PICK_OPERATION_TOKEN = '/\b(?:CreateFulfilment|GetPickList)\b/';
@@ -1136,12 +1183,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
-     * @param list<string>          $pages   files relative to `frontend/src/app`
-     * @param array<string, string> $sources contents of files, keyed by path relative to `frontend/src`
+     * @param list<string>          $pages            files relative to `frontend/src/app`
+     * @param array<string, string> $sources          contents of files, keyed by path relative to `frontend/src`
+     * @param list<string>          $specOperationIds the generated spec's `operationId`s
      *
      * @return list<string>
      */
-    private static function pickRouteCarryDefects(array $pages, array $sources): array
+    private static function pickRouteCarryDefects(array $pages, array $sources, array $specOperationIds): array
     {
         if (!self::pickRouteCarryIsDue($pages, $sources)) {
             return [];
@@ -1156,6 +1204,16 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             && 1 === preg_match('/\bGetPickList\b/', $text), \ARRAY_FILTER_USE_BOTH);
         if ([] === $used) {
             $defects[] = 'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)';
+        }
+        // BK-21 consequent (i): the operator's way in exists in the spec.
+        if (!\in_array(self::QUEUE_OPERATION_ID, $specOperationIds, true)) {
+            $defects[] = 'the generated spec does not contain '.self::QUEUE_OPERATION_ID;
+        }
+        // BK-21 consequent (ii): a page at exactly the queue URL whose own page file names the operation.
+        $queued = array_filter($pages, static fn (string $page): bool => self::QUEUE_PAGE_URL === self::frontendPageUrl($page)
+            && 1 === preg_match('/\b'.self::QUEUE_OPERATION_ID.'\b/', $sources['app/'.$page] ?? ''));
+        if ([] === $queued) {
+            $defects[] = 'no page served at exactly '.self::QUEUE_PAGE_URL.' names '.self::QUEUE_OPERATION_ID;
         }
 
         return $defects;

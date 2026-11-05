@@ -351,7 +351,7 @@ final class ApiConfigurationTest extends ApiTestCase
         // **And one more (U-C1b, 2026-10-27):** `CreateUser` (POST `/users`, `app_user.create`) on `UserResource`: 201 +
         // `Location`. Its migrations grant `erp_app` INSERT on six `app_user` columns and `erp_worker` SELECT (password_mac),
         // and re-issue the audit catalogue (72).
-        self::assertCount(131, $checked, 'The route set changed. This slice declares one hundred and thirty-one operations: '.implode(', ', array_keys($checked)));
+        self::assertCount(132, $checked, 'The route set changed. This slice declares one hundred and thirty-two operations: '.implode(', ', array_keys($checked)));
     }
 
     /**

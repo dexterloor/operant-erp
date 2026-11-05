@@ -165,9 +165,10 @@ final class AiToolDtoTest extends TenancyTestCase
             self::THE_AI_MODULE_IS_UNBUILT
                 ? 'The Ai module now exists, so the scan below is no longer vacuous -- but do NOT flip '
                     .'THE_AI_MODULE_IS_UNBUILT yet. ALSO DUE BEFORE THE FIRST ASK TOOL (owner ruling R8 of 2026-09-22, '
-                    .'V2-S-1b clause 4, owner SEC): the pick read GetPickList confers NO sales_order or sales_order_line '
-                    .'table under PC-8 (SECURITY_MODEL.md PC-8 addendum, PC-12 clause 5). Ask must not map either table to '
-                    .'fulfilment.view, must not expose GetPickList as a tool, and PC-8\'s table-to-code intersection must be '
+                    .'V2-S-1b clause 4, owner SEC): the pick read GetPickList and the pick queue ListPickQueueEntries confer NO '
+                    .'sales_order or sales_order_line table under PC-8 (SECURITY_MODEL.md PC-8 addendum, PC-12 clause 5; '
+                    .'PC-9\'s second and fifth exceptions). Ask must not map either table to fulfilment.view or fulfilment.create, '
+                    .'must not expose GetPickList or ListPickQueueEntries as a tool, and PC-8\'s table-to-code intersection must be '
                     .'built as a check (AI-SQL-1) before any tool reads a sales table. The same moment owes PC-12 clause 1\'s '
                     .'inventory_item.unit_cost exclusion. '
                     .'ALSO DUE: SECURITY_MODEL.md PC-8 "M-15" -- per tool, select an actor uuid only where the API serves it under the same code; '

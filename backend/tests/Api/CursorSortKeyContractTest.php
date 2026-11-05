@@ -62,7 +62,7 @@ final class CursorSortKeyContractTest extends PurchaseOrderTestCase
     ];
 
     /** Lists with no `sort` parameter whose one order is by time (§14.2 items 29/30, IA §5.6) — the cross-check only. */
-    private const TIME_ORDERED_WITHOUT_SORT = ['ListAuditLogEntries', 'ListAuditRecords', 'ListStockMovements'];
+    private const TIME_ORDERED_WITHOUT_SORT = ['ListAuditLogEntries', 'ListAuditRecords', 'ListPickQueueEntries', 'ListStockMovements'];
 
     /** Views whose one order is by time, named by the filter that selects them (IA §5.6: an order's shipments/receipts). */
     private const TIME_ORDERED_VIEWS = ['ListFulfilments' => 'sales_order_id=', 'ListGoodsReceipts' => 'purchase_order_id='];

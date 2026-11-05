@@ -65,6 +65,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'sales_order_tenant_warehouse_open_idx', columns: ['tenant_id', 'warehouse_id', 'status'], options: ['where' => '(deleted_at IS NULL)'])]
 // Order restores C2 (`Version20261021000400`): the `/sales-orders` Archived view, `deleted_at DESC, id DESC`.
 #[ORM\Index(name: 'sales_order_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
+// BK-21 (`Version20261105000100`): the pick queue filtered to one warehouse, `(ordered_at, id)` in index order.
+#[ORM\Index(name: 'sales_order_tenant_warehouse_awaiting_pick_idx', columns: ['tenant_id', 'warehouse_id', 'ordered_at', 'id'], options: ['where' => "((deleted_at IS NULL) AND (status = ANY (ARRAY['confirmed'::text, 'partially_fulfilled'::text])))"])]
 class SalesOrder
 {
     use GuardsStatusTransitions;

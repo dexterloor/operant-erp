@@ -2332,6 +2332,92 @@
                 },
                 "type": "object"
             },
+            "PickQueueEntryCollection": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "properties": {
+                                "customer": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                },
+                                "id": {
+                                    "format": "uuid",
+                                    "type": "string"
+                                },
+                                "order_number": {
+                                    "type": "string"
+                                },
+                                "ordered_at": {
+                                    "format": "date-time",
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "confirmed",
+                                        "partially_fulfilled"
+                                    ],
+                                    "type": "string"
+                                },
+                                "warehouse": {
+                                    "properties": {
+                                        "id": {
+                                            "format": "uuid",
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "name"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "order_number",
+                                "status",
+                                "ordered_at",
+                                "customer",
+                                "warehouse"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "next_cursor": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "previous_cursor": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "tenant_has_rows": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "PurchaseOrder": {
                 "properties": {
                     "archived_at": {
@@ -8450,6 +8536,110 @@
                 "summary": "Retrieves a PermissionCollection resource.",
                 "tags": [
                     "PermissionCollection"
+                ]
+            }
+        },
+        "/api/v1/pick-queue": {
+            "get": {
+                "description": "Retrieves a PickQueueEntryCollection resource.",
+                "operationId": "ListPickQueueEntries",
+                "parameters": [
+                    {
+                        "deprecated": false,
+                        "description": "Restrict to one warehouse's open orders, served by sales_order_tenant_warehouse_awaiting_pick_idx. A warehouse this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "warehouse_id",
+                        "required": false,
+                        "schema": {
+                            "format": "uuid",
+                            "type": "string"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, sales_order.order_number, matched by prefix.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "q",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "limit",
+                        "required": false,
+                        "schema": {
+                            "default": 50,
+                            "maximum": 200,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "after",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "before",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "style": "form"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PickQueueEntryCollection"
+                                }
+                            }
+                        },
+                        "description": "PickQueueEntryCollection resource"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            },
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        },
+                        "description": "Not found",
+                        "links": {}
+                    }
+                },
+                "summary": "Retrieves a PickQueueEntryCollection resource.",
+                "tags": [
+                    "PickQueueEntryCollection"
                 ]
             }
         },
@@ -14606,6 +14796,10 @@
         {
             "description": "Resource 'PickList' operations.",
             "name": "PickList"
+        },
+        {
+            "description": "Resource 'PickQueueEntryCollection' operations.",
+            "name": "PickQueueEntryCollection"
         },
         {
             "description": "Resource 'SalesOrderCollection' operations.",

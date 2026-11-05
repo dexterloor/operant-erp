@@ -21,6 +21,8 @@ use App\Modules\Purchasing\Application\PurchaseOrderListCriteria;
 use App\Modules\Purchasing\Application\PurchaseOrderReader;
 use App\Modules\Purchasing\Application\PurchaseOrderViews;
 use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
+use App\Modules\Sales\Application\PickQueueCriteria;
+use App\Modules\Sales\Application\PickQueueReader;
 use App\Modules\Sales\Application\SalesOrderListCriteria;
 use App\Modules\Sales\Application\SalesOrderReader;
 use App\Modules\Sales\Application\SalesOrderViews;
@@ -1221,6 +1223,164 @@ final class SchemaQueryPlanTest extends TenancyTestCase
         // (d), bounded by the accepted cost (RED review L-3): inside the tie group the scan may read the group, never the order.
         $this->assertReceiptPage($sql, $parameters, 'goods_receipt_tenant_order_idx', 'received_at', 'Purchasing — one order\'s receipts, page inside a tie group',
             intdiv(self::DEEP_RECEIPTS, 3) + $criteria->limit);
+    }
+
+    /**
+     * **BK-21 — the pick queue, unfiltered, uses `sales_order_tenant_open_idx`** (`docs/design/bk21-final-red.md` M-1): the
+     * statement `ListPickQueueEntries` issues, from {@see PickQueueReader::listStatement()}, on a SECOND page, without and
+     * with `q` (where `order_number` is a Filter, not an Index Cond), under three join strategies. The page is cut from
+     * `sales_order` alone, so the display joins cannot decide whether the scan stops at it. The index is
+     * `(tenant_id, ordered_at)` with no `id`, so an Incremental Sort presorted on `ordered_at` is the one node allowed
+     * between the page's LIMIT and the scan (the `ed3dede` precedent). **Its ground:** `seedWorld()` gives every order a
+     * distinct `ordered_at` (`now() - g hours`), as `confirm()` stamps each real order with its own transaction's clock, so
+     * each tie group is one row and the incremental sort sorts nothing. **Mutations:** drop the index (M13′), drop
+     * `deleted_at IS NULL` (M4), or join before cutting the page (M25) → red here.
+     */
+    #[Test]
+    public function thePickQueueUsesTheOpenOrderIndex(): void
+    {
+        $this->seedWorld();
+        [$key, $id] = $this->queueCursor(null);
+
+        foreach ([null, 'SO-'] as $search) {
+            $criteria = new PickQueueCriteria(limit: 20, search: $search, after: new Cursor($key, $id));
+            [$sql, $parameters] = PickQueueReader::listStatement($criteria);
+            self::assertStringContainsString('(so.ordered_at, so.id) > (?::timestamptz, ?::uuid)', $sql, 'The statement explained is not the queue\'s keyset page.');
+            self::assertSame(1, substr_count($sql, 'ORDER BY so.ordered_at ASC, so.id ASC'), 'The page is not cut in index order inside the derived table.');
+            self::assertSame(1, substr_count($sql, 'ORDER BY p.ordered_at ASC, p.id ASC'), 'The page is not ordered again after the joins.');
+
+            $this->assertQueuePage($sql, $parameters, 'sales_order_tenant_open_idx', 'Sales — the pick queue, second page'.(null === $search ? '' : ', with q'),
+                null === $search ? $criteria->limit : null, true);
+        }
+    }
+
+    /**
+     * **BK-21 — the pick queue for one warehouse uses `sales_order_tenant_warehouse_awaiting_pick_idx`**, with NO sort node at
+     * all: `(tenant_id, warehouse_id, ordered_at, id)` serves the whole keyset. Its own seed (design R5): `seedWorld()` has
+     * two warehouses, so a warehouse filter is ~50% selective and the planner may fairly choose either index; here tenant A
+     * gains twenty more warehouses, each with a hundred open orders, and the test filters on one. **Mutations:** drop the
+     * index (M13) or build it without the trailing `id` (M14) → red here.
+     */
+    #[Test]
+    public function thePickQueueForOneWarehouseUsesTheWarehouseAwaitingPickIndex(): void
+    {
+        $this->seedWorld();
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO warehouse (id, tenant_id, code, name, country_code)
+            SELECT gen_random_uuid(), ?::uuid, 'QW' || lpad(g::text, 2, '0'), 'Queue warehouse ' || g, 'DE'
+            FROM generate_series(1, 20) g
+            SQL, [self::TENANT_A]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+            INSERT INTO sales_order (id, tenant_id, order_number, customer_id, warehouse_id, currency_code, status, ordered_at, ship_to_country_code,
+                                     idempotency_key, request_digest)
+            SELECT gen_random_uuid(), ?::uuid, 'SO-' || lpad((700000 + g)::text, 6, '0'),
+                   (SELECT id FROM customer ORDER BY code LIMIT 1),
+                   (SELECT id FROM warehouse WHERE code LIKE 'QW%' ORDER BY code LIMIT 1 OFFSET (g % 20)),
+                   'EUR', CASE WHEN g % 2 = 0 THEN 'confirmed' ELSE 'partially_fulfilled' END,
+                   now() - (g || ' minutes')::interval, 'DE',
+                   encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
+                   encode(sha256(gen_random_uuid()::text::bytea), 'hex')
+            FROM generate_series(1, 2000) g
+            SQL, [self::TENANT_A]);
+        $this->owner()->executeStatement('ANALYZE warehouse, sales_order');
+
+        $warehouse = $this->tenantContext()->run(self::TENANT_A, fn (): string => (string) $this->app()->fetchOne("SELECT id FROM warehouse WHERE code = 'QW07'"));
+        [$key, $id] = $this->queueCursor($warehouse);
+
+        foreach ([null, 'SO-7'] as $search) {
+            $criteria = new PickQueueCriteria(limit: 20, warehouseId: $warehouse, search: $search, after: new Cursor($key, $id));
+            [$sql, $parameters] = PickQueueReader::listStatement($criteria);
+            self::assertStringContainsString('so.warehouse_id = ?::uuid', $sql, 'The statement explained is not the warehouse view.');
+            self::assertSame(1, substr_count($sql, 'ORDER BY so.ordered_at ASC, so.id ASC'));
+            self::assertSame(1, substr_count($sql, 'ORDER BY p.ordered_at ASC, p.id ASC'));
+
+            $this->assertQueuePage($sql, $parameters, 'sales_order_tenant_warehouse_awaiting_pick_idx',
+                'Sales — the pick queue for one warehouse, second page'.(null === $search ? '' : ', with q'),
+                null === $search ? $criteria->limit : null, false,
+                // `enable_bitmapscan = off`: the planner-size accommodation `planWith()` describes, measured 2026-11-05 — at
+                // a hundred open orders per warehouse the planner reads the 80 rows past the cursor with a bitmap scan and a
+                // top-N sort; real volume makes the ordered index scan cheaper. It never decides which index is chosen.
+                ['enable_bitmapscan' => 'off']);
+        }
+    }
+
+    /**
+     * A real second-page cursor for the queue (the twentieth row's raw `ordered_at` text and id), read as `erp_app`.
+     *
+     * @return array{string, string}
+     */
+    private function queueCursor(?string $warehouse): array
+    {
+        return $this->tenantContext()->run(self::TENANT_A, function () use ($warehouse): array {
+            $row = $this->app()->fetchAssociative(
+                "SELECT ordered_at::text AS k, id::text AS i FROM sales_order WHERE deleted_at IS NULL AND status IN ('confirmed', 'partially_fulfilled')"
+                .' AND ordered_at IS NOT NULL'.(null === $warehouse ? '' : ' AND warehouse_id = ?::uuid')
+                .' ORDER BY ordered_at, id OFFSET 19 LIMIT 1',
+                null === $warehouse ? [] : [$warehouse]);
+            self::assertIsArray($row, 'The seed holds fewer than twenty queued orders, so there is no second page to explain.');
+
+            return [(string) $row['k'], (string) $row['i']];
+        });
+    }
+
+    /**
+     * {@see self::assertReceiptPage()}'s forward twin (final review M-1): under each join strategy, an index scan (never
+     * Backward) of `$index` on `sales_order`; the cursor's `ordered_at` bound an index condition; between the page's LIMIT and
+     * the scan, only an Incremental Sort presorted on `ordered_at` — or, where `$sortAllowed` is false, nothing; and the scan
+     * reads at most `$limit + 2` rows.
+     *
+     * @param list<int|string> $parameters
+     */
+    /** @param array<string, 'off'> $accommodation planner-size settings added to every strategy, each caller saying why */
+    private function assertQueuePage(string $sql, array $parameters, string $index, string $label, ?int $limit, bool $sortAllowed, array $accommodation = []): void
+    {
+        foreach ([
+            'as planned' => [],
+            'merge join forced' => ['enable_nestloop' => 'off', 'enable_hashjoin' => 'off'],
+            'hash join forced' => ['enable_nestloop' => 'off', 'enable_mergejoin' => 'off'],
+        ] as $strategy => $settings) {
+            $plan = $this->planWith($accommodation + $settings, $sql, $parameters);
+            $this->assertPlanOn('sales_order', $label.' ('.$strategy.')', $plan, $index);
+
+            self::assertStringContainsString('Index Scan using '.$index, $plan, "(a) [$strategy] Not an ordered forward scan of $index:\n$plan");
+            self::assertMatchesRegularExpression('/Index Scan using '.$index.'[^\n]*\n(\s+[A-Z][^\n]*\n)*?\s+Index Cond:[^\n]*(\bordered_at >=? |ROW\((\w+\.)?ordered_at, (\w+\.)?id\) > ROW\()/', $plan,
+                "(b) [$strategy] The cursor's ordered_at bound is not an index condition of the scan, so the page is filtered, not sought:\n$plan");
+            $lines = explode("\n", $plan);
+            $scanAt = null;
+            foreach ($lines as $n => $line) {
+                if (str_contains($line, 'Index Scan using '.$index)) {
+                    $scanAt = $n;
+                    break;
+                }
+            }
+            self::assertNotNull($scanAt);
+            $limitAt = null;
+            for ($n = $scanAt - 1; $n >= 0; --$n) {
+                if (1 === preg_match('/->\s+Limit \(actual/', $lines[$n])) {
+                    $limitAt = $n;
+                    break;
+                }
+            }
+            self::assertNotNull($limitAt, "(c) [$strategy] No LIMIT above the scan, so nothing stops it:\n$plan");
+            $between = \array_slice($lines, $limitAt + 1, $scanAt - $limitAt - 1);
+            $nodes = array_values(array_filter($between, static fn (string $line): bool => str_contains($line, '->')));
+            if (!$sortAllowed) {
+                self::assertSame([], $nodes, "(c) [$strategy] A node sits between the scan and the page's LIMIT; this index serves the whole keyset:\n$plan");
+            }
+            foreach ($nodes as $node) {
+                self::assertMatchesRegularExpression('/->\s+Incremental Sort \(actual/', $node,
+                    "(c) [$strategy] Something other than an Incremental Sort sits between the scan and the page's LIMIT:\n$plan");
+            }
+            if ([] !== $nodes) {
+                self::assertMatchesRegularExpression('/^\s+Presorted Key: (\w+\.)?ordered_at$/m', implode("\n", $between),
+                    "(c) [$strategy] The Incremental Sort is not presorted on ordered_at:\n$plan");
+            }
+            if (null !== $limit) {
+                preg_match('/Index Scan using '.$index.'[^\n]*rows=(\d+) loops=1/', $plan, $m);
+                self::assertNotSame([], $m, "(d) [$strategy] No scan row count:\n$plan");
+                self::assertLessThanOrEqual($limit + 2, (int) $m[1], "(d) [$strategy] The scan read past its bound ($limit + 2):\n$plan");
+            }
+        }
     }
 
     /** @param list<int|string> $parameters */
