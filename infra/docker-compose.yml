@@ -44,8 +44,9 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - erp_pgdata:/var/lib/postgresql/data
     ports:
-      # Direct, unpooled access. Migrations run here as the owner role.
-      - "${POSTGRES_DIRECT_PORT}:5432"
+      # Direct, unpooled access. Migrations run here as the owner role. Loopback only (2a C1; RESIDUAL_GAPS.md G-1.x):
+      # every DSN template uses 127.0.0.1, and ComposeLocalServiceTest holds the binding.
+      - "127.0.0.1:${POSTGRES_DIRECT_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
@@ -96,8 +97,9 @@ services:
     tmpfs:
       - /run/pgbouncer:mode=700,uid=70,gid=70
     ports:
-      # Pooled access. The application and the isolation suite connect here.
-      - "${PGBOUNCER_PORT}:6432"
+      # Pooled access. The application and the isolation suite connect here. Loopback only (2a C1); PgBouncer reaches
+      # Postgres over the compose network (`host=postgres`), so the host binding does not affect it.
+      - "127.0.0.1:${PGBOUNCER_PORT}:6432"
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6432 || exit 1"]
       interval: 2s

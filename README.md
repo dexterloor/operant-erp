@@ -121,8 +121,7 @@ code yet.
 The `Makefile` uses the Docker context `colima`. If yours differs, run `docker context ls` and pass it on
 every command, for example `make DOCKER_CONTEXT=default up`.
 
-Redis and Mailpit listen on `127.0.0.1` only. The Postgres and PgBouncer ports are published on all network
-interfaces, so run the stack on a network you trust.
+Every published port listens on `127.0.0.1` only.
 
 **1. Create the settings files.**
 
