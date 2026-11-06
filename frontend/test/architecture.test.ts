@@ -1451,7 +1451,8 @@ describe('architecture — G-8: the session id reaches only the account-page rou
 // V2-S-1b clause 5's FRONTEND half and B1N-12's screen (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on
 // 2026-11-03, docs/design/fe-merge-r8-ruling.md, to-do 2; docs/design/frontend-residuals.md FE-R2). The backend check runs
 // only when this app reaches main; this twin runs on every frontend gate, so the trigger fires on the commit that crosses
-// it. Same rule, ported line for line (keep the two in step — a change to one is a change to both):
+// it. Same antecedents and the first two consequents, ported line for line (keep the two in step — a change to one is a
+// change to both):
 //   every page.{tsx,ts,jsx,js} under src/app gets the URL Next.js serves a static-segment page at (pageUrl). Antecedent (a): some page's URL
 //   is /sales-orders or below. Antecedent (b): CreateFulfilment or GetPickList is named in a file under src outside
 //   src/generated/. Either requires BOTH a page at exactly /sales-orders/[<one param>]/fulfil AND a use of GetPickList

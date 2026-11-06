@@ -190,6 +190,9 @@ describe('R8-1 item 2 — only a page press (or a Retry repeating one) carries a
     await srv.fail();
     await u.click(screen.getByRole('button', { name: 'Retry' }));
     expect(srv.sent.map(params)).toEqual([{ q: 'A' }, { q: 'A', after: 'c-a-1' }, { q: 'A', after: 'c-a-1' }]);
+    // The repeated read is a page read by its cursor, so it speaks the position cue (RED L-1, P15).
+    await srv.answer([live('A2'), live('A3')], { previous_cursor: 'c-a-0' });
+    expect(region()).toHaveTextContent('2 things shown, A2 to A3. SKU starts with “A”.');
   });
 
   it('limit is never sent, and after and before never together (every request of a long run)', async () => {
@@ -216,6 +219,7 @@ describe('R8-1 item 4 — server search: a settle reads, it never speaks from th
     const srv = deferredServer();
     const u = userEvent.setup();
     renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    const texts = textsOf(region());
     await u.click(screen.getByRole('button', { name: 'Next' }));
     await u.type(box(), 'K');
     await settle(); // settles while Next is still open
@@ -225,7 +229,61 @@ describe('R8-1 item 4 — server search: a settle reads, it never speaks from th
     await srv.answer([live('K1'), live('K2')]);
     expect(skus()).toEqual(['K1', 'K2']);
     expect(box().value).toBe('K');
-    expect(region()).toHaveTextContent('2 things shown. SKU starts with “K”.');
+    // The Next the search waited for spoke nothing: its rows were about to be replaced (RED M-3, P3).
+    expect(texts.texts).toEqual(['', '2 things shown. SKU starts with “K”.']);
+    texts.stop();
+  });
+
+  it('a search that settles behind a read that then fails is still read, and its answer ends the banner (never dropped)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await u.type(box(), 'K');
+    await settle();
+    await srv.fail();
+    expect(srv.sent.map(params)).toEqual([{ after: 'c-1' }, { q: 'K' }]);
+    await srv.answer([live('K1')]);
+    expect(skus()).toEqual(['K1']);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('the mount settle and a type-and-erase read nothing (RED L-1, P1)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    await settle();
+    await u.type(box(), 'x');
+    await u.type(box(), '{Backspace}');
+    await settle();
+    expect(srv.sent).toHaveLength(0);
+  });
+
+  it('a switch reads the text in the box and settles it, so the later settle reads nothing more (RED L-1, P14)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    await u.type(box(), 'Z');
+    await u.click(screen.getByRole('button', { name: 'Archived' })); // before the box settles
+    await srv.answer([gone('Z1', '2026-10-01T00:00:00Z')]);
+    await settle();
+    expect(srv.sent.map(params)).toEqual([{ archived: 'true', q: 'Z' }]);
+  });
+
+  it('a queued search equal to the one in flight is not read again: A in flight, then AB, then back to A → [A] (RED L-1, P21)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')])} />);
+    await u.type(box(), 'A');
+    await settle();
+    await u.type(box(), 'B');
+    await settle();
+    await u.type(box(), '{Backspace}');
+    await settle();
+    await srv.answer([live('A1')]);
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(srv.sent.map(params)).toEqual([{ q: 'A' }]);
+    expect(srv.openCount()).toBe(0);
   });
 
   it('the region is blank while the settle’s read is open, and speaks only when that read succeeds', async () => {
@@ -373,6 +431,37 @@ describe('R8-1 items 3 and 6 — pager per view, position cue, focus', () => {
   });
 });
 
+describe('RED H-1 — no pager while the rows answer a search other than the settled one', () => {
+  it('a failed search withdraws the pager; Retry reads that search, and on success the rows answer it and the pager returns', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    await u.type(box(), 'B');
+    await settle();
+    await srv.fail();
+    expect(skus()).toEqual(['A1']);
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(srv.sent.map(params)).toEqual([{ q: 'B' }, { q: 'B' }]);
+    await srv.answer([live('B1')], { next_cursor: 'c-b-1' });
+    expect(skus()).toEqual(['B1']);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    expect(params(srv.sent[2]!)).toEqual({ q: 'B', after: 'c-b-1' });
+  });
+
+  it('a failed switch with a search in the box withdraws the pager of the rows still shown', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'c-1')} />);
+    await u.type(box(), 'Z');
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await srv.fail();
+    expect(skus()).toEqual(['A1']);
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+  });
+});
+
 describe('R8-1 item 5 — an empty page reached by a cursor is the core’s own state', () => {
   for (const [label, pager, cursor] of [
     ['after', 'Next', { after: 'n1' }],
@@ -409,14 +498,50 @@ describe('R8-1 item 5 — an empty page reached by a cursor is the core’s own 
     renderWired(<PagedFixture initial={first([live('A1')], 'n1')} controller={controller} />);
     await u.click(screen.getByRole('button', { name: 'Next' }));
     await srv.answer([live('B1')], { previous_cursor: 'p1' });
+    act(() => screen.getByRole('button', { name: 'Previous' }).focus());
     const said = region().textContent;
     let done: Promise<unknown> = Promise.resolve();
     act(() => void (done = controller.current!.reread()));
     await srv.answer([]);
     await act(async () => void (await done));
     expect(params(srv.sent[1]!)).toEqual({ after: 'n1' });
-    expect(screen.getByText('There are no more things here.', { selector: 'p' })).toBeInTheDocument();
+    // The reread removed the pager that held focus: focus goes to the state's heading, and nothing is announced (RED M-1).
+    expect(document.activeElement).toBe(screen.getByText('There are no more things here.', { selector: 'p' }));
     expect(region().textContent).toBe(said);
+  });
+
+  it('a reread that removes the focused page button on a page that still has rows moves focus to the list heading, and speaks nothing (RED L-6)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    const controller = createRef<ArchivableListHandle>();
+    renderWired(<PagedFixture initial={first([live('A1')], 'n1')} controller={controller} />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await srv.answer([live('B1')], { next_cursor: 'n2', previous_cursor: 'p1' });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Next' }));
+    const said = region().textContent;
+    let done: Promise<unknown> = Promise.resolve();
+    act(() => void (done = controller.current!.reread()));
+    await srv.answer([live('B1')], { previous_cursor: 'p1' });
+    await act(async () => void (await done));
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(skus()).toEqual(['B1']);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Things' }));
+    expect(region().textContent).toBe(said);
+  });
+
+  it('a page press while a reread is open is ignored (RED M-2)', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    const controller = createRef<ArchivableListHandle>();
+    renderWired(<PagedFixture initial={first([live('A1')], 'n1')} controller={controller} />);
+    let done: Promise<unknown> = Promise.resolve();
+    act(() => void (done = controller.current!.reread()));
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await srv.answer([live('A1')], { next_cursor: 'n1' });
+    await act(async () => void (await done));
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(srv.sent.map(params)).toEqual([{}]);
+    expect(srv.openCount()).toBe(0);
   });
 });
 

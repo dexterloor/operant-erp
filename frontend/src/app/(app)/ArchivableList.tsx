@@ -267,9 +267,10 @@ interface Loaded<T> {
  * the search in the box), a settled search, Clear search, **Back to the first page** and the first load carry none. A
  * settle reads the first page for its query and the region is blank until that read succeeds — it never speaks from the
  * rows on screen; a settle during any fetch waits, the last one winning, and the fetch it waited for then speaks nothing.
- * A page press during any fetch is ignored, and it and `reread()` use the search the rows answer, never unsettled text.
+ * A page press during any fetch (a reread included) is ignored, and it and `reread()` use the settled search, never
+ * unsettled text; while the rows answer another search (a settle or a switch failed) the pager is withdrawn.
  * A page read by its cursor speaks `paging.pageShown` (a position cue); an empty one is the core's own state (`noMore`,
- * focus to its heading), never an ST-2 empty state. After a page press focus stays on the pressed button if it is still
+ * focus to its heading if focus was lost — after a reread too, which still announces nothing), never an ST-2 empty state. After a page press focus stays on the pressed button if it is still
  * rendered, else goes to the list's heading. Cursors and `q` are never written to the address: a reload opens page 1.
  *
  * The region (FE-R4, fe-r4-ux.md Revision 1). Its text is one string written explicitly, never derived on render, and
@@ -345,6 +346,8 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const pendingSettle = useRef<string | null>(null);
   /** The heading of the empty page a cursor reached (R8-1 item 5). */
   const endHeading = useRef<HTMLParagraphElement>(null);
+  /** A `reread()` is reading: a page press then is ignored, as during any fetch (R8-1 item 4; it would carry a cursor the reread is replacing). */
+  const rereading = useRef(false);
   const viewControlRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
@@ -513,9 +516,18 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         const view = shownRef.current.archived;
         // The page on screen, read again: same view, same search, same cursor (R8-1; L-8).
         const page = shownRef.current.page;
-        const r = await readView(view, page);
+        rereading.current = true;
+        const r = await readView(view, page).finally(() => {
+          rereading.current = false;
+        });
         if (r.kind === 'ok') {
-          flushSync(() => setShown(loadedOf(view, r, page)));
+          const next = loadedOf(view, r, page);
+          flushSync(() => setShown(next));
+          // R8-1 item 5: the empty page lands here too. A reread may remove the page button that held focus (the page is
+          // empty, or no longer offers that way): only then does focus move — to the state's heading, else the list's, as a
+          // page press does — taken from nowhere the person went, and nothing is announced (a reread never speaks, M-2).
+          // A whole-view list keeps its reread rule (focus never moves).
+          if (focusWasLost()) (next.endOfList ? endHeading.current : paging !== null ? listHeading() : null)?.focus();
           viewLoaded(view);
           return { kind: 'ok' };
         }
@@ -541,9 +553,18 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     // A paged list reads the unsearched first page at once (no cursor); a whole-view one only stops filtering.
     if (paging !== null) settlePaged('');
   };
-  /** A page press (R8-1 item 2): its cursor, and the search the rows on screen answer — never the unsettled text. Ignored while busy. */
+  /**
+   * The rows on screen answer a search other than the settled one: a settle or a switch (which settles the box) failed, so
+   * the rows are the older read's (RED H-1). Their cursors belong to that older search, and sending the settled one with
+   * them would be served silently as a position in the wrong list: the pager is withdrawn until a read answers the settled
+   * search (the banner's Retry, a new search, a switch).
+   */
+  // Its predicate (`refetchError.page.q`) and `goTo`'s (`settledQ`) are two expressions of one fact, equal while a search
+  // can settle only by a read or a switch; a change that lets a search settle without a fetch must revisit both together.
+  const rowsAnswerAnotherSearch = paging !== null && shown !== null && refetchError !== null && refetchError.page.q !== shown.page.q;
+  /** A page press (R8-1 item 2): its cursor, and the search the rows on screen answer — the settled one, never the unsettled text. Ignored during any read. */
   const goTo = (cursor: PageCursor) => {
-    if (busy || shown === null) return;
+    if (busy || rereading.current || shown === null || settledQ.current !== shown.page.q) return;
     void fetchView(shown.archived, 'page', { q: shown.page.q, cursor });
   };
   const cols = columns(archived);
@@ -623,7 +644,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
             )}
           </Refetchable>
           {footer ? footer(rows) : null}
-          {paging !== null && !shown.endOfList && (shown.previous !== null || shown.next !== null) ? (
+          {paging !== null && !shown.endOfList && !rowsAnswerAnotherSearch && (shown.previous !== null || shown.next !== null) ? (
             <div className={styles.pager}>
               {/* Both slots always render (null or a button), so a button's node survives a page change and keeps focus. */}
               {shown.previous !== null ? (
