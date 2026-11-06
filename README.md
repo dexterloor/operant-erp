@@ -197,10 +197,16 @@ the tests replaces the demo.
 make reset         # the purpose takes effect only now: it is written into the new database once, when it is created
 make demo-seed     # one workspace "demo", its eight built-in roles and an owner, owner@example.com
 make serve         # in a second terminal: the API on http://127.0.0.1:8000
+make worker-loop   # in a third terminal: sends the invitation emails to Mailpit
+make demo-populate # seven more people and some business data, made through the API
 ```
 
-The owner signs in with the password from `.env.demo`; it is never printed. People and sample data are added in the
-app, as the owner. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
+Every demo person signs in with the password from `.env.demo`; it is never printed. `make demo-populate` adds the
+people through the API the way a new colleague is added (an invitation email, then a password), reading the
+invitations from Mailpit itself, then gives them their roles and fills the workspace with warehouses, items,
+suppliers, customers, purchase and sales orders and a paid invoice, each made by the person whose job it is. It runs
+once per seeded workspace. Vic's pending Finance role proposal lapses after 14 days, so an older demo shows it as
+expired. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
 refuses while `.env.infra` says `demo`, so the tests never wipe the demo by accident. To go back to the tests, set
 `DB_PURPOSE=gate` (or remove the line) and run `make reset`.
 

@@ -26,7 +26,7 @@ OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 # an operator inspects, never re-run automatically (mail-c0-red.md M-2).
 WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed serve refuse-demo-database require-demo-database
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed demo-populate serve refuse-demo-database require-demo-database
 
 env:                ## create .env, .env.infra, .env.test, .env.worker and .env.demo from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
@@ -112,3 +112,12 @@ SEED_ARGS ?=
 demo-seed: require-demo-database  ## seed the local demo workspace (needs DB_PURPOSE=demo and a make reset)
 	@echo "demo-seed: target database port $$(grep -E '^POSTGRES_DIRECT_PORT=' .env.infra | cut -d= -f2) (DOCKER_CONTEXT=$(DOCKER_CONTEXT))"
 	cd backend && php bin/demo-seed.php --workspace=$(WORKSPACE) $(SEED_ARGS)
+
+# Fill the seeded demo workspace through the API (2a): seven more people, each given a password through their invitation
+# (read from Mailpit, never printed), their roles, and warehouses, items, suppliers, customers, orders and an invoice --
+# every one made by the shipped operation, as the person who would do it. Needs `make serve` and `make worker-loop`
+# running. Talks only to 127.0.0.1. The password is the same DEMO_PASSWORD (or DEMO_ARGS=--password-stdin). It refuses a
+# workspace that already holds anyone but its owner (exit 3): reset and seed again to start over.
+DEMO_ARGS ?=
+demo-populate: require-demo-database  ## fill the demo workspace through the API (needs make serve and make worker-loop)
+	cd backend && php bin/demo-walkthrough.php populate --api=http://127.0.0.1:$(API_PORT) --mailbox=http://127.0.0.1:$$(sed -n 's/^MAILPIT_UI_PORT=//p' ../.env.infra | tail -n 1) --workspace=$(WORKSPACE) $(DEMO_ARGS)
