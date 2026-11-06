@@ -63,6 +63,36 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateStorageLocation: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/locations',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.create'],
+    },
+  },
+  CreateWarehouse: {
+    method: 'POST',
+    template: '/api/v1/warehouses',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.create'],
+    },
+  },
+  DeleteStorageLocation: {
+    method: 'DELETE',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.delete'],
+    },
+  },
   DeleteUser: {
     method: 'DELETE',
     template: '/api/v1/users/{id}',
@@ -71,6 +101,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.delete'],
+    },
+  },
+  DeleteWarehouse: {
+    method: 'DELETE',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.delete'],
     },
   },
   GetRole: {
@@ -91,6 +131,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.view'],
+    },
+  },
+  GetWarehouse: {
+    method: 'GET',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.view'],
     },
   },
   ListOfferedRoles: {
@@ -133,6 +183,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListStorageLocations: {
+    method: 'GET',
+    template: '/api/v1/warehouses/{id}/locations',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.view'],
+    },
+  },
   ListUsers: {
     method: 'GET',
     template: '/api/v1/users',
@@ -141,6 +201,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.view'],
+    },
+  },
+  ListWarehouses: {
+    method: 'GET',
+    template: '/api/v1/warehouses',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.view'],
     },
   },
   RejectRoleGrantProposal: {
@@ -163,6 +233,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.delete'],
     },
   },
+  RestoreStorageLocation: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}/restoration',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.delete'],
+    },
+  },
   RestoreUser: {
     method: 'POST',
     template: '/api/v1/users/{id}/restoration',
@@ -171,6 +251,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['app_user.delete'],
+    },
+  },
+  RestoreWarehouse: {
+    method: 'POST',
+    template: '/api/v1/warehouses/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.delete'],
     },
   },
   RevokeRole: {
@@ -191,6 +281,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.edit'],
+    },
+  },
+  UpdateStorageLocation: {
+    method: 'PATCH',
+    template: '/api/v1/warehouses/{id}/locations/{locationId}',
+    pathParams: ['id', 'locationId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['storage_location.edit'],
+    },
+  },
+  UpdateWarehouse: {
+    method: 'PATCH',
+    template: '/api/v1/warehouses/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['warehouse.edit'],
     },
   },
 };
@@ -254,7 +364,29 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleGrantProposal: ['decided_at', 'decided_by', 'expires_at', 'id', 'is_expired', 'lapse_reason', 'permission_codes', 'proposed_at', 'proposed_by', 'reason', 'role', 'status', 'user'],
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
+  StorageLocation: ['archived_at', 'code', 'id', 'kind'],
+  'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
+  'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],
+  Warehouse: ['archived_at', 'code', 'country_code', 'id', 'name'],
+  'Warehouse.CreateWarehouseInput': ['code', 'country_code', 'name'],
+  'Warehouse.UpdateWarehouseInput.jsonMergePatch': ['code', 'country_code', 'name'],
+};
+
+/** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
+export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  SodRowRef: {
+    half: ['preparing', 'controlled'],
+  },
+  StorageLocation: {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  'StorageLocation.CreateStorageLocationInput': {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': {
+    kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
 };

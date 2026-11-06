@@ -37,6 +37,37 @@ describe('generated API surface (b3b §4, A-7)', () => {
     expect(again.client).not.toBe(out.client);
   });
 
+  // Revision 7 §2 step 4.5 (RED L-3): the enum emitter's refusals, each driven.
+  const CREATE_LOC = 'StorageLocation.CreateStorageLocationInput';
+  const withKind = (edit: (kind: Record<string, unknown>) => void) => {
+    const m = structuredClone(inputs);
+    edit(m.openapi.components.schemas[CREATE_LOC].properties.kind);
+    return m;
+  };
+  it('an empty enum is an error', () => {
+    expect(() => generate(withKind((k) => (k.enum = [])))).toThrow(/non-empty list/);
+  });
+  it('a non-distinct or non-string enum is an error', () => {
+    expect(() => generate(withKind((k) => (k.enum = ['bin', 'bin'])))).toThrow(/non-empty list of distinct strings/);
+    expect(() => generate(withKind((k) => (k.enum = [1])))).toThrow(/non-empty list of distinct strings/);
+  });
+  it('no served default reaches the client projection, under any name (step 4.5 D-1: never preselected; RED-2 L-1)', () => {
+    // The contract does serve one: the API's omitted-kind → bin behaviour is untouched (UX ruling).
+    expect(inputs.openapi.components.schemas[CREATE_LOC].properties.kind.default).toBeDefined();
+    // The projection's shape is pinned, not a name: its data keys and the module's exports are exactly these.
+    const PROJECTION = ['BULK', 'BULK_MAX_IDS', 'CLIENT_OPERATIONS', 'WIRE_ENUMS', 'WIRE_FIELDS'];
+    expect(Object.keys(out.clientData).sort()).toEqual(PROJECTION);
+    expect([...out.client.matchAll(/^export const (\w+)/gm)].map((m) => m[1]).sort()).toEqual(PROJECTION);
+    // And no emitted value object carries a `default` key.
+    const hasDefault = (v: unknown): boolean => typeof v === 'object' && v !== null && (Object.prototype.hasOwnProperty.call(v, 'default') || Object.values(v).some(hasDefault));
+    expect(hasDefault(out.clientData)).toBe(false);
+    expect(hasDefault({ x: { y: { default: 'bin' } } })).toBe(true);
+  });
+
+  it('the update patch serves no default (BK-19 shape; RED-2 L-5(c), restored from the first build)', () => {
+    expect(inputs.openapi.components.schemas['StorageLocation.UpdateStorageLocationInput.jsonMergePatch'].properties.kind.default).toBeUndefined();
+  });
+
   it('records the sha256 of each input file, so a reader can tell which contract it was built from', () => {
     for (const name of ['openapi.json', 'api-surface.json']) {
       const sha = createHash('sha256').update(readFileSync(path.join(CONTRACTS_DIR, name))).digest('hex');

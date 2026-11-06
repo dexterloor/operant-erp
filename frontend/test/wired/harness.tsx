@@ -91,6 +91,17 @@ export function renderWired(ui: ReactElement) {
   );
 }
 
+/** Every text a status region has held, in order (a MutationObserver: the region's text is what a screen reader is given). */
+export function textsOf(region: HTMLElement) {
+  const texts: string[] = [region.textContent ?? ''];
+  const obs = new MutationObserver(() => {
+    const t = region.textContent ?? '';
+    if (t !== texts[texts.length - 1]) texts.push(t);
+  });
+  obs.observe(region, { childList: true, characterData: true, subtree: true });
+  return { texts, stop: () => obs.disconnect() };
+}
+
 export const user = (over: Partial<User> = {}): User => ({
   id: ID,
   email: 'ada@example.test',

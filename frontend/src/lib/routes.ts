@@ -2,7 +2,7 @@
 // Deliberately outside the literal-scanned folders (final RED M-5): DECLARED_ROUTES is DERIVED — the first segments of
 // the built pages' navigation hrefs, plus '' for the `/` start page — so no route segment that equals a role name is
 // ever typed under a scanned folder, and no exemption is ever added for one. Test C-2c holds BUILT_PAGE_HREFS ∪
-// ACCOUNT_PAGE_HREFS equal to the page folders under src/app/(app) on disk, both ways, and each BUILT_PAGE_HREFS entry to a
+// ACCOUNT_PAGE_HREFS ∪ CHILD_PAGE_HREFS equal to the page folders under src/app/(app) on disk, both ways, and each BUILT_PAGE_HREFS entry to a
 // navigation item; no ACCOUNT_PAGE_HREFS entry is one (b4-architecture.md Revision 6 A-13).
 import { NAVIGATION, type PermissionCodes } from './navigation';
 
@@ -10,13 +10,19 @@ import { NAVIGATION, type PermissionCodes } from './navigation';
  * The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. The
  * sidebar, rail and 320 px menu read it too (b3b-followup C-3): they offer only these pages.
  */
-export const BUILT_PAGE_HREFS: readonly string[] = ['/admin/users', '/admin/roles'];
+export const BUILT_PAGE_HREFS: readonly string[] = ['/warehouses', '/admin/users', '/admin/roles'];
 
 /**
  * Pages inside the signed-in frame reached from the user menu, not from navigation (Revision 6 A-13). Never navigation
  * items, never in DECLARED_ROUTES, never a start destination; a return path to one falls back to `/`.
  */
 export const ACCOUNT_PAGE_HREFS: readonly string[] = ['/account/password'];
+
+/**
+ * Static pages below a built page, reached from that page, never from navigation (Revision 7 C-2c; §2 step 4.3). Never
+ * navigation items, never in DECLARED_ROUTES, never a start destination.
+ */
+export const CHILD_PAGE_HREFS: readonly string[] = ['/warehouses/new'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 

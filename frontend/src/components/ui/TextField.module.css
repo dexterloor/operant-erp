@@ -1,0 +1,50 @@
+/* The in-app form field (A-19 item 1): the credential field's look, tokens only. The focus ring is global. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.field input {
+  height: var(--size-control-lg);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font: inherit;
+}
+
+.field input:hover {
+  background: var(--bg-hover);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--danger-solid);
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error svg {
+  flex: none;
+  margin-top: 2px;
+}

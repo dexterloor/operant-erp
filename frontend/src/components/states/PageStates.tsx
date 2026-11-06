@@ -92,15 +92,18 @@ export function RegionError({ heading, body, onRetry, retrying = false, autoFocu
 }
 
 /**
- * A refetch failed (ST-3 network row; §5.6 warning): the earlier data stays on the page; announced politely; focus does
- * not move. The heading is R1-1's by cause, the body the caller's (`LIST_STATES.refetchFailed`).
+ * A refetch failed (ST-3 network row; §5.6 warning): the earlier data stays on the page; focus does not move. The heading
+ * is R1-1's by cause, the body the caller's (`LIST_STATES.refetchFailed`). The banner has NO live role of its own: it is
+ * born with the failure, and a region born speaking breaks principle 6 (one status region per list, mounted from first
+ * render) — and an unkeyed banner whose text is unchanged is silent on a repeat failure (FE-R3). The caller writes the
+ * heading into its own `LiveRegion` on every failure (`ArchivableList`).
  */
 export function RefetchFailedBanner({ heading, body, onRetry, retrying = false }: { heading: string; body: string; onRetry: () => void; retrying?: boolean }) {
   return (
     <Banner
       tone="warning"
       icon="offline"
-      live="status"
+      live="none"
       heading={heading}
       action={
         <Button size="sm" variant="secondary" loading={retrying} onClick={onRetry}>
@@ -128,15 +131,14 @@ export function Skeleton({ rows = 3, label }: { rows?: number; label: string }) 
 /**
  * Refetching (ST-1a): existing content stays at full contrast and clickable — no overlay, no dimming, no skeleton
  * swap. aria-busy is set on the region while loading; progress shows on the control that caused it (`indicator`).
- * When it settles, `announcement` (the ruled refresh sentence, supplied by the caller) is read politely.
+ * It builds no status region: the caller owns one `LiveRegion`, mounted from first render above any branch that can
+ * hide this wrapper, and writes the settled sentence there (principle 6; RED M-3 — a region inside this wrapper would be
+ * born with it whenever the wrapper is conditional, e.g. the users/roles lists after a failed first load; FE-R3 L-1).
  */
-export function Refetchable({ busy, announcement, children }: { busy: boolean; announcement?: string; children: ReactNode }) {
+export function Refetchable({ busy, children }: { busy: boolean; children: ReactNode }) {
   return (
     <div className={styles.refetchable} aria-busy={busy || undefined}>
       {children}
-      <span className="visually-hidden" role="status" aria-live="polite">
-        {busy ? '' : (announcement ?? '')}
-      </span>
     </div>
   );
 }

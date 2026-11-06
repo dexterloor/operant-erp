@@ -861,6 +861,16 @@ export const OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListPickQueueEntries: {
+    method: 'GET',
+    template: '/api/v1/pick-queue',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['fulfilment.create'],
+    },
+  },
   ListPurchaseOrderLines: {
     method: 'GET',
     template: '/api/v1/purchase-orders/{id}/lines',
@@ -1511,6 +1521,10 @@ export const PROXY_ALLOWLIST: readonly ProxyRoute[] = [
   },
   {
     method: 'GET',
+    template: '/api/v1/pick-queue',
+  },
+  {
+    method: 'GET',
     template: '/api/v1/purchase-orders',
   },
   {
@@ -1837,6 +1851,6 @@ export const PROXY_ALLOWLIST: readonly ProxyRoute[] = [
 
 /** The sha256 of each contract input this module was generated from. */
 export const SOURCE_SHA256: Readonly<Record<string, string>> = {
-  'openapi.json': '7c2196511bc29d934e3935da1540aef3d0a73e0b744b46a6237ce1fa66b39701',
-  'api-surface.json': 'a90a00ad221259b69fcc033683b48560fe3c89f4623cd8fa6eac8122cbad7ef2',
+  'openapi.json': '8c4abc23eafea41217db226fde519bb7ba0876bf2a65a488e45e3180f8a257d0',
+  'api-surface.json': 'bed5d9755fe60f7a3f2eee9782080c4ffe4ecb541edd4b30d80e33fe54ba731d',
 };

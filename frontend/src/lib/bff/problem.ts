@@ -1,4 +1,4 @@
-import type { Forbidden, NotFound, RateLimited, Refused, ServerError, SessionEnded, Unreachable } from '../results';
+import type { Forbidden, NotFound, RateLimited, Refused, ServerError, SessionEnded, Unreachable, Violation } from '../results';
 
 // Pure: a /bff/api/* response → its result kind (b3b-design.md §6.3, keyed on problem `type`, never on status alone).
 // Two members are instructions for apiCall rather than results: `session-ended-navigate` (go to /login, then resolve
@@ -32,6 +32,21 @@ interface ProblemBody {
 }
 
 const str = (x: unknown) => (typeof x === 'string' ? x : '');
+
+/**
+ * A 422's `errors[]` as violations (Revision 7 A-19 item 3): in order, string-only entries, each PROJECTED to exactly
+ * pointer/code/message — a served `hint` or `payload` is never carried.
+ */
+function violationsOf(errors: unknown): Violation[] {
+  if (!Array.isArray(errors)) return [];
+  const out: Violation[] = [];
+  for (const e of errors as unknown[]) {
+    if (!e || typeof e !== 'object') continue;
+    const { pointer, code, message } = e as { pointer?: unknown; code?: unknown; message?: unknown };
+    if (typeof pointer === 'string' && typeof code === 'string' && typeof message === 'string') out.push({ pointer, code, message });
+  }
+  return out;
+}
 
 async function bodyOf(response: Response): Promise<ProblemBody | null> {
   if (!(response.headers.get('content-type') ?? '').includes('application/problem+json')) return null;
@@ -68,7 +83,8 @@ export async function classify(response: Response): Promise<Classified> {
       if (type !== `${P}validation-failed`) return { kind: 'server-error', fault: true };
       const first = Array.isArray(body.errors) ? (body.errors[0] as { pointer?: unknown; code?: unknown; message?: unknown } | undefined) : undefined;
       if (first && first.pointer === '#Idempotency-Key' && first.code === 'key_expired') return { kind: 'key-expired' };
-      return { kind: 'refused', rule: str(first?.code), message: str(first?.message) };
+      // `rule` and `message` stay the first served entry's, exactly as before; `violations` is set only here (a 409 has none).
+      return { kind: 'refused', rule: str(first?.code), message: str(first?.message), violations: violationsOf(body.errors) };
     }
     case 429:
       return { kind: 'rate-limited' };

@@ -1,5 +1,5 @@
-import { StrictMode, useRef, useState, type ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode, createRef, useRef, useState, type ReactNode, type Ref } from 'react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
@@ -8,6 +8,7 @@ import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { Dialog } from '@/components/ui/Dialog';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
+import { TextField } from '@/components/ui/TextField';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { PersonLifecycleActions } from '@/components/people/PersonLifecycleActions';
 import type { User } from '@/lib/api/users';
@@ -20,10 +21,13 @@ import type { AssignResult } from '@/lib/roles/results';
 import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_REFUSALS, ROLES, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
 import { PickerHarness, scene as pickerScene } from './roles/harness';
 import { AppShell } from '@/app/(app)/AppShell';
+import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ListLoad } from '@/app/(app)/ArchivableList';
+import { renderWired } from './wired/harness';
 
 // The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
 const shellIo = vi.hoisted(() => ({ signOut: vi.fn() }));
-vi.mock('next/navigation', () => ({ usePathname: () => '/admin/users' }));
+// `useRouter` for the warehouse page (step 4.1): it refreshes the router cache after a save.
+vi.mock('next/navigation', () => ({ usePathname: () => '/admin/users', useRouter: () => ({ refresh: () => {} }) }));
 vi.mock('@/lib/bff/authCalls', () => ({ signOut: shellIo.signOut }));
 
 /** The injected action has answered and its result is rendered (no `aria-busy` left) — see b4-step3-progress.md "Flake". */
@@ -90,6 +94,8 @@ function Primitives() {
       <Checkbox label="Unavailable" checked={false} onCheckedChange={() => {}} unavailable describedBy="why" />
       <p id="why">Only an owner can give this role.</p>
       <Chip tone="info">Built-in</Chip>
+      {/* Revision 7 step 3: the in-app form field, with an error showing (no region, no [disabled]). */}
+      <TextField id="p-code" label="Code" hint="Short and unique." error="That code is taken." />
       <DateTime value="2026-10-22T06:05:00Z" form="date" timeZone="UTC" />
       <Button unavailableReason="Select fewer.">Archive</Button>
       <Button onClick={() => setOpen(true)}>Open dialog</Button>
@@ -439,4 +445,253 @@ describe('DOM fitness — the app shell after a failed sign-out (b3b-followup C-
     expect(await screen.findByText('You may still be signed in on this device. Open your account menu and press Sign out again.')).toBeInTheDocument();
     expect(regions.check()).toEqual([]);
   });
+});
+
+// Revision 7 A-17 (Rev 1 M-2; R3-1, R3-2): a Locations-style SECTION on the list core (no h1, an h2 named by headingId, no
+// search, never in the address). A TEST fixture call site — no warehouses code exists yet. One status region, empty at first
+// render, the same node through a switch and a reread; and after a failed first load then Retry, the same region node with
+// no new region, the section h2 present and aria-labelledby resolving to it.
+interface Loc {
+  id: string;
+  archived_at: string | null;
+  code: string;
+}
+function LocationsSection({ initial, load, controller }: { initial: ListLoad<Loc>; load: () => Promise<ListLoad<Loc>>; controller?: Ref<ArchivableListHandle> }) {
+  return (
+    <ArchivableList<Loc>
+      initial={initial}
+      load={load}
+      controller={controller}
+      columns={() => [{ header: 'Code', cell: (l) => l.code }]}
+      copy={{ heading: null, archived: 'Archived', loadFailed: "The locations couldn't be loaded.", shown: (n, _q, archived) => `${n} locations shown.${archived ? ' Archived.' : ''}` }}
+      headingId="loc-h"
+      search={false}
+      empty={({ archived }) => ({ heading: archived ? 'No archived locations.' : 'No locations in this warehouse yet.' })}
+      archivedView={{ order: 'as-served', rows: 'struck' }}
+      denied={<p>Denied.</p>}
+      header={({ archived, busy, loaded, switchTo, viewControlRef }) => (
+        <>
+          <h2 id="loc-h" tabIndex={-1}>
+            {archived ? 'Archived locations' : 'Locations'}
+          </h2>
+          {loaded && archived ? (
+            <Button ref={viewControlRef} onClick={() => switchTo(false)}>
+              Back to locations
+            </Button>
+          ) : null}
+          {loaded && !archived ? <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(true)} label="Archived" /> : null}
+        </>
+      )}
+    />
+  );
+}
+const LIVE_LOC: Loc = { id: 'l1', archived_at: null, code: 'A-01' };
+const GONE_LOC: Loc = { id: 'l2', archived_at: '2026-01-01T00:00:00Z', code: 'Z-99' };
+
+describe('DOM fitness — Revision 7 list core, Locations section', () => {
+  it('no [disabled]; one region, empty at first render, the same node after a switch and a reread', async () => {
+    const answers: ListLoad<Loc>[] = [{ kind: 'ok', items: [GONE_LOC] }, { kind: 'ok', items: [GONE_LOC] }];
+    const controller = createRef<ArchivableListHandle>();
+    renderWired(<LocationsSection initial={{ kind: 'ok', items: [LIVE_LOC] }} load={async () => answers.shift()!} controller={controller} />);
+    const regions = trackRegions();
+    expect(regions.count).toBe(1);
+    expect(regions.firstRender).toEqual([]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('Z-99')).toBeInTheDocument();
+    expect(regions.check()).toEqual([]);
+    await act(async () => void (await controller.current!.reread()));
+    expect(regions.check()).toEqual([]);
+    expect(screen.getByRole('status')).toHaveTextContent('1 locations shown. Archived.');
+  });
+
+  it('a failed first load, then Retry: the same region node, no new region; the h2 is present and aria-labelledby resolves to it', async () => {
+    renderWired(<LocationsSection initial={{ kind: 'unreachable' }} load={async () => ({ kind: 'ok', items: [LIVE_LOC] })} />);
+    const regions = trackRegions();
+    expect(regions.count).toBe(1);
+    expect(regions.firstRender).toEqual([]);
+    const labelled = () => document.getElementById(document.querySelector('section[aria-labelledby]')!.getAttribute('aria-labelledby')!);
+    expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('A-01')).toBeInTheDocument();
+    expect(regions.check()).toEqual([]);
+    expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 locations shown.'));
+  });
+});
+
+// Step 4.2: an archived warehouse's Restore warehouse. A refusal (W5, re-read still archived), then a restore that turns the page live: the one
+// region stays the same node, empty at first render; no [disabled].
+describe('DOM fitness — Restore warehouse (Revision 7 step 4.2)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal and restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'warehouse.code_is_unique_per_workspace', message: "Another warehouse now uses this warehouse's code, so it can't be restored." }, 'application/problem+json'),
+        // The refusal's re-read (RED H-1): still archived, so the refusal shows.
+        reply(200, { ...W, archived_at: '2026-03-04T10:00:00Z' }),
+        reply(200, W),
+        reply(200, W),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={{ ...W, archived_at: '2026-03-04T10:00:00Z' }} canEdit canRestore />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Restore warehouse' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore warehouse' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MAIN was restored.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
+// Revision 7 step 4.1 (A-19 "Guards and tests affected": the warehouse form joins the rendered surfaces). The page owns
+// the one region; the form writes it. Scripted: an edit, a 409 refusal, a 422 field error, a save.
+describe('DOM fitness — the warehouse page and its form (Revision 7 step 4.1)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal, field error and save${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'warehouse.code_is_unique_per_workspace', message: 'Another warehouse already uses this code.' }, 'application/problem+json'),
+        reply(422, { type: 'urn:erp:problem:validation-failed', title: 'x', status: 422, errors: [{ pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] }, 'application/problem+json'),
+        reply(200, { ...W, name: 'Mainx' }),
+        reply(200, { ...W, name: 'Mainx' }),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit canRestore={false} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const name = () => screen.getByRole('textbox', { name: 'Name' });
+      const steps: Array<() => Promise<void>> = [
+        () => user.type(name(), 'x'),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MAIN was saved.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
+// Revision 7 step 4.4 (A-17 M-2, A-19 "Guards and tests affected"): the real Locations section and the code-only Edit
+// location dialog join the rendered surfaces. Two regions — the page's (row-action messages) and the section's (its own
+// switches) — both empty at first render and the same nodes through an edit refusal, a save, a switch and a restore.
+describe('DOM fitness — the Locations section and Edit location (Revision 7 step 4.4)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; two regions, empty at first render, the same nodes through edit, refusal, save, switch and restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const A1 = { id: '11111111-1111-4111-8111-111111111111', code: 'A1', kind: 'bin', archived_at: null };
+      const B1 = { id: '44444444-4444-4444-8444-444444444444', code: 'B1', kind: 'shelf', archived_at: '2026-04-01T09:00:00Z' };
+      const coll = (items: unknown[]) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'storage_location.code_is_unique_per_warehouse', message: 'Another location in this warehouse already uses this code.' }, 'application/problem+json'),
+        reply(200, { ...A1, code: 'A1x' }),
+        reply(200, coll([{ ...A1, code: 'A1x' }])),
+        reply(200, coll([B1])),
+        reply(200, { ...B1, archived_at: null }),
+        reply(200, coll([])),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: false }} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Edit A1' })),
+        () => user.type(screen.getByRole('textbox', { name: 'Code' }), 'x'),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+        () => user.click(screen.getByRole('button', { name: 'Archived' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore location B1' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getByText('No archived locations in this warehouse.')).toBeInTheDocument());
+      expect(tracker.count).toBe(2);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
+// Revision 7 step 4.5: Add location (from the empty state) and the Kind select join the rendered surfaces. Same two
+// regions, the same nodes through an add refusal, an add, and an Edit kind change; no [disabled] anywhere (ST-4e).
+describe('DOM fitness — Add location and the Kind select (Revision 7 step 4.5)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; two regions, the same nodes through an add refusal, an add and a kind change${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { WarehousePage } = await import('@/app/(app)/warehouses/[id]/WarehousePage');
+      const { wireEnum } = await import('@/lib/bff/surface');
+      const kinds = wireEnum('StorageLocation', 'kind');
+      const W = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', code: 'MAIN', name: 'Main', country_code: 'GB', archived_at: null };
+      const C1 = { id: '11111111-1111-4111-8111-111111111111', code: 'C1', kind: kinds[0]!, archived_at: null };
+      const coll = (items: unknown[]) => ({ items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'storage_location.code_is_unique_per_warehouse', message: 'Another location in this warehouse already uses this code. Choose a different code.' }, 'application/problem+json'),
+        reply(201, C1),
+        reply(200, coll([C1])),
+        reply(200, { ...C1, kind: kinds[1]! }),
+        reply(200, coll([{ ...C1, kind: kinds[1]! }])),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <WarehousePage initial={W} canEdit={false} canRestore={false} locations={{ initial: { kind: 'ok', locations: [] }, canEdit: true, canRestore: true, canCreate: true }} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getAllByRole('button', { name: 'Add location' })[1]!),
+        () => user.type(screen.getByRole('textbox', { name: 'Code' }), 'C1'),
+        // The no-choice client refusal (beside Kind, no request), then a chosen kind.
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.selectOptions(screen.getByRole('combobox', { name: 'Kind' }), kinds[0]!),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' })),
+        () => user.click(screen.getByRole('button', { name: 'Edit C1' })),
+        () => user.selectOptions(screen.getByRole('combobox', { name: 'Kind' }), kinds[1]!),
+        () => user.click(screen.getByRole('button', { name: 'Save' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(tracker.count).toBe(2);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
 });

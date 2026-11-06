@@ -40,9 +40,9 @@ interface SourceFile {
 // The same walk also records, for `src` only, EVERY entry it meets (any extension, directories and symlinks included)
 // into ALL_SRC_ENTRIES, with the contents of every regular file — a file reached through a symlink included, as the
 // backend reads it. A FIFO, socket or device is recorded but never read, so it cannot hang or fail the walk for every guard
-// here (twin RED L-1). Only the pick-route twin (end of this file) reads ALL_SRC_ENTRIES: Next.js serves
-// `page.js`/`page.jsx` too, and the backend check it twins searches every file under frontend/src for the pick
-// operations. SNAPSHOT is unchanged by it: same files, same order, same contents.
+// here (twin RED L-1). The two backend twins at the end of this file (FE-R2 pick route, G-47 stock rows) read
+// ALL_SRC_ENTRIES: Next.js serves `page.js`/`page.jsx` too, and the backend checks they twin search every file under
+// frontend/src for their tokens. The guard-enrolment check (items I-0a, M-2) reads only its directory entries. SNAPSHOT is unchanged by it: same files, same order, same contents.
 interface DiskEntry {
   /** Path relative to the frontend root, POSIX separators. */
   file: string;
@@ -113,6 +113,12 @@ function specifiersOf(sf: SourceFile): string[] {
       const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
       if ((isImport || isRequire) && ts.isStringLiteralLike(arg)) found.push(arg.text);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      // `type W = import('x').T` (items I-0a RED M-2): an inline type import names a module too.
+      found.push(node.argument.literal.text);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression)) {
+      // `import x = require('x')` (items I-0a RED M-2 / L-5; tsc also refuses it under module esnext, TS1202).
+      found.push(node.moduleReference.expression.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -138,6 +144,9 @@ interface Violation {
   detail: string;
 }
 
+/** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/warehouses/wired.ts'];
+
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
   const out: Violation[] = [];
@@ -152,6 +161,9 @@ function importViolations(files: readonly SourceFile[]): Violation[] {
       if (under(sf.file, 'src/lib') && (isFramework(t) || under(t, 'src/components'))) breach('lib/** never imports react, next or components');
       if (under(sf.file, 'src/lib') && under(t, 'src/copy')) breach('lib/** never imports copy/** (Revision 4 A-6)');
       if (under(sf.file, 'src') && under(t, 'test')) breach('src never imports test/**');
+      // A-18 S-1 (RED M-2 of step 4.6): the platform refusal rule is compared in one place, so only that file imports it.
+      // A comparison through the constant holds no literal, which REFUSAL_HOMES cannot see; this pin can.
+      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only lib/warehouses/wired.ts imports lib/api/problems (A-18 S-1)');
       if (under(t, 'src/components/preview/fixtures') && !under(sf.file, 'src/components/preview')) {
         breach('only components/preview (and tests) import the preview fixtures (RED L-1)');
       }
@@ -171,10 +183,25 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/permissions',
   'src/lib/bulk',
   'src/lib/people',
+  // Revision 7 step 3 (§5 ledger, LITERAL_SCAN_DIRS row): the forms helpers.
+  'src/lib/forms',
+  // Revision 7 step 4.1 (A-18 guards): the warehouse logic and components.
+  'src/lib/warehouses',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
   'src/components/people',
+  'src/components/warehouses',
+  // Revision 8 R8-3 (items I-0a): the shared record dialogs, moved out of src/components/warehouses.
+  'src/components/records',
+  // items I-0a RED M-3: folders that already passed this scan, enrolled so a literal typed there later goes red.
+  'src/components/auth',
+  'src/components/shell',
+  'src/components/states',
+  'src/components/theme',
+  'src/components/ui',
+  'src/lib/auth',
+  'src/lib/format',
   // Revision 5 A-8 G-7 (B-3b C2): the pages and route handlers, and the BFF's own code.
   'src/app',
   'src/lib/bff',
@@ -213,12 +240,43 @@ function inTopLevelDeclaration(node: ts.Node): boolean {
   return false;
 }
 
+/**
+ * The refusal homes (Revision 7 A-18 S-2, R3-4): the only files whose top-level declarations may hold code-shaped
+ * literals, each pinned to exactly the literals it holds (`exemptedLiterals` must equal its list). A new constant in a
+ * home is a deliberate edit here. `problems.ts` joined at §2 step 4.6 (its first consumer, Delete warehouse/location).
+ */
+const REFUSAL_HOMES: Record<string, readonly string[]> = {
+  'src/lib/api/roles.ts': [
+    'user_role.already_held',
+    'user_role.separation_of_duty',
+    'user_role.marker_needs_owner',
+    'user_role.exceeds_actor_permissions',
+    'user_role.actor_is_subject',
+    'user_role.subject_is_inactive',
+    'user_role.subject_is_deleted',
+    'role.is_not_archived',
+    'tenant_settings.edit',
+  ],
+  'src/lib/api/problems.ts': ['transaction.contention'],
+};
+
+/** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
+function exemptedLiterals(sf: SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && CODE_SHAPE.test(node.text) && inTopLevelDeclaration(node) && !inTypePosition(node)) out.push(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(sf));
+  return out;
+}
+
 /** Every string literal / template text in the scanned files that looks like a served code or a built-in role name. */
 function literalViolations(files: readonly SourceFile[], roleNames: readonly string[]): Violation[] {
   const out: Violation[] = [];
   for (const sf of files) {
     const inApi = under(sf.file, 'src/lib/api');
-    const isRefusalHome = sf.file === 'src/lib/api/roles.ts';
+    const isRefusalHome = Object.hasOwn(REFUSAL_HOMES, sf.file);
     const visit = (node: ts.Node) => {
       let text: string | null = null;
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) text = node.text;
@@ -252,23 +310,58 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Step 5 added: copy/roles.ts; lib/api/{envelope,proposals}.ts, lib/roles/{availability,conflictLines,effectivePreview,
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
-  'src/copy': 8,
+  // Revision 7 step 4.1 added: copy/warehouses.ts.
+  'src/copy': 9,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
-  'src/lib': 54,
+  // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
+  // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
+  // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
+  'src/lib': 60,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
-  'src/components': 52,
-  'src/lib/api': 5,
+  // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
+  // Revision 7 step 4.1 added: components/warehouses/WarehouseForm.tsx.
+  // Revision 7 step 4.2 added: components/warehouses/WarehouseRestoreActions.tsx.
+  // Revision 7 step 4.3 added: components/warehouses/WarehouseCreateForm.tsx.
+  // Revision 7 step 4.4 added: components/warehouses/LocationForm.tsx.
+  // Revision 7 step 4.5 added: components/warehouses/AddLocationForm.tsx (the Add location dialog) and KindField.tsx
+  // (the Kind select both location dialogs use).
+  // Revision 7 step 4.6 added: components/warehouses/DeleteDialog.tsx (Delete warehouse and Delete location, B-7).
+  // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
+  // → components/records/{DeleteDialog,RestoreActions}.tsx.
+  'src/components': 60,
+  // Revision 7 step 4.6 added: lib/api/problems.ts.
+  'src/lib/api': 7,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
+  // Revision 7 step 3 (A-19 item 4): the forms helpers.
+  'src/lib/forms': 1,
+  // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
+  'src/lib/warehouses': 3,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
   'src/components/bulk': 6,
   'src/components/people': 4,
-  'src/components/ui': 11,
+  // Revision 7 step 4.1 added: WarehouseForm.tsx. Step 4.2 added: WarehouseRestoreActions.tsx. Step 4.3 added:
+  // WarehouseCreateForm.tsx. Step 4.4 added: LocationForm.tsx (the code-only Edit location dialog). Step 4.5 added:
+  // AddLocationForm.tsx and KindField.tsx. Revision 8 R8-3 (items I-0a) moved out: DeleteDialog.tsx and
+  // WarehouseRestoreActions.tsx (now components/records/).
+  'src/components/warehouses': 5,
+  // Revision 8 R8-3 (items I-0a) added: DeleteDialog.tsx, RestoreActions.tsx (moved from components/warehouses/).
+  'src/components/records': 2,
+  // items I-0a RED M-3: per-folder counts for the folders enrolled in the scans above (contents unchanged).
+  'src/components/auth': 5,
+  'src/components/shell': 11,
+  'src/components/states': 1,
+  'src/components/theme': 2,
+  'src/components/preview': 5,
+  'src/lib/auth': 2,
+  'src/lib/format': 3,
+  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
+  'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
   // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
   'src/generated': 2,
@@ -281,7 +374,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C5 added: lib/bff/reads.ts, lib/bff/server/reads.ts, lib/people/{load,wired}.ts; app/(app)/useCommittedState.ts,
   // app/(app)/admin/users/{page,UsersList,PeopleStates}.tsx, app/(app)/admin/users/[id]/{page,PersonPage,not-found}.tsx.
   // B-3b C6 added: lib/roles/{load,wired}.ts.
-  // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/admin/ArchivableList.tsx (the list both pages share),
+  // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/ArchivableList.tsx (the list both pages share; moved from admin/ by Revision 7 A-16, count unchanged),
   // app/(app)/admin/roles/{page,RolesList,RoleStates}.tsx, app/(app)/admin/roles/[id]/{page,RolePage,not-found}.tsx.
   'src/lib/bff': 16,
   'src/lib/bff/server': 7,
@@ -289,7 +382,12 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
   // ChangePasswordRoute}.tsx → app/(app)/account/password/ (Revision 6 A-13).
   // Session-expiry return path added: app/(app)/SessionEndedReturn.tsx.
-  'src/app': 40,
+  // Revision 7 step 2 (A-17 item 1) added: app/(app)/useArchivedAddress.ts (the list's only address writer).
+  // Revision 7 step 4.1 added: app/(app)/warehouses/{page,WarehousesList,WarehouseStates}.tsx, app/(app)/warehouses/[id]/{page,WarehousePage,
+  // not-found}.tsx.
+  // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
+  // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
+  'src/app': 51,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -333,6 +431,51 @@ describe('architecture — import direction (RED H-5 item 5, Revision 2 C-2)', (
       "src/components/ui/Banner.tsx — src never imports test/**: imports '@/../test/fixtures/x'",
     ]);
   });
+
+  it('an inline type import is an import too (items I-0a RED M-2)', () => {
+    const planted: SourceFile[] = [{ file: 'src/lib/roles/margin.ts', source: "export type R = import('@/copy/roles').RoleCopy;" }];
+    expect(importViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/lib/roles/margin.ts — lib/** never imports copy/** (Revision 4 A-6): imports '@/copy/roles'",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 7 A-17 item 1 (RED M-1): the list core holds its view in state and never touches the address. The one address
+// writer is `useArchivedAddress.ts` beside it; a list that keeps no view in the address (a section) simply does not call it.
+// Checked on module specifiers (static imports, re-exports, `import()`, `require()`), never by substring.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const LIST_CORE = 'src/app/(app)/ArchivableList.tsx';
+
+function listCoreNavigationViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (sf.file !== LIST_CORE) continue;
+    for (const spec of specifiersOf(sf)) if (spec === 'next/navigation' || spec.startsWith('next/navigation/')) out.push({ file: sf.file, detail: `imports '${spec}'` });
+  }
+  return out;
+}
+
+describe('architecture — the list core never imports next/navigation (Revision 7 A-17 item 1)', () => {
+  it('the real core imports no next/navigation, and the real core is the file the guard reads (not vacuous)', () => {
+    const files = walk('src');
+    expect(files.filter((f) => f.file === LIST_CORE)).toHaveLength(1);
+    expect(files.some((f) => f.file === 'src/app/(app)/useArchivedAddress.ts' && specifiersOf(f).includes('next/navigation'))).toBe(true);
+    expect(listCoreNavigationViolations(files)).toEqual([]);
+  });
+
+  it('planted: the core importing next/navigation (static or dynamic) goes red; useArchivedAddress.ts importing it does not', () => {
+    const planted: SourceFile[] = [
+      { file: LIST_CORE, source: "import { useRouter } from 'next/navigation';" },
+      { file: LIST_CORE, source: "const nav = await import('next/navigation');" },
+      { file: 'src/app/(app)/useArchivedAddress.ts', source: "import { useRouter, usePathname } from 'next/navigation';" },
+    ];
+    expect(listCoreNavigationViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/app/(app)/ArchivableList.tsx — imports 'next/navigation'",
+      "src/app/(app)/ArchivableList.tsx — imports 'next/navigation'",
+    ]);
+  });
 });
 
 describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)', () => {
@@ -355,6 +498,36 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
       expect(first, sf.file).toContain("'__FIXTURE_ONLY__'");
       expect(first, sf.file).toMatch(/BUILT_IN_ROLE_NAMES:\s*[a-z_]+/);
     }
+  });
+
+  it('REFUSAL_HOMES: each home holds exactly its pinned literals (A-18 S-2), and every home exists', () => {
+    for (const [file, pinned] of Object.entries(REFUSAL_HOMES)) {
+      const sf = walk('src/lib/api').find((f) => f.file === file);
+      expect(sf, file).toBeDefined();
+      expect(exemptedLiterals(sf!), file).toEqual([...pinned]);
+    }
+  });
+
+  it('problems.ts import pin (RED M-2): wired.ts may import it; a component importing it is red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/warehouses/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/components/warehouses/x.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
+      { file: 'src/lib/warehouses/y.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems.ts';" },
+    ];
+    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts']);
+  });
+
+  it('REFUSAL_HOMES planted controls (§2 step 4.6): only a home\'s top-level declarations are exempt', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/lib/api/problems.ts', source: "export const PLATFORM_REFUSAL = { contention: 'transaction.contention' } as const;\nexport function f() { return 'transaction.contention'; }" },
+      { file: 'src/components/warehouses/x.tsx', source: "export const c = 'transaction.contention';" },
+      { file: 'src/lib/api/warehouses.ts', source: "export const R = { held: 'warehouse.holds_stock' } as const;" },
+    ];
+    expect(literalViolations(planted, []).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      "src/lib/api/problems.ts — literal 'transaction.contention'",
+      "src/components/warehouses/x.tsx — literal 'transaction.contention'",
+      "src/lib/api/warehouses.ts — literal 'warehouse.holds_stock'",
+    ]);
   });
 
   it('positive controls: code-shaped and role-name literals go red; only lib/api declarations and types are exempt', () => {
@@ -442,7 +615,22 @@ describe('architecture — no clock in expiry, no identity for Withdraw (RED H-5
 // wired actions live.
 // ---------------------------------------------------------------------------------------------------------------------
 
-const NETWORK_SCAN_DIRS = ['src/components/ui', 'src/components/roles', 'src/components/permissions', 'src/components/bulk', 'src/components/people'] as const;
+// Revision 7 step 4.1 (A-18): + src/components/warehouses. Revision 8 R8-3 (items I-0a): + src/components/records.
+// items I-0a RED M-3: + auth, shell, states, theme and preview, which already passed it.
+const NETWORK_SCAN_DIRS = [
+  'src/components/ui',
+  'src/components/roles',
+  'src/components/permissions',
+  'src/components/bulk',
+  'src/components/people',
+  'src/components/warehouses',
+  'src/components/records',
+  'src/components/auth',
+  'src/components/shell',
+  'src/components/states',
+  'src/components/theme',
+  'src/components/preview',
+] as const;
 const GLOBAL_OBJECTS = ['window', 'globalThis', 'self'];
 const NETWORK_GLOBALS = ['fetch', 'XMLHttpRequest', 'EventSource', 'WebSocket'];
 
@@ -627,7 +815,22 @@ describe('architecture — G-2: the generated surface is read through its two re
   });
 });
 
-const BULK_LITERAL_DIRS = ['src/components', 'src/app', 'src/lib/bulk', 'src/lib/bff'] as const;
+// Revision 7 step 4.1 (A-18): + src/lib/warehouses (bulk for this family comes later).
+// items I-0a RED M-3: + src/lib/{api,auth,format,forms,people,permissions}, which already passed it (src/lib/roles: see
+// GUARD_EXEMPT.bulk).
+const BULK_LITERAL_DIRS = [
+  'src/components',
+  'src/app',
+  'src/lib/bulk',
+  'src/lib/bff',
+  'src/lib/warehouses',
+  'src/lib/api',
+  'src/lib/auth',
+  'src/lib/format',
+  'src/lib/forms',
+  'src/lib/people',
+  'src/lib/permissions',
+] as const;
 const BULK_LITERAL_EXCLUDED = [FIXTURE_DIR] as const;
 
 function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly string[], cap: number): Violation[] {
@@ -1104,6 +1307,14 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
+      // Revision 7 step 4.3: the create page's form.
+      // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
+      // Revision 7 step 4.5 (G-F2 row): the Add location dialog is a <form>, so it joins here (KindField.tsx is a field, no form).
+      'src/components/warehouses/AddLocationForm.tsx',
+      'src/components/warehouses/LocationForm.tsx',
+      'src/components/warehouses/WarehouseCreateForm.tsx',
+      'src/components/warehouses/WarehouseForm.tsx',
     ]);
   });
 
@@ -1307,9 +1518,12 @@ const PICK_ROUTE_MESSAGE =
   'src/generated/ naming CreateFulfilment or GetPickList; owner FE + UX).\n\n' +
   '  - The pick screen lives on `/sales-orders/[id]/fulfil` -- the action on the parent order (IA N-3/N-8,\n' +
   '    N-8a), not a standalone `/new` route -- and consumes `GET /api/v1/sales-orders/{id}/pick-list`.\n' +
-  "  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's resulting status (re-read the\n" +
+  "  - B1N-12 (UX): after a CreateFulfilment 201 the screen shows the order's current status (re-read the\n" +
   '    pick list: `status` is on it), or FLOWS F-5 step 6 is rewritten.\n' +
-  "  - docs/ux/FLOWS.md F-5 (UX's) still owes its open note and step 6 wording.\n" +
+  "  - docs/ux/FLOWS.md F-5 (UX, 2026-11-03) now holds the corrected gate and step 6's recommendation: after\n" +
+  '    the 201, re-read the pick list and say "The order is now partly shipped / fully shipped / cancelled";\n' +
+  "    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n" +
+  '    TO CONFIRM FE-LEAD.\n' +
   '  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n' +
   'Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n' +
   'shipped IN PART and must not be called discharged.';
@@ -1317,7 +1531,7 @@ const PICK_ROUTE_MESSAGE =
 /** Pages under src/app allowed a dynamic first URL segment. Empty: none exists, and each one added needs a reason. */
 const DYNAMIC_ROOT_PAGES_ALLOWED: readonly string[] = [];
 
-/** Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve /sales-orders unseen. */
+/** Pages whose first URL segment is dynamic (`[x]`, `[...x]`, `[[...x]]`), so they may serve any first segment unseen by a check keyed on the derived URL. */
 function dynamicRootPages(pages: readonly string[], allowed: readonly string[]): string[] {
   return pages.filter((page) => {
     const first = pageUrl(page)?.split('/')[1];
@@ -1330,6 +1544,261 @@ const realAppEntries = () => ALL_SRC_ENTRIES.filter((e) => e.file.startsWith(APP
 const realPages = () => realAppEntries().filter((e) => !e.link && !e.dir).map((e) => e.file.slice(APP_PREFIX.length));
 const realSources = (): Record<string, string> =>
   Object.fromEntries(ALL_SRC_ENTRIES.filter((e) => e.source !== null).map((e) => [e.file.slice('src/'.length), e.source!]));
+
+/**
+ * The controls that make the walk of the real tree trustworthy, shared by both frontend tripwire twins in this file
+ * (FE-R2 and G-47), as the backend's OwedAmendmentTripwireTest::frontendTree() is shared by its two methods. Pure walk: no
+ * method-specific token control lives here (each block keeps its own generated-boundary control).
+ */
+function assertFrontendTreeIsWalkable(): void {
+  expect(existsSync(path.join(ROOT, 'src/app')), 'Positive control: src/app is not where the walk looks, so it would find no page and pass on everything.').toBe(true);
+  for (const router of ['app', 'pages', 'src/pages']) {
+    expect(existsSync(path.join(ROOT, router)), `frontend/${router} exists: Next.js routes from it, and this check reads only src/app. Teach the walk that router before trusting it.`).toBe(false);
+  }
+  const configs = readdirSync(ROOT).filter((name) => name.startsWith('next.config.'));
+  expect(configs.length, 'Positive control: no next.config.* found, so the pageExtensions check below reads nothing.').toBeGreaterThan(0);
+  for (const config of configs) {
+    const text = readFileSync(path.join(ROOT, config), 'utf8');
+    expect(text, `${config} sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read the configured extensions.`).not.toContain('pageExtensions');
+    for (const key of ['rewrites', 'redirects']) {
+      expect(text, `${config} sets ${key}, so a URL may now be served by a page this walk derives differently. Teach the walk before trusting it.`).not.toContain(key);
+    }
+  }
+  expect(
+    ALL_SRC_ENTRIES.filter((e) => e.link).map((e) => e.file),
+    'A symlink under src: this walk reads file links and descends into directory links, while the backend check reads file links but never descends into a directory link, so the two would disagree about what is behind it. Remove the link, or teach both walks before trusting them.',
+  ).toEqual([]);
+  for (const dir of ['', 'src/']) {
+    const routers = readdirSync(path.join(ROOT, dir)).filter((name) => /^(middleware|proxy)\./.test(name));
+    expect(routers, `frontend/${dir}${routers[0] ?? ''} exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. Teach the walk before trusting it.`).toEqual([]);
+  }
+
+  const pages = realPages();
+  expect(
+    dynamicRootPages(pages, DYNAMIC_ROOT_PAGES_ALLOWED),
+    'A page whose first URL segment is dynamic can serve any first segment, and this walk would derive its URL as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).',
+  ).toEqual([]);
+  const urls = pages.map(pageUrl).filter((u): u is string => u !== null);
+  expect(urls.length, 'The walk found no page under src/app, so the implication would hold over nothing.').toBeGreaterThan(0);
+  const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
+  expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 8 R8-3 (items plan I-0a): the shared record dialogs, and guard enrolment (items-red.md M-2, L-6)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * What `src/components/records/` may import (R8-3): packages, the design-system primitives, the shared (non-family) copy
+ * and the shared result kinds. A family's `copy/<family>.ts`, `lib/<family>/*`, `lib/api/<family>.ts` or
+ * `components/<family>/*` comes in as props instead, so one family's sentence or type cannot leak into another's dialog.
+ */
+const RECORDS_DIR = 'src/components/records';
+const RECORDS_MAY_IMPORT: readonly string[] = ['src/components/ui', 'src/copy/headings', 'src/copy/permissionLabels', 'src/copy/shell', 'src/lib/results'];
+
+/**
+ * The same rule one step down (items I-0a RED L-4): what records may import must itself name no family, or a family
+ * sentence could reach a records dialog through a `ui` primitive. Every file in this closure may import only packages and
+ * the closure itself (today `ui/DateTime` reads `lib/format`, and `ui/StatusMessages` reads `styles/tokens`).
+ */
+const SHARED_CLOSURE: readonly string[] = [...RECORDS_MAY_IMPORT, 'src/lib/format', 'src/styles'];
+
+function sharedClosureViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!SHARED_CLOSURE.some((d) => under(sf.file.replace(/\.tsx?$/, ''), d))) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (/\.css$/.test(spec)) continue;
+      const t = targetOf(sf.file, spec).replace(/\.tsx?$/, '');
+      if (t.startsWith('pkg:') || SHARED_CLOSURE.some((d) => under(t, d))) continue;
+      out.push({ file: sf.file, detail: `what components/records may import names no family either (R8-3, RED L-4): imports '${spec}'` });
+    }
+  }
+  return out;
+}
+
+function recordsImportViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, RECORDS_DIR)) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (/\.css$/.test(spec)) continue;
+      const t = targetOf(sf.file, spec).replace(/\.tsx?$/, '');
+      if (t.startsWith('pkg:') || under(t, RECORDS_DIR) || RECORDS_MAY_IMPORT.some((d) => under(t, d))) continue;
+      out.push({ file: sf.file, detail: `components/records imports no family copy, lib or component (R8-3): imports '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — R8-3: components/records is props-only and names no family (items I-0a)', () => {
+  it('the real folder holds the two moved components and imports nothing family-specific', () => {
+    const files = walk(RECORDS_DIR);
+    expect(files.map((f) => f.file)).toEqual(['src/components/records/DeleteDialog.tsx', 'src/components/records/RestoreActions.tsx']);
+    expect(recordsImportViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: a family copy, lib, api or component import goes red in every literal import spelling (a computed import() is out of reach); the shared ones do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/records/A.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+      { file: 'src/components/records/B.tsx', source: "import type { DeleteWarehouseResult } from '@/lib/warehouses/results';" },
+      { file: 'src/components/records/C.tsx', source: "import type { DeleteWarehouseResult } from '../../lib/warehouses/results.ts';" },
+      { file: 'src/components/records/D.tsx', source: "import type { Warehouse } from '@/lib/api/warehouses';" },
+      { file: 'src/components/records/E.tsx', source: "import { KindField } from '@/components/warehouses/KindField';" },
+      { file: 'src/components/records/F.tsx', source: "export { ITEMS } from '@/copy/items';" },
+      // RED M-2: an inline type import and an import-equals require.
+      { file: 'src/components/records/T1.tsx', source: "type W = import('@/lib/api/warehouses').Warehouse;\nexport const w = (x: W) => x;" },
+      { file: 'src/components/records/T2.tsx', source: "import W = require('@/copy/warehouses');\nexport const w = W;" },
+      {
+        file: 'src/components/records/G.tsx',
+        source:
+          "import { useState } from 'react';\nimport { Banner } from '@/components/ui/Banner';\nimport { NOT_DELETED } from '@/copy/headings';\nimport { PAGE_STATES } from '../../copy/shell';\nimport type { DeleteResult } from '@/lib/results';\nimport { RestoreActions } from './RestoreActions';",
+      },
+      { file: 'src/components/warehouses/H.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+    ];
+    expect(recordsImportViolations(planted).map((v) => v.file)).toEqual([
+      'src/components/records/A.tsx',
+      'src/components/records/B.tsx',
+      'src/components/records/C.tsx',
+      'src/components/records/D.tsx',
+      'src/components/records/E.tsx',
+      'src/components/records/F.tsx',
+      'src/components/records/T1.tsx',
+      'src/components/records/T2.tsx',
+    ]);
+  });
+
+  it('what records may import (ui, the shared copy, lib/results, and what they read) names no family either (RED L-4)', () => {
+    const files = SNAPSHOT.filter((f) => f.file.startsWith('src/') && SHARED_CLOSURE.some((d) => under(f.file.replace(/\.tsx?$/, ''), d)));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/components/ui/DateTime.tsx', 'src/copy/shell.ts', 'src/lib/results.ts', 'src/lib/format/dates.ts']));
+    expect(sharedClosureViolations(files)).toEqual([]);
+  });
+
+  it('planted controls for the closure: a ui primitive or a shared copy file naming a family goes red', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/ui/X.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+      { file: 'src/components/ui/Y.tsx', source: "type W = import('../../lib/api/warehouses').Warehouse;\nexport const y = (w: W) => w;" },
+      { file: 'src/copy/shell.ts', source: "export { ROLE_PAGE } from './roles';" },
+      { file: 'src/copy/headings.ts', source: "import type { Role } from '@/lib/api/roles';" },
+      { file: 'src/lib/format/z.ts', source: "import { thing } from '@/lib/warehouses/load';" },
+      { file: 'src/components/ui/Ok.tsx', source: "import { Spinner } from './Spinner';\nimport { PAGE_STATES } from '@/copy/shell';\nimport { formatDate } from '@/lib/format/dates';\nimport { tokens } from '@/styles/tokens';" },
+      { file: 'src/components/warehouses/NotInClosure.tsx', source: "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';" },
+    ];
+    expect(sharedClosureViolations(planted).map((v) => v.file)).toEqual([
+      'src/components/ui/X.tsx',
+      'src/components/ui/Y.tsx',
+      'src/copy/shell.ts',
+      'src/copy/headings.ts',
+      'src/lib/format/z.ts',
+    ]);
+  });
+});
+
+/**
+ * Guard enrolment (items-red.md M-2): LITERAL_SCAN_DIRS, NETWORK_SCAN_DIRS (component dirs only), BULK_LITERAL_DIRS and
+ * EXPECTED_COUNTS are hand lists, so a new folder under `src/components` or `src/lib` used to be unscanned unless someone
+ * remembered it. Every such folder must now be enrolled in each applicable list, or named below with the fact that keeps
+ * it out (the scan would be red for a reason that is not a defect). A reason shorter than ten characters is a gap, and a
+ * stale exemption is red too. Limit, stated: the domain is the direct folders of `src/components` and `src/lib`; loose
+ * files there (`src/lib/results.ts`, `src/lib/routes.ts`, …) and other top-level `src/*` folders are outside it.
+ */
+type GuardList = 'literal' | 'network' | 'bulk' | 'counts';
+const GUARD_EXEMPT: Readonly<Record<GuardList, Readonly<Record<string, string>>>> = {
+  literal: {
+    'src/components/preview': 'red if scanned: its fixtures carry the built-in role names by design (the BUILT_IN_ROLE_NAMES header this backstop reads)',
+  },
+  network: {},
+  bulk: {
+    'src/lib/roles': 'red if scanned: lib/roles/load.ts PENDING_WALK_MAX_PAGES = 50 equals the bulk cap, and the guard cannot tell a page cap from the bulk cap',
+  },
+  counts: {},
+};
+
+/** The folders each list applies to: every direct sub-folder of `src/components` and `src/lib` (network: components only). */
+function guardedFolders(entries: readonly DiskEntry[]): string[] {
+  return entries.filter((e) => e.dir && /^src\/(components|lib)\/[^/]+$/.test(e.file)).map((e) => e.file);
+}
+
+interface GuardLists {
+  literal: readonly string[];
+  network: readonly string[];
+  bulk: readonly string[];
+  counts: readonly string[];
+}
+
+/** Every folder missing from an applicable list without an exemption, and every exemption that is stale. */
+function enrolmentGaps(folders: readonly string[], lists: GuardLists, exempt: typeof GUARD_EXEMPT): string[] {
+  const out: string[] = [];
+  const covered: Record<GuardList, (d: string) => boolean> = {
+    literal: (d) => lists.literal.includes(d),
+    network: (d) => lists.network.includes(d),
+    bulk: (d) => lists.bulk.some((b) => under(d, b)),
+    counts: (d) => lists.counts.includes(d),
+  };
+  for (const list of ['literal', 'network', 'bulk', 'counts'] as const) {
+    const applies = folders.filter((d) => list !== 'network' || under(d, 'src/components'));
+    for (const d of applies) {
+      const reason = exempt[list][d];
+      if (!covered[list](d)) {
+        if (reason === undefined) out.push(`${list}: ${d} is in no list and has no exemption`);
+        else if (reason.trim().length < 10) out.push(`${list}: ${d}'s exemption has no reason`);
+      }
+      if (covered[list](d) && reason !== undefined) out.push(`${list}: ${d} is enrolled, so its exemption is stale`);
+    }
+    for (const d of Object.keys(exempt[list])) {
+      if (!applies.includes(d)) out.push(`${list}: exemption for ${d}, which is not a folder this list applies to`);
+    }
+  }
+  return out;
+}
+
+const REAL_GUARD_LISTS: GuardLists = {
+  literal: LITERAL_SCAN_DIRS,
+  network: NETWORK_SCAN_DIRS,
+  bulk: BULK_LITERAL_DIRS,
+  counts: Object.keys(EXPECTED_COUNTS),
+};
+
+describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
+  it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
+    const folders = guardedFolders(ALL_SRC_ENTRIES);
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses']));
+    expect(folders.length).toBeGreaterThan(15);
+    expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
+  });
+
+  it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
+    const folders = guardedFolders(ALL_SRC_ENTRIES);
+    // A new folder nobody enrolled (the items family's folders, before I-1).
+    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/items is in no list and has no exemption',
+      'literal: src/lib/items is in no list and has no exemption',
+      'network: src/components/items is in no list and has no exemption',
+      'bulk: src/lib/items is in no list and has no exemption',
+      'counts: src/components/items is in no list and has no exemption',
+      'counts: src/lib/items is in no list and has no exemption',
+    ]);
+    // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
+    const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
+    expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
+    // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/items': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/items': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/items's exemption has no reason",
+      'literal: src/lib/items is in no list and has no exemption',
+      'network: src/components/items is in no list and has no exemption',
+      "bulk: src/lib/items's exemption has no reason",
+      'counts: src/components/items is in no list and has no exemption',
+      'counts: src/lib/items is in no list and has no exemption',
+    ]);
+    // An exemption left behind after enrolment, and one naming a folder that does not exist.
+    const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };
+    expect(enrolmentGaps(folders, REAL_GUARD_LISTS, stale)).toEqual([
+      'literal: src/components/records is enrolled, so its exemption is stale',
+      'literal: exemption for src/lib/nowhere, which is not a folder this list applies to',
+    ]);
+  });
+});
 
 describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
   it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {
@@ -1375,37 +1844,7 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
   });
 
   it('real-tree controls: the walk sees what the routes it knows can serve, and the generated boundary is real', () => {
-    expect(existsSync(path.join(ROOT, 'src/app')), 'Positive control: src/app is not where the walk looks, so it would find no page and pass on everything.').toBe(true);
-    for (const router of ['app', 'pages', 'src/pages']) {
-      expect(existsSync(path.join(ROOT, router)), `frontend/${router} exists: Next.js routes from it, and this check reads only src/app. Teach the walk that router before trusting it.`).toBe(false);
-    }
-    const configs = readdirSync(ROOT).filter((name) => name.startsWith('next.config.'));
-    expect(configs.length, 'Positive control: no next.config.* found, so the pageExtensions check below reads nothing.').toBeGreaterThan(0);
-    for (const config of configs) {
-      const text = readFileSync(path.join(ROOT, config), 'utf8');
-      expect(text, `${config} sets pageExtensions, so a page may now end in something the walk does not read. Make the walk read the configured extensions.`).not.toContain('pageExtensions');
-      for (const key of ['rewrites', 'redirects']) {
-        expect(text, `${config} sets ${key}, so a URL may now be served by a page this walk derives differently. Teach the walk before trusting it.`).not.toContain(key);
-      }
-    }
-    expect(
-      ALL_SRC_ENTRIES.filter((e) => e.link).map((e) => e.file),
-      'A symlink under src: this walk reads file links and descends into directory links, while the backend check reads file links but never descends into a directory link, so the two would disagree about what is behind it. Remove the link, or teach both walks before trusting them.',
-    ).toEqual([]);
-    for (const dir of ['', 'src/']) {
-      const routers = readdirSync(path.join(ROOT, dir)).filter((name) => /^(middleware|proxy)\./.test(name));
-      expect(routers, `frontend/${dir}${routers[0] ?? ''} exists: a middleware or proxy can rewrite a URL to a page this walk derives differently. Teach the walk before trusting it.`).toEqual([]);
-    }
-
-    const pages = realPages();
-    expect(
-      dynamicRootPages(pages, DYNAMIC_ROOT_PAGES_ALLOWED),
-      'A page whose first URL segment is dynamic can serve /sales-orders, and this walk would derive its URL as /[x]. Teach the walk before trusting it (or add the page to DYNAMIC_ROOT_PAGES_ALLOWED with a reason).',
-    ).toEqual([]);
-    const urls = pages.map(pageUrl).filter((u): u is string => u !== null);
-    expect(urls.length, 'The walk found no page under src/app, so the implication would hold over nothing.').toBeGreaterThan(0);
-    const underAGroup = pages.filter((p) => pageUrl(p) !== null && /(^|\/)\((?!\.)[^()/]+\)\//.test(p));
-    expect(underAGroup.length, 'No real page sits under a route group, so the walk never exercised the group drop on the real tree.').toBeGreaterThan(0);
+    assertFrontendTreeIsWalkable();
 
     const generatedNamesIt = Object.entries(realSources()).filter(([file, text]) => file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
     expect(generatedNamesIt.length, 'Positive control: src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves nothing about where the boundary is. Re-derive the token or the folder.').toBeGreaterThan(0);
@@ -1425,5 +1864,299 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
         "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
         PICK_ROUTE_MESSAGE,
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// G-47: no stock rows on a screen while G-47 is open — twin of the backend's
+// OwedAmendmentTripwireTest::noFrontendShowsStockRowsWhileG47IsOpen
+// ---------------------------------------------------------------------------------------------------------------------
+// G-47 (docs/RESIDUAL_GAPS.md, Low; owner UX + SEC): a ListStockLevels row does not say whether its bin can be picked --
+// quarantine bins, archived bins and bins of an archived warehouse look like pickable ones. G-47 is NOT closed and nothing
+// here may be read as closing it. Trigger re-put by the owner's delegation on 2026-11-03 (docs/design/g47-ruling.md;
+// g47-owner-questions-recommendation.md FINAL R-1…R-3). The backend check runs only when this app reaches main; this twin
+// runs on every frontend gate. Same rule, ported line for line from the backend method (keep the two in step — a change
+// to one is a change to both):
+//   The trigger T (outside src/generated/): (a) a page served at /stock or below (pageUrl, shared with FE-R2); (b) source
+//   naming ListStockLevels, minus the one navigation-map `operation:` entry in lib/navigation.ts (path AND shape, never
+//   path alone); (c) source naming the stock path /api/v1/stock or /bff/api/stock (not /stock-movements); (d)
+//   scripts/api-surface.client-ops.json wiring ListStockLevels for the browser.
+//   T ⇒ C1 (FINAL R-3, option 2): every file making T true through (a), (b) or (c), together with the modules it imports
+//   one level down (relative or `@/` path, resolved by text, no AST), names ListStorageLocations, 'storage_location.view'
+//   and 'warehouse.view'. When T holds through (d) alone no file can be checked, so the pin fails closed. C2 (the badge
+//   copy key) joins in the screen's commit, once UX fixes the key.
+// Weaker than option (1), and said so: a stub naming the three tokens satisfies C1; the safety rests on the seven hand
+// checks in the failure message. Known limits (as the backend states them): a path or operation name built by
+// concatenation or a template literal evades (b) and (c); a comment naming a token fires them (loud and safe); a
+// nav-driven generic page (`[module]`) is held on its route half by the shared dynamic-segment refusal and on its client
+// half by (d), and not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a link to
+// /stock from a caller of deriveNavigation() without the built filter is not watched; this walk refuses every symlink
+// under src (the backend reads file links and does not descend into directory links). Movements (/stock-movements,
+// GetStockMovement) are out of G-47's scope (FINAL R-4), but a new member on the shared location schema reaches them too.
+// Row-shape control (G-47 RED A-M5): read here from the committed contract ../contracts/openapi.json (the backend reads
+// the spec it regenerates; `npm run surface -- --check` ties src/generated/ to the same file).
+
+/** G-47 trigger (b): the stock read's operationId. */
+const STOCK_OPERATION_TOKEN = /\bListStockLevels\b/;
+/** G-47 trigger (c): the stock path the server (`/api/v1/stock`) or the browser (`/bff/api/stock`) uses. */
+const STOCK_PATH_TOKEN = /(?:\/api\/v1|\/bff\/api)\/stock(?![-A-Za-z0-9_])/;
+/** The one navigation-map entry excluded from (b), in STOCK_NAV_FILE only. Global: removed and counted at every occurrence. */
+const STOCK_NAV_ENTRY = /operation:\s*'ListStockLevels'/g;
+const STOCK_NAV_FILE = 'lib/navigation.ts';
+/** G-47 trigger (d), relative to `frontend/`. */
+const CLIENT_OPS_FILE = 'scripts/api-surface.client-ops.json';
+/** C1: what a file making the trigger true, or a module it imports one level down, must name. */
+const STOCK_MARKER_INPUTS: readonly (readonly [string, RegExp])[] = [
+  ['ListStorageLocations', /\bListStorageLocations\b/],
+  ["'storage_location.view'", /'storage_location\.view'/],
+  ["'warehouse.view'", /'warehouse\.view'/],
+];
+
+/** Byte-order sort, as the backend's `sort(…, SORT_STRING)` / `ksort(…, SORT_STRING)` (code-unit order; ASCII paths). */
+const byteOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const own = (sources: Readonly<Record<string, string>>, file: string): string => (Object.hasOwn(sources, file) ? (sources[file] ?? '') : '');
+
+function stockPages(pages: readonly string[]): string[] {
+  return pages.filter((page) => {
+    const url = pageUrl(page);
+    return url !== null && (url === '/stock' || url.startsWith('/stock/'));
+  });
+}
+
+function stockSourceReasons(file: string, text: string): string[] {
+  if (file.startsWith('generated/')) return [];
+  const reasons: string[] = [];
+  const searched = file === STOCK_NAV_FILE ? text.replace(STOCK_NAV_ENTRY, '') : text;
+  if (STOCK_OPERATION_TOKEN.test(searched)) reasons.push('names ListStockLevels');
+  if (STOCK_PATH_TOKEN.test(text)) reasons.push('names the stock path (/api/v1/stock or /bff/api/stock)');
+  return reasons;
+}
+
+/** One line per reason G-47's frontend trigger is true; empty when it is not. Pages first, then sources (byte order), then the client wiring list. */
+function stockRowTriggers(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+  const lines: string[] = [];
+  for (const page of [...stockPages(pages)].sort(byteOrder)) lines.push(`the frontend serves a page at ${pageUrl(page)} (src/app/${page})`);
+  for (const [file, text] of Object.entries(sources).sort(([a], [b]) => byteOrder(a, b))) {
+    for (const reason of stockSourceReasons(file, text)) lines.push(`src/${file} ${reason} outside src/generated/`);
+  }
+  if (clientOps.includes('ListStockLevels')) lines.push(`${CLIENT_OPS_FILE} wires ListStockLevels for the browser`);
+  return lines;
+}
+
+/**
+ * Modules a file imports by a relative or `@/` specifier, resolved by text to paths relative to `src` (`.ts`, `.tsx`,
+ * `.js`, `.jsx`, or an `index.*` in a folder). Unresolved specifiers are dropped by the caller (a missing key reads '').
+ */
+function directImports(file: string, text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"]((?:\.\/|\.\.\/|@\/)[^'"]+)['"]/g)) {
+    const specifier = match[1] ?? ''; // the group is not optional, so this is always the captured text
+    const parts = specifier.startsWith('@/') ? specifier.slice(2).split('/') : [...file.split('/').slice(0, -1), ...specifier.split('/')];
+    const resolved: string[] = [];
+    for (const part of parts) {
+      if (part === '..') resolved.pop();
+      else if (part !== '.' && part !== '') resolved.push(part);
+    }
+    const base = resolved.join('/');
+    for (const suffix of ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js', '/index.jsx']) found.add(base + suffix);
+  }
+  return [...found];
+}
+
+/** C1 over every file that makes the trigger true. Fails closed when the trigger holds only through the client wiring list. */
+function stockRowDefects(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+  if (stockRowTriggers(pages, sources, clientOps).length === 0) return [];
+  const files = stockPages(pages).map((page) => `app/${page}`);
+  for (const [file, text] of Object.entries(sources)) {
+    if (stockSourceReasons(file, text).length > 0) files.push(file);
+  }
+  const unique = [...new Set(files)].sort(byteOrder);
+  if (unique.length === 0) {
+    return [
+      'the client wiring list wires ListStockLevels, but no frontend source outside src/generated/ names it, ' +
+        'so no file can be checked for the marker inputs (fail closed: name the stock read where it is used)',
+    ];
+  }
+  const defects: string[] = [];
+  for (const file of unique) {
+    let text = own(sources, file);
+    for (const imported of directImports(file, text)) text += `\n${own(sources, imported)}`;
+    const missing = STOCK_MARKER_INPUTS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
+    if (missing.length > 0) defects.push(`src/${file} makes the stock trigger true, but neither it nor a module it imports names ${missing.join(', ')}`);
+  }
+  return defects;
+}
+
+type Json = Record<string, unknown>;
+const asObject = (value: unknown): Json => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : {});
+
+function resolveRef(spec: Json, schema: Json): Json {
+  let current = schema;
+  while (typeof current.$ref === 'string') {
+    let target: unknown = spec;
+    for (const segment of current.$ref.split('/').slice(1)) target = asObject(target)[segment] ?? {};
+    current = asObject(target);
+  }
+  return current;
+}
+
+/** The item schema of ListStockLevels' 200 response, found by operationId, `$ref`s resolved; null when the spec has none. */
+function stockRowSchema(spec: Json): Json | null {
+  for (const item of Object.values(asObject(spec.paths))) {
+    for (const [method, operation] of Object.entries(asObject(item))) {
+      if (['parameters', 'summary', 'description', 'servers', '$ref'].includes(method)) continue;
+      if (asObject(operation).operationId !== 'ListStockLevels') continue;
+      for (const content of Object.values(asObject(asObject(asObject(asObject(operation).responses)['200']).content))) {
+        const collection = resolveRef(spec, asObject(asObject(content).schema));
+        const items = resolveRef(spec, asObject(asObject(collection.properties).items));
+        return resolveRef(spec, asObject(items.items));
+      }
+    }
+  }
+  return null;
+}
+
+const schemaShape = (schema: Json) => Object.keys(asObject(schema.properties)).map(String).sort(byteOrder);
+
+const G47_MESSAGE =
+  'G-47 is open (docs/RESIDUAL_GAPS.md G-47, Low; owner UX + SEC): a stock row (ListStockLevels) does not say\n' +
+  'whether its bin can be picked -- quarantine bins, archived bins and bins of an archived warehouse look like\n' +
+  'pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md, adopted under the\n' +
+  "owner's delegation; the owner may strike it): stock rows may render in the web app ONLY to a viewer holding\n" +
+  'BOTH storage_location.view and warehouse.view, with a text badge (Quarantine / Archived) drawn client-side\n' +
+  'from ListStorageLocations (live and ?archived=true: kind, archived_at) and the warehouse\'s archived state\n' +
+  '(GetWarehouse / ListWarehouses?archived). Everyone else sees no stock rows until G-47 closes.\n\n' +
+  'FAIL CLOSED: a row whose marker inputs did not all load is never shown as pickable (a text state such as\n' +
+  "'Status unknown' -- UX wording -- or the rows withheld behind a retry).\n\n" +
+  'This check proves only that the marker inputs are NAMED. A stub naming them passes, so it is weaker than\n' +
+  'option (1), the full block, which the owner was offered as the fallback. The commit that builds the screen\n' +
+  'checks these seven by hand and says so:\n' +
+  '  1. rows render only when the viewer holds both codes; otherwise the H-3a hint and an empty state, no rows;\n' +
+  "  2. the badge uses all three inputs: kind = quarantine, the bin's archived_at, the warehouse's archived_at;\n" +
+  '  3. fail closed, as above;\n' +
+  '  4. the badge is text, never colour only;\n' +
+  "  5. IA.md H-3a's hint stays under qty_on_hand;\n" +
+  '  6. an item-scoped view covers every warehouse its rows name;\n' +
+  '  7. the server-side first render applies the same gate as the browser re-read.\n' +
+  'In that commit also add C2 (the badge copy key UX fixes) to this check and to its frontend twin, which is\n' +
+  'owed next on the frontend track (frontend/test/architecture.test.ts, FE-LEAD). G-47 itself stays open:\n' +
+  "closing it needs SEC's ruling on a row field, the owner's word, and UX's badge (RESIDUAL_GAPS.md G-47).";
+
+const G47_ROW_SHAPE_MESSAGE =
+  "The stock row (ListStockLevels' items) changed shape. If this is G-47's marker field (or a member on the\n" +
+  'shared location reference, which StockMovement reuses), the closing design starts in THIS backend commit:\n' +
+  'move this pin to the implication docs/design/g47-ruling.md describes, and close or re-put G-47 in\n' +
+  'docs/RESIDUAL_GAPS.md. Otherwise update the expected shape with a stated reason.';
+
+const realClientOps = (): unknown => JSON.parse(readFileSync(path.join(ROOT, CLIENT_OPS_FILE), 'utf8'));
+
+describe('architecture — G-47: no stock rows without the marker inputs while G-47 is open (twin of the backend G-47 check)', () => {
+  it('planted trigger trees: each isolates one rule and is due or not exactly as the backend check says', () => {
+    const admin = ['(app)/admin/page.tsx'];
+    const nav = { 'lib/navigation.ts': "{ label: 'Stock on hand', href: '/stock', operation: 'ListStockLevels', permission: 'stock_level.view' }" };
+    const triggers: [string, string[], Record<string, string>, string[], boolean][] = [
+      ['a /stock page', ['(app)/stock/page.tsx'], {}, [], true],
+      ['a /stock page outside any group', ['stock/page.tsx'], {}, [], true],
+      ['a /stock page.jsx', ['(app)/stock/page.jsx'], {}, [], true],
+      ['a /stock page.js', ['(app)/stock/page.js'], {}, [], true],
+      ['a page below /stock', ['(app)/stock/[id]/page.tsx'], {}, [], true],
+      ['a /stock page under a nested group', ['(app)/(inventory)/stock/page.tsx'], {}, [], true],
+      ['a /stock page under a parallel slot', ['(app)/stock/@panel/page.tsx'], {}, [], true],
+      ['a /stock page in a private folder', ['(app)/_wip/stock/page.tsx'], {}, [], false],
+      ['a private folder below /stock', ['(app)/stock/_wip/page.tsx'], {}, [], false],
+      ['a /stock-movements page', ['(app)/stock-movements/page.tsx'], {}, [], false],
+      ['a /stock layout or route handler, not a page', ['(app)/stock/layout.tsx', '(app)/stock/route.ts'], {}, [], false],
+      ['a component preview of a stock screen', ['(dev)/component-preview/stock/page.tsx'], {}, [], false],
+      ['an intercepting (..)stock segment (a stated limit)', ['(app)/items/(..)stock/page.tsx'], {}, [], false],
+      ['the stock read named in a library file', admin, { 'lib/api/stock.ts': "read('ListStockLevels')" }, [], true],
+      ['the stock read only in generated code, and the nav entry', admin, { 'generated/api-surface.server.ts': 'ListStockLevels', ...nav }, [], false],
+      ['the stock read called from the navigation file', admin, { 'lib/navigation.ts': "read('ListStockLevels')" }, [], true],
+      ['the nav entry shape in another file', admin, { 'components/X.tsx': "operation: 'ListStockLevels'" }, [], true],
+      ['a raw browser fetch of /bff/api/stock', admin, { 'lib/x.ts': "bffFetch('/bff/api/stock')" }, [], true],
+      ['a raw browser fetch of /bff/api/stock-movements', admin, { 'lib/x.ts': "bffFetch('/bff/api/stock-movements')" }, [], false],
+      ['a raw server path /api/v1/stock with a query', admin, { 'lib/x.ts': "'/api/v1/stock?item=1'" }, [], true],
+      ['a raw server path /api/v1/stock-movements', admin, { 'lib/x.ts': "'/api/v1/stock-movements'" }, [], false],
+      ['the stock path only in generated code', admin, { 'generated/api-surface.server.ts': "template: '/api/v1/stock'," }, [], false],
+      ['the stock read wired for the browser', admin, {}, ['ListUsers', 'ListStockLevels'], true],
+      ['only the movements read wired for the browser', admin, {}, ['ListStockMovements'], false],
+      ['a frontend with no stock screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, ['ListUsers'], false],
+    ];
+    const verdicts = triggers.map(([name, pages, sources, clientOps]) => [name, stockRowTriggers(pages, sources, clientOps).length > 0]);
+    expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));
+  });
+
+  it('planted implication trees: C1 and its one-level import resolution trip and pass exactly as the backend check says', () => {
+    const admin = ['(app)/admin/page.tsx'];
+    const marker = "listLocations('ListStorageLocations'); need('storage_location.view'); need('warehouse.view');";
+    const page = ['(app)/stock/page.tsx'];
+    const implications: [string, string[], Record<string, string>, string[], boolean][] = [
+      ['the screen names all three marker inputs', page, { 'app/(app)/stock/page.tsx': marker }, [], true],
+      ['the screen without ListStorageLocations', page, { 'app/(app)/stock/page.tsx': "need('storage_location.view'); need('warehouse.view');" }, [], false],
+      ['the screen without storage_location.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('warehouse.view');" }, [], false],
+      ['the screen without warehouse.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('storage_location.view');" }, [], false],
+      ['the screen with no source at all', page, {}, [], false],
+      ['the marker one level down by a relative import', page, { 'app/(app)/stock/page.tsx': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], true],
+      ['the marker one level down by an @/ import', page, { 'app/(app)/stock/page.tsx': "import { m } from '@/lib/stock/marker';", 'lib/stock/marker.ts': marker }, [], true],
+      ['the marker two levels down', page, { 'app/(app)/stock/page.tsx': "import { a } from './a';", 'app/(app)/stock/a.ts': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], false],
+      ['a stock panel naming the read and the marker', admin, { 'components/StockPanel.tsx': `read('ListStockLevels'); ${marker}` }, [], true],
+      ['a stock panel naming the read alone', admin, { 'components/StockPanel.tsx': "read('ListStockLevels')" }, [], false],
+      ['the stock read wired for the browser, no file to check', admin, {}, ['ListStockLevels'], false],
+      ['no stock screen at all', admin, {}, [], true],
+    ];
+    const verdicts = implications.map(([name, pages, sources, clientOps]) => [name, stockRowDefects(pages, sources, clientOps).length === 0]);
+    expect(verdicts).toEqual(implications.map(([name, , , , passes]) => [name, passes]));
+  });
+
+  it('planted control: the trigger lines for a four-reason tree are the exact lines, in order, that a red run prints', () => {
+    expect(stockRowTriggers(['(app)/stock/page.tsx'], { 'lib/x.ts': "'/bff/api/stock'", 'components/A.tsx': 'ListStockLevels' }, ['ListStockLevels'])).toEqual([
+      'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
+      'src/components/A.tsx names ListStockLevels outside src/generated/',
+      'src/lib/x.ts names the stock path (/api/v1/stock or /bff/api/stock) outside src/generated/',
+      'scripts/api-surface.client-ops.json wires ListStockLevels for the browser',
+    ]);
+  });
+
+  it('real-tree controls: the walk, the generated boundary, the nav exclusion, the client wiring list and the row shape', () => {
+    assertFrontendTreeIsWalkable();
+    const sources = realSources();
+    const generated = Object.entries(sources).filter(([file, text]) => file.startsWith('generated/') && STOCK_OPERATION_TOKEN.test(text) && STOCK_PATH_TOKEN.test(text));
+    expect(generated.length, 'Positive control: src/generated/ no longer names ListStockLevels and its path, so excluding it proves nothing about where the boundary is. Re-derive the tokens or the folder.').toBeGreaterThan(0);
+    expect(
+      (own(sources, STOCK_NAV_FILE).match(STOCK_NAV_ENTRY) ?? []).length,
+      `src/${STOCK_NAV_FILE} does not hold the navigation entry \`operation: 'ListStockLevels'\` exactly once. The exclusion below removes that shape from that file only, on the premise that the nav map renders nothing but built links; it has moved or changed shape, so re-derive the exclusion before trusting it.`,
+    ).toBe(1);
+    expect(existsSync(path.join(ROOT, CLIENT_OPS_FILE)), 'Positive control: the client wiring list moved, so trigger (d) reads nothing.').toBe(true);
+    const clientOps = realClientOps();
+    expect(Array.isArray(clientOps), 'Positive control: the client wiring list is not a JSON list, so trigger (d) reads nothing.').toBe(true);
+    expect(clientOps as unknown[], 'Positive control: the client wiring list no longer holds ListUsers, so it is not the list trigger (d) means.').toContain('ListUsers');
+
+    // Row-shape control (A-M5): a marker field on the stock row is G-47's closing work arriving -- design it there.
+    const contract = path.join(ROOT, '../contracts/openapi.json');
+    expect(existsSync(contract), 'Positive control: ../contracts/openapi.json is not where the row-shape control looks, so it reads nothing.').toBe(true);
+    const spec = asObject(JSON.parse(readFileSync(contract, 'utf8')));
+    const row = stockRowSchema(spec);
+    expect(row, 'ListStockLevels has no 200 response schema in the committed contract, so the row-shape control reads nothing.').not.toBeNull();
+    const rowProperties = asObject(row!.properties);
+    expect(schemaShape(row!), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse']);
+    expect(schemaShape(resolveRef(spec, asObject(rowProperties.storage_location))), G47_ROW_SHAPE_MESSAGE).toEqual(['code', 'id']);
+    expect(schemaShape(resolveRef(spec, asObject(rowProperties.warehouse))), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'name']);
+  });
+
+  it('the real tree: anything that makes the stock trigger true names the marker inputs', () => {
+    const defects = stockRowDefects(realPages(), realSources(), realClientOps() as unknown[]);
+    expect(defects, `  ${defects.join('\n  ')}\n\n${G47_MESSAGE}`).toEqual([]);
+  });
+
+  it("the trigger is still false on the real tree (remove only in the stock screen's commit, after the hand check)", () => {
+    const lines = stockRowTriggers(realPages(), realSources(), realClientOps() as unknown[]);
+    expect(
+      lines,
+      `  ${lines.join('\n  ')}\n\n` +
+        "G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n" +
+        'being built. Check the seven items below by hand against the screen, say so in the commit, and only then\n' +
+        'remove this control in that commit.\n' +
+        "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
+        G47_MESSAGE,
+    ).toEqual([]);
   });
 });

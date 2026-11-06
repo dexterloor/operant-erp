@@ -8,10 +8,14 @@ describe('lib/results (RED M-2, Revision 2 C-3)', () => {
     expectTypeOf<Auth.Unreachable>().toEqualTypeOf<Shared.Unreachable>();
     expectTypeOf<Auth.ServerError>().toEqualTypeOf<Shared.ServerError>();
     expectTypeOf<Auth.RateLimited>().toEqualTypeOf<Shared.RateLimited>();
+    // Revision 7 A-19 item 4: FieldErrors moved here; the auth module re-exports it (type only).
+    expectTypeOf<Auth.FieldErrors<'email'>>().toEqualTypeOf<Shared.FieldErrors<'email'>>();
   });
 
   it('Refused carries the served problem fields rule + message (ApiProblem.php getRule / message)', () => {
-    expectTypeOf<Shared.Refused>().toEqualTypeOf<{ kind: 'refused'; rule: string; message: string }>();
+    // Revision 7 A-19 item 3: `violations` is optional and set only by a 422 (projected to exactly three strings).
+    expectTypeOf<Shared.Refused>().toEqualTypeOf<{ kind: 'refused'; rule: string; message: string; violations?: readonly Shared.Violation[] }>();
+    expectTypeOf<Shared.Violation>().toEqualTypeOf<{ readonly pointer: string; readonly code: string; readonly message: string }>();
     expectTypeOf<Shared.SessionEnded['kind']>().toEqualTypeOf<'session-ended'>();
     expectTypeOf<Shared.Forbidden['kind']>().toEqualTypeOf<'forbidden'>();
     expectTypeOf<Shared.NotFound['kind']>().toEqualTypeOf<'not-found'>();

@@ -89,6 +89,56 @@ describe('T-P — problem.ts, one case per §6.3 row', () => {
     const got = await classify(problem(409, { type: 'urn:erp:problem:business-rule-violated', rule: 'r.s', message: 'm', detail: 'internal', trace: 'x' }));
     expect(got).toEqual({ kind: 'refused', rule: 'r.s', message: 'm' });
   });
+
+  // Revision 7 A-19 item 3: a 422 carries every well-formed entry of errors[], in order, as `violations`.
+  it('a 422 keeps every string-only entry in order and drops a malformed one; the first entry still drives rule and message', async () => {
+    const got = await classify(
+      problem(422, {
+        type: 'urn:erp:problem:validation-failed',
+        errors: [
+          { pointer: '/code', code: 'code_taken', message: 'That code is taken.' },
+          { pointer: '/name', code: 42, message: 'not carried' },
+          { pointer: '/name', code: 'name_blank', message: 'Enter a name.' },
+          'not an object',
+          null,
+          { pointer: '', code: 'whole', message: 'Something about the whole form.' },
+          { pointer: '/country_code', code: 'country_unknown' },
+        ],
+      }),
+    );
+    expect(got).toMatchObject({ kind: 'refused', rule: 'code_taken', message: 'That code is taken.' });
+    expect(got.kind === 'refused' ? got.violations : 'none').toEqual([
+      { pointer: '/code', code: 'code_taken', message: 'That code is taken.' },
+      { pointer: '/name', code: 'name_blank', message: 'Enter a name.' },
+      { pointer: '', code: 'whole', message: 'Something about the whole form.' },
+    ]);
+  });
+
+  it('a 422 whose first entry is malformed: rule and message are still that raw entry\'s (D-1), and it is not a violation', async () => {
+    const got = await classify(problem(422, { type: 'urn:erp:problem:validation-failed', errors: [
+      { pointer: '/code', code: 42, message: 'First, malformed.' },
+      { pointer: '/name', code: 'name_blank', message: 'Enter a name.' },
+    ] }));
+    expect(got).toEqual({ kind: 'refused', rule: '', message: 'First, malformed.', violations: [{ pointer: '/name', code: 'name_blank', message: 'Enter a name.' }] });
+  });
+
+  it('a 422 is projected exactly: nothing else from the body or an entry is carried (L-2, twin of the 409 case)', async () => {
+    const got = await classify(
+      problem(422, {
+        type: 'urn:erp:problem:validation-failed',
+        detail: 'internal',
+        errors: [{ pointer: '/name', code: 'name_taken', message: 'That name is taken.', hint: 'x', payload: { a: 1 } }],
+      }),
+    );
+    expect(got).toEqual({ kind: 'refused', rule: 'name_taken', message: 'That name is taken.', violations: [{ pointer: '/name', code: 'name_taken', message: 'That name is taken.' }] });
+  });
+
+  it('a 422 with no errors carries an empty violations list; a 409 refused carries none', async () => {
+    expect(await classify(problem(422, { type: 'urn:erp:problem:validation-failed' }))).toEqual({ kind: 'refused', rule: '', message: '', violations: [] });
+    const c409 = await classify(problem(409, { type: 'urn:erp:problem:business-rule-violated', rule: 'r.s', message: 'm', errors: [{ pointer: '/x', code: 'c', message: 'm' }] }));
+    expect(c409).toEqual({ kind: 'refused', rule: 'r.s', message: 'm' });
+    expect('violations' in c409).toBe(false);
+  });
 });
 
 type FetchCall = [string, RequestInit];
@@ -241,7 +291,7 @@ describe('T-SC — session-changed: reload once, stay silent while it is pending
 
 describe('T-R2 — deadline.ts', () => {
   it('names each per-action bound once', () => {
-    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, bulkRun: 30_000, reread: 30_000 });
+    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, warehouseSave: 30_000, warehouseRestore: 30_000, warehouseCreate: 30_000, locationCreate: 30_000, locationSave: 30_000, locationRestore: 30_000, warehouseDelete: 30_000, locationDelete: 30_000, bulkRun: 30_000, reread: 30_000 });
   });
 
   it('a deadline aborts its signal at its bound, not before; cancel clears it', async () => {

@@ -13,6 +13,22 @@ export const ACTION_DEADLINES_MS = {
   roleRestore: 30_000,
   /** Save roles: every request + the re-read. */
   saveRoles: 60_000,
+  /** Save a warehouse: the request + the GetWarehouse re-read. */
+  warehouseSave: 30_000,
+  /** Restore a warehouse: the request + the GetWarehouse re-read. */
+  warehouseRestore: 30_000,
+  /** Create a warehouse: the request alone (the page navigates to the new warehouse, which reads it). */
+  warehouseCreate: 30_000,
+  /** Add a location: the request alone (the section re-reads its view after the dialog closes). */
+  locationCreate: 30_000,
+  /** Save a location's code and/or kind: the request alone (the section re-reads its view after the dialog closes). */
+  locationSave: 30_000,
+  /** Restore a location: the request alone (the section re-reads its view after). */
+  locationRestore: 30_000,
+  /** Delete a warehouse: the request + the GetWarehouse re-read (the page turns archived, §2 step 4.6). */
+  warehouseDelete: 30_000,
+  /** Delete a location: the request alone (the section re-reads its view after the dialog closes). */
+  locationDelete: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */
