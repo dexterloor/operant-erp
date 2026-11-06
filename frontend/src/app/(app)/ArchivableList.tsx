@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
+import { useEffect, useEffectEvent, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -69,6 +69,8 @@ export interface Column<T> {
 export interface SearchCopy {
   label: string | ((archived: boolean) => string);
   placeholder: string;
+  /** Visible text under the box, tied to it with `aria-describedby` (items B-1: what the search matches). Optional. */
+  hint?: string;
 }
 
 /** What `header` and `empty` may read and do. */
@@ -98,10 +100,12 @@ export interface EmptyView extends ViewControls {
 export type EmptyState = (v: EmptyView) => { heading: string; actions?: ReactNode } | null;
 
 /**
- * The Archived view's order (A-17 item 7). `as-served` keeps the server's order and shows no caption (ST-9b), unless it is
- * given one (R8-1 item 7: a paged list's one order, named — a client re-sort of one page would lie).
+ * A whole-view list's Archived view order (A-17 item 7). `as-served` keeps the server's order and renders no caption
+ * (ST-9b): its `caption?: undefined` makes a caption a type mismatch even from a non-literal object (Revision 8
+ * amendments, C-1). The caption is typed in for the paged variant only (`PagedListProps.archivedView`, R8-1 item 7: a
+ * paged list's one order, named — a client re-sort of one page would lie).
  */
-export type ArchivedView = { order: 'newest-deleted-first'; caption: string; rows: 'plain' | 'struck' } | { order: 'as-served'; caption?: string; rows: 'plain' | 'struck' };
+export type ArchivedView = { order: 'newest-deleted-first'; caption: string; rows: 'plain' | 'struck' } | { order: 'as-served'; caption?: undefined; rows: 'plain' | 'struck' };
 
 /**
  * The paged list's own words (R8-1; UX per family). `pager` labels the two page buttons per view (live: Previous / Next;
@@ -119,8 +123,11 @@ export type RereadResult = { kind: 'ok' } | { kind: ReadFailure };
 export interface ArchivableListHandle {
   /**
    * Re-read the view on screen, keeping the search text (A-5). Waits for a load in flight, then reads, and resolves with
-   * its own result after the rows have committed (L-8). Never moves focus and never changes the settled announcement
-   * (M-2). A failure raises no banner and leaves the rows as they are. A 403 replaces the list with `denied`, as a switch
+   * its own result after the rows have committed (L-8). Never changes the settled announcement (M-2). A whole-view list's
+   * reread never moves focus. A paged list's reread repeats the request that read the rows on screen (their view, search
+   * and cursor) and moves focus only if focus was lost when its rows commit — on `<body>` or on a removed element,
+   * whatever removed it (most often a page button the page no longer offers): to the list heading, or to the empty
+   * page's own heading (Revision 8 amendments 4 and 5). A failure raises no banner and leaves the rows as they are. A 403 replaces the list with `denied`, as a switch
    * does; focus then falls to `<body>` if it was inside the list — the caller decides from the resolved `forbidden`
    * whether to move it. A reread before any view has loaded does nothing and resolves `server-error`: the region error's
    * Retry is the way back.
@@ -158,7 +165,10 @@ type SearchOption<T> =
   | {
       /** The search box; default from `copy.searchLabel`/`searchPlaceholder`. */
       search?: SearchCopy;
-      /** The client filter. It need not mirror the server's `q`, and a whole-view list never sends `q` (a paged list always does: R8-1, A-17 item 11 as amended). */
+      /**
+       * The client filter. It need not mirror the server's `q`, and a whole-view list never sends `q`; a paged list sends
+       * its search as `q` whenever that search is not empty (A-17 item 11 as amended by Revision 8 amendment 1).
+       */
       matches: (item: T, lowerQ: string) => boolean;
     }
   | { search: false; matches?: undefined };
@@ -166,8 +176,9 @@ type SearchOption<T> =
 export type ArchivableListProps<T> = BaseProps<T> & SearchOption<T>;
 
 /**
- * A paged list (R8-1): the server pages and searches, so the list never filters (`matches` is typed out) and sends the
- * search box's text as `q`, untrimmed and unfolded. Its Archived view keeps the server's order under a caption.
+ * A paged list (R8-1): the server pages and searches, so the list never filters (`matches` is typed out). Each read sends
+ * its search as `q` whenever that search is not empty, as typed (untrimmed, unfolded), never `q=`; which search a read
+ * sends is Revision 8 amendment 1's list. Its Archived view keeps the server's order under a caption.
  */
 export type PagedListProps<T> = Omit<BaseProps<T>, 'paging' | 'initial' | 'load' | 'archivedView'> & {
   paging: Paging<T>;
@@ -223,6 +234,19 @@ function EmptyBlock({ empty, v }: { empty: EmptyState; v: EmptyView }) {
   );
 }
 
+/** The search box, and under it its hint when one is given (a whole-view list's box renders exactly as before). */
+function SearchGroup({ hint, hintId, children }: { hint: string | undefined; hintId: string; children: ReactNode }) {
+  if (hint === undefined) return <>{children}</>;
+  return (
+    <div className={styles.searchGroup}>
+      {children}
+      <span id={hintId} className={styles.searchHint}>
+        {hint}
+      </span>
+    </div>
+  );
+}
+
 const NOOP = () => {};
 
 /** The empty page a cursor reached (R8-1 item 5): its own heading (the focus target), why, and the way back to the first page. */
@@ -267,10 +291,12 @@ interface Loaded<T> {
  * the search in the box), a settled search, Clear search, **Back to the first page** and the first load carry none. A
  * settle reads the first page for its query and the region is blank until that read succeeds — it never speaks from the
  * rows on screen; a settle during any fetch waits, the last one winning, and the fetch it waited for then speaks nothing.
- * A page press during any fetch (a reread included) is ignored, and it and `reread()` use the settled search, never
- * unsettled text; while the rows answer another search (a settle or a switch failed) the pager is withdrawn.
- * A page read by its cursor speaks `paging.pageShown` (a position cue); an empty one is the core's own state (`noMore`,
- * focus to its heading if focus was lost — after a reread too, which still announces nothing), never an ST-2 empty state. After a page press focus stays on the pressed button if it is still
+ * A page press during any fetch (a reread included) is ignored, and page presses use the settled search, never unsettled
+ * text. `reread()` repeats the request that read the rows on screen (their view, search and cursor), never the settled
+ * search with the rows' cursor. While the rows answer another search (a settle or a switch failed) the pager is withdrawn.
+ * A page read by its cursor speaks `paging.pageShown` (a position cue); an empty one is the core's own state (`noMore`),
+ * never an ST-2 empty state: focus goes to its heading if focus was lost — on `<body>` or on a removed element, whatever
+ * removed it — after a reread too, which still announces nothing. After a page press focus stays on the pressed button if it is still
  * rendered, else goes to the list's heading. Cursors and `q` are never written to the address: a reload opens page 1.
  *
  * The region (FE-R4, fe-r4-ux.md Revision 1). Its text is one string written explicitly, never derived on render, and
@@ -351,6 +377,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const viewControlRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
+  const searchHintId = useId();
   /** Loads run one after another: a reread waits for a load in flight (L-8), and a switch for a reread. */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -560,11 +587,16 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
    * search (the banner's Retry, a new search, a switch).
    */
   // Its predicate (`refetchError.page.q`) and `goTo`'s (`settledQ`) are two expressions of one fact, equal while a search
-  // can settle only by a read or a switch, and while every read but `reread()` and the banner's Retry sends the settled
-  // search (Back to the first page included: R8-1 item 5); a change that lets a search settle without a fetch, or a read
-  // send another search, must revisit both together.
+  // can settle only by a read or a switch, and while every read sends the search amendment 1 names for it: a settle,
+  // Clear search and Back to the first page the settled search; a switch the text in the box, which it settles as it
+  // starts; a page press the rows' search (the guard below requires it to be the settled one); `reread()` and the
+  // banner's Retry repeat a request. A change that lets a search settle without a fetch, or a read send another search,
+  // must revisit both together.
   const rowsAnswerAnotherSearch = paging !== null && shown !== null && refetchError !== null && refetchError.page.q !== shown.page.q;
-  /** A page press (R8-1 item 2): its cursor, and the search the rows on screen answer — the settled one, never the unsettled text. Ignored during any read. */
+  /**
+   * A page press (R8-1 item 2): its cursor, and the search the rows on screen answer, which the guard requires to be the
+   * settled one (never the unsettled text). Ignored during any read, a reread included.
+   */
   const goTo = (cursor: PageCursor) => {
     if (busy || rereading.current || shown === null || settledQ.current !== shown.page.q) return;
     void fetchView(shown.archived, 'page', { q: shown.page.q, cursor });
@@ -589,21 +621,25 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         <div className={styles.toolbar}>
           {header ? <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef }} /> : <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />}
           {shown && searchCopy ? (
-            <label className={styles.search}>
-              <span>{searchLabel}</span>
-              <input
-                ref={searchRef}
-                type="search"
-                className={styles.searchInput}
-                placeholder={searchCopy.placeholder}
-                value={q}
-                onChange={(e) => {
-                  // FE-R4 rule 1: a keystroke never writes the region; its settle does.
-                  setQ(e.target.value);
-                  searchedSinceFailure.current = true;
-                }}
-              />
-            </label>
+            // The hint sits outside the <label>, so it describes the box and is not part of its name.
+            <SearchGroup hint={searchCopy.hint} hintId={searchHintId}>
+              <label className={styles.search}>
+                <span>{searchLabel}</span>
+                <input
+                  ref={searchRef}
+                  type="search"
+                  className={styles.searchInput}
+                  placeholder={searchCopy.placeholder}
+                  aria-describedby={searchCopy.hint !== undefined ? searchHintId : undefined}
+                  value={q}
+                  onChange={(e) => {
+                    // FE-R4 rule 1: a keystroke never writes the region; its settle does.
+                    setQ(e.target.value);
+                    searchedSinceFailure.current = true;
+                  }}
+                />
+              </label>
+            </SearchGroup>
           ) : null}
         </div>
       ) : null}

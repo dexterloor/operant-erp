@@ -187,6 +187,9 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/forms',
   // Revision 7 step 4.1 (A-18 guards): the warehouse logic and components.
   'src/lib/warehouses',
+  // Revision 8 R8-3 (items I-1): the item logic and components.
+  'src/lib/items',
+  'src/components/items',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -311,12 +314,14 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   // Revision 7 step 4.1 added: copy/warehouses.ts.
-  'src/copy': 9,
+  // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
+  'src/copy': 10,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
   // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
-  'src/lib': 60,
+  // Items I-1 (Revision 8 R8-2) added: lib/api/items.ts, lib/format/quantity.ts, lib/items/{load,results,wired}.ts.
+  'src/lib': 65,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -329,9 +334,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.6 added: components/warehouses/DeleteDialog.tsx (Delete warehouse and Delete location, B-7).
   // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
   // → components/records/{DeleteDialog,RestoreActions}.tsx.
-  'src/components': 60,
-  // Revision 7 step 4.6 added: lib/api/problems.ts.
-  'src/lib/api': 7,
+  // Items I-1 added: components/items/ItemForm.tsx.
+  'src/components': 61,
+  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
+  'src/lib/api': 8,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -340,6 +346,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/forms': 1,
   // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
   'src/lib/warehouses': 3,
+  // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
+  'src/lib/items': 3,
+  'src/components/items': 1,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -359,7 +368,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/theme': 2,
   'src/components/preview': 5,
   'src/lib/auth': 2,
-  'src/lib/format': 3,
+  // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
+  'src/lib/format': 4,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -387,7 +397,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // not-found}.tsx.
   // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
-  'src/app': 51,
+  // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
+  'src/app': 57,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -625,6 +636,8 @@ const NETWORK_SCAN_DIRS = [
   'src/components/people',
   'src/components/warehouses',
   'src/components/records',
+  // Items I-1 (Revision 8 R8-3): the item page's editor.
+  'src/components/items',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -824,6 +837,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/bulk',
   'src/lib/bff',
   'src/lib/warehouses',
+  // Items I-1 (Revision 8 R8-3): the item family's logic (`inventory_item` is a bulk key, G-3).
+  'src/lib/items',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -1307,6 +1322,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Items I-1 (G-F2 row): the item page's editor.
+      'src/components/items/ItemForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
       // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
@@ -1705,6 +1722,93 @@ describe('architecture — R8-3: components/records is props-only and names no f
 });
 
 /**
+ * Items I-1 (Revision 8 R8-2; items-plan.md R1-5 / M-5): a quantity is a decimal string rendered only by
+ * `lib/format/quantity.ts` (QR-2), never through a number (13 + 6 digits exceed a double) and never by a fixed-scale or
+ * locale formatter. The behaviour is pinned per display site in `test/wired/item-page.test.tsx`; this scan is the
+ * BACKSTOP over the item dirs and the renderer. Tokens: `Number(` and `new Number(`, `Number.parse…`, `parseFloat`,
+ * `parseInt`, `.toFixed`, `.toLocaleString`, `Intl.NumberFormat`, `Math.round`, and a unary `+` or `-` on an identifier
+ * or member named like a quantity. Limit, stated: an alias (`const N = Number`), a computed member (`x['toFixed']`) or a
+ * quantity under another name is not seen; the per-site DOM tests are what catch those.
+ */
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items'] as const;
+const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts'] as const;
+const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served/i;
+
+function quantityNumberViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      const hit = (detail: string) => out.push({ file: sf.file, detail });
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isIdentifier(node.expression)) {
+        const name = node.expression.text;
+        if (name === 'Number' || name === 'parseFloat' || name === 'parseInt') hit(`${name}(`);
+      }
+      if (ts.isPropertyAccessExpression(node)) {
+        const target = ts.isIdentifier(node.expression) ? node.expression.text : null;
+        const member = node.name.text;
+        if (target === 'Number' && member.startsWith('parse')) hit('Number.parse');
+        if (target === 'Intl' && member === 'NumberFormat') hit('Intl.NumberFormat');
+        if (target === 'Math' && member === 'round') hit('Math.round');
+        if (member === 'toFixed' || member === 'toLocaleString') hit(member);
+      }
+      if (ts.isPrefixUnaryExpression(node) && (node.operator === ts.SyntaxKind.PlusToken || node.operator === ts.SyntaxKind.MinusToken)) {
+        const operand = node.operand;
+        const named = ts.isIdentifier(operand) ? operand.text : ts.isPropertyAccessExpression(operand) ? operand.name.text : null;
+        if (named !== null && QUANTITY_NAME.test(named)) hit(`unary ${node.operator === ts.SyntaxKind.PlusToken ? '+' : '-'} on ${named}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — items I-1: no quantity goes through a number (QR-2 backstop, R8-2)', () => {
+  const scanned = () => [...QUANTITY_SCAN_DIRS.flatMap((d) => walk(d)), ...walk('src/lib/format').filter((f) => (QUANTITY_SCAN_FILES as readonly string[]).includes(f.file))];
+
+  it('the item dirs and the renderer hold no such token', () => {
+    const files = scanned();
+    // Positive control: the scan reads the item family and the renderer, not an empty set.
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx']));
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 6 + 1);
+    expect(quantityNumberViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: each token goes red on its own; the renderer and plain string work do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/items/A.tsx', source: 'export const a = (q: string) => Number(q);' },
+      { file: 'src/components/items/B.tsx', source: 'export const b = (q: string) => new Number(q);' },
+      { file: 'src/components/items/C.tsx', source: 'export const c = (q: string) => Number.parseFloat(q);' },
+      { file: 'src/components/items/D.tsx', source: 'export const d = (q: string) => parseFloat(q);' },
+      { file: 'src/components/items/E.tsx', source: 'export const e = (q: string) => parseInt(q, 10);' },
+      { file: 'src/components/items/F.tsx', source: 'export const f = (q: number) => q.toFixed(6);' },
+      { file: 'src/components/items/G.tsx', source: 'export const g = (q: number) => q.toLocaleString();' },
+      { file: 'src/components/items/H.tsx', source: "export const h = (q: number) => new Intl.NumberFormat('en-GB').format(q);" },
+      { file: 'src/components/items/I.tsx', source: 'export const i = (q: number) => Math.round(q);' },
+      { file: 'src/components/items/J.tsx', source: 'export const j = (item: { reorder_point: string }) => +item.reorder_point;' },
+      { file: 'src/components/items/K.tsx', source: 'export const k = (safetyStock: string) => -safetyStock;' },
+      { file: 'src/lib/format/quantity.ts', source: 'export const renderQuantity = (served: string) => String(Number(served));' },
+      { file: 'src/components/items/Ok.tsx', source: "export const ok = (served: string, n: number) => served.slice(0, served.indexOf('.')) + String(n - 1);" },
+    ];
+    expect(quantityNumberViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/items/A.tsx — Number(',
+      'src/components/items/B.tsx — Number(',
+      'src/components/items/C.tsx — Number.parse',
+      'src/components/items/D.tsx — parseFloat(',
+      'src/components/items/E.tsx — parseInt(',
+      'src/components/items/F.tsx — toFixed',
+      'src/components/items/G.tsx — toLocaleString',
+      'src/components/items/H.tsx — Intl.NumberFormat',
+      'src/components/items/I.tsx — Math.round',
+      'src/components/items/J.tsx — unary + on reorder_point',
+      'src/components/items/K.tsx — unary - on safetyStock',
+      'src/lib/format/quantity.ts — Number(',
+    ]);
+  });
+});
+
+/**
  * Guard enrolment (items-red.md M-2): LITERAL_SCAN_DIRS, NETWORK_SCAN_DIRS (component dirs only), BULK_LITERAL_DIRS and
  * EXPECTED_COUNTS are hand lists, so a new folder under `src/components` or `src/lib` used to be unscanned unless someone
  * remembered it. Every such folder must now be enrolled in each applicable list, or named below with the fact that keeps
@@ -1772,34 +1876,35 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    // A new folder nobody enrolled (the items family's folders, before I-1).
-    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/items is in no list and has no exemption',
-      'literal: src/lib/items is in no list and has no exemption',
-      'network: src/components/items is in no list and has no exemption',
-      'bulk: src/lib/items is in no list and has no exemption',
-      'counts: src/components/items is in no list and has no exemption',
-      'counts: src/lib/items is in no list and has no exemption',
+    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them; now a family that does not
+    // exist yet (suppliers), so the control still names folders absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/suppliers is in no list and has no exemption',
+      'literal: src/lib/suppliers is in no list and has no exemption',
+      'network: src/components/suppliers is in no list and has no exemption',
+      'bulk: src/lib/suppliers is in no list and has no exemption',
+      'counts: src/components/suppliers is in no list and has no exemption',
+      'counts: src/lib/suppliers is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/items': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/items': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/items's exemption has no reason",
-      'literal: src/lib/items is in no list and has no exemption',
-      'network: src/components/items is in no list and has no exemption',
-      "bulk: src/lib/items's exemption has no reason",
-      'counts: src/components/items is in no list and has no exemption',
-      'counts: src/lib/items is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/suppliers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/suppliers': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/suppliers's exemption has no reason",
+      'literal: src/lib/suppliers is in no list and has no exemption',
+      'network: src/components/suppliers is in no list and has no exemption',
+      "bulk: src/lib/suppliers's exemption has no reason",
+      'counts: src/components/suppliers is in no list and has no exemption',
+      'counts: src/lib/suppliers is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };
@@ -2090,6 +2195,10 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
       ['the stock read wired for the browser', admin, {}, ['ListUsers', 'ListStockLevels'], true],
       ['only the movements read wired for the browser', admin, {}, ['ListStockMovements'], false],
       ['a frontend with no stock screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, ['ListUsers'], false],
+      // Items I-1 (plan §2(g), §4 I-1): an item page that reads stock is a stock screen while G-47 is open.
+      ['an item page naming the stock read', ['(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "read('ListStockLevels')" }, [], true],
+      ['an item page linking to the stock path', ['(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "fetch('/bff/api/stock?item=1')" }, [], true],
+      ['the item pages as built (no stock read, no stock path)', ['(app)/items/page.tsx', '(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "loadItem(read, id); renderQuantity(item.reorder_point)" }, ['ListItems', 'GetItem'], false],
     ];
     const verdicts = triggers.map(([name, pages, sources, clientOps]) => [name, stockRowTriggers(pages, sources, clientOps).length > 0]);
     expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));

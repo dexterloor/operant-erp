@@ -31,9 +31,11 @@ export function readOf(caller: ApiCaller): Read {
 
 /**
  * Where a paged list read starts (b4-architecture.md Revision 8 R8-1): after a row (`after`, the next page), before one
- * (`before`, the previous page), or nowhere (the first page). One cursor at most, by type — the server refuses both.
+ * (`before`, the previous page), or nowhere (the first page). One cursor at most, by type — the server refuses both. The
+ * `?: never` members make that hold for a non-literal object too, not only under excess-property checking (Revision 8
+ * amendments, C-2; `test/paging-types.test.ts` is the control).
  */
-export type PageCursor = { readonly after: string } | { readonly before: string } | null;
+export type PageCursor = { readonly after: string; readonly before?: never } | { readonly before: string; readonly after?: never } | null;
 /** A paged list read: the search text as typed (never trimmed or folded, TB-5a) and where to start. */
 export interface PageRequest {
   readonly q: string;
@@ -50,7 +52,7 @@ export function pageQuery(archived: boolean, page: PageRequest): URLSearchParams
   if (archived) query.set('archived', 'true');
   if (page.q !== '') query.set('q', page.q);
   if (page.cursor !== null) {
-    if ('after' in page.cursor) query.set('after', page.cursor.after);
+    if (page.cursor.after !== undefined) query.set('after', page.cursor.after);
     else query.set('before', page.cursor.before);
   }
   return query;

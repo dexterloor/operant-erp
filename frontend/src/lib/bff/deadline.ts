@@ -29,6 +29,10 @@ export const ACTION_DEADLINES_MS = {
   warehouseDelete: 30_000,
   /** Delete a location: the request alone (the section re-reads its view after the dialog closes). */
   locationDelete: 30_000,
+  /** Save an item: the request + the GetItem re-read (also after a refusal, to see whether the page was stale). */
+  itemSave: 30_000,
+  /** Restore an item: the request + the GetItem re-read. */
+  itemRestore: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

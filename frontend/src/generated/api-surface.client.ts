@@ -113,6 +113,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.delete'],
     },
   },
+  GetItem: {
+    method: 'GET',
+    template: '/api/v1/items/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.view'],
+    },
+  },
   GetRole: {
     method: 'GET',
     template: '/api/v1/roles/{id}',
@@ -141,6 +151,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['warehouse.view'],
+    },
+  },
+  ListItems: {
+    method: 'GET',
+    template: '/api/v1/items',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.view'],
     },
   },
   ListOfferedRoles: {
@@ -223,6 +243,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  RestoreItem: {
+    method: 'POST',
+    template: '/api/v1/items/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.delete'],
+    },
+  },
   RestoreRole: {
     method: 'POST',
     template: '/api/v1/roles/{id}/restoration',
@@ -271,6 +301,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.assign'],
+    },
+  },
+  UpdateItem: {
+    method: 'PATCH',
+    template: '/api/v1/items/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.edit'],
     },
   },
   UpdateRole: {
@@ -357,6 +397,9 @@ export const BULK_MAX_IDS: number = 50;
 /** Sorted served property names of each schema a hand-written lib/api type mirrors (checked by test C-1). */
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
+  Item: ['archived_at', 'id', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier', 'unit_of_measure_code'],
+  'Item.CreateItemInput': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
+  'Item.UpdateItemInput.jsonMergePatch': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
   OfferedRole: ['conflicts_with', 'id', 'margin_exposure_with', 'name', 'refusal', 'requires_owner_confirmation'],
   Permission: ['code', 'description', 'module', 'sod_rows'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],
@@ -367,6 +410,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   StorageLocation: ['archived_at', 'code', 'id', 'kind'],
   'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
+  SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
   UserDisplayReference: ['display_name', 'id'],

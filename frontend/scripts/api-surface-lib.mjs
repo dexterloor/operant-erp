@@ -50,6 +50,10 @@ const MIRRORED = {
   StorageLocation: ['StorageLocation'],
   'StorageLocation.CreateStorageLocationInput': ['StorageLocation.CreateStorageLocationInput'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['StorageLocation.UpdateStorageLocationInput.jsonMergePatch'],
+  Item: ['Item'],
+  SupplierReference: ['SupplierReference'],
+  'Item.CreateItemInput': ['Item.CreateItemInput'],
+  'Item.UpdateItemInput.jsonMergePatch': ['Item.UpdateItemInput.jsonMergePatch'],
 };
 
 const BANNER =

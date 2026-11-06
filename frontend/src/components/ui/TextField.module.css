@@ -48,3 +48,5 @@
   flex: none;
   margin-top: 2px;
 }
+.withSuffix { display: inline-flex; align-items: center; gap: var(--space-3); }
+.suffix { color: var(--fg-default); }

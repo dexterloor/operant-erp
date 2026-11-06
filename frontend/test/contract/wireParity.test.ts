@@ -4,6 +4,7 @@ import type { Permission, SodRowRef } from '@/lib/api/permissions';
 import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposals';
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
+import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -69,6 +70,11 @@ const MIRRORED: Record<string, string[]> = {
   StorageLocation: keysOf<StorageLocation>()({ id: true, code: true, kind: true, archived_at: true }),
   'StorageLocation.CreateStorageLocationInput': keysOf<CreateStorageLocationInput>()({ code: true, kind: true }),
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': keysOf<UpdateStorageLocationInput>()({ code: true, kind: true }),
+  // Items I-1 (Revision 8 R8-2): the item, its supplier reference, and both inputs (the create input is first sent at I-2).
+  Item: keysOf<Item>()({ id: true, sku: true, name: true, unit_of_measure_code: true, reorder_point: true, reorder_quantity: true, safety_stock: true, supplier: true, archived_at: true }),
+  SupplierReference: keysOf<SupplierReference>()({ id: true, name: true }),
+  'Item.CreateItemInput': keysOf<CreateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
+  'Item.UpdateItemInput.jsonMergePatch': keysOf<UpdateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {
