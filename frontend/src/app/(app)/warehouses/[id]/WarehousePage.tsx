@@ -67,10 +67,13 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the warehouse is still
   // treated as archived for the actions (no Delete warehouse, a read-only section) until a read says otherwise.
   const [deletedHere, setDeletedHere] = useState(false);
-  // Every read the page commits is newer than that fact, so committing one clears it (a restore then turns it live).
+  // Every read the page commits is newer than that fact, so committing one clears it (a restore then turns it live). It
+  // is newer than an earlier failed re-read too, so committing one also clears that region error (the items RED L-2, a
+  // shipped defect here: "We couldn't load this warehouse again…" stayed over fresh data after a later successful write).
   const setWarehouse = useCallback(
     async (w: Warehouse) => {
       setDeletedHere(false);
+      setRereadError(null);
       await setCommitted(w);
     },
     [setCommitted],

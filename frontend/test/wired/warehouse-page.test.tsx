@@ -167,6 +167,36 @@ describe('/warehouses/[id] — the editor (B-3)', () => {
     await waitFor(() => expect(heading).toHaveFocus());
   });
 
+  // Shipped-defect fixes (2026-11-06, found by the items RED L-1 / L-2): a save whose re-read fails shows what was saved;
+  // a later read that succeeds clears the earlier re-read error.
+  it('saved but the re-read failed: the 200 body is shown (h1, saved code, Save disabled) under the region error', async () => {
+    stubFetch([json(200, { ...MAIN, code: 'HUB' }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Code'));
+    await u.type(field('Code'), 'HUB');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(region()).toHaveTextContent('HUB was saved.');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('HUB — Main warehouse');
+    expect(field('Code')).toHaveValue('HUB');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('a later save whose re-read succeeds clears an earlier re-read error', async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), json(200, { ...MAIN, name: 'Mainy' }), json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Mainy');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy'));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull());
+  });
+
   it('the re-read answers 403 → ST-4b for warehouses; 404 → ST-5 back to the list', async () => {
     stubFetch([json(200, MAIN), problem(403, 'permission-denied')]);
     const u = userEvent.setup();

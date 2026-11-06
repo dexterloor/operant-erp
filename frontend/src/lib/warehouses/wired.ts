@@ -10,7 +10,8 @@ import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREH
 // The warehouse page's Save over the BFF (Revision 7 A-18, A-19). `UpdateWarehouse` is a merge patch with no
 // Idempotency-Key: a repeat of a committed save finds nothing to change, so it is safe to press again. One deadline
 // covers the request AND the GetWarehouse re-read. Caller contract: after `saved` the re-read warehouse is passed to
-// `setWarehouse` (the form is never unmounted); a failed re-read is the page's to show.
+// `setWarehouse` (the form is never unmounted); when the re-read fails the 200 body is passed instead, and the failure
+// is the page's to show.
 //
 // Blind spot, stated (step-3 X-2): C-2's body-key check (`test/contract/clientOps.test.ts`) reads object-literal request
 // bodies only, so it does not see the body sent here, which the form builds with `changedFields`. What keeps the sent
@@ -50,7 +51,12 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
       if (!isWarehouse(r.body)) return { kind: 'server-error' };
       const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
       if (again.kind === 'ok') await w.setWarehouse(again.warehouse);
-      else w.onRereadFailed(again.kind);
+      else {
+        // The 200 body is the server's new state: commit it, so the page shows what was saved, as Restore does (the
+        // items RED L-1, a shipped defect here: the page said "{code} was saved." over the pre-save warehouse).
+        await w.setWarehouse(r.body);
+        w.onRereadFailed(again.kind);
+      }
       return { kind: 'saved', warehouse: r.body };
     } finally {
       deadline.cancel();
