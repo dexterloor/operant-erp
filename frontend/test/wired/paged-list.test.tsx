@@ -491,6 +491,25 @@ describe('R8-1 item 5 — an empty page reached by a cursor is the core’s own 
     });
   }
 
+  it('Back to the first page sends the settled search after that search failed on an empty page, and the pager then works', async () => {
+    const srv = deferredServer();
+    const u = userEvent.setup();
+    renderWired(<PagedFixture initial={first([live('A1')], 'n1')} />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await srv.answer([], { tenant_has_rows: true });
+    expect(screen.getByText('There are no more things here.', { selector: 'p' })).toBeInTheDocument();
+    await u.type(box(), 'B');
+    await settle();
+    await srv.fail();
+    await u.click(screen.getByRole('button', { name: 'Back to the first page' }));
+    expect(params(srv.sent[srv.sent.length - 1]!)).toEqual({ q: 'B' });
+    await srv.answer([live('B1')], { next_cursor: 'nb1' });
+    expect(skus()).toEqual(['B1']);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    expect(params(srv.sent[srv.sent.length - 1]!)).toEqual({ q: 'B', after: 'nb1' });
+  });
+
   it('a reread that comes back empty under a cursor lands in the same state, and speaks nothing', async () => {
     const srv = deferredServer();
     const u = userEvent.setup();

@@ -560,7 +560,9 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
    * search (the banner's Retry, a new search, a switch).
    */
   // Its predicate (`refetchError.page.q`) and `goTo`'s (`settledQ`) are two expressions of one fact, equal while a search
-  // can settle only by a read or a switch; a change that lets a search settle without a fetch must revisit both together.
+  // can settle only by a read or a switch, and while every read but `reread()` and the banner's Retry sends the settled
+  // search (Back to the first page included: R8-1 item 5); a change that lets a search settle without a fetch, or a read
+  // send another search, must revisit both together.
   const rowsAnswerAnotherSearch = paging !== null && shown !== null && refetchError !== null && refetchError.page.q !== shown.page.q;
   /** A page press (R8-1 item 2): its cursor, and the search the rows on screen answer — the settled one, never the unsettled text. Ignored during any read. */
   const goTo = (cursor: PageCursor) => {
@@ -614,7 +616,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
           {notice ? notice(archived) : null}
           <Refetchable busy={busy}>
             {paging !== null && shown.endOfList ? (
-              <EndOfList copy={paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: shown.page.q, cursor: null })} />
+              <EndOfList copy={paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: settledQ.current, cursor: null })} />
             ) : rows.length === 0 ? (
               // The empty state on screen follows the live query; the announcement, the settled one (FE-R4 keeps this split).
               // A paged list's rows answer the search they were read with, so its empty state follows that one.
