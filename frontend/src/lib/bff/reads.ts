@@ -28,3 +28,30 @@ export function readOf(caller: ApiCaller): Read {
     return r.kind === 'ok' ? { kind: 'ok', body: r.body } : { kind: readFailureOf(r.kind) };
   };
 }
+
+/**
+ * Where a paged list read starts (b4-architecture.md Revision 8 R8-1): after a row (`after`, the next page), before one
+ * (`before`, the previous page), or nowhere (the first page). One cursor at most, by type — the server refuses both.
+ */
+export type PageCursor = { readonly after: string } | { readonly before: string } | null;
+/** A paged list read: the search text as typed (never trimmed or folded, TB-5a) and where to start. */
+export interface PageRequest {
+  readonly q: string;
+  readonly cursor: PageCursor;
+}
+
+/**
+ * The query of a paged list read, the one place it is built (R8-1 item 2): `archived=true` for the Archived view, `q` as
+ * typed when not empty (an empty `q` is no search on the server), and at most one of `after` / `before`. `limit` is never
+ * sent: the server's default page size is the page.
+ */
+export function pageQuery(archived: boolean, page: PageRequest): URLSearchParams {
+  const query = new URLSearchParams();
+  if (archived) query.set('archived', 'true');
+  if (page.q !== '') query.set('q', page.q);
+  if (page.cursor !== null) {
+    if ('after' in page.cursor) query.set('after', page.cursor.after);
+    else query.set('before', page.cursor.before);
+  }
+  return query;
+}

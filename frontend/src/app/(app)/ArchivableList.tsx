@@ -8,7 +8,7 @@ import { Refetchable, RefetchFailedBanner, RegionError } from '@/components/stat
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { LIST_STATES } from '@/copy/shell';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
-import { readOf, type Read, type ReadFailure } from '@/lib/bff/reads';
+import { readOf, type PageCursor, type PageRequest, type Read, type ReadFailure } from '@/lib/bff/reads';
 import { useApiCaller } from './BffProvider';
 import styles from './Lists.module.css';
 
@@ -16,8 +16,13 @@ import styles from './Lists.module.css';
 export const SEARCH_SETTLE_MS = 400;
 
 type Cause = 'unreachable' | 'server-error';
-/** Which control started a fetch: a view switch (the toggle, a header control, an empty-state action), the banner's Retry, or the first-load Retry. */
-type Origin = 'switch' | 'banner' | 'first';
+/**
+ * Which control started a fetch: a view switch (the toggle, a header control, an empty-state action), the banner's Retry, or the first-load Retry.
+ * A paged list adds a page press (`page`), a settled search (`settle`) and **Back to the first page** (`top`).
+ */
+type Origin = 'switch' | 'banner' | 'first' | 'page' | 'settle' | 'top';
+/** The first page with no search: the only request a whole-view list makes. */
+const FIRST_PAGE: PageRequest = { q: '', cursor: null };
 /**
  * Focus fell out of the page: onto `<body>`, or with an element that has since been removed (M-3). When a focused node is
  * removed, browsers report `<body>`; the null and detached checks are belt-and-braces. A focused row removed by the new
@@ -34,6 +39,13 @@ const connected = <E extends HTMLElement>(el: E | null) => (el !== null && el.is
 
 /** A load's answer. `tenantHasRows` (A-17 item 5) says whether the workspace has any row in either view; a list that does not serve it leaves it out. */
 export type ListLoad<T> = { readonly kind: 'ok'; readonly items: T[]; readonly tenantHasRows?: boolean } | { readonly kind: ReadFailure };
+/**
+ * A paged list's answer (b4-architecture.md Revision 8 R8-1): one page of rows and the cursors to its neighbours (`null`:
+ * there is no page that way). `tenantHasRows` is read only from an empty answer (the loader takes it from the wire).
+ */
+export type PagedLoad<T> =
+  | { readonly kind: 'ok'; readonly items: T[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows?: boolean }
+  | { readonly kind: ReadFailure };
 
 export interface ListCopy {
   /** The page's `h1`, per view if a function; `null` is section use (the `header` renders the section's heading, named by `headingId`). */
@@ -85,8 +97,23 @@ export interface EmptyView extends ViewControls {
 /** The empty state for a view and query; `null` when that state cannot occur. Its heading is also what the settled announcement speaks (ST-2a). */
 export type EmptyState = (v: EmptyView) => { heading: string; actions?: ReactNode } | null;
 
-/** The Archived view's order (A-17 item 7). `as-served` keeps the server's order and shows no caption (ST-9b). */
-export type ArchivedView = { order: 'newest-deleted-first'; caption: string; rows: 'plain' | 'struck' } | { order: 'as-served'; rows: 'plain' | 'struck' };
+/**
+ * The Archived view's order (A-17 item 7). `as-served` keeps the server's order and shows no caption (ST-9b), unless it is
+ * given one (R8-1 item 7: a paged list's one order, named — a client re-sort of one page would lie).
+ */
+export type ArchivedView = { order: 'newest-deleted-first'; caption: string; rows: 'plain' | 'struck' } | { order: 'as-served'; caption?: string; rows: 'plain' | 'struck' };
+
+/**
+ * The paged list's own words (R8-1; UX per family). `pager` labels the two page buttons per view (live: Previous / Next;
+ * Archived: Newer / Older, Older being the next page). `pageShown` is the sentence after a page loads by its cursor, with a
+ * position cue (R8-1 item 6); never called with no rows. `noMore` is the state an empty page reached by a cursor shows
+ * (R8-1 item 5), never an empty state of ST-2.
+ */
+export interface Paging<T> {
+  pager: (archived: boolean) => { previous: string; next: string };
+  pageShown: (rows: readonly T[], q: string, archived: boolean) => string;
+  noMore: (archived: boolean) => { heading: string; body: string; action: string };
+}
 
 export type RereadResult = { kind: 'ok' } | { kind: ReadFailure };
 export interface ArchivableListHandle {
@@ -102,6 +129,8 @@ export interface ArchivableListHandle {
 }
 
 interface BaseProps<T> {
+  /** A whole-view list: one answer is the whole view. */
+  paging?: undefined;
   initial: ListLoad<T>;
   /** The view the server loaded for `initial` (from the address, through the caller). Default: the live view. */
   initialArchived?: boolean;
@@ -129,12 +158,25 @@ type SearchOption<T> =
   | {
       /** The search box; default from `copy.searchLabel`/`searchPlaceholder`. */
       search?: SearchCopy;
-      /** The client filter. It need not mirror the server's `q`, and the list never sends `q`. */
+      /** The client filter. It need not mirror the server's `q`, and a whole-view list never sends `q` (a paged list always does: R8-1, A-17 item 11 as amended). */
       matches: (item: T, lowerQ: string) => boolean;
     }
   | { search: false; matches?: undefined };
 
 export type ArchivableListProps<T> = BaseProps<T> & SearchOption<T>;
+
+/**
+ * A paged list (R8-1): the server pages and searches, so the list never filters (`matches` is typed out) and sends the
+ * search box's text as `q`, untrimmed and unfolded. Its Archived view keeps the server's order under a caption.
+ */
+export type PagedListProps<T> = Omit<BaseProps<T>, 'paging' | 'initial' | 'load' | 'archivedView'> & {
+  paging: Paging<T>;
+  initial: PagedLoad<T>;
+  load: (read: Read, archived: boolean, page: PageRequest, signal: AbortSignal) => Promise<PagedLoad<T>>;
+  archivedView: { order: 'as-served'; caption: string; rows: 'plain' | 'struck' };
+  search?: SearchCopy;
+  matches?: undefined;
+};
 
 /** The default Archived toggle (exported so a `header` reuses its `aria-pressed` and `loading` behaviour). */
 export function ArchivedToggle({ archived, busy, onClick, label, ref }: { archived: boolean; busy: boolean; onClick: () => void; label: string; ref?: Ref<HTMLButtonElement> }) {
@@ -183,10 +225,32 @@ function EmptyBlock({ empty, v }: { empty: EmptyState; v: EmptyView }) {
 
 const NOOP = () => {};
 
+/** The empty page a cursor reached (R8-1 item 5): its own heading (the focus target), why, and the way back to the first page. */
+function EndOfList({ copy, headingRef, onFirstPage }: { copy: { heading: string; body: string; action: string }; headingRef: Ref<HTMLParagraphElement>; onFirstPage: () => void }) {
+  return (
+    <div className={styles.empty}>
+      <p ref={headingRef} tabIndex={-1} className={styles.emptyHeading}>
+        {copy.heading}
+      </p>
+      <p className={styles.emptyBody}>{copy.body}</p>
+      <Button size="sm" onClick={onFirstPage}>
+        {copy.action}
+      </Button>
+    </div>
+  );
+}
+
 interface Loaded<T> {
   archived: boolean;
   items: T[];
   tenantHasRows: boolean | undefined;
+  /** The cursors this answer offers (always null for a whole-view list). */
+  next: string | null;
+  previous: string | null;
+  /** The request that read these rows: its `q` is the search the rows answer, its cursor the page. */
+  page: PageRequest;
+  /** An empty answer to a request that carried a cursor (R8-1 item 5). */
+  endOfList: boolean;
 }
 
 /**
@@ -197,6 +261,16 @@ interface Loaded<T> {
  * switch leaves it on the view actually shown (RED round 2 R2-L2) under `LIST_STATES.refetchFailed`. The status region
  * is mounted empty from first render at the section root, so a successful Retry after a failed first load is a change it
  * announces (principle 6; RED M-3).
+ *
+ * Paged (`paging`, b4-architecture.md Revision 8 R8-1). The server pages and searches; the list never filters. A request
+ * carries a cursor only when it is a page press, or the banner's Retry repeating a failed one exactly; a view switch (with
+ * the search in the box), a settled search, Clear search, **Back to the first page** and the first load carry none. A
+ * settle reads the first page for its query and the region is blank until that read succeeds — it never speaks from the
+ * rows on screen; a settle during any fetch waits, the last one winning, and the fetch it waited for then speaks nothing.
+ * A page press during any fetch is ignored, and it and `reread()` use the search the rows answer, never unsettled text.
+ * A page read by its cursor speaks `paging.pageShown` (a position cue); an empty one is the core's own state (`noMore`,
+ * focus to its heading), never an ST-2 empty state. After a page press focus stays on the pressed button if it is still
+ * rendered, else goes to the list's heading. Cursors and `q` are never written to the address: a reload opens page 1.
  *
  * The region (FE-R4, fe-r4-ux.md Revision 1). Its text is one string written explicitly, never derived on render, and
  * only at four moments: a switch or Retry starts (blank), succeeds (the settled sentence), or fails (the banner's
@@ -223,22 +297,33 @@ interface Loaded<T> {
  * Retry is in flight (the explicit blank at fetch start, and `inFlight` holding a settle back), so a repeat failure with the same cause is still a text change (defect B, M-4). A reread
  * does neither: its count is never announced (M-2), and a failed reread raises no banner.
  */
-export function ArchivableList<T extends { id: string; archived_at: string | null }>(props: ArchivableListProps<T>) {
-  const { initial, initialArchived = false, onViewLoaded, load, columns, copy, header, headingId, empty, archivedView, notice, footer, controller, denied } = props;
+export function ArchivableList<T extends { id: string; archived_at: string | null }>(props: ArchivableListProps<T> | PagedListProps<T>) {
+  const { initial, initialArchived = false, onViewLoaded, columns, copy, header, headingId, empty, archivedView, notice, footer, controller, denied } = props;
+  const paging = props.paging ?? null;
   if (process.env.NODE_ENV !== 'production' && copy.heading === null && headingId === undefined) {
     throw new Error('ArchivableList needs a heading: give copy.heading (the page h1) or headingId (the section heading), the focus target after a Retry (FE-R3 H-2).');
   }
-  const matches = props.search === false ? null : props.matches;
+  const matches = props.paging !== undefined || props.search === false ? null : props.matches;
   const searchCopy: SearchCopy | null = props.search === false ? null : (props.search ?? { label: copy.searchLabel ?? '', placeholder: copy.searchPlaceholder ?? '' });
 
   const caller = useApiCaller();
-  const firstShown: Loaded<T> | null = initial.kind === 'ok' ? { archived: initialArchived, items: initial.items, tenantHasRows: initial.tenantHasRows } : null;
+  /** An answer as the rows on screen: the cursors it offers, and whether it is the empty page a cursor reached. */
+  const loadedOf = (archived: boolean, r: Extract<ListLoad<T> | PagedLoad<T>, { kind: 'ok' }>, page: PageRequest): Loaded<T> => ({
+    archived,
+    items: r.items,
+    tenantHasRows: r.tenantHasRows,
+    next: 'nextCursor' in r ? r.nextCursor : null,
+    previous: 'previousCursor' in r ? r.previousCursor : null,
+    page,
+    endOfList: paging !== null && page.cursor !== null && r.items.length === 0,
+  });
+  const firstShown: Loaded<T> | null = initial.kind === 'ok' ? loadedOf(initialArchived, initial, FIRST_PAGE) : null;
   /** The view last loaded; `onViewLoaded` fires when a load lands on the other one. */
   const lastLoaded = useRef(initialArchived);
   const [shown, setShownState] = useState<Loaded<T> | null>(firstShown);
   const shownRef = useRef<Loaded<T> | null>(firstShown);
   const [firstError, setFirstError] = useState<{ gen: number; cause: Cause } | null>(initial.kind === 'ok' || initial.kind === 'forbidden' ? null : { gen: 0, cause: causeOf(initial.kind) });
-  const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean } | null>(null);
+  const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean; page: PageRequest } | null>(null);
   const [isDenied, setDenied] = useState(initial.kind === 'forbidden');
   const [busy, setBusy] = useState(false);
   const [q, setQState] = useState('');
@@ -254,6 +339,12 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const searchedSinceFailure = useRef(false);
   /** A switch or Retry is in flight: the region stays blank until it ends (FE-R3 defect B). */
   const inFlight = useRef(false);
+  /** `busy` for handlers that outlive a render (a paged list's settle and the fetch that ends before it). */
+  const busyRef = useRef(false);
+  /** A paged list's search that settled while a fetch was in flight: the last one wins, and it runs when that fetch ends (R8-1 item 4). */
+  const pendingSettle = useRef<string | null>(null);
+  /** The heading of the empty page a cursor reached (R8-1 item 5). */
+  const endHeading = useRef<HTMLParagraphElement>(null);
   const viewControlRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
@@ -284,9 +375,9 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     queue.current = p.catch(() => undefined);
     return p;
   };
-  const readView = async (archived: boolean) => {
+  const readView = async (archived: boolean, page: PageRequest): Promise<ListLoad<T> | PagedLoad<T>> => {
     const deadline = startDeadline(ACTION_DEADLINES_MS.reread);
-    const r = await load(readOf(caller), archived, deadline.signal);
+    const r = props.paging !== undefined ? await props.load(readOf(caller), archived, page, deadline.signal) : await props.load(readOf(caller), archived, deadline.signal);
     deadline.cancel();
     return r;
   };
@@ -299,10 +390,104 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     }
   }, [isDenied, copy.heading, headingId]);
 
+  /**
+   * A paged list's settled search (R8-1 item 4): it reads the first page for the query — never speaking from the rows on
+   * screen — and while a fetch is in flight it waits, the last settled query winning. A query equal to the settled one
+   * reads nothing (the mount settle, a type-and-erase).
+   */
+  const settlePaged = (query: string) => {
+    const changed = query !== settledQ.current;
+    settledQ.current = query;
+    if (failureNote.current !== null && searchedSinceFailure.current) {
+      searchedSinceFailure.current = false;
+      failureNote.current = null;
+    }
+    const view = shownRef.current;
+    if (!changed || view === null) return;
+    if (busyRef.current) {
+      pendingSettle.current = query;
+      return;
+    }
+    void fetchView(view.archived, 'settle', { q: query, cursor: null });
+  };
+
+  const fetchView = async (archived: boolean, from: Origin, page: PageRequest = FIRST_PAGE) => {
+    if (from === 'settle' ? busyRef.current : busy) return;
+    /** The control the person used, if it had focus (a mouse click in Safari leaves `<body>`): removed by the new view → focus is moved. */
+    const started = document.activeElement;
+    setBusy(true);
+    busyRef.current = true;
+    inFlight.current = true;
+    // A paged switch reads the search in the box, so that search is settled now (its settle then finds nothing changed).
+    if (paging !== null && from === 'switch') settledQ.current = page.q;
+    // Blank while in flight, so a repeat failure (same heading) or a success is a text change (FE-R3 defect B, M-4).
+    setSaid('');
+    const r = await run(() => readView(archived, page));
+    setBusy(false);
+    busyRef.current = false;
+    inFlight.current = false;
+    // A search that settled meanwhile (paged): it runs next, and this answer speaks nothing (R8-1 item 4).
+    const queued = pendingSettle.current;
+    pendingSettle.current = null;
+    const rerun = queued !== null && queued !== page.q ? queued : null;
+    if (r.kind === 'ok') {
+      // X-2 / FE-R3: commit the rows first (the region still blank), then, only if focus was lost, focus the list's heading
+      // (first load) or the new view's switch control (banner; a switch whose own control is gone), then write the
+      // sentence — focus first, then announce (FE-D1's flushSync order).
+      const next = loadedOf(archived, r, page);
+      flushSync(() => {
+        setShown(next);
+        setFirstError(null);
+        setRefetchError(null);
+      });
+      // Defensive, unobservable (RED L-2): the reset of `searchedSinceFailure` plus any later changed query already
+      // clears a stale note before it is read; kept so the note's meaning, "cleared by a successful fetch", is literal.
+      failureNote.current = null;
+      searchedSinceFailure.current = false;
+      const controlGone = started instanceof HTMLElement && started !== document.body && !started.isConnected;
+      if (focusWasLost()) {
+        // R8-1: the empty page a cursor reached takes focus to its heading; a page press whose button is gone, to the list's heading.
+        if (next.endOfList) endHeading.current?.focus();
+        else if (from === 'first' || from === 'page') listHeading()?.focus();
+        else if (from === 'banner' || controlGone) (connected(viewControlRef.current) ?? listHeading())?.focus();
+      }
+      if (paging === null) {
+        // FE-R4 rule 2: a success settles a pending search at once — the sentence is for the query in the box, and the
+        // pending settle then finds nothing changed.
+        settledQ.current = qRef.current;
+        setSaid(sentenceFor(next, qRef.current));
+      } else if (rerun === null) {
+        // R8-1 items 5–6: a page read by its cursor speaks its position; the empty one, its heading; any other, ST-1a's sentence.
+        setSaid(next.endOfList ? paging.noMore(archived).heading : page.cursor !== null ? paging.pageShown(next.items, page.q, archived) : sentenceFor(next, page.q));
+      }
+      viewLoaded(archived);
+      if (rerun !== null) void fetchView(archived, 'settle', { q: rerun, cursor: null });
+      return;
+    }
+    if (r.kind === 'session-ended') return;
+    if (r.kind === 'forbidden') {
+      setDenied(true);
+      return;
+    }
+    if (shownRef.current === null) setFirstError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: causeOf(r.kind) }));
+    else {
+      // The failed request is kept whole: the banner's Retry repeats it exactly (R8-1 item 2).
+      setRefetchError({ cause: causeOf(r.kind), archived, page });
+      searchedSinceFailure.current = false;
+      failureNote.current = headingOf(causeOf(r.kind));
+      setSaid(failureNote.current);
+      if (rerun !== null) void fetchView(shownRef.current.archived, 'settle', { q: rerun, cursor: null });
+    }
+  };
+
   // FE-R4 rules 3–5: a settle writes only for a changed query, or to clear a failure heading the user searched past. The
   // mount settle (`q = ''`) and a type-and-erase change nothing. A failure heading the user did not search past keeps the
   // region, and a fetch in flight keeps it blank; either way the query counts as settled.
   const onSettle = useEffectEvent((query: string) => {
+    if (paging !== null) {
+      settlePaged(query);
+      return;
+    }
     const changed = query !== settledQ.current;
     const clearsFailure = failureNote.current !== null && searchedSinceFailure.current;
     settledQ.current = query;
@@ -320,66 +505,17 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     return () => clearTimeout(t);
   }, [q]);
 
-  const fetchView = async (archived: boolean, from: Origin) => {
-    if (busy) return;
-    /** The control the person used, if it had focus (a mouse click in Safari leaves `<body>`): removed by the new view → focus is moved. */
-    const started = document.activeElement;
-    setBusy(true);
-    inFlight.current = true;
-    // Blank while in flight, so a repeat failure (same heading) or a success is a text change (FE-R3 defect B, M-4).
-    setSaid('');
-    const r = await run(() => readView(archived));
-    setBusy(false);
-    inFlight.current = false;
-    if (r.kind === 'ok') {
-      // X-2 / FE-R3: commit the rows first (the region still blank), then, only if focus was lost, focus the list's heading
-      // (first load) or the new view's switch control (banner; a switch whose own control is gone), then write the
-      // sentence — focus first, then announce (FE-D1's flushSync order).
-      const next = { archived, items: r.items, tenantHasRows: r.tenantHasRows };
-      flushSync(() => {
-        setShown(next);
-        setFirstError(null);
-        setRefetchError(null);
-      });
-      // Defensive, unobservable (RED L-2): the reset of `searchedSinceFailure` plus any later changed query already
-      // clears a stale note before it is read; kept so the note's meaning, "cleared by a successful fetch", is literal.
-      failureNote.current = null;
-      searchedSinceFailure.current = false;
-      const controlGone = started instanceof HTMLElement && started !== document.body && !started.isConnected;
-      if (focusWasLost()) {
-        if (from === 'first') listHeading()?.focus();
-        else if (from === 'banner' || controlGone) (connected(viewControlRef.current) ?? listHeading())?.focus();
-      }
-      // FE-R4 rule 2: a success settles a pending search at once — the sentence is for the query in the box, and the
-      // pending settle then finds nothing changed.
-      settledQ.current = qRef.current;
-      setSaid(sentenceFor(next, qRef.current));
-      viewLoaded(archived);
-      return;
-    }
-    if (r.kind === 'session-ended') return;
-    if (r.kind === 'forbidden') {
-      setDenied(true);
-      return;
-    }
-    if (shownRef.current === null) setFirstError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: causeOf(r.kind) }));
-    else {
-      setRefetchError({ cause: causeOf(r.kind), archived });
-      searchedSinceFailure.current = false;
-      failureNote.current = headingOf(causeOf(r.kind));
-      setSaid(failureNote.current);
-    }
-  };
-
   useImperativeHandle(controller, () => ({
     reread: () =>
       run(async (): Promise<RereadResult> => {
         // RED L-1 option (a): before any view has loaded there is nothing on screen to refresh.
         if (shownRef.current === null) return { kind: 'server-error' };
         const view = shownRef.current.archived;
-        const r = await readView(view);
+        // The page on screen, read again: same view, same search, same cursor (R8-1; L-8).
+        const page = shownRef.current.page;
+        const r = await readView(view, page);
         if (r.kind === 'ok') {
-          flushSync(() => setShown({ archived: view, items: r.items, tenantHasRows: r.tenantHasRows }));
+          flushSync(() => setShown(loadedOf(view, r, page)));
           viewLoaded(view);
           return { kind: 'ok' };
         }
@@ -396,11 +532,19 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
 
   if (isDenied) return <>{denied}</>;
 
-  const switchTo = (to: boolean) => void fetchView(to, 'switch');
+  // A paged switch reads the search in the box and no cursor; a whole-view one reads the whole view.
+  const switchTo = (to: boolean) => void fetchView(to, 'switch', paging !== null ? { q: qRef.current, cursor: null } : FIRST_PAGE);
   const clearSearch = () => {
     searchedSinceFailure.current = true;
     setQ('');
     searchRef.current?.focus();
+    // A paged list reads the unsearched first page at once (no cursor); a whole-view one only stops filtering.
+    if (paging !== null) settlePaged('');
+  };
+  /** A page press (R8-1 item 2): its cursor, and the search the rows on screen answer — never the unsettled text. Ignored while busy. */
+  const goTo = (cursor: PageCursor) => {
+    if (busy || shown === null) return;
+    void fetchView(shown.archived, 'page', { q: shown.page.q, cursor });
   };
   const cols = columns(archived);
   const headingText = typeof copy.heading === 'function' ? copy.heading(archived) : copy.heading;
@@ -445,15 +589,18 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       ) : null}
       {shown ? (
         <>
-          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner')} /> : null}
+          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner', refetchError.page)} /> : null}
           {notice ? notice(archived) : null}
           <Refetchable busy={busy}>
-            {rows.length === 0 ? (
+            {paging !== null && shown.endOfList ? (
+              <EndOfList copy={paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: shown.page.q, cursor: null })} />
+            ) : rows.length === 0 ? (
               // The empty state on screen follows the live query; the announcement, the settled one (FE-R4 keeps this split).
-              <EmptyBlock empty={empty} v={{ archived: shown.archived, q, tenantHasRows: shown.tenantHasRows, busy, switchTo, clearSearch }} />
+              // A paged list's rows answer the search they were read with, so its empty state follows that one.
+              <EmptyBlock empty={empty} v={{ archived: shown.archived, q: paging !== null ? shown.page.q : q, tenantHasRows: shown.tenantHasRows, busy, switchTo, clearSearch }} />
             ) : (
               <table className={styles.table}>
-                {archived && archivedView.order === 'newest-deleted-first' ? <caption>{archivedView.caption}</caption> : null}
+                {archived && archivedView.caption !== undefined ? <caption>{archivedView.caption}</caption> : null}
                 <thead>
                   <tr>
                     {cols.map((c) => (
@@ -476,6 +623,21 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
             )}
           </Refetchable>
           {footer ? footer(rows) : null}
+          {paging !== null && !shown.endOfList && (shown.previous !== null || shown.next !== null) ? (
+            <div className={styles.pager}>
+              {/* Both slots always render (null or a button), so a button's node survives a page change and keeps focus. */}
+              {shown.previous !== null ? (
+                <Button size="sm" onClick={() => goTo({ before: shown.previous! })}>
+                  {paging.pager(archived).previous}
+                </Button>
+              ) : null}
+              {shown.next !== null ? (
+                <Button size="sm" onClick={() => goTo({ after: shown.next! })}>
+                  {paging.pager(archived).next}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>
