@@ -1232,8 +1232,9 @@ final class SchemaQueryPlanTest extends TenancyTestCase
      * `sales_order` alone, so the display joins cannot decide whether the scan stops at it. The index is
      * `(tenant_id, ordered_at)` with no `id`, so an Incremental Sort presorted on `ordered_at` is the one node allowed
      * between the page's LIMIT and the scan (the `ed3dede` precedent). **Its ground:** `seedWorld()` gives every order a
-     * distinct `ordered_at` (`now() - g hours`), as `confirm()` stamps each real order with its own transaction's clock, so
-     * each tie group is one row and the incremental sort sorts nothing. **Mutations:** drop the index (M13′), drop
+     * distinct `ordered_at` (`now() - g hours`), so each tie group is one row and the incremental sort sorts nothing. Real
+     * data can tie: the ORM writes `ordered_at` at second precision, so orders confirmed in the same second share one; the
+     * sort is then bounded by that group and the `(ordered_at, id)` keyset stays correct. **Mutations:** drop the index (M13′), drop
      * `deleted_at IS NULL` (M4), or join before cutting the page (M25) → red here.
      */
     #[Test]
