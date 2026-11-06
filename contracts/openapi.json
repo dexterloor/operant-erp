@@ -4801,6 +4801,7 @@
                                 "supplier_product.deleted",
                                 "inventory_item.deleted",
                                 "inventory_item.restored",
+                                "inventory_item.updated",
                                 "tenant_settings.updated",
                                 "customer.restored",
                                 "customer.deleted",

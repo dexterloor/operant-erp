@@ -4,14 +4,21 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use App\Modules\AuditLog\Infrastructure\ItemAuditWriter;
+use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\SharedKernel\ValueObject\AuditEvent;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
  * `CreateItem`, `UpdateItem`, `DeleteItem`, `RestoreItem` — B-3, the status
  * branches of API-21, and the refusals §5.2a and §5.3 require.
+ *
+ * Since items batch C1 (BK-25 + G-96, 2026-11-06) also `inventory_item.updated`: every effective edit is on the trail with
+ * the old and new values, and the relabel G-96 accepts is pinned. Extends `PurchaseOrderTestCase` from then for its order
+ * seeders (the relabel pin seeds an issued purchase order).
  */
-final class ItemWriteTest extends ApiTestCase
+final class ItemWriteTest extends PurchaseOrderTestCase
 {
     private const KEY = [IdempotencyKeyGuard::HEADER => 'a-client-generated-key'];
 
@@ -412,5 +419,135 @@ final class ItemWriteTest extends ApiTestCase
 
         self::assertSame(1, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM inventory_item WHERE id = ?::uuid', [$id]));
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_B, 'SELECT count(*) FROM inventory_item WHERE id = ?::uuid', [$id]));
+    }
+
+    /**
+     * **G-96's pin** (`RESIDUAL_GAPS.md` G-96; items batch C1, BK-25): a rename or SKU change **relabels** an issued purchase
+     * order, whose lines read the item's sku and name through a live join — and the old label survives on the trail
+     * (`inventory_item.updated`'s `from`). Pinned as accepted, not prevented: a snapshot added later reddens the first half,
+     * as a decision rather than a surprise. `WarehouseWriteTest::aRenameRelabelsAnIssuedOrderAndTheOldNameIsOnTheTrail` is
+     * the G-43 twin.
+     */
+    #[Test]
+    public function aRenameRelabelsAnIssuedOrderAndTheOldNameIsOnTheTrail(): void
+    {
+        $item = $this->seedItem(self::TENANT_A, 'OLD-SKU');
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000779', $this->seedSupplier(self::TENANT_A, 'Relabel Supplier'),
+            $this->seedWarehouse(self::TENANT_A), status: PurchaseOrder::STATUS_ORDERED);
+        $this->seedLine(self::TENANT_A, $order, $item);
+        $old = $this->stored($item);
+
+        $this->send('PATCH', '/items/'.$item, ['sku' => 'NEW-SKU', 'name' => 'New Item Name']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('GET', '/purchase-orders/'.$order.'/lines');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['id' => $item, 'sku' => 'NEW-SKU', 'name' => 'New Item Name'], $this->json()['items'][0]['inventory_item'],
+            'G-96: the issued order no longer reads the item\'s live sku and name. If a snapshot was added on purpose, this is the decision G-96 names: close the gap and move this pin.');
+
+        self::assertSame([$this->updatedRow($item, ['name' => $old['name'], 'sku' => 'OLD-SKU'], ['name' => 'New Item Name', 'sku' => 'NEW-SKU'])],
+            $this->auditRowsOf(AuditEvent::INVENTORY_ITEM_UPDATED), 'G-96: the old label is not recoverable from the trail.');
+    }
+
+    /**
+     * BK-25: the diff is the served row before and after, never the submitted strings. `"10"` sent for a stored
+     * `10.000000`, and every other current value resent, is no change: 200, and no `inventory_item.updated` row.
+     */
+    #[Test]
+    public function anEditThatChangesNothingWritesNoRow(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $this->send('POST', '/items', [...self::body(), 'supplier_id' => $supplier, 'reorder_point' => '10.000000'], self::KEY);
+        $id = $this->json()['id'];
+
+        $this->send('PATCH', '/items/'.$id, [
+            'sku' => 'SKU-1', 'name' => 'Widget', 'unit_of_measure_code' => 'EA', 'supplier_id' => $supplier,
+            'reorder_point' => '10', 'reorder_quantity' => '0', 'safety_stock' => '0.0',
+        ]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('10.000000', $this->json()['reorder_point']);
+
+        $this->send('PATCH', '/items/'.$id, []);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([], $this->auditRowsOf(AuditEvent::INVENTORY_ITEM_UPDATED), 'An edit that changed nothing wrote a row.');
+    }
+
+    /**
+     * BK-25: every allowlisted field, changed at once, is recorded with its served value (a decimal at scale 6), and the
+     * allowlist is pinned by literal. A cleared supplier is recorded as `null` — the one field whose value may be null.
+     */
+    #[Test]
+    public function aClearedSupplierIsRecordedAsNull(): void
+    {
+        self::assertSame(['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
+            ItemAuditWriter::VALUE_FIELDS, 'The item value allowlist moved: adding a field is a SEC decision.');
+
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme');
+        $this->send('POST', '/items', [...self::body(), 'supplier_id' => $supplier], self::KEY);
+        $id = $this->json()['id'];
+
+        $this->send('PATCH', '/items/'.$id, [
+            'sku' => 'SKU-2', 'name' => 'Gadget', 'unit_of_measure_code' => 'BOX', 'supplier_id' => null,
+            'reorder_point' => '5', 'reorder_quantity' => '12.5', 'safety_stock' => '1',
+        ]);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        self::assertSame([$this->updatedRow($id,
+            ['name' => 'Widget', 'reorder_point' => '0.000000', 'reorder_quantity' => '0.000000', 'safety_stock' => '0.000000',
+             'sku' => 'SKU-1', 'supplier_id' => $supplier, 'unit_of_measure_code' => 'EA'],
+            ['name' => 'Gadget', 'reorder_point' => '5.000000', 'reorder_quantity' => '12.500000', 'safety_stock' => '1.000000',
+             'sku' => 'SKU-2', 'supplier_id' => null, 'unit_of_measure_code' => 'BOX'],
+        )], $this->auditRowsOf(AuditEvent::INVENTORY_ITEM_UPDATED));
+    }
+
+    /** BK-25: a refused edit writes no row — a SKU collision (its 23505 rolls the row back) and an archived item. */
+    #[Test]
+    public function aRefusedEditWritesNoRow(): void
+    {
+        $this->send('POST', '/items', self::body('SKU-TAKEN'), self::KEY);
+        $this->send('POST', '/items', self::body('SKU-MINE'), self::KEY);
+        $mine = $this->json()['id'];
+
+        $this->send('PATCH', '/items/'.$mine, ['sku' => 'SKU-TAKEN', 'name' => 'Renamed']);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('inventory_item.sku_is_unique_per_workspace', $this->json()['rule']);
+
+        $this->send('DELETE', '/items/'.$mine);
+        self::assertSame(204, $this->httpStatus());
+        $this->send('PATCH', '/items/'.$mine, ['name' => 'Renamed']);
+        self::assertSame(409, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('inventory_item.is_archived', $this->json()['rule']);
+
+        self::assertSame([], $this->auditRowsOf(AuditEvent::INVENTORY_ITEM_UPDATED), 'A refused edit wrote a row.');
+        self::assertSame('Widget', $this->stored($mine)['name']);
+    }
+
+    /** @return array{sku: string, name: string} */
+    private function stored(string $id): array
+    {
+        return $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT sku, name FROM inventory_item WHERE id = ?::uuid', [$id])[0];
+    }
+
+    /** The server's own `jsonb` text for a value, so key order is Postgres's, never PHP's. */
+    private function jsonb(array $value): string
+    {
+        return (string) $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT ?::jsonb::text AS m', [json_encode($value, \JSON_THROW_ON_ERROR)])[0]['m'];
+    }
+
+    /**
+     * @param array<string, string|null> $from
+     * @param array<string, string|null> $to
+     *
+     * @return array<string, mixed>
+     */
+    private function updatedRow(string $id, array $from, array $to): array
+    {
+        $fields = array_keys($from);
+        sort($fields);
+
+        return array_replace($this->businessRow(AuditEvent::INVENTORY_ITEM_UPDATED, 'inventory_item', $id), [
+            'metadata' => $this->jsonb(['fields' => $fields, 'from' => $from, 'to' => $to]),
+        ]);
     }
 }

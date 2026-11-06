@@ -6,6 +6,7 @@ namespace App\Tests\Tenancy;
 
 use App\Modules\AuditLog\Infrastructure\Entity\AuditLogEntry;
 use App\SharedKernel\ValueObject\AuditEvent;
+use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -238,6 +239,10 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         // does not reach them.
         'inventory_item.deleted',
         'inventory_item.restored',
+        // Edited by hand 2026-11-06 (items batch C1, BK-25; `warehouse.updated`'s filing, values included; `SEC` TO CONFIRM):
+        // BUSINESS under PC-11 (4a), subject the item, `{"fields", "from", "to"}`, no IP. About the item row's own state;
+        // its subject is `inventory_item`, so (4c) does not reach it.
+        'inventory_item.updated',
         // Edited by hand 2026-10-22 (G7b `UpdateSettings`, owner ruling RO-S1; design R1.2 M-5; `SEC` TO CONFIRM): BUSINESS
         // under PC-11 (4a), subject the settings row, `{"fields": ["display_name"], "to": …}`, no IP — the settings row's own
         // state, `supplier.updated`'s reasoning. Its subject is `tenant_settings`, so (4c) does not reach it.
@@ -833,6 +838,41 @@ final class AuditEventCatalogueTest extends TenancyTestCase
         foreach ($violations as $violation) {
             self::assertStringContainsString($dropped, $violation);
         }
+    }
+
+    /**
+     * **`ListAuditLogEntries`' served `event_type` filter is the catalogue** (items batch C1, 2026-11-06; RED H-2 on the
+     * items batch design). The parameter's `enum` is the published list a client filters by, and it is generated: every
+     * new member moves `contracts/openapi.json`. Until this test nothing held the served list to {@see AuditEvent::ALL},
+     * so a hand-listed enum would have gone stale on the next event, silently, and a client could not ask for the new kind.
+     * Read from the generated spec, by `operationId`, never by path; compared sorted, both ways.
+     */
+    #[Test]
+    public function theServedEventTypeFilterIsTheCatalogue(): void
+    {
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().'));
+
+        $served = null;
+        foreach ($spec['paths'] as $operations) {
+            foreach ($operations as $operation) {
+                if (!\is_array($operation) || 'ListAuditLogEntries' !== ($operation['operationId'] ?? null)) {
+                    continue;
+                }
+                foreach ($operation['parameters'] ?? [] as $parameter) {
+                    if ('event_type' === ($parameter['name'] ?? null)) {
+                        $served = $parameter['schema']['enum'] ?? null;
+                    }
+                }
+            }
+        }
+        self::assertIsArray($served, 'Control: ListAuditLogEntries serves no event_type enum, so nothing was compared.');
+
+        $catalogue = AuditEvent::ALL;
+        sort($served);
+        sort($catalogue);
+        self::assertSame($catalogue, $served,
+            "ListAuditLogEntries' served event_type enum is not AuditEvent::ALL.\n  missing: "
+            .implode(', ', array_diff($catalogue, $served))."\n  extra: ".implode(', ', array_diff($served, $catalogue)));
     }
 
     /**

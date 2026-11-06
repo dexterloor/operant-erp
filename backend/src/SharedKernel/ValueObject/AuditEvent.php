@@ -418,6 +418,14 @@ namespace App\SharedKernel\ValueObject;
  *     step 5 is `Version20261027000200` (the live seventy-one plus this one; supersedes `Version20261024000200`); step 6 both
  *     halves. *SEC TO CONFIRM the metadata.*
  *
+ *   - **`INVENTORY_ITEM_UPDATED`**, 2026-11-06, items batch C1 (BK-25 + G-96) — `UpdateItem` wrote no audit row, so a
+ *     rename or SKU change (which relabels issued documents, `RESIDUAL_GAPS.md` G-96) left neither who nor the old label.
+ *     Filed **`BUSINESS`** by the builder on the `warehouse.updated` filing's terms, values included (`SEC` to confirm),
+ *     before the code; steps 3–5 done **with its writer in the same commit** (`ItemAuditWriter::recordUpdated()`). Step 5 is
+ *     `Version20261106000100`: the live seventy-two members (read off `pg_constraint`, not generated) plus this one; it
+ *     supersedes `Version20261027000200`'s event list. **Step 6 does not apply.** `PINNED_ALLOWLIST` edited by hand with one
+ *     literal.
+ *
  * @see security-audit-log-design, Instruction 2
  * @see SECURITY_MODEL.md §5 E-3, E-12, E-13, E-15, E-16, E-17, E-23; §5.1.4; §3 PC-11; §4 the default-role table (same file)
  * @see ADR-006 §2.2
@@ -1166,6 +1174,23 @@ final class AuditEvent
     public const INVENTORY_ITEM_RESTORED = 'inventory_item.restored';
 
     /**
+     * **An item changed** — `UpdateItem` (items batch C1, 2026-11-06; BK-25, `docs/design/owed-to-backend.md`; design
+     * `docs/session13/items-batch-design.md` Revision 1 FINAL C1). Subject `('inventory_item', id)`. **Business** under
+     * PC-11 (4a): about the item row's own state; its History is read under `inventory_item.view`
+     * (`RecordHistorySubjects`). No IP, no permission code. `metadata` `{"fields": [...], "from": {...}, "to": {...}}` — the
+     * wire names of the changed fields among `name`, `reorder_point`, `reorder_quantity`, `safety_stock`, `sku`,
+     * `supplier_id`, `unit_of_measure_code`, sorted, and their old and new **values** as the item serves them
+     * (`warehouse.updated`'s shape: a rename or SKU change relabels issued documents, `RESIDUAL_GAPS.md` G-96, and the old
+     * label survives here). `supplier_id` is an id, never a name, and is `null` when cleared or unset. **No row when nothing
+     * changed** — a PATCH that resends the current values (`"10"` against a stored `10.000000`) writes none. The diff is the
+     * served row before and after the UPDATE, both read under `ItemWriter::EDIT_LOCK` in the same transaction. Written by
+     * `ItemAuditWriter::recordUpdated()` in `ItemWriter::update()`'s transaction, after the UPDATE; none on a refused edit
+     * (archived, malformed, an unresolvable reference, or a SKU collision, whose 23505 rolls the row back). **Step 6 does not
+     * apply.** `SEC` to confirm the filing and the values.
+     */
+    public const INVENTORY_ITEM_UPDATED = 'inventory_item.updated';
+
+    /**
      * **The workspace's display name changed** — `UpdateSettings` (G7b, 2026-10-22; owner ruling RO-S1). Subject
      * `('tenant_settings', id)`, the settings row whose own state changed. **Business** under PC-11 (4a) (`SEC` to confirm):
      * its History is read under `tenant_settings.view`, and no screen can ask for it (the singleton serves no id; final RED
@@ -1392,6 +1417,7 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_DELETED,
         self::INVENTORY_ITEM_DELETED,
         self::INVENTORY_ITEM_RESTORED,
+        self::INVENTORY_ITEM_UPDATED,
         self::TENANT_SETTINGS_UPDATED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
@@ -1511,6 +1537,7 @@ final class AuditEvent
         self::SUPPLIER_PRODUCT_DELETED,
         self::INVENTORY_ITEM_DELETED,
         self::INVENTORY_ITEM_RESTORED,
+        self::INVENTORY_ITEM_UPDATED,
         self::TENANT_SETTINGS_UPDATED,
         self::CUSTOMER_RESTORED,
         self::CUSTOMER_DELETED,
@@ -1607,6 +1634,8 @@ final class AuditEvent
         // G5-C2a: the item row whose own state changed (`customer.deleted` / `.restored`'s shape).
         self::INVENTORY_ITEM_DELETED => 'inventory_item',
         self::INVENTORY_ITEM_RESTORED => 'inventory_item',
+        // Items batch C1 (BK-25): the item row whose own state changed (`warehouse.updated`'s shape).
+        self::INVENTORY_ITEM_UPDATED => 'inventory_item',
         // G7b: the settings row whose own state changed (`supplier.updated`'s shape).
         self::TENANT_SETTINGS_UPDATED => 'tenant_settings',
         // C5 C4a: the customer row whose own state changed.
