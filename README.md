@@ -199,6 +199,9 @@ make demo-seed     # one workspace "demo", its eight built-in roles and an owner
 make serve         # in a second terminal: the API on http://127.0.0.1:8000
 make worker-loop   # in a third terminal: sends the invitation emails to Mailpit
 make demo-populate # seven more people and some business data, made through the API
+make demo-walkthrough                       # one line per step, including the refusals
+make demo-seed WORKSPACE=demo-b             # optional: a second workspace, for the isolation step below
+make demo-walkthrough DEMO_ARGS=--isolation # the same walk, ending with a read across workspaces that the database refuses
 ```
 
 Every demo person signs in with the password from `.env.demo`; it is never printed. `make demo-populate` adds the
@@ -206,7 +209,18 @@ people through the API the way a new colleague is added (an invitation email, th
 invitations from Mailpit itself, then gives them their roles and fills the workspace with warehouses, items,
 suppliers, customers, purchase and sales orders and a paid invoice, each made by the person whose job it is. It runs
 once per seeded workspace. Vic's pending Finance role proposal lapses after 14 days, so an older demo shows it as
-expired. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
+expired.
+
+`make demo-walkthrough` signs the people in and prints one line per step: a purchase order raised by the buyer,
+approved by the purchasing manager and received by the warehouse operator; a sale confirmed, shipped, invoiced and
+paid. Between them come the refusals, each checked for its exact answer: a viewer cannot raise an order, a buyer cannot
+approve one, nor can the person who raised it, an admin cannot give someone two jobs that must stay apart nor hand out a
+role that needs the owner, sales cannot record a payment, and nobody can ship more stock than a location holds. It can be
+run again; each run adds documents, and the stock in location A-01 grows by 6.
+
+Every sign-in comes from 127.0.0.1, so the demo's people share one sign-in budget: about 100 attempts per 15 minutes for
+the workspace, roughly a dozen walkthroughs. If `DEMO_PASSWORD` is wrong, the script stops at the first refused sign-in.
+After ten wrong attempts, that person cannot sign in for 15 minutes. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
 refuses while `.env.infra` says `demo`, so the tests never wipe the demo by accident. To go back to the tests, set
 `DB_PURPOSE=gate` (or remove the line) and run `make reset`.
 

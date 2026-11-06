@@ -540,12 +540,18 @@ final class Plan
      *
      * @return array<string, mixed>
      */
-    private function ship(string $actor, string $orderId, string $location, ?string $quantity = null, int $expected = 201): array
+    private function ship(string $actor, string $orderId, string $location, ?string $quantity = null, int $expected = 201, ?string $refusal = null): array
     {
         $pick = $this->call($actor, 'GetPickList', ['id' => $orderId], 200);
         $lines = [];
         foreach ((array) $pick['lines'] as $line) {
             $lines[] = ['sales_order_line_id' => (string) $line['sales_order_line']['id'], 'quantity' => $quantity ?? (string) $line['quantity_outstanding'], 'storage_location_id' => $this->ids[$location]];
+        }
+
+        if (null !== $refusal) {
+            $this->expectRefusal($refusal, $this->exchange($actor, 'CreateFulfilment', ['id' => $orderId], ['lines' => $lines], []));
+
+            return [];
         }
 
         return $this->call($actor, 'CreateFulfilment', ['id' => $orderId], $expected, ['lines' => $lines]);
@@ -597,6 +603,183 @@ final class Plan
     }
 
     // -----------------------------------------------------------------------------------------------------------------
+    // walk
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /** The second workspace the isolation step reads from (`make demo-seed WORKSPACE=demo-b`). */
+    public const ISOLATION_WORKSPACE = 'demo-b';
+
+    /**
+     * The refusals the walk shows, and what each must answer: status, problem type (after `urn:erp:problem:`) and rule.
+     * Asserted, not decorative: any other answer stops the walk (exit 4).
+     */
+    public const REFUSALS = [
+        'R1' => [403, 'permission-denied', null],
+        'R2' => [403, 'permission-denied', null],
+        'R3' => [409, 'business-rule-violated', 'purchase_order.approver_is_not_the_creator'],
+        'R4' => [409, 'business-rule-violated', 'user_role.separation_of_duty'],
+        'R5' => [409, 'business-rule-violated', 'user_role.needs_owner_confirmation'],
+        'R6' => [409, 'business-rule-violated', 'stock_level.on_hand_covers_the_depletion'],
+        'R7' => [403, 'permission-denied', null],
+        'R8' => [404, 'not-found', null],
+    ];
+
+    /**
+     * One pass through the work and the refusals (Revision 1 §R1-5/§R1-6, final RED M-2/M-4). Re-runnable on a populated
+     * workspace: each run adds documents (net stock +6 in A-01), and every refusal either writes nothing or is undone in
+     * the same run (R3's draft deleted, R5's proposal rejected, R6's order cancelled).
+     */
+    public function walk(bool $isolation, string $isolationWorkspace = self::ISOLATION_WORKSPACE): void
+    {
+        $this->assertOperationsKnown();
+        $this->ready();
+        foreach (array_keys(self::PEOPLE) as $person) {
+            $this->signIn($person);
+        }
+        $this->resolve();
+        $wid = $this->ids['item:WID-001'];
+
+        // The work.
+        $po = $this->raisePurchaseOrder('bea', 'SUP-001', ['WID-001' => ['10', '4.50']]);
+        $this->say('[01] Bea (Buyer) raised '.$po['order_number'].' for 10 WID-001.');
+        $this->refusal('R2', 'bea', 'ApprovePurchaseOrder', ['id' => $po['id']], [], 'Bea tried to approve it', 'a buyer cannot approve an order.');
+        $this->call('paul', 'ApprovePurchaseOrder', ['id' => $po['id']], 200, []);
+        $this->say('[03] Paul (Purchasing manager) approved '.$po['order_number'].'.');
+        $lines = $this->call('wes', 'ListPurchaseOrderLines', ['id' => $po['id']], 200);
+        $this->call('wes', 'CreateGoodsReceipt', ['id' => $po['id']], 201, ['lines' => array_map(fn (array $line): array => [
+            'purchase_order_line_id' => (string) $line['id'], 'quantity' => (string) $line['quantity'], 'storage_location_id' => $this->ids['location:A-01']], (array) $lines['items'])]);
+        $this->say('[04] Wes (Warehouse operator) received the 10 into A-01.');
+        $this->say('[05] Wes reads the stock: '.$this->onHand('wes', $wid, 'location:A-01').' WID-001 on hand in A-01.');
+        $so = $this->raiseSalesOrder('sara', 'CUS-001', ['WID-001' => ['4', '9.90']]);
+        $this->call('sara', 'ConfirmSalesOrder', ['id' => $so['id']], 200);
+        $this->say('[06] Sara (Sales rep) raised and confirmed '.$so['order_number'].' for 4 WID-001.');
+        $fulfilment = $this->ship('wes', (string) $so['id'], 'location:A-01');
+        $this->say('[07] Wes read the pick list and shipped '.$fulfilment['fulfilment_number'].' from A-01.');
+        $invoice = $this->call('sara', 'IssueInvoice', ['id' => $fulfilment['id']], 201);
+        $this->say('[08] Sara issued '.$invoice['invoice_number'].'.');
+        $this->refusal('R7', 'sara', 'PayInvoice', ['id' => $invoice['id']], [], 'Sara tried to record the payment', 'recording a payment is finance\'s job.');
+        $this->call('fiona', 'PayInvoice', ['id' => $invoice['id']], 200, []);
+        $this->say('[10] Fiona (Finance) recorded the payment of '.$invoice['invoice_number'].'.');
+
+        // The refusals.
+        $body = ['supplier_id' => $this->ids['supplier:SUP-001'], 'warehouse_id' => $this->ids['warehouse:MAIN'], 'currency_code' => 'EUR',
+            'lines' => [['inventory_item_id' => $wid, 'quantity' => '1', 'unit_cost' => '4.50']]];
+        $this->refusal('R1', 'vic', 'CreatePurchaseOrder', [], $body, 'Vic (Viewer) tried to raise a purchase order', 'a viewer can look but not raise orders.');
+        $own = $this->raisePurchaseOrder('paul', 'SUP-001', ['WID-001' => ['1', '4.50']]);
+        $this->refusal('R3', 'paul', 'ApprovePurchaseOrder', ['id' => $own['id']], [], 'Paul raised '.$own['order_number'].' himself and tried to approve it', 'the person who raised an order cannot approve it.');
+        $this->call('paul', 'DeletePurchaseOrder', ['id' => $own['id']], 204);
+        $this->say('     Paul deleted the draft '.$own['order_number'].'.');
+        $this->refusal('R4', 'adam', 'AssignRole', ['id' => $this->userIds['sara']], ['role_id' => $this->roleIds[self::ROLE_WAREHOUSE_OPERATOR]],
+            'Adam (Admin) tried to give Sara the Warehouse operator role', 'someone who takes orders and invoices cannot also ship (separation of duties).');
+        $this->refusal('R5', 'adam', 'AssignRole', ['id' => $this->userIds['vic']], ['role_id' => $this->roleIds[self::ROLE_PURCHASING_MANAGER]],
+            'Adam tried to give Vic the Purchasing manager role directly', 'a role that can approve orders needs the owner to confirm it.');
+        $proposal = $this->call('adam', 'CreateRoleGrantProposal', ['id' => $this->userIds['vic']], 201, ['role_id' => $this->roleIds[self::ROLE_PURCHASING_MANAGER]]);
+        $this->call(self::OWNER, 'RejectRoleGrantProposal', ['id' => (string) $proposal['id']], 200, ['reason' => 'Not for the demo.']);
+        $this->say('     Adam proposed it instead, and Olivia (Owner) said no.');
+        $onHand = $this->onHand('wes', $wid, 'location:A-01');
+        $tooMany = bcadd($onHand, '1', 0);
+        $sales = $this->raiseSalesOrder('sara', 'CUS-001', ['WID-001' => [$tooMany, '9.90']]);
+        $this->call('sara', 'ConfirmSalesOrder', ['id' => $sales['id']], 200);
+        $this->ship('wes', (string) $sales['id'], 'location:A-01', $tooMany, self::REFUSALS['R6'][0], 'R6');
+        $this->say('[R6] Wes tried to ship '.$tooMany.' WID-001 from A-01, which holds '.$onHand.' → refused ('.self::REFUSALS['R6'][0].' '.self::REFUSALS['R6'][2].'): nobody can ship stock that is not there.');
+        $this->call('sara', 'CancelSalesOrder', ['id' => $sales['id']], 200, ['reason' => 'Ordered more than we hold.']);
+        $this->say('     Sara cancelled '.$sales['order_number'].'.');
+
+        if ($isolation) {
+            $this->isolation($isolationWorkspace);
+        }
+        $this->say('done: the work went through and every refusal answered as expected.');
+    }
+
+    private function isolation(string $workspace): void
+    {
+        $answer = $this->exchange(null, 'IssueToken', [], ['workspace' => $workspace, 'email' => self::PEOPLE[self::OWNER][1], 'password' => $this->password], []);
+        if (200 !== $answer['status']) {
+            throw new Stop($this->wrote ? self::EXIT_UNEXPECTED : self::EXIT_REFUSED, 'the isolation step needs a second workspace: make demo-seed WORKSPACE='.$workspace.' (same DEMO_PASSWORD), then run again.');
+        }
+        $this->tokens['other-owner'] = (string) (json_decode($answer['body'], true)['access_token'] ?? '');
+        $other = (string) $this->call('other-owner', 'GetCurrentUser', [], 200)['id'];
+        $this->refusal('R8', self::OWNER, 'GetUser', ['id' => $other], null, 'Olivia asked for a person in another workspace by id', null);
+        $this->say('     The query asked only for the id; the database\'s row-level security hid the row.');
+        unset($this->tokens['other-owner']);
+    }
+
+    /** Ids the walk needs, read as the owner. */
+    private function resolve(): void
+    {
+        foreach ((array) ($this->call(self::OWNER, 'ListUsers', [], 200)['items'] ?? []) as $user) {
+            foreach (self::PEOPLE as $key => [, $email]) {
+                if ($email === ($user['email'] ?? null)) {
+                    $this->userIds[$key] = (string) $user['id'];
+                }
+            }
+        }
+        if (\count($this->userIds) !== \count(self::PEOPLE)) {
+            throw new Stop(self::EXIT_REFUSED, 'refused: the workspace is not populated (run make demo-populate first).');
+        }
+        $this->loadRoles();
+        $this->ids['supplier:SUP-001'] = $this->find(self::OWNER, 'ListSuppliers', [], ['q' => 'SUP-001'], 'code', 'SUP-001');
+        $this->ids['warehouse:MAIN'] = $this->find(self::OWNER, 'ListWarehouses', [], [], 'code', 'MAIN');
+        $this->ids['location:A-01'] = $this->find(self::OWNER, 'ListStorageLocations', ['id' => $this->ids['warehouse:MAIN']], [], 'code', 'A-01');
+        $this->ids['item:WID-001'] = $this->find(self::OWNER, 'ListItems', [], ['q' => 'WID-001'], 'sku', 'WID-001');
+        $this->ids['customer:CUS-001'] = $this->find(self::OWNER, 'ListCustomers', [], ['q' => 'CUS-001'], 'code', 'CUS-001');
+        $addresses = (array) ($this->call(self::OWNER, 'ListCustomerAddresses', ['id' => $this->ids['customer:CUS-001']], 200)['items'] ?? []);
+        $this->ids['address:CUS-001'] = (string) (($addresses[0] ?? [])['id'] ?? throw new Stop(self::EXIT_REFUSED, 'refused: customer CUS-001 has no address (run make demo-populate first).'));
+    }
+
+    /**
+     * @param array<string, string> $path
+     * @param array<string, scalar> $query
+     */
+    private function find(string $actor, string $operationId, array $path, array $query, string $field, string $value): string
+    {
+        foreach ((array) ($this->call($actor, $operationId, $path, 200, query: $query)['items'] ?? []) as $row) {
+            if (\is_array($row) && $value === ($row[$field] ?? null)) {
+                return (string) $row['id'];
+            }
+        }
+
+        throw new Stop(self::EXIT_REFUSED, 'refused: no '.$value.' in this workspace (run make demo-populate first).');
+    }
+
+    /** On-hand of one item in one location; no stock row counts as 0. */
+    private function onHand(string $actor, string $itemId, string $location): string
+    {
+        // One filter at a time (the read refuses both together); the item is picked out of the location's rows.
+        foreach ((array) ($this->call($actor, 'ListStockLevels', [], 200, query: ['storage_location_id' => $this->ids[$location]])['items'] ?? []) as $row) {
+            if (\is_array($row) && $itemId === ($row['inventory_item']['id'] ?? null)) {
+                return (string) $row['qty_on_hand'];
+            }
+        }
+
+        return '0';
+    }
+
+    /**
+     * One refusal from {@see self::REFUSALS}: the exact status, problem type and rule, or the walk stops (exit 4).
+     *
+     * @param array<string, string>     $path
+     * @param array<string, mixed>|null $body
+     */
+    private function refusal(string $key, string $actor, string $operationId, array $path, ?array $body, string $what, ?string $because): void
+    {
+        $this->expectRefusal($key, $this->exchange($actor, $operationId, $path, $body, []));
+        [$status, , $rule] = self::REFUSALS[$key];
+        $this->say('['.$key.'] '.$what.' → refused ('.$status.(null === $rule ? '' : ' '.$rule).')'.(null === $because ? '.' : ': '.$because));
+    }
+
+    /** @param array{status: int, body: string} $answer */
+    private function expectRefusal(string $key, array $answer): void
+    {
+        [$status, $type, $rule] = self::REFUSALS[$key];
+        $expected = trim('urn:erp:problem:'.$type.(null === $rule ? '' : ' '.$rule));
+        $actual = self::problemOf($answer['body']);
+        if ($answer['status'] !== $status || $actual !== $expected) {
+            throw new Stop(self::EXIT_UNEXPECTED, \sprintf('%s: expected %d %s, got %d %s', $key, $status, $expected, $answer['status'], $actual));
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
     // the client
     // -----------------------------------------------------------------------------------------------------------------
 
@@ -635,7 +818,7 @@ final class Plan
         $answer = $this->exchange($actor, $operationId, $path, $body, $query);
         if ($answer['status'] !== $expected) {
             throw new Stop(self::EXIT_UNEXPECTED, \sprintf('step %d (%s%s): expected %d, got %d %s', $this->step, $label ?? $operationId,
-                null === $actor ? '' : ', as '.self::PEOPLE[$actor][0], $expected, $answer['status'], self::problemOf($answer['body'])));
+                null === $actor ? '' : ', as '.(self::PEOPLE[$actor][0] ?? $actor), $expected, $answer['status'], self::problemOf($answer['body'])));
         }
         $decoded = '' === $answer['body'] ? [] : json_decode($answer['body'], true);
 
@@ -726,20 +909,22 @@ final class Main
         $output ??= new Output();
         try {
             $command = $argv[1] ?? '';
-            if ('populate' !== $command) {
-                throw new Stop(Plan::EXIT_REFUSED, 'usage: demo-walkthrough.php populate --api=http://127.0.0.1:8000 --mailbox=http://127.0.0.1:<port> [--workspace=demo] [--password-stdin]');
+            if (!\in_array($command, ['populate', 'walk'], true)) {
+                throw new Stop(Plan::EXIT_REFUSED, 'usage: demo-walkthrough.php populate --api=http://127.0.0.1:8000 --mailbox=http://127.0.0.1:<port> [--workspace=demo] [--password-stdin] | walk --api=http://127.0.0.1:8000 [--workspace=demo] [--isolation] [--password-stdin]');
             }
-            $options = ['api' => 'http://127.0.0.1:8000', 'mailbox' => '', 'workspace' => 'demo', 'stdin' => false];
+            $options = ['api' => 'http://127.0.0.1:8000', 'mailbox' => '', 'workspace' => 'demo', 'stdin' => false, 'isolation' => false];
             foreach (\array_slice($argv, 2) as $argument) {
                 if (1 === preg_match('/^--(api|mailbox|workspace)=(.*)$/s', $argument, $m)) {
                     $options[$m[1]] = $m[2];
                 } elseif ('--password-stdin' === $argument) {
                     $options['stdin'] = true;
+                } elseif ('--isolation' === $argument && 'walk' === $command) {
+                    $options['isolation'] = true;
                 } else {
                     throw new Stop(Plan::EXIT_REFUSED, 'refused: unknown argument (see usage: demo-walkthrough.php without arguments).');
                 }
             }
-            foreach (['api' => '--api', 'mailbox' => '--mailbox'] as $key => $name) {
+            foreach ('walk' === $command ? ['api' => '--api'] : ['api' => '--api', 'mailbox' => '--mailbox'] as $key => $name) {
                 if (null !== ($refusal = Safety::refusalForUrl((string) $options[$key], $name))) {
                     throw new Stop(Plan::EXIT_REFUSED, $refusal);
                 }
@@ -754,6 +939,11 @@ final class Main
             }
             $transport ??= new StreamTransport();
             $plan = new Plan($transport, Safety::base((string) $options['api']), $output, (string) $options['workspace'], $password, $spec);
+            if ('walk' === $command) {
+                $plan->walk((bool) $options['isolation']);
+
+                return Plan::EXIT_OK;
+            }
             $mailbox = new MailpitMailbox($transport, Safety::base((string) $options['mailbox']));
             if (!$mailbox->ready()) {
                 throw new Stop(Plan::EXIT_REFUSED, 'refused: the mail catcher does not answer at --mailbox (is make up running?).');

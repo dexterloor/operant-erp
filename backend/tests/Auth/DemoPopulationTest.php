@@ -4,26 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Auth;
 
-use App\Modules\UserManagement\Application\Contract\Message\IssueInvitation;
 use App\Modules\UserManagement\Application\RoleReconciliation;
 use ErpDemoSeed\Locality;
-use ErpDemoWalkthrough\Mailbox;
-use ErpDemoWalkthrough\Output;
 use ErpDemoWalkthrough\Plan;
-use ErpDemoWalkthrough\Stop;
-use ErpDemoWalkthrough\Transport;
 use PHPUnit\Framework\Attributes\Test;
-use Symfony\Bundle\FrameworkBundle\Console\Application;
-use Symfony\Component\Console\Tester\CommandTester;
-use Symfony\Component\Messenger\Envelope;
-use Symfony\Component\Messenger\MessageBusInterface;
-use Symfony\Component\Messenger\Stamp\ReceivedStamp;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
-use Symfony\Component\Mime\Address;
-use Symfony\Component\Mime\Email;
-
-require_once \dirname(__DIR__, 2).'/bin/demo-seed.php';
-require_once \dirname(__DIR__, 2).'/bin/demo-walkthrough.php';
 
 /**
  * **2a C3: `demo-walkthrough.php populate` fills a seeded workspace through the API, as the people who would do each step**
@@ -41,10 +25,7 @@ require_once \dirname(__DIR__, 2).'/bin/demo-walkthrough.php';
  */
 final class DemoPopulationTest extends AuthTestCase
 {
-    private const API = 'http://127.0.0.1:8000';
-
-    /** @var list<string> every bearer and invitation token seen, to prove none reached the output */
-    private array $secrets = [];
+    use DemoPlanRig;
 
     protected function setUp(): void
     {
@@ -57,13 +38,12 @@ final class DemoPopulationTest extends AuthTestCase
     #[Test]
     public function aSeededWorkspaceIsFilledThroughTheApiAndRefusesASecondFill(): void
     {
-        $slug = Locality::TEST_SLUG_PREFIX.substr(bin2hex(random_bytes(6)), 0, 10);
+        $slug = self::demoSlug();
         $password = bin2hex(random_bytes(12));
         $this->seed($slug, $password);
         $tenantId = (string) $this->owner()->fetchOne('SELECT id::text FROM tenant WHERE slug = ?', [$slug]);
-        $this->secrets[] = $password;
 
-        [$plan, $exit, $output] = $this->populate($slug, $password);
+        [$plan, $exit, $output] = $this->runPlan($slug, $password, fn (Plan $plan) => $plan->fillWorkspace($this->mailbox()));
         self::assertSame(Plan::EXIT_OK, $exit, $output);
 
         self::assertSame([
@@ -88,110 +68,9 @@ final class DemoPopulationTest extends AuthTestCase
         // A second run refuses before writing anything (exit 3). The refusal is the script's own (it reads ListUsers' 200),
         // so no request is refused and the one kernel stays usable.
         $before = $this->counts($tenantId);
-        [, $again, $output] = $this->populate($slug, $password);
+        [, $again, $output] = $this->runPlan($slug, $password, fn (Plan $plan) => $plan->fillWorkspace($this->mailbox()));
         self::assertSame(Plan::EXIT_POPULATED, $again, $output);
         self::assertSame($before, $this->counts($tenantId));
-    }
-
-    /** @return array{0: Plan, 1: int, 2: string} */
-    private function populate(string $slug, string $password): array
-    {
-        $spec = json_decode((string) file_get_contents(\dirname(__DIR__, 3).'/contracts/openapi.json'), true);
-        self::assertIsArray($spec);
-        $stream = fopen('php://memory', 'w+');
-        self::assertIsResource($stream);
-        $plan = new Plan($this->transport(), self::API, new Output($stream), $slug, $password, $spec);
-        try {
-            $plan->fillWorkspace($this->mailbox());
-            $exit = Plan::EXIT_OK;
-        } catch (Stop $stop) {
-            (new Output($stream))->line($stop->safeLine);
-            $exit = $stop->exitCode;
-        }
-        rewind($stream);
-
-        return [$plan, $exit, (string) stream_get_contents($stream)];
-    }
-
-    private function transport(): Transport
-    {
-        $test = $this;
-
-        return new class($test) implements Transport {
-            public function __construct(private readonly DemoPopulationTest $test)
-            {
-            }
-
-            public function send(string $method, string $url, array $headers, ?string $body): array
-            {
-                return $this->test->exchange($method, $url, $headers, $body);
-            }
-        };
-    }
-
-    /**
-     * @param list<string> $headers
-     *
-     * @return array{status: int, body: string}
-     *
-     * @internal the transport's adapter onto this test's kernel browser
-     */
-    public function exchange(string $method, string $url, array $headers, ?string $body): array
-    {
-        $server = [];
-        foreach ($headers as $header) {
-            [$name, $value] = array_map('trim', explode(':', $header, 2));
-            $key = strtoupper(str_replace('-', '_', $name));
-            $server[\in_array($key, ['CONTENT_TYPE'], true) ? $key : 'HTTP_'.$key] = $value;
-        }
-        $this->client()->request($method, $url, [], [], $server, $body);
-        $response = $this->client()->getResponse();
-        $content = (string) $response->getContent();
-        $decoded = json_decode($content, true);
-        if (\is_array($decoded) && \is_string($decoded['access_token'] ?? null)) {
-            $this->secrets[] = $decoded['access_token'];
-        }
-
-        return ['status' => $response->getStatusCode(), 'body' => $content];
-    }
-
-    private function mailbox(): Mailbox
-    {
-        $test = $this;
-
-        return new class($test) implements Mailbox {
-            public function __construct(private readonly DemoPopulationTest $test)
-            {
-            }
-
-            public function invitationToken(string $email): string
-            {
-                return $this->test->invitationFor($email);
-            }
-        };
-    }
-
-    /** @internal drains the queue through the real bus, then reads the one invitation sent to `$email` */
-    public function invitationFor(string $email): string
-    {
-        $transport = self::getContainer()->get('messenger.transport.async');
-        \assert($transport instanceof InMemoryTransport);
-        $bus = self::getContainer()->get('messenger.default_bus');
-        \assert($bus instanceof MessageBusInterface);
-        foreach ($transport->get() as $envelope) {
-            \assert($envelope instanceof Envelope);
-            self::assertInstanceOf(IssueInvitation::class, $envelope->getMessage());
-            $bus->dispatch($envelope->with(new ReceivedStamp('async')));
-            $transport->ack($envelope);
-        }
-        $mine = array_values(array_filter(self::getMailerMessages(), static fn (mixed $m): bool => $m instanceof Email
-            && [$email] === array_map(static fn (Address $a): string => $a->getAddress(), $m->getTo())));
-        self::assertCount(1, $mine, 'Not exactly one invitation to '.$email);
-        $token = Plan::tokenIn((string) $mine[0]->getTextBody());
-        self::assertNotNull($token);
-        $this->secrets[] = $token;
-
-        return $token;
     }
 
     /** @return array<string, int> */
@@ -262,28 +141,5 @@ final class DemoPopulationTest extends AuthTestCase
         $walk($bodies);
 
         return $found;
-    }
-
-    private function seed(string $slug, string $password): void
-    {
-        $backend = \dirname(__DIR__, 2);
-        $process = proc_open([\PHP_BINARY, $backend.'/bin/demo-seed.php', '--workspace='.$slug, '--password-stdin'],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $backend, ['PATH' => (string) getenv('PATH'), 'APP_ENV' => 'test']);
-        self::assertIsResource($process);
-        fwrite($pipes[0], $password);
-        fclose($pipes[0]);
-        stream_get_contents($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        self::assertSame(0, proc_close($process), $stderr);
-    }
-
-    /** @return array{0: int, 1: string} */
-    private function reconcile(string $tenantId): array
-    {
-        $tester = new CommandTester((new Application(self::$kernel ?? throw new \LogicException('No kernel.')))->find('app:roles:reconcile'));
-
-        return [$tester->execute(['--tenant' => $tenantId]), $tester->getDisplay()];
     }
 }

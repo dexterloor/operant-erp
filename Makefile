@@ -26,7 +26,7 @@ OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 # an operator inspects, never re-run automatically (mail-c0-red.md M-2).
 WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed demo-populate serve refuse-demo-database require-demo-database
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed demo-populate demo-walkthrough serve refuse-demo-database require-demo-database
 
 env:                ## create .env, .env.infra, .env.test, .env.worker and .env.demo from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
@@ -121,3 +121,10 @@ demo-seed: require-demo-database  ## seed the local demo workspace (needs DB_PUR
 DEMO_ARGS ?=
 demo-populate: require-demo-database  ## fill the demo workspace through the API (needs make serve and make worker-loop)
 	cd backend && php bin/demo-walkthrough.php populate --api=http://127.0.0.1:$(API_PORT) --mailbox=http://127.0.0.1:$$(sed -n 's/^MAILPIT_UI_PORT=//p' ../.env.infra | tail -n 1) --workspace=$(WORKSPACE) $(DEMO_ARGS)
+
+# Walk through the populated demo (2a): one line per step -- a purchase order raised, approved by someone else and
+# received; a sale confirmed, shipped, invoiced and paid -- and the refusals that show the rules biting, each checked for
+# its exact answer. Re-runnable; each run adds documents. DEMO_ARGS=--isolation adds the workspace-isolation step, which
+# needs a second workspace first: make demo-seed WORKSPACE=demo-b (same password).
+demo-walkthrough: require-demo-database  ## walk through the demo, refusals included (needs make serve)
+	cd backend && php bin/demo-walkthrough.php walk --api=http://127.0.0.1:$(API_PORT) --workspace=$(WORKSPACE) $(DEMO_ARGS)
