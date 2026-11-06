@@ -71,8 +71,16 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  const save = useMemo(() => itemSave({ caller, id, setItem, onRereadFailed: failed }), [caller, id, setItem, failed]);
-  const restore = useMemo(() => itemRestore({ caller, id, setItem, onRereadFailed: failed }), [caller, id, setItem, failed]);
+  // L-2: every read the page commits is newer than an earlier failed re-read, so committing one clears that error.
+  const commit = useCallback(
+    async (i: Item) => {
+      setRereadError(null);
+      await setItem(i);
+    },
+    [setItem],
+  );
+  const save = useMemo(() => itemSave({ caller, id, setItem: commit, onRereadFailed: failed }), [caller, id, commit, failed]);
+  const restore = useMemo(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed }), [caller, id, commit, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
   const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.

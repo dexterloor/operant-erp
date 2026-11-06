@@ -105,6 +105,8 @@ describe('/items — the list page', () => {
     v.codes = ['inventory_item.view'];
     v.list = 'session-ended';
     await expect(ListPage({ searchParams: Promise.resolve({ archived: 'true' }) })).rejects.toThrow('redirect');
+    // RED M-3 b: the return path keeps the view.
+    await expect(ListPage({ searchParams: Promise.resolve({ archived: 'true' }) })).rejects.toThrow(encodeURIComponent('/items?archived=true'));
     v.list = 'forbidden';
     expect(((await ListPage({ searchParams: Promise.resolve({}) })) as ReactElement).type).toBe(ItemsDenied);
   });

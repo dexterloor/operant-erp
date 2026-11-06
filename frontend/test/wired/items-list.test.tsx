@@ -8,7 +8,8 @@ import { ItemsList } from '@/app/(app)/items/ItemsList';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
 import type { ItemsLoad } from '@/lib/items/load';
-import { TZ, json, page, renderWired, stubFetch, type Recorded } from './harness';
+import { TZ, json, page, renderWired, stubFetch, textsOf, type Recorded } from './harness';
+import styles from '@/app/(app)/Lists.module.css';
 
 // Items I-1 (items-plan.md §4 I-1 + Revision 1 — FINAL; items-ux-copy.md B-1, B-2 as amended by R1-3, R1-5, R1-6, R1-8,
 // R1-14, R1-16, F-2; b4-architecture.md Revision 8 R8-1 + amendments). The list is the real `ItemsList` over the REAL
@@ -74,6 +75,8 @@ describe('/items — the live view (B-1 as amended)', () => {
     expect(within(screen.getByText('Name of A-2').closest('tr')!).getAllByRole('cell').map((c) => c.textContent)).toEqual(['A-2', 'Name of A-2', 'KG', 'None']);
     // No quantity anywhere in the list (R1-5): the served "10.000000" / "5.500000" and their renderings are absent.
     expect(document.body.textContent).not.toMatch(/10\.000000|5\.5|\b10\b/);
+    // RED M-3 c: live rows are not struck.
+    for (const r of document.querySelectorAll('tbody tr')) expect(r.className).not.toBe(styles.struck);
     expect(screen.queryByRole('caption')).toBeNull();
     expect(document.querySelector('caption')).toBeNull();
     expect(screen.getByText('2 shown')).toBeInTheDocument();
@@ -135,6 +138,11 @@ describe('/items — the Archived view (B-2 as amended)', () => {
     expect(within(screen.getByText('Name of Z-9').closest('tr')!).getAllByRole('cell').map((c) => c.textContent)).toEqual(['Z-9', 'Name of Z-9', formatDate(Z9.archived_at!, TZ)]);
     expect(screen.getByRole('button', { name: 'Back to items' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Archived' })).toBeNull();
+    // RED M-3 c: every archived row carries the core's struck class.
+    expect(styles.struck).toEqual(expect.any(String));
+    const rows = [...document.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.className).toBe(styles.struck);
     expect(screen.getByRole('searchbox', { name: 'Search archived items by SKU' })).toBeInTheDocument();
   });
 
@@ -152,6 +160,47 @@ describe('/items — the Archived view (B-2 as amended)', () => {
     await settle();
     await waitFor(() => expect(screen.getByText("No archived item's SKU starts with “Q”.", { selector: 'p' })).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
+  });
+});
+
+// RED M-2: the settled announcements (UX R1-8) for a first load, a switch and a settle. The first load's sentence is spoken
+// when a Retry of a failed first load succeeds (first paint is not announced, ST-2a), so the first-load cases fail the
+// server read first and Retry.
+describe('/items — the settled announcements (R1-8)', () => {
+  it('first load, live, 2 rows: "2 items shown."', async () => {
+    stubFetch([json(200, page([A1, A2]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={{ kind: 'server-error' }} />);
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(region()).toHaveTextContent(/^2 items shown\.$/));
+  });
+
+  it('first load, Archived, 1 row: "1 archived item shown."', async () => {
+    stubFetch([json(200, page([Z9]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={{ kind: 'server-error' }} initialArchived />);
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(region()).toHaveTextContent(/^1 archived item shown\.$/));
+  });
+
+  it('switch to Archived, 2 rows: "2 archived items shown."', async () => {
+    stubFetch([json(200, page([Z9, X7]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([A1])} />);
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(region()).toHaveTextContent(/^2 archived items shown\.$/));
+  });
+
+  it('a settle on "A" answering 1 row: "1 item shown. SKU starts with “A”."', async () => {
+    stubFetch([json(200, page([A1]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([A1, B1])} />);
+    const { texts, stop } = textsOf(region());
+    await u.type(screen.getByRole('searchbox'), 'A');
+    await settle();
+    await waitFor(() => expect(region()).toHaveTextContent(/^1 item shown\. SKU starts with “A”\.$/));
+    stop();
+    expect(texts.at(-1)).toBe('1 item shown. SKU starts with “A”.');
   });
 });
 

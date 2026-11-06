@@ -37,6 +37,16 @@ describe('renderQuantity — beyond the table', () => {
     expect(renderQuantity('100.100000')).toBe('100.1');
   });
 
+  // items-i1-red.md L-4: the backend's domain (1-13 integer digits, 1-6 fractional) and its signed-zero rule.
+  it('agrees with QuantityRendering::render() outside the table: no signed zero, and the same domain', () => {
+    expect(renderQuantity('-0.000000')).toBe('0');
+    expect(renderQuantity('-0')).toBe('0');
+    expect(renderQuantity('-00.000000')).toBe('00');
+    expect(renderQuantity('1.0000000')).toBe('1.0000000');
+    expect(renderQuantity('12345678901234')).toBe('12345678901234');
+    expect(renderQuantity('12345678901234.000000')).toBe('12345678901234.000000');
+  });
+
   it('renders, never validates: a string that is not a plain decimal comes back as served', () => {
     for (const odd of ['', 'abc', '1e3', '1,5', ' 2', '1.2.3', '.5']) expect(renderQuantity(odd)).toBe(odd);
   });

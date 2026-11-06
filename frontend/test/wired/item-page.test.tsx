@@ -132,25 +132,28 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(save()).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('Save sends only the changed fields — never supplier_id, never unit_of_measure_code — re-reads, says "{sku} was saved.", focuses the h1', async () => {
-    const after = { ...BOLT, name: 'Bolt M6' };
+  it('Save sends only the changed fields — never supplier_id, never unit_of_measure_code — re-reads, says "{sku} was saved." with the SKU as saved, focuses the h1', async () => {
+    const after = { ...BOLT, sku: 'B-2', name: 'Bolt M6' };
     const calls = stubFetch([json(200, after), json(200, { ...after, name: 'Bolt M6 (re-read)' })]);
     const u = userEvent.setup();
     show();
+    await u.clear(field('SKU'));
+    await u.type(field('SKU'), 'B-2');
     await u.type(field('Name'), ' M6');
     await u.click(save());
-    await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+    await waitFor(() => expect(region()).toHaveTextContent('B-2 was saved.'));
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
     expect(calls[0]!.url).toContain(`/bff/api/items/${IID}`);
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ name: 'Bolt M6' });
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M6 (re-read)');
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ sku: 'B-2', name: 'Bolt M6' });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('B-2 — Bolt M6 (re-read)');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
     expect(save()).toHaveAttribute('aria-disabled', 'true');
     expect(nav.refresh).toHaveBeenCalledTimes(1);
   });
 
   it('a typed number is sent exactly as typed: no trim, no client format rule ("1.50", " 2", "-3", "1,5")', async () => {
-    for (const typed of ['1.50', ' 2', '-3', '1,5']) {
+    // '  ' (spaces only) is sent too: R1-9 catches only the empty field (RED L-6 c).
+    for (const typed of ['1.50', ' 2', '-3', '1,5', '  ']) {
       const calls = stubFetch([violation('/reorder_point', I8)]);
       const u = userEvent.setup();
       const { unmount } = show();
@@ -297,15 +300,95 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(await screen.findByText("We can't tell whether your changes to A-1 were saved. Reload the page to check.")).toBeInTheDocument();
   });
 
-  it("saved but the re-read failed: the saved values stay, the region error shows, focus on its heading (4.2 RED M-1 shape)", async () => {
-    stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(500, {})]);
+  it("saved but the re-read failed: the 200 body is committed, the region error shows, focus on its heading (4.2 RED M-1 shape; RED L-1, M-3 a)", async () => {
+    stubFetch([json(200, { ...BOLT, sku: 'A-2', name: 'Bolt M6' }), json(500, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('SKU'));
+    await u.type(field('SKU'), 'A-2');
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Something went wrong on our side.' })).toHaveFocus());
+    expect(field('Name')).toHaveValue('Bolt M6');
+    expect(region()).toHaveTextContent('A-2 was saved.');
+    // L-1: the page shows what was saved (the 200 body), as Restore does.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-2 — Bolt M6');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('a later save whose re-read succeeds clears an earlier re-read error (RED L-2)', async () => {
+    stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(500, {}), json(200, { ...BOLT, name: 'Bolt M7' }), json(200, { ...BOLT, name: 'Bolt M7' })]);
     const u = userEvent.setup();
     show();
     await u.type(field('Name'), ' M6');
     await u.click(save());
     expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
-    expect(field('Name')).toHaveValue('Bolt M6');
-    expect(region()).toHaveTextContent('A-1 was saved.');
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Bolt M7');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7'));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this item again, so what's shown may be out of date.")).toBeNull());
+  });
+
+  it('a refused Save whose re-read fails: UX-I2 under "Not saved" AND the region error (RED M-1 a)', async () => {
+    stubFetch([refused('inventory_item.is_archived', I2), json(500, {})]);
+    const u = userEvent.setup();
+    show(BOLT, true, true);
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText(I2)).toBeInTheDocument();
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+  });
+
+  it('a refused Save whose re-read answers 403: ST-4b for items (RED M-1 b)', async () => {
+    stubFetch([refused('inventory_item.is_archived', I2), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show(BOLT, true, true);
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to items." })).toBeInTheDocument();
+  });
+
+  it('P1 contention whose re-read finds the item archived concurrently: the page turns archived, and P1 is never shown as the archived-elsewhere refusal (RED L-3)', async () => {
+    stubFetch([refused('transaction.contention', P1), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show(BOLT, true, true);
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(/This item was archived on/)).toBeInTheDocument());
+    // The form is gone with the live state, so its banner goes with it: no "Not saved … try again" over a page with no Save.
+    expect(screen.queryByText(P1)).toBeNull();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Restore item' })).toBeInTheDocument();
+  });
+
+  it('a 422 with two field sentences focuses the FIRST invalid field in screen order (RED L-6 b)', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/safety_stock', code: 'not_a_decimal', message: I8 }, { pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Safety stock'));
+    await u.type(field('Safety stock'), 'x');
+    await u.click(save());
+    await waitFor(() => expect(field('Safety stock')).toHaveAttribute('aria-invalid', 'true'));
+    expect(field('Name')).toHaveAttribute('aria-invalid', 'true');
+    await waitFor(() => expect(field('Name')).toHaveFocus());
+  });
+
+  it('two emptied numbers: both refused, focus on the first in screen order (RED L-6 b)', async () => {
+    const calls = stubFetch([]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Safety stock'));
+    await u.clear(field('Reorder point'));
+    await u.click(field('Name'));
+    await u.click(save());
+    await waitFor(() => expect(field('Safety stock')).toHaveAttribute('aria-invalid', 'true'));
+    expect(field('Reorder point')).toHaveAttribute('aria-invalid', 'true');
+    await waitFor(() => expect(field('Reorder point')).toHaveFocus());
+    expect(calls).toEqual([]);
   });
 
   it('the re-read answers 404 → ST-5 back to /items', async () => {
@@ -391,6 +474,29 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     await u.click(restore());
     await waitFor(() => expect(region()).toHaveTextContent('A-1 was restored.'));
     expect(screen.queryByRole('button', { name: 'Restore item' })).toBeNull();
+  });
+
+  it('refused (UX-I1) and the re-read fails: the sentence under "Not restored" AND the region error (RED M-1 c)', async () => {
+    const i1 = 'Another live item in this workspace already uses this SKU.';
+    stubFetch([refused('inventory_item.sku_is_unique_per_workspace', i1), json(500, {})]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(i1)).toBeInTheDocument();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(restore()).toBeInTheDocument();
+  });
+
+  it('restored (200) but the re-read fails: the 200 body is committed, never "restored" over the archived banner (RED M-3 d)', async () => {
+    stubFetch([json(200, BOLT), json(500, {})]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was restored.'));
+    expect(screen.queryByText(/This item was archived on/)).toBeNull();
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(field('Name')).toHaveValue('Bolt');
   });
 
   it('a 403 names "Delete and restore items"; offline says "Press Restore item to try again."', async () => {

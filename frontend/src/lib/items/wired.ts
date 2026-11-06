@@ -1,4 +1,5 @@
 import type { Item } from '../api/items';
+import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
@@ -9,9 +10,11 @@ import { ITEM_FIELDS, type ItemChange, type RestoreItemAction, type SaveItemActi
 // The item page's Save and Restore over the BFF (Revision 8 R8-2; the lib/warehouses/wired.ts shape). Neither takes an
 // Idempotency-Key: the update is a merge patch (a repeat finds nothing to change) and the restore is guarded by
 // `deleted_at` (a repeat is refused UX-I4). One deadline covers each request AND its GetItem re-read. No refusal code is
-// compared here or on the page: a refusal is followed by a re-read, and what the re-read shows decides (archived after a
-// refused Save; live after a refused Restore). So P1 contention needs no branch of its own in this commit: the form keeps
-// its values and Save, the banner keeps Restore. `lib/api/problems` is first imported here with Delete item (I-3).
+// compared on the page: a refusal is followed by a re-read, and what the re-read shows decides (archived after a refused
+// Save; live after a refused Restore). The ONE rule compared here is P1 (`PLATFORM_REFUSAL.contention`, R8-4: this file
+// is the items family's one `lib/api/problems` importer): a contention refusal is always returned as `refused`, never
+// `refused-archived`, because its sentence says "try again" (items-i1-red.md L-3, second option). A re-read that fails
+// after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1).
 //
 // Blind spot, stated (the warehouses X-2 precedent): C-2's body-key check reads object-literal bodies only; the Save body
 // is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` and
@@ -44,8 +47,10 @@ export function itemSave(w: ItemWiring): SaveItemAction {
             const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.item.archived_at !== null) {
               await w.setItem(again.item);
-              return { kind: 'refused-archived', message: r.message };
+              // P1 says "try again": it is never shown as the page's archived-elsewhere refusal (L-3).
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
             }
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
             return r;
           }
           case 'not-found':
@@ -61,7 +66,11 @@ export function itemSave(w: ItemWiring): SaveItemAction {
       if (!isItem(r.body)) return { kind: 'server-error' };
       const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
       if (again.kind === 'ok') await w.setItem(again.item);
-      else w.onRereadFailed(again.kind);
+      else {
+        // The 200 body is the server's new state: commit it, so the page shows what was saved (L-1, Restore's rule).
+        await w.setItem(r.body);
+        w.onRereadFailed(again.kind);
+      }
       return { kind: 'saved', item: r.body };
     } finally {
       deadline.cancel();
@@ -84,6 +93,7 @@ export function itemRestore(w: ItemWiring): RestoreItemAction {
               await w.setItem(again.item);
               return { kind: 'already-live', item: again.item, message: r.message };
             }
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
             return r;
           }
           case 'not-found':

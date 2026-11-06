@@ -36,6 +36,26 @@ describe('TextField', () => {
     expect(line.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
 
+  // Items I-1 (UX R1-2 / F-4; items-i1-red.md L-6 d): the unit code comes AFTER the number, outside the input, and is read
+  // with the field first; without a suffix the field renders exactly as before (no wrapper, the same describedby).
+  it('a suffix follows the input, outside it, and is described first; without one there is no wrapper', () => {
+    const { unmount } = render(<TextField id="item-point" label="Reorder point" hint="When it is due." error="Bad." suffix="KG" />);
+    const input = screen.getByRole('textbox', { name: 'Reorder point' });
+    const suffix = screen.getByText('KG');
+    expect(suffix.id).toBe('item-point-suffix');
+    expect(input.contains(suffix)).toBe(false);
+    expect(input.compareDocumentPosition(suffix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(input.getAttribute('aria-describedby')).toBe('item-point-suffix item-point-hint item-point-error');
+    expect(input.parentElement).toBe(suffix.parentElement);
+    unmount();
+    render(<TextField id="item-point" label="Reorder point" hint="When it is due." />);
+    const plain = screen.getByRole('textbox', { name: 'Reorder point' });
+    expect(plain.getAttribute('aria-describedby')).toBe('item-point-hint');
+    expect(document.getElementById('item-point-suffix')).toBeNull();
+    // The input sits directly in the field, as it did before the suffix existed.
+    expect(plain.parentElement).toBe(screen.getByText('Reorder point').parentElement);
+  });
+
   it('an empty-string error is no error', () => {
     render(<TextField id="f" label="Name" error="" />);
     const input = screen.getByRole('textbox', { name: 'Name' });

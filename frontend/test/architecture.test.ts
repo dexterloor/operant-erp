@@ -145,7 +145,8 @@ interface Violation {
 }
 
 /** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/warehouses/wired.ts'];
+// Revision 8 R8-4: one importer per family, each pinned. Items I-1 (items-i1-red.md L-3, second option) added lib/items/wired.ts.
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -163,7 +164,7 @@ function importViolations(files: readonly SourceFile[]): Violation[] {
       if (under(sf.file, 'src') && under(t, 'test')) breach('src never imports test/**');
       // A-18 S-1 (RED M-2 of step 4.6): the platform refusal rule is compared in one place, so only that file imports it.
       // A comparison through the constant holds no literal, which REFUSAL_HOMES cannot see; this pin can.
-      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only lib/warehouses/wired.ts imports lib/api/problems (A-18 S-1)');
+      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only the pinned family wired.ts files import lib/api/problems (A-18 S-1, R8-4)');
       if (under(t, 'src/components/preview/fixtures') && !under(sf.file, 'src/components/preview')) {
         breach('only components/preview (and tests) import the preview fixtures (RED L-1)');
       }
@@ -524,8 +525,12 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
       { file: 'src/lib/warehouses/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
       { file: 'src/components/warehouses/x.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
       { file: 'src/lib/warehouses/y.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems.ts';" },
+      // Items I-1 (R8-4, L-3): the items family's wired.ts may import it; its other lib files and its components may not.
+      { file: 'src/lib/items/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/lib/items/load.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/components/items/ItemForm.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
     ];
-    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts']);
+    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx']);
   });
 
   it('REFUSAL_HOMES planted controls (§2 step 4.6): only a home\'s top-level declarations are exempt', () => {
@@ -1725,10 +1730,13 @@ describe('architecture — R8-3: components/records is props-only and names no f
  * Items I-1 (Revision 8 R8-2; items-plan.md R1-5 / M-5): a quantity is a decimal string rendered only by
  * `lib/format/quantity.ts` (QR-2), never through a number (13 + 6 digits exceed a double) and never by a fixed-scale or
  * locale formatter. The behaviour is pinned per display site in `test/wired/item-page.test.tsx`; this scan is the
- * BACKSTOP over the item dirs and the renderer. Tokens: `Number(` and `new Number(`, `Number.parse…`, `parseFloat`,
- * `parseInt`, `.toFixed`, `.toLocaleString`, `Intl.NumberFormat`, `Math.round`, and a unary `+` or `-` on an identifier
- * or member named like a quantity. Limit, stated: an alias (`const N = Number`), a computed member (`x['toFixed']`) or a
- * quantity under another name is not seen; the per-site DOM tests are what catch those.
+ * BACKSTOP over the item dirs and the renderer. Tokens: `Number(` and `new Number(`, `BigInt(`, `Number.parse…`,
+ * `parseFloat`, `parseInt`, a call whose callee is a member named `Number`, `parseFloat` or `parseInt` on anything
+ * (`globalThis.Number(…)`, `window.parseFloat(…)`), `.toFixed`, `.toLocaleString`, `Intl.NumberFormat`, any `Math.<name>`
+ * call (`Math.round`, `Math.trunc`, …), and a unary `+` or `-` on an identifier or member named like a quantity
+ * (items-i1-red.md L-5 widened it). Limit, stated: an alias (`const N = Number`), a computed member (`x['toFixed']`),
+ * binary arithmetic (`x * 1`, `x - 0`) or a quantity under another name is not seen; the per-site DOM tests are what
+ * catch those.
  */
 const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts'] as const;
@@ -1742,7 +1750,14 @@ function quantityNumberViolations(files: readonly SourceFile[]): Violation[] {
       const hit = (detail: string) => out.push({ file: sf.file, detail });
       if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isIdentifier(node.expression)) {
         const name = node.expression.text;
-        if (name === 'Number' || name === 'parseFloat' || name === 'parseInt') hit(`${name}(`);
+        if (name === 'Number' || name === 'parseFloat' || name === 'parseInt' || name === 'BigInt') hit(`${name}(`);
+      }
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isPropertyAccessExpression(node.expression)) {
+        const callee = node.expression;
+        const target = ts.isIdentifier(callee.expression) ? callee.expression.text : null;
+        const member = callee.name.text;
+        if (member === 'Number' || member === 'parseFloat' || member === 'parseInt') hit(`.${member}(`);
+        if (target === 'Math' && member !== 'round') hit(`Math.${member}(`);
       }
       if (ts.isPropertyAccessExpression(node)) {
         const target = ts.isIdentifier(node.expression) ? node.expression.text : null;
@@ -1788,12 +1803,21 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       { file: 'src/components/items/I.tsx', source: 'export const i = (q: number) => Math.round(q);' },
       { file: 'src/components/items/J.tsx', source: 'export const j = (item: { reorder_point: string }) => +item.reorder_point;' },
       { file: 'src/components/items/K.tsx', source: 'export const k = (safetyStock: string) => -safetyStock;' },
+      // items-i1-red.md L-5: the widened tokens.
+      { file: 'src/lib/format/quantity.ts', source: 'export const t = (served: string) => String(Math.trunc(served as never));' },
+      { file: 'src/components/items/L.tsx', source: 'export const l = (q: string) => globalThis.Number(q);' },
+      { file: 'src/components/items/M.tsx', source: 'export const m = (q: string) => window.parseFloat(q);' },
+      { file: 'src/components/items/N.tsx', source: 'export const n = (q: string) => self.parseInt(q, 10);' },
+      { file: 'src/components/items/O.tsx', source: 'export const o = (q: string) => BigInt(q);' },
+      { file: 'src/components/items/P.tsx', source: 'export const p = (q: number) => Math.floor(q);' },
       { file: 'src/lib/format/quantity.ts', source: 'export const renderQuantity = (served: string) => String(Number(served));' },
       { file: 'src/components/items/Ok.tsx', source: "export const ok = (served: string, n: number) => served.slice(0, served.indexOf('.')) + String(n - 1);" },
     ];
     expect(quantityNumberViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
       'src/components/items/A.tsx — Number(',
       'src/components/items/B.tsx — Number(',
+      // `Number.parseFloat(…)` is now seen twice: as `Number.parse…` and as a call to a member named parseFloat (L-5).
+      'src/components/items/C.tsx — .parseFloat(',
       'src/components/items/C.tsx — Number.parse',
       'src/components/items/D.tsx — parseFloat(',
       'src/components/items/E.tsx — parseInt(',
@@ -1803,6 +1827,12 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       'src/components/items/I.tsx — Math.round',
       'src/components/items/J.tsx — unary + on reorder_point',
       'src/components/items/K.tsx — unary - on safetyStock',
+      'src/lib/format/quantity.ts — Math.trunc(',
+      'src/components/items/L.tsx — .Number(',
+      'src/components/items/M.tsx — .parseFloat(',
+      'src/components/items/N.tsx — .parseInt(',
+      'src/components/items/O.tsx — BigInt(',
+      'src/components/items/P.tsx — Math.floor(',
       'src/lib/format/quantity.ts — Number(',
     ]);
   });
