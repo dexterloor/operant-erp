@@ -1456,6 +1456,9 @@ describe('architecture — G-8: the session id reaches only the account-page rou
 //   is /sales-orders or below. Antecedent (b): CreateFulfilment or GetPickList is named in a file under src outside
 //   src/generated/. Either requires BOTH a page at exactly /sales-orders/[<one param>]/fulfil AND a use of GetPickList
 //   outside src/generated/. Keyed on the URL (fixed by IA N-8a and lib/navigation.ts), never on a guessed folder.
+// NOT YET PORTED: the backend's two BK-21 consequents (the spec carries ListPickQueueEntries; a page at exactly
+// /pick-queue names it). Until they are, those two are enforced only when this app reaches main. PICK_ROUTE_MESSAGE
+// below is the backend's message byte for byte (synced to 19f824e), so its BK-21 bullet is in the to-do list already.
 // Not checkable here, and said so: R1 (on-hand per bin, never an available figure) and B1N-12 (show the order's resulting
 // status after a CreateFulfilment 201). A stub page that names GetPickList satisfies the implication, and nothing here
 // stops that. Nor can the URL model see a page that serves /sales-orders through a dynamic first segment (`[x]`, `[...x]`,
@@ -1525,6 +1528,12 @@ const PICK_ROUTE_MESSAGE =
   "    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n" +
   '    TO CONFIRM FE-LEAD.\n' +
   '  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n' +
+  "  - The operator's way in (BK-21; D-5, N-7): a page at exactly /pick-queue (its own Sales nav item, gated\n" +
+  '    fulfilment.create) lists ListPickQueueEntries; a row opens the fulfil page only for a viewer who may open\n' +
+  '    it (GetPickList); the fulfil page gates on GetPickList; its back link goes first to where the person came\n' +
+  '    from (the queue, the order or the fulfilments list) if that page is built and they may still open it,\n' +
+  '    else three-way -- GetSalesOrder -> the order, else the queue operation -> the queue, else /fulfilments if\n' +
+  '    permitted, else none (D-5 as refined 2026-11-06, docs/session13/bk21-roles/f2-f7-recommendation.md).\n' +
   'Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n' +
   'shipped IN PART and must not be called discharged.';
 
