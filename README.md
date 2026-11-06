@@ -25,14 +25,12 @@ not a real inbox.
   does not.
 - **Most of the web app.** The `frontend/` directory holds the web application (Next.js, React and TypeScript), which
   calls the API through its own server rather than from the browser. Its built screens include signing in, forgotten
-  and reset passwords, changing a password, viewing users, removing and restoring them and setting their roles, and
-  editing and restoring roles. None of the business screens (stock, purchasing, sales, invoices and the rest) is built
-  yet, and this README does not yet explain how to run the web app.
-- **A way to create a workspace.** There is no supported way to create a workspace or its first owner, so a fresh
-  server has nobody who can sign in. The test suite creates its own workspaces. A local demo seed exists
-  (`backend/bin/demo-seed.php`: one workspace, its built-in roles and one owner), but it is set up for the author's
-  machine: apart from the test suite's own check, it runs only against a local database created as a demo database,
-  and `make demo-seed` refuses the default Docker context. It is not yet a documented step for a fresh clone.
+  and reset passwords, changing a password, viewing users, removing and restoring them and setting their roles,
+  editing and restoring roles, and warehouses and their storage locations. The other business screens (stock,
+  purchasing, sales, invoices and the rest) are not built yet, and this README does not yet explain how to run the web
+  app.
+- **A way to create a workspace.** There is no supported way to create a workspace or its first owner. For trying the
+  system locally there is a demo workspace; see "Try the demo" below. The test suite creates its own workspaces.
 - **CI and hosting.** There is no CI pipeline and no public deployment.
 
 **How the work was done.** Most features followed the same loop:
@@ -126,12 +124,13 @@ Every published port listens on `127.0.0.1` only.
 **1. Create the settings files.**
 
 ```sh
-make env    # copies .env.example, .env.infra.example, .env.test.example and .env.worker.example (not .env.demo.example)
+make env    # copies .env.example, .env.infra.example, .env.test.example, .env.worker.example and .env.demo.example
 ```
 
-The four files are split by who may read them. `.env.infra` is read only by Docker Compose and holds every
+The five files are split by who may read them. `.env.infra` is read only by Docker Compose and holds every
 password the database needs to set itself up. `.env` is read by the application. `.env.test` holds the schema
 owner's connection, used only by the test suite and migrations. `.env.worker` is read only by the mail worker.
+`.env.demo` holds the demo's password and is needed only for the demo (step 5).
 The web application refuses to serve requests if it can see the owner's or the worker's database login.
 
 **2. Replace every `CHANGE_ME_` placeholder.** Never commit the filled-in files; they are gitignored.
@@ -186,6 +185,24 @@ make worker-loop   # the same, restarted whenever it exits
 Mail the worker sends goes to Mailpit. Its inbox is at `http://127.0.0.1:58025` with the default ports. Invitation and
 password-reset links open `/reset-password` at the address in `APP_PUBLIC_URL` (`.env.worker`). That page is part of
 the web app, which this README does not yet explain how to run; set `APP_PUBLIC_URL` to wherever you run it.
+
+**5. Optional: try the demo.**
+
+The demo is local only. It uses the same database as the tests, so trying it replaces the test data, and going back to
+the tests replaces the demo.
+
+```sh
+# in .env.demo (make env created it) set DEMO_PASSWORD: 12 or more characters; the file is never committed
+# in .env.infra add or set the line DB_PURPOSE=demo, then:
+make reset         # the purpose takes effect only now: it is written into the new database once, when it is created
+make demo-seed     # one workspace "demo", its eight built-in roles and an owner, owner@example.com
+make serve         # in a second terminal: the API on http://127.0.0.1:8000
+```
+
+The owner signs in with the password from `.env.demo`; it is never printed. People and sample data are added in the
+app, as the owner. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
+refuses while `.env.infra` says `demo`, so the tests never wipe the demo by accident. To go back to the tests, set
+`DB_PURPOSE=gate` (or remove the line) and run `make reset`.
 
 ### Checks
 

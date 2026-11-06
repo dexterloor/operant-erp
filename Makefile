@@ -26,14 +26,16 @@ OWNER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.test"]}'
 # an operator inspects, never re-run automatically (mail-c0-red.md M-2).
 WORKER_RUNTIME = APP_RUNTIME_OPTIONS='{"dotenv_extra_paths":["../.env.worker"]}'
 
-.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed
+.PHONY: env up down reset migrate test tenancy deptrac verify worker worker-loop contracts demo-seed serve refuse-demo-database require-demo-database
 
-env:                ## create .env, .env.infra, .env.test and .env.worker from the templates (then fill in every CHANGE_ME)
+env:                ## create .env, .env.infra, .env.test, .env.worker and .env.demo from the templates (then fill in every CHANGE_ME)
 	@test -f .env || cp .env.example .env
 	@test -f .env.infra || cp .env.infra.example .env.infra
 	@test -f .env.test || cp .env.test.example .env.test
 	@test -f .env.worker || cp .env.worker.example .env.worker
+	@test -f .env.demo || cp .env.demo.example .env.demo
 	@for f in .env .env.infra .env.test .env.worker; do grep -q CHANGE_ME_ $$f && echo "  $$f still contains placeholders -- edit it before continuing" || true; done
+	@grep -q CHANGE_ME_ .env.demo && echo "  .env.demo still contains its placeholder -- only needed if you will run the demo" || true
 
 up:                 ## postgres + pgbouncer (pool_mode=transaction, default_pool_size=1) + the local mail catcher
 	$(COMPOSE) up -d
@@ -51,10 +53,10 @@ reset:              ## destroy the database volume and rebuild it from the roles
 migrate:            ## runs as the owner role; erp_app has no rights to migrate
 	cd backend && $(OWNER_RUNTIME) php bin/console doctrine:migrations:migrate --no-interaction
 
-test:
+test: refuse-demo-database
 	cd backend && php bin/phpunit
 
-tenancy:            ## just the isolation suite
+tenancy: refuse-demo-database  ## just the isolation suite
 	cd backend && php bin/phpunit --testsuite "Project Test Suite" --filter Tenancy
 
 # contracts/openapi.json and contracts/api-surface.json are what the web app builds from; ContractArtefactTest holds them
@@ -67,7 +69,7 @@ contracts:          ## regenerate contracts/*.json after an API change, then che
 deptrac:            ## ARCHITECTURE.md §5's module boundaries (also gated by DeptracRulesetTest in `make test`)
 	cd backend && php tools/deptrac/vendor/bin/deptrac analyse
 
-verify: up migrate test
+verify: refuse-demo-database up migrate test
 
 worker:             ## the mail worker: consumes `async` for an hour or 128 MB, then exits (Mail-C1 onward)
 	cd backend && $(WORKER_RUNTIME) php -d zend.exception_ignore_args=1 bin/console messenger:consume async --time-limit=3600 --memory-limit=128M
@@ -76,14 +78,37 @@ worker:             ## the mail worker: consumes `async` for an hour or 128 MB, 
 worker-loop:        ## `make worker`, restarted whenever it exits (Ctrl-C twice to stop)
 	@while true; do $(MAKE) worker; echo "worker exited ($$?); restarting in 5 s"; sleep 5; done
 
+# What the database is for (2a): the purpose compose writes as the database comment when the volume is created, read the
+# way compose reads it -- the environment's DB_PURPOSE when it is set (an empty value means gate), else the LAST
+# DB_PURPOSE= line of .env.infra (quotes stripped; an empty value means gate), else gate (`${DB_PURPOSE:-gate}` in
+# infra/docker-compose.yml; a shell variable beats --env-file). A value that is not ^[a-z][a-z0-9-]{0,30}$ is refused, as
+# infra/postgres/init/10-roles.sh refuses it. These are accident guards on a local file. The enforcement is on the server:
+# bin/demo-seed.php refuses a database whose comment is not erp-local-demo, and the suite refuses one whose comment is not
+# erp-local-gate. A changed purpose takes effect only at the next `make reset`, because the comment is written once.
+PURPOSE = if [ -n "$${DB_PURPOSE+set}" ]; then p="$$DB_PURPOSE"; \
+	elif [ -f .env.infra ]; then p="$$(sed -n 's/^DB_PURPOSE=//p' .env.infra | tail -n 1 | tr -d "\"' \t\r")"; else p=""; fi; \
+	p="$${p:-gate}"; \
+	if ! printf '%s' "$$p" | grep -Eq '^[a-z][a-z0-9-]{0,30}$$'; then echo "refused: DB_PURPOSE must be lower-case letters, digits and hyphens (^[a-z][a-z0-9-]{0,30}\$$)."; exit 2; fi
+
+refuse-demo-database:
+	@$(PURPOSE); if [ "$$p" = demo ]; then echo "refused: DB_PURPOSE says this is the demo database, and the tests would wipe it. Set DB_PURPOSE=gate in .env.infra (or remove the line), then make reset."; exit 2; fi
+
+require-demo-database:
+	@$(PURPOSE); if [ "$$p" != demo ]; then echo "refused: the demo commands run only on a demo database. Set DB_PURPOSE=demo in .env.infra, then make reset (this replaces the test data)."; exit 2; fi
+
+# The API on this machine only, through PHP's built-in server (one request at a time). It reads the root .env, as the
+# front controller does, and the serving guard refuses to start it if that environment can see an owner or worker login.
+API_PORT ?= 8000
+serve:              ## the API on http://127.0.0.1:$(API_PORT) (PHP's built-in server; Ctrl-C to stop)
+	cd backend && php -d zend.exception_ignore_args=1 -S 127.0.0.1:$(API_PORT) -t public public/index.php
+
 # The local demo workspace (W-3): its eight built-in roles and one owner (owner@example.com), written as the schema owner by
-# bin/demo-seed.php. It runs ONLY in the frontend worktree's demo database, never in the main one: that database must have
-# been created with DB_PURPOSE=demo in its .env.infra (`make reset` there), and the seeder refuses any other. The password
-# comes from DEMO_PASSWORD in the gitignored root .env.demo (template .env.demo.example), or from stdin with
-# SEED_ARGS=--password-stdin; it is never printed. A second run for the same WORKSPACE refuses (exit 3): reset to start again.
+# bin/demo-seed.php. It runs only on a demo database, one created with DB_PURPOSE=demo (see above); the seeder checks that on
+# the server too and refuses any other. The password comes from DEMO_PASSWORD in the gitignored root .env.demo (template
+# .env.demo.example), or from stdin with SEED_ARGS=--password-stdin; it is never printed. A second run for the same
+# WORKSPACE refuses (exit 3): reset to start again.
 WORKSPACE ?= demo
 SEED_ARGS ?=
-demo-seed:          ## seed the local demo workspace (frontend worktree only: DOCKER_CONTEXT=colima-erp2 make demo-seed)
-	@if [ "$(DOCKER_CONTEXT)" = "colima" ]; then echo "demo-seed runs only in the demo database: DOCKER_CONTEXT=colima-erp2 make demo-seed in the frontend worktree."; exit 2; fi
+demo-seed: require-demo-database  ## seed the local demo workspace (needs DB_PURPOSE=demo and a make reset)
 	@echo "demo-seed: target database port $$(grep -E '^POSTGRES_DIRECT_PORT=' .env.infra | cut -d= -f2) (DOCKER_CONTEXT=$(DOCKER_CONTEXT))"
 	cd backend && php bin/demo-seed.php --workspace=$(WORKSPACE) $(SEED_ARGS)
