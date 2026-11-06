@@ -203,6 +203,39 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
     expect(dialog()).toHaveTextContent('This needs the Delete and restore warehouses permission, which you no longer have. Your workspace administrator can grant it.');
   });
+
+  // Warehouse re-read RED L-1: the earlier re-read error is cleared by the Delete paths' commits too, not by Save alone.
+  const REREAD_FAILED = "We couldn't load this warehouse again, so what's shown may be out of date.";
+  const editable = () => renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+  const saveWithFailedReread = async (u: ReturnType<typeof userEvent.setup>) => {
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+  };
+
+  it('a 204 whose re-read succeeds clears an earlier re-read error; focus on the h1 (warehouse re-read RED L-1)', async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), empty(204), json(200, { ...ARCHIVED, name: 'Mainx' })]);
+    const u = userEvent.setup();
+    editable();
+    await saveWithFailedReread(u);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it("a refusal's Close re-read that succeeds clears an earlier re-read error (warehouse re-read RED L-1)", async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), refused('warehouse.is_archived', "This warehouse is already archived. It's in the archived warehouses."), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    editable();
+    await saveWithFailedReread(u);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+  });
 });
 
 function showSection(o: { w?: Warehouse; canDelete?: boolean } = {}) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ItemForm } from '@/components/items/ItemForm';
 import styles from '@/components/items/Items.module.css';
@@ -16,6 +16,7 @@ import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadItem } from '@/lib/items/load';
+import type { ItemChange } from '@/lib/items/results';
 import { itemRestore, itemSave } from '@/lib/items/wired';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
@@ -72,15 +73,21 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   }, []);
 
   // L-2: every read the page commits is newer than an earlier failed re-read, so committing one clears that error.
+  // A page-owned re-read (Retry) that a newer commit overtook says nothing about what is on screen: its answer, success
+  // or failure, is dropped (the warehouse RED M-2, applied here as its twin).
+  const commits = useRef(0);
   const commit = useCallback(
     async (i: Item) => {
+      commits.current += 1;
       setRereadError(null);
       await setItem(i);
     },
     [setItem],
   );
-  const save = useMemo(() => itemSave({ caller, id, setItem: commit, onRereadFailed: failed }), [caller, id, commit, failed]);
-  const restore = useMemo(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed }), [caller, id, commit, failed]);
+  // The wiring is built when an action runs, not during render: `commit` bumps the `commits` ref, which may only be
+  // touched outside render (react-hooks/refs).
+  const save = useCallback((changes: ItemChange) => itemSave({ caller, id, setItem: commit, onRereadFailed: failed })(changes), [caller, id, commit, failed]);
+  const restore = useCallback(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed })(), [caller, id, commit, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
   const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
@@ -98,12 +105,14 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
+    const seen = commits.current;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadItem(readOf(caller), id, d.signal);
     d.cancel();
     setRetrying(false);
+    if (commits.current !== seen) return;
     if (r.kind === 'ok') {
-      await setItem(r.item);
+      await commit(r.item);
       setRereadError(null);
       h1.current?.focus();
     } else failed(r.kind);

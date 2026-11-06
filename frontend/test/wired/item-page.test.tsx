@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -329,6 +329,40 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     await u.click(save());
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7'));
     await waitFor(() => expect(screen.queryByText("We couldn't load this item again, so what's shown may be out of date.")).toBeNull());
+  });
+
+  // The warehouse re-read RED M-2, applied to the item page as its twin: a Retry overtaken by a newer commit is dropped.
+  const staleRetry = async (release: () => Response) => {
+    let releaseHeld!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (releaseHeld = res));
+    stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(500, {}), () => held, json(200, { ...BOLT, name: 'Bolt M7' }), json(200, { ...BOLT, name: 'Bolt M7' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Bolt M7');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7'));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this item again, so what's shown may be out of date.")).toBeNull());
+    await act(async () => {
+      releaseHeld(release());
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  };
+
+  it('a stale Retry that fails after a successful save does not bring the error back (M-2 twin, E1)', async () => {
+    await staleRetry(() => json(500, {}));
+    expect(screen.queryByText("We couldn't load this item again, so what's shown may be out of date.")).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7');
+  });
+
+  it('a stale Retry that answers the old item after a save does not overwrite it (M-2 twin, E2)', async () => {
+    await staleRetry(() => json(200, { ...BOLT, name: 'Bolt M6' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7');
+    expect(field('Name')).toHaveValue('Bolt M7');
   });
 
   it('a refused Save whose re-read fails: UX-I2 under "Not saved" AND the region error (RED M-1 a)', async () => {

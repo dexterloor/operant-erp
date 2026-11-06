@@ -66,8 +66,8 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
 
 // Restore warehouse over the BFF (Revision 7 §2 step 4.2). `RestoreWarehouse` takes no body and no key; its 200 is the
 // restored warehouse. As Save, one deadline covers the request AND the GetWarehouse re-read, and the re-read warehouse is
-// passed to `setWarehouse`, so the page turns live without a remount. A refusal (W4, W5, P1) is returned as sent; no
-// refusal code is compared here or on the page.
+// passed to `setWarehouse`, so the page turns live without a remount. A refusal (W4, W5, P1) is returned as sent; a
+// re-read that fails after it is told to the page (`onRereadFailed`). No refusal code is compared here or on the page.
 export function warehouseRestore(w: WarehouseSaveWiring): RestoreWarehouseAction {
   return async () => {
     const deadline = startDeadline(ACTION_DEADLINES_MS.warehouseRestore);
@@ -83,6 +83,7 @@ export function warehouseRestore(w: WarehouseSaveWiring): RestoreWarehouseAction
               await w.setWarehouse(again.warehouse);
               return { kind: 'already-live', warehouse: again.warehouse, message: r.message };
             }
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
             return r;
           }
           case 'not-found':
