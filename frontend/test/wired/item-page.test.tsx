@@ -560,4 +560,37 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     expect(screen.queryByText(I2)).toBeNull();
     expect(within(document.body).queryByText('Not saved')).toBeNull();
   });
+
+  // The restore must FORGET the stale Save's sentence, not merely hide it while the page is live: here the page turns
+  // archived again by a path that sets no sentence of its own (P1 + an archived re-read, which returns `refused`, RED
+  // L-3), and the old UX-I2 sentence must not come back with it.
+  it('a restore forgets the stale Save refusal: when the page turns archived again by another path, the old "Not saved" does not return', async () => {
+    stubFetch([
+      refused('inventory_item.is_archived', I2),
+      json(200, ARCHIVED),
+      json(200, BOLT),
+      json(200, BOLT),
+      refused('transaction.contention', P1),
+      json(200, ARCHIVED),
+    ]);
+    const u = userEvent.setup();
+    show(BOLT, true, true);
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText(I2)).toBeInTheDocument();
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    await u.click(restore());
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was restored.'));
+    // Live: the banner and its sentence are gone.
+    expect(screen.queryByText(I2)).toBeNull();
+    expect(within(document.body).queryByText('Not saved')).toBeNull();
+    expect(screen.queryByText(/This item was archived on/)).toBeNull();
+    expect(field('Name')).toHaveValue('Bolt');
+    // Archived again, by P1 + an archived re-read: no sentence of its own, and the old one must not reappear.
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(/This item was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(I2)).toBeNull();
+    expect(within(document.body).queryByText('Not saved')).toBeNull();
+  });
 });

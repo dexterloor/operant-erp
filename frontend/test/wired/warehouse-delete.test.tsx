@@ -1,5 +1,5 @@
 import { StrictMode, type ReactElement } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -235,6 +235,41 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
     expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+  });
+
+  // The close re-read's stale guard (warehouse re-read RED M-2, X3): a Close re-read still waiting when a newer commit
+  // (a Save) lands is dropped, whether it answers the old warehouse or fails.
+  const overtakenClose = async (release: () => Response) => {
+    let releaseHeld!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (releaseHeld = res));
+    stubFetch([refused('warehouse.has_open_purchase_orders', W7), () => held, json(200, { ...MAIN, name: 'Mainy' }), json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    editable();
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    await u.clear(name);
+    await u.type(name, 'Mainy');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy'));
+    await act(async () => {
+      releaseHeld(release());
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  };
+
+  it('an overtaken Close re-read that answers the old warehouse is dropped: the saved name stays (X3)', async () => {
+    await overtakenClose(() => json(200, MAIN));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Mainy');
+  });
+
+  it('an overtaken Close re-read that fails is dropped: no region error over the saved warehouse (X3)', async () => {
+    await overtakenClose(() => json(503, {}));
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
   });
 });
 
