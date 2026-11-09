@@ -72,10 +72,14 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
     }
 
     /**
-     * The code is `W-` + eight hex digits of `md5(name.id)` — **letter-prefixed since warehouses slice 1 C1 (2026-10-13)**.
-     * It was the bare eight hex digits until then, and the id is random, so about one run in forty-three minted an all-digit
-     * code; from C1 `code` is on the wire (`GetWarehouse`, `ListWarehouses`) and `WireScaleTest` would read such a code as
-     * a decimal (CD-3) — a flaky red. `seedSupplier()`'s `S-` is the precedent.
+     * The code is `W-` + the row's own id, upper-cased with the dashes removed — **letter-prefixed since warehouses slice 1
+     * C1 (2026-10-13)**. It was the bare eight hex digits until then, and the id is random, so about one run in forty-three
+     * minted an all-digit code; from C1 `code` is on the wire (`GetWarehouse`, `ListWarehouses`) and `WireScaleTest` would
+     * read such a code as a decimal (CD-3) — a flaky red. `seedSupplier()`'s `S-` is the precedent.
+     *
+     * **Unique by construction since 2026-11-09.** Until then the suffix was eight hex digits of `md5(name.id)` — 32 random
+     * bits under `warehouse_tenant_code_live`, while one registry walker seeds 60–80 warehouses into one tenant, so a full
+     * run could fail by chance. The id is the primary key, so two live seeded codes can no longer collide.
      *
      * @return string the new row's id
      */
@@ -85,7 +89,7 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO warehouse (id, tenant_id, code, name, country_code)
             VALUES (?::uuid, ?::uuid, ?, ?, 'DE')
-            SQL, [$id, $tenantId, 'W-'.strtoupper(substr(md5($name.$id), 0, 8)), $name]);
+            SQL, [$id, $tenantId, 'W-'.strtoupper(str_replace('-', '', $id)), $name]);
 
         return $id;
     }
@@ -138,10 +142,14 @@ abstract class PurchaseOrderTestCase extends ApiTestCase
         // characters alone are all-digit with probability (10/16)^8, about 2.3% per customer, and from C1 `code` is on the
         // wire under `ListCustomers`, where `WireScaleTest` reads an all-digit string as a scale-0 decimal and goes red by
         // chance. `C-` makes that impossible rather than unlikely.
+        //
+        // The suffix is the row's own id (upper-cased, dashes removed) — unique by construction since 2026-11-09. It was eight
+        // hex digits of `md5(name.id)` until then: 32 random bits under `customer_tenant_code_live`, while one registry walker
+        // seeds 45–60 customers into one tenant, so a full run could fail by chance.
         $this->insertAsOwnerForTenant($tenantId, <<<'SQL'
             INSERT INTO customer (id, tenant_id, code, name, country_code, currency_code)
             VALUES (?::uuid, ?::uuid, ?, ?, ?, 'EUR')
-            SQL, [$id, $tenantId, 'C-'.strtoupper(substr(md5($name.$id), 0, 8)), $name, $countryCode]);
+            SQL, [$id, $tenantId, 'C-'.strtoupper(str_replace('-', '', $id)), $name, $countryCode]);
 
         return $id;
     }

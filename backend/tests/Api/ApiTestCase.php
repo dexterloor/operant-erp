@@ -342,10 +342,13 @@ abstract class ApiTestCase extends TenancyTestCase
             return $userId;
         }
 
+        // The name carries the role's whole id (dashes removed, so it never reads as an id) — unique by construction under
+        // `role_tenant_name_live`. Until 2026-11-09 it carried the first eight hex digits only: 32 random bits, while a
+        // registry walker seeds up to ~265 fixture roles into one tenant, and a full-suite gate failed on a clash once.
         $roleId = Uuid::v4()->toRfc4122();
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO role (id, tenant_id, name) VALUES (?::uuid, ?::uuid, ?)',
-            [$roleId, $tenantId, 'Fixture Role '.substr($roleId, 0, 8)]);
+            [$roleId, $tenantId, 'Fixture Role '.str_replace('-', '', $roleId)]);
         $this->insertAsOwnerForTenant($tenantId,
             'INSERT INTO user_role (id, tenant_id, user_id, role_id) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)',
             [Uuid::v4()->toRfc4122(), $tenantId, $userId, $roleId]);
