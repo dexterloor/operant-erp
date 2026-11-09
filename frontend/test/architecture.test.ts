@@ -1473,15 +1473,22 @@ describe('architecture — G-8: the session id reaches only the account-page rou
 // V2-S-1b clause 5's FRONTEND half and B1N-12's screen (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on
 // 2026-11-03, docs/design/fe-merge-r8-ruling.md, to-do 2; docs/design/frontend-residuals.md FE-R2). The backend check runs
 // only when this app reaches main; this twin runs on every frontend gate, so the trigger fires on the commit that crosses
-// it. Same antecedents and the first two consequents, ported line for line (keep the two in step — a change to one is a
+// it. Same antecedents and the same four consequents, ported line for line (keep the two in step — a change to one is a
 // change to both):
 //   every page.{tsx,ts,jsx,js} under src/app gets the URL Next.js serves a static-segment page at (pageUrl). Antecedent (a): some page's URL
 //   is /sales-orders or below. Antecedent (b): CreateFulfilment or GetPickList is named in a file under src outside
-//   src/generated/. Either requires BOTH a page at exactly /sales-orders/[<one param>]/fulfil AND a use of GetPickList
-//   outside src/generated/. Keyed on the URL (fixed by IA N-8a and lib/navigation.ts), never on a guessed folder.
-// NOT YET PORTED: the backend's two BK-21 consequents (the spec carries ListPickQueueEntries; a page at exactly
-// /pick-queue names it). Until they are, those two are enforced only when this app reaches main. PICK_ROUTE_MESSAGE
-// below is the backend's message byte for byte (synced to 19f824e), so its BK-21 bullet is in the to-do list already.
+//   src/generated/. Either requires ALL of: a page at exactly /sales-orders/[<one param>]/fulfil; a use of GetPickList
+//   outside src/generated/; and the operator's way in (BK-21; owner D-5 of 2026-11-03): (i) the spec carries
+//   ListPickQueueEntries, keyed on the operationId, never on a path (`1076ba3`), and (ii) a page served at exactly
+//   /pick-queue whose OWN page file (source key `app/<page>`) names that operation. Keyed on the URL (fixed by IA N-8a,
+//   lib/navigation.ts and, for the queue, final review M-3), never on a guessed folder. If UX moves the queue URL, one
+//   frontend commit plus its merge moves the constant here, the backend's, the IA.md §5.6 rows and both planted tables.
+//   One stated difference: the backend reads the spec it regenerates; this twin reads the committed contract
+//   ../contracts/openapi.json (as the G-47 twin does; `npm run surface -- --check` ties src/generated/ to that file).
+//   Both BK-21 consequents are vacuous on the real tree until the screen's commit, as in the backend: the queue and the
+//   screen come due together. A stub queue page that merely names the operation satisfies (ii) — the same residual the
+//   GetPickList consequent carries; the screen commit's hand check covers it. PICK_ROUTE_MESSAGE below is the backend's
+//   message byte for byte (synced to 19f824e; sha-checked again when the BK-21 consequents were ported).
 // Not checkable here, and said so: R1 (on-hand per bin, never an available figure) and B1N-12 (show the order's resulting
 // status after a CreateFulfilment 201). A stub page that names GetPickList satisfies the implication, and nothing here
 // stops that. Nor can the URL model see a page that serves /sales-orders through a dynamic first segment (`[x]`, `[...x]`,
@@ -1497,6 +1504,11 @@ const PAGE_FILES = ['page.tsx', 'page.ts', 'page.jsx', 'page.js'];
 const PICK_OPERATION_TOKEN = /\b(?:CreateFulfilment|GetPickList)\b/;
 /** Exactly one single-segment dynamic parameter, then `fulfil`: no catch-all, no optional catch-all. */
 const PICK_ROUTE_URL = /^\/sales-orders\/\[[A-Za-z][A-Za-z0-9]*\]\/fulfil$/;
+/** BK-21: the queue's operationId (consequent (i)) and the token its page names (consequent (ii)). */
+const QUEUE_OPERATION_ID = 'ListPickQueueEntries';
+/** BK-21: the queue page's one exact URL (final review M-3: binding unless UX writes another before the commit). */
+const QUEUE_PAGE_URL = '/pick-queue';
+const QUEUE_OPERATION_TOKEN = new RegExp(`\\b${QUEUE_OPERATION_ID}\\b`);
 const ROUTE_GROUP = /^\((?!\.)[^()]+\)$/;
 
 /**
@@ -1526,7 +1538,8 @@ function pickRouteIsDue(pages: readonly string[], sources: Readonly<Record<strin
   return Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
 }
 
-function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<string, string>>): string[] {
+/** As pickRouteIsDue; `specOperationIds`: the contract's operationIds (BK-21 consequent (i)). */
+function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<string, string>>, specOperationIds: readonly string[]): string[] {
   if (!pickRouteIsDue(pages, sources)) return [];
   const defects: string[] = [];
   if (!pages.some((page) => PICK_ROUTE_URL.test(pageUrl(page) ?? ''))) {
@@ -1535,8 +1548,33 @@ function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<str
   if (!Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && /\bGetPickList\b/.test(text))) {
     defects.push('no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)');
   }
+  // BK-21 consequent (i): the operator's way in exists in the spec.
+  if (!specOperationIds.includes(QUEUE_OPERATION_ID)) {
+    defects.push(`the generated spec does not contain ${QUEUE_OPERATION_ID}`);
+  }
+  // BK-21 consequent (ii): a page at exactly the queue URL whose own page file names the operation.
+  if (!pages.some((page) => pageUrl(page) === QUEUE_PAGE_URL && QUEUE_OPERATION_TOKEN.test(sources[`app/${page}`] ?? ''))) {
+    defects.push(`no page served at exactly ${QUEUE_PAGE_URL} names ${QUEUE_OPERATION_ID}`);
+  }
   return defects;
 }
+
+/** Every operationId in an OpenAPI document (the backend's builtOperationIds(), over the committed contract). */
+function specOperationIdsOf(spec: Json): string[] {
+  const ids: string[] = [];
+  for (const item of Object.values(asObject(spec.paths))) {
+    for (const [method, operation] of Object.entries(asObject(item))) {
+      if (['parameters', 'summary', 'description', 'servers', '$ref'].includes(method)) continue;
+      const id = asObject(operation).operationId;
+      if (typeof id === 'string' && id !== '') ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** Relative to `frontend/`: the committed contract the BK-21 consequent (i) reads. */
+const CONTRACT_FILE = '../contracts/openapi.json';
+const realSpecOperationIds = (): string[] => specOperationIdsOf(asObject(JSON.parse(readFileSync(path.join(ROOT, CONTRACT_FILE), 'utf8'))));
 
 const PICK_ROUTE_MESSAGE =
   "V2-S-1b clause 5's FRONTEND half is owed (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on\n" +
@@ -1948,11 +1986,18 @@ describe('architecture — guard enrolment is complete (items-red.md M-2, items 
 describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
   it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {
     const uses = { 'lib/api/pick.ts': "viewerMay('GetPickList')" };
-    const planted: [string, string[], Record<string, string>, boolean][] = [
+    // BK-21: every tree states its spec set (default: with the queue); a due tree that passes also carries the queue
+    // page, its source keyed `app/<page>` as realSources() keys it.
+    const withQueue = [QUEUE_OPERATION_ID, 'GetPickList', 'CreateFulfilment'];
+    const withoutQueue = ['GetPickList', 'CreateFulfilment'];
+    const queuePage = '(app)/pick-queue/page.tsx';
+    const queueUses = { ...uses, [`app/${queuePage}`]: `viewerMay('${QUEUE_OPERATION_ID}')` };
+    const due = ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'];
+    const planted: [string, string[], Record<string, string>, boolean, string[]?][] = [
       ['a sales-orders list alone', ['(app)/sales-orders/page.tsx'], uses, false],
-      ['the list and the fulfil page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], uses, true],
-      ['the fulfil page under a nested group', ['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx'], uses, true],
-      ['the fulfil page under a parallel slot', ['(app)/sales-orders/[id]/@panel/fulfil/page.tsx'], uses, true],
+      ['the list and the fulfil page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx', queuePage], queueUses, true],
+      ['the fulfil page under a nested group', ['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx', queuePage], queueUses, true],
+      ['the fulfil page under a parallel slot', ['(app)/sales-orders/[id]/@panel/fulfil/page.tsx', queuePage], queueUses, true],
       ['a component preview of the fulfil page', ['(dev)/component-preview/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], uses, false],
       ['a catch-all under sales-orders', ['(app)/sales-orders/[...rest]/page.tsx'], uses, false],
       ['an optional catch-all as the param', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[[...id]]/fulfil/page.tsx'], uses, false],
@@ -1973,12 +2018,36 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
       ['GetPickList named only in generated code does not satisfy the screen', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], { 'generated/api-surface.server.ts': 'GetPickList' }, false],
       ['a sales-orders page in a private folder is not routable', ['(app)/_wip/sales-orders/page.tsx'], {}, true],
       ['a private folder below sales-orders is not routable', ['(app)/sales-orders/_wip/page.tsx'], {}, true],
+      // BK-21's two consequents (design R4; final review M-3), mirrored from the backend's planted set, same names and
+      // verdicts. Each row below is due unless it says otherwise.
+      ['the queue page names the queue operation', [...due, queuePage], queueUses, true, withQueue],
+      ['the queue operation named only on the fulfilments page', [...due, '(app)/fulfilments/page.tsx'], { ...uses, 'app/(app)/fulfilments/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page at the wrong URL', [...due, '(app)/admin/pick-queue/page.tsx'], { ...uses, 'app/(app)/admin/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page source keyed without app/', [...due, queuePage], { ...uses, [queuePage]: QUEUE_OPERATION_ID }, false, withQueue],
+      ['the spec without the queue operation', [...due, queuePage], queueUses, false, withoutQueue],
+      ['no queue page', due, uses, false, withQueue],
+      ['the queue operation only in generated code', [...due, queuePage], { ...uses, 'generated/api-surface.server.ts': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue operation only in a component', [...due, queuePage], { ...uses, 'components/PickQueue.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page in a private folder', [...due, '(app)/_wip/pick-queue/page.tsx'], { ...uses, 'app/(app)/_wip/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page in a component preview', [...due, '(dev)/component-preview/pick-queue/page.tsx'], { ...uses, 'app/(dev)/component-preview/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page under a route group', [...due, '(app)/(ops)/pick-queue/page.tsx'], { ...uses, 'app/(app)/(ops)/pick-queue/page.tsx': QUEUE_OPERATION_ID }, true, withQueue],
+      ['not due, no queue page, spec without the queue operation', ['(app)/admin/users/page.tsx'], {}, true, withoutQueue],
+      // Twin-only so far (owed to the backend's planted set): "exactly /pick-queue" refuses a page below it.
+      ['the queue page one level too deep', [...due, '(app)/pick-queue/x/page.tsx'], { ...uses, 'app/(app)/pick-queue/x/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
     ];
-    const verdicts = planted.map(([name, pages, sources]) => [name, pickRouteDefects(pages, sources).length === 0]);
+    const verdicts = planted.map(([name, pages, sources, , spec]) => [name, pickRouteDefects(pages, sources, spec ?? withQueue).length === 0]);
     expect(verdicts).toEqual(planted.map(([name, , , passes]) => [name, passes]));
-    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {})).toEqual([
+    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {}, withQueue)).toEqual([
       'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil',
       'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)',
+      'no page served at exactly /pick-queue names ListPickQueueEntries',
+    ]);
+    // The backend's defect texts, all four in its order.
+    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {}, withoutQueue)).toEqual([
+      'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil',
+      'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)',
+      'the generated spec does not contain ListPickQueueEntries',
+      'no page served at exactly /pick-queue names ListPickQueueEntries',
     ]);
   });
 
@@ -1993,10 +2062,17 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 
     const generatedNamesIt = Object.entries(realSources()).filter(([file, text]) => file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
     expect(generatedNamesIt.length, 'Positive control: src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves nothing about where the boundary is. Re-derive the token or the folder.').toBeGreaterThan(0);
+
+    // BK-21 real-tree controls (design R4, L-5): the source map keys a page file as `app/<page>`, so consequent (ii)'s
+    // lookup has a real subject; and the contract read for consequent (i) really yields the spec's operationIds.
+    expect(realPages(), 'Real-tree control: the known page (app)/page.tsx is gone; pick another.').toContain('(app)/page.tsx');
+    expect(Object.keys(realSources()), 'Real-tree control: realSources() no longer keys page sources as app/<page>, so consequent (ii) reads nothing.').toContain('app/(app)/page.tsx');
+    expect(existsSync(path.join(ROOT, CONTRACT_FILE)), `Positive control: ${CONTRACT_FILE} is not where consequent (i) looks, so it reads nothing.`).toBe(true);
+    expect(realSpecOperationIds(), `Positive control: the operationIds read from ${CONTRACT_FILE} no longer include GetPickList, so consequent (i) reads the wrong list or none.`).toContain('GetPickList');
   });
 
   it('the real tree: a /sales-orders page or a pick operation brings the pick screen with it', () => {
-    const defects = pickRouteDefects(realPages(), realSources());
+    const defects = pickRouteDefects(realPages(), realSources(), realSpecOperationIds());
     expect(defects, `  ${defects.join('\n  ')}\n\n${PICK_ROUTE_MESSAGE}`).toEqual([]);
   });
 
