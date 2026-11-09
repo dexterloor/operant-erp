@@ -354,14 +354,49 @@ abstract class TenancyTestCase extends KernelTestCase
     /**
      * TRUNCATE, not DELETE. As the owner under FORCE ROW LEVEL SECURITY a DELETE
      * would itself be filtered by the policy and quietly remove nothing.
+     *
+     * **It refuses first unless this is the suite's own database** (2a C2, `demo-seed-2a-design.md` Revision 1 D-6): the
+     * database's comment must be `erp-local-gate`, written by `infra/postgres/init/10-roles.sh` from `DB_PURPOSE` when the
+     * volume was created. A local demo database (`erp-local-demo`), a volume created before that script wrote a comment, or
+     * any other database is refused before a single row is removed, whichever way the suite was started (`make test` has
+     * its own friendlier guard; `bin/phpunit` does not pass through it). Fail-closed; checked once per process.
+     * `SuiteDatabasePurposeTest` holds both the decision and the order (the check comes before the TRUNCATE).
      */
     protected function truncateTenantTables(): void
     {
+        self::refuseUnlessTheSuitesDatabase($this->owner());
+
         // Derived from the manifest rather than listed: a new tenant-scoped
         // table that is not truncated leaves rows behind, and the failure shows
         // up two tests later as an unrelated uniqueness violation.
         $tables = implode(', ', SchemaManifest::tenantScopedTables());
         $this->owner()->executeStatement("TRUNCATE $tables RESTART IDENTITY CASCADE");
+    }
+
+    /** The comment `infra/postgres/init/10-roles.sh` writes for `DB_PURPOSE=gate`. */
+    public const SUITE_DATABASE_COMMENT = 'erp-local-gate';
+
+    public const NOT_THE_SUITES_DATABASE = 'this is not the suite\'s database (its comment is not erp-local-gate); make reset with DB_PURPOSE unset or gate';
+
+    private static bool $suiteDatabaseConfirmed = false;
+
+    /** The decision, pure: null for the suite's database, the refusal for anything else (a missing comment included). */
+    public static function refusalForComment(?string $comment): ?string
+    {
+        return self::SUITE_DATABASE_COMMENT === $comment ? null : self::NOT_THE_SUITES_DATABASE;
+    }
+
+    private static function refuseUnlessTheSuitesDatabase(Connection $owner): void
+    {
+        if (self::$suiteDatabaseConfirmed) {
+            return;
+        }
+        $comment = $owner->fetchOne("SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database()");
+        $refusal = self::refusalForComment(\is_string($comment) ? $comment : null);
+        if (null !== $refusal) {
+            self::fail($refusal);
+        }
+        self::$suiteDatabaseConfirmed = true;
     }
 
     /**

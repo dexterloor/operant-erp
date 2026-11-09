@@ -25,14 +25,12 @@ not a real inbox.
   does not.
 - **Most of the web app.** The `frontend/` directory holds the web application (Next.js, React and TypeScript), which
   calls the API through its own server rather than from the browser. Its built screens include signing in, forgotten
-  and reset passwords, changing a password, viewing users, removing and restoring them and setting their roles, and
-  editing and restoring roles. None of the business screens (stock, purchasing, sales, invoices and the rest) is built
-  yet, and this README does not yet explain how to run the web app.
-- **A way to create a workspace.** There is no supported way to create a workspace or its first owner, so a fresh
-  server has nobody who can sign in. The test suite creates its own workspaces. A local demo seed exists
-  (`backend/bin/demo-seed.php`: one workspace, its built-in roles and one owner), but it is set up for the author's
-  machine: apart from the test suite's own check, it runs only against a local database created as a demo database,
-  and `make demo-seed` refuses the default Docker context. It is not yet a documented step for a fresh clone.
+  and reset passwords, changing a password, viewing users, removing and restoring them and setting their roles,
+  editing and restoring roles, and warehouses and their storage locations. The other business screens (stock,
+  purchasing, sales, invoices and the rest) are not built yet, and this README does not yet explain how to run the web
+  app.
+- **A way to create a workspace.** There is no supported way to create a workspace or its first owner. For trying the
+  system locally there is a demo workspace; see "Try the demo" below. The test suite creates its own workspaces.
 - **CI and hosting.** There is no CI pipeline and no public deployment.
 
 **How the work was done.** Most features followed the same loop:
@@ -121,18 +119,18 @@ code yet.
 The `Makefile` uses the Docker context `colima`. If yours differs, run `docker context ls` and pass it on
 every command, for example `make DOCKER_CONTEXT=default up`.
 
-Redis and Mailpit listen on `127.0.0.1` only. The Postgres and PgBouncer ports are published on all network
-interfaces, so run the stack on a network you trust.
+Every published port listens on `127.0.0.1` only.
 
 **1. Create the settings files.**
 
 ```sh
-make env    # copies .env.example, .env.infra.example, .env.test.example and .env.worker.example (not .env.demo.example)
+make env    # copies .env.example, .env.infra.example, .env.test.example, .env.worker.example and .env.demo.example
 ```
 
-The four files are split by who may read them. `.env.infra` is read only by Docker Compose and holds every
+The five files are split by who may read them. `.env.infra` is read only by Docker Compose and holds every
 password the database needs to set itself up. `.env` is read by the application. `.env.test` holds the schema
 owner's connection, used only by the test suite and migrations. `.env.worker` is read only by the mail worker.
+`.env.demo` holds the demo's password and is needed only for the demo (step 5).
 The web application refuses to serve requests if it can see the owner's or the worker's database login.
 
 **2. Replace every `CHANGE_ME_` placeholder.** Never commit the filled-in files; they are gitignored.
@@ -187,6 +185,44 @@ make worker-loop   # the same, restarted whenever it exits
 Mail the worker sends goes to Mailpit. Its inbox is at `http://127.0.0.1:58025` with the default ports. Invitation and
 password-reset links open `/reset-password` at the address in `APP_PUBLIC_URL` (`.env.worker`). That page is part of
 the web app, which this README does not yet explain how to run; set `APP_PUBLIC_URL` to wherever you run it.
+
+**5. Optional: try the demo.**
+
+The demo is local only. It uses the same database as the tests, so trying it replaces the test data, and going back to
+the tests replaces the demo.
+
+```sh
+# in .env.demo (make env created it) set DEMO_PASSWORD: 12 or more characters; the file is never committed
+# in .env.infra add or set the line DB_PURPOSE=demo, then:
+make reset         # the purpose takes effect only now: it is written into the new database once, when it is created
+make demo-seed     # one workspace "demo", its eight built-in roles and an owner, owner@example.com
+make serve         # in a second terminal: the API on http://127.0.0.1:8000
+make worker-loop   # in a third terminal: sends the invitation emails to Mailpit
+make demo-populate # seven more people and some business data, made through the API
+make demo-walkthrough                       # one line per step, including the refusals
+make demo-seed WORKSPACE=demo-b             # optional: a second workspace, for the isolation step below
+make demo-walkthrough DEMO_ARGS=--isolation # the same walk, ending with a read across workspaces that the database refuses
+```
+
+Every demo person signs in with the password from `.env.demo`; it is never printed. `make demo-populate` adds the
+people through the API the way a new colleague is added (an invitation email, then a password), reading the
+invitations from Mailpit itself, then gives them their roles and fills the workspace with warehouses, items,
+suppliers, customers, purchase and sales orders and a paid invoice, each made by the person whose job it is. It runs
+once per seeded workspace. Vic's pending Finance role proposal lapses after 14 days, so an older demo shows it as
+expired.
+
+`make demo-walkthrough` signs the people in and prints one line per step: a purchase order raised by the buyer,
+approved by the purchasing manager and received by the warehouse operator; a sale confirmed, shipped, invoiced and
+paid. Between them come the refusals, each checked for its exact answer: a viewer cannot raise an order, a buyer cannot
+approve one, nor can the person who raised it, an admin cannot give someone two jobs that must stay apart nor hand out a
+role that needs the owner, sales cannot record a payment, and nobody can ship more stock than a location holds. It can be
+run again; each run adds documents, and the stock in location A-01 grows by 6.
+
+Every sign-in comes from 127.0.0.1, so the demo's people share one sign-in budget: about 100 attempts per 15 minutes for
+the workspace, roughly a dozen walkthroughs. If `DEMO_PASSWORD` is wrong, the script stops at the first refused sign-in.
+After ten wrong attempts, that person cannot sign in for 15 minutes. The demo commands refuse unless the database was created with `DB_PURPOSE=demo`, and `make test`
+refuses while `.env.infra` says `demo`, so the tests never wipe the demo by accident. To go back to the tests, set
+`DB_PURPOSE=gate` (or remove the line) and run `make reset`.
 
 ### Checks
 

@@ -41,6 +41,16 @@ use PHPUnit\Framework\TestCase;
  *    connections — must also carry no `'DATABASE_URL'` string literal, the owner's key.
  * 6. Every allowlist entry must still match its rule (a stale entry fails), and each rule must find its known files, so an
  *    empty domain or a detector that matches nothing is red rather than green.
+ * 7. **Dotenv-only files** (2a C3; `demo-seed-2a-roles.md` S-7 + A-2, `demo-seed-2a-roles-red.md` M-4). A file in
+ *    DOTENV_ONLY_FILES names `Dotenv` only to PARSE a dotenv file into a variable, and opens nothing. Rule 5's exact match
+ *    runs over the union of both lists. Each DOTENV_ONLY_FILES member — and only those — must also: (i) call no Dotenv
+ *    method but `parse` (no `bootEnv`, `loadEnv`, `load`, `overload`, `populate`) and no `putenv`, which would put values
+ *    into the environment the serving guard and child processes read; (ii) carry no string literal containing
+ *    `DATABASE_URL` (this catches `APP_DATABASE_URL` and `APP_DIRECT_DATABASE_URL`, which rule 5's exact match does not);
+ *    (iii) carry no literal `.env.test` or `.env.worker`; (iv) name no `App\` symbol (a client of the API, not part of
+ *    the application; deptrac does not scan `bin/`); (v) open no connection (`new PDO`, `pg_connect`, `DriverManager`).
+ *    Planted controls go through the same decision, including `tests/bootstrap.php`'s `bootEnv`, which must be refused
+ *    if that file were ever listed here.
  *
  * **Draft correction (logged in `docs/session10/progress-B2.md`):** the draft's direct-connection list named exactly
  * `tests/bootstrap.php` and `bin/assert-clean-database.php`. `DriverManager` was added to the token list by RED's re-attack
@@ -71,6 +81,11 @@ final class EntryPointScanTest extends TestCase
         'tests/Tenancy/PoolConfigurationTest.php' => 'reads PgBouncer\'s SHOW CONFIG over PDO as `erp_app` (APP_DATABASE_URL).',
         'tests/Tenancy/support/hold_transaction.php' => 'a proc_open child of PooledConnectionTest holding an `erp_app` transaction (APP_DATABASE_URL).',
         'tests/Api/support/hold_order_lock.php' => 'a proc_open child of PurchaseOrderRowLockTest holding an `erp_app` row lock (APP_DIRECT_DATABASE_URL).',
+    ];
+
+    /** @var array<string, string> path => reason (rule 7: names Dotenv to parse a file into a variable; opens nothing) */
+    private const DOTENV_ONLY_FILES = [
+        'bin/demo-walkthrough.php' => '`make demo-populate` / `make demo-walkthrough` (2a): parses `.env.demo` for DEMO_PASSWORD with `Dotenv::parse()` into a variable; talks only HTTP to a loopback API; opens no database connection.',
     ];
 
     /** Files in DIRECT_CONNECTION_FILES that may name the owner's key. */
@@ -128,7 +143,7 @@ final class EntryPointScanTest extends TestCase
     #[Test]
     public function onlyTheListedFilesOpenAConnectionOrLoadADotenvFileDirectly(): void
     {
-        $this->assertRuleMatchesExactly(array_keys(self::DIRECT_CONNECTION_FILES), static fn (array $tokens): bool => self::opensADirectConnection($tokens), 'direct connection');
+        $this->assertRuleMatchesExactly([...array_keys(self::DIRECT_CONNECTION_FILES), ...array_keys(self::DOTENV_ONLY_FILES)], static fn (array $tokens): bool => self::opensADirectConnection($tokens), 'direct connection or dotenv');
 
         foreach (array_diff(array_keys(self::DIRECT_CONNECTION_FILES), self::OWNER_KEY_FILES) as $path) {
             foreach (self::tokens(self::phpFiles()[$path]) as $token) {
@@ -137,6 +152,40 @@ final class EntryPointScanTest extends TestCase
                     $path.' opens a direct connection and names the owner\'s key; only '.implode(', ', self::OWNER_KEY_FILES).' may',
                 );
             }
+        }
+    }
+
+    /** Rule 7, over the listed dotenv-only files only, with planted controls through the same decision. */
+    #[Test]
+    public function theDotenvOnlyFilesParseIntoAVariableAndOpenNothing(): void
+    {
+        self::assertNotSame([], self::DOTENV_ONLY_FILES);
+        foreach (array_keys(self::DOTENV_ONLY_FILES) as $path) {
+            self::assertArrayHasKey($path, self::phpFiles(), 'A dotenv-only entry names no file: '.$path);
+            self::assertSame([], self::dotenvOnlyFindings(self::tokens(self::phpFiles()[$path])), $path.' breaks rule 7.');
+        }
+
+        $dotenv = 'Dot'.'env';
+        $good = '<?php namespace X; use Symfony\\Component\\'.$dotenv.'\\'.$dotenv.'; $p = (new '.$dotenv.'())->parse(file_get_contents($f), $f)[\'DEMO_PASSWORD\'] ?? \'\';';
+        self::assertSame([], self::dotenvOnlyFindings(self::tokensOf($good)), 'The planted good file was refused.');
+        foreach ([
+            'bootEnv' => '(new '.$dotenv.'())->boot'.'Env($f);',
+            'loadEnv' => '(new '.$dotenv.'())->load'.'Env($f);',
+            'load' => '(new '.$dotenv.'())->load($f);',
+            'overload' => '(new '.$dotenv.'())->overload($f);',
+            'populate' => '(new '.$dotenv.'())->populate([]);',
+            'putenv' => 'put'.'env(\'A=b\');',
+            'DATABASE_URL' => '$k = \'DATABASE'.'_URL\';',
+            'APP_DATABASE_URL' => '$k = "APP_DATABASE'.'_URL";',
+            '.env.test' => '$f = \'/.env'.'.test\';',
+            '.env.worker' => '$f = "/.env'.'.worker";',
+            'App symbol' => '$x = new \\App'.'\\Widget();',
+            'App import' => 'use App'.'\\Modules\\X;',
+            'new PDO' => '$c = new \\PD'.'O(\'x\');',
+            'pg connect' => '$c = pg_'.'connect(\'x\');',
+            'driver manager' => '$c = \\Doctrine\\DBAL\\Driver'.'Manager::getConnection([]);',
+        ] as $label => $statement) {
+            self::assertNotSame([], self::dotenvOnlyFindings(self::tokensOf($good.' '.$statement)), 'Rule 7 did not refuse: '.$label);
         }
     }
 
@@ -246,6 +295,61 @@ final class EntryPointScanTest extends TestCase
         }
 
         return false;
+    }
+
+    /**
+     * Rule 7's findings for one file's tokens (empty = the file keeps to it).
+     *
+     * @param list<\PhpToken> $tokens
+     *
+     * @return list<string>
+     */
+    private static function dotenvOnlyFindings(array $tokens): array
+    {
+        $findings = [];
+        $forbiddenCalls = ['boot'.'Env', 'load'.'Env', 'load', 'overload', 'populate'];
+        foreach ($tokens as $i => $token) {
+            $previous = $tokens[$i - 1] ?? null;
+            if ($token->is(\T_STRING) && ($previous?->is([\T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR, \T_DOUBLE_COLON]) ?? false) && \in_array($token->text, $forbiddenCalls, true)) {
+                $findings[] = 'calls '.$token->text.'()';
+            }
+            if ($token->is([\T_STRING, \T_NAME_FULLY_QUALIFIED]) && 'put'.'env' === ltrim($token->text, '\\')) {
+                $findings[] = 'calls put'.'env()';
+            }
+            if (self::isStringLiteral($token)) {
+                if (str_contains($token->text, 'DATABASE'.'_URL')) {
+                    $findings[] = 'names a DATABASE'.'_URL key';
+                }
+                foreach (['.env'.'.test', '.env'.'.worker'] as $file) {
+                    if (str_contains($token->text, $file)) {
+                        $findings[] = 'names '.$file;
+                    }
+                }
+                if (str_contains(str_replace('\\\\', '\\', $token->text), 'App'.'\\')) {
+                    $findings[] = 'names an App'.'\\ symbol in a string';
+                }
+            }
+            if ($token->is([\T_NAME_QUALIFIED, \T_NAME_FULLY_QUALIFIED]) && str_starts_with(ltrim($token->text, '\\'), 'App'.'\\')) {
+                $findings[] = 'names the App'.'\\ symbol '.$token->text;
+            }
+            if ($token->is(\T_NAMESPACE) && ('App' === ($tokens[$i + 1] ?? null)?->text || str_starts_with((string) ($tokens[$i + 1] ?? null)?->text, 'App'.'\\'))) {
+                $findings[] = 'declares the App'.'\\ namespace';
+            }
+            if ($token->is(\T_NEW) && 'PD'.'O' === self::lastSegment($tokens[$i + 1] ?? null)) {
+                $findings[] = 'opens PDO';
+            }
+            if (\in_array($token->text, ['pg_'.'connect', 'pg_'.'pconnect'], true) || 'Driver'.'Manager' === self::lastSegment($token)) {
+                $findings[] = 'opens a connection ('.$token->text.')';
+            }
+        }
+
+        return $findings;
+    }
+
+    /** @return list<\PhpToken> */
+    private static function tokensOf(string $source): array
+    {
+        return array_values(array_filter(\PhpToken::tokenize($source), static fn (\PhpToken $token): bool => !$token->is([\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT])));
     }
 
     private static function lastSegment(?\PhpToken $token): ?string

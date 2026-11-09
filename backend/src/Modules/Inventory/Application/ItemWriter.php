@@ -184,15 +184,23 @@ final readonly class ItemWriter
      * Since G5-C2a (RED `g5-c2a-red.md` M-1, a shipped defect of N-8's shape): {@see self::EDIT_LOCK} before the archived
      * check, and the UPDATE carries `AND deleted_at IS NULL` with a row-count check, so an edit racing a delete waits and is
      * refused as archived instead of landing on the archived row (ST-9).
+     *
+     * Since items batch C1 (BK-25, 2026-11-06): `inventory_item.updated` with the changed fields' old and new **values**,
+     * after the UPDATE, in its transaction. The diff is {@see self::servedValues()} of the row read before the UPDATE and of
+     * the row read back after it — both under {@see self::EDIT_LOCK} — never the submitted strings: `"10"` sent for a stored
+     * `10.000000` is no change, and the served form is canonical (scale 6, the supplier's id). No row when nothing changed,
+     * including a PATCH that resends the current values (it still moves `updated_at`, as before). A refused edit writes none:
+     * every refusal is thrown before the audit call, and a SKU collision's 23505 rolls the row back with the transaction.
      */
     public function update(string $id, UpdateItemInput $input): ItemResource
     {
         $submitted = $input->submitted();
         $this->refuseMalformed($submitted, required: []);
+        $identity = $this->identities->authenticated();
 
         return $this->translatingConstraintFailures(fn (): ItemResource => $this->tenants->run(
             $this->tenant->tenantId(),
-            function (EntityManagerInterface $em) use ($id, $submitted): ItemResource {
+            function (EntityManagerInterface $em) use ($id, $submitted, $identity): ItemResource {
                 $connection = $em->getConnection();
                 if (Uuid::isValid($id) && false === $connection->fetchOne(self::EDIT_LOCK, [$id])) {
                     throw ApiProblem::notFound();
@@ -225,9 +233,46 @@ final readonly class ItemWriter
                     }
                 }
 
-                return $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
+                $updated = $this->readInside($connection, $id) ?? throw ApiProblem::notFound();
+
+                // After the UPDATE and its read-back, in its transaction: a refusal above leaves no row.
+                $before = self::servedValues($current);
+                $after = self::servedValues($updated);
+                $changed = array_keys(array_filter($before, static fn (?string $value, string $field): bool => $value !== $after[$field], \ARRAY_FILTER_USE_BOTH));
+                if ([] !== $changed) {
+                    $this->audit->recordUpdated(
+                        tenantId: $identity->tenantId,
+                        actorUserId: $identity->userId,
+                        actorLabel: $identity->actorLabel,
+                        itemId: $id,
+                        from: array_intersect_key($before, array_flip($changed)),
+                        to: array_intersect_key($after, array_flip($changed)),
+                    );
+                }
+
+                return $updated;
             },
         ));
+    }
+
+    /**
+     * The values `inventory_item.updated` compares and records, by wire name: the item as it is served (`ItemRow`), so a
+     * decimal is in its scale-6 form and the supplier is its id or `null`. Keys are exactly
+     * `ItemAuditWriter::VALUE_FIELDS`.
+     *
+     * @return array<string, string|null>
+     */
+    private static function servedValues(ItemResource $item): array
+    {
+        return [
+            'name' => $item->name,
+            'reorder_point' => $item->reorderPoint,
+            'reorder_quantity' => $item->reorderQuantity,
+            'safety_stock' => $item->safetyStock,
+            'sku' => $item->sku,
+            'supplier_id' => $item->supplier?->id,
+            'unit_of_measure_code' => $item->unitOfMeasureCode,
+        ];
     }
 
     /**

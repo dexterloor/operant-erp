@@ -60,7 +60,8 @@ use Symfony\Component\Uid\Uuid;
  * schema owner" trap cannot arise.
  *
  * **Honest limit (spar A-2):** out-of-band owner-connection writers — provisioning under `ARCHITECTURE.md` S-10 and the
- * deferred demo seeder — do not take it. Acceptable only because provisioning precedes a live tenant and the seeder
+ * local demo seeder (`bin/demo-seed.php`, owner process; it writes the workspace, its settings, its built-in roles, the
+ * owner, the owner's grant and the two audit rows that account for them) — do not take it. Acceptable only because provisioning precedes a live tenant and the seeder
  * targets demo tenants. Nothing else in `src/` or `tests/` uses an advisory lock, so `CLASS_ID` collides with nothing.
  */
 final class RoleAdministrationLock
