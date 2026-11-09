@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -30,7 +32,13 @@ final class CreateItemInput
 
     public ?string $name = null;
 
+    /**
+     * Served as one of {@see UnitsOfMeasure::CODES}, never `null` and with NO `default` (BK-22, items batch C2): the unit
+     * is required on a create (an absent or `null` unit is refused `required`), and a required picker starts unselected.
+     * An annotation only; `ItemWriter` still looks the code up in `unit_of_measure`.
+     */
     #[SerializedName('unit_of_measure_code')]
+    #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
     public ?string $unitOfMeasureCode = null;
 
     #[SerializedName('supplier_id')]

@@ -14,10 +14,11 @@ final class ItemReadTest extends ApiTestCase
     /**
      * API-23's derivation for `Item`, spelled out because it is the thing under
      * test. Steps 1-3 of §4.4.3 over §4.2's `CreateItem` row, with `supplier_id`
-     * expanded per API-23b; §4.4.3's additions table has no `Item` row, so this
-     * is the whole shape.
+     * expanded per API-23b, plus §4.4.3's `Item` additions row: `holds_stock`
+     * (BK-27, items batch C2), a boolean derived from `stock_level`.
      *
-     * `ItemOperationContractTest` reconciles it against `docs/API.md`; here it
+     * `ResponseShapeTest` reconciles the DTO against `docs/API.md` (it read
+     * "`ItemOperationContractTest`", which holds no field list); here it
      * is the expectation the response is compared against, in **both**
      * directions -- a field added to the DTO and not here fails, and so does one
      * declared here and dropped from the DTO.
@@ -25,6 +26,7 @@ final class ItemReadTest extends ApiTestCase
     public const DECLARED_FIELDS = [
         'id', 'sku', 'name', 'unit_of_measure_code', 'supplier',
         'reorder_point', 'reorder_quantity', 'safety_stock', 'archived_at',
+        'holds_stock',
     ];
 
     #[Test]

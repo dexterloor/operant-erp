@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -26,7 +28,13 @@ final class UpdateItemInput
 
     public ?string $name;
 
+    /**
+     * Served as one of {@see UnitsOfMeasure::CODES}, never `null` and with NO `default` (BK-22, items batch C2): an explicit
+     * `null` is refused `not_nullable`, and an absent unit on a patch leaves the item's unit as it is. An annotation only;
+     * `ItemWriter` still looks the code up in `unit_of_measure`.
+     */
     #[SerializedName('unit_of_measure_code')]
+    #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
     public ?string $unitOfMeasureCode;
 
     #[SerializedName('supplier_id')]
