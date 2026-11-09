@@ -1,5 +1,5 @@
 import { StrictMode, type ReactElement } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -202,6 +202,126 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
     expect(dialog()).toHaveTextContent('This needs the Delete and restore warehouses permission, which you no longer have. Your workspace administrator can grant it.');
+  });
+
+  // Warehouse re-read RED L-1: the earlier re-read error is cleared by the Delete paths' commits too, not by Save alone.
+  const REREAD_FAILED = "We couldn't load this warehouse again, so what's shown may be out of date.";
+  const editable = () => renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+  const saveWithFailedReread = async (u: ReturnType<typeof userEvent.setup>) => {
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+  };
+
+  it('a 204 whose re-read succeeds clears an earlier re-read error; focus on the h1 (warehouse re-read RED L-1)', async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), empty(204), json(200, { ...ARCHIVED, name: 'Mainx' })]);
+    const u = userEvent.setup();
+    editable();
+    await saveWithFailedReread(u);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it("a refusal's Close re-read that succeeds clears an earlier re-read error (warehouse re-read RED L-1)", async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), refused('warehouse.is_archived', "This warehouse is already archived. It's in the archived warehouses."), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    editable();
+    await saveWithFailedReread(u);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+  });
+
+  // The close re-read's stale guard (warehouse re-read RED M-2, X3): a Close re-read still waiting when a newer commit
+  // (a Save) lands is dropped, whether it answers the old warehouse or fails.
+  const overtakenClose = async (release: () => Response) => {
+    let releaseHeld!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (releaseHeld = res));
+    stubFetch([refused('warehouse.has_open_purchase_orders', W7), () => held, json(200, { ...MAIN, name: 'Mainy' }), json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    editable();
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    await u.clear(name);
+    await u.type(name, 'Mainy');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy'));
+    await act(async () => {
+      releaseHeld(release());
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  };
+
+  it('an overtaken Close re-read that answers the old warehouse is dropped: the saved name stays (X3)', async () => {
+    await overtakenClose(() => json(200, MAIN));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Mainy');
+  });
+
+  it('an overtaken Close re-read that fails is dropped: no region error over the saved warehouse (X3)', async () => {
+    await overtakenClose(() => json(503, {}));
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+  });
+
+  // RED-2 M-1: only a commit of NEWER evidence drops a page-owned re-read; an older Retry landing first must not.
+  const twoReads = async (first: 'retry' | 'close') => {
+    let releaseRetry!: (r: Response) => void;
+    let releaseClose!: (r: Response) => void;
+    const retryHeld = new Promise<Response>((res) => (releaseRetry = res));
+    const closeHeld = new Promise<Response>((res) => (releaseClose = res));
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), () => retryHeld, refused('warehouse.is_archived', "This warehouse is already archived. It's in the archived warehouses."), () => closeHeld]);
+    const u = userEvent.setup();
+    editable();
+    await saveWithFailedReread(u);
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const retryAnswers = () => releaseRetry(json(200, { ...MAIN, name: 'Mainx' }));
+    const closeAnswers = () => releaseClose(json(200, { ...ARCHIVED, name: 'Mainx' }));
+    for (const release of first === 'retry' ? [retryAnswers, closeAnswers] : [closeAnswers, retryAnswers]) {
+      await act(async () => {
+        release();
+        await new Promise((t) => setTimeout(t, 50));
+      });
+    }
+  };
+
+  it('an older Retry that lands first does not drop the newer Close re-read: the page turns archived (RED-2 M-1)', async () => {
+    await twoReads('retry');
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('a newer Close re-read that lands first is not undone by the older Retry (RED-2 M-1, reverse order)', async () => {
+    await twoReads('close');
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+  });
+
+  it('a 204 whose re-read fails, then Retry and Restore: the restored warehouse is editable again (the 204 fact is cleared by a later commit)', async () => {
+    stubFetch([empty(204), json(503, {}), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN)]);
+    const u = userEvent.setup();
+    editable();
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(screen.queryByText(/This warehouse was archived on/)).toBeNull());
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete warehouse' })).toBeInTheDocument();
   });
 });
 

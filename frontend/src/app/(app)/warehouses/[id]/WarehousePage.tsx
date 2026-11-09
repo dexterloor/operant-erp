@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { DeleteDialog } from '@/components/records/DeleteDialog';
@@ -12,7 +12,7 @@ import { WarehouseForm } from '@/components/warehouses/WarehouseForm';
 import styles from '@/components/warehouses/Warehouses.module.css';
 import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { DELETE_WAREHOUSE, RESTORE_WAREHOUSE, WAREHOUSE_FORBIDDEN, WAREHOUSE_PAGE } from '@/copy/warehouses';
-import type { Warehouse } from '@/lib/api/warehouses';
+import type { UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
@@ -67,10 +67,20 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the warehouse is still
   // treated as archived for the actions (no Delete warehouse, a read-only section) until a read says otherwise.
   const [deletedHere, setDeletedHere] = useState(false);
-  // Every read the page commits is newer than that fact, so committing one clears it (a restore then turns it live).
+  // Every read the page commits is newer than that fact, so committing one clears it (a restore then turns it live). It
+  // is newer than an earlier failed re-read too, so committing one also clears that region error (the items RED L-2, a
+  // shipped defect here: "We couldn't load this warehouse again…" stayed over fresh data after a later successful write).
+  // Each page-owned re-read (Retry, a dialog's close) takes a stamp when it starts. A commit records the stamp of what it
+  // shows: the re-read's own start stamp, or a fresh one for a write's answer, which arrives after every re-read in flight
+  // started. A page-owned re-read whose start is older than what is already committed says nothing about what is on
+  // screen: its answer, success or failure, is dropped. An older re-read landing first never drops a newer one.
+  const stamps = useRef(0);
+  const committedAsOf = useRef(0);
   const setWarehouse = useCallback(
-    async (w: Warehouse) => {
+    async (w: Warehouse, asOf?: number) => {
+      committedAsOf.current = Math.max(committedAsOf.current, asOf ?? ++stamps.current);
       setDeletedHere(false);
+      setRereadError(null);
       await setCommitted(w);
     },
     [setCommitted],
@@ -90,9 +100,11 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  const save = useMemo(() => warehouseSave({ caller, id, setWarehouse, onRereadFailed: failed }), [caller, id, setWarehouse, failed]);
-  const restore = useMemo(() => warehouseRestore({ caller, id, setWarehouse, onRereadFailed: failed }), [caller, id, setWarehouse, failed]);
-  const remove = useMemo(() => warehouseDelete({ caller, id, setWarehouse, onRereadFailed: failed }), [caller, id, setWarehouse, failed]);
+  // The wiring is built when an action runs, not during render: `setWarehouse` writes the stamp refs, which may only be
+  // touched outside render (react-hooks/refs).
+  const save = useCallback((changes: UpdateWarehouseInput) => warehouseSave({ caller, id, setWarehouse, onRereadFailed: failed })(changes), [caller, id, setWarehouse, failed]);
+  const restore = useCallback(() => warehouseRestore({ caller, id, setWarehouse, onRereadFailed: failed })(), [caller, id, setWarehouse, failed]);
+  const remove = useCallback(() => warehouseDelete({ caller, id, setWarehouse, onRereadFailed: failed })(), [caller, id, setWarehouse, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
 
   // §2 step 4.6. After a 204 the page stays: the warehouse is archived, not gone, and `warehouseDelete` has already
@@ -111,11 +123,13 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       return;
     }
     if (!reread) return;
+    const mine = ++stamps.current;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadWarehouse(readOf(caller), id, d.signal);
     d.cancel();
+    if (committedAsOf.current > mine) return;
     if (r.kind === 'ok') {
-      await setWarehouse(r.warehouse);
+      await setWarehouse(r.warehouse, mine);
       // RED H-1: the re-read archived the page (W6 deleted elsewhere, or an interrupted press that committed), which
       // unmounts the Delete warehouse button the dialog had returned focus to: focus the h1, as the 204 path does.
       if (r.warehouse.archived_at !== null) {
@@ -128,12 +142,14 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
+    const mine = ++stamps.current;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadWarehouse(readOf(caller), id, d.signal);
     d.cancel();
     setRetrying(false);
+    if (committedAsOf.current > mine) return;
     if (r.kind === 'ok') {
-      await setWarehouse(r.warehouse);
+      await setWarehouse(r.warehouse, mine);
       setRereadError(null);
       h1.current?.focus();
     } else failed(r.kind);

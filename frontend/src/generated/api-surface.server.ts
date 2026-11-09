@@ -1851,6 +1851,6 @@ export const PROXY_ALLOWLIST: readonly ProxyRoute[] = [
 
 /** The sha256 of each contract input this module was generated from. */
 export const SOURCE_SHA256: Readonly<Record<string, string>> = {
-  'openapi.json': '8c4abc23eafea41217db226fde519bb7ba0876bf2a65a488e45e3180f8a257d0',
+  'openapi.json': 'ecc14a32ecb43cea95c52aef138e2ffd61fd33b2c077848e73bc76fca7e366f1',
   'api-surface.json': 'bed5d9755fe60f7a3f2eee9782080c4ffe4ecb541edd4b30d80e33fe54ba731d',
 };

@@ -145,7 +145,8 @@ interface Violation {
 }
 
 /** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/warehouses/wired.ts'];
+// Revision 8 R8-4: one importer per family, each pinned. Items I-1 (items-i1-red.md L-3, second option) added lib/items/wired.ts.
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -163,7 +164,7 @@ function importViolations(files: readonly SourceFile[]): Violation[] {
       if (under(sf.file, 'src') && under(t, 'test')) breach('src never imports test/**');
       // A-18 S-1 (RED M-2 of step 4.6): the platform refusal rule is compared in one place, so only that file imports it.
       // A comparison through the constant holds no literal, which REFUSAL_HOMES cannot see; this pin can.
-      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only lib/warehouses/wired.ts imports lib/api/problems (A-18 S-1)');
+      if (t.replace(/\.ts$/, '') === 'src/lib/api/problems' && !PROBLEMS_IMPORTERS.includes(sf.file)) breach('only the pinned family wired.ts files import lib/api/problems (A-18 S-1, R8-4)');
       if (under(t, 'src/components/preview/fixtures') && !under(sf.file, 'src/components/preview')) {
         breach('only components/preview (and tests) import the preview fixtures (RED L-1)');
       }
@@ -187,6 +188,9 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/forms',
   // Revision 7 step 4.1 (A-18 guards): the warehouse logic and components.
   'src/lib/warehouses',
+  // Revision 8 R8-3 (items I-1): the item logic and components.
+  'src/lib/items',
+  'src/components/items',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -311,12 +315,14 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // intents,margin,results,save,statusLine,unwired}.ts; components/roles/{RolePicker,RoleOption,EffectivePermissions,
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   // Revision 7 step 4.1 added: copy/warehouses.ts.
-  'src/copy': 9,
+  // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
+  'src/copy': 10,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
   // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
-  'src/lib': 60,
+  // Items I-1 (Revision 8 R8-2) added: lib/api/items.ts, lib/format/quantity.ts, lib/items/{load,results,wired}.ts.
+  'src/lib': 65,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -329,9 +335,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.6 added: components/warehouses/DeleteDialog.tsx (Delete warehouse and Delete location, B-7).
   // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
   // → components/records/{DeleteDialog,RestoreActions}.tsx.
-  'src/components': 60,
-  // Revision 7 step 4.6 added: lib/api/problems.ts.
-  'src/lib/api': 7,
+  // Items I-1 added: components/items/ItemForm.tsx.
+  'src/components': 61,
+  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
+  'src/lib/api': 8,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -340,6 +347,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/forms': 1,
   // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
   'src/lib/warehouses': 3,
+  // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
+  'src/lib/items': 3,
+  'src/components/items': 1,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -359,7 +369,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/theme': 2,
   'src/components/preview': 5,
   'src/lib/auth': 2,
-  'src/lib/format': 3,
+  // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
+  'src/lib/format': 4,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
   'src/components/ui': 12,
   [FIXTURE_DIR]: 4,
@@ -387,7 +398,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // not-found}.tsx.
   // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
-  'src/app': 51,
+  // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
+  'src/app': 57,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -513,8 +525,12 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
       { file: 'src/lib/warehouses/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
       { file: 'src/components/warehouses/x.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
       { file: 'src/lib/warehouses/y.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems.ts';" },
+      // Items I-1 (R8-4, L-3): the items family's wired.ts may import it; its other lib files and its components may not.
+      { file: 'src/lib/items/wired.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/lib/items/load.ts', source: "import { PLATFORM_REFUSAL } from '../api/problems';" },
+      { file: 'src/components/items/ItemForm.tsx', source: "import { PLATFORM_REFUSAL } from '@/lib/api/problems';" },
     ];
-    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts']);
+    expect(importViolations(planted).map((v) => v.file)).toEqual(['src/components/warehouses/x.tsx', 'src/lib/warehouses/y.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx']);
   });
 
   it('REFUSAL_HOMES planted controls (§2 step 4.6): only a home\'s top-level declarations are exempt', () => {
@@ -625,6 +641,8 @@ const NETWORK_SCAN_DIRS = [
   'src/components/people',
   'src/components/warehouses',
   'src/components/records',
+  // Items I-1 (Revision 8 R8-3): the item page's editor.
+  'src/components/items',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -824,6 +842,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/bulk',
   'src/lib/bff',
   'src/lib/warehouses',
+  // Items I-1 (Revision 8 R8-3): the item family's logic (`inventory_item` is a bulk key, G-3).
+  'src/lib/items',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -1307,6 +1327,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Items I-1 (G-F2 row): the item page's editor.
+      'src/components/items/ItemForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
       // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
@@ -1451,11 +1473,22 @@ describe('architecture — G-8: the session id reaches only the account-page rou
 // V2-S-1b clause 5's FRONTEND half and B1N-12's screen (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on
 // 2026-11-03, docs/design/fe-merge-r8-ruling.md, to-do 2; docs/design/frontend-residuals.md FE-R2). The backend check runs
 // only when this app reaches main; this twin runs on every frontend gate, so the trigger fires on the commit that crosses
-// it. Same rule, ported line for line (keep the two in step — a change to one is a change to both):
+// it. Same antecedents and the same four consequents, ported line for line (keep the two in step — a change to one is a
+// change to both):
 //   every page.{tsx,ts,jsx,js} under src/app gets the URL Next.js serves a static-segment page at (pageUrl). Antecedent (a): some page's URL
 //   is /sales-orders or below. Antecedent (b): CreateFulfilment or GetPickList is named in a file under src outside
-//   src/generated/. Either requires BOTH a page at exactly /sales-orders/[<one param>]/fulfil AND a use of GetPickList
-//   outside src/generated/. Keyed on the URL (fixed by IA N-8a and lib/navigation.ts), never on a guessed folder.
+//   src/generated/. Either requires ALL of: a page at exactly /sales-orders/[<one param>]/fulfil; a use of GetPickList
+//   outside src/generated/; and the operator's way in (BK-21; owner D-5 of 2026-11-03): (i) the spec carries
+//   ListPickQueueEntries, keyed on the operationId, never on a path (`1076ba3`), and (ii) a page served at exactly
+//   /pick-queue whose OWN page file (source key `app/<page>`) names that operation. Keyed on the URL (fixed by IA N-8a,
+//   lib/navigation.ts and, for the queue, final review M-3), never on a guessed folder. If UX moves the queue URL, one
+//   frontend commit plus its merge moves the constant here, the backend's, the IA.md §5.6 rows and both planted tables.
+//   One stated difference: the backend reads the spec it regenerates; this twin reads the committed contract
+//   ../contracts/openapi.json (as the G-47 twin does; `npm run surface -- --check` ties src/generated/ to that file).
+//   Both BK-21 consequents are vacuous on the real tree until the screen's commit, as in the backend: the queue and the
+//   screen come due together. A stub queue page that merely names the operation satisfies (ii) — the same residual the
+//   GetPickList consequent carries; the screen commit's hand check covers it. PICK_ROUTE_MESSAGE below is the backend's
+//   message byte for byte (synced to 19f824e; sha-checked again when the BK-21 consequents were ported).
 // Not checkable here, and said so: R1 (on-hand per bin, never an available figure) and B1N-12 (show the order's resulting
 // status after a CreateFulfilment 201). A stub page that names GetPickList satisfies the implication, and nothing here
 // stops that. Nor can the URL model see a page that serves /sales-orders through a dynamic first segment (`[x]`, `[...x]`,
@@ -1471,6 +1504,11 @@ const PAGE_FILES = ['page.tsx', 'page.ts', 'page.jsx', 'page.js'];
 const PICK_OPERATION_TOKEN = /\b(?:CreateFulfilment|GetPickList)\b/;
 /** Exactly one single-segment dynamic parameter, then `fulfil`: no catch-all, no optional catch-all. */
 const PICK_ROUTE_URL = /^\/sales-orders\/\[[A-Za-z][A-Za-z0-9]*\]\/fulfil$/;
+/** BK-21: the queue's operationId (consequent (i)) and the token its page names (consequent (ii)). */
+const QUEUE_OPERATION_ID = 'ListPickQueueEntries';
+/** BK-21: the queue page's one exact URL (final review M-3: binding unless UX writes another before the commit). */
+const QUEUE_PAGE_URL = '/pick-queue';
+const QUEUE_OPERATION_TOKEN = new RegExp(`\\b${QUEUE_OPERATION_ID}\\b`);
 const ROUTE_GROUP = /^\((?!\.)[^()]+\)$/;
 
 /**
@@ -1500,7 +1538,8 @@ function pickRouteIsDue(pages: readonly string[], sources: Readonly<Record<strin
   return Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
 }
 
-function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<string, string>>): string[] {
+/** As pickRouteIsDue; `specOperationIds`: the contract's operationIds (BK-21 consequent (i)). */
+function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<string, string>>, specOperationIds: readonly string[]): string[] {
   if (!pickRouteIsDue(pages, sources)) return [];
   const defects: string[] = [];
   if (!pages.some((page) => PICK_ROUTE_URL.test(pageUrl(page) ?? ''))) {
@@ -1509,8 +1548,33 @@ function pickRouteDefects(pages: readonly string[], sources: Readonly<Record<str
   if (!Object.entries(sources).some(([file, text]) => !file.startsWith('generated/') && /\bGetPickList\b/.test(text))) {
     defects.push('no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)');
   }
+  // BK-21 consequent (i): the operator's way in exists in the spec.
+  if (!specOperationIds.includes(QUEUE_OPERATION_ID)) {
+    defects.push(`the generated spec does not contain ${QUEUE_OPERATION_ID}`);
+  }
+  // BK-21 consequent (ii): a page at exactly the queue URL whose own page file names the operation.
+  if (!pages.some((page) => pageUrl(page) === QUEUE_PAGE_URL && QUEUE_OPERATION_TOKEN.test(sources[`app/${page}`] ?? ''))) {
+    defects.push(`no page served at exactly ${QUEUE_PAGE_URL} names ${QUEUE_OPERATION_ID}`);
+  }
   return defects;
 }
+
+/** Every operationId in an OpenAPI document (the backend's builtOperationIds(), over the committed contract). */
+function specOperationIdsOf(spec: Json): string[] {
+  const ids: string[] = [];
+  for (const item of Object.values(asObject(spec.paths))) {
+    for (const [method, operation] of Object.entries(asObject(item))) {
+      if (['parameters', 'summary', 'description', 'servers', '$ref'].includes(method)) continue;
+      const id = asObject(operation).operationId;
+      if (typeof id === 'string' && id !== '') ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** Relative to `frontend/`: the committed contract the BK-21 consequent (i) reads. */
+const CONTRACT_FILE = '../contracts/openapi.json';
+const realSpecOperationIds = (): string[] => specOperationIdsOf(asObject(JSON.parse(readFileSync(path.join(ROOT, CONTRACT_FILE), 'utf8'))));
 
 const PICK_ROUTE_MESSAGE =
   "V2-S-1b clause 5's FRONTEND half is owed (owner ruling R8, 2026-09-22; trigger re-anchored by the owner on\n" +
@@ -1525,6 +1589,12 @@ const PICK_ROUTE_MESSAGE =
   "    if the re-read fails, keep the shipment's success message and say the status could not be loaded.\n" +
   '    TO CONFIRM FE-LEAD.\n' +
   '  - The pick read shows on-hand per candidate bin, never an available figure (owner ruling R1).\n' +
+  "  - The operator's way in (BK-21; D-5, N-7): a page at exactly /pick-queue (its own Sales nav item, gated\n" +
+  '    fulfilment.create) lists ListPickQueueEntries; a row opens the fulfil page only for a viewer who may open\n' +
+  '    it (GetPickList); the fulfil page gates on GetPickList; its back link goes first to where the person came\n' +
+  '    from (the queue, the order or the fulfilments list) if that page is built and they may still open it,\n' +
+  '    else three-way -- GetSalesOrder -> the order, else the queue operation -> the queue, else /fulfilments if\n' +
+  '    permitted, else none (D-5 as refined 2026-11-06, docs/session13/bk21-roles/f2-f7-recommendation.md).\n' +
   'Do this in the commit that builds the screen, then move this test deliberately. Until then V2-S-1b is\n' +
   'shipped IN PART and must not be called discharged.';
 
@@ -1695,6 +1765,118 @@ describe('architecture — R8-3: components/records is props-only and names no f
 });
 
 /**
+ * Items I-1 (Revision 8 R8-2; items-plan.md R1-5 / M-5): a quantity is a decimal string rendered only by
+ * `lib/format/quantity.ts` (QR-2), never through a number (13 + 6 digits exceed a double) and never by a fixed-scale or
+ * locale formatter. The behaviour is pinned per display site in `test/wired/item-page.test.tsx`; this scan is the
+ * BACKSTOP over the item dirs and the renderer. Tokens: `Number(` and `new Number(`, `BigInt(`, `Number.parse…`,
+ * `parseFloat`, `parseInt`, a call whose callee is a member named `Number`, `parseFloat` or `parseInt` on anything
+ * (`globalThis.Number(…)`, `window.parseFloat(…)`), `.toFixed`, `.toLocaleString`, `Intl.NumberFormat`, any `Math.<name>`
+ * call (`Math.round`, `Math.trunc`, …), and a unary `+` or `-` on an identifier or member named like a quantity
+ * (items-i1-red.md L-5 widened it). Limit, stated: an alias (`const N = Number`), a computed member (`x['toFixed']`),
+ * binary arithmetic (`x * 1`, `x - 0`) or a quantity under another name is not seen; the per-site DOM tests are what
+ * catch those.
+ */
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items'] as const;
+const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts'] as const;
+const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served/i;
+
+function quantityNumberViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    const tree = parse(sf);
+    const visit = (node: ts.Node) => {
+      const hit = (detail: string) => out.push({ file: sf.file, detail });
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isIdentifier(node.expression)) {
+        const name = node.expression.text;
+        if (name === 'Number' || name === 'parseFloat' || name === 'parseInt' || name === 'BigInt') hit(`${name}(`);
+      }
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isPropertyAccessExpression(node.expression)) {
+        const callee = node.expression;
+        const target = ts.isIdentifier(callee.expression) ? callee.expression.text : null;
+        const member = callee.name.text;
+        if (member === 'Number' || member === 'parseFloat' || member === 'parseInt') hit(`.${member}(`);
+        if (target === 'Math' && member !== 'round') hit(`Math.${member}(`);
+      }
+      if (ts.isPropertyAccessExpression(node)) {
+        const target = ts.isIdentifier(node.expression) ? node.expression.text : null;
+        const member = node.name.text;
+        if (target === 'Number' && member.startsWith('parse')) hit('Number.parse');
+        if (target === 'Intl' && member === 'NumberFormat') hit('Intl.NumberFormat');
+        if (target === 'Math' && member === 'round') hit('Math.round');
+        if (member === 'toFixed' || member === 'toLocaleString') hit(member);
+      }
+      if (ts.isPrefixUnaryExpression(node) && (node.operator === ts.SyntaxKind.PlusToken || node.operator === ts.SyntaxKind.MinusToken)) {
+        const operand = node.operand;
+        const named = ts.isIdentifier(operand) ? operand.text : ts.isPropertyAccessExpression(operand) ? operand.name.text : null;
+        if (named !== null && QUANTITY_NAME.test(named)) hit(`unary ${node.operator === ts.SyntaxKind.PlusToken ? '+' : '-'} on ${named}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
+  return out;
+}
+
+describe('architecture — items I-1: no quantity goes through a number (QR-2 backstop, R8-2)', () => {
+  const scanned = () => [...QUANTITY_SCAN_DIRS.flatMap((d) => walk(d)), ...walk('src/lib/format').filter((f) => (QUANTITY_SCAN_FILES as readonly string[]).includes(f.file))];
+
+  it('the item dirs and the renderer hold no such token', () => {
+    const files = scanned();
+    // Positive control: the scan reads the item family and the renderer, not an empty set.
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx']));
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 6 + 1);
+    expect(quantityNumberViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: each token goes red on its own; the renderer and plain string work do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/items/A.tsx', source: 'export const a = (q: string) => Number(q);' },
+      { file: 'src/components/items/B.tsx', source: 'export const b = (q: string) => new Number(q);' },
+      { file: 'src/components/items/C.tsx', source: 'export const c = (q: string) => Number.parseFloat(q);' },
+      { file: 'src/components/items/D.tsx', source: 'export const d = (q: string) => parseFloat(q);' },
+      { file: 'src/components/items/E.tsx', source: 'export const e = (q: string) => parseInt(q, 10);' },
+      { file: 'src/components/items/F.tsx', source: 'export const f = (q: number) => q.toFixed(6);' },
+      { file: 'src/components/items/G.tsx', source: 'export const g = (q: number) => q.toLocaleString();' },
+      { file: 'src/components/items/H.tsx', source: "export const h = (q: number) => new Intl.NumberFormat('en-GB').format(q);" },
+      { file: 'src/components/items/I.tsx', source: 'export const i = (q: number) => Math.round(q);' },
+      { file: 'src/components/items/J.tsx', source: 'export const j = (item: { reorder_point: string }) => +item.reorder_point;' },
+      { file: 'src/components/items/K.tsx', source: 'export const k = (safetyStock: string) => -safetyStock;' },
+      // items-i1-red.md L-5: the widened tokens.
+      { file: 'src/lib/format/quantity.ts', source: 'export const t = (served: string) => String(Math.trunc(served as never));' },
+      { file: 'src/components/items/L.tsx', source: 'export const l = (q: string) => globalThis.Number(q);' },
+      { file: 'src/components/items/M.tsx', source: 'export const m = (q: string) => window.parseFloat(q);' },
+      { file: 'src/components/items/N.tsx', source: 'export const n = (q: string) => self.parseInt(q, 10);' },
+      { file: 'src/components/items/O.tsx', source: 'export const o = (q: string) => BigInt(q);' },
+      { file: 'src/components/items/P.tsx', source: 'export const p = (q: number) => Math.floor(q);' },
+      { file: 'src/lib/format/quantity.ts', source: 'export const renderQuantity = (served: string) => String(Number(served));' },
+      { file: 'src/components/items/Ok.tsx', source: "export const ok = (served: string, n: number) => served.slice(0, served.indexOf('.')) + String(n - 1);" },
+    ];
+    expect(quantityNumberViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
+      'src/components/items/A.tsx — Number(',
+      'src/components/items/B.tsx — Number(',
+      // `Number.parseFloat(…)` is now seen twice: as `Number.parse…` and as a call to a member named parseFloat (L-5).
+      'src/components/items/C.tsx — .parseFloat(',
+      'src/components/items/C.tsx — Number.parse',
+      'src/components/items/D.tsx — parseFloat(',
+      'src/components/items/E.tsx — parseInt(',
+      'src/components/items/F.tsx — toFixed',
+      'src/components/items/G.tsx — toLocaleString',
+      'src/components/items/H.tsx — Intl.NumberFormat',
+      'src/components/items/I.tsx — Math.round',
+      'src/components/items/J.tsx — unary + on reorder_point',
+      'src/components/items/K.tsx — unary - on safetyStock',
+      'src/lib/format/quantity.ts — Math.trunc(',
+      'src/components/items/L.tsx — .Number(',
+      'src/components/items/M.tsx — .parseFloat(',
+      'src/components/items/N.tsx — .parseInt(',
+      'src/components/items/O.tsx — BigInt(',
+      'src/components/items/P.tsx — Math.floor(',
+      'src/lib/format/quantity.ts — Number(',
+    ]);
+  });
+});
+
+/**
  * Guard enrolment (items-red.md M-2): LITERAL_SCAN_DIRS, NETWORK_SCAN_DIRS (component dirs only), BULK_LITERAL_DIRS and
  * EXPECTED_COUNTS are hand lists, so a new folder under `src/components` or `src/lib` used to be unscanned unless someone
  * remembered it. Every such folder must now be enrolled in each applicable list, or named below with the fact that keeps
@@ -1762,34 +1944,35 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    // A new folder nobody enrolled (the items family's folders, before I-1).
-    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/items is in no list and has no exemption',
-      'literal: src/lib/items is in no list and has no exemption',
-      'network: src/components/items is in no list and has no exemption',
-      'bulk: src/lib/items is in no list and has no exemption',
-      'counts: src/components/items is in no list and has no exemption',
-      'counts: src/lib/items is in no list and has no exemption',
+    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them; now a family that does not
+    // exist yet (suppliers), so the control still names folders absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/suppliers is in no list and has no exemption',
+      'literal: src/lib/suppliers is in no list and has no exemption',
+      'network: src/components/suppliers is in no list and has no exemption',
+      'bulk: src/lib/suppliers is in no list and has no exemption',
+      'counts: src/components/suppliers is in no list and has no exemption',
+      'counts: src/lib/suppliers is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/items': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/items': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/items', 'src/lib/items'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/items's exemption has no reason",
-      'literal: src/lib/items is in no list and has no exemption',
-      'network: src/components/items is in no list and has no exemption',
-      "bulk: src/lib/items's exemption has no reason",
-      'counts: src/components/items is in no list and has no exemption',
-      'counts: src/lib/items is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/suppliers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/suppliers': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/suppliers's exemption has no reason",
+      'literal: src/lib/suppliers is in no list and has no exemption',
+      'network: src/components/suppliers is in no list and has no exemption',
+      "bulk: src/lib/suppliers's exemption has no reason",
+      'counts: src/components/suppliers is in no list and has no exemption',
+      'counts: src/lib/suppliers is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };
@@ -1803,11 +1986,18 @@ describe('architecture — guard enrolment is complete (items-red.md M-2, items 
 describe('architecture — FE-R2: no /sales-orders screen or pick operation without the pick screen (twin of the backend R8 check)', () => {
   it('planted controls: the predicate trips and passes on synthetic trees exactly as the backend check does', () => {
     const uses = { 'lib/api/pick.ts': "viewerMay('GetPickList')" };
-    const planted: [string, string[], Record<string, string>, boolean][] = [
+    // BK-21: every tree states its spec set (default: with the queue); a due tree that passes also carries the queue
+    // page, its source keyed `app/<page>` as realSources() keys it.
+    const withQueue = [QUEUE_OPERATION_ID, 'GetPickList', 'CreateFulfilment'];
+    const withoutQueue = ['GetPickList', 'CreateFulfilment'];
+    const queuePage = '(app)/pick-queue/page.tsx';
+    const queueUses = { ...uses, [`app/${queuePage}`]: `viewerMay('${QUEUE_OPERATION_ID}')` };
+    const due = ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'];
+    const planted: [string, string[], Record<string, string>, boolean, string[]?][] = [
       ['a sales-orders list alone', ['(app)/sales-orders/page.tsx'], uses, false],
-      ['the list and the fulfil page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], uses, true],
-      ['the fulfil page under a nested group', ['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx'], uses, true],
-      ['the fulfil page under a parallel slot', ['(app)/sales-orders/[id]/@panel/fulfil/page.tsx'], uses, true],
+      ['the list and the fulfil page', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx', queuePage], queueUses, true],
+      ['the fulfil page under a nested group', ['(app)/sales-orders/[id]/(actions)/fulfil/page.tsx', queuePage], queueUses, true],
+      ['the fulfil page under a parallel slot', ['(app)/sales-orders/[id]/@panel/fulfil/page.tsx', queuePage], queueUses, true],
       ['a component preview of the fulfil page', ['(dev)/component-preview/sales-orders/[id]/fulfil/page.tsx', '(app)/sales-orders/page.tsx'], uses, false],
       ['a catch-all under sales-orders', ['(app)/sales-orders/[...rest]/page.tsx'], uses, false],
       ['an optional catch-all as the param', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[[...id]]/fulfil/page.tsx'], uses, false],
@@ -1828,12 +2018,41 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
       ['GetPickList named only in generated code does not satisfy the screen', ['(app)/sales-orders/page.tsx', '(app)/sales-orders/[id]/fulfil/page.tsx'], { 'generated/api-surface.server.ts': 'GetPickList' }, false],
       ['a sales-orders page in a private folder is not routable', ['(app)/_wip/sales-orders/page.tsx'], {}, true],
       ['a private folder below sales-orders is not routable', ['(app)/sales-orders/_wip/page.tsx'], {}, true],
+      // BK-21's two consequents (design R4; final review M-3), mirrored from the backend's planted set, same names and
+      // verdicts. Each row below is due unless it says otherwise.
+      ['the queue page names the queue operation', [...due, queuePage], queueUses, true, withQueue],
+      ['the queue operation named only on the fulfilments page', [...due, '(app)/fulfilments/page.tsx'], { ...uses, 'app/(app)/fulfilments/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page at the wrong URL', [...due, '(app)/admin/pick-queue/page.tsx'], { ...uses, 'app/(app)/admin/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page source keyed without app/', [...due, queuePage], { ...uses, [queuePage]: QUEUE_OPERATION_ID }, false, withQueue],
+      ['the spec without the queue operation', [...due, queuePage], queueUses, false, withoutQueue],
+      ['no queue page', due, uses, false, withQueue],
+      ['the queue operation only in generated code', [...due, queuePage], { ...uses, 'generated/api-surface.server.ts': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue operation only in a component', [...due, queuePage], { ...uses, 'components/PickQueue.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page in a private folder', [...due, '(app)/_wip/pick-queue/page.tsx'], { ...uses, 'app/(app)/_wip/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page in a component preview', [...due, '(dev)/component-preview/pick-queue/page.tsx'], { ...uses, 'app/(dev)/component-preview/pick-queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page under a route group', [...due, '(app)/(ops)/pick-queue/page.tsx'], { ...uses, 'app/(app)/(ops)/pick-queue/page.tsx': QUEUE_OPERATION_ID }, true, withQueue],
+      ['not due, no queue page, spec without the queue operation', ['(app)/admin/users/page.tsx'], {}, true, withoutQueue],
+      // Twin-only so far (owed to the backend's planted set, filed via owed-to-backend.md BK-21): "exactly /pick-queue"
+      // refuses a page below it or at another case; the queue operation is matched as a whole word in the page and as
+      // an exact operationId in the spec.
+      ['the queue page one level too deep', [...due, '(app)/pick-queue/x/page.tsx'], { ...uses, 'app/(app)/pick-queue/x/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the queue page names only a longer identifier', [...due, queuePage], { ...uses, [`app/${queuePage}`]: `${QUEUE_OPERATION_ID}Summary` }, false, withQueue],
+      ['the queue page at another case', [...due, '(app)/Pick-Queue/page.tsx'], { ...uses, 'app/(app)/Pick-Queue/page.tsx': QUEUE_OPERATION_ID }, false, withQueue],
+      ['the spec holds only a longer operationId', [...due, queuePage], queueUses, false, [`${QUEUE_OPERATION_ID}V2`, 'GetPickList', 'CreateFulfilment']],
     ];
-    const verdicts = planted.map(([name, pages, sources]) => [name, pickRouteDefects(pages, sources).length === 0]);
+    const verdicts = planted.map(([name, pages, sources, , spec]) => [name, pickRouteDefects(pages, sources, spec ?? withQueue).length === 0]);
     expect(verdicts).toEqual(planted.map(([name, , , passes]) => [name, passes]));
-    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {})).toEqual([
+    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {}, withQueue)).toEqual([
       'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil',
       'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)',
+      'no page served at exactly /pick-queue names ListPickQueueEntries',
+    ]);
+    // The backend's defect texts, all four in its order.
+    expect(pickRouteDefects(['(app)/sales-orders/page.tsx'], {}, withoutQueue)).toEqual([
+      'the frontend has a /sales-orders page or names a pick operation, but no page is served at exactly /sales-orders/[param]/fulfil',
+      'no frontend source outside src/generated/ uses GetPickList (the read the pick screen consumes)',
+      'the generated spec does not contain ListPickQueueEntries',
+      'no page served at exactly /pick-queue names ListPickQueueEntries',
     ]);
   });
 
@@ -1848,10 +2067,17 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 
     const generatedNamesIt = Object.entries(realSources()).filter(([file, text]) => file.startsWith('generated/') && PICK_OPERATION_TOKEN.test(text));
     expect(generatedNamesIt.length, 'Positive control: src/generated/ no longer names GetPickList or CreateFulfilment, so excluding it proves nothing about where the boundary is. Re-derive the token or the folder.').toBeGreaterThan(0);
+
+    // BK-21 real-tree controls (design R4, L-5): the source map keys a page file as `app/<page>`, so consequent (ii)'s
+    // lookup has a real subject; and the contract read for consequent (i) really yields the spec's operationIds.
+    expect(realPages(), 'Real-tree control: the known page (app)/page.tsx is gone; pick another.').toContain('(app)/page.tsx');
+    expect(Object.keys(realSources()), 'Real-tree control: realSources() no longer keys page sources as app/<page>, so consequent (ii) reads nothing.').toContain('app/(app)/page.tsx');
+    expect(existsSync(path.join(ROOT, CONTRACT_FILE)), `Positive control: ${CONTRACT_FILE} is not where consequent (i) looks, so it reads nothing.`).toBe(true);
+    expect(realSpecOperationIds(), `Positive control: the operationIds read from ${CONTRACT_FILE} no longer include GetPickList, so consequent (i) reads the wrong list or none.`).toContain('GetPickList');
   });
 
   it('the real tree: a /sales-orders page or a pick operation brings the pick screen with it', () => {
-    const defects = pickRouteDefects(realPages(), realSources());
+    const defects = pickRouteDefects(realPages(), realSources(), realSpecOperationIds());
     expect(defects, `  ${defects.join('\n  ')}\n\n${PICK_ROUTE_MESSAGE}`).toEqual([]);
   });
 
@@ -2080,6 +2306,10 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
       ['the stock read wired for the browser', admin, {}, ['ListUsers', 'ListStockLevels'], true],
       ['only the movements read wired for the browser', admin, {}, ['ListStockMovements'], false],
       ['a frontend with no stock screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, ['ListUsers'], false],
+      // Items I-1 (plan §2(g), §4 I-1): an item page that reads stock is a stock screen while G-47 is open.
+      ['an item page naming the stock read', ['(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "read('ListStockLevels')" }, [], true],
+      ['an item page linking to the stock path', ['(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "fetch('/bff/api/stock?item=1')" }, [], true],
+      ['the item pages as built (no stock read, no stock path)', ['(app)/items/page.tsx', '(app)/items/[id]/page.tsx'], { 'app/(app)/items/[id]/ItemPage.tsx': "loadItem(read, id); renderQuantity(item.reorder_point)" }, ['ListItems', 'GetItem'], false],
     ];
     const verdicts = triggers.map(([name, pages, sources, clientOps]) => [name, stockRowTriggers(pages, sources, clientOps).length > 0]);
     expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));

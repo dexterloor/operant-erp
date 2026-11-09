@@ -44,6 +44,36 @@ async function press(run: () => Promise<DeleteResult>) {
   return u;
 }
 
+describe('components/records/DeleteDialog — focus (B-7, ST-9b: danger dialog, initial focus Cancel)', () => {
+  // Pinned here as well as in test/wired/warehouse-delete.test.tsx: a dialog that opened on Delete would let one stray
+  // Enter delete the record. Removing Cancel's initial focus went red only in the wired test (items I-0a plant).
+  it('on open, focus is on Cancel, not on Delete', async () => {
+    render(<Harness run={once({ kind: 'deleted' })} />);
+    await waitFor(() => expect(within(dialog()).getByRole('button', { name: 'CANCEL' })).toHaveFocus());
+    expect(within(dialog()).getByRole('button', { name: 'CONFIRM' })).not.toHaveFocus();
+  });
+
+  it.each([
+    ['a refusal', { kind: 'refused', rule: 'x.planted', message: 'X-planted refusal' }],
+    ['contention', { kind: 'contention', message: 'X-planted try again' }],
+  ] as const)('after %s, the "Not deleted" heading takes focus', async (_name, r) => {
+    await press(once(r));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+    // waitFor returns the first moment focus arrives; one task later it must still be there (nothing takes it back).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(within(dialog()).getByText('Not deleted')).toHaveFocus();
+  });
+
+  it('a second contention moves focus back to the "Not deleted" heading', async () => {
+    // Contention keeps Delete (B-7 "Exception"): pressing it again puts focus on Delete, and the second answer must take
+    // focus back to the heading, or a screen-reader user gets no cue that it was refused again.
+    const u = await press(once({ kind: 'contention', message: 'X-planted try again' }));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+    await u.click(within(dialog()).getByRole('button', { name: 'CONFIRM' }));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+  });
+});
+
 describe('components/records/DeleteDialog — each branch renders its own copy field (RED M-1)', () => {
   it('renders title, body, cancel and confirm from props', () => {
     render(<Harness run={once({ kind: 'deleted' })} />);

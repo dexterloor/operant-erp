@@ -18,16 +18,32 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   hint?: string;
   /** The server's sentence for this field, verbatim; empty or absent = no error. */
   error?: string | undefined;
+  /**
+   * Text shown after the input, outside it (items B-3 / R1-2: a quantity's unit code, `EA`), and read with the field: it
+   * joins `aria-describedby` first. Absent = the field renders exactly as before.
+   */
+  suffix?: string;
 }
 
-export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField({ id, label, hint, error, type = 'text', ...input }, ref) {
+export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField({ id, label, hint, error, suffix, type = 'text', ...input }, ref) {
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined;
+  const suffixId = `${id}-suffix`;
+  const describedBy = [suffix ? suffixId : null, hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined;
+  const field = <input ref={ref} id={id} type={type} aria-invalid={error ? true : undefined} aria-describedby={describedBy} {...input} />;
   return (
     <div className={styles.field}>
       <label htmlFor={id}>{label}</label>
-      <input ref={ref} id={id} type={type} aria-invalid={error ? true : undefined} aria-describedby={describedBy} {...input} />
+      {suffix ? (
+        <span className={styles.withSuffix}>
+          {field}
+          <span className={styles.suffix} id={suffixId}>
+            {suffix}
+          </span>
+        </span>
+      ) : (
+        field
+      )}
       {hint ? (
         <span className={styles.hint} id={hintId}>
           {hint}

@@ -19,6 +19,11 @@ export interface RestoreActionsCopy<S> {
   action: string;
   /** The after-message spoken on `restored` (and on `already-live` when the server sent no sentence). */
   after: (restored: S) => string;
+  /**
+   * Spoken on `already-live` in place of the server's sentence, when the family's copy has one (items R1-17, the W4
+   * treatment: *"{sku} was already restored."*). Absent: the server's sentence as sent (warehouses), as before.
+   */
+  alreadyLive?: (restored: S) => string;
   /** The interrupted sentence (unreachable / server error). */
   interrupted: string;
   /** B-8's 403 sentence around the permission's label. */
@@ -120,7 +125,7 @@ export function RestoreActions<S>({ archivedAt, copy, canRestore, restore, resto
         // The record is live now (the action committed it): this banner and its button are gone. After a refusal that found
         // it live already, the server's sentence is spoken as sent; it is true at that moment.
         fallbackFocusRef.current?.focus();
-        announce(result.kind === 'already-live' && result.message !== '' ? result.message : copy.after(result));
+        announce(result.kind !== 'already-live' ? copy.after(result) : copy.alreadyLive !== undefined ? copy.alreadyLive(result) : result.message !== '' ? result.message : copy.after(result));
         onRestored?.();
         return;
       case 'refused':

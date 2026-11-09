@@ -21,7 +21,7 @@ import type { AssignResult } from '@/lib/roles/results';
 import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, PROPOSAL_REFUSALS, ROLES, SAVE_REFUSALS as PICKER_REFUSALS, SELF_ADMIN } from '@/components/preview/fixtures/roles';
 import { PickerHarness, scene as pickerScene } from './roles/harness';
 import { AppShell } from '@/app/(app)/AppShell';
-import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ListLoad } from '@/app/(app)/ArchivableList';
+import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ListLoad, type PagedLoad } from '@/app/(app)/ArchivableList';
 import { renderWired } from './wired/harness';
 
 // The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
@@ -519,6 +519,55 @@ describe('DOM fitness — Revision 7 list core, Locations section', () => {
     expect(labelled()).toBe(screen.getByRole('heading', { level: 2, name: 'Locations' }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 locations shown.'));
   });
+});
+
+// Items I-0b (Revision 8 R8-1): the paged list core. A page change and a reread keep the one region node, empty at first
+// render; no [disabled] on the pager.
+function PagedThings({ initial, load, controller }: { initial: PagedLoad<Loc>; load: () => Promise<PagedLoad<Loc>>; controller?: Ref<ArchivableListHandle> }) {
+  return (
+    <ArchivableList<Loc>
+      initial={initial}
+      load={load}
+      controller={controller}
+      paging={{
+        pager: () => ({ previous: 'Previous', next: 'Next' }),
+        pageShown: (rows) => `${rows.length} shown, ${rows[0]!.code} to ${rows[rows.length - 1]!.code}.`,
+        noMore: () => ({ heading: 'There are no more here.', body: 'The list changed.', action: 'Back to the first page' }),
+      }}
+      columns={() => [{ header: 'Code', cell: (l) => l.code }]}
+      copy={{ heading: 'Things', archived: 'Archived', loadFailed: "The things couldn't be loaded.", shown: (n) => `${n} shown.` }}
+      search={{ label: 'Search', placeholder: 'Start' }}
+      empty={() => ({ heading: 'None.' })}
+      archivedView={{ order: 'as-served', caption: 'Most recently archived first', rows: 'struck' }}
+      denied={<p>Denied.</p>}
+    />
+  );
+}
+
+describe('DOM fitness — Items I-0b paged list core', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node across a page change and a reread${strict ? ' (StrictMode)' : ''}`, async () => {
+      const answers: PagedLoad<Loc>[] = [
+        { kind: 'ok', items: [{ id: 'b', archived_at: null, code: 'B-01' }], nextCursor: null, previousCursor: 'p1' },
+        { kind: 'ok', items: [{ id: 'b', archived_at: null, code: 'B-01' }], nextCursor: null, previousCursor: 'p1' },
+      ];
+      const controller = createRef<ArchivableListHandle>();
+      const ui = <PagedThings initial={{ kind: 'ok', items: [LIVE_LOC], nextCursor: 'n1', previousCursor: null }} load={async () => answers.shift()!} controller={controller} />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const regions = trackRegions();
+      expect(regions.count).toBe(1);
+      expect(regions.firstRender).toEqual([]);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+      expect(await screen.findByText('B-01')).toBeInTheDocument();
+      expect(regions.check()).toEqual([]);
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 shown, B-01 to B-01.'));
+      await act(async () => void (await controller.current!.reread()));
+      expect(regions.check()).toEqual([]);
+      expect(screen.getByRole('status')).toHaveTextContent('1 shown, B-01 to B-01.');
+      expect(screen.getByRole('button', { name: 'Previous' })).toBeInTheDocument();
+    });
+  }
 });
 
 // Step 4.2: an archived warehouse's Restore warehouse. A refusal (W5, re-read still archived), then a restore that turns the page live: the one

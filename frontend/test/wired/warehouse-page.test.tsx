@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -167,6 +167,91 @@ describe('/warehouses/[id] — the editor (B-3)', () => {
     await waitFor(() => expect(heading).toHaveFocus());
   });
 
+  // Shipped-defect fixes (2026-11-06, found by the items RED L-1 / L-2): a save whose re-read fails shows what was saved;
+  // a later read that succeeds clears the earlier re-read error.
+  it('saved but the re-read failed: the 200 body is shown (h1, saved code, Save disabled) under the region error', async () => {
+    // RED L-2: the server's answer differs from what was typed. Name is typed too (as "Main warehousex") and answered as
+    // "Main warehouse (saved)": with Code alone typed, committing the typed values over the answer stayed green (measured).
+    stubFetch([json(200, { ...MAIN, code: 'HUB', name: 'Main warehouse (saved)' }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Code'));
+    await u.type(field('Code'), 'HUB');
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(region()).toHaveTextContent('HUB was saved.');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('HUB — Main warehouse (saved)');
+    expect(field('Code')).toHaveValue('HUB');
+    expect(field('Name')).toHaveValue('Main warehouse (saved)');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('a later save whose re-read succeeds clears an earlier re-read error', async () => {
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), json(200, { ...MAIN, name: 'Mainy' }), json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Mainy');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy'));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull());
+  });
+
+  it('saved but the re-read could not reach the server: the 200 body is still shown (warehouse re-read RED L-3)', async () => {
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n += 1;
+      if (n === 1) return json(200, { ...MAIN, code: 'HUB' });
+      throw new TypeError('offline');
+    }));
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Code'));
+    await u.type(field('Code'), 'HUB');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't reach the server.")).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('HUB — Main warehouse');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // Warehouse re-read RED M-2: a Retry still in flight when a newer commit lands is dropped, failure or success.
+  const staleRetry = async (release: () => Response) => {
+    let releaseHeld!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (releaseHeld = res));
+    stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), () => held, json(200, { ...MAIN, name: 'Mainy' }), json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Mainy');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy'));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull());
+    await act(async () => {
+      releaseHeld(release());
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  };
+
+  it('a stale Retry that fails after a successful save does not bring the error back (warehouse re-read RED M-2, E1)', async () => {
+    await staleRetry(() => json(503, {}));
+    expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+  });
+
+  it('a stale Retry that answers the old warehouse after a save does not overwrite it (warehouse re-read RED M-2, E2)', async () => {
+    await staleRetry(() => json(200, { ...MAIN, name: 'Mainx' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+    expect(field('Name')).toHaveValue('Mainy');
+  });
+
   it('the re-read answers 403 → ST-4b for warehouses; 404 → ST-5 back to the list', async () => {
     stubFetch([json(200, MAIN), problem(403, 'permission-denied')]);
     const u = userEvent.setup();
@@ -236,7 +321,9 @@ describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
 
   it('W5: the code collision shows verbatim under "Not restored", focus on its heading, the button stays', async () => {
     const sentence = "Another warehouse now uses this warehouse's code, so it can't be restored. It can be restored once that warehouse's code is changed.";
-    stubFetch([refused('warehouse.code_is_unique_per_workspace', sentence)]);
+    // The re-read after the refusal answers the archived warehouse: since the warehouse re-read RED M-1 a failed re-read
+    // raises the region error (which takes focus), so this test now serves the re-read it used to leave to the harness.
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', sentence), json(200, ARCHIVED)]);
     const u = userEvent.setup();
     show(ARCHIVED, true, true);
     await u.click(restore());
@@ -245,6 +332,47 @@ describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
     expect(restore()).toBeInTheDocument();
     expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
     expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  // Warehouse re-read RED M-1 (a third shipped defect): a refused Restore whose re-read fails is told to the page.
+  const W5_TEXT = "Another warehouse now uses this warehouse's code, so it can't be restored. It can be restored once that warehouse's code is changed.";
+  it('W5 and a re-read that fails: "Not restored" with W5 AND the region error; Restore stays (RED M-1 a)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), json(500, {})]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText(W5_TEXT)).toBeInTheDocument();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(restore()).toBeInTheDocument();
+  });
+
+  it('W5 and a re-read that answers 403: ST-4b for warehouses (RED M-1 b)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to warehouses." })).toBeInTheDocument();
+  });
+
+  it('W5 and a re-read that answers 404: ST-5 back to the list (RED-2 L-5)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), problem(404, 'not-found')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByRole('link', { name: 'Back to the list' })).toHaveAttribute('href', '/warehouses');
+  });
+
+  it('W5 + a failed re-read, then a restore that succeeds: the region error is gone and the page is live (RED M-1 c)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), json(500, {}), json(200, MAIN), json(200, MAIN)]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.click(restore());
+    await waitFor(() => expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull());
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(region()).toHaveTextContent('MAIN was restored.');
   });
 
   it('a 403: the lost-permission sentence names "Delete and restore warehouses" (B-8)', async () => {

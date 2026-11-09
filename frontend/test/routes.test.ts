@@ -110,4 +110,12 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     const dest = startDestination(NAV_ITEMS.map((i) => i.permission));
     expect(dest === null || BUILT_PAGE_HREFS.includes(dest)).toBe(true);
   });
+  // Items I-1 owner notice (items-plan.md Final owner list item 8; UX B-11): with /items built, it is first in the menu, so
+  // every viewer holding inventory_item.view starts there; a viewer without it (finance's shape) keeps the next built page.
+  it('items I-1: the start page moves to /items for an inventory_item.view holder, and only for one', () => {
+    expect(BUILT_PAGE_HREFS).toEqual(['/items', '/warehouses', '/admin/users', '/admin/roles']);
+    expect(startDestination(['inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/items');
+    expect(startDestination(['inventory_item.view'])).toBe('/items');
+    expect(startDestination(['warehouse.view', 'invoice.view'])).toBe('/warehouses');
+  });
 });
