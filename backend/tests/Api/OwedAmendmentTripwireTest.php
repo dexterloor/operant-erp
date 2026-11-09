@@ -1055,6 +1055,13 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'the queue page in a component preview' => [[...$due, '(dev)/component-preview/pick-queue/page.tsx'], $uses + ['app/(dev)/component-preview/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
             'the queue page under a route group' => [[...$due, '(app)/(ops)/pick-queue/page.tsx'], $uses + ['app/(app)/(ops)/pick-queue/page.tsx' => self::QUEUE_OPERATION_ID], true, $withQueue],
             'not due, no queue page, spec without the queue operation' => [['(app)/admin/users/page.tsx'], [], true, $withoutQueue],
+            // Mirrored from the twin (frontend RED pickqueue-twin-red.md L-1...L-4, same names and verdicts): "exactly
+            // /pick-queue" refuses a page below it or at another case; the queue operation is matched as a whole word in
+            // the page and as an exact operationId in the spec.
+            'the queue page one level too deep' => [[...$due, '(app)/pick-queue/x/page.tsx'], $uses + ['app/(app)/pick-queue/x/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the queue page names only a longer identifier' => [[...$due, $queuePage], $uses + ['app/'.$queuePage => self::QUEUE_OPERATION_ID.'Summary'], false, $withQueue],
+            'the queue page at another case' => [[...$due, '(app)/Pick-Queue/page.tsx'], $uses + ['app/(app)/Pick-Queue/page.tsx' => self::QUEUE_OPERATION_ID], false, $withQueue],
+            'the spec holds only a longer operationId' => [[...$due, $queuePage], $queueUses, false, [self::QUEUE_OPERATION_ID.'V2', 'GetPickList', 'CreateFulfilment']],
         ];
         foreach ($planted as $name => $row) {
             [$pages, $sources, $passes] = $row;
