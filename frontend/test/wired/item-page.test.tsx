@@ -30,6 +30,7 @@ const BOLT: Item = {
   safety_stock: '-0.500000',
   supplier: { id: 'c1b2c3d4-0000-4000-8000-000000000009', name: 'Acme Supplies' },
   archived_at: null,
+  holds_stock: false,
 };
 const AT = '2026-03-04T10:00:00Z';
 const ARCHIVED: Item = { ...BOLT, archived_at: AT };

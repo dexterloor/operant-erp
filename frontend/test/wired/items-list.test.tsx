@@ -32,6 +32,7 @@ const it_ = (id: string, sku: string, over: Partial<Item> = {}): Item => ({
   safety_stock: '0.000000',
   supplier: null,
   archived_at: null,
+  holds_stock: false,
   ...over,
 });
 const A1 = it_('b1b2c3d4-0000-4000-8000-000000000001', 'A-1', { supplier: { id: 'c1b2c3d4-0000-4000-8000-000000000009', name: 'Acme Supplies' } });

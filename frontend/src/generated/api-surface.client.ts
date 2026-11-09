@@ -397,7 +397,7 @@ export const BULK_MAX_IDS: number = 50;
 /** Sorted served property names of each schema a hand-written lib/api type mirrors (checked by test C-1). */
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
-  Item: ['archived_at', 'id', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier', 'unit_of_measure_code'],
+  Item: ['archived_at', 'holds_stock', 'id', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier', 'unit_of_measure_code'],
   'Item.CreateItemInput': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
   'Item.UpdateItemInput.jsonMergePatch': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
   OfferedRole: ['conflicts_with', 'id', 'margin_exposure_with', 'name', 'refusal', 'requires_owner_confirmation'],
@@ -421,6 +421,15 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 /** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
 export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  Item: {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
+  'Item.CreateItemInput': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
+  'Item.UpdateItemInput.jsonMergePatch': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
   SodRowRef: {
     half: ['preparing', 'controlled'],
   },

@@ -71,7 +71,7 @@ const MIRRORED: Record<string, string[]> = {
   'StorageLocation.CreateStorageLocationInput': keysOf<CreateStorageLocationInput>()({ code: true, kind: true }),
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': keysOf<UpdateStorageLocationInput>()({ code: true, kind: true }),
   // Items I-1 (Revision 8 R8-2): the item, its supplier reference, and both inputs (the create input is first sent at I-2).
-  Item: keysOf<Item>()({ id: true, sku: true, name: true, unit_of_measure_code: true, reorder_point: true, reorder_quantity: true, safety_stock: true, supplier: true, archived_at: true }),
+  Item: keysOf<Item>()({ id: true, sku: true, name: true, unit_of_measure_code: true, reorder_point: true, reorder_quantity: true, safety_stock: true, supplier: true, archived_at: true, holds_stock: true }),
   SupplierReference: keysOf<SupplierReference>()({ id: true, name: true }),
   'Item.CreateItemInput': keysOf<CreateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
   'Item.UpdateItemInput.jsonMergePatch': keysOf<UpdateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
