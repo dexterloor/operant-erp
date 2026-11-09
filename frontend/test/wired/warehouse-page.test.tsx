@@ -355,6 +355,14 @@ describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to warehouses." })).toBeInTheDocument();
   });
 
+  it('W5 and a re-read that answers 404: ST-5 back to the list (RED-2 L-5)', async () => {
+    stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), problem(404, 'not-found')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByRole('link', { name: 'Back to the list' })).toHaveAttribute('href', '/warehouses');
+  });
+
   it('W5 + a failed re-read, then a restore that succeeds: the region error is gone and the page is live (RED M-1 c)', async () => {
     stubFetch([refused('warehouse.code_is_unique_per_workspace', W5_TEXT), json(500, {}), json(200, MAIN), json(200, MAIN)]);
     const u = userEvent.setup();

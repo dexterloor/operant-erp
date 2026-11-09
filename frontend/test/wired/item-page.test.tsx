@@ -522,6 +522,22 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     expect(restore()).toBeInTheDocument();
   });
 
+  it('refused (UX-I1) and the re-read answers 403: ST-4b for items (RED-2 L-5)', async () => {
+    stubFetch([refused('inventory_item.sku_is_unique_per_workspace', 'Another live item in this workspace already uses this SKU.'), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to items." })).toBeInTheDocument();
+  });
+
+  it('refused (UX-I1) and the re-read answers 404: ST-5 back to the list (RED-2 L-5)', async () => {
+    stubFetch([refused('inventory_item.sku_is_unique_per_workspace', 'Another live item in this workspace already uses this SKU.'), problem(404, 'not-found')]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(restore());
+    expect(await screen.findByRole('link', { name: 'Back to the list' })).toHaveAttribute('href', '/items');
+  });
+
   it('restored (200) but the re-read fails: the 200 body is committed, never "restored" over the archived banner (RED M-3 d)', async () => {
     stubFetch([json(200, BOLT), json(500, {})]);
     const u = userEvent.setup();
@@ -590,7 +606,38 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     await u.type(field('Name'), 'y');
     await u.click(save());
     await waitFor(() => expect(screen.getByText(/This item was archived on/)).toBeInTheDocument());
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
     expect(screen.queryByText(I2)).toBeNull();
     expect(within(document.body).queryByText('Not saved')).toBeNull();
+  });
+
+  it('a page turned live by Retry forgets the stale Save refusal too: it does not return when the page turns archived again (RED-2 L-1)', async () => {
+    const i1 = 'Another live item in this workspace already uses this SKU.';
+    stubFetch([
+      refused('inventory_item.is_archived', I2),
+      json(200, ARCHIVED),
+      refused('inventory_item.sku_is_unique_per_workspace', i1),
+      json(500, {}),
+      json(200, BOLT),
+      refused('transaction.contention', P1),
+      json(200, ARCHIVED),
+    ]);
+    const u = userEvent.setup();
+    const errors = vi.spyOn(console, 'error');
+    show(BOLT, true, true);
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText(I2)).toBeInTheDocument();
+    await u.click(restore());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText(/This item was archived on/)).toBeNull());
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(/This item was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(I2)).toBeNull();
+    expect(within(document.body).queryByText('Not saved')).toBeNull();
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    errors.mockRestore();
   });
 });

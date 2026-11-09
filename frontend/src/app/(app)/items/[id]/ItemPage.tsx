@@ -73,18 +73,25 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   }, []);
 
   // L-2: every read the page commits is newer than an earlier failed re-read, so committing one clears that error.
-  // A page-owned re-read (Retry) that a newer commit overtook says nothing about what is on screen: its answer, success
-  // or failure, is dropped (the warehouse RED M-2, applied here as its twin).
-  const commits = useRef(0);
+  // Each page-owned re-read (Retry; I-3's dialog close) takes a stamp when it starts. A commit records the stamp of what
+  // it shows: the re-read's own start stamp, or a fresh one for a write's answer, which arrives after every re-read in
+  // flight started. A page-owned re-read whose start is older than what is already committed says nothing about what is
+  // on screen: its answer, success or failure, is dropped. An older re-read landing first never drops a newer one.
+  const stamps = useRef(0);
+  const committedAsOf = useRef(0);
   const commit = useCallback(
-    async (i: Item) => {
-      commits.current += 1;
+    async (i: Item, asOf?: number) => {
+      // The larger of the two, written without Math (the QR-2 backstop forbids Math calls in the item files).
+      const stamp = asOf ?? ++stamps.current;
+      if (stamp > committedAsOf.current) committedAsOf.current = stamp;
       setRereadError(null);
+      // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
+      if (i.archived_at === null) setStaleRefusal(null);
       await setItem(i);
     },
     [setItem],
   );
-  // The wiring is built when an action runs, not during render: `commit` bumps the `commits` ref, which may only be
+  // The wiring is built when an action runs, not during render: `commit` writes the stamp refs, which may only be
   // touched outside render (react-hooks/refs).
   const save = useCallback((changes: ItemChange) => itemSave({ caller, id, setItem: commit, onRereadFailed: failed })(changes), [caller, id, commit, failed]);
   const restore = useCallback(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed })(), [caller, id, commit, failed]);
@@ -102,17 +109,26 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
     if (staleGen !== null) staleHeading.current?.focus();
   }, [staleGen]);
 
+  // A commit that turns the page archived unmounts the form (and its Save) under the person's focus: when focus is then
+  // lost (on <body> or a removed element), it moves to the h1. Effects that focus something themselves run after this one.
+  const archivedNow = item.archived_at !== null;
+  useLayoutEffect(() => {
+    if (!archivedNow) return;
+    const a = document.activeElement;
+    if (a === null || a === document.body || !a.isConnected) h1.current?.focus();
+  }, [archivedNow]);
+
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
-    const seen = commits.current;
+    const mine = ++stamps.current;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadItem(readOf(caller), id, d.signal);
     d.cancel();
     setRetrying(false);
-    if (commits.current !== seen) return;
+    if (committedAsOf.current > mine) return;
     if (r.kind === 'ok') {
-      await commit(r.item);
+      await commit(r.item, mine);
       setRereadError(null);
       h1.current?.focus();
     } else failed(r.kind);
@@ -132,10 +148,10 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
       <LiveRegion message={region.message} visuallyHidden />
       {rereadError ? (
-        <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ITEM_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
+        <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ITEM_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
       {staleRefusal && archived ? (
-        <Banner key={staleRefusal.gen} tone="danger" live="none" heading={NOT_SAVED} ref={staleHeading}>
+        <Banner key={`stale-${staleRefusal.gen}`} tone="danger" live="none" heading={NOT_SAVED} ref={staleHeading}>
           <p>{staleRefusal.message}</p>
         </Banner>
       ) : null}
