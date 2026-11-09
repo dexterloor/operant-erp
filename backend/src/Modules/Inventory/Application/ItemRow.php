@@ -40,8 +40,11 @@ final class ItemRow
      *
      * `<> 0`, not `> 0`: the same "any stock" `storage_location.holds_stock` means. The explicit
      * `sl.tenant_id = i.tenant_id` lets `stock_level_unique (tenant_id, inventory_item_id, …)` serve the probe with both
-     * leading columns as index conditions, without relying on the RLS qual (`SchemaQueryPlanTest`). Correlated to the
-     * alias `i` of {@see self::FROM}.
+     * leading columns as index conditions, without relying on the RLS qual — not pinned: with the predicate removed the
+     * RLS qual serves the same `Index Cond` (mutation M12, green), so it is a review check. `SchemaQueryPlanTest` pins only
+     * that the index CAN serve the probe; on the live `ListItems` page the planner takes the hashed alternative and reads
+     * the tenant's stock rows once per page (measured, `RESIDUAL_GAPS.md` G-99). Correlated to the alias `i` of
+     * {@see self::FROM}.
      */
     public const HOLDS_STOCK = 'EXISTS (SELECT 1 FROM stock_level sl WHERE sl.tenant_id = i.tenant_id '
         .'AND sl.inventory_item_id = i.id AND sl.qty_on_hand <> 0)';

@@ -665,8 +665,12 @@ final class SchemaQueryPlanTest extends TenancyTestCase
      * **Measured 2026-11-09, and why the probe is planned on its own.** On the reader's own live page
      * ({@see ItemReader::listStatement()}, 50 rows) over this seeded world (1,000 stock rows), the planner takes the HASHED
      * alternative of the subplan: it reads the tenant's stock rows once (a bitmap scan on the tenant) and probes a hash per
-     * row, which at this size is cheaper than 51 index seeks. That is a fact about the seed's size, not the index, and an
-     * assertion on it could not tell a missing index from a small table. So, as
+     * row. **It is not only a fact about the seed's size:** the planner costs the subplan by the list's whole row estimate,
+     * not by the page's `LIMIT`, and at 10,000 items × 2 bins per tenant (20,000 non-zero stock rows) the live page still
+     * takes the hashed subplan — a sequential scan of `stock_level` reading 20,000 rows and discarding 20,000, 18.5 ms of a
+     * 22.5 ms page (measured 2026-11-09, `docs/session13/items-c2-holds-stock-plan-10k.txt`). That page cost is accepted as
+     * `RESIDUAL_GAPS.md` G-99, whose closing work is a live-page plan test at volume. An assertion on the page's plan here
+     * could not tell a missing index from a hashed subplan. So, as
      * `theCreditedOnReturnLineSubqueryUsesTheReturnLineIndex` does, the probe is taken from the source (never transcribed)
      * and correlated to a one-row derived table carrying an item id and this tenant's id, where only the per-row seek can
      * win; **`enable_seqscan = off`** is the same planner-size accommodation. This proves the index CAN serve the probe, not
@@ -683,8 +687,17 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             ['00000000-0000-4000-8000-000000000000']);
 
         $this->assertPlan('Items — holds_stock, one item', $plan, 'stock_level_unique');
-        self::assertMatchesRegularExpression('/Index Cond:[^\n]*inventory_item_id/', $plan,
-            "The item is not an index condition, so the probe reads every stock row of the workspace:\n$plan");
+        self::assertMatchesRegularExpression(
+            '/Index (?:Only )?Scan using stock_level_unique on stock_level\b[^\n]*\n\s+Index Cond: \(\(tenant_id = [^\n]*\bAND \(inventory_item_id = /',
+            $plan,
+            "stock_level_unique is not sought on (tenant_id, inventory_item_id):\n$plan");
+
+        // An Index Cond on a non-leading column narrows nothing, and stock_level_tenant_location_idx also carries
+        // inventory_item_id (third). Only the key order makes the seek a seek.
+        self::assertStringContainsString(
+            '(tenant_id, inventory_item_id, storage_location_id)',
+            (string) $this->owner()->fetchOne("SELECT pg_get_indexdef('stock_level_unique'::regclass)"),
+            'stock_level_unique no longer leads (tenant_id, inventory_item_id), so the holds_stock probe cannot seek by item.');
     }
 
     /**
