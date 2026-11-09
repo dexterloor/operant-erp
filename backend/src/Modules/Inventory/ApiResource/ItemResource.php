@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
@@ -17,6 +18,7 @@ use App\Modules\Inventory\ApiResource\State\RestoreItemProcessor;
 use App\Modules\Inventory\ApiResource\State\UpdateItemProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -31,8 +33,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *   2. plus `id`;
  *   3. plus `archived_at`, because `SchemaManifest::TABLES['inventory_item']`
  *      declares deletion class `soft`;
- *   4. plus §4.4.3's additions table, which has **no row for Item** -- so steps
- *      1-3 are the whole shape.
+ *   4. plus §4.4.3's additions table -- whose Item row adds `holds_stock`
+ *      (BK-27, items batch C2), a boolean derived from `stock_level`, not a column.
  *
  * `unit_cost`, `currency_code` and `is_active` are columns on the table and are
  * **not** fields of this resource: no `Create*` cell names them and no additions
@@ -189,7 +191,9 @@ final class ItemResource
         public string $id,
         public string $sku,
         public string $name,
+        /** One of {@see UnitsOfMeasure::CODES}, served as that enum (BK-22): one list for the read shape and both inputs. */
         #[SerializedName('unit_of_measure_code')]
+        #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
         public string $unitOfMeasureCode,
         public ?SupplierReference $supplier,
         #[SerializedName('reorder_point')]
@@ -201,6 +205,12 @@ final class ItemResource
         /** Non-null iff the row is archived (ST-9). */
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
+        /**
+         * Whether any stock row of the item has a non-zero on-hand, in any location ({@see ItemRow::HOLDS_STOCK}; BK-27).
+         * PC-9's sixth named exception: one boolean, never where or how much, and not "available" (G-47).
+         */
+        #[SerializedName('holds_stock')]
+        public bool $holdsStock,
     ) {
     }
 }

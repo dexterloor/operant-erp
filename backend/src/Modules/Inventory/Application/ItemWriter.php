@@ -87,8 +87,13 @@ final readonly class ItemWriter
      * The bulk-only stock read (G5-C2, {@see self::archiveUnlessStocked()}): any non-zero on-hand in any location, any kind,
      * quarantine included — the same "any stock" `storage_location.holds_stock` means. A read of `stock_level`, never a
      * write, so TB-6's *"anything touching stock_level"* (writes) is not crossed (`UX` to confirm the reading).
+     *
+     * **Built from {@see ItemRow::HOLDS_STOCK} since items batch C2 (BK-27)**, so the bulk refusal and the `holds_stock` an
+     * item read serves are one predicate, not two copies that agree today (`ItemHoldsStockTest` pins the containment; a
+     * copy that drifted by one character would leave every behaviour test green). Item-addressed: no row for an id the
+     * caller cannot see, which `archiveUnlessStocked()` never asks about (it locks the item first).
      */
-    public const STOCKED = 'SELECT EXISTS (SELECT 1 FROM stock_level WHERE inventory_item_id = ?::uuid AND qty_on_hand <> 0)';
+    public const STOCKED = 'SELECT '.ItemRow::HOLDS_STOCK.' FROM inventory_item i WHERE i.id = ?::uuid';
 
     /** Never shown: a bulk answers counts only (E-14). Here so the refusal is a named rule like every other. */
     public const HOLDS_STOCK_IN_BULK = 'This item still holds stock, so it is not archived in bulk.';

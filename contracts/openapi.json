@@ -1791,6 +1791,9 @@
                             "null"
                         ]
                     },
+                    "holds_stock": {
+                        "type": "boolean"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -1820,6 +1823,13 @@
                         ]
                     },
                     "unit_of_measure_code": {
+                        "enum": [
+                            "EA",
+                            "BOX",
+                            "KG",
+                            "L",
+                            "M"
+                        ],
                         "type": "string"
                     }
                 },
@@ -1865,10 +1875,14 @@
                         ]
                     },
                     "unit_of_measure_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "EA",
+                            "BOX",
+                            "KG",
+                            "L",
+                            "M"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1913,10 +1927,14 @@
                         ]
                     },
                     "unit_of_measure_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "enum": [
+                            "EA",
+                            "BOX",
+                            "KG",
+                            "L",
+                            "M"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"

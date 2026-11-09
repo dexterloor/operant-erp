@@ -16,6 +16,7 @@ use App\Modules\Sales\Application\SalesOrderWriter;
 use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PhpSourceScan;
@@ -1268,10 +1269,12 @@ final class OpenApiContractTest extends ApiTestCase
      */
     private const REQUEST_ENUMS = [
         'CreateAdjustmentDecision.kind' => AdjustmentDecisionWriter::KINDS,
+        'CreateItem.unit_of_measure_code' => UnitsOfMeasure::CODES,
         'CreateSalesReturn.reason' => SalesReturnWriter::REASONS,
         'CreateStorageLocation.kind' => LocationKinds::ALL,
         'IssueAdjustmentCreditNote.reason' => CreditNoteWriter::ADJUST_REASONS,
         'IssueCreditNote.reason' => CreditNoteWriter::ISSUE_REASONS,
+        'UpdateItem.unit_of_measure_code' => UnitsOfMeasure::CODES,
         'UpdateStorageLocation.kind' => LocationKinds::ALL,
     ];
 

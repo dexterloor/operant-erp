@@ -1732,6 +1732,190 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     }
 
     /**
+     * **G-51's frontend trigger — the backend twin** (items batch C2, 2026-11-09; `docs/design/items-owner-items.md` H-1,
+     * `docs/session13/items-batch-design.md` Revision 0 §1 C2 as corrected by its Response to RED L-3 and "Revision 1 —
+     * FINAL"). G-51 (Low; owner `PO`): an item can be archived while it holds stock, and that stock then cannot be counted
+     * or moved between locations until the item is restored. **G-51 is NOT closed and nothing here may be read as closing
+     * it.** Its acceptance for the web app rests on a ground that is true only while the web app can neither count nor
+     * move stock for ANY item: then archiving a stocked item removes no ability the web-app user has, and the delete
+     * dialog states the consequence (and, since BK-27, warns when `holds_stock` is true).
+     *
+     * **The trigger T** (outside `frontend/src/generated/`): (a) source naming `CreateStockAdjustment` or
+     * `CreateStockTransfer` (word boundaries, the G-47 twin's L-3 lesson: `CreateStockAdjustmentDraft` does not fire);
+     * (b) `frontend/scripts/api-surface.client-ops.json` wiring either for the browser; (c) a page (the shared URL model,
+     * {@see self::frontendPageUrl()}) with a URL segment `stock-counts`, `stock-adjustments` or `stock-transfers`, or a
+     * segment `count` or `transfer` under `/stock` (`UX`/`FE-LEAD` to confirm the route words; (a), (b) and (d) are the
+     * robust arms); (d) source naming the two operations' paths, `/stock-movements/adjustments` or
+     * `/stock-movements/transfers`, under any prefix (`/api/v1`, `/bff/api`), never `/stock-movements` alone (the
+     * movements read).
+     *
+     * **Keyed on the frontend tree, never on the spec** (design §0.3 F-E): both operations are built and served, so a
+     * spec-keyed pin would be red on arrival. There is no implication to satisfy: T must stay false while G-51 is open,
+     * and the commit that makes it true must first take the decision in the failure message.
+     *
+     * **Known limits, stated:** an operation name or path built by concatenation or a template literal evades (a) and
+     * (d); a comment naming a token fires them (loud and safe); a route word other than the five in (c) evades (c), and
+     * (a)/(b)/(d) are what catch a real screen, which must name the operation or its path to call it; a source behind a
+     * symlinked directory is not read.
+     *
+     * **Where it runs.** Merge-time backstop, the canonical text: the backend writes it first, and `FE-LEAD` ports it
+     * byte-identical into `frontend/test/architecture.test.ts` with Items I-3 (the G-47 order). Until then the rule is
+     * enforced only when frontend work merges into main.
+     *
+     * **Controls, same test:** planted trees, one rule per tree, for each arm firing and for each near miss (the
+     * movements read named or wired, both operations and both paths only in generated code, a word-boundary miss, a
+     * `/stock` page, `count` outside `/stock`, a private folder, a layout); the exact trigger lines of a four-reason tree.
+     * Real tree: {@see self::frontendTree()}'s; `src/generated/` names both operations and both paths; the client wiring
+     * list exists and is read; T is false on main today.
+     */
+    #[Test]
+    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void
+    {
+        $admin = ['(app)/admin/page.tsx'];
+        // Planted trigger trees: [pages, sources, client ops, due?]. One rule per tree.
+        $triggers = [
+            'arm (a): a library file naming CreateStockAdjustment' => [$admin, ['lib/api/stock.ts' => "write('CreateStockAdjustment', body)"], [], true],
+            'arm (a): a component naming CreateStockTransfer' => [$admin, ['components/Move.tsx' => 'CreateStockTransfer'], [], true],
+            'arm (a) miss: a longer identifier (word boundary after)' => [$admin, ['lib/x.ts' => 'CreateStockAdjustmentDraft'], [], false],
+            'arm (a) miss: a longer identifier (word boundary before)' => [$admin, ['lib/x.ts' => 'XCreateStockTransfer'], [], false],
+            'arm (a) miss: only the movements read named' => [$admin, ['lib/x.ts' => "read('ListStockMovements')"], [], false],
+            'arm (a) miss: both operations only in generated code' => [$admin, ['generated/api-surface.server.ts' => 'CreateStockAdjustment CreateStockTransfer'], [], false],
+            'arm (b): the adjustment wired for the browser' => [$admin, [], ['ListUsers', 'CreateStockAdjustment'], true],
+            'arm (b): the transfer wired for the browser' => [$admin, [], ['CreateStockTransfer'], true],
+            'arm (b) miss: only the movements read wired' => [$admin, [], ['ListStockMovements'], false],
+            'arm (c): a /stock-counts page' => [['(app)/stock-counts/page.tsx'], [], [], true],
+            'arm (c): a page below /stock-adjustments' => [['(app)/stock-adjustments/new/page.tsx'], [], [], true],
+            'arm (c): a stock-transfers segment deeper down' => [['(app)/inventory/stock-transfers/page.tsx'], [], [], true],
+            'arm (c): a count page under /stock' => [['(app)/stock/count/page.tsx'], [], [], true],
+            'arm (c): a transfer page under a /stock item' => [['(app)/stock/[id]/transfer/page.tsx'], [], [], true],
+            'arm (c): a /stock-counts page under a parallel slot' => [['(app)/stock-counts/@panel/page.tsx'], [], [], true],
+            'arm (c) miss: the /stock page itself (G-47\'s trigger, not this one)' => [['(app)/stock/page.tsx'], [], [], false],
+            'arm (c) miss: a count page outside /stock' => [['(app)/items/count/page.tsx'], [], [], false],
+            'arm (c) miss: a /stock-movements page' => [['(app)/stock-movements/page.tsx'], [], [], false],
+            'arm (c) miss: a private folder' => [['(app)/_wip/stock-counts/page.tsx'], [], [], false],
+            'arm (c) miss: a layout, not a page' => [['(app)/stock-counts/layout.tsx'], [], [], false],
+            'arm (d): the adjustment path on the server' => [$admin, ['lib/x.ts' => "'/api/v1/stock-movements/adjustments'"], [], true],
+            'arm (d): the transfer path through the BFF' => [$admin, ['lib/x.ts' => "bffFetch('/bff/api/stock-movements/transfers', { method: 'POST' })"], [], true],
+            'arm (d) miss: the movements read path alone' => [$admin, ['lib/x.ts' => "'/bff/api/stock-movements?item=1'"], [], false],
+            'arm (d) miss: a longer path segment' => [$admin, ['lib/x.ts' => "'/api/v1/stock-movements/adjustments-draft'"], [], false],
+            'arm (d) miss: both paths only in generated code' => [$admin, ['generated/api-surface.server.ts' => "template: '/api/v1/stock-movements/adjustments', template: '/api/v1/stock-movements/transfers',"], [], false],
+            'a frontend with no stock screens' => [['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], [], ['ListUsers'], false],
+        ];
+        foreach ($triggers as $name => [$pages, $sources, $clientOps, $due]) {
+            $lines = self::stockCountOrMoveTriggers($pages, $sources, $clientOps);
+            self::assertSame($due, [] !== $lines, \sprintf(
+                'Planted trigger "%s" should %s, but the predicate reported: %s. The URL model or a token search is '
+                .'broken, so its verdict on the real tree below means nothing.',
+                $name, $due ? 'be due' : 'not be due', [] === $lines ? 'not due' : implode(' | ', $lines)));
+        }
+        self::assertSame([
+            'the frontend serves a page at /stock/count (src/app/(app)/stock/count/page.tsx)',
+            'src/components/A.tsx names CreateStockTransfer outside src/generated/',
+            'src/lib/x.ts names a stock count or transfer path (/stock-movements/adjustments or /stock-movements/transfers) outside src/generated/',
+            'scripts/api-surface.client-ops.json wires CreateStockAdjustment for the browser',
+        ], self::stockCountOrMoveTriggers(['(app)/stock/count/page.tsx'], ['lib/x.ts' => "'/bff/api/stock-movements/transfers'", 'components/A.tsx' => 'CreateStockTransfer'], ['CreateStockAdjustment']),
+            'Planted control: the trigger lines for a four-reason tree are not the exact lines, in order, that a red run prints.');
+
+        // Real tree.
+        ['pages' => $pages, 'sources' => $sources] = self::frontendTree();
+        $generated = array_filter($sources, static fn (string $text, string $path): bool => str_starts_with($path, 'generated/')
+            && 1 === preg_match('/\bCreateStockAdjustment\b/', $text) && 1 === preg_match('/\bCreateStockTransfer\b/', $text)
+            && 1 === preg_match(self::STOCK_COUNT_OR_MOVE_PATH_TOKEN, $text), \ARRAY_FILTER_USE_BOTH);
+        self::assertNotSame([], $generated,
+            'Positive control: frontend/src/generated/ no longer names CreateStockAdjustment, CreateStockTransfer and their '
+            .'paths, so excluding it proves nothing about where the boundary is. Re-derive the tokens or the folder.');
+        $opsFile = \dirname(__DIR__, 3).'/frontend/'.self::CLIENT_OPS_FILE;
+        self::assertFileExists($opsFile, 'Positive control: the client wiring list moved, so arm (b) reads nothing.');
+        $clientOps = json_decode((string) file_get_contents($opsFile), true);
+        self::assertIsArray($clientOps, 'Positive control: the client wiring list is not a JSON list, so arm (b) reads nothing.');
+        self::assertContains('ListUsers', $clientOps, 'Positive control: the client wiring list no longer holds ListUsers, so it is not the list arm (b) means.');
+
+        $lines = self::stockCountOrMoveTriggers($pages, $sources, $clientOps);
+        self::assertSame([], $lines, "  ".implode("\n  ", $lines)."\n\n"
+            ."G-51 is open (docs/RESIDUAL_GAPS.md G-51, Low; owner PO): an item can be archived (DeleteItem) while it holds\n"
+            ."stock, and that stock then cannot be counted or moved between locations until the item is restored. Its\n"
+            ."acceptance for the web app rests on the web app being unable to count or move stock for ANY item, so that\n"
+            ."archiving removes no ability its user has. The frontend is now wiring a stock count or transfer, so that\n"
+            ."ground is about to become false.\n\n"
+            ."Before this screen ships, PO + UX recommend and the owner decides (a shipped-behaviour change, as G-51's\n"
+            ."Closing work says) between:\n"
+            ."  1. DeleteItem refuses an item with stock in any location (qty_on_hand <> 0): fold archiveUnlessStocked()'s\n"
+            ."     check into ItemWriter::archive(); BulkArchivalTest::aStockedItemIsSkippedWhileTheSingleDeleteStillArchivesIt\n"
+            ."     and StorageLocationDeleteTest's G-51 test then go red by design and move in that commit; or\n"
+            ."  2. G-51 is re-accepted on a ground that is true with a count or transfer screen (the delete dialog's\n"
+            ."     holds_stock warning alone is not that ground: it says the stock exists, not that the new screen\n"
+            ."     will refuse it).\n"
+            ."Then record the decision in docs/RESIDUAL_GAPS.md G-51, and move this check and its frontend twin\n"
+            ."(frontend/test/architecture.test.ts, FE-LEAD) in the same commit, saying so.");
+    }
+
+    /** G-51 trigger (a): the count's and the transfer's operationIds. */
+    private const STOCK_COUNT_OR_MOVE_OPERATION_TOKEN = '/\b(CreateStockAdjustment|CreateStockTransfer)\b/';
+
+    /** G-51 trigger (d): the two operations' paths, under any prefix; never `/stock-movements` alone. */
+    private const STOCK_COUNT_OR_MOVE_PATH_TOKEN = '~/stock-movements/(?:adjustments|transfers)(?![-A-Za-z0-9_])~';
+
+    /** G-51 trigger (c): a URL segment anywhere that names a count or transfer screen. */
+    private const STOCK_COUNT_OR_MOVE_SEGMENTS = ['stock-counts', 'stock-adjustments', 'stock-transfers'];
+
+    /** G-51 trigger (c): a URL segment under `/stock` that names a count or transfer screen. */
+    private const STOCK_COUNT_OR_MOVE_SEGMENTS_UNDER_STOCK = ['count', 'transfer'];
+
+    /**
+     * One line per reason G-51's frontend trigger is true; empty when it is not. Pages first, then sources (byte order),
+     * then the client wiring list (in {@see self::STOCK_COUNT_OR_MOVE_OPERATION_TOKEN}'s order).
+     *
+     * @param list<string>          $pages     files relative to `frontend/src/app`
+     * @param array<string, string> $sources   contents keyed by path relative to `frontend/src`
+     * @param list<mixed>           $clientOps operationIds in the client wiring list
+     *
+     * @return list<string>
+     */
+    private static function stockCountOrMoveTriggers(array $pages, array $sources, array $clientOps): array
+    {
+        $lines = [];
+        $screens = array_values(array_filter($pages, static function (string $page): bool {
+            $url = self::frontendPageUrl($page);
+            if (null === $url) {
+                return false;
+            }
+            $segments = \array_slice(explode('/', $url), 1);
+            if ([] !== array_intersect($segments, self::STOCK_COUNT_OR_MOVE_SEGMENTS)) {
+                return true;
+            }
+
+            return 'stock' === ($segments[0] ?? null)
+                && [] !== array_intersect(\array_slice($segments, 1), self::STOCK_COUNT_OR_MOVE_SEGMENTS_UNDER_STOCK);
+        }));
+        sort($screens, \SORT_STRING);
+        foreach ($screens as $page) {
+            $lines[] = \sprintf('the frontend serves a page at %s (src/app/%s)', self::frontendPageUrl($page), $page);
+        }
+        ksort($sources, \SORT_STRING);
+        foreach ($sources as $path => $text) {
+            if (str_starts_with((string) $path, 'generated/')) {
+                continue;
+            }
+            if (preg_match_all(self::STOCK_COUNT_OR_MOVE_OPERATION_TOKEN, $text, $found) > 0) {
+                foreach (array_values(array_unique($found[1])) as $operation) {
+                    $lines[] = 'src/'.$path.' names '.$operation.' outside src/generated/';
+                }
+            }
+            if (1 === preg_match(self::STOCK_COUNT_OR_MOVE_PATH_TOKEN, $text)) {
+                $lines[] = 'src/'.$path.' names a stock count or transfer path (/stock-movements/adjustments or '
+                    .'/stock-movements/transfers) outside src/generated/';
+            }
+        }
+        foreach (['CreateStockAdjustment', 'CreateStockTransfer'] as $operation) {
+            if (\in_array($operation, $clientOps, true)) {
+                $lines[] = self::CLIENT_OPS_FILE.' wires '.$operation.' for the browser';
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
      * **The order-restore implication** (order restores C2, 2026-10-21; R1.6, final RED L-3): while an order restore is in the
      * spec, every test named in {@see self::OPERATIONS_CARRYING_THE_RESTORE_COLLISIONS} must exist. Until C3 (2026-10-22) a
      * pin method beside it held the unbuilt `RestorePurchaseOrder`; it was deleted when that restore shipped (final RED

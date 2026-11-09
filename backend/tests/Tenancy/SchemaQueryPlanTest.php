@@ -12,6 +12,7 @@ use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
 use App\Modules\Inventory\Application\ItemListCriteria;
 use App\Modules\Inventory\Application\ItemReader;
+use App\Modules\Inventory\Application\ItemRow;
 use App\Modules\Inventory\Application\StockLevelReader;
 use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
@@ -653,6 +654,37 @@ final class SchemaQueryPlanTest extends TenancyTestCase
                 $this->assertServedInIndexOrder($plan, 'inventory_item_tenant_archived_idx');
             }
         }
+    }
+
+    /**
+     * **Items: the `holds_stock` probe** (BK-27, items batch C2; design Revision 0 §3 C2 as corrected by its Response to RED
+     * L-4). Every item body now carries {@see ItemRow::HOLDS_STOCK}, an `EXISTS` over `stock_level`. Asserted: the probe can
+     * seek `stock_level_unique (tenant_id, inventory_item_id, storage_location_id)` with `inventory_item_id` an `Index Cond`
+     * on that scan — a probe that read every stock row of the workspace and filtered by item would answer the same.
+     *
+     * **Measured 2026-11-09, and why the probe is planned on its own.** On the reader's own live page
+     * ({@see ItemReader::listStatement()}, 50 rows) over this seeded world (1,000 stock rows), the planner takes the HASHED
+     * alternative of the subplan: it reads the tenant's stock rows once (a bitmap scan on the tenant) and probes a hash per
+     * row, which at this size is cheaper than 51 index seeks. That is a fact about the seed's size, not the index, and an
+     * assertion on it could not tell a missing index from a small table. So, as
+     * `theCreditedOnReturnLineSubqueryUsesTheReturnLineIndex` does, the probe is taken from the source (never transcribed)
+     * and correlated to a one-row derived table carrying an item id and this tenant's id, where only the per-row seek can
+     * win; **`enable_seqscan = off`** is the same planner-size accommodation. This proves the index CAN serve the probe, not
+     * that the planner picks it at volume. The page statement is still checked to carry the probe.
+     */
+    #[Test]
+    public function theItemHoldsStockProbeSeeksTheStockLevelUniqueIndex(): void
+    {
+        [$page] = ItemReader::listStatement(new ItemListCriteria(limit: 50));
+        self::assertStringContainsString(ItemRow::HOLDS_STOCK, $page, 'The ListItems page no longer carries the holds_stock probe.');
+
+        $plan = $this->planWith(['enable_seqscan' => 'off'], 'SELECT '.ItemRow::HOLDS_STOCK.' AS holds_stock FROM '
+            ."(SELECT ?::uuid AS id, NULLIF(current_setting('app.tenant_id', true), '')::uuid AS tenant_id) i",
+            ['00000000-0000-4000-8000-000000000000']);
+
+        $this->assertPlan('Items — holds_stock, one item', $plan, 'stock_level_unique');
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*inventory_item_id/', $plan,
+            "The item is not an index condition, so the probe reads every stock row of the workspace:\n$plan");
     }
 
     /**
