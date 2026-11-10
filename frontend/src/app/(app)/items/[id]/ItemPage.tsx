@@ -65,7 +65,19 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   // B-4 "After": the create page left "{sku} was created." for this address; spoken once, after RouteFocus has focused the h1.
   useArrivalMessage(`/items/${id}`, region.announce);
 
-  const failed = useCallback((f: ReadFailure) => {
+  // L-2: a commit that is not dropped is newer than an earlier failed re-read, so committing one clears that error.
+  // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a): every commit is stamped with the moment its reading was
+  // requested. A page-owned re-read (Retry) takes its stamp when its request is sent. A write (Save, Restore) takes its
+  // stamp when it sends its re-read, after the write's answer has arrived. Its re-read commits under that stamp. So does
+  // the write's own answer body, committed when that re-read fails. A commit or failure whose stamp is older than what is
+  // on screen is dropped. An older re-read landing first never drops a newer one. Known limit: when that re-read fails,
+  // the write's answer body describes the moment of the write but carries the re-read's stamp, so it can overwrite a
+  // Retry, sent in between, that read someone else's later change; the next reading corrects it.
+  const stamps = useRef(0);
+  const committedAsOf = useRef(0);
+  const stamp = useCallback(() => ++stamps.current, []);
+  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+    if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
@@ -75,18 +87,10 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  // L-2: every read the page commits is newer than an earlier failed re-read, so committing one clears that error.
-  // Each page-owned re-read (Retry; I-3's dialog close) takes a stamp when it starts. A commit records the stamp of what
-  // it shows: the re-read's own start stamp, or a fresh one for a write's answer, which arrives after every re-read in
-  // flight started. A page-owned re-read whose start is older than what is already committed says nothing about what is
-  // on screen: its answer, success or failure, is dropped. An older re-read landing first never drops a newer one.
-  const stamps = useRef(0);
-  const committedAsOf = useRef(0);
   const commit = useCallback(
-    async (i: Item, asOf?: number) => {
-      // The larger of the two, written without Math (the QR-2 backstop forbids Math calls in the item files).
-      const stamp = asOf ?? ++stamps.current;
-      if (stamp > committedAsOf.current) committedAsOf.current = stamp;
+    async (i: Item, asOf: number) => {
+      if (asOf < committedAsOf.current) return;
+      committedAsOf.current = asOf;
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
       if (i.archived_at === null) setStaleRefusal(null);
@@ -96,8 +100,8 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   );
   // The wiring is built when an action runs, not during render: `commit` writes the stamp refs, which may only be
   // touched outside render (react-hooks/refs).
-  const save = useCallback((changes: ItemChange) => itemSave({ caller, id, setItem: commit, onRereadFailed: failed })(changes), [caller, id, commit, failed]);
-  const restore = useCallback(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed })(), [caller, id, commit, failed]);
+  const save = useCallback((changes: ItemChange) => itemSave({ caller, id, stamp, setItem: commit, onRereadFailed: failed })(changes), [caller, id, stamp, commit, failed]);
+  const restore = useCallback(() => itemRestore({ caller, id, stamp, setItem: commit, onRereadFailed: failed })(), [caller, id, stamp, commit, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
   const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
@@ -134,7 +138,7 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
       await commit(r.item, mine);
       setRereadError(null);
       h1.current?.focus();
-    } else failed(r.kind);
+    } else failed(r.kind, mine);
   };
 
   if (swap === 'forbidden') return <ItemsDenied />;

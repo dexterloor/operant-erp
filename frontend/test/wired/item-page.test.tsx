@@ -371,6 +371,79 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(field('Name')).toHaveValue('Bolt M7');
   });
 
+  // Commit 0a, the counter-race (the final RED's I-B, and its fail twin): a Retry pressed while a Save's PATCH is in
+  // flight asked for its reading before the Save sent its re-read, so the Save's re-read is the newer reading even when
+  // the Retry answers first. A write stamps when it sends its re-read, not when it sends its request.
+  const REREAD_FAILED = "We couldn't load this item again, so what's shown may be out of date.";
+  const heldReply = () => {
+    let release!: (r: Response) => void;
+    const p = new Promise<Response>((res) => (release = res));
+    return { reply: () => p, release: (r: Response) => release(r) };
+  };
+  // The Save is over once the form has refreshed the router (`onSaved`, after the action resolved, so after any
+  // region-error timer the action set); one more timer turn inside act lets that timer's update render.
+  const settled = async (refreshes: number) => {
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(refreshes));
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+  };
+  const retryDuringSave = async (saveReread: Response) => {
+    const patch = heldReply();
+    const retry = heldReply();
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(503, {}), patch.reply, retry.reply, reread.reply]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    patch.release(json(200, { ...BOLT, name: 'Boltxy' }));
+    await waitFor(() => expect(calls).toHaveLength(5));
+    retry.release(json(200, { ...BOLT, name: 'Boltx' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull());
+    reread.release(saveReread);
+    await settled(2);
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET', 'GET']);
+  };
+
+  it('a Retry started during a Save and answering first does not hide the saved value (0a, counter-race)', async () => {
+    await retryDuringSave(json(200, { ...BOLT, name: 'Boltxy' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Boltxy');
+    expect(field('Name')).toHaveValue('Boltxy');
+  });
+
+  it("…and the same when the Save's re-read fails: the saved 200 body is shown, under the region error (0a, counter-race)", async () => {
+    await retryDuringSave(json(503, {}));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Boltxy');
+    expect(screen.getByText(REREAD_FAILED)).toBeInTheDocument();
+  });
+
+  it("a write's failed re-read older than what is on screen does not raise the region error (0a)", async () => {
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(503, {}), json(200, { ...BOLT, name: 'Bolt M7' }), reread.reply, json(200, { ...BOLT, name: 'Bolt M7' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Bolt M7');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText(REREAD_FAILED)).toBeNull());
+    reread.release(json(503, {}));
+    await settled(2);
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7');
+  });
+
   it('a refused Save whose re-read fails: UX-I2 under "Not saved" AND the region error (RED M-1 a)', async () => {
     stubFetch([refused('inventory_item.is_archived', I2), json(500, {})]);
     const u = userEvent.setup();

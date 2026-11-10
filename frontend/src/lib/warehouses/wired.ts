@@ -16,14 +16,22 @@ import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREH
 // Blind spot, stated (step-3 X-2): C-2's body-key check (`test/contract/clientOps.test.ts`) reads object-literal request
 // bodies only, so it does not see the body sent here, which the form builds with `changedFields`. What keeps the sent
 // keys honest is that typing against `UpdateWarehouseInput`, which C-1 checks against the served schema.
+//
+// Stamps (items-i3-design.md Revision 1 — FINAL §0a): every action here takes its stamp from `stamp()` immediately
+// before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
+// follows, the fallback answer body included. The page drops anything older than what it shows.
 
 export interface WarehouseSaveWiring {
   readonly caller: ApiCaller;
   readonly id: string;
-  /** Sets the re-read warehouse and resolves after the commit that shows it. */
-  readonly setWarehouse: (warehouse: Warehouse) => Promise<void>;
+  /** The page's next stamp: taken when a re-read is sent. */
+  readonly stamp: () => number;
+  /** Sets the re-read warehouse (under the stamp of the re-read) and resolves after the commit that shows it. */
+  readonly setWarehouse: (warehouse: Warehouse, asOf: number) => Promise<void>;
   /** The re-read after a save did not answer a warehouse: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure) => void;
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
+  readonly onDeleted?: (asOf: number) => void;
 }
 
 export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
@@ -49,13 +57,14 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
         }
       }
       if (!isWarehouse(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
       const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setWarehouse(again.warehouse);
+      if (again.kind === 'ok') await w.setWarehouse(again.warehouse, s);
       else {
         // The 200 body is the server's new state: commit it, so the page shows what was saved, as Restore does (the
         // items RED L-1, a shipped defect here: the page said "{code} was saved." over the pre-save warehouse).
-        await w.setWarehouse(r.body);
-        w.onRereadFailed(again.kind);
+        await w.setWarehouse(r.body, s);
+        w.onRereadFailed(again.kind, s);
       }
       return { kind: 'saved', warehouse: r.body };
     } finally {
@@ -78,12 +87,13 @@ export function warehouseRestore(w: WarehouseSaveWiring): RestoreWarehouseAction
           case 'refused': {
             // Any refusal: re-read under the same deadline. A warehouse that reads live was restored already (an
             // interrupted press that committed, another tab); the page turns live. No refusal code is compared.
+            const s = w.stamp();
             const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.warehouse.archived_at === null) {
-              await w.setWarehouse(again.warehouse);
+              await w.setWarehouse(again.warehouse, s);
               return { kind: 'already-live', warehouse: again.warehouse, message: r.message };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
             return r;
           }
           case 'not-found':
@@ -97,12 +107,13 @@ export function warehouseRestore(w: WarehouseSaveWiring): RestoreWarehouseAction
         }
       }
       if (!isWarehouse(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
       const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setWarehouse(again.warehouse);
+      if (again.kind === 'ok') await w.setWarehouse(again.warehouse, s);
       else {
         // The 200 body is the server's new state: commit it, so the page never says "restored" over the archived banner.
-        await w.setWarehouse(r.body);
-        w.onRereadFailed(again.kind);
+        await w.setWarehouse(r.body, s);
+        w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', warehouse: r.body };
     } finally {
@@ -259,7 +270,9 @@ function deleteFailure(r: Exclude<Awaited<ReturnType<ApiCaller['call']>>, { kind
  * One deadline covers the request AND the GetWarehouse re-read (the Save/Restore precedent). After the 204 the page stays
  * where it is: the warehouse is archived, not gone, so the re-read warehouse is committed and the page turns to its
  * archived state (ST-9b banner, Restore warehouse for a holder). A failed re-read still resolves `deleted` (the delete
- * happened); the page is told through `onRereadFailed` and shows its region error, or swaps.
+ * happened); the page is told through `onRereadFailed` and shows its region error, or swaps. Before the re-read is
+ * sent, `onDeleted` raises what the page shows to the re-read's stamp (§0a, the 204 floor), so a reading requested
+ * before the delete (a Save's re-read still in flight) cannot undo it, even when this re-read fails.
  */
 export function warehouseDelete(w: WarehouseSaveWiring): DeleteWarehouseAction {
   return async () => {
@@ -267,9 +280,11 @@ export function warehouseDelete(w: WarehouseSaveWiring): DeleteWarehouseAction {
     try {
       const r = await w.caller.call('DeleteWarehouse', { id: w.id }, undefined, { signal: deadline.signal });
       if (r.kind !== 'ok') return deleteFailure(r);
+      const s = w.stamp();
+      w.onDeleted?.(s);
       const again = await loadWarehouse(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setWarehouse(again.warehouse);
-      else w.onRereadFailed(again.kind);
+      if (again.kind === 'ok') await w.setWarehouse(again.warehouse, s);
+      else w.onRereadFailed(again.kind, s);
       return { kind: 'deleted' };
     } finally {
       deadline.cancel();

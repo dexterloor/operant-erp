@@ -139,6 +139,47 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     expect(screen.queryByRole('button', { name: 'Add location' })).toBeNull();
   });
 
+  // Commit 0a (items-i3-red.md M-1, probe P-1; the final RED's races W-A / W-Afail): a Save whose re-read is still in
+  // flight when the warehouse is deleted asked for that reading before the delete, so it must not turn the page live
+  // again. The 204 raises what is on screen to the delete's re-read stamp, even when that re-read fails.
+  const saveThenDelete = async (deleteReread: Response) => {
+    let release!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (release = res));
+    const calls = stubFetch([json(200, { ...MAIN, name: 'Main warehousex' }), () => held, empty(204), deleteReread]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent("MAIN was deleted. It's now in the archived warehouses."));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(1));
+    release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    // The Save is over once the form has refreshed the router (`onSaved`, after the action resolved); one more timer
+    // turn inside act lets any region-error timer it set render.
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'DELETE', 'GET']);
+  };
+
+  it('an older Save re-read landing after a 204 does not turn the page live: archived banner stays, no Delete warehouse, no form (0a, P-1)', async () => {
+    await saveThenDelete(json(200, { ...ARCHIVED, name: 'Main warehousex' }));
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
+  it("…and the same when the delete's own re-read fails: no Delete warehouse, no form, the region error shown (0a, the 204 floor)", async () => {
+    await saveThenDelete(json(503, {}));
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+    expect(screen.getByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+  });
+
   it('a 404 shows "We couldn\u2019t find that." and keeps Delete; a 500 says "Something went wrong" with the interrupted sentence (RED L-1)', async () => {
     stubFetch([problem(404, 'not-found'), problem(500, 'x')]);
     const u = userEvent.setup();

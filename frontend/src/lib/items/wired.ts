@@ -23,13 +23,20 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type ItemChange
 // Blind spot, stated: C-2's body-key check reads object-literal bodies only; the create body is built by name over
 // `CREATE_ITEM_FIELDS`, which, with the item-create body test, keeps it to the six keys.
 
+//
+// Stamps (items-i3-design.md Revision 1 — FINAL §0a): every action here takes its stamp from `stamp()` immediately
+// before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
+// follows, the fallback answer body included. The page drops anything older than what it shows.
+
 export interface ItemWiring {
   readonly caller: ApiCaller;
   readonly id: string;
-  /** Sets the re-read item and resolves after the commit that shows it. */
-  readonly setItem: (item: Item) => Promise<void>;
+  /** The page's next stamp: taken when a re-read is sent. */
+  readonly stamp: () => number;
+  /** Sets the re-read item (under the stamp of the re-read) and resolves after the commit that shows it. */
+  readonly setItem: (item: Item, asOf: number) => Promise<void>;
   /** A re-read after a write did not answer an item: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure) => void;
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
 }
 
 export function itemSave(w: ItemWiring): SaveItemAction {
@@ -47,13 +54,14 @@ export function itemSave(w: ItemWiring): SaveItemAction {
             // 4.4 RED M-1: a refusal may prove the page stale (UX-I2: archived elsewhere). Re-read under the same
             // deadline; only an item that now reads archived is committed (the page turns read-only and shows the
             // sentence). A live re-read is NOT committed, so the person's edits stay for another press (P1, UX-I1).
+            const s = w.stamp();
             const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.item.archived_at !== null) {
-              await w.setItem(again.item);
+              await w.setItem(again.item, s);
               // P1 says "try again": it is never shown as the page's archived-elsewhere refusal (L-3).
               return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
             return r;
           }
           case 'not-found':
@@ -67,12 +75,13 @@ export function itemSave(w: ItemWiring): SaveItemAction {
         }
       }
       if (!isItem(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
       const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setItem(again.item);
+      if (again.kind === 'ok') await w.setItem(again.item, s);
       else {
         // The 200 body is the server's new state: commit it, so the page shows what was saved (L-1, Restore's rule).
-        await w.setItem(r.body);
-        w.onRereadFailed(again.kind);
+        await w.setItem(r.body, s);
+        w.onRereadFailed(again.kind, s);
       }
       return { kind: 'saved', item: r.body };
     } finally {
@@ -91,12 +100,13 @@ export function itemRestore(w: ItemWiring): RestoreItemAction {
       if (r.kind !== 'ok') {
         switch (r.kind) {
           case 'refused': {
+            const s = w.stamp();
             const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.item.archived_at === null) {
-              await w.setItem(again.item);
+              await w.setItem(again.item, s);
               return { kind: 'already-live', item: again.item, message: r.message };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
             return r;
           }
           case 'not-found':
@@ -110,12 +120,13 @@ export function itemRestore(w: ItemWiring): RestoreItemAction {
         }
       }
       if (!isItem(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
       const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setItem(again.item);
+      if (again.kind === 'ok') await w.setItem(again.item, s);
       else {
         // The 200 body is the server's new state: commit it, so the page never says "restored" over the archived banner.
-        await w.setItem(r.body);
-        w.onRereadFailed(again.kind);
+        await w.setItem(r.body, s);
+        w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', item: r.body };
     } finally {

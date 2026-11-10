@@ -252,6 +252,78 @@ describe('/warehouses/[id] — the editor (B-3)', () => {
     expect(field('Name')).toHaveValue('Mainy');
   });
 
+  // Commit 0a, the counter-race (the final RED's W-B / W-Bfail): a Retry pressed while a Save's PATCH is in flight asked
+  // for its reading before the Save sent its re-read, so the Save's re-read is the newer reading even when the Retry
+  // answers first. A write stamps when it sends its re-read, not when it sends its request.
+  const heldReply = () => {
+    let release!: (r: Response) => void;
+    const p = new Promise<Response>((res) => (release = res));
+    return { reply: () => p, release: (r: Response) => release(r) };
+  };
+  // The Save is over once the form has refreshed the router (`onSaved`, after the action resolved, so after any
+  // region-error timer the action set); one more timer turn inside act lets that timer's update render.
+  const settled = async (refreshes: number) => {
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(refreshes));
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+  };
+  const retryDuringSave = async (saveReread: Response) => {
+    const patch = heldReply();
+    const retry = heldReply();
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...MAIN, name: 'Main warehousex' }), json(503, {}), patch.reply, retry.reply, reread.reply]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    patch.release(json(200, { ...MAIN, name: 'Main warehousexy' }));
+    await waitFor(() => expect(calls).toHaveLength(5));
+    retry.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull());
+    reread.release(saveReread);
+    await settled(2);
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET', 'GET']);
+  };
+
+  it('a Retry started during a Save and answering first does not hide the saved value (0a, counter-race)', async () => {
+    await retryDuringSave(json(200, { ...MAIN, name: 'Main warehousexy' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Main warehousexy');
+    expect(field('Name')).toHaveValue('Main warehousexy');
+  });
+
+  it("…and the same when the Save's re-read fails: the saved 200 body is shown, under the region error (0a, counter-race)", async () => {
+    await retryDuringSave(json(503, {}));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Main warehousexy');
+    expect(screen.getByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+  });
+
+  it("a write's failed re-read older than what is on screen does not raise the region error (0a)", async () => {
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...MAIN, name: 'Mainx' }), json(503, {}), json(200, { ...MAIN, name: 'Mainy' }), reread.reply, json(200, { ...MAIN, name: 'Mainy' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Mainy');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull());
+    reread.release(json(503, {}));
+    await settled(2);
+    expect(screen.queryByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Mainy');
+  });
+
   it('the re-read answers 403 → ST-4b for warehouses; 404 → ST-5 back to the list', async () => {
     stubFetch([json(200, MAIN), problem(403, 'permission-denied')]);
     const u = userEvent.setup();

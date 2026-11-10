@@ -67,18 +67,25 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the warehouse is still
   // treated as archived for the actions (no Delete warehouse, a read-only section) until a read says otherwise.
   const [deletedHere, setDeletedHere] = useState(false);
-  // Every read the page commits is newer than that fact, so committing one clears it (a restore then turns it live). It
-  // is newer than an earlier failed re-read too, so committing one also clears that region error (the items RED L-2, a
-  // shipped defect here: "We couldn't load this warehouse again…" stayed over fresh data after a later successful write).
-  // Each page-owned re-read (Retry, a dialog's close) takes a stamp when it starts. A commit records the stamp of what it
-  // shows: the re-read's own start stamp, or a fresh one for a write's answer, which arrives after every re-read in flight
-  // started. A page-owned re-read whose start is older than what is already committed says nothing about what is on
-  // screen: its answer, success or failure, is dropped. An older re-read landing first never drops a newer one.
+  // A commit that is not dropped is newer than that fact, so it clears it (a restore then turns it live). It is newer than
+  // an earlier failed re-read too, so committing one also clears that region error (the items RED L-2, a shipped defect
+  // here: "We couldn't load this warehouse again…" stayed over fresh data after a later successful write).
+  // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a): every commit is stamped with the moment its reading was
+  // requested. A page-owned re-read (Retry, a dialog's Close) takes its stamp when its request is sent. A write (Save,
+  // Restore, Delete) takes its stamp when it sends its re-read, after the write's answer has arrived. Its re-read commits
+  // under that stamp. So does the write's own answer body, committed when that re-read fails. A commit or failure whose
+  // stamp is older than what is on screen is dropped. A 204 raises what is on screen to the delete's re-read stamp, even
+  // when that re-read fails, so no reading requested before it can undo the delete. The 204 fact (`deletedHere`) is
+  // cleared only by a commit that is not dropped. An older re-read landing first never drops a newer one. Known limit:
+  // when that re-read fails, the write's answer body describes the moment of the write but carries the re-read's stamp,
+  // so it can overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
+  const stamp = useCallback(() => ++stamps.current, []);
   const setWarehouse = useCallback(
-    async (w: Warehouse, asOf?: number) => {
-      committedAsOf.current = Math.max(committedAsOf.current, asOf ?? ++stamps.current);
+    async (w: Warehouse, asOf: number) => {
+      if (asOf < committedAsOf.current) return;
+      committedAsOf.current = asOf;
       setDeletedHere(false);
       setRereadError(null);
       await setCommitted(w);
@@ -90,7 +97,8 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // After a create (§2 step 4.3): the create page left *"{code} was created."* for this address (A-19 item 7, S-5).
   useArrivalMessage(`/warehouses/${id}`, region.announce);
 
-  const failed = useCallback((f: ReadFailure) => {
+  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+    if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
@@ -102,9 +110,15 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
 
   // The wiring is built when an action runs, not during render: `setWarehouse` writes the stamp refs, which may only be
   // touched outside render (react-hooks/refs).
-  const save = useCallback((changes: UpdateWarehouseInput) => warehouseSave({ caller, id, setWarehouse, onRereadFailed: failed })(changes), [caller, id, setWarehouse, failed]);
-  const restore = useCallback(() => warehouseRestore({ caller, id, setWarehouse, onRereadFailed: failed })(), [caller, id, setWarehouse, failed]);
-  const remove = useCallback(() => warehouseDelete({ caller, id, setWarehouse, onRereadFailed: failed })(), [caller, id, setWarehouse, failed]);
+  const save = useCallback((changes: UpdateWarehouseInput) => warehouseSave({ caller, id, stamp, setWarehouse, onRereadFailed: failed })(changes), [caller, id, stamp, setWarehouse, failed]);
+  const restore = useCallback(() => warehouseRestore({ caller, id, stamp, setWarehouse, onRereadFailed: failed })(), [caller, id, stamp, setWarehouse, failed]);
+  // The 204 floor: raised before the delete's re-read is sent, so a reading requested earlier is dropped even when that
+  // re-read fails.
+  const onDeleted = useCallback((s: number) => {
+    committedAsOf.current = Math.max(committedAsOf.current, s);
+    setDeletedHere(true);
+  }, []);
+  const remove = useCallback(() => warehouseDelete({ caller, id, stamp, setWarehouse, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, setWarehouse, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
 
   // §2 step 4.6. After a 204 the page stays: the warehouse is archived, not gone, and `warehouseDelete` has already
@@ -136,7 +150,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         h1.current?.focus();
         router.refresh();
       }
-    } else failed(r.kind);
+    } else failed(r.kind, mine);
   };
 
   const retry = async () => {
@@ -152,7 +166,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       await setWarehouse(r.warehouse, mine);
       setRereadError(null);
       h1.current?.focus();
-    } else failed(r.kind);
+    } else failed(r.kind, mine);
   };
 
   if (swap === 'forbidden') return <WarehousesDenied />;
