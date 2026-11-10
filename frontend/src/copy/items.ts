@@ -158,6 +158,25 @@ export const RESTORE_ITEM = {
   interrupted: (sku: string) => `We can't tell whether ${sku} was restored. Press Restore item to try again.`,
 } as const;
 
+/**
+ * B-5 Delete item (RULED) + items-i3-ux.md Revision 1 — FINAL F-1 (I-3): the page action on a live item, its dialog, and
+ * what it says after. Heading `NOT_DELETED`. `holdsStock` (NEW, F-1 as amended by L-2) is shown only when the committed
+ * item's `holds_stock` is true, first in the dialog's description; it names no figure, place or sale word (I3-3, M-4).
+ */
+export const DELETE_ITEM = {
+  action: 'Delete item',
+  title: (sku: string, name: string) => `Delete ${sku} — ${name}?`,
+  holdsStock: 'This item still holds stock in at least one location. Stock in quarantine is included.',
+  /** items-ux-copy.md FINAL F-1, verbatim (I3-2; PO confirmed as G-51's interim, items-i3-po-sec.md P-4). */
+  body: "It moves to the archived items. Until it's restored, it can't be added to orders or price lists, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.",
+  confirm: 'Delete item',
+  cancel: 'Cancel',
+  /** ST-9b: after a refusal other than P1, a 403 or an interrupted press, the Delete button is removed and only this remains. */
+  close: 'Close',
+  after: (sku: string) => `${sku} was deleted. It's now in the archived items.`,
+  interrupted: (sku: string) => `We can't tell whether ${sku} was deleted. Press Delete item to try again.`,
+} as const;
+
 /** B-9: lost permission mid-action (R1-5's form, RULED). The label is read from `permissionLabels.ts` by code. */
 export const ITEM_FORBIDDEN = {
   before: 'This needs the ',

@@ -93,6 +93,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.create'],
     },
   },
+  DeleteItem: {
+    method: 'DELETE',
+    template: '/api/v1/items/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.delete'],
+    },
+  },
   DeleteStorageLocation: {
     method: 'DELETE',
     template: '/api/v1/warehouses/{id}/locations/{locationId}',

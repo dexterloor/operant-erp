@@ -69,7 +69,8 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(field('Reorder point')).toHaveAttribute('inputmode', 'decimal');
     expect(field('Reorder point')).toHaveAttribute('type', 'text');
     expect(screen.getByText("Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.")).toBeInTheDocument();
-    // No stock, no movements, no links to them (G-47), no History, no Delete item in I-1.
+    // No stock, no movements, no links to them (G-47), no History. Delete item only for a DeleteItem holder (I-3 T-5:
+    // the offer rule itself is item-delete.test.tsx's; `show()` here passes no canDelete).
     expect(screen.queryAllByRole('link')).toEqual([]);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
@@ -828,5 +829,51 @@ describe('/items/[id] (ItemForm) — the mixed-422 line (I-2 follow-up)', () => 
     await u.click(save());
     expect(await screen.findByText('Refused here.')).toBeInTheDocument();
     expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+// Items I-3 T-4 (ruling 1(a), I3-9): an item body whose holds_stock is missing, null or a string is malformed. A re-read
+// that answers one shows the region error; an UpdateItem 200 or a RestoreItem 200 without it is server-error.
+describe('/items/[id] — holds_stock is required on every item body (I-3 T-4)', () => {
+  const without = (i: Item, value?: unknown) => {
+    const b = { ...i } as Record<string, unknown>;
+    if (value === undefined) delete b.holds_stock;
+    else b.holds_stock = value;
+    return b;
+  };
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['"true"', 'true'],
+  ] as const)('a Save re-read whose holds_stock is %s: the region error (the re-read failed), not a committed item', async (_, value) => {
+    stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(200, without({ ...BOLT, name: 'Boltx' }, value))]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+  });
+
+  it('an UpdateItem 200 without holds_stock: "Something went wrong on our side." + the interrupted sentence, no re-read', async () => {
+    const calls = stubFetch([json(200, without({ ...BOLT, name: 'Boltx' }))]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We can't tell whether your changes to A-1 were saved. Reload the page to check.")).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH']);
+  });
+
+  it('a RestoreItem 200 without holds_stock: "Something went wrong on our side." + the interrupted sentence, still archived', async () => {
+    const calls = stubFetch([json(200, without(BOLT))]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(screen.getByRole('button', { name: 'Restore item' }));
+    expect(await screen.findByText("We can't tell whether A-1 was restored. Press Restore item to try again.")).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(screen.getByText(/This item was archived on/)).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['POST']);
   });
 });

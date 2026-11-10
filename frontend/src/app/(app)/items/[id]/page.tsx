@@ -11,7 +11,8 @@ import { ItemsDenied } from '../ItemStates';
 import { ItemPage } from './ItemPage';
 
 // `/items/[id]` (items-ux-copy.md B-3; Revision 8 R8-2; Revision 7 A-15, A-20). First render: GetItem over the server
-// transport, once per request (shared with the title). `canEdit` = UpdateItem's codes; `canRestore` = RestoreItem's.
+// transport, once per request (shared with the title). `canEdit` = UpdateItem's codes; `canRestore` = RestoreItem's;
+// `canDelete` = DeleteItem's (items I-3).
 // 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws
 // to the error page. No stock and no movements are read or linked here (G-47).
 export const dynamic = 'force-dynamic';
@@ -42,5 +43,5 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The item could not be read.');
   const codes = viewer.permissionCodes;
-  return <ItemPage initial={first.item} canEdit={viewerMay('UpdateItem', codes)} canRestore={viewerMay('RestoreItem', codes)} />;
+  return <ItemPage initial={first.item} canEdit={viewerMay('UpdateItem', codes)} canRestore={viewerMay('RestoreItem', codes)} canDelete={viewerMay('DeleteItem', codes)} />;
 }

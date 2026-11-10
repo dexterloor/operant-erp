@@ -329,4 +329,21 @@ describe('/items — the wire, the pager and the page sentences', () => {
     await waitFor(() => expect(screen.getByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument());
     expect(screen.queryByText('Name of A-2')).toBeNull();
   });
+
+  // Items I-3 T-4 (ruling 1(a)): `holds_stock` missing, null or a string is a malformed row, like any other member.
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['"true"', 'true'],
+  ] as const)('a row whose holds_stock is %s is malformed: the refetch-failed banner, never the row', async (_, value) => {
+    const bad = { ...A2 } as Record<string, unknown>;
+    if (value === undefined) delete bad.holds_stock;
+    else bad.holds_stock = value;
+    stubFetch([json(200, page([bad]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([A1], { nextCursor: 'n' })} />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(screen.getByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument());
+    expect(screen.queryByText('Name of A-2')).toBeNull();
+  });
 });

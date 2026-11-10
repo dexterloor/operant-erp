@@ -347,3 +347,23 @@ describe('axe — /items/new (items I-2)', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// Items I-3 T-6: the Delete item dialog with its stock line, and with a refusal inside.
+describe('axe — Delete item (items I-3)', () => {
+  it('the dialog with the stock line, then with a refusal inside: no violations', async () => {
+    const { ItemPage } = await import('@/app/(app)/items/[id]/ItemPage');
+    const { renderWired } = await import('./wired/harness');
+    const I = { id: '7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: true };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'transaction.contention', message: 'Some of the same records were being changed at the same moment. Nothing was saved; try again.' }), { status: 409, headers: { 'content-type': 'application/problem+json' } })));
+    renderWired(<ItemPage initial={I} canEdit canRestore canDelete />);
+    const run = async () => (await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } })).violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Delete item' }));
+    expect(screen.getByText('This item still holds stock in at least one location. Stock in quarantine is included.')).toBeInTheDocument();
+    expect(await run()).toEqual([]);
+    await u.click(screen.getAllByRole('button', { name: 'Delete item' }).at(-1)!);
+    await screen.findByText('Not deleted');
+    expect(await run()).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});

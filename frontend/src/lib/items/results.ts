@@ -2,7 +2,7 @@
 // `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
 import type { CreateItemInput, Item, UpdateItemInput } from '../api/items';
-import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
+import type { DeleteResult, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
  * The item page's editable fields, in screen order. NOT `unit_of_measure_code` (R8-2: the Unit is read-only on the item
@@ -74,3 +74,12 @@ export type CreateItemResult =
 
 /** The create form's Create item. A fresh Idempotency-Key per call (the create does not replay on it). */
 export type CreateItemAction = (body: CreateItemBody) => Promise<CreateItemResult>;
+
+/**
+ * `DELETE /items/{id}` (no body, no key; items I-3). `deleted` after a 204, whether or not the GetItem re-read after it
+ * answered (the delete happened). `contention` is P1 (Delete stays); any other refusal is final (Close only).
+ */
+export type DeleteItemResult = DeleteResult;
+
+/** The live page's Delete item. Caller contract: `deleted` resolves after the re-read item is committed or reported. */
+export type DeleteItemAction = () => Promise<DeleteItemResult>;

@@ -6,6 +6,7 @@
   "CreateRoleGrantProposal",
   "CreateStorageLocation",
   "CreateWarehouse",
+  "DeleteItem",
   "DeleteStorageLocation",
   "DeleteUser",
   "DeleteWarehouse",

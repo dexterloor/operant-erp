@@ -789,3 +789,48 @@ describe('DOM fitness — /items/new (items I-2)', () => {
     });
   }
 });
+
+// Items I-3 T-6: Delete item on the item page. No [disabled] anywhere; the page's one region is empty at first render and
+// the same node through a refusal (P1) → Cancel → re-read → a 204 → archived → restore.
+describe('DOM fitness — Delete item (items I-3)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal → Cancel → 204 → archived → restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { ItemPage } = await import('@/app/(app)/items/[id]/ItemPage');
+      const I = { id: '7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: true };
+      const A = { ...I, archived_at: '2026-03-04T10:00:00Z' };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'transaction.contention', message: 'Some of the same records were being changed at the same moment. Nothing was saved; try again.' }, 'application/problem+json'),
+        reply(200, I),
+        reply(204, null),
+        reply(200, A),
+        reply(200, I),
+        reply(200, I),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <ItemPage initial={I} canEdit canRestore canDelete />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })),
+        () => user.click(screen.getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore item' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getAllByRole('status').at(0)).toHaveTextContent('A-1 was restored.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});

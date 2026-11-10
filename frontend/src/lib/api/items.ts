@@ -24,7 +24,7 @@ export interface Item {
   safety_stock: string;
   supplier: SupplierReference | null;
   archived_at: string | null;
-  /** BK-27: whether any location still holds a non-zero quantity of this item. Mirrored only; nothing renders it before I-3. */
+  /** BK-27: whether any location still holds a non-zero quantity of this item. Rendered only in the Delete item dialog (I-3, I3-4). */
   holds_stock: boolean;
 }
 

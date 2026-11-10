@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('@/lib/bff/server/reads', () => ({ serverRead: () => 'read' }));
-const ITEM = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null };
+const ITEM = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: false };
 vi.mock('@/lib/items/load', () => ({
   loadItem: async () => (v.item === 'ok' ? { kind: 'ok', item: ITEM } : { kind: v.item }),
   loadItems: async (...args: unknown[]) => {
@@ -45,7 +45,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean };
+const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean; canDelete: boolean };
 
 describe('/items/[id] — Save follows UpdateItem, Restore item follows RestoreItem (ST-4c, each on its own operation)', () => {
   it('inventory_item.view alone: no editor, no Restore item', async () => {
@@ -58,6 +58,16 @@ describe('/items/[id] — Save follows UpdateItem, Restore item follows RestoreI
 
   it('RestoreItem without UpdateItem: Restore item, no editor', async () => {
     expect(props(await render(['inventory_item.view', 'inventory_item.delete', 'inventory_item.create']))).toMatchObject({ canEdit: false, canRestore: true });
+  });
+
+  // Items I-3 T-3 (final RED / first RED L-6): Delete item follows DeleteItem's codes, told apart from UpdateItem's.
+  it('UpdateItem without DeleteItem (inventory_item.view + inventory_item.edit, no inventory_item.delete): the editor, no Delete item', async () => {
+    expect(props(await render(['inventory_item.view', 'inventory_item.edit']))).toMatchObject({ canEdit: true, canDelete: false });
+  });
+
+  it('with inventory_item.delete: Delete item', async () => {
+    expect(props(await render(['inventory_item.view', 'inventory_item.delete']))).toMatchObject({ canDelete: true });
+    expect(props(await render(['inventory_item.view']))).toMatchObject({ canDelete: false });
   });
 
   it('without inventory_item.view the page is ST-4b, even with every write code', async () => {

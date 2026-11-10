@@ -521,3 +521,20 @@ describe('/items/new — the interrupted sentence when the SKU is empty (I-2 fol
     expect(screen.queryByText(NO_SKU)).toBeNull();
   });
 });
+
+// Items I-3 T-4 (ruling 1(a), I3-9): a CreateItem 201 without holds_stock is malformed: server-error, no navigation.
+describe('/items/new — a 201 without holds_stock (I-3 T-4)', () => {
+  it('"Something went wrong on our side." + the interrupted sentence; no navigation, no arrival message', async () => {
+    const body = { ...SERVED } as Record<string, unknown>;
+    delete body.holds_stock;
+    stubFetch([json(201, body)]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText(INTERRUPTED('SKU-1'))).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(takeArrivalMessage(`/items/${IID}`)).toBeNull();
+  });
+});

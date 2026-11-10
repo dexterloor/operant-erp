@@ -1,0 +1,14 @@
+/* The shared record dialogs (components/records): the Delete dialog's optional warning line (items I-3, UX F-1). Plain
+   text with weight and a warning icon; not a banner (a banner in the dialog means a refusal). Tokens only. */
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-semibold);
+}
+
+.warningIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning-solid);
+}
