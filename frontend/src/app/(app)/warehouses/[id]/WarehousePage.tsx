@@ -135,7 +135,8 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
     const code = warehouse.code;
     flushSync(() => setDeleting(false));
     if (deleted) {
-      setDeletedHere(true);
+      // No `setDeletedHere(true)` here: `onDeleted` already set it before the re-read, and only a commit that is not
+      // dropped may clear it. A re-read that reads the warehouse live (restored in between) leaves the page live.
       h1.current?.focus();
       region.announce(DELETE_WAREHOUSE.after(code));
       router.refresh();

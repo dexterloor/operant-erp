@@ -446,6 +446,23 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
   });
 
+  // The warehouse twin of i3-c1 RED L-3 (a shipped defect): someone restores the warehouse between the 204 and the
+  // page's re-read. The re-read is committed (it is not dropped) and clears the 204 fact; the close must not set it again.
+  it('a 204 whose re-read reads the warehouse live (restored in between): the page is live and offers its actions', async () => {
+    stubFetch([empty(204), json(200, MAIN)]);
+    const u = userEvent.setup();
+    editable();
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent("MAIN was deleted. It's now in the archived warehouses."));
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Delete warehouse' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
+  });
+
   it('a 204 whose re-read fails, then Retry and Restore: the restored warehouse is editable again (the 204 fact is cleared by a later commit)', async () => {
     stubFetch([empty(204), json(503, {}), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN)]);
     const u = userEvent.setup();
