@@ -83,6 +83,16 @@ describe('components/records/DeleteDialog — each branch renders its own copy f
     expect(within(dialog()).getByRole('button', { name: 'CONFIRM' })).toBeInTheDocument();
   });
 
+  it('a 404: "We couldn\u2019t find that." under "Not deleted", then Close only (0b; ruling 1(b))', async () => {
+    await press(once({ kind: 'not-found' }));
+    await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
+    expect(dialog()).toHaveTextContent('Not deleted');
+    expect(within(dialog()).queryByRole('button', { name: 'CONFIRM' })).toBeNull();
+    expect(within(dialog()).getByRole('button', { name: 'CLOSE' })).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'CANCEL' })).toBeNull();
+  });
+
+  // Ruling 1(b), second half: a 403 keeps Delete (and Cancel); only a 404 leaves Close only.
   it('a 403 is before + the permission label in <em> + after, as one sentence; Delete stays', async () => {
     await press(once({ kind: 'forbidden' }));
     await waitFor(() => expect(dialog()).toHaveTextContent('F-BEFORE Delete and restore warehouses F-AFTER'));
@@ -90,6 +100,8 @@ describe('components/records/DeleteDialog — each branch renders its own copy f
     expect(em.tagName).toBe('EM');
     expect(em.parentElement).toHaveTextContent(/^F-BEFORE Delete and restore warehouses F-AFTER$/);
     expect(within(dialog()).getByRole('button', { name: 'CONFIRM' })).toBeInTheDocument();
+    expect(within(dialog()).getByRole('button', { name: 'CANCEL' })).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'CLOSE' })).toBeNull();
   });
 
   it.each([

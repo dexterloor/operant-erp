@@ -180,14 +180,23 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     expect(screen.getByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
   });
 
-  it('a 404 shows "We couldn\u2019t find that." and keeps Delete; a 500 says "Something went wrong" with the interrupted sentence (RED L-1)', async () => {
-    stubFetch([problem(404, 'not-found'), problem(500, 'x')]);
+  // Moved deliberately in commit 0b (items-i3-design.md Revision 1 — FINAL §0b; UX items-i3-ux.md F-3; ruling 1(b)): a
+  // 404 used to keep Delete (4.6 D-3); a repeat cannot succeed, so it now leaves Close only. Close re-reads the warehouse,
+  // so the 500 half needs a second open. Stub order (final RED L-7): the 404, Close's re-read, the second dialog's 500.
+  it('a 404 shows "We couldn\u2019t find that." and leaves Close only; Close re-reads; a 500 (in a second dialog) says "Something went wrong" with the interrupted sentence (0b; RED L-1)', async () => {
+    const calls = stubFetch([problem(404, 'not-found'), json(200, MAIN), problem(500, 'x')]);
     const u = userEvent.setup();
     showWarehouse();
     await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
     expect(within(dialog()).getByText('Not deleted')).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(within(dialog()).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await u.click(await screen.findByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(dialog()).toHaveTextContent('Something went wrong on our side.'));
     expect(dialog()).toHaveTextContent("We can't tell whether MAIN was deleted. Press Delete warehouse to try again.");
@@ -243,6 +252,8 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
     expect(dialog()).toHaveTextContent('This needs the Delete and restore warehouses permission, which you no longer have. Your workspace administrator can grant it.');
+    // Ruling 1(b), second half (0b): a 403 keeps Delete (4.6 D-3); only a 404 leaves Close only.
+    expect(within(dialog()).getByRole('button', { name: 'Delete warehouse' })).toBeInTheDocument();
   });
 
   // Warehouse re-read RED L-1: the earlier re-read error is cleared by the Delete paths' commits too, not by Save alone.
@@ -452,6 +463,22 @@ describe('/warehouses/[id] — Delete location (B-7, step 4.6)', () => {
     await u.click(screen.getByRole('button', { name: 'Delete A1' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
     await waitFor(() => expect(dialog()).toHaveTextContent('This needs the Delete and restore locations permission, which you no longer have. Your workspace administrator can grant it.'));
+    // Ruling 1(b), second half (0b): a 403 keeps Delete location.
+    expect(within(dialog()).getByRole('button', { name: 'Delete location' })).toBeInTheDocument();
+  });
+
+  it('a 404 shows "We couldn\u2019t find that." under "Not deleted" and leaves Close only; Close re-reads the view (0b, UX F-3)', async () => {
+    const calls = stubFetch([problem(404, 'not-found'), json(200, coll([A1, Q1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(screen.getByRole('button', { name: 'Delete A1' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+    await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
+    expect(within(dialog()).getByText('Not deleted')).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'Delete location' })).toBeNull();
+    expect(within(dialog()).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']));
   });
 
   it('a successful delete clears an earlier Restore location refusal (D-8; RED L-3)', async () => {

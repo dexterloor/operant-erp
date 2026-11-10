@@ -47,8 +47,8 @@ interface Notice {
  * renders inside under **Not deleted**, its heading takes focus (the Dialog's `refusal` id), and the dialog stays open.
  * Any refusal except P1 removes the Delete button and leaves **Close** (ST-9b; no pre-check of orders or stock, G-46).
  * P1 (`{ kind: 'contention' }`, mapped in the family's `wired.ts`) shows its sentence and keeps Delete (B-7
- * "Exception"). A 403, 404 or an interrupted request keeps Delete too (they are not business-rule refusals). This
- * component branches on `kind`, never on a code.
+ * "Exception"). A 403 or an interrupted request keeps Delete; a 404 leaves Close only (the record can't be found, so a
+ * repeat cannot succeed — 4.6 RED L-2, UX `items-i3-ux.md` §3.1). This component branches on `kind`, never on a code.
  *
  * Shared by families (Revision 8 R8-3, items plan I-0a; moved from `components/warehouses/`): props only, the family's
  * copy and result come in as props, and nothing here imports a family's `copy/` or `lib/` (architecture.test.ts).
@@ -101,6 +101,7 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef 
         return;
       }
       case 'not-found':
+        setFinal(true);
         show(NOT_DELETED, PAGE_STATES.notFoundInline);
         return;
       case 'unreachable':
