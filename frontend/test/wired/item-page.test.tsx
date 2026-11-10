@@ -1,12 +1,17 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode, useState } from 'react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
+import { leaveArrivalMessage, takeArrivalMessage } from '@/app/(app)/arrivalMessage';
+import { BffProvider } from '@/app/(app)/BffProvider';
 import { ItemPage } from '@/app/(app)/items/[id]/ItemPage';
+import { RouteFocus } from '@/components/shell/RouteFocus';
+import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
-import { TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { SID, TZ, json, problem, refused, renderWired, stubFetch } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
 // by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name and the three numbers
@@ -640,5 +645,67 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     expect(within(document.body).queryByText('Not saved')).toBeNull();
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
     errors.mockRestore();
+  });
+});
+
+// Items I-2 (items-i2-design.md Revision 1 — FINAL A-11, T-6; B-4 "After"): the create page leaves "{sku} was created."
+// for `/items/{id}`; the item page speaks it once, after RouteFocus has focused its h1, in plain and StrictMode, and not
+// again after a remount. The arrival module itself is pinned in warehouse-create.test.tsx.
+describe.each([
+  ['plain', false],
+  ['StrictMode', true],
+] as const)('/items/[id] — the arrival message after a create (%s)', (_name, strict) => {
+  afterEach(() => {
+    takeArrivalMessage('');
+  });
+  let go: (path: string) => void = () => {};
+  function Frame() {
+    const [path, setPath] = useState('/items/new');
+    go = setPath;
+    return (
+      <>
+        <main id="main-content">{path === '/items/new' ? <h1 tabIndex={-1}>New item</h1> : path === 'gone' ? null : <ItemPage initial={BOLT} canEdit canRestore={false} />}</main>
+        <RouteFocus routeKey={path} />
+      </>
+    );
+  }
+  const mount = () => {
+    const tree = (
+      <TooltipProvider>
+        <BffProvider session={{ sid: SID, tz: TZ }} reload={() => {}}>
+          <Frame />
+        </BffProvider>
+      </TooltipProvider>
+    );
+    return render(strict ? <StrictMode>{tree}</StrictMode> : tree);
+  };
+
+  it('the region holds "{sku} was created." once, the h1 focused when it does; a remount says nothing', async () => {
+    mount();
+    leaveArrivalMessage(`/items/${IID}`, 'A-1 was created.');
+    const seen: { text: string; focusedH1: boolean }[] = [];
+    const observer = new MutationObserver(() => {
+      const r = document.querySelector('section > [role="status"]');
+      if (r && r.textContent !== '') seen.push({ text: r.textContent ?? '', focusedH1: document.activeElement?.tagName === 'H1' });
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    act(() => go(`/items/${IID}`));
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen).toEqual([{ text: 'A-1 was created.', focusedH1: true }]);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'A-1 — Bolt' }));
+    act(() => go('gone'));
+    act(() => go(`/items/${IID}`));
+    await new Promise((r) => setTimeout(r, 20));
+    observer.disconnect();
+    expect(document.querySelector('section > [role="status"]')!.textContent).toBe('');
+  });
+
+  it('a message left for another address is not spoken here', async () => {
+    mount();
+    leaveArrivalMessage('/items/other', 'X was created.');
+    act(() => go(`/items/${IID}`));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector('section > [role="status"]')!.textContent).toBe('');
   });
 });

@@ -5,7 +5,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { isItem, loadItem } from './load';
-import { ITEM_FIELDS, type ItemChange, type RestoreItemAction, type SaveItemAction } from './results';
+import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type ItemChange, type RestoreItemAction, type SaveItemAction } from './results';
 
 // The item page's Save and Restore over the BFF (Revision 8 R8-2; the lib/warehouses/wired.ts shape). Neither takes an
 // Idempotency-Key: the update is a merge patch (a repeat finds nothing to change) and the restore is guarded by
@@ -19,6 +19,9 @@ import { ITEM_FIELDS, type ItemChange, type RestoreItemAction, type SaveItemActi
 // Blind spot, stated (the warehouses X-2 precedent): C-2's body-key check reads object-literal bodies only; the Save body
 // is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` and
 // `unit_of_measure_code` out of it.
+//
+// Blind spot, stated: C-2's body-key check reads object-literal bodies only; the create body is built by name over
+// `CREATE_ITEM_FIELDS`, which, with the item-create body test, keeps it to the six keys.
 
 export interface ItemWiring {
   readonly caller: ApiCaller;
@@ -115,6 +118,39 @@ export function itemRestore(w: ItemWiring): RestoreItemAction {
         w.onRereadFailed(again.kind);
       }
       return { kind: 'restored', item: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Create item over the BFF (items-i2-design.md Revision 1 — FINAL A-9; the `warehouseCreate` precedent). `CreateItem`
+// requires an Idempotency-Key but does not replay on it (the live SKU unique refuses a repeat, UX-I1), so a fresh key is
+// minted for EVERY call (`newKey`) and never stored, never in the body. No re-read here: the page navigates to the new
+// item, which reads it. No refusal code is compared (`PROBLEMS_IMPORTERS` is unchanged by this action).
+export function itemCreate(caller: ApiCaller, newKey: () => string = () => crypto.randomUUID()): CreateItemAction {
+  return async (body) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.itemCreate);
+    try {
+      // The body is the form's, built by name over CREATE_ITEM_FIELDS (A-6): sent as given.
+      const r = await caller.call('CreateItem', {}, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_ITEM_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isItem(r.body)) return { kind: 'server-error' };
+      return { kind: 'created', item: r.body };
     } finally {
       deadline.cancel();
     }

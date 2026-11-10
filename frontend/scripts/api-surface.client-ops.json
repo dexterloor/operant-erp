@@ -2,6 +2,7 @@
   "AssignRole",
   "CancelRoleGrantProposal",
   "ConfirmRoleGrantProposal",
+  "CreateItem",
   "CreateRoleGrantProposal",
   "CreateStorageLocation",
   "CreateWarehouse",

@@ -53,6 +53,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateItem: {
+    method: 'POST',
+    template: '/api/v1/items',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['inventory_item.create'],
+    },
+  },
   CreateRoleGrantProposal: {
     method: 'POST',
     template: '/api/v1/users/{id}/role-grant-proposals',

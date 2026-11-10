@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { DateTime } from '@/components/ui/DateTime';
@@ -20,11 +21,14 @@ const load = async (read: Read, archived: boolean, page: PageRequest, signal: Ab
 const ARCHIVED_VIEW = { order: 'as-served', caption: ITEMS_LIST.archivedCaption, rows: 'struck' } as const;
 const SEARCH = { label: ITEMS_LIST.searchFor, placeholder: ITEMS_LIST.searchPlaceholder, hint: ITEMS_LIST.searchHint };
 
+/** R1-16's Create item empty-state action: a link to `/items/new`, shown only with `CreateItem`'s codes (from I-2). */
+const createAction = (canCreate: boolean) => (canCreate ? <Link href="/items/new">{ITEMS_LIST.createItem}</Link> : null);
+
 /**
- * R1-16's empty states, as I-1 offers them: no **Create item** anywhere until `/items/new` exists (I-2), so a live,
- * unsearched empty list offers nothing, or **View archived items** when the workspace's items are all archived.
+ * R1-16's empty states. **Create item** on the two live, unsearched rows (none yet; all archived), for a viewer holding
+ * `CreateItem`'s codes only; never on a search with no match or in the Archived view.
  */
-export const EMPTY: EmptyState = ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
+export const emptyFor = (canCreate: boolean): EmptyState => ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
   if (q !== '') {
     const clear = (
       <Button size="sm" onClick={clearSearch}>
@@ -47,25 +51,43 @@ export const EMPTY: EmptyState = ({ archived, q, tenantHasRows, clearSearch, swi
     return {
       heading: ITEMS_LIST.allArchived,
       actions: (
-        <Button size="sm" onClick={() => switchTo(true)}>
-          {ITEMS_LIST.viewArchived}
-        </Button>
+        <>
+          {createAction(canCreate)}
+          <Button size="sm" onClick={() => switchTo(true)}>
+            {ITEMS_LIST.viewArchived}
+          </Button>
+        </>
       ),
     };
   }
-  return { heading: ITEMS_LIST.noneYet };
+  const create = createAction(canCreate);
+  return create !== null ? { heading: ITEMS_LIST.noneYet, actions: create } : { heading: ITEMS_LIST.noneYet };
 };
 
-/** B-1, B-2: **Archived** in the live view; **Back to items** replaces it in the Archived view once a view has loaded (R3-1). No **New item** in I-1 (R1-16). */
-export function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
-  if (!archived) return <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={ITEMS_LIST.archived} />;
-  if (!loaded) return null;
-  return (
-    <Button ref={viewControlRef} loading={busy} onClick={() => switchTo(false)}>
-      {ITEMS_LIST.backToList}
-    </Button>
-  );
-}
+/**
+ * B-1, B-2: **New item** (with `CreateItem`'s codes, from I-2) then **Archived** in the live view; **Back to items**
+ * replaces both in the Archived view, and only once a view has loaded (R3-1).
+ */
+export const headerFor = (canCreate: boolean) =>
+  function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
+    if (!archived) {
+      const toggle = <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={ITEMS_LIST.archived} />;
+      return canCreate ? (
+        <>
+          <Link href="/items/new">{ITEMS_LIST.newItem}</Link>
+          {toggle}
+        </>
+      ) : (
+        toggle
+      );
+    }
+    if (!loaded) return null;
+    return (
+      <Button ref={viewControlRef} loading={busy} onClick={() => switchTo(false)}>
+        {ITEMS_LIST.backToList}
+      </Button>
+    );
+  };
 
 /**
  * The paged list's words (R8-1; UX R1-3, R1-7, R1-8, F-2, F-3). The page sentence's position cue is per view: the live
@@ -96,9 +118,11 @@ export function pagingFor(timeZone: string): Paging<Item> {
  * archived. No quantity column (R1-5). The SKU is the row's link. Paged and searched by the server (R8-1): the box sends
  * `q`, a case-sensitive SKU prefix, as typed.
  */
-export function ItemsList({ initial, initialArchived = false }: { initial: ItemsLoad; initialArchived?: boolean }) {
+export function ItemsList({ initial, initialArchived = false, canCreate = false }: { initial: ItemsLoad; initialArchived?: boolean; canCreate?: boolean }) {
   const timeZone = useViewerTimeZone();
   const onViewLoaded = useArchivedAddress();
+  const header = useMemo(() => headerFor(canCreate), [canCreate]);
+  const empty = useMemo(() => emptyFor(canCreate), [canCreate]);
   const sku: Column<Item> = { header: ITEMS_LIST.sku, cell: (i) => <Link href={`/items/${i.id}`}>{i.sku}</Link> };
   const name: Column<Item> = { header: ITEMS_LIST.name, cell: (i) => i.name };
   const columns = (archived: boolean): Column<Item>[] =>
@@ -116,7 +140,7 @@ export function ItemsList({ initial, initialArchived = false }: { initial: Items
       columns={columns}
       copy={ITEMS_LIST}
       header={header}
-      empty={EMPTY}
+      empty={empty}
       archivedView={ARCHIVED_VIEW}
       footer={(rows) => (rows.length > 0 ? <p className={listStyles.footer}>{ITEMS_LIST.footer(rows.length)}</p> : null)}
       denied={<ItemsDenied />}

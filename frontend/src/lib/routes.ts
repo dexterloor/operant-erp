@@ -22,7 +22,7 @@ export const ACCOUNT_PAGE_HREFS: readonly string[] = ['/account/password'];
  * Static pages below a built page, reached from that page, never from navigation (Revision 7 C-2c; §2 step 4.3). Never
  * navigation items, never in DECLARED_ROUTES, never a start destination.
  */
-export const CHILD_PAGE_HREFS: readonly string[] = ['/warehouses/new'];
+export const CHILD_PAGE_HREFS: readonly string[] = ['/warehouses/new', '/items/new'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 

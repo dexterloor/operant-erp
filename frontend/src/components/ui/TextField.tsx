@@ -19,7 +19,7 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   /** The server's sentence for this field, verbatim; empty or absent = no error. */
   error?: string | undefined;
   /**
-   * Text shown after the input, outside it (items B-3 / R1-2: a quantity's unit code, `EA`), and read with the field: it
+   * Text shown after the input, outside it (items B-3 / R1-2: a quantity's unit code), and read with the field: it
    * joins `aria-describedby` first. Absent = the field renders exactly as before.
    */
   suffix?: string;

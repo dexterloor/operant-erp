@@ -1,8 +1,8 @@
 // Every item screen sentence (Revision 8 R8-2), from `docs/design/items-ux-copy.md`: Revision 0 Part B, as amended by its
 // "Response to RED — Revision 1" (R1-n) and "Revision 1 — FINAL" (F-n); each entry names its row. Server refusals are
 // never stored here: they render as sent (Part A, UX-I1…UX-I12). Each sentence holds for the web app in the commit that
-// renders it (the ST-3 action rule): I-1 has the list, the Archived view, the item page (edit) and Restore item, and no
-// create page, so nothing here names **New item** or **Create item** until I-2 (R1-16).
+// renders it (the ST-3 action rule): I-1 has the list, the Archived view, the item page (edit) and Restore item; I-2 adds
+// the create page (`/items/new`), so **New item** and **Create item** are offered from I-2 (R1-16).
 
 /** B-1 (live list) and B-2 (Archived view), as amended by R1-3, R1-5, R1-6, R1-8, R1-14, R1-16, F-2. */
 export const ITEMS_LIST = {
@@ -30,7 +30,11 @@ export const ITEMS_LIST = {
     [archived ? (n === 1 ? '1 archived item shown.' : `${n} archived items shown.`) : n === 1 ? '1 item shown.' : `${n} items shown.`, q !== '' ? `SKU starts with “${q}”.` : null].filter(Boolean).join(' '),
   /** B-1 load failed (NEW). */
   loadFailed: "The list of items couldn't be loaded.",
-  /** R1-16 empty states, as I-1 offers them (no Create item until I-2). */
+  /** B-1 header action (RULED, §3 New/Create; from I-2, with `inventory_item.create`): a link to `/items/new`. */
+  newItem: 'New item',
+  /** R1-16 empty-state action (from I-2, with `inventory_item.create`): the live none-yet and all-archived states only. */
+  createItem: 'Create item',
+  /** R1-16 empty states. */
   noneYet: 'No items yet.',
   allArchived: "No items to show. Every item here has been deleted, and they're in the archived items.",
   viewArchived: 'View archived items',
@@ -65,6 +69,9 @@ export const ITEMS_PAGING = {
   }),
 } as const;
 
+/** B-3's SKU hint (NEW), shared by the item page (with its relabel sentence) and the create form (B-4, alone). */
+const SKU_HINT = 'The code your team uses for this item. Each item needs its own, and capitals and spaces count.';
+
 /** B-3: the item page (the detail page is the editor, IA L-4), as amended by R1-1, R1-2, R1-6, F-4. */
 export const ITEM_PAGE = {
   /** h1 and title: **{sku} — {name}** (NEW). */
@@ -80,7 +87,9 @@ export const ITEM_PAGE = {
    * SKU hint (NEW) + its edit-only relabel sentence (NEW, recommended; PO TO CONFIRM, IO-2). Shown only in edit: an
    * archived or read-only page shows no edit hints (B-3 archived row).
    */
-  skuHint: "The code your team uses for this item. Each item needs its own, and capitals and spaces count. A new SKU also changes it on every order, receipt, shipment, invoice and stock record that already names this item.",
+  skuHint: `${SKU_HINT} A new SKU also changes it on every order, receipt, shipment, invoice and stock record that already names this item.`,
+  /** B-3's SKU hint alone, without the relabel sentence: the create form's (B-4, "first SKU sentence only"). */
+  skuHintFirst: SKU_HINT,
   /** Name hint, edit only (NEW, recommended; PO TO CONFIRM, IO-2). */
   nameHint: 'Renaming also changes the name on every order, receipt, shipment and invoice that already names this item.',
   /** Reorder point help (NEW). */
@@ -105,6 +114,36 @@ export const ITEM_PAGE = {
   archivedOn: 'This item was archived on ',
   archivedAfter: '.',
 } as const;
+
+/** B-4: `/items/new` (create), as amended by R1-1 (the Unit is a select over the served units, BK-22). */
+export const NEW_ITEM = {
+  /** h1 · `<title>` (NEW). */
+  heading: 'New item',
+  /** ST-4b's `{resource}` on `/items/new` without `inventory_item.create` (NEW; `UX` TO CONFIRM the noun). */
+  deniedResource: 'new items',
+  /** Submit · cancel (RULED, §3). */
+  submit: 'Create item',
+  cancel: 'Cancel',
+  /** After (NEW), spoken once on the new item's page. */
+  after: (sku: string) => `${sku} was created.`,
+  /** Interrupted (NEW): not "press Create item to try again" (the create does not replay on its key). */
+  interrupted: (sku: string) => `We can't tell whether ${sku} was created. Search the list for ${sku} before you try again.`,
+  /** R1-1: the Unit select's empty first option (no `disabled`) and the client refusal when nothing is chosen. */
+  unitPrompt: 'Choose a unit',
+  unitRequired: 'Choose a unit for this item.',
+} as const;
+
+/** R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1). */
+export const UNIT_LABELS: Readonly<Record<string, { label: string }>> = {
+  EA: { label: 'Each (EA)' },
+  BOX: { label: 'Box (BOX)' },
+  KG: { label: 'Kilogram (KG)' },
+  L: { label: 'Litre (L)' },
+  M: { label: 'Metre (M)' },
+};
+
+/** A served unit code's label; a code with no entry renders as sent (the `kindLabel` precedent). */
+export const unitLabel = (code: string): string => UNIT_LABELS[code]?.label ?? code;
 
 /** B-5 Restore rows + R1-17 "already live" (the W4 treatment). In the archived banner, no dialog. */
 export const RESTORE_ITEM = {

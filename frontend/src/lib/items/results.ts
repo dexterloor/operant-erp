@@ -1,7 +1,7 @@
 // Typed results of the item page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared kinds in
 // `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { Item, UpdateItemInput } from '../api/items';
+import type { CreateItemInput, Item, UpdateItemInput } from '../api/items';
 import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -46,3 +46,31 @@ export type RestoreItemResult = RestoreResult<{ item: Item }>;
 
 /** The archived page's Restore item. Caller contract: `restored` resolves after the re-read item is committed. */
 export type RestoreItemAction = () => Promise<RestoreItemResult>;
+
+/**
+ * `/items/new`'s fields, in screen order (items-i2-design.md Revision 1 — FINAL A-5). NOT `supplier_id` (S-B′: never
+ * sent in this build). Every one is always sent, exactly as typed, so the body is these six keys and nothing else. A name
+ * the mirrored input lacks is a type error.
+ */
+export const CREATE_ITEM_FIELDS = ['sku', 'name', 'unit_of_measure_code', 'reorder_point', 'reorder_quantity', 'safety_stock'] as const satisfies readonly (keyof CreateItemInput & string)[];
+export type CreateItemField = (typeof CREATE_ITEM_FIELDS)[number];
+/** The body Create item sends: all six members, never `supplier_id`, never `null`. */
+export type CreateItemBody = Required<Pick<CreateItemInput, CreateItemField>>;
+
+/**
+ * `POST /items`. `created` carries the 201 body. `invalid` is a 422 mapped onto the form (a pointer outside the six
+ * fields lands in `formErrors`, shown in the banner). `refused` is a 409 (UX-I1 SKU taken, P1 contention), shown in the
+ * banner as sent.
+ */
+export type CreateItemResult =
+  | { kind: 'created'; item: Item }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<CreateItemField>; formErrors: string[] }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** The create form's Create item. A fresh Idempotency-Key per call (the create does not replay on it). */
+export type CreateItemAction = (body: CreateItemBody) => Promise<CreateItemResult>;

@@ -1,4 +1,5 @@
 import { isValidElement, type ReactElement } from 'react';
+import { render as renderDom } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 // Items I-1 (items-plan.md §4 I-1 "edit gate per operation", 4.4 RED M-2): the item page offers its editor only to an
@@ -32,7 +33,9 @@ vi.mock('@/lib/items/load', () => ({
 
 const { default: Page } = await import('@/app/(app)/items/[id]/page');
 const { default: ListPage } = await import('@/app/(app)/items/page');
-const { ItemsDenied } = await import('@/app/(app)/items/ItemStates');
+const { default: NewPage } = await import('@/app/(app)/items/new/page');
+const { NewItemPage } = await import('@/app/(app)/items/new/NewItemPage');
+const { ItemCreateDenied, ItemsDenied } = await import('@/app/(app)/items/ItemStates');
 const { ItemsList } = await import('@/app/(app)/items/ItemsList');
 
 async function render(codes: string[]): Promise<ReactElement> {
@@ -109,5 +112,49 @@ describe('/items — the list page', () => {
     await expect(ListPage({ searchParams: Promise.resolve({ archived: 'true' }) })).rejects.toThrow(encodeURIComponent('/items?archived=true'));
     v.list = 'forbidden';
     expect(((await ListPage({ searchParams: Promise.resolve({}) })) as ReactElement).type).toBe(ItemsDenied);
+  });
+});
+
+// Items I-2 (items-i2-design.md Revision 1 — FINAL A-8, T-6; Final RED FR-L3): `/items/new` gates on `GetItem` FIRST
+// (the warehouses step-4.3 RED M-1 scenario: a creator who cannot view items would land on ST-4b right after a successful
+// create), then on `CreateItem`.
+describe('/items/new — GetItem first, then CreateItem (A-8)', () => {
+  const at = async (codes: string[]) => {
+    v.codes = codes;
+    return (await NewPage()) as ReactElement;
+  };
+
+  it('a creator who cannot view items (inventory_item.create without inventory_item.view): the ITEMS ST-4b (View items), not the new-items one', async () => {
+    const el = await at(['inventory_item.create']);
+    expect(el.type).toBe(ItemsDenied);
+    const { container, unmount } = renderDom(el);
+    expect(container.textContent).toContain("You don't have access to items.");
+    expect(container.textContent).toContain('View items');
+    unmount();
+  });
+
+  it('GetItem without CreateItem: the new-items ST-4b, naming Create items', async () => {
+    const el = await at(['inventory_item.view', 'inventory_item.edit']);
+    expect(el.type).toBe(ItemCreateDenied);
+    const { container, unmount } = renderDom(el);
+    expect(container.textContent).toContain("You don't have access to new items.");
+    expect(container.textContent).toContain('Create items');
+    unmount();
+  });
+
+  it('both: the form page', async () => {
+    expect((await at(['inventory_item.view', 'inventory_item.create'])).type).toBe(NewItemPage);
+  });
+});
+
+describe('/items — canCreate follows CreateItem (A-11)', () => {
+  const list = async (codes: string[]) => {
+    v.codes = codes;
+    v.list = 'ok';
+    return (await ListPage({ searchParams: Promise.resolve({}) })) as ReactElement;
+  };
+  it('with CreateItem the list is told canCreate; without it, not', async () => {
+    expect(((await list(['inventory_item.view', 'inventory_item.create'])).props as { canCreate: boolean }).canCreate).toBe(true);
+    expect(((await list(['inventory_item.view', 'inventory_item.edit'])).props as { canCreate: boolean }).canCreate).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import { renderQuantity } from '@/lib/format/quantity';
 import { loadItem } from '@/lib/items/load';
 import type { ItemChange } from '@/lib/items/results';
 import { itemRestore, itemSave } from '@/lib/items/wired';
+import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
 import { ItemNotFound, ItemsDenied } from '../ItemStates';
@@ -61,6 +62,8 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
+  // B-4 "After": the create page left "{sku} was created." for this address; spoken once, after RouteFocus has focused the h1.
+  useArrivalMessage(`/items/${id}`, region.announce);
 
   const failed = useCallback((f: ReadFailure) => {
     if (f === 'session-ended') return;

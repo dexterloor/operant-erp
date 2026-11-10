@@ -336,7 +336,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
   // → components/records/{DeleteDialog,RestoreActions}.tsx.
   // Items I-1 added: components/items/ItemForm.tsx.
-  'src/components': 61,
+  // Items I-2 (Revision 8 R8-5) added: components/ui/SelectField.tsx (KindField.tsx stays, a thin caller) and
+  // components/items/ItemCreateForm.tsx.
+  'src/components': 63,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
   'src/lib/api': 8,
   'src/lib/roles': 11,
@@ -349,7 +351,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/warehouses': 3,
   // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
   'src/lib/items': 3,
-  'src/components/items': 1,
+  // Items I-2 added: ItemCreateForm.tsx (the create page's form).
+  'src/components/items': 2,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -371,8 +374,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/auth': 2,
   // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
   'src/lib/format': 4,
-  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
-  'src/components/ui': 12,
+  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx. Items I-2 (Revision 8 R8-5) added: SelectField.tsx.
+  'src/components/ui': 13,
   [FIXTURE_DIR]: 4,
   // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
   'src/generated': 2,
@@ -399,7 +402,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
   // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
-  'src/app': 57,
+  // Items I-2 added: app/(app)/items/new/{page,NewItemPage}.tsx.
+  'src/app': 59,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1328,6 +1332,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
       // Items I-1 (G-F2 row): the item page's editor.
+      // Items I-2 (G-F2 row): the create page's form.
+      'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
@@ -1823,8 +1829,9 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx']));
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 6 + 1);
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx']));
+    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 

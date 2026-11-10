@@ -25,5 +25,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const first = await loadItems(serverRead(session), archived, { q: '', cursor: null });
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/items', query));
   if (first.kind === 'forbidden') return <ItemsDenied />;
-  return <ItemsList initial={first} initialArchived={archived} />;
+  return <ItemsList initial={first} initialArchived={archived} canCreate={viewerMay('CreateItem', viewer.permissionCodes)} />;
 }
