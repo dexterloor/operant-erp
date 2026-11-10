@@ -95,12 +95,14 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
         onCreated(r.item);
         return;
       case 'invalid': {
-        const first = CREATE_ITEM_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_CREATED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+          // Index keys: two out-of-form violations may carry the same sentence, and the list is rebuilt per answer under a
+          // new Banner key, so an index is stable here and a sentence key is not unique.
+          show(NOT_CREATED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
           setFieldErrors(r.fieldErrors);
           return;
         }
+        const first = CREATE_ITEM_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         setFieldErrors(r.fieldErrors);
         setNotice(null);
         if (first) focusField(first);

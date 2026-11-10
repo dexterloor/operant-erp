@@ -145,6 +145,10 @@ describe('/items/new — GetItem first, then CreateItem (A-8)', () => {
   it('both: the form page', async () => {
     expect((await at(['inventory_item.view', 'inventory_item.create'])).type).toBe(NewItemPage);
   });
+
+  it('a viewer holding neither inventory_item.view nor inventory_item.create: the ITEMS ST-4b (GetItem is checked first)', async () => {
+    for (const codes of [[], ['warehouse.view']]) expect((await at(codes)).type).toBe(ItemsDenied);
+  });
 });
 
 describe('/items — canCreate follows CreateItem (A-11)', () => {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -61,14 +61,23 @@ describe('/items/new — the form (B-4)', () => {
     expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/items');
   });
 
-  it('the numbers start at 0, as text with a decimal keypad, and carry no unit suffix', () => {
+  it('the numbers start at 0, as text with a decimal keypad', () => {
     renderWired(<NewItemPage />);
     for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) {
       expect(field(n)).toHaveValue('0');
       expect(field(n)).toHaveAttribute('type', 'text');
       expect(field(n)).toHaveAttribute('inputmode', 'decimal');
     }
-    for (const code of UNITS) expect(screen.queryByText(code, { exact: true })).toBeNull();
+  });
+
+  it('no unit suffix on the create numbers, also after each unit is chosen', async () => {
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    for (const code of UNITS) {
+      await u.selectOptions(unit(), code);
+      expect(document.querySelectorAll('[id$="-suffix"]')).toHaveLength(0);
+      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${code}\\b`)));
+    }
   });
 
   it('the Unit starts on "Choose a unit" (value ""), that option has no disabled attribute; the options are the served codes in served order, with UX labels', () => {
@@ -166,6 +175,18 @@ describe('/items/new — what is sent (B-4, A-6 step 3, A-9)', () => {
     await u.type(field('Name'), '{Enter}');
     expect(posts(calls)).toHaveLength(1);
   });
+
+  it('the form itself refuses a second submit while busy, whatever triggers it (a submit event, not the button)', async () => {
+    const calls = stubFetch(['hang']);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(submit()).toHaveAttribute('aria-busy', 'true'));
+    fireEvent.submit(submit().closest('form')!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(posts(calls)).toHaveLength(1);
+  });
 });
 
 describe('/items/new — refused here, before any request (R1-1, R1-9)', () => {
@@ -230,6 +251,22 @@ describe('/items/new — refused here, before any request (R1-1, R1-9)', () => {
     expect(screen.queryByText(BLANK)).toBeNull();
     expect(calls).toHaveLength(1);
   });
+
+  it('a client refusal after a banner clears the banner (A-6 step 2), sends nothing, and focuses Unit', async () => {
+    const calls = stubFetch([refused('inventory_item.sku_is_unique_per_workspace', UX_I1)]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText(UX_I1)).toBeInTheDocument();
+    await u.selectOptions(unit(), '');
+    await u.click(submit());
+    await waitFor(() => expect(unit()).toHaveAttribute('aria-invalid', 'true'));
+    expect(screen.queryByText('Not created')).toBeNull();
+    expect(screen.queryByText(UX_I1)).toBeNull();
+    expect(unit()).toHaveFocus();
+    expect(posts(calls)).toHaveLength(1);
+  });
 });
 
 describe('/items/new — server answers (A-7)', () => {
@@ -241,6 +278,40 @@ describe('/items/new — server answers (A-7)', () => {
     await u.click(submit());
     expect(await screen.findByText('No supplier with this id.')).toBeInTheDocument();
     expect(screen.getByText('Not created')).toHaveFocus();
+  });
+
+  it('a 422 mixing /supplier_id and /name: the Name sentence beside Name, the other under "Not created", focus on the banner heading (A-6)', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'unknown_reference', message: 'No supplier with this id.' }, { pointer: '/name', code: 'blank', message: BLANK }] })]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText('No supplier with this id.')).toBeInTheDocument();
+    expect(field('Name')).toHaveAttribute('aria-invalid', 'true');
+    expect(field('Name')).toHaveAccessibleDescription(BLANK);
+    expect(screen.getByText('Not created')).toHaveFocus();
+  });
+
+  it('two out-of-form violations with the same sentence: both shown, no duplicate-key warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Same.' }, { pointer: '', code: 'y', message: 'Same.' }] })]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findAllByText('Same.')).toHaveLength(2);
+    expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    errors.mockRestore();
+  });
+
+  it('the interrupted sentence carries the SKU exactly as sent (untrimmed)', async () => {
+    stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u, ' SKU-1 ');
+    await u.click(submit());
+    const p = await screen.findByText((_, el) => el?.tagName === 'P' && (el.textContent ?? '').startsWith("We can't tell whether"));
+    expect(p.textContent).toBe("We can't tell whether  SKU-1  was created. Search the list for  SKU-1  before you try again.");
   });
 
   it('a 409 UX-I1 shows verbatim under "Not created"; a later 422 clears the banner; a 409 after a 422 clears the field sentences', async () => {
