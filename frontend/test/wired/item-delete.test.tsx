@@ -638,6 +638,33 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     expect(nav.refresh.mock.calls.length).toBe(refreshes);
     expect(screen.getByRole('heading', { level: 1 })).not.toHaveFocus();
   });
+
+  // i3-c1 fix-RED L-1: the SKU "After" speaks moves only with a commit that is not dropped.
+  it('a dropped Save re-read (older than the 204) does not change the SKU "After" speaks', async () => {
+    const patch = held();
+    const del = held();
+    const saveReread = held();
+    const deleteReread = held();
+    stubFetch([patch.reply, del.reply, saveReread.reply, deleteReread.reply]);
+    const u = userEvent.setup();
+    show();
+    const sku = field('SKU')!;
+    await u.clear(sku);
+    await u.type(sku, 'A-2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    patch.release(json(200, { ...BOLT, sku: 'A-2' }));
+    await tick();
+    del.release(empty(204));
+    await tick();
+    saveReread.release(json(200, { ...BOLT, sku: 'A-2' }));
+    await tick();
+    deleteReread.release(json(503, {}));
+    await tick();
+    await tick();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt');
+    expect(region().textContent).toBe(AFTER);
+  });
 });
 
 // FE-D1 order on the item delete, plain and under StrictMode (4.6 M-4; the warehouse probe): when the h1 takes focus the

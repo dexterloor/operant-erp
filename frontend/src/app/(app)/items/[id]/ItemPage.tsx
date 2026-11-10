@@ -159,9 +159,10 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   // Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
   // (a Save may have renamed it after Delete was pressed; i3-c1 RED L-2), refresh the router cache once. The deleted
   // branch does not set `deletedHere`: `onDeleted` already did, and only a commit that is not dropped may clear it (a
-  // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close after an answer re-reads the item: an archived re-read is committed (an interrupted press that
-  // committed, I3 deleted elsewhere) and the h1 takes focus; a live one changes nothing -- not committed, so the typed
-  // edits stay, and the region error is left as it is (M-5 as corrected by the final RED L-4; `itemSave`'s refusal rule).
+  // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close
+  // after an answer re-reads the item: an archived re-read is committed (an interrupted press that committed, I3 deleted
+  // elsewhere) and the h1 takes focus; a live one changes nothing -- not committed, so the typed edits stay, and the
+  // region error is left as it is (M-5 as corrected by the final RED L-4; `itemSave`'s refusal rule).
   const closeDelete = async ({ deleted, reread }: { deleted: boolean; reread: boolean }) => {
     flushSync(() => setDeleting(false));
     if (deleted) {

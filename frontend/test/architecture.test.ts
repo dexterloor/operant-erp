@@ -2480,7 +2480,7 @@ function phpInlineMessage(source: string, method: string, anchor: string): strin
   const parts: string[] = [];
   let last = literal.lastIndex;
   for (let m = literal.exec(body); m !== null; m = literal.exec(body)) {
-    if (/\\[^n"\\$]|(^|[^\\])\$/.test(m[1]!)) throw new Error('G-51 parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.');
+    for (const e of m[1]!.matchAll(/\\(.)|\$/gs)) if (e[0] === '$' || !'n"\\$'.includes(e[1]!)) throw new Error('G-51 parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.');
     parts.push(m[1]!);
     last = literal.lastIndex;
   }
@@ -2581,6 +2581,11 @@ describe('architecture — G-51: no stock count or transfer while G-51 is open (
     // i3-c1 RED L-4: an escape the reader does not decode (here `\t`) fails closed instead of being compared raw.
     const tabbed = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a\\tb");\n    }\n}\n`;
     expect(() => phpInlineMessage(tabbed, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
+    // i3-c1 fix-RED L-2: a bare `$` (interpolation) and an escaped backslash before `$` fail closed too.
+    const interpolated = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a $v b");\n    }\n}\n`;
+    expect(() => phpInlineMessage(interpolated, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
+    const backslashThenVariable = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a \\\\$v b");\n    }\n}\n`;
+    expect(() => phpInlineMessage(backslashThenVariable, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
   });
 
   it("parity: G51_MESSAGE equals the backend check's inline failure message, character for character", () => {
