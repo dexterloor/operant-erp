@@ -10,6 +10,7 @@ import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { NEW_WAREHOUSE, WAREHOUSE_FORBIDDEN, WAREHOUSE_PAGE } from '@/copy/warehouses';
 import type { Warehouse } from '@/lib/api/warehouses';
+import { marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import { CREATE_WAREHOUSE_FIELDS, type CreateWarehouseAction, type CreateWarehouseResult, type WarehouseField } from '@/lib/warehouses/results';
 import styles from './Warehouses.module.css';
@@ -76,7 +77,7 @@ export function WarehouseCreateForm({ create, createCode, onCreated }: Warehouse
             NOT_CREATED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
           setFieldErrors(r.fieldErrors);

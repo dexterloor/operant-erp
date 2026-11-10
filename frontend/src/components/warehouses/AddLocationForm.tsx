@@ -10,6 +10,7 @@ import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { ADD_LOCATION, KIND_LABELS, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation } from '@/lib/api/warehouses';
+import { marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import type { CreateLocationAction, CreateLocationResult, LocationField } from '@/lib/warehouses/results';
 import { KindField } from './KindField';
@@ -88,7 +89,7 @@ export function AddLocationForm({ warehouseCode, kinds, create, createCode, onCl
             NOT_ADDED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
         else setNotice(null);

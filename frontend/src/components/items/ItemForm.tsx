@@ -10,7 +10,7 @@ import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { Item, UpdateItemInput } from '@/lib/api/items';
 import { renderQuantity } from '@/lib/format/quantity';
-import { changedFields } from '@/lib/forms/fieldErrors';
+import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import { ITEM_FIELDS, QUANTITY_FIELDS, type ItemField, type SaveItemAction, type SaveItemResult } from '@/lib/items/results';
 import type { FieldErrors } from '@/lib/results';
 import styles from './Items.module.css';
@@ -133,7 +133,7 @@ export function ItemForm({ item, save, editCode, announce, fallbackFocusRef, onS
             NOT_SAVED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
           setFieldErrors(r.fieldErrors);

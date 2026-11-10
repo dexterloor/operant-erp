@@ -694,7 +694,7 @@ describe('Add location (AddLocationForm) — the mixed-422 line (I-2 follow-up)'
   });
 
   it('a banner-only 422 and a 409 carry no such line', async () => {
-    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
     const u = userEvent.setup();
     show();
     const dialog = await openAdd(u);
@@ -702,7 +702,7 @@ describe('Add location (AddLocationForm) — the mixed-422 line (I-2 follow-up)'
     await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), PLAIN);
     await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
     const heading = await within(dialog).findByText('Not added');
-    expect(bannerBody(heading)).toEqual(['Out of form.']);
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
     expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
     await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
     expect(await within(dialog).findByText('Refused here.')).toBeInTheDocument();

@@ -10,7 +10,7 @@ import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { EDIT_LOCATION, KIND_LABELS, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation, UpdateStorageLocationInput } from '@/lib/api/warehouses';
-import { changedFields } from '@/lib/forms/fieldErrors';
+import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import { LOCATION_FIELDS, type LocationField, type SaveLocationAction, type SaveLocationResult } from '@/lib/warehouses/results';
 import { KindField } from './KindField';
@@ -90,7 +90,7 @@ export function LocationForm({ location, kinds, save, editCode, onClose, fallbac
             NOT_SAVED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
         else setNotice(null);

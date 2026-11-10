@@ -29,6 +29,11 @@ export function fieldErrorsFrom<F extends string>(violations: readonly Violation
   return { fieldErrors, formErrors };
 }
 
+/** True when at least one field will show a sentence (the field components treat '' as no error). */
+export function marksAnyField<F extends string>(fieldErrors: FieldErrors<F>): boolean {
+  return (Object.values(fieldErrors) as (string | undefined)[]).some((m) => m !== undefined && m !== '');
+}
+
 /**
  * The PATCH body: only the fields whose value differs from the loaded one, compared EXACTLY (no trim, no case folding —
  * the writers compare exact strings, and a body holding only real changes keeps the audit diff to what the person

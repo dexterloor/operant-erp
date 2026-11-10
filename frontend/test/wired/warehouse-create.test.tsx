@@ -265,13 +265,13 @@ describe('/warehouses/new (WarehouseCreateForm) — the mixed-422 line (I-2 foll
   });
 
   it('a banner-only 422 and a 409 carry no such line', async () => {
-    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
     const u = userEvent.setup();
     renderWired(<NewWarehousePage />);
     await fill(u);
     await u.click(submit());
     const heading = await screen.findByText('Not created');
-    expect(bannerBody(heading)).toEqual(['Out of form.']);
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
     expect(screen.queryByText(MIXED_LINE)).toBeNull();
     await u.click(submit());
     expect(await screen.findByText('Refused here.')).toBeInTheDocument();

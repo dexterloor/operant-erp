@@ -11,6 +11,7 @@ import { ITEM_FORBIDDEN, ITEM_PAGE, NEW_ITEM, unitLabel } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { Item } from '@/lib/api/items';
+import { marksAnyField } from '@/lib/forms/fieldErrors';
 import { CREATE_ITEM_FIELDS, QUANTITY_FIELDS, type CreateItemAction, type CreateItemBody, type CreateItemField, type CreateItemResult } from '@/lib/items/results';
 import type { FieldErrors } from '@/lib/results';
 import styles from './Items.module.css';
@@ -105,7 +106,7 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
             NOT_CREATED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
           setFieldErrors(r.fieldErrors);

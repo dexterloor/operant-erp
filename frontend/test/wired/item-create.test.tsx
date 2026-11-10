@@ -462,14 +462,24 @@ describe('/items/new (ItemCreateForm) — the mixed-422 line (I-2 follow-up)', (
     expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
   });
 
-  it('a banner-only 422 and a 409 carry no such line', async () => {
-    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+  it('a field sentence that is an empty string marks no field, so the banner carries no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/name', code: 'blank', message: '' }] })]);
     const u = userEvent.setup();
     renderWired(<NewItemPage />);
     await fill(u);
     await u.click(submit());
     const heading = await screen.findByText('Not created');
     expect(bannerBody(heading)).toEqual(['Out of form.']);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    const heading = await screen.findByText('Not created');
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
     expect(screen.queryByText(MIXED_LINE)).toBeNull();
     await u.click(submit());
     expect(await screen.findByText('Refused here.')).toBeInTheDocument();

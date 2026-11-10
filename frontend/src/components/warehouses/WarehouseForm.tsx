@@ -9,7 +9,7 @@ import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { WAREHOUSE_FORBIDDEN, WAREHOUSE_PAGE } from '@/copy/warehouses';
 import type { UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
-import { changedFields } from '@/lib/forms/fieldErrors';
+import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import { WAREHOUSE_FIELDS, type SaveWarehouseAction, type SaveWarehouseResult, type WarehouseField } from '@/lib/warehouses/results';
 import styles from './Warehouses.module.css';
@@ -104,7 +104,7 @@ export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFoc
             NOT_SAVED,
             <>
               {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
-              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
             </>,
           );
           setFieldErrors(r.fieldErrors);
