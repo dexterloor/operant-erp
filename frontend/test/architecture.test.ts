@@ -2418,7 +2418,8 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
 // The message is held equal to the backend's by the parity test below (it reads ../backend/, the ../contracts/ precedent),
 // so the two cannot drift apart unseen. ⚠ Ported from origin/main d65059b (backend message sha256
 // 1efa6b98a2ca712d96335c9ec0a00dbbd2e7133191448f8f0f5d6ca47fb69dc3). The backend's owed E-6 edit ("removes no ability" →
-// "removes no stock ability") changes one word here; the parity test goes red until G51_MESSAGE is synced.
+// "removes no stock ability", re-wrap allowed) is not in this port; the parity test goes red at the merge that brings it,
+// until G51_MESSAGE is re-ported from the backend text. I-3 is not pushed before that (items-i3-po-sec.md I3-8).
 
 /** G-51 trigger (a): the count's and the transfer's operationIds. Collected with a fresh /g in matchAll, never .test() on a shared /g. */
 const STOCK_COUNT_OR_MOVE_OPERATION_TOKEN = '\\b(CreateStockAdjustment|CreateStockTransfer)\\b';
@@ -2479,6 +2480,7 @@ function phpInlineMessage(source: string, method: string, anchor: string): strin
   const parts: string[] = [];
   let last = literal.lastIndex;
   for (let m = literal.exec(body); m !== null; m = literal.exec(body)) {
+    if (/\\[^n"\\$]|(^|[^\\])\$/.test(m[1]!)) throw new Error('G-51 parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.');
     parts.push(m[1]!);
     last = literal.lastIndex;
   }
@@ -2576,6 +2578,9 @@ describe('architecture — G-51: no stock count or transfer while G-51 is open (
     expect(phpInlineMessage(method(');'), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toBe('first x();\nsecond "q" $v\\');
     expect(() => phpInlineMessage('class T {}\n', G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/is not in the backend file/);
     expect(() => phpInlineMessage(method(", 'x');"), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/not followed by/);
+    // i3-c1 RED L-4: an escape the reader does not decode (here `\t`) fails closed instead of being compared raw.
+    const tabbed = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a\\tb");\n    }\n}\n`;
+    expect(() => phpInlineMessage(tabbed, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
   });
 
   it("parity: G51_MESSAGE equals the backend check's inline failure message, character for character", () => {

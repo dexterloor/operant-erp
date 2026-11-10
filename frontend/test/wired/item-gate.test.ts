@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 // only input. The list page: its gate, the address's view (`?archived=true` kept on reload, never a cursor or a search:
 // R8-1 item 6, UX R1-15), and 401 / 403 / 404.
 
-const v = vi.hoisted(() => ({ codes: [] as string[], listCalls: [] as unknown[][], item: 'ok' as 'ok' | 'not-found' | 'session-ended' | 'forbidden', list: 'ok' as 'ok' | 'session-ended' | 'forbidden' }));
+const v = vi.hoisted(() => ({ byOperation: null as ((operation: string) => boolean) | null, codes: [] as string[], listCalls: [] as unknown[][], item: 'ok' as 'ok' | 'not-found' | 'session-ended' | 'forbidden', list: 'ok' as 'ok' | 'session-ended' | 'forbidden' }));
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
   currentViewer: async () => ({ session: { sid: 's' }, viewer: { id: 'v', permissionCodes: v.codes } }),
@@ -22,6 +22,12 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('@/lib/bff/server/reads', () => ({ serverRead: () => 'read' }));
+// i3-c1 N-1: RestoreItem and DeleteItem share one code (inventory_item.delete), so a viewer's codes cannot tell which
+// operation a prop was gated on. While `byOperation` is set, the gate answers by operation name instead.
+vi.mock('@/lib/bff/surface', async (actual) => {
+  const real = await actual<typeof import('@/lib/bff/surface')>();
+  return { ...real, viewerMay: (operation: Parameters<typeof real.viewerMay>[0], codes: Parameters<typeof real.viewerMay>[1]) => (v.byOperation ? v.byOperation(operation) : real.viewerMay(operation, codes)) };
+});
 const ITEM = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: false };
 vi.mock('@/lib/items/load', () => ({
   loadItem: async () => (v.item === 'ok' ? { kind: 'ok', item: ITEM } : { kind: v.item }),
@@ -68,6 +74,21 @@ describe('/items/[id] — Save follows UpdateItem, Restore item follows RestoreI
   it('with inventory_item.delete: Delete item', async () => {
     expect(props(await render(['inventory_item.view', 'inventory_item.delete']))).toMatchObject({ canDelete: true });
     expect(props(await render(['inventory_item.view']))).toMatchObject({ canDelete: false });
+  });
+
+  // i3-c1 N-1: each offer is gated on its own operation, by name. The gate answers yes for GetItem and ONE write
+  // operation only; exactly the prop of that operation must be true.
+  it.each([
+    ['UpdateItem', { canEdit: true, canRestore: false, canDelete: false }],
+    ['RestoreItem', { canEdit: false, canRestore: true, canDelete: false }],
+    ['DeleteItem', { canEdit: false, canRestore: false, canDelete: true }],
+  ] as const)('the page gates each offer on its own operation: only %s granted', async (operation, expected) => {
+    v.byOperation = (op) => op === 'GetItem' || op === operation;
+    try {
+      expect(props(await render([]))).toEqual(expect.objectContaining(expected));
+    } finally {
+      v.byOperation = null;
+    }
   });
 
   it('without inventory_item.view the page is ST-4b, even with every write code', async () => {

@@ -357,6 +357,37 @@ describe('/items/[id] — Delete item: answers (F-2)', () => {
     await waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']));
   });
 
+  it('a Save renaming the SKU lands while the delete is in flight: "After" names the SKU on screen (RED L-2)', async () => {
+    const patch = held();
+    const del = held();
+    stubFetch([patch.reply, del.reply, json(200, { ...BOLT, sku: 'A-2' }), json(200, { ...ARCHIVED, sku: 'A-2' })]);
+    const u = userEvent.setup();
+    show();
+    const sku = field('SKU')!;
+    await u.clear(sku);
+    await u.type(sku, 'A-2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    patch.release(json(200, { ...BOLT, sku: 'A-2' }));
+    await tick();
+    del.release(empty(204));
+    await tick();
+    await tick();
+    expect(region().textContent).toBe("A-2 was deleted. It's now in the archived items.");
+  });
+
+  it('a 204 whose re-read reads the item live (restored in between): the page is live and offers its actions (RED L-3)', async () => {
+    stubFetch([empty(204), json(200, BOLT)]);
+    const u = userEvent.setup();
+    show();
+    await openAndConfirm(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await tick();
+    expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
+    expect(deleteButton()).toBeInTheDocument();
+    expect(field('Name')).toBeInTheDocument();
+  });
+
   it('a stale refusal banner clears on the next answer: P1, press again, 403 → only the 403 sentence (R1-8)', async () => {
     stubFetch([refused('transaction.contention', CONTENTION), problem(403, 'permission-denied')]);
     const u = userEvent.setup();
@@ -582,6 +613,30 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await tick();
     expect(screen.queryByText(REREAD_FAILED)).toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty');
+  });
+
+  // D-3: the caller's own stamp check also guards what follows a commit. An overtaken Close re-read that reads
+  // archived is dropped, and must not move focus to the h1 or refresh the router cache.
+  it('an overtaken Close re-read that reads archived is dropped: no focus jump, no extra refresh (D-3)', async () => {
+    const close = held();
+    stubFetch([refused('transaction.contention', CONTENTION), close.reply, json(200, { ...BOLT, name: 'Bolty' }), json(200, { ...BOLT, name: 'Bolty' })]);
+    const u = userEvent.setup();
+    show();
+    await openAndConfirm(u);
+    await u.click(await within(dialog()).findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const name = field('Name')!;
+    await u.clear(name);
+    await u.type(name, 'Bolty');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty'));
+    const refreshes = nav.refresh.mock.calls.length;
+    name.focus();
+    close.release(json(200, ARCHIVED));
+    await tick();
+    expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
+    expect(nav.refresh.mock.calls.length).toBe(refreshes);
+    expect(screen.getByRole('heading', { level: 1 })).not.toHaveFocus();
   });
 });
 

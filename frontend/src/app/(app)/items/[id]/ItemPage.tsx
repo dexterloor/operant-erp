@@ -92,6 +92,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
+  const committedSku = useRef(initial.sku);
   const stamp = useCallback(() => ++stamps.current, []);
   const failed = useCallback((f: ReadFailure, asOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
@@ -109,6 +110,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
       if (asOf < committedAsOf.current) return;
       if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
+      committedSku.current = i.sku;
       setDeletedHere(false);
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
@@ -154,17 +156,17 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
 
   // Items I-3 (the WarehousePage.closeDelete shape, FE-D1). After a 204 the page stays: the item is archived, not gone,
   // and `itemDelete` has already committed (or reported) the re-read, so the ST-9 banner and Restore item are on screen.
-  // Commit the close, focus the h1 (the opener is gone with the live state), speak "After", refresh the router cache
-  // once. Any other close after an answer re-reads the item: an archived re-read is committed (an interrupted press that
+  // Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
+  // (a Save may have renamed it after Delete was pressed; i3-c1 RED L-2), refresh the router cache once. The deleted
+  // branch does not set `deletedHere`: `onDeleted` already did, and only a commit that is not dropped may clear it (a
+  // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close after an answer re-reads the item: an archived re-read is committed (an interrupted press that
   // committed, I3 deleted elsewhere) and the h1 takes focus; a live one changes nothing -- not committed, so the typed
   // edits stay, and the region error is left as it is (M-5 as corrected by the final RED L-4; `itemSave`'s refusal rule).
   const closeDelete = async ({ deleted, reread }: { deleted: boolean; reread: boolean }) => {
-    const sku = item.sku;
     flushSync(() => setDeleting(false));
     if (deleted) {
-      setDeletedHere(true);
       h1.current?.focus();
-      region.announce(DELETE_ITEM.after(sku));
+      region.announce(DELETE_ITEM.after(committedSku.current));
       router.refresh();
       return;
     }
