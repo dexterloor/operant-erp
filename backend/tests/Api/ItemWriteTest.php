@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\AuditLog\Infrastructure\ItemAuditWriter;
+use App\Modules\Inventory\Application\ItemWriter;
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\SharedKernel\ValueObject\AuditEvent;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -247,6 +249,103 @@ final class ItemWriteTest extends PurchaseOrderTestCase
         self::assertContains('/sku', $pointers, 'A field that was sent blank.');
         self::assertContains('/supplier_id', $pointers);
         self::assertContains('/reorder_point', $pointers);
+    }
+
+    /**
+     * The item `not_a_decimal` sentence, as the literal a person reads (UX-I8′). The constant is asserted beside it so a
+     * change to either is red (BK-20's constant-plus-literal shape).
+     */
+    private const NOT_A_DECIMAL = 'Enter 0 or a positive number, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.';
+
+    /** @return iterable<string, array{string, string}> */
+    public static function refusedReorderNumbers(): iterable
+    {
+        foreach (['reorder_point', 'reorder_quantity', 'safety_stock'] as $field) {
+            foreach (['-3', '-0', '-0.5', '.5', '5.', '+5', '1e3', '1,5', ' 2', "5\n", '12345678901234', '1.1234567'] as $value) {
+                yield $field.' '.json_encode($value) => [$field, $value];
+            }
+        }
+    }
+
+    /**
+     * BK-26 + BK-23 (items batch C4): a reorder number below zero is refused (`-0` too), and so is a trailing line break —
+     * the old pattern's `$` matched before one, so `"5\n"` was accepted. The sentence is UX-I8′.
+     */
+    #[Test]
+    #[DataProvider('refusedReorderNumbers')]
+    public function aReorderNumberThatIsNotAPlainNonNegativeDecimalIsRefused(string $field, string $value): void
+    {
+        $this->send('POST', '/items', [...self::body(), $field => $value], self::KEY);
+
+        self::assertSame(422, $this->httpStatus(), json_encode($value).' was accepted.');
+        self::assertSame([['pointer' => '/'.$field, 'code' => 'not_a_decimal', 'message' => self::NOT_A_DECIMAL]], $this->json()['errors']);
+        self::assertSame(self::NOT_A_DECIMAL, ItemWriter::NOT_A_DECIMAL);
+    }
+
+    /** The same refusal on `UpdateItem`, and nothing is saved. */
+    #[Test]
+    public function aNegativeReorderNumberIsRefusedOnAnEditAndNothingIsSaved(): void
+    {
+        $this->send('POST', '/items', [...self::body(), 'safety_stock' => '2'], self::KEY);
+        $id = $this->json()['id'];
+
+        $this->send('PATCH', '/items/'.$id, ['safety_stock' => '-1']);
+
+        self::assertSame(422, $this->httpStatus());
+        self::assertSame([['pointer' => '/safety_stock', 'code' => 'not_a_decimal', 'message' => self::NOT_A_DECIMAL]], $this->json()['errors']);
+        $this->send('GET', '/items/'.$id);
+        self::assertSame('2.000000', $this->json()['safety_stock']);
+    }
+
+    /** @return iterable<string, array{string, string, string}> */
+    public static function acceptedReorderNumbers(): iterable
+    {
+        foreach (['reorder_point', 'reorder_quantity', 'safety_stock'] as $field) {
+            foreach (['0' => '0.000000', '007' => '7.000000', '10' => '10.000000', '2.5' => '2.500000', '9999999999999.999999' => '9999999999999.999999'] as $value => $stored) {
+                yield $field.' '.$value => [$field, (string) $value, $stored];
+            }
+        }
+    }
+
+    #[Test]
+    #[DataProvider('acceptedReorderNumbers')]
+    public function aPlainNonNegativeDecimalIsAccepted(string $field, string $value, string $stored): void
+    {
+        $this->send('POST', '/items', [...self::body(), $field => $value], self::KEY);
+
+        self::assertSame(201, $this->httpStatus(), json_encode($this->json()));
+        self::assertSame($stored, $this->json()[$field]);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function reorderFields(): iterable
+    {
+        foreach (['reorder_point', 'reorder_quantity', 'safety_stock'] as $field) {
+            yield $field => [$field];
+        }
+    }
+
+    /**
+     * §4 M-1 (BK-23's open item), **pinned as measured, not as designed**: a JSON number (`5`, not `"5"`) on any of the
+     * three fields is answered **400 "The input data is misformatted."**, `type` `/errors/400`, with no `errors[]` and no
+     * pointer — not the 422 `wrong_type` the design predicted by reading `FrameworkProblemTranslator`. The cause: for an
+     * operation with an `input:` class, API Platform's `AbstractItemNormalizer::denormalize` catches the serializer's
+     * `NotNormalizableValueException` and rethrows it as `UnexpectedValueException('The input data is misformatted.')`,
+     * and `FrameworkProblemTranslator` has no arm for that class, so the framework answers a bare 400. **This is a
+     * pre-existing shipped defect, recorded as `RESIDUAL_GAPS.md` G-101** (a wrong JSON type answers a 400 outside
+     * `API.md` §5.2); it is pinned here as it is today and moves in the commit that closes G-101. API-only (the web app
+     * always sends strings). C4 changes only the item `not_a_decimal` rule and sentence.
+     */
+    #[Test]
+    #[DataProvider('reorderFields')]
+    public function aJsonNumberOnAReorderFieldIsAnsweredAsMeasured(string $field): void
+    {
+        $this->send('POST', '/items', [...self::body(), $field => 5], self::KEY);
+
+        self::assertSame(400, $this->httpStatus());
+        self::assertSame('The input data is misformatted.', $this->json()['detail']);
+        self::assertSame('/errors/400', $this->json()['type']);
+        self::assertArrayNotHasKey('errors', $this->json());
     }
 
     /** §3.1 case 1 — a foreign key is validated under the caller's tenant context. */

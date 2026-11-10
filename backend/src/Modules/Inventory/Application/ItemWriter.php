@@ -59,8 +59,20 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class ItemWriter
 {
-    /** numeric(19,6) — precision 19, scale 6, so at most 13 digits before the point. */
-    private const DECIMAL = '/^-?\d{1,13}(\.\d{1,6})?$/';
+    /**
+     * numeric(19,6) — precision 19, scale 6, so at most 13 digits before the point. **No sign** (BK-26, items batch C4):
+     * a reorder point, reorder quantity or safety stock below zero means nothing, so `-3` and `-0` are refused here and
+     * the three `inventory_item_*_non_negative` CHECKs refuse it for SQL as `erp_app`. **`\z`, not `$`** (BK-23): `$`
+     * also matches before a trailing line break, so `"5\n"` passed the check and was stored as 5. Used only for the three
+     * reorder fields.
+     */
+    private const DECIMAL = '/^\d{1,13}(\.\d{1,6})?\z/';
+
+    /**
+     * The item `not_a_decimal` sentence (UX-I8′, `docs/design/items-ux-copy.md`), public so a test pins this constant AND
+     * the literal (BK-20's shape). Only the item copy changes in C4; eight other writers keep their own sentence.
+     */
+    public const NOT_A_DECIMAL = 'Enter 0 or a positive number, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.';
 
     /**
      * **`DeleteItem`'s row lock — public so a race test's holder runs THIS statement, never a transcription**
@@ -622,7 +634,7 @@ final readonly class ItemWriter
         foreach (['reorderPoint', 'reorderQuantity', 'safetyStock'] as $property) {
             $value = $values[$property] ?? null;
             if (null !== $value && 1 !== preg_match(self::DECIMAL, $value)) {
-                $errors[] = self::error($property, 'not_a_decimal', 'This field must be a decimal string with at most 13 integer digits and 6 fractional digits.');
+                $errors[] = self::error($property, 'not_a_decimal', self::NOT_A_DECIMAL);
             }
         }
 
