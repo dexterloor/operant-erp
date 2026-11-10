@@ -72,7 +72,7 @@ export function WarehouseCreateForm({ create, createCode, onCreated }: Warehouse
       case 'invalid': {
         const first = CREATE_WAREHOUSE_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_CREATED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+          show(NOT_CREATED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
           setFieldErrors(r.fieldErrors);
           return;
         }

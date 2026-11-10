@@ -456,3 +456,20 @@ describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
     expect(restore()).toBeInTheDocument();
   });
 });
+
+describe('/warehouses/[id] — the editor banner (WarehouseForm)', () => {
+  it('two out-of-form violations with the same sentence: both shown, no duplicate-key warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Same.' }, { pointer: '', code: 'y', message: 'Same.' }] })]);
+      const u = userEvent.setup();
+      show();
+      await u.type(field('Name'), 'x');
+      await u.click(save());
+      expect(await screen.findAllByText('Same.')).toHaveLength(2);
+      expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});

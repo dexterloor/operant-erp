@@ -129,7 +129,7 @@ export function ItemForm({ item, save, editCode, announce, fallbackFocusRef, onS
       case 'invalid': {
         const first = ITEM_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_SAVED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+          show(NOT_SAVED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
           setFieldErrors(r.fieldErrors);
           return;
         }

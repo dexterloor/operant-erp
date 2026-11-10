@@ -85,7 +85,7 @@ export function LocationForm({ location, kinds, save, editCode, onClose, fallbac
         onClose({ saved: r.location, reread: true });
         return;
       case 'invalid':
-        if (r.formErrors.length > 0) show(NOT_SAVED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+        if (r.formErrors.length > 0) show(NOT_SAVED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
         else setNotice(null);
         setFieldErrors(r.fieldErrors);
         if (r.formErrors.length === 0) focusField(r.fieldErrors.code !== undefined ? 'code' : 'kind');
