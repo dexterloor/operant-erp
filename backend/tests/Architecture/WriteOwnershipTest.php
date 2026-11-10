@@ -16,6 +16,7 @@ use App\Modules\Inventory\Application\StockDepleter;
 use App\Modules\Inventory\Application\StockReceiver;
 use App\Modules\Inventory\Application\StockReturner;
 use App\Modules\Inventory\Application\StockTransferrer;
+use App\Modules\Inventory\Application\UnitInUseLegs;
 use App\Modules\Inventory\Infrastructure\Entity\StockMovement;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Sales\Application\FulfilmentWriter;
@@ -699,8 +700,9 @@ final class WriteOwnershipTest extends KernelTestCase
      *
      * **Disclosed limits:** the registry binds a reason to a **class**; the class → permission link is
      * derived by {@see self::everyStockWriteContractIsCalledOnlyByItsRegisteredCaller()}, not by this
-     * test. SQL assembled from keyword-less pieces, a table name built at run time, `new $class` of a name
-     * held in configuration, and SQL issued outside `src/` (a console session as `erp_app`) are outside
+     * test. SQL assembled from keyword-less pieces, a table name held in a variable or reached through another
+     * class's constant (a name holder's included — `UnitInUseLegs::TABLES`, `ItemWriter`'s `$table` leg loop; `RESIDUAL_GAPS.md`
+     * G-100), `new $class` of a name held in configuration, and SQL issued outside `src/` (a console session as `erp_app`) are outside
      * every static scan in this project.
      */
     #[Test]
@@ -848,6 +850,14 @@ final class WriteOwnershipTest extends KernelTestCase
         // filing; it can be no other answer while the class writes nothing.
         \App\Modules\Inventory\ApiResource\State\StockLevelExportSource::class => [
             'ruling' => 'not a release: it writes nothing -- \'stock_level\' is CreateExport\'s resource name, and its read is ListStockLevels\' own (G6-C0)',
+            'tests' => [],
+        ],
+        // Items batch C3 (2026-11-10, BK-24): the scan sees the bare table name `stock_level` -- a member of
+        // `UnitInUseLegs::TABLES` / `OWN` -- in a constants class that holds no connection and issues no statement
+        // (`items-c3-deviations-red.md` D-7: `ItemWriter`, which does issue statements, must stay off this list). `SEC` TO
+        // CONFIRM the filing.
+        \App\Modules\Inventory\Application\UnitInUseLegs::class => [
+            'ruling' => 'not a release: a constants class, it holds no connection and issues no statement; \'stock_level\' / \'stock_movement\' are legs of the unit-in-use rule (BK-24)',
             'tests' => [],
         ],
         StockTransferrer::class => [
@@ -1191,10 +1201,235 @@ final class WriteOwnershipTest extends KernelTestCase
         // G6-C0 (2026-10-22), reviewed: `StockMovementExportSource::resource()` names the table as `CreateExport`'s resource
         // vocabulary word (D-19) and issues no statement -- the read is `StockMovementReader`'s.
         'src/Modules/Inventory/ApiResource/State/StockMovementExportSource.php',
+        // Items batch C3 (2026-11-10, BK-24), reviewed, `SEC` TO CONFIRM: `UnitInUseLegs` is a constants class -- it holds no
+        // connection and issues no statement; `stock_movement` is one leg of "this item's unit is in use" (its `EXISTS` read
+        // is run by `ItemWriter`, which holds no bare table name; `items-c3-deviations-red.md` D-7).
+        'src/Modules/Inventory/Application/UnitInUseLegs.php',
         'src/Modules/Inventory/Infrastructure/Entity/StockMovement.php',
         'src/Platform/Tenancy/SchemaManifest.php',
         'src/SharedKernel/ValueObject/AuditEvent.php',
     ];
+
+    /**
+     * **The stock-name holders that are exempt only because they are constants-only files** (items batch C3, 2026-11-10;
+     * `docs/session13/items-c3-deviations-red.md` D-7, `docs/session13/items-c3-d7-pin-red.md` §2). Each is BOTH a key of
+     * {@see self::STOCK_LEVEL_RELEASE_DECISIONS} and a member of {@see self::STOCK_MOVEMENT_NAME_HOLDERS}; the exemptions
+     * excuse the whole file (the `stock_movement` holder list is keyed by path) or the class (the `stock_level` decisions,
+     * and an ORM `StockLevel` token is credited to the file's first class), so anything that file could execute would be
+     * excused unseen. {@see self::aConstantsOnlyStockNameHolderCannotHoldCode()} holds each one to "no code at all".
+     */
+    private const CONSTANTS_ONLY_STOCK_NAME_HOLDERS = [
+        UnitInUseLegs::class => 'src/Modules/Inventory/Application/UnitInUseLegs.php',
+    ];
+
+    /**
+     * **A constants-only stock-name holder cannot hold code** (`items-c3-d7-pin-red.md` §2, applied as prescribed). Two halves:
+     *  - **class, by reflection** (R1–R5): final, not an interface/trait/enum; no parent, interface or trait; the only method a
+     *    private, parameterless constructor; no property; every constant declared by the class and valued only by scalars or
+     *    arrays of scalars — no object, so no closure, first-class callable or enum case (PHP 8.5 allows a static closure in a
+     *    class constant: it adds no method and no property, so the method half alone cannot see it);
+     *  - **file, by tokens** (F1–F5): one class declaration and no trait/enum/interface; one `function` (the constructor), no
+     *    `fn`; one `(` besides `declare(`'s, so no call, closure or static call anywhere; no variable, `new`, `->`, `?->`,
+     *    attribute, include/require/eval or backtick; no `use` in the class body; nothing after the class's closing brace and
+     *    only `declare`/`namespace`/`use` imports before it. A top-level function, a second class, a second class's ORM write
+     *    are file-level, so reflection on the class never sees them.
+     * Probes in the same test: each forbidden shape, planted in a copy of a minimal holder, must be flagged by the file half; the
+     * real file must yield nothing. Tied to both registries, so moving or renaming the file goes red instead of leaving the
+     * exemption pointing at nothing. **Mutations:** a convenience `insert('stock_movement', …)` method (R7c2), a closure
+     * constant, a top-level function, a second class, a second class's `StockLevel` persist — each RED.
+     */
+    #[Test]
+    public function aConstantsOnlyStockNameHolderCannotHoldCode(): void
+    {
+        $holder = <<<'PHP'
+            <?php
+
+            declare(strict_types=1);
+
+            namespace App\Probe;
+
+            final class Holder
+            {
+                public const TABLES = ['stock_level', 'stock_movement'];
+
+                private function __construct()
+                {
+                }
+                /*BODY*/
+            }
+            /*AFTER*/
+            PHP;
+        self::assertSame([], self::constantsOnlyFileViolations($holder, 'Holder'),
+            'Control: the minimal holder is flagged, so the probes below prove nothing.');
+        $probes = [
+            'a convenience-write method (R7c2)' => ['/*BODY*/', "public static function w(\\Doctrine\\DBAL\\Connection \$c): void { \$c->insert('stock_movement', []); }"],
+            'a static closure in a constant' => ['/*BODY*/', "public const W = static function (\\Doctrine\\DBAL\\Connection \$c): void { \$c->insert('stock_movement', []); };"],
+            'a first-class callable in a constant' => ['/*BODY*/', 'public const W = \\strtoupper(...);'],
+            'a top-level function' => ['/*AFTER*/', "function w(\\Doctrine\\DBAL\\Connection \$c): void { \$c->insert('stock_movement', []); }"],
+            'a top-level static call' => ['/*AFTER*/', "\\X::w('stock_movement');"],
+            'a second class' => ['/*AFTER*/', "final class Leak { public static function w(\\Doctrine\\DBAL\\Connection \$c): void { \$c->insert('stock_movement', []); } }"],
+            'a trait use' => ['/*BODY*/', 'use \\SomeTrait;'],
+            'a static property' => ['/*BODY*/', 'public static $f;'],
+        ];
+        foreach ($probes as $name => [$at, $code]) {
+            self::assertNotSame([], self::constantsOnlyFileViolations(str_replace($at, $code, $holder), 'Holder'),
+                'Probe "'.$name.'" was not flagged by the file half, so the pin below cannot see that shape.');
+        }
+
+        $root = \dirname(__DIR__, 2);
+        foreach (self::CONSTANTS_ONLY_STOCK_NAME_HOLDERS as $class => $path) {
+            self::assertArrayHasKey($class, self::STOCK_LEVEL_RELEASE_DECISIONS, $class.' is pinned constants-only but is no longer in STOCK_LEVEL_RELEASE_DECISIONS: remove it from this pin in the same edit.');
+            self::assertContains($path, self::STOCK_MOVEMENT_NAME_HOLDERS, $path.' is pinned constants-only but is no longer in STOCK_MOVEMENT_NAME_HOLDERS: remove it from this pin in the same edit.');
+            $file = (string) (new \ReflectionClass($class))->getFileName();
+            self::assertStringEndsWith($path, $file, $class.' moved: it is declared in '.$file.', not '.$path.'. Move its two registrations and this pin with it.');
+
+            $short = (new \ReflectionClass($class))->getShortName();
+            $violations = [...self::constantsOnlyClassViolations($class), ...self::constantsOnlyFileViolations((string) file_get_contents($root.'/'.$path), $short)];
+            self::assertSame([], $violations,
+                $short.' is exempt from the stock-write scans (STOCK_MOVEMENT_NAME_HOLDERS, STOCK_LEVEL_RELEASE_DECISIONS) only because '
+                ."it is a constants-only file: no method but a private constructor, no property, no object-valued constant, no second\n"
+                ."declaration and no code outside the class. Anything else in this file would be excused unseen (E-26 / G-44 concealment;\n"
+                ."docs/session13/items-c3-deviations-red.md D-7, items-c3-d7-pin-red.md). Put the logic in ItemWriter (or wherever the\n"
+                ."statement belongs) and keep only names and SQL strings here. If this file genuinely must hold code, remove it from both\n"
+                ."registries in the same commit and register the class that issues the statement, with SEC's review. Do not widen this pin.\n"
+                ."Violations:\n  ".implode("\n  ", $violations));
+        }
+    }
+
+    /**
+     * R1–R5 of {@see self::aConstantsOnlyStockNameHolderCannotHoldCode()}.
+     *
+     * @param class-string $class
+     *
+     * @return list<string>
+     */
+    private static function constantsOnlyClassViolations(string $class): array
+    {
+        $r = new \ReflectionClass($class);
+        $out = [];
+        if (!$r->isFinal() || $r->isInterface() || $r->isTrait() || $r->isEnum()) {
+            $out[] = 'R1: not a final class';
+        }
+        if (false !== $r->getParentClass() || [] !== $r->getInterfaceNames() || [] !== $r->getTraitNames()) {
+            $out[] = 'R2: has a parent, an interface or a trait';
+        }
+        $methods = array_map(static fn (\ReflectionMethod $m): string => $m->getName(), $r->getMethods());
+        $ctor = $r->getConstructor();
+        if (['__construct'] !== $methods || null === $ctor || !$ctor->isPrivate() || 0 !== $ctor->getNumberOfParameters()) {
+            $out[] = 'R3: methods are ['.implode(', ', $methods).'], not one private parameterless constructor';
+        }
+        if ([] !== $r->getProperties()) {
+            $out[] = 'R4: has a property';
+        }
+        $scalarOnly = static function (mixed $v) use (&$scalarOnly): bool {
+            if (\is_array($v)) {
+                foreach ($v as $item) {
+                    if (!$scalarOnly($item)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            return null === $v || \is_scalar($v);
+        };
+        foreach ($r->getReflectionConstants() as $constant) {
+            if ($constant->getDeclaringClass()->getName() !== $class || !$scalarOnly($constant->getValue())) {
+                $out[] = 'R5: constant '.$constant->getName().' is inherited or holds an object (closure, callable or enum case)';
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * F1–F5 of {@see self::aConstantsOnlyStockNameHolderCannotHoldCode()}, over the file's tokens (whitespace, comments and
+     * docblocks ignored). `declare(`'s parenthesis is not counted (`items-c3-d7-pin-red.md` §5: a first draft went red on it).
+     *
+     * @return list<string>
+     */
+    private static function constantsOnlyFileViolations(string $source, string $className): array
+    {
+        $tokens = array_values(array_filter(token_get_all($source), static fn (array|string $t): bool =>
+            !\is_array($t) || !\in_array($t[0], [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT, \T_OPEN_TAG], true)));
+        $id = static fn (array|string $t): int|string => \is_array($t) ? $t[0] : $t;
+        $out = [];
+
+        $classAt = [];
+        foreach ($tokens as $i => $t) {
+            if (\T_CLASS === $id($t) && \T_DOUBLE_COLON !== $id($tokens[$i - 1] ?? '')) {
+                $classAt[] = $i;
+            }
+            if (\in_array($id($t), [\T_TRAIT, \T_ENUM, \T_INTERFACE], true)) {
+                $out[] = 'F1: declares a trait, enum or interface';
+            }
+        }
+        if (1 !== \count($classAt) || $className !== (\is_array($tokens[$classAt[0] + 1] ?? null) ? $tokens[$classAt[0] + 1][1] : null)) {
+            $out[] = 'F1: does not declare exactly one class, '.$className;
+
+            return $out;
+        }
+
+        $functions = \count(array_filter($tokens, static fn ($t): bool => \T_FUNCTION === $id($t)));
+        $fns = \count(array_filter($tokens, static fn ($t): bool => \T_FN === $id($t)));
+        if (1 !== $functions || 0 !== $fns) {
+            $out[] = 'F2: '.$functions.' function(s) and '.$fns.' fn, not the constructor alone';
+        }
+
+        $parens = 0;
+        foreach ($tokens as $i => $t) {
+            if ('(' === $t && \T_DECLARE !== $id($tokens[$i - 1] ?? '')) {
+                ++$parens;
+            }
+        }
+        if (1 !== $parens) {
+            $out[] = 'F3: '.$parens.' parentheses besides declare(\'s, not the constructor\'s alone (a call, closure or static call)';
+        }
+
+        $forbidden = [\T_VARIABLE, \T_NEW, \T_OBJECT_OPERATOR, \T_NULLSAFE_OBJECT_OPERATOR, \T_ATTRIBUTE, \T_INCLUDE,
+            \T_INCLUDE_ONCE, \T_REQUIRE, \T_REQUIRE_ONCE, \T_EVAL, '`'];
+        foreach ($tokens as $t) {
+            if (\in_array($id($t), $forbidden, true)) {
+                $out[] = 'F4: holds '.(\is_array($t) ? token_name($t[0]).' '.$t[1] : $t);
+            }
+        }
+
+        // The class body: from its `{` to the matching `}`.
+        $open = $classAt[0];
+        while ('{' !== ($tokens[$open] ?? '{')) {
+            ++$open;
+        }
+        $depth = 0;
+        $close = null;
+        for ($i = $open; $i < \count($tokens); ++$i) {
+            $c = $id($tokens[$i]);
+            if ('{' === $c || \T_CURLY_OPEN === $c || \T_DOLLAR_OPEN_CURLY_BRACES === $c) {
+                ++$depth;
+            } elseif ('}' === $c) {
+                --$depth;
+                if (0 === $depth) {
+                    $close = $i;
+                    break;
+                }
+            }
+            if (\T_USE === $c) {
+                $out[] = 'F4: a use inside the class body (a trait)';
+            }
+        }
+        if (null === $close || $close !== \count($tokens) - 1) {
+            $out[] = 'F5: code after the class\'s closing brace';
+        }
+        $prefix = [\T_DECLARE, \T_STRING, '=', \T_LNUMBER, '(', ')', ';', \T_NAMESPACE, \T_NAME_QUALIFIED,
+            \T_NAME_FULLY_QUALIFIED, \T_USE, \T_AS, ',', '{', '}', \T_FINAL, \T_READONLY];
+        for ($i = 0; $i < $classAt[0]; ++$i) {
+            if (!\in_array($id($tokens[$i]), $prefix, true)) {
+                $out[] = 'F5: code before the class ('.(\is_array($tokens[$i]) ? token_name($tokens[$i][0]) : $tokens[$i]).')';
+            }
+        }
+
+        return $out;
+    }
 
     private const STOCK_MOVEMENT_ENTITY = 'App\\Modules\\Inventory\\Infrastructure\\Entity\\StockMovement';
 

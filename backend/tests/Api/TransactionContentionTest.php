@@ -39,8 +39,9 @@ use Symfony\Component\Uid\Uuid;
  *
  * *Mutations, run (`docs/session13/g65-g5c3-progress.md`):* the listener arm removed → every 409 case red (500);
  * {@see TransactionContention::is()} widened to every `DriverException` → the control red; `55P03` dropped from the predicate
- * → red in the unit case only (no `lock_timeout` is set on any shipped path, so a real `55P03` is unreachable there — RED
- * F-7); the cause no longer chained → {@see self::theTranslatedProblemKeepsTheDriverFailure} red.
+ * → red in the unit case and in `ItemUnitInUseTest::aUnitChangeThatCannotTakeItsLockInTimeIsToldToTryAgain` (items batch
+ * C3: `ItemWriter::update()`'s unit upgrade is the first shipped path with a `lock_timeout`, M34; until 2026-11-10 this read
+ * "in the unit case only", final RED FM-2); the cause no longer chained → {@see self::theTranslatedProblemKeepsTheDriverFailure} red.
  * *Faithfulness (RED F-7):* a real cycle is raised at a `FOR KEY SHARE` read or an FK check, the plant at a BEFORE INSERT;
  * no catch in `src/` distinguishes the two.
  */

@@ -412,6 +412,10 @@ final class DeptracRulesetTest extends TestCase
         'WarehousesInventoryPort' => ['module' => 'Warehouses', 'consumer' => 'InventoryApplication'],
         'WarehousesPurchasingPort' => ['module' => 'Warehouses', 'consumer' => 'PurchasingApplication'],
         'WarehousesSalesPort' => ['module' => 'Warehouses', 'consumer' => 'SalesApplication'],
+        // Items batch C3 (2026-11-10, BK-24; `docs/session13/items-batch-sec-arch.md` A-1/A-4): the unit-in-use legs.
+        'InventoryPurchasingPort' => ['module' => 'Inventory', 'consumer' => 'PurchasingApplication'],
+        'InventorySalesPort' => ['module' => 'Inventory', 'consumer' => 'SalesApplication'],
+        'InventorySuppliersPort' => ['module' => 'Inventory', 'consumer' => 'SuppliersApplication'],
     ];
 
     /** `ARCHITECTURE.md` §5.2's read edges, hand-copied (mermaid is not parsed); `*` → `UserManagement` is allowed separately. */
@@ -423,6 +427,10 @@ final class DeptracRulesetTest extends TestCase
         'Sales -> Inventory',
         'Sales -> Warehouses',
         'Inventory -> Warehouses',
+        // Drawn 2026-11-10 (`ARCH`, `items-batch-sec-arch.md` A-1; items batch C3): a catalogue entry names an item. The
+        // dependency existed before the arrow (`supplier_product_item_fk`, `SupplierProductWriter`'s item read).
+        // `Inventory -> Suppliers` is deliberately NOT an edge: drawing it would make the pair cyclic.
+        'Suppliers -> Inventory',
     ];
 
     #[Test]

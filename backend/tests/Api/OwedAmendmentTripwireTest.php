@@ -1853,7 +1853,12 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."     holds_stock warning alone is not that ground: it says the stock exists, not that the new screen\n"
             ."     will refuse it).\n"
             ."Then record the decision in docs/RESIDUAL_GAPS.md G-51, and move this check and its frontend twin\n"
-            ."(frontend/test/architecture.test.ts, FE-LEAD) in the same commit, saying so.");
+            ."(frontend/test/architecture.test.ts, FE-LEAD) in the same commit, saying so.\n\n"
+            ."The same screen is G-97's hard trigger (docs/RESIDUAL_GAPS.md G-97, Low; owner PO; items batch C3): a used\n"
+            ."item's unit cannot be changed (UpdateItem 409 inventory_item.unit_in_use), and the API's way round -- count\n"
+            ."to zero, close or cancel the open lines, archive, create the new item, count up -- strands stock and\n"
+            ."triggers re-ordering if done out of order. With a count or transfer screen the web app can do part of that\n"
+            ."way round: PO re-rates G-97 in the same commit.");
     }
 
     /** G-51 trigger (a): the count's and the transfer's operationIds. */

@@ -8,6 +8,9 @@ use App\Modules\AuditLog\Infrastructure\ItemAuditWriter;
 use App\Modules\Inventory\ApiResource\CreateItemInput;
 use App\Modules\Inventory\ApiResource\ItemResource;
 use App\Modules\Inventory\ApiResource\UpdateItemInput;
+use App\Modules\Inventory\Application\Port\Purchasing\ItemPurchaseLines;
+use App\Modules\Inventory\Application\Port\Sales\ItemSalesLines;
+use App\Modules\Inventory\Application\Port\Suppliers\ItemCatalogueEntries;
 use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Security\RequestIdentity;
@@ -84,6 +87,61 @@ final readonly class ItemWriter
     public const EDIT_LOCK = 'SELECT 1 FROM inventory_item WHERE id = ?::uuid FOR NO KEY UPDATE';
 
     /**
+     * **`UpdateItem`'s unit lock — an upgrade of {@see self::EDIT_LOCK} on the same row, in the same transaction** (BK-24,
+     * items batch C3, 2026-11-10; `docs/session13/items-batch-design.md` "Revision 1 — FINAL" C3). Taken only when a unit is
+     * submitted AND differs from the stored one, after the archived check and the reference check. `FOR UPDATE` conflicts
+     * with `KEY SHARE`, so it waits for every in-flight write of a row that names the item — the FK of an insert into any
+     * {@see self::UNIT_IN_USE_LEGS} table, and the explicit `FOR KEY SHARE` liveness reads of the order, catalogue and stock
+     * writers — and the leg reads after it (separate statements, READ COMMITTED) see what those writers committed. Public so a
+     * race test's holder runs THIS statement (the {@see self::DELETE_LOCK} precedent).
+     *
+     * A cycle through the item row is possible and is answered, not prevented (`ARCHITECTURE.md` W-5, the item-row amendment):
+     * PostgreSQL aborts one side (`40P01`), and the upgrade's plain wait ends at {@see self::UNIT_LOCK_TIMEOUT} (`55P03`);
+     * both answer 409 `transaction.contention` (`TransactionContention`), nothing saved.
+     */
+    public const UNIT_LOCK = 'SELECT 1 FROM inventory_item WHERE id = ?::uuid FOR UPDATE';
+
+    /**
+     * **The bound on {@see self::UNIT_LOCK}'s wait, and on nothing else** (first RED H-1; final RED FL-2). Run immediately
+     * before the upgrade and undone by {@see self::UNIT_LOCK_TIMEOUT_OFF} immediately after it, so the leg reads, the UPDATE
+     * and the audit INSERT run unbounded, as before. `SET LOCAL` is transaction-scoped, so it is safe under PgBouncer's
+     * transaction pooling. **Why 5 s** (`DATA` TO CONFIRM the value): `deadlock_timeout` is 1 s, so a cycle is broken as
+     * `40P01` before this fires; and the web app's BFF gives the API 15 s (`API_TIMEOUT_MS`), so a 5 s wait plus the rest
+     * of the request ends with an API answer, never a proxy abort. `ItemUnitInUseTest` reads the seconds from this string.
+     */
+    public const UNIT_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'";
+
+    /**
+     * Back to the session's configured value (final RED FL-1): `TO DEFAULT`, never `= 0`, so a role or database default that
+     * `DATA`/`OPS` may one day set is not silently switched off for the rest of the transaction. Both are 0 today.
+     */
+    public const UNIT_LOCK_TIMEOUT_OFF = 'SET LOCAL lock_timeout TO DEFAULT';
+
+    /**
+     * **Every table whose rows name an item, so a row in any of them means the item's unit is in use** (BK-24; first RED
+     * M-3; `PO` TO CONFIRM). Exactly the tables with a foreign key to `inventory_item`, sorted — held equal to the server's
+     * set by `ItemUnitInUseTest::everyTableThatNamesAnItemIsALegOfTheRule`, so a sixth (a future count line) cannot escape
+     * the rule silently. Deleted order lines count: they still recorded a quantity in the unit. {@see self::unitInUse()}
+     * iterates this list and refuses a member it cannot answer (final RED FL-5): Inventory's own tables by
+     * {@see self::OWN_LEGS}, the other modules' through the three Ports.
+     */
+    public const UNIT_IN_USE_LEGS = UnitInUseLegs::TABLES;
+
+    /**
+     * The two legs that are Inventory's own tables: any row, any quantity (a zero stock row was a stock row). An alias of
+     * {@see UnitInUseLegs::OWN}: the bare stock table names live in that constants class, never here, so this writer
+     * holds no literal the stock-write scans read as a convenience writer (`items-c3-deviations-red.md` D-7).
+     */
+    public const OWN_LEGS = UnitInUseLegs::OWN;
+
+    /**
+     * `inventory_item.unit_in_use`'s sentence (`docs/design/items-owner-items.md` H-2's draft, no remedy; `UX` TO CONFIRM).
+     * It names no leg, no count and no document (`SEC`, `items-batch-sec-arch.md` S-8): the caller may hold none of the
+     * stock, order or catalogue views.
+     */
+    public const UNIT_IN_USE = 'This item\'s unit can\'t be changed because stock, orders or price lists already record quantities in it.';
+
+    /**
      * The bulk-only stock read (G5-C2, {@see self::archiveUnlessStocked()}): any non-zero on-hand in any location, any kind,
      * quarantine included — the same "any stock" `storage_location.holds_stock` means. A read of `stock_level`, never a
      * write, so TB-6's *"anything touching stock_level"* (writes) is not crossed (`UX` to confirm the reading).
@@ -117,6 +175,9 @@ final readonly class ItemWriter
         private WorkspaceSettings $settings,
         private RequestIdentity $identities,
         private ItemAuditWriter $audit,
+        private ItemPurchaseLines $purchaseLines,
+        private ItemSalesLines $salesLines,
+        private ItemCatalogueEntries $catalogueEntries,
     ) {
     }
 
@@ -196,6 +257,11 @@ final readonly class ItemWriter
      * `10.000000` is no change, and the served form is canonical (scale 6, the supplier's id). No row when nothing changed,
      * including a PATCH that resends the current values (it still moves `updated_at`, as before). A refused edit writes none:
      * every refusal is thrown before the audit call, and a SKU collision's 23505 rolls the row back with the transaction.
+     *
+     * Since items batch C3 (BK-24, 2026-11-10): a submitted unit that differs from the stored one takes
+     * {@see self::UNIT_LOCK} (bounded by {@see self::UNIT_LOCK_TIMEOUT}) and is refused 409 `inventory_item.unit_in_use`
+     * when any {@see self::UNIT_IN_USE_LEGS} row names the item. Order: lock → archived → references (an unknown unit is a
+     * 422 first) → the unit rule → the UPDATE.
      */
     public function update(string $id, UpdateItemInput $input): ItemResource
     {
@@ -221,6 +287,18 @@ final readonly class ItemWriter
                 }
 
                 $this->refuseUnresolvableReferences($connection, $submitted);
+
+                // BK-24: only a unit that is sent AND differs takes the upgrade and is checked, so a same-unit save never
+                // waits on a stock or order write. Unknown units were refused just above, before any business rule.
+                $unit = $submitted['unitOfMeasureCode'] ?? null;
+                if (null !== $unit && $unit !== $current->unitOfMeasureCode) {
+                    $connection->executeStatement(self::UNIT_LOCK_TIMEOUT);
+                    $connection->fetchOne(self::UNIT_LOCK, [$id]);
+                    $connection->executeStatement(self::UNIT_LOCK_TIMEOUT_OFF);
+                    if ($this->unitInUse($em, $id)) {
+                        throw ApiProblem::businessRuleViolated('inventory_item.unit_in_use', self::UNIT_IN_USE);
+                    }
+                }
 
                 if ([] !== $submitted) {
                     // The assignment list is built from the DTO's own initialised
@@ -258,6 +336,37 @@ final readonly class ItemWriter
                 return $updated;
             },
         ));
+    }
+
+    /**
+     * **BK-24's legs, in {@see self::UNIT_IN_USE_LEGS}' order, each a separate statement after {@see self::UNIT_LOCK}**
+     * (READ COMMITTED: each sees what the writers it waited for committed). The first leg that names the item answers; a
+     * member with no answer here is a `\LogicException`, never a skipped leg (final RED FL-5).
+     */
+    private function unitInUse(EntityManagerInterface $em, string $id): bool
+    {
+        $ports = [
+            'purchase_order_line' => $this->purchaseLines->namesItemInside(...),
+            'sales_order_line' => $this->salesLines->namesItemInside(...),
+            'supplier_product' => $this->catalogueEntries->namesItemInside(...),
+        ];
+
+        foreach (self::UNIT_IN_USE_LEGS as $table) {
+            if (isset(self::OWN_LEGS[$table])) {
+                if (true === $em->getConnection()->fetchOne(self::OWN_LEGS[$table], [$id])) {
+                    return true;
+                }
+                continue;
+            }
+            if (!isset($ports[$table])) {
+                throw new \LogicException('UNIT_IN_USE_LEGS names '.$table.', which neither an Inventory statement nor a Port answers.');
+            }
+            if ($ports[$table]($em, $id)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

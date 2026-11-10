@@ -18,10 +18,12 @@ use App\Modules\Inventory\Application\StockMovementListCriteria;
 use App\Modules\Inventory\Application\StockMovementReader;
 use App\Modules\Purchasing\Application\GoodsReceiptListCriteria;
 use App\Modules\Purchasing\Application\GoodsReceiptReader;
+use App\Modules\Purchasing\Application\ItemPurchaseLinesAnswer;
 use App\Modules\Purchasing\Application\PurchaseOrderListCriteria;
 use App\Modules\Purchasing\Application\PurchaseOrderReader;
 use App\Modules\Purchasing\Application\PurchaseOrderViews;
 use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
+use App\Modules\Sales\Application\ItemSalesLinesAnswer;
 use App\Modules\Sales\Application\PickQueueCriteria;
 use App\Modules\Sales\Application\PickQueueReader;
 use App\Modules\Sales\Application\SalesOrderListCriteria;
@@ -29,9 +31,11 @@ use App\Modules\Sales\Application\SalesOrderReader;
 use App\Modules\Sales\Application\SalesOrderViews;
 use App\Modules\Sales\Application\SalesReturnReader;
 use App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount;
+use App\Modules\Suppliers\Application\ItemCatalogueEntriesAnswer;
 use App\Modules\Suppliers\Application\SupplierListCriteria;
 use App\Modules\Suppliers\Application\SupplierReader;
 use App\Platform\Http\Pagination\Cursor;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -809,6 +813,35 @@ final class SchemaQueryPlanTest extends TenancyTestCase
     {
         $this->assertTheOpenOrderCountUsesItsIndex('sales_order', WarehouseOpenSalesOrdersCount::COUNT,
             WarehouseOpenSalesOrdersCount::OPEN_STATUSES, 'sales_order_tenant_warehouse_open_idx');
+    }
+
+    /**
+     * **BK-24's line legs are sought by item, deleted lines included** (items batch C3, `Version20261110000100`; S-2: the
+     * indexes ship now). Each Port's public `NAMES_ITEM`, read from the class, against an item id. Asserted: the
+     * NON-PARTIAL index (the partial `*_line_tenant_item_idx` cannot answer a statement with no `deleted_at` predicate, so a
+     * pass here cannot be the old index — M24, drop the migration, is red), `tenant_id` and `inventory_item_id` both `Index
+     * Cond`. **`enable_seqscan = off` is a planner-size accommodation** (the seeded world holds no order lines): this proves
+     * the index CAN serve the statement, not that the planner picks it at volume.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function unitInUseLegStatements(): iterable
+    {
+        yield 'purchase_order_line' => [ItemPurchaseLinesAnswer::NAMES_ITEM, 'purchase_order_line_tenant_item_all_idx'];
+        yield 'sales_order_line' => [ItemSalesLinesAnswer::NAMES_ITEM, 'sales_order_line_tenant_item_all_idx'];
+        // The catalogue table hard-deletes; its shipped non-partial index serves the leg (no migration owed).
+        yield 'supplier_product' => [ItemCatalogueEntriesAnswer::NAMES_ITEM, 'supplier_product_tenant_item_idx'];
+    }
+
+    #[Test]
+    #[DataProvider('unitInUseLegStatements')]
+    public function aUnitInUseLegIsSoughtByItemDeletedRowsIncluded(string $statement, string $index): void
+    {
+        $plan = $this->planWith(['enable_seqscan' => 'off'], $statement, ['00000000-0000-4000-8000-000000000001']);
+
+        $this->assertPlan('Inventory — does any row name this item (UpdateItem unit rule, BK-24)', $plan, $index);
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*inventory_item_id = /', $plan,
+            "The item is not an index condition, so every row of the workspace is read:\n$plan");
     }
 
     /** @param list<string> $statuses */

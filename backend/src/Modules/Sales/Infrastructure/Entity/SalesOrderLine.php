@@ -45,6 +45,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\UniqueConstraint(name: 'sales_order_line_unique', columns: ['tenant_id', 'sales_order_id', 'line_number'], options: ['where' => '(deleted_at IS NULL)'])]
 // "Demand history for this SKU" — ADR-004's forecast input.
 #[ORM\Index(name: 'sales_order_line_tenant_item_idx', columns: ['tenant_id', 'inventory_item_id'], options: ['where' => '(deleted_at IS NULL)'])]
+// BK-24 (items batch C3, `Version20261110000100`): "does any line, deleted ones included, name this item?" — the unit-in-use
+// check. Non-partial on purpose: the partial index above cannot answer a question with no `deleted_at` predicate.
+#[ORM\Index(name: 'sales_order_line_tenant_item_all_idx', columns: ['tenant_id', 'inventory_item_id'])]
 // V2-R-12: `CreateSalesOrderLine`'s retry key (`Version20260921000100`). Tenant-wide, like
 // `purchase_order_line_tenant_idem_live`: a header supplies one value, and the request digest carries the order id.
 #[ORM\UniqueConstraint(name: 'sales_order_line_tenant_idem_live', columns: ['tenant_id', 'idempotency_key'], options: ['where' => '(deleted_at IS NULL)'])]
