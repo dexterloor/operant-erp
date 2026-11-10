@@ -45,6 +45,9 @@ use Symfony\Component\Uid\Uuid;
 // other input (ADR-004), and the reason a reorder run does not raise a second
 // purchase order for stock already coming.
 #[ORM\Index(name: 'purchase_order_line_tenant_item_idx', columns: ['tenant_id', 'inventory_item_id'], options: ['where' => '(deleted_at IS NULL)'])]
+// BK-24 (items batch C3, `Version20261110000100`): "does any line, deleted ones included, name this item?" — the unit-in-use
+// check. Non-partial on purpose: the partial index above cannot answer a question with no `deleted_at` predicate.
+#[ORM\Index(name: 'purchase_order_line_tenant_item_all_idx', columns: ['tenant_id', 'inventory_item_id'])]
 class PurchaseOrderLine
 {
     #[ORM\Id]

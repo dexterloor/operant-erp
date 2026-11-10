@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace App\Tests\Tenancy;
 
 use App\Modules\Inventory\Application\InventoryHeldStock;
+use App\Modules\Inventory\Application\Port\Purchasing\ItemPurchaseLines;
+use App\Modules\Purchasing\Application\ItemPurchaseLinesAnswer;
 use App\Modules\Purchasing\Application\SupplierOpenPurchaseOrders;
 use App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount;
 use App\Modules\Sales\Application\CustomerOpenSalesWork;
+use App\Modules\Sales\Application\ItemSalesLinesAnswer;
 use App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount;
+use App\Modules\Suppliers\Application\ItemCatalogueEntriesAnswer;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -31,6 +36,10 @@ use Symfony\Component\Uid\Uuid;
  * joins them — it is what stops `DeleteStorageLocation` archiving a location that holds stock (owner Q-1), and it fails
  * open the same way (mutation M19). **C4 (2026-10-20):** its warehouse question and the two open-order ports
  * `DeleteWarehouse` asks (`WarehouseOpenPurchaseOrders`, `WarehouseOpenSalesOrders`) join them, the same three drives each.
+ *
+ * **Items batch C3 (2026-11-10, BK-24):** Inventory's three unit-in-use ports (`ItemPurchaseLines`, `ItemSalesLines`,
+ * `ItemCatalogueEntries`) join them, driven by one provider. They fail open the same way: `false` lets a used item's unit
+ * change.
  */
 final class PartyPortTenancyGuardTest extends TenancyTestCase
 {
@@ -220,5 +229,45 @@ final class PartyPortTenancyGuardTest extends TenancyTestCase
         } finally {
             $connection->rollBack();
         }
+    }
+    /** @return iterable<string, array{class-string, string}> */
+    public static function unitInUsePorts(): iterable
+    {
+        yield 'ItemPurchaseLines' => [ItemPurchaseLinesAnswer::class, 'ItemPurchaseLines'];
+        yield 'ItemSalesLines' => [ItemSalesLinesAnswer::class, 'ItemSalesLines'];
+        yield 'ItemCatalogueEntries' => [ItemCatalogueEntriesAnswer::class, 'ItemCatalogueEntries'];
+    }
+
+    /** @param class-string<ItemPurchaseLines> $answer */
+    #[Test]
+    #[DataProvider('unitInUsePorts')]
+    public function aUnitInUsePortRefusesOutsideATransaction(string $answer, string $port): void
+    {
+        self::assertSame(0, $this->em()->getConnection()->getTransactionNestingLevel(), 'Precondition: no transaction is open.');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage($port.' needs the caller\'s open tenancy transaction');
+        (new $answer())->namesItemInside($this->em(), Uuid::v4()->toRfc4122());
+    }
+
+    /** @param class-string<ItemPurchaseLines> $answer */
+    #[Test]
+    #[DataProvider('unitInUsePorts')]
+    public function aUnitInUsePortRefusesATransactionWithNoTenant(string $answer, string $port): void
+    {
+        $this->inATransactionWithNoTenant(function (EntityManagerInterface $em) use ($answer, $port): void {
+            $this->expectException(\LogicException::class);
+            $this->expectExceptionMessage($port.' was called in a transaction with no tenant set');
+            (new $answer())->namesItemInside($em, Uuid::v4()->toRfc4122());
+        });
+    }
+
+    /** @param class-string<ItemPurchaseLines> $answer */
+    #[Test]
+    #[DataProvider('unitInUsePorts')]
+    public function aUnitInUsePortAnswersInsideATenancyTransaction(string $answer, string $port): void
+    {
+        self::assertFalse($this->tenantContext()->run(self::TENANT_A, static fn (EntityManagerInterface $em): bool =>
+            (new $answer())->namesItemInside($em, Uuid::v4()->toRfc4122())), $port);
     }
 }

@@ -473,6 +473,14 @@ services:
     App\Modules\Warehouses\Application\Port\Purchasing\WarehouseOpenPurchaseOrders: '@App\Modules\Purchasing\Application\WarehouseOpenPurchaseOrdersCount'
     App\Modules\Warehouses\Application\Port\Sales\WarehouseOpenSalesOrders: '@App\Modules\Sales\Application\WarehouseOpenSalesOrdersCount'
 
+    # Items batch C3 (BK-24) — `UpdateItem` asks Purchasing, Sales and Suppliers whether their rows name an item, before it
+    # lets the item's unit change. The split-port shape (`docs/session13/items-batch-sec-arch.md` A-1/A-4): Inventory's
+    # inbound PORTS, one layer per answering module (`InventoryPurchasingPort`, `InventorySalesPort`, `InventorySuppliersPort`),
+    # each implemented by its one named consumer, never a Contract — `Ai`/`Analytics` may not use them.
+    App\Modules\Inventory\Application\Port\Purchasing\ItemPurchaseLines: '@App\Modules\Purchasing\Application\ItemPurchaseLinesAnswer'
+    App\Modules\Inventory\Application\Port\Sales\ItemSalesLines: '@App\Modules\Sales\Application\ItemSalesLinesAnswer'
+    App\Modules\Inventory\Application\Port\Suppliers\ItemCatalogueEntries: '@App\Modules\Suppliers\Application\ItemCatalogueEntriesAnswer'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

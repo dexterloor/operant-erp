@@ -36,8 +36,9 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * **Contention** (design R1 L-2, final RED L-3/M-3): a `40P01` deadlock or a `55P03` lock timeout aborts the whole request
  * and is translated OUTSIDE `run()` (the `NoRunAfterAFailedRunTest` shape: the catch only translates) into 409
- * `bulk.contention` — nothing done, nothing stored. `55P03` is unreachable today (no `lock_timeout` is set anywhere); its
- * test sets one locally.
+ * `bulk.contention` — nothing done, nothing stored. `55P03` is unreachable here: a `lock_timeout` is set only on
+ * `ItemWriter::update()`'s unit upgrade (`UNIT_LOCK_TIMEOUT`, items batch C3), which no bulk member runs; its test sets one
+ * locally. *(It read "no `lock_timeout` is set anywhere" until 2026-11-10, false from C3 — final RED FM-2.)*
  *
  * **What the answer says** (E-14): `{"requested": n, "applied": m}`, and nothing else — a foreign id, an absent id, an
  * already-archived row and a row refused for open work are one undifferentiated `requested − applied`. No bulk-level event

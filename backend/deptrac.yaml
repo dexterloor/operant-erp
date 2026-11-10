@@ -93,6 +93,13 @@ deptrac:
   # line was added by the follow-up commits: `Counted` is `SharedKernel`, and the ports' guards take the entity manager,
   # not a `Connection` (A-10). Re-derive; never restate, including this.)
   #
+  # (Re-derived 2026-11-10 with the unit-in-use ports in the tree (items batch C3, BK-24): NO edge line added -- the three
+  # commands return 180 / 102 / 49, unchanged from before the commit, and `skip_violations` is untouched. THREE NEW LAYERS,
+  # not edges: `InventoryPurchasingPort`, `InventorySalesPort`, `InventorySuppliersPort` (each allowed `Doctrine`,
+  # `PlatformTenancy`, `SharedKernel`), listed by `InventoryApplication` and by one answerer each (`PurchasingApplication`,
+  # `SalesApplication`, `SuppliersApplication`); `InventoryApplication` gains a second `must_not` (`Port\`). `make deptrac`:
+  # 0 violations / 426 skipped / 3953 allowed (3931 -> 3953: the ports' and answerers' uses of already-allowed layers plus
+  # the new layer edges). Measured in `docs/session13/items-c3-progress.md`. Re-derive; never restate.)
   # (Re-derived 2026-10-22 with the envelope store in the tree (remaining-ops G5-C0): ONE edge line added, an A-10 line,
   # `IdempotencyEnvelopeStore -> Doctrine\DBAL\Connection` (method parameters fed by the run's connection; fresh RED of
   # the deviation in `docs/session13/g5-c0-progress.md`). By TAG the A-10 count goes 10 -> 11; the App-class commands above
@@ -1031,6 +1038,21 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^App\\Modules\\Inventory\\Application\\Contract\\#'
+    # Items batch C3 (2026-11-10; `docs/session13/items-batch-sec-arch.md` A-1/A-4): Inventory's inbound PORTS, cut by
+    # answering module (the Warehouses split-port precedent). Name, collector, owner and §5.2 pair are read from
+    # `DeptracRulesetTest::PORT_CONSUMERS`' row. The Suppliers one rides `SUP -> INV`, drawn in §5.2 the same day.
+    - name: InventoryPurchasingPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Application\\Port\\Purchasing\\#'
+    - name: InventorySalesPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Application\\Port\\Sales\\#'
+    - name: InventorySuppliersPort
+      collectors:
+        - type: classNameRegex
+          value: '#^App\\Modules\\Inventory\\Application\\Port\\Suppliers\\#'
     - name: InventoryApplication
       collectors:
         - type: bool
@@ -1040,6 +1062,9 @@ deptrac:
           must_not:
             - type: classNameRegex
               value: '#^App\\Modules\\Inventory\\Application\\Contract\\#'
+            # C3 (items batch): every Inventory port is collected by its own `Inventory<Answerer>Port` layer ONLY.
+            - type: classNameRegex
+              value: '#^App\\Modules\\Inventory\\Application\\Port\\#'
     - name: InventoryInfrastructure
       collectors:
         - type: classNameRegex
@@ -1464,6 +1489,23 @@ deptrac:
       - WarehousesContract
       # C3 (wh-loc-delete): Inventory answers WarehouseHeldStock — the one consumer WarehousesInventoryPort names.
       - WarehousesInventoryPort
+      # C3 (items batch): Inventory asks its three ports (BK-24's legs). Asker and answerer at once is allowed (A-4).
+      - InventoryPurchasingPort
+      - InventorySalesPort
+      - InventorySuppliersPort
+    # C3 (items batch): the ports may use Doctrine, SharedKernel and PlatformTenancy only (the C5 F-3 shape).
+    InventoryPurchasingPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
+    InventorySalesPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
+    InventorySuppliersPort:
+      - Doctrine
+      - PlatformTenancy
+      - SharedKernel
     InventoryApiResource:
       - Doctrine
       - HttpFoundation
@@ -1521,6 +1563,8 @@ deptrac:
       - WarehousesContract
       # C4 (wh-loc-delete): Purchasing answers WarehouseOpenPurchaseOrders — the one consumer WarehousesPurchasingPort names.
       - WarehousesPurchasingPort
+      # C3 (items batch): Purchasing answers ItemPurchaseLines — the one consumer InventoryPurchasingPort names (PUR -> INV).
+      - InventoryPurchasingPort
     PurchasingApiResource:
       - Doctrine
       - HttpFoundation
@@ -1565,6 +1609,8 @@ deptrac:
       - CustomersPort
       # C4 (wh-loc-delete): Sales answers WarehouseOpenSalesOrders — the one consumer WarehousesSalesPort names.
       - WarehousesSalesPort
+      # C3 (items batch): Sales answers ItemSalesLines — the one consumer InventorySalesPort names (SAL -> INV).
+      - InventorySalesPort
       - Doctrine
       - InventoryContract
       - PlatformConsole
@@ -1647,6 +1693,10 @@ deptrac:
       - SuppliersContract
       - SuppliersDomain
       - SuppliersPort
+      # C3 (items batch): Suppliers answers ItemCatalogueEntries — the one consumer InventorySuppliersPort names, on
+      # `SUP -> INV` (drawn in ARCHITECTURE.md §5.2 2026-11-10, `items-batch-sec-arch.md` A-1). InventoryContract is NOT
+      # added: the edge would permit it, but A-15 lists only what is used.
+      - InventorySuppliersPort
     SuppliersApiResource:
       - Doctrine
       - HttpFoundation

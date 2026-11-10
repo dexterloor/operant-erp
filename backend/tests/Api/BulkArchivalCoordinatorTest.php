@@ -30,7 +30,9 @@ use Symfony\Component\Uid\Uuid;
  *    stored (*mutation:* catch `\Throwable` as "not applied" → red);
  *  - a `40P01` inside a member → 409 `bulk.contention`, never "not applied", the earlier member's write undone, nothing stored
  *    (*mutation:* catch it per member → red);
- *  - a real `55P03` (`lock_timeout` set locally — none is set anywhere at run time, so this is the only way it can redden).
+ *  - a real `55P03` (`lock_timeout` set locally — at run time one is set only on `ItemWriter::update()`'s unit upgrade
+ *    (`UNIT_LOCK_TIMEOUT`, items batch C3), which no bulk member runs, so this is the only way it can redden here; it read
+ *    "none is set anywhere" until 2026-11-10, final RED FM-2).
  */
 final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
 {
