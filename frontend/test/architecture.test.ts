@@ -2416,10 +2416,9 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
 // name or path built by concatenation or a template literal evades (a) and (d); a comment naming a token fires them (loud
 // and safe); a route word other than the five evades (c); a source behind a symlinked directory is refused by the walk.
 // The message is held equal to the backend's by the parity test below (it reads ../backend/, the ../contracts/ precedent),
-// so the two cannot drift apart unseen. ⚠ Ported from origin/main d65059b (backend message sha256
-// 1efa6b98a2ca712d96335c9ec0a00dbbd2e7133191448f8f0f5d6ca47fb69dc3). The backend's owed E-6 edit ("removes no ability" →
-// "removes no stock ability", re-wrap allowed) is not in this port; the parity test goes red at the merge that brings it,
-// until G51_MESSAGE is re-ported from the backend text. I-3 is not pushed before that (items-i3-po-sec.md I3-8).
+// so the two cannot drift apart unseen. Ported from origin/main 119adb5, which carries E-6 ("removes no stock ability",
+// re-wrapped; items-i3-po-sec.md I3-8): backend message sha256
+// 73ef349573ef76765d08fde88c033402ca560cce6321463077ae1b1d54e74c04. A later backend change to the message turns the parity test red until it is re-ported here.
 
 /** G-51 trigger (a): the count's and the transfer's operationIds. Collected with a fresh /g in matchAll, never .test() on a shared /g. */
 const STOCK_COUNT_OR_MOVE_OPERATION_TOKEN = '\\b(CreateStockAdjustment|CreateStockTransfer)\\b';
@@ -2492,8 +2491,8 @@ const G51_MESSAGE =
   'G-51 is open (docs/RESIDUAL_GAPS.md G-51, Low; owner PO): an item can be archived (DeleteItem) while it holds\n' +
   'stock, and that stock then cannot be counted or moved between locations until the item is restored. Its\n' +
   'acceptance for the web app rests on the web app being unable to count or move stock for ANY item, so that\n' +
-  'archiving removes no ability its user has. The frontend is now wiring a stock count or transfer, so that\n' +
-  'ground is about to become false.\n' +
+  'archiving removes no stock ability its user has. The frontend is now wiring a stock count or transfer, so\n' +
+  'that ground is about to become false.\n' +
   '\n' +
   "Before this screen ships, PO + UX recommend and the owner decides (a shipped-behaviour change, as G-51's\n" +
   'Closing work says) between:\n' +

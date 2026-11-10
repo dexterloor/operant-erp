@@ -46,7 +46,8 @@ const save = () => screen.getByRole('button', { name: 'Save' });
 const violation = (pointer: string, message: string, code = 'not_a_decimal') => problem(422, 'validation-failed', { errors: [{ pointer, code, message }] });
 const I2 = "This item is archived, so it can't be changed until it's restored.";
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
-const I8 = 'This field must be a decimal string with at most 13 integer digits and 6 fractional digits.';
+/** UX-I8′ (`ItemWriter::NOT_A_DECIMAL`, items batch C4): the server's sentence for the three item numbers. */
+const I8 = 'Enter 0 or a positive number, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.';
 /** The value each display site must show for each served quantity (M-5): QR-2, never a number. */
 const SERVED_AS: [string, string][] = [
   ['1234567890123.123456', '1234567890123.123456'],
