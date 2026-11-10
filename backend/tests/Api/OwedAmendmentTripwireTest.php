@@ -1744,8 +1744,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * FINAL"). G-51 (Low; owner `PO`): an item can be archived while it holds stock, and that stock then cannot be counted
      * or moved between locations until the item is restored. **G-51 is NOT closed and nothing here may be read as closing
      * it.** Its acceptance for the web app rests on a ground that is true only while the web app can neither count nor
-     * move stock for ANY item: then archiving a stocked item removes no ability the web-app user has, and the delete
-     * dialog states the consequence (and, since BK-27, warns when `holds_stock` is true).
+     * move stock for ANY item: then archiving a stocked item removes no stock ability the web-app user has, and the
+     * delete dialog states the consequence (and, since BK-27, warns when `holds_stock` is true).
      *
      * **The trigger T** (outside `frontend/src/generated/`): (a) source naming `CreateStockAdjustment` or
      * `CreateStockTransfer` (word boundaries, the G-47 twin's L-3 lesson: `CreateStockAdjustmentDraft` does not fire);
@@ -1842,8 +1842,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             ."G-51 is open (docs/RESIDUAL_GAPS.md G-51, Low; owner PO): an item can be archived (DeleteItem) while it holds\n"
             ."stock, and that stock then cannot be counted or moved between locations until the item is restored. Its\n"
             ."acceptance for the web app rests on the web app being unable to count or move stock for ANY item, so that\n"
-            ."archiving removes no ability its user has. The frontend is now wiring a stock count or transfer, so that\n"
-            ."ground is about to become false.\n\n"
+            ."archiving removes no stock ability its user has. The frontend is now wiring a stock count or transfer, so\n"
+            ."that ground is about to become false.\n\n"
             ."Before this screen ships, PO + UX recommend and the owner decides (a shipped-behaviour change, as G-51's\n"
             ."Closing work says) between:\n"
             ."  1. DeleteItem refuses an item with stock in any location (qty_on_hand <> 0): fold archiveUnlessStocked()'s\n"

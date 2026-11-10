@@ -362,34 +362,36 @@ final class ReorderSuggestionTest extends PurchaseOrderTestCase
     }
 
     /**
-     * Final RED F-L3: nothing CHECKs the sign of either value, so a value ≤ 0 is unset. A negative point with no quantity is
-     * not managed; a negative quantity never makes a suggestion negative — the shortfall wins; both stored values are served
-     * as stored.
+     * **Replaces `aNegativeReorderValueIsTreatedAsUnset`** (BK-26, items batch C4, `Version20261110000200`): a negative reorder
+     * number can no longer be stored — `ItemWriter` refuses it (422 `not_a_decimal`) and the three
+     * `inventory_item_*_non_negative` CHECKs refuse SQL that bypasses the writer. So the old test's fixtures cannot be
+     * seeded. Each column at −1, written as the owner with the tenant set, is a 23514 naming its own constraint.
+     *
+     * **The suggester's `max(…, 0)` arm is kept as a deliberately untested arm** (L-1, G-92's shape): with the CHECKs no
+     * stored value reaches it, and removing it would make the suggestion's correctness rest on the CHECKs alone.
      */
     #[Test]
-    public function aNegativeReorderValueIsTreatedAsUnset(): void
+    public function aNegativeReorderValueIsRefusedByTheSchema(): void
     {
-        $bin = $this->bin('R-NEG');
-        $negativePoint = $this->managedItem('SKU-RO-NP', point: '-5', quantity: '0');
-        $negativeQuantity = $this->managedItem('SKU-RO-NQ', point: '10', quantity: '-3');
-        $this->stock($negativeQuantity, $bin, '4');
-        $negativeBoth = $this->managedItem('SKU-RO-NB', point: '-1', quantity: '-1');
-        // `g3-c1-red.md` M-2: the case where the rule decides the LISTING — a negative point beside a positive quantity is
-        // "order N when out": listed at zero stock (projected 0 ≤ max(-5, 0)), never compared with the raw -5.
-        $whenOut = $this->managedItem('SKU-RO-NPQ', point: '-5', quantity: '6');
-        $whenOutStocked = $this->managedItem('SKU-RO-NPQS', point: '-5', quantity: '6');
-        $this->stock($whenOutStocked, $bin, '1');
+        foreach (['reorder_point' => 'inventory_item_reorder_point_non_negative', 'reorder_quantity' => 'inventory_item_reorder_quantity_non_negative', 'safety_stock' => 'inventory_item_safety_stock_non_negative'] as $column => $constraint) {
+            $item = $this->seedItem(self::TENANT_A, 'SKU-RO-NEG-'.$column);
+            $owner = $this->owner();
+            $owner->beginTransaction();
+            $error = null;
+            try {
+                $this->tenantContext()->establishOn($owner, self::TENANT_A);
+                $updated = $owner->executeStatement(\sprintf('UPDATE inventory_item SET %s = -1 WHERE id = ?::uuid', $column), [$item]);
+                self::fail($column.': a negative value was stored ('.$updated.' row).');
+            } catch (\Doctrine\DBAL\Exception\DriverException $e) {
+                $error = $e;
+            } finally {
+                $owner->rollBack();
+            }
 
-        $listed = $this->listedIds();
-        self::assertNotContains($negativePoint, $listed);
-        self::assertNotContains($negativeBoth, $listed);
-        self::assertContains($whenOut, $listed);
-        self::assertNotContains($whenOutStocked, $listed);
-        self::assertSame('6.000000', $this->rowOf($whenOut)['suggested_quantity']);
-        self::assertSame('-5.000000', $this->rowOf($whenOut)['reorder_point'], 'The stored value is served as stored.');
-        $row = $this->rowOf($negativeQuantity);
-        self::assertSame('6.000000', $row['suggested_quantity']);
-        self::assertSame('-3.000000', $row['reorder_quantity'], 'The stored value is served as stored.');
+            self::assertSame('23514', $error->getSQLState(), $column);
+            self::assertStringContainsString($constraint, $error->getMessage(), $column);
+            self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, \sprintf('SELECT count(*) FROM inventory_item WHERE id = ?::uuid AND %s < 0', $column), [$item]));
+        }
     }
 
     /** The suggestion is the reorder quantity, or the shortfall when that is larger (D-C1-2). */
