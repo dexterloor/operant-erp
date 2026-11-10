@@ -527,6 +527,41 @@ describe('/warehouses/[id] — Restore warehouse (B-7, step 4.2)', () => {
     expect(await screen.findByText("We can't tell whether MAIN was restored. Press Restore warehouse to try again.")).toBeInTheDocument();
     expect(restore()).toBeInTheDocument();
   });
+
+  // RED i3-0a0b L-2: Restore takes its stamp when it sends its re-read, as Save does. A Retry pressed during the
+  // Restore asked earlier, so its archived answer must not hide the restored warehouse.
+  it('a Retry pressed during a Restore and answering first does not hide the restored warehouse (0a, counter-race)', async () => {
+    let releasePost!: (r: Response) => void;
+    let releaseRetry!: (r: Response) => void;
+    let releaseReread!: (r: Response) => void;
+    const post = new Promise<Response>((res) => (releasePost = res));
+    const retryRead = new Promise<Response>((res) => (releaseRetry = res));
+    const reread = new Promise<Response>((res) => (releaseReread = res));
+    const calls = stubFetch([refused('warehouse.is_archived', 'Not restored.'), json(503, {}), () => post, () => retryRead, () => reread]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={ARCHIVED} canEdit canRestore canDelete />);
+    await u.click(screen.getByRole('button', { name: 'Restore warehouse' }));
+    const retryButton = await screen.findByRole('button', { name: 'Retry' });
+    await u.click(screen.getByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(retryButton);
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await act(async () => {
+      releasePost(json(200, MAIN));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    await waitFor(() => expect(calls).toHaveLength(5));
+    await act(async () => {
+      releaseRetry(json(200, ARCHIVED));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    await act(async () => {
+      releaseReread(json(200, MAIN));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
+  });
 });
 
 describe('/warehouses/[id] — the editor banner (WarehouseForm)', () => {

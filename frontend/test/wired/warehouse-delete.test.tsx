@@ -180,6 +180,89 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     expect(screen.getByText("We couldn't load this warehouse again, so what's shown may be out of date.")).toBeInTheDocument();
   });
 
+  // RED i3-0a0b H-1: a Save whose answer arrives after the 204 was processed before the delete (a later Save would
+  // have been refused), so its 200 body is the warehouse before the delete. When the Save's re-read fails, that body
+  // must not turn the page live again, whether the delete's own re-read has answered or is still in flight.
+  it('a Save answering after the 204, whose re-read fails, does not turn the page live: archived banner stays, no Delete warehouse, no form (0a, RED H-1)', async () => {
+    let release!: (r: Response) => void;
+    const held = new Promise<Response>((res) => (release = res));
+    const calls = stubFetch([() => held, empty(204), json(200, ARCHIVED), json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    await act(async () => {
+      release(json(200, { ...MAIN, name: 'Main warehousex' }));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
+  it("…and the same when the Save answers while the delete's re-read is in flight: that re-read's archived answer is still shown (0a, RED H-1)", async () => {
+    let releaseSave!: (r: Response) => void;
+    let releaseReread!: (r: Response) => void;
+    const save = new Promise<Response>((res) => (releaseSave = res));
+    const reread = new Promise<Response>((res) => (releaseReread = res));
+    const calls = stubFetch([() => save, empty(204), () => reread, json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await act(async () => {
+      releaseSave(json(200, { ...MAIN, name: 'Main warehousex' }));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    await act(async () => {
+      releaseReread(json(200, ARCHIVED));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
+  // RED i3-0a0b L-1: the 204 floor is raised before the delete's re-read is sent. A Save re-read landing while that
+  // re-read is in flight is older, so the form must not come back behind the open dialog.
+  it("an older Save re-read landing while the delete's re-read is in flight does not bring the form back (0a, the 204 floor's timing)", async () => {
+    let releaseSave!: (r: Response) => void;
+    let releaseReread!: (r: Response) => void;
+    const saveReread = new Promise<Response>((res) => (releaseSave = res));
+    const deleteReread = new Promise<Response>((res) => (releaseReread = res));
+    const calls = stubFetch([json(200, { ...MAIN, name: 'Main warehousex' }), () => saveReread, empty(204), () => deleteReread]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await act(async () => {
+      releaseSave(json(200, { ...MAIN, name: 'Main warehousex' }));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.queryByRole('textbox', { name: 'Name', hidden: true })).toBeNull();
+    await act(async () => {
+      releaseReread(json(503, {}));
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
   // Moved deliberately in commit 0b (items-i3-design.md Revision 1 — FINAL §0b; UX items-i3-ux.md F-3; ruling 1(b)): a
   // 404 used to keep Delete (4.6 D-3); a repeat cannot succeed, so it now leaves Close only. Close re-reads the warehouse,
   // so the 500 half needs a second open. Stub order (final RED L-7): the 404, Close's re-read, the second dialog's 500.
@@ -190,6 +273,7 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
     expect(within(dialog()).getByText('Not deleted')).toBeInTheDocument();
     expect(within(dialog()).queryByRole('button', { name: 'Delete warehouse' })).toBeNull();
     expect(within(dialog()).queryByRole('button', { name: 'Cancel' })).toBeNull();
@@ -474,6 +558,7 @@ describe('/warehouses/[id] — Delete location (B-7, step 4.6)', () => {
     await u.click(screen.getByRole('button', { name: 'Delete A1' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
     await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
     expect(within(dialog()).getByText('Not deleted')).toBeInTheDocument();
     expect(within(dialog()).queryByRole('button', { name: 'Delete location' })).toBeNull();
     expect(within(dialog()).queryByRole('button', { name: 'Cancel' })).toBeNull();

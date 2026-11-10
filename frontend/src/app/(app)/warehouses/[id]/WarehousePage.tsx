@@ -75,16 +75,20 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // Restore, Delete) takes its stamp when it sends its re-read, after the write's answer has arrived. Its re-read commits
   // under that stamp. So does the write's own answer body, committed when that re-read fails. A commit or failure whose
   // stamp is older than what is on screen is dropped. A 204 raises what is on screen to the delete's re-read stamp, even
-  // when that re-read fails, so no reading requested before it can undo the delete. The 204 fact (`deletedHere`) is
-  // cleared only by a commit that is not dropped. An older re-read landing first never drops a newer one. Known limit:
-  // when that re-read fails, the write's answer body describes the moment of the write but carries the re-read's stamp,
-  // so it can overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it.
+  // when that re-read fails, so no reading requested before it can undo the delete. A write's own answer body is also
+  // dropped when a 204 arrived after that write was sent: it describes the warehouse before the delete. The 204 fact
+  // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
+  // one. Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
+  // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
+  // reading corrects it.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
+  const deletedAsOf = useRef(0);
   const stamp = useCallback(() => ++stamps.current, []);
   const setWarehouse = useCallback(
-    async (w: Warehouse, asOf: number) => {
+    async (w: Warehouse, asOf: number, sentAsOf?: number) => {
       if (asOf < committedAsOf.current) return;
+      if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
       setDeletedHere(false);
       setRereadError(null);
@@ -116,6 +120,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // re-read fails.
   const onDeleted = useCallback((s: number) => {
     committedAsOf.current = Math.max(committedAsOf.current, s);
+    deletedAsOf.current = s;
     setDeletedHere(true);
   }, []);
   const remove = useCallback(() => warehouseDelete({ caller, id, stamp, setWarehouse, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, setWarehouse, failed, onDeleted]);

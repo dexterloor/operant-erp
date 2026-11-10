@@ -20,14 +20,19 @@ import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREH
 // Stamps (items-i3-design.md Revision 1 — FINAL §0a): every action here takes its stamp from `stamp()` immediately
 // before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
 // follows, the fallback answer body included. The page drops anything older than what it shows.
+// A Save also takes a stamp when it sends its PATCH; its own answer body is committed only if no 204 arrived after that
+// (a Save that answers after a delete was processed before it).
 
 export interface WarehouseSaveWiring {
   readonly caller: ApiCaller;
   readonly id: string;
   /** The page's next stamp: taken when a re-read is sent. */
   readonly stamp: () => number;
-  /** Sets the re-read warehouse (under the stamp of the re-read) and resolves after the commit that shows it. */
-  readonly setWarehouse: (warehouse: Warehouse, asOf: number) => Promise<void>;
+  /**
+   * Sets the re-read warehouse (under the stamp of the re-read) and resolves after the commit that shows it. `sentAsOf`,
+   * given only with a write's own answer body, is the stamp taken when that write was sent.
+   */
+  readonly setWarehouse: (warehouse: Warehouse, asOf: number, sentAsOf?: number) => Promise<void>;
   /** The re-read after a save did not answer a warehouse: the page shows its region error, or swaps (ST-4b / ST-5). */
   readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
   /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
@@ -38,6 +43,7 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
   return async (changes) => {
     const deadline = startDeadline(ACTION_DEADLINES_MS.warehouseSave);
     try {
+      const sent = w.stamp();
       const r = await w.caller.call('UpdateWarehouse', { id: w.id }, changes, { signal: deadline.signal });
       if (r.kind !== 'ok') {
         switch (r.kind) {
@@ -63,7 +69,7 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
       else {
         // The 200 body is the server's new state: commit it, so the page shows what was saved, as Restore does (the
         // items RED L-1, a shipped defect here: the page said "{code} was saved." over the pre-save warehouse).
-        await w.setWarehouse(r.body, s);
+        await w.setWarehouse(r.body, s, sent);
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'saved', warehouse: r.body };
