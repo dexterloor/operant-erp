@@ -445,3 +445,69 @@ describe('/items/new — an unexpected 429 (T-5, M-1)', () => {
     expect(screen.getByText('Something went wrong on our side.')).toHaveFocus();
   });
 });
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('/items/new (ItemCreateForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    const heading = await screen.findByText('Not created');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    const heading = await screen.findByText('Not created');
+    expect(bannerBody(heading)).toEqual(['Out of form.']);
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+    await u.click(submit());
+    expect(await screen.findByText('Refused here.')).toBeInTheDocument();
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+describe('/items/new — the interrupted sentence when the SKU is empty (I-2 follow-up)', () => {
+  const NO_SKU = "We can't tell whether the new item was created. Check the list of items before you try again.";
+  it('a 5xx with SKU "   " (empty after trimming): the no-SKU sentence, and the request still sends the SKU as typed', async () => {
+    const calls = stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u, '   ');
+    await u.click(submit());
+    expect(await screen.findByText(NO_SKU)).toBeInTheDocument();
+    expect(screen.queryByText(/We can't tell whether\s+was created/)).toBeNull();
+    expect(bodyOf(posts(calls)[0]!).sku).toBe('   ');
+  });
+
+  it('a lost connection with no SKU typed at all: the no-SKU sentence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u, '');
+    await u.click(submit());
+    expect(await screen.findByText(NO_SKU)).toBeInTheDocument();
+    expect(screen.getByText("We couldn't reach the server.")).toHaveFocus();
+  });
+
+  it('a 5xx with SKU " A1 ": B-4\'s sentence with " A1 " exactly as sent', async () => {
+    stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u, ' A1 ');
+    await u.click(submit());
+    const p = await screen.findByText((_, el) => el?.tagName === 'P' && (el.textContent ?? '').startsWith("We can't tell whether"));
+    expect(p.textContent).toBe(INTERRUPTED(' A1 '));
+    expect(screen.queryByText(NO_SKU)).toBeNull();
+  });
+});

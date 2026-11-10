@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
@@ -129,7 +129,13 @@ export function ItemForm({ item, save, editCode, announce, fallbackFocusRef, onS
       case 'invalid': {
         const first = ITEM_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_SAVED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
+          show(
+            NOT_SAVED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
           setFieldErrors(r.fieldErrors);
           return;
         }

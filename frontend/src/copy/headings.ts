@@ -26,6 +26,13 @@ export const WENT_WRONG = 'Something went wrong on our side.';
  */
 export const REFUSED_WITHOUT_MESSAGE = "This change wasn't made. Reload the page to see where things stand, then try again.";
 
+/**
+ * items-i3-ux.md Revision 1 FINAL F-5 #1 (NEW, L-9): the last paragraph of a form's banner when the same 422 carries an
+ * out-of-form sentence AND at least one field sentence (the item, warehouse and location create and edit forms). Never
+ * on any other banner. Home ARCH TO CONFIRM (items-i3-design.md Revision 1 FINAL §2).
+ */
+export const MIXED_FIELDS_TOO = 'Check the marked fields below too.';
+
 /** Round-6 §3.10 / ux-copy-frontend.md §3: the checklist's Save changes (B-4 step 4; R1-5 and R1-6 use it too). */
 export const NOT_SAVED = 'Not saved';
 

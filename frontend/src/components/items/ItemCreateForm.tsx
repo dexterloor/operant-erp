@@ -6,7 +6,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_CREATED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_CREATED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { ITEM_FORBIDDEN, ITEM_PAGE, NEW_ITEM, unitLabel } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
@@ -87,6 +87,9 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
     setFocusTarget({ gen: gen.current, to: 'banner' });
   };
 
+  // F-5 #2: the trim only chooses the sentence; a non-empty SKU is quoted exactly as sent.
+  const interruptedSentence = (sku: string) => (sku.trim() === '' ? NEW_ITEM.interruptedNoSku : NEW_ITEM.interrupted(sku));
+
   const settle = (r: CreateItemResult, sku: string) => {
     switch (r.kind) {
       case 'created':
@@ -98,7 +101,13 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
         if (r.formErrors.length > 0) {
           // Index keys: two out-of-form violations may carry the same sentence, and the list is rebuilt per answer under a
           // new Banner key, so an index is stable here and a sentence key is not unique.
-          show(NOT_CREATED, r.formErrors.map((m, i) => <p key={i}>{m}</p>));
+          show(
+            NOT_CREATED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {Object.keys(r.fieldErrors).length > 0 ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
           setFieldErrors(r.fieldErrors);
           return;
         }
@@ -127,10 +136,10 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
         show(NOT_CREATED, PAGE_STATES.notFoundInline);
         return;
       case 'unreachable':
-        show(COULD_NOT_REACH, NEW_ITEM.interrupted(sku));
+        show(COULD_NOT_REACH, interruptedSentence(sku));
         return;
       case 'server-error':
-        show(WENT_WRONG, NEW_ITEM.interrupted(sku));
+        show(WENT_WRONG, interruptedSentence(sku));
         return;
       case 'session-ended':
         return;

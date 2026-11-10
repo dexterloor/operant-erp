@@ -128,6 +128,11 @@ export const NEW_ITEM = {
   after: (sku: string) => `${sku} was created.`,
   /** Interrupted (NEW): not "press Create item to try again" (the create does not replay on its key). */
   interrupted: (sku: string) => `We can't tell whether ${sku} was created. Search the list for ${sku} before you try again.`,
+  /**
+   * items-i3-ux.md Revision 1 FINAL F-5 #2 (AMENDED, L-9): the interrupted sentence when the SKU as sent is empty after
+   * trimming. The trim only chooses the sentence; `interrupted` keeps the SKU exactly as sent.
+   */
+  interruptedNoSku: "We can't tell whether the new item was created. Check the list of items before you try again.",
   /** R1-1: the Unit select's empty first option (no `disabled`) and the client refusal when nothing is chosen. */
   unitPrompt: 'Choose a unit',
   unitRequired: 'Choose a unit for this item.',

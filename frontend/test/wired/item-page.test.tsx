@@ -799,3 +799,34 @@ describe('/items/[id] — the editor banner (ItemForm)', () => {
     }
   });
 });
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('/items/[id] (ItemForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    const heading = await screen.findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    const heading = await screen.findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.']);
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+    await u.click(save());
+    expect(await screen.findByText('Refused here.')).toBeInTheDocument();
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});

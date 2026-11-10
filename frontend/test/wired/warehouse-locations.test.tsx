@@ -396,3 +396,38 @@ describe('Edit location — the banner on a later refusal (LocationForm)', () =>
     }
   });
 });
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('Edit location (LocationForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/code', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const dialog = await screen.findByRole('dialog');
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'X');
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+    const heading = await within(dialog).findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const dialog = await screen.findByRole('dialog');
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'X');
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+    const heading = await within(dialog).findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.']);
+    expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText('Refused here.')).toBeInTheDocument();
+    expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
+  });
+});
