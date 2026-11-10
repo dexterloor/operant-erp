@@ -84,12 +84,16 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
+  // The code last committed, for the "After" sentence (i3-c1 fix-RED L-4): the render that opened the dialog may be older
+  // than a reading committed since (renamed elsewhere, or by a Save that landed while the delete was in flight).
+  const committedCode = useRef(initial.code);
   const stamp = useCallback(() => ++stamps.current, []);
   const setWarehouse = useCallback(
     async (w: Warehouse, asOf: number, sentAsOf?: number) => {
       if (asOf < committedAsOf.current) return;
       if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
+      committedCode.current = w.code;
       setDeletedHere(false);
       setRereadError(null);
       await setCommitted(w);
@@ -132,13 +136,12 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // (Back to the list then shows it under Archived). Any other close after an answer re-reads the warehouse, so the page
   // under the dialog is the server's (an interrupted press may have committed; a W6 means it was deleted elsewhere).
   const closeDelete = async ({ deleted, reread }: { deleted: boolean; reread: boolean }) => {
-    const code = warehouse.code;
     flushSync(() => setDeleting(false));
     if (deleted) {
       // No `setDeletedHere(true)` here: `onDeleted` already set it before the re-read, and only a commit that is not
       // dropped may clear it. A re-read that reads the warehouse live (restored in between) leaves the page live.
       h1.current?.focus();
-      region.announce(DELETE_WAREHOUSE.after(code));
+      region.announce(DELETE_WAREHOUSE.after(committedCode.current));
       router.refresh();
       return;
     }

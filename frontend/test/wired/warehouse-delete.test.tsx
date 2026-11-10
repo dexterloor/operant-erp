@@ -451,7 +451,7 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
   it('a 204 whose re-read reads the warehouse live (restored in between): the page is live and offers its actions', async () => {
     stubFetch([empty(204), json(200, MAIN)]);
     const u = userEvent.setup();
-    editable();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: true, canDelete: true }} />);
     await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
     await waitFor(() => expect(region()).toHaveTextContent("MAIN was deleted. It's now in the archived warehouses."));
@@ -461,6 +461,79 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     expect(screen.queryByText(/This warehouse was archived on/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Delete warehouse' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
+    // i3-c1 fix-RED N-a: the location actions come back with the page.
+    expect(screen.getByRole('button', { name: 'Add location' })).toBeInTheDocument();
+  });
+
+  // i3-c1 fix-RED L-4 (a shipped defect): "After" names the code the page shows, the code last committed, not the one in
+  // the render where Delete was pressed. W2: renamed elsewhere, the 204's re-read brings the new code. W3: a Save renaming
+  // the code lands while the delete is in flight. And the fix-RED L-1 twin: a dropped reading does not move it.
+  it('renamed elsewhere: the 204 re-read commits the new code, and "After" names it (W2)', async () => {
+    stubFetch([empty(204), json(200, { ...ARCHIVED, code: 'MAIN2' })]);
+    const u = userEvent.setup();
+    showWarehouse();
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(/was deleted/));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN2 — Main warehouse');
+    expect(region().textContent).toBe("MAIN2 was deleted. It's now in the archived warehouses.");
+  });
+
+  const heldReply = () => {
+    let release!: (r: Response) => void;
+    const p = new Promise<Response>((res) => (release = res));
+    return { reply: () => p, release: (r: Response) => release(r) };
+  };
+  const pause = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+
+  it('a Save renaming the code lands while the delete is in flight: "After" names the code on screen (W3)', async () => {
+    const patch = heldReply();
+    const del = heldReply();
+    stubFetch([patch.reply, del.reply, json(200, { ...MAIN, code: 'M2' }), json(200, { ...ARCHIVED, code: 'M2' })]);
+    const u = userEvent.setup();
+    editable();
+    const code = screen.getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'M2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    patch.release(json(200, { ...MAIN, code: 'M2' }));
+    await pause();
+    del.release(empty(204));
+    await pause();
+    await pause();
+    expect(region().textContent).toBe("M2 was deleted. It's now in the archived warehouses.");
+  });
+
+  it('a dropped Save re-read (older than the 204) does not change the code "After" speaks (fix-RED L-1 twin)', async () => {
+    const patch = heldReply();
+    const del = heldReply();
+    const saveReread = heldReply();
+    const deleteReread = heldReply();
+    stubFetch([patch.reply, del.reply, saveReread.reply, deleteReread.reply]);
+    const u = userEvent.setup();
+    editable();
+    const code = screen.getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'M2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    patch.release(json(200, { ...MAIN, code: 'M2' }));
+    await pause();
+    del.release(empty(204));
+    await pause();
+    saveReread.release(json(200, { ...MAIN, code: 'M2' }));
+    await pause();
+    deleteReread.release(json(503, {}));
+    await pause();
+    await pause();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('MAIN — Main warehouse');
+    expect(region().textContent).toBe("MAIN was deleted. It's now in the archived warehouses.");
   });
 
   it('a 204 whose re-read fails, then Retry and Restore: the restored warehouse is editable again (the 204 fact is cleared by a later commit)', async () => {
