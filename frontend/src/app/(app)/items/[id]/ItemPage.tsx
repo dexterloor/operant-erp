@@ -1,15 +1,18 @@
 'use client';
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { ItemForm } from '@/components/items/ItemForm';
 import styles from '@/components/items/Items.module.css';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
 import { Banner } from '@/components/ui/Banner';
+import { Button } from '@/components/ui/Button';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM } from '@/copy/items';
+import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM } from '@/copy/items';
 import type { Item } from '@/lib/api/items';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
@@ -17,7 +20,8 @@ import { gateCode } from '@/lib/bff/surface';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadItem } from '@/lib/items/load';
 import type { ItemChange } from '@/lib/items/results';
-import { itemRestore, itemSave } from '@/lib/items/wired';
+import { itemDelete, itemRestore, itemSave } from '@/lib/items/wired';
+import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
 import { ItemNotFound, ItemsDenied } from '../ItemStates';
@@ -30,6 +34,8 @@ export interface ItemPageProps {
   canEdit: boolean;
   /** Holds RestoreItem's codes (from the contract): ST-4c. Without it an archived item shows its banner, no button. */
   canRestore: boolean;
+  /** Holds DeleteItem's codes (from the contract): **Delete item** on a live item (items I-3). */
+  canDelete?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -45,10 +51,13 @@ const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${
  * (`components/records/RestoreActions`): a restore sets the re-read item here, so the page turns live without a remount.
  * A refused Save whose re-read finds the item archived (UX-I2 on a stale page) turns the page archived and shows the
  * server's sentence under **Not saved**, its heading focused. A failed re-read → the region error (focus on its heading),
- * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e); no Delete
- * item until I-3. After a save's or restore's message is on screen the router cache is refreshed once.
+ * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e). **Delete
+ * item** (items I-3, the warehouse step-4.6 shape) on a live item for a DeleteItem holder: the shared danger dialog, its
+ * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
+ * page stays and turns archived. After a save's, restore's or delete's message is on screen the router cache is refreshed
+ * once.
  */
-export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
+export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: ItemPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -58,11 +67,35 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // 4.6 RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the item is still
+  // treated as archived for the actions (no Delete item, no form) until a commit that is not dropped says otherwise.
+  const [deletedHere, setDeletedHere] = useState(false);
   const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
+  // B-4 "After": the create page left "{sku} was created." for this address; spoken once, after RouteFocus has focused the h1.
+  useArrivalMessage(`/items/${id}`, region.announce);
 
-  const failed = useCallback((f: ReadFailure) => {
+  // L-2: a commit that is not dropped is newer than an earlier failed re-read, so committing one clears that error.
+  // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a): every commit is stamped with the moment its reading was
+  // requested. A page-owned re-read (Retry, a dialog's Close) takes its stamp when its request is sent. A write (Save,
+  // Restore, Delete) takes its stamp when it sends its re-read, after the write's answer has arrived. Its re-read commits
+  // under that stamp. So does the write's own answer body, committed when that re-read fails. A commit or failure whose
+  // stamp is older than what is on screen is dropped. A 204 raises what is on screen to the delete's re-read stamp, even
+  // when that re-read fails, so no reading requested before it can undo the delete. A write's own answer body is also
+  // dropped when a 204 arrived after that write was sent: it describes the item before the delete. The 204 fact
+  // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
+  // one. Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
+  // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
+  // reading corrects it.
+  const stamps = useRef(0);
+  const committedAsOf = useRef(0);
+  const deletedAsOf = useRef(0);
+  const committedSku = useRef(initial.sku);
+  const stamp = useCallback(() => ++stamps.current, []);
+  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+    if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
@@ -72,18 +105,13 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
-  // L-2: every read the page commits is newer than an earlier failed re-read, so committing one clears that error.
-  // Each page-owned re-read (Retry; I-3's dialog close) takes a stamp when it starts. A commit records the stamp of what
-  // it shows: the re-read's own start stamp, or a fresh one for a write's answer, which arrives after every re-read in
-  // flight started. A page-owned re-read whose start is older than what is already committed says nothing about what is
-  // on screen: its answer, success or failure, is dropped. An older re-read landing first never drops a newer one.
-  const stamps = useRef(0);
-  const committedAsOf = useRef(0);
   const commit = useCallback(
-    async (i: Item, asOf?: number) => {
-      // The larger of the two, written without Math (the QR-2 backstop forbids Math calls in the item files).
-      const stamp = asOf ?? ++stamps.current;
-      if (stamp > committedAsOf.current) committedAsOf.current = stamp;
+    async (i: Item, asOf: number, sentAsOf?: number) => {
+      if (asOf < committedAsOf.current) return;
+      if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
+      committedAsOf.current = asOf;
+      committedSku.current = i.sku;
+      setDeletedHere(false);
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
       if (i.archived_at === null) setStaleRefusal(null);
@@ -93,8 +121,16 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
   );
   // The wiring is built when an action runs, not during render: `commit` writes the stamp refs, which may only be
   // touched outside render (react-hooks/refs).
-  const save = useCallback((changes: ItemChange) => itemSave({ caller, id, setItem: commit, onRereadFailed: failed })(changes), [caller, id, commit, failed]);
-  const restore = useCallback(() => itemRestore({ caller, id, setItem: commit, onRereadFailed: failed })(), [caller, id, commit, failed]);
+  const save = useCallback((changes: ItemChange) => itemSave({ caller, id, stamp, setItem: commit, onRereadFailed: failed })(changes), [caller, id, stamp, commit, failed]);
+  const restore = useCallback(() => itemRestore({ caller, id, stamp, setItem: commit, onRereadFailed: failed })(), [caller, id, stamp, commit, failed]);
+  // The 204 floor: raised before the delete's re-read is sent, so a reading requested earlier is dropped even when that
+  // re-read fails. Without Math (the QR-2 backstop reads this file).
+  const onDeleted = useCallback((s: number) => {
+    if (s > committedAsOf.current) committedAsOf.current = s;
+    deletedAsOf.current = s;
+    setDeletedHere(true);
+  }, []);
+  const remove = useCallback(() => itemDelete({ caller, id, stamp, setItem: commit, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, commit, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
   const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
@@ -118,6 +154,37 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
     if (a === null || a === document.body || !a.isConnected) h1.current?.focus();
   }, [archivedNow]);
 
+  // Items I-3 (the WarehousePage.closeDelete shape, FE-D1). After a 204 the page stays: the item is archived, not gone,
+  // and `itemDelete` has already committed (or reported) the re-read, so the ST-9 banner and Restore item are on screen.
+  // Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
+  // (a Save may have renamed it after Delete was pressed; i3-c1 RED L-2), refresh the router cache once. The deleted
+  // branch does not set `deletedHere`: `onDeleted` already did, and only a commit that is not dropped may clear it (a
+  // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close
+  // after an answer re-reads the item: an archived re-read is committed (an interrupted press that committed, I3 deleted
+  // elsewhere) and the h1 takes focus; a live one changes nothing -- not committed, so the typed edits stay, and the
+  // region error is left as it is (M-5 as corrected by the final RED L-4; `itemSave`'s refusal rule).
+  const closeDelete = async ({ deleted, reread }: { deleted: boolean; reread: boolean }) => {
+    flushSync(() => setDeleting(false));
+    if (deleted) {
+      h1.current?.focus();
+      region.announce(DELETE_ITEM.after(committedSku.current));
+      router.refresh();
+      return;
+    }
+    if (!reread) return;
+    const mine = ++stamps.current;
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    const r = await loadItem(readOf(caller), id, d.signal);
+    d.cancel();
+    if (committedAsOf.current > mine) return;
+    if (r.kind === 'ok') {
+      if (r.item.archived_at === null) return;
+      await commit(r.item, mine);
+      h1.current?.focus();
+      router.refresh();
+    } else failed(r.kind, mine);
+  };
+
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -131,19 +198,25 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
       await commit(r.item, mine);
       setRereadError(null);
       h1.current?.focus();
-    } else failed(r.kind);
+    } else failed(r.kind, mine);
   };
 
   if (swap === 'forbidden') return <ItemsDenied />;
   if (swap === 'not-found') return <ItemNotFound />;
 
   const archived = item.archived_at !== null;
+  const actionsArchived = archived || deletedHere;
   return (
     <section className={listStyles.page}>
       <header className={listStyles.header}>
         <h1 ref={h1} tabIndex={-1}>
           {ITEM_PAGE.title(item.sku, item.name)}
         </h1>
+        {canDelete && !actionsArchived ? (
+          <Button variant="destructive" onClick={() => setDeleting(true)}>
+            {DELETE_ITEM.action}
+          </Button>
+        ) : null}
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
       <LiveRegion message={region.message} visuallyHidden />
@@ -176,7 +249,7 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
           onRestored={onRestored}
         />
       ) : null}
-      {canEdit && !archived ? (
+      {canEdit && !actionsArchived ? (
         <ItemForm item={item} save={save} editCode={gateCode('UpdateItem')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
@@ -196,6 +269,25 @@ export function ItemPage({ initial, canEdit, canRestore }: ItemPageProps) {
           <dd>{withUnit(item.safety_stock, item.unit_of_measure_code)}</dd>
         </dl>
       )}
+      {deleting ? (
+        <DeleteDialog
+          copy={{
+            title: DELETE_ITEM.title(item.sku, item.name),
+            // Per committed reading (§5.3): a commit while the dialog is open moves the line with it.
+            warning: item.holds_stock ? DELETE_ITEM.holdsStock : undefined,
+            body: DELETE_ITEM.body,
+            confirm: DELETE_ITEM.confirm,
+            cancel: DELETE_ITEM.cancel,
+            close: DELETE_ITEM.close,
+            interrupted: DELETE_ITEM.interrupted(item.sku),
+            forbidden: ITEM_FORBIDDEN,
+          }}
+          run={remove}
+          deleteCode={gateCode('DeleteItem')}
+          onClose={(o) => void closeDelete(o)}
+          fallbackFocusRef={h1}
+        />
+      ) : null}
     </section>
   );
 }

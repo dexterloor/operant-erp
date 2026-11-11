@@ -25,7 +25,10 @@ export const isItem = (x: unknown): x is Item =>
   typeof x.reorder_quantity === 'string' &&
   typeof x.safety_stock === 'string' &&
   isSupplier(x.supplier) &&
-  (x.archived_at === null || typeof x.archived_at === 'string');
+  (x.archived_at === null || typeof x.archived_at === 'string') &&
+  // Items I-3 (ruling 1(a)): served on every item body (BK-27); a body without a boolean here is malformed, so the delete
+  // dialog never opens on an item whose stock is unknown.
+  typeof x.holds_stock === 'boolean';
 
 /**
  * `ListItems`: one page of the live view, or of the Archived one (`archived=true`), for a search and a cursor.

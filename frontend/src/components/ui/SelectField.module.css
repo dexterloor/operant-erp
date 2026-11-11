@@ -1,0 +1,51 @@
+/* The in-app select (Revision 8 R8-5): TextField's field look, tokens only. The focus ring is global. Moved verbatim from
+   Warehouses.module.css's Kind select rules (Revision 7 A-21), class names made field-neutral. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.field select {
+  height: var(--size-control-lg);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font: inherit;
+}
+
+.field select:hover {
+  background: var(--bg-hover);
+}
+
+.field select[aria-invalid='true'] {
+  border-color: var(--danger-solid);
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error svg {
+  flex: none;
+  margin-top: 2px;
+}

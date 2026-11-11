@@ -1,12 +1,17 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode, useState } from 'react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
+import { leaveArrivalMessage, takeArrivalMessage } from '@/app/(app)/arrivalMessage';
+import { BffProvider } from '@/app/(app)/BffProvider';
 import { ItemPage } from '@/app/(app)/items/[id]/ItemPage';
+import { RouteFocus } from '@/components/shell/RouteFocus';
+import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
-import { TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { SID, TZ, json, problem, refused, renderWired, stubFetch } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
 // by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name and the three numbers
@@ -41,7 +46,8 @@ const save = () => screen.getByRole('button', { name: 'Save' });
 const violation = (pointer: string, message: string, code = 'not_a_decimal') => problem(422, 'validation-failed', { errors: [{ pointer, code, message }] });
 const I2 = "This item is archived, so it can't be changed until it's restored.";
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
-const I8 = 'This field must be a decimal string with at most 13 integer digits and 6 fractional digits.';
+/** UX-I8′ (`ItemWriter::NOT_A_DECIMAL`, items batch C4): the server's sentence for the three item numbers. */
+const I8 = 'Enter 0 or a positive number, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.';
 /** The value each display site must show for each served quantity (M-5): QR-2, never a number. */
 const SERVED_AS: [string, string][] = [
   ['1234567890123.123456', '1234567890123.123456'],
@@ -64,7 +70,8 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(field('Reorder point')).toHaveAttribute('inputmode', 'decimal');
     expect(field('Reorder point')).toHaveAttribute('type', 'text');
     expect(screen.getByText("Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.")).toBeInTheDocument();
-    // No stock, no movements, no links to them (G-47), no History, no Delete item in I-1.
+    // No stock, no movements, no links to them (G-47), no History. Delete item only for a DeleteItem holder (I-3 T-5:
+    // the offer rule itself is item-delete.test.tsx's; `show()` here passes no canDelete).
     expect(screen.queryAllByRole('link')).toEqual([]);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
@@ -366,6 +373,79 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(field('Name')).toHaveValue('Bolt M7');
   });
 
+  // Commit 0a, the counter-race (the final RED's I-B, and its fail twin): a Retry pressed while a Save's PATCH is in
+  // flight asked for its reading before the Save sent its re-read, so the Save's re-read is the newer reading even when
+  // the Retry answers first. A write stamps when it sends its re-read, not when it sends its request.
+  const REREAD_FAILED = "We couldn't load this item again, so what's shown may be out of date.";
+  const heldReply = () => {
+    let release!: (r: Response) => void;
+    const p = new Promise<Response>((res) => (release = res));
+    return { reply: () => p, release: (r: Response) => release(r) };
+  };
+  // The Save is over once the form has refreshed the router (`onSaved`, after the action resolved, so after any
+  // region-error timer the action set); one more timer turn inside act lets that timer's update render.
+  const settled = async (refreshes: number) => {
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(refreshes));
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+  };
+  const retryDuringSave = async (saveReread: Response) => {
+    const patch = heldReply();
+    const retry = heldReply();
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(503, {}), patch.reply, retry.reply, reread.reply]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    patch.release(json(200, { ...BOLT, name: 'Boltxy' }));
+    await waitFor(() => expect(calls).toHaveLength(5));
+    retry.release(json(200, { ...BOLT, name: 'Boltx' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull());
+    reread.release(saveReread);
+    await settled(2);
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET', 'GET']);
+  };
+
+  it('a Retry started during a Save and answering first does not hide the saved value (0a, counter-race)', async () => {
+    await retryDuringSave(json(200, { ...BOLT, name: 'Boltxy' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Boltxy');
+    expect(field('Name')).toHaveValue('Boltxy');
+  });
+
+  it("…and the same when the Save's re-read fails: the saved 200 body is shown, under the region error (0a, counter-race)", async () => {
+    await retryDuringSave(json(503, {}));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Boltxy');
+    expect(screen.getByText(REREAD_FAILED)).toBeInTheDocument();
+  });
+
+  it("a write's failed re-read older than what is on screen does not raise the region error (0a)", async () => {
+    const reread = heldReply();
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(503, {}), json(200, { ...BOLT, name: 'Bolt M7' }), reread.reply, json(200, { ...BOLT, name: 'Bolt M7' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Bolt M7');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText(REREAD_FAILED)).toBeNull());
+    reread.release(json(503, {}));
+    await settled(2);
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt M7');
+  });
+
   it('a refused Save whose re-read fails: UX-I2 under "Not saved" AND the region error (RED M-1 a)', async () => {
     stubFetch([refused('inventory_item.is_archived', I2), json(500, {})]);
     const u = userEvent.setup();
@@ -640,5 +720,161 @@ describe('/items/[id] — archived, and Restore item (B-5, ST-9)', () => {
     expect(within(document.body).queryByText('Not saved')).toBeNull();
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
     errors.mockRestore();
+  });
+});
+
+// Items I-2 (items-i2-design.md Revision 1 — FINAL A-11, T-6; B-4 "After"): the create page leaves "{sku} was created."
+// for `/items/{id}`; the item page speaks it once, after RouteFocus has focused its h1, in plain and StrictMode, and not
+// again after a remount. The arrival module itself is pinned in warehouse-create.test.tsx.
+describe.each([
+  ['plain', false],
+  ['StrictMode', true],
+] as const)('/items/[id] — the arrival message after a create (%s)', (_name, strict) => {
+  afterEach(() => {
+    takeArrivalMessage('');
+  });
+  let go: (path: string) => void = () => {};
+  function Frame() {
+    const [path, setPath] = useState('/items/new');
+    go = setPath;
+    return (
+      <>
+        <main id="main-content">{path === '/items/new' ? <h1 tabIndex={-1}>New item</h1> : path === 'gone' ? null : <ItemPage initial={BOLT} canEdit canRestore={false} />}</main>
+        <RouteFocus routeKey={path} />
+      </>
+    );
+  }
+  const mount = () => {
+    const tree = (
+      <TooltipProvider>
+        <BffProvider session={{ sid: SID, tz: TZ }} reload={() => {}}>
+          <Frame />
+        </BffProvider>
+      </TooltipProvider>
+    );
+    return render(strict ? <StrictMode>{tree}</StrictMode> : tree);
+  };
+
+  it('the region holds "{sku} was created." once, the h1 focused when it does; a remount says nothing', async () => {
+    mount();
+    leaveArrivalMessage(`/items/${IID}`, 'A-1 was created.');
+    const seen: { text: string; focusedH1: boolean }[] = [];
+    const observer = new MutationObserver(() => {
+      const r = document.querySelector('section > [role="status"]');
+      if (r && r.textContent !== '') seen.push({ text: r.textContent ?? '', focusedH1: document.activeElement?.tagName === 'H1' });
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    act(() => go(`/items/${IID}`));
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen).toEqual([{ text: 'A-1 was created.', focusedH1: true }]);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'A-1 — Bolt' }));
+    act(() => go('gone'));
+    act(() => go(`/items/${IID}`));
+    await new Promise((r) => setTimeout(r, 20));
+    observer.disconnect();
+    expect(document.querySelector('section > [role="status"]')!.textContent).toBe('');
+  });
+
+  it('a message left for another address is not spoken here', async () => {
+    mount();
+    leaveArrivalMessage('/items/other', 'X was created.');
+    act(() => go(`/items/${IID}`));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector('section > [role="status"]')!.textContent).toBe('');
+  });
+});
+
+describe('/items/[id] — the editor banner (ItemForm)', () => {
+  it('two out-of-form violations with the same sentence: both shown, no duplicate-key warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Same.' }, { pointer: '', code: 'y', message: 'Same.' }] })]);
+      const u = userEvent.setup();
+      show();
+      await u.type(field('Name'), 'x');
+      await u.click(save());
+      expect(await screen.findAllByText('Same.')).toHaveLength(2);
+      expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('/items/[id] (ItemForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    const heading = await screen.findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    const heading = await screen.findByText('Not saved');
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+    await u.click(save());
+    expect(await screen.findByText('Refused here.')).toBeInTheDocument();
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+// Items I-3 T-4 (ruling 1(a), I3-9): an item body whose holds_stock is missing, null or a string is malformed. A re-read
+// that answers one shows the region error; an UpdateItem 200 or a RestoreItem 200 without it is server-error.
+describe('/items/[id] — holds_stock is required on every item body (I-3 T-4)', () => {
+  const without = (i: Item, value?: unknown) => {
+    const b = { ...i } as Record<string, unknown>;
+    if (value === undefined) delete b.holds_stock;
+    else b.holds_stock = value;
+    return b;
+  };
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['"true"', 'true'],
+  ] as const)('a Save re-read whose holds_stock is %s: the region error (the re-read failed), not a committed item', async (_, value) => {
+    stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(200, without({ ...BOLT, name: 'Boltx' }, value))]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+  });
+
+  it('an UpdateItem 200 without holds_stock: "Something went wrong on our side." + the interrupted sentence, no re-read', async () => {
+    const calls = stubFetch([json(200, without({ ...BOLT, name: 'Boltx' }))]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We can't tell whether your changes to A-1 were saved. Reload the page to check.")).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH']);
+  });
+
+  it('a RestoreItem 200 without holds_stock: "Something went wrong on our side." + the interrupted sentence, still archived', async () => {
+    const calls = stubFetch([json(200, without(BOLT))]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(screen.getByRole('button', { name: 'Restore item' }));
+    expect(await screen.findByText("We can't tell whether A-1 was restored. Press Restore item to try again.")).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(screen.getByText(/This item was archived on/)).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['POST']);
   });
 });

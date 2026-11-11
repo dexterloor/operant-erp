@@ -83,6 +83,16 @@ describe('components/records/DeleteDialog — each branch renders its own copy f
     expect(within(dialog()).getByRole('button', { name: 'CONFIRM' })).toBeInTheDocument();
   });
 
+  it('a 404: "We couldn\u2019t find that." under "Not deleted", then Close only (0b; ruling 1(b))', async () => {
+    await press(once({ kind: 'not-found' }));
+    await waitFor(() => expect(dialog()).toHaveTextContent("We couldn't find that."));
+    expect(dialog()).toHaveTextContent('Not deleted');
+    expect(within(dialog()).queryByRole('button', { name: 'CONFIRM' })).toBeNull();
+    expect(within(dialog()).getByRole('button', { name: 'CLOSE' })).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'CANCEL' })).toBeNull();
+  });
+
+  // Ruling 1(b), second half: a 403 keeps Delete (and Cancel); only a 404 leaves Close only.
   it('a 403 is before + the permission label in <em> + after, as one sentence; Delete stays', async () => {
     await press(once({ kind: 'forbidden' }));
     await waitFor(() => expect(dialog()).toHaveTextContent('F-BEFORE Delete and restore warehouses F-AFTER'));
@@ -90,6 +100,8 @@ describe('components/records/DeleteDialog — each branch renders its own copy f
     expect(em.tagName).toBe('EM');
     expect(em.parentElement).toHaveTextContent(/^F-BEFORE Delete and restore warehouses F-AFTER$/);
     expect(within(dialog()).getByRole('button', { name: 'CONFIRM' })).toBeInTheDocument();
+    expect(within(dialog()).getByRole('button', { name: 'CANCEL' })).toBeInTheDocument();
+    expect(within(dialog()).queryByRole('button', { name: 'CLOSE' })).toBeNull();
   });
 
   it.each([
@@ -123,5 +135,52 @@ describe('components/records/DeleteDialog — each branch renders its own copy f
     render(<Harness run={once({ kind: 'deleted' })} onClose={(o) => closes.push(o)} />);
     await u.click(within(dialog()).getByRole('button', { name: 'CONFIRM' }));
     await waitFor(() => expect(closes).toEqual([{ deleted: true, reread: true }]));
+  });
+});
+
+// Items I-3 T-2 (items-i3-design.md Revision 1 — FINAL §1.3 T-2, final RED M-3): the optional warning line. Absent or ''
+// → the description is exactly the body (the warehouse and location dialogs are unchanged). Present → its own paragraph
+// FIRST in the description, icon aria-hidden, no heading, no role. A refusal renders after the description (the shared
+// Dialog order); the warning and the body stay in it, warning first.
+describe('components/records/DeleteDialog — the warning line (items I-3, T-2)', () => {
+  function WarningHarness({ warning, run = once({ kind: 'deleted' }) }: { warning?: string; run?: () => Promise<DeleteResult> }) {
+    const h1 = useRef<HTMLHeadingElement>(null);
+    return (
+      <>
+        <h1 ref={h1} tabIndex={-1}>
+          Page
+        </h1>
+        <DeleteDialog copy={{ ...COPY, warning }} run={run} deleteCode={CODE} onClose={() => {}} fallbackFocusRef={h1} />
+      </>
+    );
+  }
+  const description = () => document.getElementById(dialog().getAttribute('aria-describedby')!)!;
+
+  it.each([['absent', undefined], ["''", '']] as const)('warning %s: the description is exactly the body, one paragraph', (_, warning) => {
+    render(<WarningHarness warning={warning} />);
+    expect(description().textContent).toBe('BODY');
+    expect(description().querySelectorAll('p')).toHaveLength(1);
+    expect(description().querySelector('svg')).toBeNull();
+  });
+
+  it('warning present: its own paragraph first, then the body; icon aria-hidden; no heading, no role', () => {
+    render(<WarningHarness warning="WARNING" />);
+    const ps = [...description().querySelectorAll('p')];
+    expect(ps.map((p) => p.textContent)).toEqual(['WARNING', 'BODY']);
+    expect(description().textContent!.startsWith('WARNING')).toBe(true);
+    expect(ps[0]!.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(within(description()).queryByRole('heading')).toBeNull();
+    expect(ps[0]!.closest('[role]')).toBe(dialog());
+    expect(ps[0]!.hasAttribute('role')).toBe(false);
+  });
+
+  it('a refusal renders after the description; the warning and the body stay in it, warning first', async () => {
+    const u = userEvent.setup();
+    render(<WarningHarness warning="WARNING" run={once({ kind: 'contention', message: 'X-planted try again' })} />);
+    await u.click(within(dialog()).getByRole('button', { name: 'CONFIRM' }));
+    const refusal = await within(dialog()).findByText('X-planted try again');
+    expect([...description().querySelectorAll('p')].map((p) => p.textContent)).toEqual(['WARNING', 'BODY']);
+    expect(description().compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(description().contains(refusal)).toBe(false);
   });
 });

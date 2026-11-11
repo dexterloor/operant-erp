@@ -91,6 +91,8 @@ describe('A-21 — the kind-literal scan (holds from step 4.4)', () => {
     expect(files.some((f) => f.file === 'src/components/warehouses/LocationForm.tsx')).toBe(true);
     expect(files.some((f) => f.file === 'src/components/warehouses/AddLocationForm.tsx')).toBe(true);
     expect(files.some((f) => f.file === 'src/components/warehouses/KindField.tsx')).toBe(true);
+    // Revision 8 R8-5 (items I-2): the select itself now lives in components/ui; the scan must read it too.
+    expect(files.some((f) => f.file === 'src/components/ui/SelectField.tsx')).toBe(true);
     expect(kindLiteralViolations(files)).toEqual([]);
   });
 

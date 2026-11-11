@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_CREATED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_CREATED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { NEW_WAREHOUSE, WAREHOUSE_FORBIDDEN, WAREHOUSE_PAGE } from '@/copy/warehouses';
 import type { Warehouse } from '@/lib/api/warehouses';
+import { marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import { CREATE_WAREHOUSE_FIELDS, type CreateWarehouseAction, type CreateWarehouseResult, type WarehouseField } from '@/lib/warehouses/results';
 import styles from './Warehouses.module.css';
@@ -72,7 +73,13 @@ export function WarehouseCreateForm({ create, createCode, onCreated }: Warehouse
       case 'invalid': {
         const first = CREATE_WAREHOUSE_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_CREATED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+          show(
+            NOT_CREATED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
           setFieldErrors(r.fieldErrors);
           return;
         }

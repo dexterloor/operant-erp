@@ -40,7 +40,8 @@ interface SourceFile {
 // The same walk also records, for `src` only, EVERY entry it meets (any extension, directories and symlinks included)
 // into ALL_SRC_ENTRIES, with the contents of every regular file — a file reached through a symlink included, as the
 // backend reads it. A FIFO, socket or device is recorded but never read, so it cannot hang or fail the walk for every guard
-// here (twin RED L-1). The two backend twins at the end of this file (FE-R2 pick route, G-47 stock rows) read
+// here (twin RED L-1). The three backend twins at the end of this file (FE-R2 pick route, G-47 stock rows, G-51 stock
+// counts and transfers) read
 // ALL_SRC_ENTRIES: Next.js serves `page.js`/`page.jsx` too, and the backend checks they twin search every file under
 // frontend/src for their tokens. The guard-enrolment check (items I-0a, M-2) reads only its directory entries. SNAPSHOT is unchanged by it: same files, same order, same contents.
 interface DiskEntry {
@@ -336,7 +337,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 8 R8-3 (items I-0a) MOVED, count unchanged: components/warehouses/{DeleteDialog,WarehouseRestoreActions}.tsx
   // → components/records/{DeleteDialog,RestoreActions}.tsx.
   // Items I-1 added: components/items/ItemForm.tsx.
-  'src/components': 61,
+  // Items I-2 (Revision 8 R8-5) added: components/ui/SelectField.tsx (KindField.tsx stays, a thin caller) and
+  // components/items/ItemCreateForm.tsx.
+  'src/components': 63,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
   'src/lib/api': 8,
   'src/lib/roles': 11,
@@ -349,7 +352,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/warehouses': 3,
   // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
   'src/lib/items': 3,
-  'src/components/items': 1,
+  // Items I-2 added: ItemCreateForm.tsx (the create page's form).
+  'src/components/items': 2,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -371,8 +375,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/lib/auth': 2,
   // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
   'src/lib/format': 4,
-  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx.
-  'src/components/ui': 12,
+  // Revision 7 step 3 (A-19 item 1) added: TextField.tsx. Items I-2 (Revision 8 R8-5) added: SelectField.tsx.
+  'src/components/ui': 13,
   [FIXTURE_DIR]: 4,
   // B-3b C1 added: src/generated/api-surface.{server,client}.ts; lib/bff/surface.ts, lib/bff/server/surface.ts.
   'src/generated': 2,
@@ -399,7 +403,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.3 added: app/(app)/arrivalMessage.ts, app/(app)/warehouses/new/{page,NewWarehousePage}.tsx.
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
   // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
-  'src/app': 57,
+  // Items I-2 added: app/(app)/items/new/{page,NewItemPage}.tsx.
+  'src/app': 59,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1328,6 +1333,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
       // Items I-1 (G-F2 row): the item page's editor.
+      // Items I-2 (G-F2 row): the create page's form.
+      'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
@@ -1616,8 +1623,8 @@ const realSources = (): Record<string, string> =>
   Object.fromEntries(ALL_SRC_ENTRIES.filter((e) => e.source !== null).map((e) => [e.file.slice('src/'.length), e.source!]));
 
 /**
- * The controls that make the walk of the real tree trustworthy, shared by both frontend tripwire twins in this file
- * (FE-R2 and G-47), as the backend's OwedAmendmentTripwireTest::frontendTree() is shared by its two methods. Pure walk: no
+ * The controls that make the walk of the real tree trustworthy, shared by the three frontend tripwire twins in this file
+ * (FE-R2, G-47 and G-51), as the backend's OwedAmendmentTripwireTest::frontendTree() is shared by its methods. Pure walk: no
  * method-specific token control lives here (each block keeps its own generated-boundary control).
  */
 function assertFrontendTreeIsWalkable(): void {
@@ -1823,8 +1830,9 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx']));
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 6 + 1);
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx']));
+    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2388,5 +2396,200 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
         "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
         G47_MESSAGE,
     ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// G-51: no stock count or transfer in the web app while G-51 is open — twin of the backend's
+// OwedAmendmentTripwireTest::noFrontendCountsOrMovesStockWhileG51IsOpen (items I-3; items-i3-design.md Revision 1 —
+// FINAL §1.2 and Revision 0 §6, as corrected by items-i3-red.md "Final RED — on Revision 1" M-2; items-i3-po-sec.md I3-1).
+// ---------------------------------------------------------------------------------------------------------------------
+// G-51 (docs/RESIDUAL_GAPS.md, Low; owner PO): an item can be archived while it holds stock, and that stock then cannot
+// be counted or moved between locations until the item is restored. G-51 is NOT closed and nothing here may be read as
+// closing it. Its acceptance for the web app rests on the web app being unable to count or move stock for ANY item.
+// The trigger T (outside src/generated/): (a) source naming CreateStockAdjustment or CreateStockTransfer (word
+// boundaries); (b) the client wiring list wiring either; (c) a page with a URL segment stock-counts, stock-adjustments or
+// stock-transfers, or a segment count or transfer under /stock (IA.md:205-206 puts counts and transfers on /stock as row
+// actions, not routes: arm (c) can only catch a deviation from the IA; (a), (b) and (d) are the arms that catch the
+// planned screen); (d) source naming /stock-movements/adjustments or /stock-movements/transfers under any prefix, never
+// /stock-movements alone (the movements read). T must stay false while G-51 is open. Known limits, as the backend's: a
+// name or path built by concatenation or a template literal evades (a) and (d); a comment naming a token fires them (loud
+// and safe); a route word other than the five evades (c); a source behind a symlinked directory is refused by the walk.
+// The message is held equal to the backend's by the parity test below (it reads ../backend/, the ../contracts/ precedent),
+// so the two cannot drift apart unseen. Ported from origin/main 119adb5, which carries E-6 ("removes no stock ability",
+// re-wrapped; items-i3-po-sec.md I3-8): backend message sha256
+// 73ef349573ef76765d08fde88c033402ca560cce6321463077ae1b1d54e74c04. A later backend change to the message turns the parity test red until it is re-ported here.
+
+/** G-51 trigger (a): the count's and the transfer's operationIds. Collected with a fresh /g in matchAll, never .test() on a shared /g. */
+const STOCK_COUNT_OR_MOVE_OPERATION_TOKEN = '\\b(CreateStockAdjustment|CreateStockTransfer)\\b';
+/** G-51 trigger (d): the two operations' paths, under any prefix; never `/stock-movements` alone. */
+const STOCK_COUNT_OR_MOVE_PATH_TOKEN = /\/stock-movements\/(?:adjustments|transfers)(?![-A-Za-z0-9_])/;
+/** G-51 trigger (c): a URL segment anywhere that names a count or transfer screen. */
+const STOCK_COUNT_OR_MOVE_SEGMENTS: readonly string[] = ['stock-counts', 'stock-adjustments', 'stock-transfers'];
+/** G-51 trigger (c): a URL segment under `/stock` that names a count or transfer screen. */
+const STOCK_COUNT_OR_MOVE_SEGMENTS_UNDER_STOCK: readonly string[] = ['count', 'transfer'];
+const STOCK_COUNT_OR_MOVE_OPERATIONS = ['CreateStockAdjustment', 'CreateStockTransfer'] as const;
+
+/** One line per reason G-51's frontend trigger is true; empty when it is not. Pages first, then sources (byte order), then the client wiring list. */
+function stockCountOrMoveTriggers(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+  const lines: string[] = [];
+  const screens = pages.filter((page) => {
+    const url = pageUrl(page);
+    if (url === null) return false;
+    const segments = url.split('/').slice(1);
+    if (segments.some((s) => STOCK_COUNT_OR_MOVE_SEGMENTS.includes(s))) return true;
+    return segments[0] === 'stock' && segments.slice(1).some((s) => STOCK_COUNT_OR_MOVE_SEGMENTS_UNDER_STOCK.includes(s));
+  });
+  for (const page of [...screens].sort(byteOrder)) lines.push(`the frontend serves a page at ${pageUrl(page)} (src/app/${page})`);
+  for (const [file, text] of Object.entries(sources).sort(([a], [b]) => byteOrder(a, b))) {
+    if (file.startsWith('generated/')) continue;
+    for (const operation of new Set([...text.matchAll(new RegExp(STOCK_COUNT_OR_MOVE_OPERATION_TOKEN, 'g'))].map((m) => m[1]!))) {
+      lines.push(`src/${file} names ${operation} outside src/generated/`);
+    }
+    if (STOCK_COUNT_OR_MOVE_PATH_TOKEN.test(text)) {
+      lines.push(`src/${file} names a stock count or transfer path (/stock-movements/adjustments or /stock-movements/transfers) outside src/generated/`);
+    }
+  }
+  for (const operation of STOCK_COUNT_OR_MOVE_OPERATIONS) if (clientOps.includes(operation)) lines.push(`${CLIENT_OPS_FILE} wires ${operation} for the browser`);
+  return lines;
+}
+
+/** Relative to `frontend/`: the backend check this block twins, read only for its message (the parity test). */
+const G51_BACKEND_FILE = '../backend/tests/Api/OwedAmendmentTripwireTest.php';
+const G51_BACKEND_METHOD = 'public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void';
+/** The exact source text that opens the real-tree assertion; its message's literals follow it. */
+const G51_BACKEND_ANCHOR = 'self::assertSame([], $lines, "  ".implode("\\n  ", $lines)."\\n\\n"';
+
+/**
+ * A PHP method's inline failure message, read from source (final RED M-2): the method's body ends at the first
+ * `\n    }\n` after its signature; from the end of the LAST occurrence of `anchor` in it, literals are read one at a time
+ * (`."…"`, sticky), and what follows the last one must be `);`. Never cut at the first `);`: a literal holds
+ * `ItemWriter::archive();`. Each literal is unescaped (`\n` → newline; `\"`, `\\`, `\$` → the character) and joined.
+ * Fails closed, by name, when the method, the anchor or the closing `);` is not where it should be.
+ */
+function phpInlineMessage(source: string, method: string, anchor: string): string {
+  const at = source.indexOf(method);
+  if (at < 0) throw new Error(`G-51 parity: ${method} is not in the backend file, so there is no message to compare.`);
+  const end = source.indexOf('\n    }\n', at);
+  const body = source.slice(at, end < 0 ? undefined : end);
+  const a = body.lastIndexOf(anchor);
+  if (a < 0) throw new Error('G-51 parity: the real-tree assertion\'s opening text is not in the method, so its message cannot be found.');
+  const literal = /\s*\.\s*"((?:[^"\\]|\\.)*)"/y;
+  literal.lastIndex = a + anchor.length;
+  const parts: string[] = [];
+  let last = literal.lastIndex;
+  for (let m = literal.exec(body); m !== null; m = literal.exec(body)) {
+    for (const e of m[1]!.matchAll(/\\(.)|\$/gs)) if (e[0] === '$' || !'n"\\$'.includes(e[1]!)) throw new Error('G-51 parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.');
+    parts.push(m[1]!);
+    last = literal.lastIndex;
+  }
+  if (!/^\s*\);/.test(body.slice(last))) throw new Error('G-51 parity: the message is not followed by `);`, so its last literal is not where this reads it.');
+  return parts.map((p) => p.replace(/\\([n"\\$])/g, (_, c: string) => (c === 'n' ? '\n' : c))).join('');
+}
+
+const G51_MESSAGE =
+  'G-51 is open (docs/RESIDUAL_GAPS.md G-51, Low; owner PO): an item can be archived (DeleteItem) while it holds\n' +
+  'stock, and that stock then cannot be counted or moved between locations until the item is restored. Its\n' +
+  'acceptance for the web app rests on the web app being unable to count or move stock for ANY item, so that\n' +
+  'archiving removes no stock ability its user has. The frontend is now wiring a stock count or transfer, so\n' +
+  'that ground is about to become false.\n' +
+  '\n' +
+  "Before this screen ships, PO + UX recommend and the owner decides (a shipped-behaviour change, as G-51's\n" +
+  'Closing work says) between:\n' +
+  "  1. DeleteItem refuses an item with stock in any location (qty_on_hand <> 0): fold archiveUnlessStocked()'s\n" +
+  '     check into ItemWriter::archive(); BulkArchivalTest::aStockedItemIsSkippedWhileTheSingleDeleteStillArchivesIt\n' +
+  "     and StorageLocationDeleteTest's G-51 test then go red by design and move in that commit; or\n" +
+  "  2. G-51 is re-accepted on a ground that is true with a count or transfer screen (the delete dialog's\n" +
+  '     holds_stock warning alone is not that ground: it says the stock exists, not that the new screen\n' +
+  '     will refuse it).\n' +
+  'Then record the decision in docs/RESIDUAL_GAPS.md G-51, and move this check and its frontend twin\n' +
+  '(frontend/test/architecture.test.ts, FE-LEAD) in the same commit, saying so.\n' +
+  '\n' +
+  "The same screen is G-97's hard trigger (docs/RESIDUAL_GAPS.md G-97, Low; owner PO; items batch C3): a used\n" +
+  "item's unit cannot be changed (UpdateItem 409 inventory_item.unit_in_use), and the API's way round -- count\n" +
+  'to zero, close or cancel the open lines, archive, create the new item, count up -- strands stock and\n' +
+  'triggers re-ordering if done out of order. With a count or transfer screen the web app can do part of that\n' +
+  'way round: PO re-rates G-97 in the same commit.';
+
+describe('architecture — G-51: no stock count or transfer while G-51 is open (twin of the backend G-51 check)', () => {
+  it('planted trigger trees: each isolates one rule and is due or not exactly as the backend check says', () => {
+    const admin = ['(app)/admin/page.tsx'];
+    const triggers: [string, string[], Record<string, string>, string[], boolean][] = [
+      ['arm (a): a library file naming CreateStockAdjustment', admin, { 'lib/api/stock.ts': "write('CreateStockAdjustment', body)" }, [], true],
+      ['arm (a): a component naming CreateStockTransfer', admin, { 'components/Move.tsx': 'CreateStockTransfer' }, [], true],
+      ['arm (a) miss: a longer identifier (word boundary after)', admin, { 'lib/x.ts': 'CreateStockAdjustmentDraft' }, [], false],
+      ['arm (a) miss: a longer identifier (word boundary before)', admin, { 'lib/x.ts': 'XCreateStockTransfer' }, [], false],
+      ['arm (a) miss: only the movements read named', admin, { 'lib/x.ts': "read('ListStockMovements')" }, [], false],
+      ['arm (a) miss: both operations only in generated code', admin, { 'generated/api-surface.server.ts': 'CreateStockAdjustment CreateStockTransfer' }, [], false],
+      ['arm (b): the adjustment wired for the browser', admin, {}, ['ListUsers', 'CreateStockAdjustment'], true],
+      ['arm (b): the transfer wired for the browser', admin, {}, ['CreateStockTransfer'], true],
+      ['arm (b) miss: only the movements read wired', admin, {}, ['ListStockMovements'], false],
+      ['arm (c): a /stock-counts page', ['(app)/stock-counts/page.tsx'], {}, [], true],
+      ['arm (c): a page below /stock-adjustments', ['(app)/stock-adjustments/new/page.tsx'], {}, [], true],
+      ['arm (c): a stock-transfers segment deeper down', ['(app)/inventory/stock-transfers/page.tsx'], {}, [], true],
+      ['arm (c): a count page under /stock', ['(app)/stock/count/page.tsx'], {}, [], true],
+      ['arm (c): a transfer page under a /stock item', ['(app)/stock/[id]/transfer/page.tsx'], {}, [], true],
+      ['arm (c): a /stock-counts page under a parallel slot', ['(app)/stock-counts/@panel/page.tsx'], {}, [], true],
+      ["arm (c) miss: the /stock page itself (G-47's trigger, not this one)", ['(app)/stock/page.tsx'], {}, [], false],
+      ['arm (c) miss: a count page outside /stock', ['(app)/items/count/page.tsx'], {}, [], false],
+      ['arm (c) miss: a /stock-movements page', ['(app)/stock-movements/page.tsx'], {}, [], false],
+      ['arm (c) miss: a private folder', ['(app)/_wip/stock-counts/page.tsx'], {}, [], false],
+      ['arm (c) miss: a layout, not a page', ['(app)/stock-counts/layout.tsx'], {}, [], false],
+      ['arm (d): the adjustment path on the server', admin, { 'lib/x.ts': "'/api/v1/stock-movements/adjustments'" }, [], true],
+      ['arm (d): the transfer path through the BFF', admin, { 'lib/x.ts': "bffFetch('/bff/api/stock-movements/transfers', { method: 'POST' })" }, [], true],
+      ['arm (d) miss: the movements read path alone', admin, { 'lib/x.ts': "'/bff/api/stock-movements?item=1'" }, [], false],
+      ['arm (d) miss: a longer path segment', admin, { 'lib/x.ts': "'/api/v1/stock-movements/adjustments-draft'" }, [], false],
+      ['arm (d) miss: both paths only in generated code', admin, { 'generated/api-surface.server.ts': "template: '/api/v1/stock-movements/adjustments', template: '/api/v1/stock-movements/transfers'," }, [], false],
+      ['a frontend with no stock screens', ['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], {}, ['ListUsers'], false],
+    ];
+    const verdicts = triggers.map(([name, pages, sources, clientOps]) => [name, stockCountOrMoveTriggers(pages, sources, clientOps).length > 0]);
+    expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));
+  });
+
+  it('planted control: the trigger lines for a four-reason tree are the exact lines, in order, that a red run prints', () => {
+    expect(stockCountOrMoveTriggers(['(app)/stock/count/page.tsx'], { 'lib/x.ts': "'/bff/api/stock-movements/transfers'", 'components/A.tsx': 'CreateStockTransfer' }, ['CreateStockAdjustment'])).toEqual([
+      'the frontend serves a page at /stock/count (src/app/(app)/stock/count/page.tsx)',
+      'src/components/A.tsx names CreateStockTransfer outside src/generated/',
+      'src/lib/x.ts names a stock count or transfer path (/stock-movements/adjustments or /stock-movements/transfers) outside src/generated/',
+      'scripts/api-surface.client-ops.json wires CreateStockAdjustment for the browser',
+    ]);
+  });
+
+  it('real-tree controls: the walk, the generated boundary and the client wiring list', () => {
+    assertFrontendTreeIsWalkable();
+    const generated = Object.entries(realSources()).filter(
+      ([file, text]) => file.startsWith('generated/') && /\bCreateStockAdjustment\b/.test(text) && /\bCreateStockTransfer\b/.test(text) && STOCK_COUNT_OR_MOVE_PATH_TOKEN.test(text),
+    );
+    expect(generated.length, 'Positive control: src/generated/ no longer names CreateStockAdjustment, CreateStockTransfer and their paths, so excluding it proves nothing about where the boundary is. Re-derive the tokens or the folder.').toBeGreaterThan(0);
+    expect(existsSync(path.join(ROOT, CLIENT_OPS_FILE)), 'Positive control: the client wiring list moved, so arm (b) reads nothing.').toBe(true);
+    const clientOps = realClientOps();
+    expect(Array.isArray(clientOps), 'Positive control: the client wiring list is not a JSON list, so arm (b) reads nothing.').toBe(true);
+    expect(clientOps as unknown[], 'Positive control: the client wiring list no longer holds ListUsers, so it is not the list arm (b) means.').toContain('ListUsers');
+  });
+
+  it('the real tree: the web app neither counts nor moves stock', () => {
+    const lines = stockCountOrMoveTriggers(realPages(), realSources(), realClientOps() as unknown[]);
+    expect(lines, `  ${lines.join('\n  ')}\n\n${G51_MESSAGE}`).toEqual([]);
+  });
+
+  it('planted parity controls: the extractor reads every literal, past a `);` inside one, and fails closed', () => {
+    const method = (message: string) => `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."first x();\\n"\n            ."second \\"q\\" \\$v\\\\"${message}\n    }\n}\n`;
+    expect(phpInlineMessage(method(');'), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toBe('first x();\nsecond "q" $v\\');
+    expect(() => phpInlineMessage('class T {}\n', G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/is not in the backend file/);
+    expect(() => phpInlineMessage(method(", 'x');"), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/not followed by/);
+    // i3-c1 RED L-4: an escape the reader does not decode (here `\t`) fails closed instead of being compared raw.
+    const tabbed = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a\\tb");\n    }\n}\n`;
+    expect(() => phpInlineMessage(tabbed, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
+    // i3-c1 fix-RED L-2: a bare `$` (interpolation) and an escaped backslash before `$` fail closed too.
+    const interpolated = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a $v b");\n    }\n}\n`;
+    expect(() => phpInlineMessage(interpolated, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
+    const backslashThenVariable = `class T {\n    public function noFrontendCountsOrMovesStockWhileG51IsOpen(): void\n    {\n        ${G51_BACKEND_ANCHOR}\n            ."a \\\\$v b");\n    }\n}\n`;
+    expect(() => phpInlineMessage(backslashThenVariable, G51_BACKEND_METHOD, G51_BACKEND_ANCHOR)).toThrow(/does not decode/);
+  });
+
+  it("parity: G51_MESSAGE equals the backend check's inline failure message, character for character", () => {
+    const file = path.join(ROOT, G51_BACKEND_FILE);
+    expect(existsSync(file), `G-51 parity: ${G51_BACKEND_FILE} is not where this reads the backend message, so the two could drift apart unseen.`).toBe(true);
+    expect(phpInlineMessage(readFileSync(file, 'utf8'), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR), 'G51_MESSAGE is no longer the backend text: sync it (the backend owns the canonical message).').toBe(G51_MESSAGE);
   });
 });

@@ -4,13 +4,13 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { Item, UpdateItemInput } from '@/lib/api/items';
 import { renderQuantity } from '@/lib/format/quantity';
-import { changedFields } from '@/lib/forms/fieldErrors';
+import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import { ITEM_FIELDS, QUANTITY_FIELDS, type ItemField, type SaveItemAction, type SaveItemResult } from '@/lib/items/results';
 import type { FieldErrors } from '@/lib/results';
 import styles from './Items.module.css';
@@ -129,7 +129,13 @@ export function ItemForm({ item, save, editCode, announce, fallbackFocusRef, onS
       case 'invalid': {
         const first = ITEM_FIELDS.find((f) => r.fieldErrors[f] !== undefined);
         if (r.formErrors.length > 0) {
-          show(NOT_SAVED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+          show(
+            NOT_SAVED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
           setFieldErrors(r.fieldErrors);
           return;
         }

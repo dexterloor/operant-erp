@@ -90,17 +90,63 @@ describe('/items — the live view (B-1 as amended)', () => {
     expect(box).toHaveAccessibleDescription("Item names can't be searched. SKUs are matched as typed, so capitals and spaces count.");
   });
 
-  it('I-1 renders no link to /items/new and no New item / Create item, with rows or in any empty state (L-11, R1-16)', () => {
+  // Items I-2 (items-i2-design.md Revision 1 — FINAL A-11, T-6; replaces I-1's "no /items/new anywhere" pin): **New item**
+  // in the live header and **Create item** in exactly the two live, unsearched empty states, each only with CreateItem.
+  const createLinks = () => [...document.querySelectorAll('a[href="/items/new"]')].map((a) => a.textContent);
+
+  it('without CreateItem: no link to /items/new and no New item / Create item, with rows or in any live empty state', () => {
     for (const initial of [ok([A1]), ok([], { tenantHasRows: false }), ok([], { tenantHasRows: true })]) {
       const { unmount } = renderWired(<ItemsList initial={initial} />);
-      expect(document.querySelector('a[href="/items/new"]')).toBeNull();
+      expect(createLinks()).toEqual([]);
       expect(screen.queryByRole('link', { name: /new item|create item/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /new item|create item/i })).toBeNull();
       unmount();
     }
   });
 
-  it('empty, nothing in the workspace: "No items yet." and nothing offered (R1-16)', () => {
+  it('with CreateItem, live view with rows: New item (a link to /items/new) before Archived in the header, and no Create item', () => {
+    renderWired(<ItemsList initial={ok([A1])} canCreate />);
+    expect(createLinks()).toEqual(['New item']);
+    const newItem = screen.getByRole('link', { name: 'New item' });
+    const archived = screen.getByRole('button', { name: 'Archived' });
+    expect(newItem.compareDocumentPosition(archived) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('with CreateItem, the two live empty states offer Create item (none yet; all archived, beside View archived items)', () => {
+    let r = renderWired(<ItemsList initial={ok([], { tenantHasRows: false })} canCreate />);
+    expect(screen.getByText('No items yet.')).toBeInTheDocument();
+    expect(createLinks()).toEqual(['New item', 'Create item']);
+    r.unmount();
+    r = renderWired(<ItemsList initial={ok([], { tenantHasRows: true })} canCreate />);
+    expect(screen.getByRole('button', { name: 'View archived items' })).toBeInTheDocument();
+    expect(createLinks()).toEqual(['New item', 'Create item']);
+    r.unmount();
+  });
+
+  it('with CreateItem, a search with no match offers no Create item (only Clear search)', async () => {
+    stubFetch([json(200, page([], { tenant_has_rows: true }))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([A1])} canCreate />);
+    await u.type(screen.getByRole('searchbox'), 'widget');
+    await settle();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument());
+    expect(createLinks()).toEqual(['New item']);
+  });
+
+  it('with CreateItem, the Archived view offers neither New item nor Create item: Back to items replaces both, empty or searched', async () => {
+    stubFetch([json(200, page([], { tenant_has_rows: true }))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([], { tenantHasRows: true })} initialArchived canCreate />);
+    expect(screen.getByText('No archived items. Items that are deleted appear here and can be restored from here.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to items' })).toBeInTheDocument();
+    expect(createLinks()).toEqual([]);
+    await u.type(screen.getByRole('searchbox'), 'widget');
+    await settle();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument());
+    expect(createLinks()).toEqual([]);
+  });
+
+  it('empty, nothing in the workspace, without CreateItem: "No items yet." and nothing offered (R1-16)', () => {
     renderWired(<ItemsList initial={ok([], { tenantHasRows: false })} />);
     expect(screen.getByText('No items yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /view archived/i })).toBeNull();
@@ -276,6 +322,23 @@ describe('/items — the wire, the pager and the page sentences', () => {
   it('a malformed answer is a failure, never rows: an item missing a number reads as the refetch-failed banner', async () => {
     const bad = { ...A2 } as Partial<Item>;
     delete bad.safety_stock;
+    stubFetch([json(200, page([bad]))]);
+    const u = userEvent.setup();
+    renderWired(<ItemsList initial={ok([A1], { nextCursor: 'n' })} />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(screen.getByText("The list couldn't be updated, so it still shows the earlier results.")).toBeInTheDocument());
+    expect(screen.queryByText('Name of A-2')).toBeNull();
+  });
+
+  // Items I-3 T-4 (ruling 1(a)): `holds_stock` missing, null or a string is a malformed row, like any other member.
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['"true"', 'true'],
+  ] as const)('a row whose holds_stock is %s is malformed: the refetch-failed banner, never the row', async (_, value) => {
+    const bad = { ...A2 } as Record<string, unknown>;
+    if (value === undefined) delete bad.holds_stock;
+    else bad.holds_stock = value;
     stubFetch([json(200, page([bad]))]);
     const u = userEvent.setup();
     renderWired(<ItemsList initial={ok([A1], { nextCursor: 'n' })} />);

@@ -633,3 +633,79 @@ describe('Edit location — the Kind control (B-5, B-6, step 4.5)', () => {
     expect(within(kind).getAllByRole('option')[0]).toHaveTextContent('pallet');
   });
 });
+
+describe('Add location — the banner (AddLocationForm)', () => {
+  it('two out-of-form violations with the same sentence: both shown, no duplicate-key warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Same.' }, { pointer: '', code: 'y', message: 'Same.' }] })]);
+      const u = userEvent.setup();
+      show();
+      const dialog = await openAdd(u);
+      await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'Z1');
+      await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), PLAIN);
+      await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+      expect(await within(dialog).findAllByText('Same.')).toHaveLength(2);
+      expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+describe('Add location — the banner on a later refusal (AddLocationForm)', () => {
+  it('a later refusal in the open dialog replaces both repeated sentences; none is left behind', async () => {
+    const v = (...ms: string[]) => problem(422, 'validation-failed', { errors: ms.map((message) => ({ pointer: '', code: 'x', message })) });
+    stubFetch([v('Same.', 'Same.'), v('Other.')]);
+    const u = userEvent.setup();
+    show();
+    const dialog = await openAdd(u);
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'Z1');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), PLAIN);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+      expect(await within(dialog).findAllByText('Same.')).toHaveLength(2);
+      await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+      expect(await within(dialog).findByText('Other.')).toBeInTheDocument();
+      expect(within(dialog).queryByText('Same.')).toBeNull();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('Add location (AddLocationForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/code', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    show();
+    const dialog = await openAdd(u);
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'Z1');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), PLAIN);
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    const heading = await within(dialog).findByText('Not added');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    show();
+    const dialog = await openAdd(u);
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'Z1');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), PLAIN);
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    const heading = await within(dialog).findByText('Not added');
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
+    expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    expect(await within(dialog).findByText('Refused here.')).toBeInTheDocument();
+    expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
+  });
+});

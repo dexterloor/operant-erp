@@ -230,3 +230,51 @@ describe.each([
     expect(takeArrivalMessage('/warehouses/other')).toBeNull();
   });
 });
+
+describe('/warehouses/new — the banner (WarehouseCreateForm)', () => {
+  it('two out-of-form violations with the same sentence: both shown, no duplicate-key warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Same.' }, { pointer: '', code: 'y', message: 'Same.' }] })]);
+      const u = userEvent.setup();
+      renderWired(<NewWarehousePage />);
+      await fill(u);
+      await u.click(submit());
+      expect(await screen.findAllByText('Same.')).toHaveLength(2);
+      expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+// I-2 follow-up (items-i3-ux.md Revision 1 FINAL F-5 #1): a 422 with an out-of-form sentence AND a field sentence ends
+// its banner with this line; no other banner carries it.
+const MIXED_LINE = 'Check the marked fields below too.';
+const bannerBody = (heading: HTMLElement) => [...heading.parentElement!.children].filter((e) => e !== heading).map((e) => e.textContent);
+
+describe('/warehouses/new (WarehouseCreateForm) — the mixed-422 line (I-2 follow-up)', () => {
+  it('a 422 with an out-of-form sentence and a field sentence: the banner ends with "Check the marked fields below too."', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] })]);
+    const u = userEvent.setup();
+    renderWired(<NewWarehousePage />);
+    await fill(u);
+    await u.click(submit());
+    const heading = await screen.findByText('Not created');
+    expect(bannerBody(heading)).toEqual(['Out of form.', MIXED_LINE]);
+  });
+
+  it('a banner-only 422 and a 409 carry no such line', async () => {
+    stubFetch([problem(422, 'validation-failed', { errors: [{ pointer: '/supplier_id', code: 'x', message: 'Out of form.' }, { pointer: '', code: 'y', message: 'Also out of form.' }] }), refused('some.rule', 'Refused here.')]);
+    const u = userEvent.setup();
+    renderWired(<NewWarehousePage />);
+    await fill(u);
+    await u.click(submit());
+    const heading = await screen.findByText('Not created');
+    expect(bannerBody(heading)).toEqual(['Out of form.', 'Also out of form.']);
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+    await u.click(submit());
+    expect(await screen.findByText('Refused here.')).toBeInTheDocument();
+    expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});

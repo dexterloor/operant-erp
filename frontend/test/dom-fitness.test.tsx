@@ -744,3 +744,93 @@ describe('DOM fitness — Add location and the Kind select (Revision 7 step 4.5)
     });
   }
 });
+
+// Items I-2 (items-i2-design.md Revision 1 — FINAL T-7, Final RED FR-L4): `/items/new`. The page renders no LiveRegion
+// of its own (as `/warehouses/new`) and Banner's `live` defaults to 'none', so the region count is MEASURED, not assumed:
+// it is 0, so the regions half of this case is vacuous here, and the case pins what it can: no [disabled] anywhere
+// (`<option>` included) and no region appearing through a client refusal, a 422 and a 409.
+describe('DOM fitness — /items/new (items I-2)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled] (options included); no region appears through a client refusal, a 422 and a 409${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { NewItemPage } = await import('@/app/(app)/items/new/NewItemPage');
+      const { wireEnum } = await import('@/lib/bff/surface');
+      const units = wireEnum('Item.CreateItemInput', 'unit_of_measure_code');
+      const reply = (status: number, body: unknown, type = 'application/problem+json') => new Response(JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(422, { type: 'urn:erp:problem:validation-failed', title: 'x', status: 422, errors: [{ pointer: '/name', code: 'blank', message: 'This field may not be blank.' }] }),
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'inventory_item.sku_is_unique_per_workspace', message: 'Another live item in this workspace already uses this SKU.' }),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      renderWired(strict ? <StrictMode><NewItemPage /></StrictMode> : <NewItemPage />);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      expect(document.querySelectorAll('option').length).toBe(units.length + 1);
+      const create = () => user.click(screen.getByRole('button', { name: 'Create item' }));
+      const steps: Array<() => Promise<void>> = [
+        // The client refusal: nothing chosen, no request.
+        create,
+        () => user.type(screen.getByRole('textbox', { name: 'SKU' }), 'A-1'),
+        () => user.selectOptions(screen.getByRole('combobox', { name: 'Unit of measure' }), units[0]!),
+        // 422 beside Name, then 409 in the banner.
+        create,
+        () => user.type(screen.getByRole('textbox', { name: 'Name' }), 'Bolt'),
+        create,
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        failures.push(...tracker.check());
+      }
+      expect(await screen.findByText('Another live item in this workspace already uses this SKU.')).toBeInTheDocument();
+      expect(tracker.count).toBe(0);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});
+
+// Items I-3 T-6: Delete item on the item page. No [disabled] anywhere; the page's one region is empty at first render and
+// the same node through a refusal (P1) → Cancel → re-read → a 204 → archived → restore.
+describe('DOM fitness — Delete item (items I-3)', () => {
+  for (const strict of [false, true]) {
+    it(`no [disabled]; one region, empty at first render, the same node through refusal → Cancel → 204 → archived → restore${strict ? ' (StrictMode)' : ''}`, async () => {
+      const { ItemPage } = await import('@/app/(app)/items/[id]/ItemPage');
+      const I = { id: '7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: true };
+      const A = { ...I, archived_at: '2026-03-04T10:00:00Z' };
+      const reply = (status: number, body: unknown, type = 'application/json') => new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'content-type': type } });
+      const queue = [
+        reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'transaction.contention', message: 'Some of the same records were being changed at the same moment. Nothing was saved; try again.' }, 'application/problem+json'),
+        reply(200, I),
+        reply(204, null),
+        reply(200, A),
+        reply(200, I),
+        reply(200, I),
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      const user = userEvent.setup();
+      const ui = <ItemPage initial={I} canEdit canRestore canDelete />;
+      renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
+      const tracker = trackRegions();
+      const failures = [...tracker.firstRender];
+      const steps: Array<() => Promise<void>> = [
+        () => user.click(screen.getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })),
+        () => user.click(screen.getByRole('button', { name: 'Delete item' })),
+        () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' })),
+        () => user.click(screen.getByRole('button', { name: 'Restore item' })),
+      ];
+      for (const step of steps) {
+        await step();
+        await settled();
+        await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+        failures.push(...tracker.check());
+      }
+      await waitFor(() => expect(screen.getAllByRole('status').at(0)).toHaveTextContent('A-1 was restored.'));
+      expect(tracker.count).toBe(1);
+      expect(failures).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+  }
+});

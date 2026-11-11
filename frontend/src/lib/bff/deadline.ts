@@ -33,6 +33,10 @@ export const ACTION_DEADLINES_MS = {
   itemSave: 30_000,
   /** Restore an item: the request + the GetItem re-read. */
   itemRestore: 30_000,
+  /** Delete an item: the request + the GetItem re-read (the page turns archived; items I-3). */
+  itemDelete: 30_000,
+  /** Create an item: the request alone (the page navigates to the new item, which reads it). */
+  itemCreate: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

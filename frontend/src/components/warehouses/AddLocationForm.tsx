@@ -5,11 +5,12 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_ADDED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_ADDED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { ADD_LOCATION, KIND_LABELS, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation } from '@/lib/api/warehouses';
+import { marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import type { CreateLocationAction, CreateLocationResult, LocationField } from '@/lib/warehouses/results';
 import { KindField } from './KindField';
@@ -83,7 +84,14 @@ export function AddLocationForm({ warehouseCode, kinds, create, createCode, onCl
         onClose({ created: r.location, reread: true });
         return;
       case 'invalid':
-        if (r.formErrors.length > 0) show(NOT_ADDED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+        if (r.formErrors.length > 0)
+          show(
+            NOT_ADDED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
         else setNotice(null);
         setFieldErrors(r.fieldErrors);
         if (r.formErrors.length === 0) focusField(r.fieldErrors.code !== undefined ? 'code' : 'kind');

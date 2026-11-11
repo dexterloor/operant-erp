@@ -1,6 +1,8 @@
 import { render, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+// `/items/new` (items I-2) calls `useRouter`; nothing else here does. Only that hook is replaced.
+vi.mock('next/navigation', async (actual) => ({ ...(await actual<typeof import('next/navigation')>()), useRouter: () => ({ push: () => {}, refresh: () => {} }) }));
 import { useState } from 'react';
 import { ComponentPreview } from '@/components/preview/ComponentPreview';
 import RootError from '@/app/error';
@@ -318,5 +320,50 @@ describe('axe — page error and not found (b3b-followup C-2)', () => {
       expect(result.violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`)).toEqual([]);
       unmount();
     }
+  });
+});
+
+// Items I-2 (items-i2-design.md Revision 1 — FINAL T-7): `/items/new`, untouched and after a client refusal (both
+// field sentences showing) and after a banner.
+describe('axe — /items/new (items I-2)', () => {
+  it('the create form has no violations: as first shown, after the client refusal, and with a refusal banner', async () => {
+    const { NewItemPage } = await import('@/app/(app)/items/new/NewItemPage');
+    const { renderWired } = await import('./wired/harness');
+    const { wireEnum } = await import('@/lib/bff/surface');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'inventory_item.sku_is_unique_per_workspace', message: 'Another live item in this workspace already uses this SKU.' }), { status: 409, headers: { 'content-type': 'application/problem+json' } })));
+    const { container } = renderWired(<NewItemPage />);
+    const run = async () => (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+    expect(await run()).toEqual([]);
+    const u = userEvent.setup();
+    await u.clear(screen.getByRole('textbox', { name: 'Safety stock' }));
+    await u.click(screen.getByRole('button', { name: 'Create item' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Unit of measure' })).toHaveAttribute('aria-invalid', 'true'));
+    expect(await run()).toEqual([]);
+    await u.type(screen.getByRole('textbox', { name: 'Safety stock' }), '0');
+    await u.selectOptions(screen.getByRole('combobox', { name: 'Unit of measure' }), wireEnum('Item.CreateItemInput', 'unit_of_measure_code')[0]!);
+    await u.click(screen.getByRole('button', { name: 'Create item' }));
+    await screen.findByText('Not created');
+    expect(await run()).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});
+
+// Items I-3 T-6: the Delete item dialog with its stock line, and with a refusal inside.
+describe('axe — Delete item (items I-3)', () => {
+  it('the dialog with the stock line, then with a refusal inside: no violations', async () => {
+    const { ItemPage } = await import('@/app/(app)/items/[id]/ItemPage');
+    const { renderWired } = await import('./wired/harness');
+    const I = { id: '7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: true };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'transaction.contention', message: 'Some of the same records were being changed at the same moment. Nothing was saved; try again.' }), { status: 409, headers: { 'content-type': 'application/problem+json' } })));
+    renderWired(<ItemPage initial={I} canEdit canRestore canDelete />);
+    const run = async () => (await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } })).violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Delete item' }));
+    expect(screen.getByText('This item still holds stock in at least one location. Stock in quarantine is included.')).toBeInTheDocument();
+    expect(await run()).toEqual([]);
+    await u.click(screen.getAllByRole('button', { name: 'Delete item' }).at(-1)!);
+    await screen.findByText('Not deleted');
+    expect(await run()).toEqual([]);
+    vi.unstubAllGlobals();
   });
 });

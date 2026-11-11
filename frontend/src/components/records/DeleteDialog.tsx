@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -8,10 +9,18 @@ import { COULD_NOT_REACH, NOT_DELETED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } fro
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { DeleteResult } from '@/lib/results';
+import styles from './Records.module.css';
 
 export interface DeleteDialogCopy {
   title: string;
   body: string;
+  /**
+   * Items I-3 (UX items-i3-ux.md F-1): an optional warning line, shown only when it is a non-empty string, as its own
+   * paragraph BEFORE the body inside the description (so the dialog's accessible description reads it first), with a
+   * warning icon (`aria-hidden`) and weight. Not a `Banner` and no heading: a banner in this dialog means a refusal, and
+   * a refusal renders after the description (the shared `Dialog` order). Absent for warehouses and locations.
+   */
+  warning?: string;
   confirm: string;
   cancel: string;
   close: string;
@@ -47,8 +56,8 @@ interface Notice {
  * renders inside under **Not deleted**, its heading takes focus (the Dialog's `refusal` id), and the dialog stays open.
  * Any refusal except P1 removes the Delete button and leaves **Close** (ST-9b; no pre-check of orders or stock, G-46).
  * P1 (`{ kind: 'contention' }`, mapped in the family's `wired.ts`) shows its sentence and keeps Delete (B-7
- * "Exception"). A 403, 404 or an interrupted request keeps Delete too (they are not business-rule refusals). This
- * component branches on `kind`, never on a code.
+ * "Exception"). A 403 or an interrupted request keeps Delete; a 404 leaves Close only (the record can't be found, so a
+ * repeat cannot succeed — 4.6 RED L-2, UX `items-i3-ux.md` §3.1). This component branches on `kind`, never on a code.
  *
  * Shared by families (Revision 8 R8-3, items plan I-0a; moved from `components/warehouses/`): props only, the family's
  * copy and result come in as props, and nothing here imports a family's `copy/` or `lib/` (architecture.test.ts).
@@ -101,6 +110,7 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef 
         return;
       }
       case 'not-found':
+        setFinal(true);
         show(NOT_DELETED, PAGE_STATES.notFoundInline);
         return;
       case 'unreachable':
@@ -124,7 +134,19 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef 
       }}
       tone="danger"
       title={copy.title}
-      description={<p>{copy.body}</p>}
+      description={
+        copy.warning !== undefined && copy.warning !== '' ? (
+          <>
+            <p className={styles.warning}>
+              <TriangleAlert aria-hidden="true" width={16} height={16} strokeWidth={1.5} className={styles.warningIcon} />
+              {copy.warning}
+            </p>
+            <p>{copy.body}</p>
+          </>
+        ) : (
+          <p>{copy.body}</p>
+        )
+      }
       initialFocusRef={cancel}
       fallbackFocusRef={fallbackFocusRef}
       busy={busy}

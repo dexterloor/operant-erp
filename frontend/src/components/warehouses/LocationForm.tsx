@@ -5,12 +5,12 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { TextField } from '@/components/ui/TextField';
-import { COULD_NOT_REACH, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { EDIT_LOCATION, KIND_LABELS, WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';
 import type { StorageLocation, UpdateStorageLocationInput } from '@/lib/api/warehouses';
-import { changedFields } from '@/lib/forms/fieldErrors';
+import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors } from '@/lib/results';
 import { LOCATION_FIELDS, type LocationField, type SaveLocationAction, type SaveLocationResult } from '@/lib/warehouses/results';
 import { KindField } from './KindField';
@@ -85,7 +85,14 @@ export function LocationForm({ location, kinds, save, editCode, onClose, fallbac
         onClose({ saved: r.location, reread: true });
         return;
       case 'invalid':
-        if (r.formErrors.length > 0) show(NOT_SAVED, r.formErrors.map((m) => <p key={m}>{m}</p>));
+        if (r.formErrors.length > 0)
+          show(
+            NOT_SAVED,
+            <>
+              {r.formErrors.map((m, i) => <p key={i}>{m}</p>)}
+              {marksAnyField(r.fieldErrors) ? <p key="mixed">{MIXED_FIELDS_TOO}</p> : null}
+            </>,
+          );
         else setNotice(null);
         setFieldErrors(r.fieldErrors);
         if (r.formErrors.length === 0) focusField(r.fieldErrors.code !== undefined ? 'code' : 'kind');
