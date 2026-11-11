@@ -171,7 +171,8 @@ export function PersonLifecycleActions({
       else fallbackFocusRef.current?.focus();
       // FE-R8 (fe-r8-s3-ux.md A.1): decided from the person the delete's re-read committed, never from this render's
       // prop, and named as that re-read names them (a rename in between; the I3 L-2 precedent). Live means someone
-      // restored them in between. No re-read person (it failed, or the session ended): the shipped sentence.
+      // restored them in between (strict: a body without `archived_at` is never read as live). No re-read person (it
+      // failed, or the session ended): the shipped sentence.
       const reread = result.person;
       live.announce(reread !== undefined && reread.archived_at === null ? DELETE_PERSON.afterRestored(reread.display_name) : DELETE_PERSON.after(reread?.display_name ?? name));
       setDeletedGen((g) => g + 1);

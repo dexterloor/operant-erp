@@ -7,7 +7,8 @@ import type { DeletePersonAction, PersonActionFailure, RestorePersonAction } fro
 
 // Delete / Restore person over the BFF (b3b-design.md §9.1; replaces `unwired.ts` on the person page). One 30 s deadline
 // per action covers the request AND its re-read (§6.2 rule R-2 item 2). Caller contract (lib/people/results.ts): resolve
-// only after the person prop has been replaced, so the page's branch on `archived_at` has swapped when the dialog closes.
+// only after the person prop has been replaced with the answer or the re-read, when there is one, so the page's branch on
+// `archived_at` shows what it says when the dialog closes (still live when the person was restored in between, FE-R8).
 
 export interface PersonWiring {
   readonly caller: ApiCaller;

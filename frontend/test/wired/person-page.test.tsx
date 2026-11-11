@@ -55,9 +55,21 @@ describe('/admin/users/[id] — wired', () => {
   it('T-P5 (FE-R8): Delete → 204 → the re-read reads the person live (restored in between): the page stays theirs, Delete person offered, and "has since been restored"', async () => {
     const calls = stubFetch([empty(204), json(200, user())]);
     const u = userEvent.setup();
+    const RESTORED_MESSAGE = 'Ada Lovelace was deleted, and has since been restored.';
+    const atRefresh: string[] = [];
+    nav.refresh.mockImplementation(() => {
+      atRefresh.push(screen.queryByText(/^Ada Lovelace was deleted,/)?.textContent ?? '(no message)');
+    });
     show();
     await deleteIt(u);
     expect(await screen.findByText('Ada Lovelace was deleted, and has since been restored.')).toBeInTheDocument();
+    // fe-r8-person-red.md M-1: the refresh still runs once in the restored case, with the sentence on screen.
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(atRefresh).toEqual([RESTORED_MESSAGE]);
+    // L-2: the opener survives the close on the real page; focus still ends on the <h1>.
+    expect(screen.getByRole('heading', { level: 1, name: 'Ada Lovelace' })).toHaveFocus();
     expect(screen.queryByText(/archived people/)).toBeNull();
     expect(screen.queryByText(/This person was deleted on/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Delete person' })).toBeInTheDocument();

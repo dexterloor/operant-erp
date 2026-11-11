@@ -58,7 +58,9 @@ function Harness({ initial, canDelete = true, canAssign = true, onGiveRole = () 
           timeZone="UTC"
           deletePerson={async () => {
             const r = await resolve(deleteAnswer);
-            // FE-R8 (s3-fer8-red.md M-3): the re-read person when the result carries one, as the page does.
+            // FE-R8 (s3-fer8-red.md M-3): the re-read person when the result carries one, as the page does. With none,
+            // the harness still archives the prop, which the page does not do (it keeps the old props and shows its
+            // region error). Those cases assert only the after-message and focus.
             if (r.kind === 'deleted') setPerson((p) => r.person ?? { ...p, archived_at: '2026-10-27T03:00:00Z', roles: [] });
             return r;
           }}
@@ -478,7 +480,7 @@ describe('§2.2 Delete — the sentence follows the re-read person (FE-R8)', () 
   };
 
   it('T-P2: the re-read reads the person live (restored in between), renamed: "{re-read name} was deleted, and has since been restored.", the <h1> focused when it is written', async () => {
-    render(<Harness initial={PERSON_ACTIVE} deleteAnswer={{ kind: 'deleted', person: { ...PERSON_ACTIVE, display_name: 'Renamed Person', archived_at: null } }} />);
+    render(<Harness initial={PERSON_ACTIVE} deleteAnswer={{ kind: 'deleted', person: { ...PERSON_ACTIVE, display_name: 'Renamed Person', archived_at: null, roles: [] } }} />);
     const atFirstText = await deleteAndRecord();
     expect(status().textContent).toBe('Renamed Person was deleted, and has since been restored.');
     expect(status()).not.toHaveTextContent('archived people');
