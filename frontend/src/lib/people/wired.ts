@@ -46,7 +46,8 @@ export function personActions(w: PersonWiring): { deletePerson: DeletePersonActi
       const again = await loadPerson(readOf(w.caller), w.id, deadline.signal);
       if (again.kind === 'ok') {
         await w.setPerson(again.person);
-        return { kind: 'deleted' };
+        // FE-R8: the component decides its sentence from the person this re-read committed.
+        return { kind: 'deleted', person: again.person };
       }
       return again.kind === 'session-ended' ? { kind: 'deleted' } : { kind: 'deleted', pageTookOver: again.kind };
     } finally {

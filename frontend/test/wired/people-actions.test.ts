@@ -64,11 +64,22 @@ describe('Delete person (DeleteUser) — §9.1', () => {
     const w = wiring();
     const result = await w.actions.deletePerson();
     w.order.push('resolved');
-    expect(result).toEqual({ kind: 'deleted' });
+    // FE-R8 (s3-fer8-red.md M-3; moved deliberately from `{ kind: 'deleted' }`): the result carries the re-read person.
+    expect(result).toEqual({ kind: 'deleted', person: user({ archived_at: '2026-10-28T10:00:00Z' }) });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE /bff/api/users/${ID}`, `GET /bff/api/users/${ID}`]);
     expect(calls[0]!.headers.get('idempotency-key')).toBeNull();
     expect(calls[0]!.body).toBeNull();
     expect(w.order).toEqual(['set:2026-10-28T10:00:00Z', 'committed', 'resolved']);
+  });
+
+  it('T-P1 (FE-R8): 204, then a re-read answering a LIVE person (restored in between): resolves deleted with that person, after setPerson', async () => {
+    stubFetch([empty(204), json(200, user({ display_name: 'Renamed Person' }))]);
+    const w = wiring();
+    const result = await w.actions.deletePerson();
+    w.order.push('resolved');
+    expect(result).toEqual({ kind: 'deleted', person: user({ display_name: 'Renamed Person' }) });
+    expect(w.setPerson).toHaveBeenCalledWith(user({ display_name: 'Renamed Person' }));
+    expect(w.order).toEqual(['set:live', 'committed', 'resolved']);
   });
 
   it('a refusal is the server sentence, verbatim; nothing is re-read', async () => {

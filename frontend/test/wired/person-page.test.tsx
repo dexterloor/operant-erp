@@ -52,6 +52,19 @@ describe('/admin/users/[id] — wired', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE /bff/api/users/${ID}`, `GET /bff/api/users/${ID}`]);
   });
 
+  it('T-P5 (FE-R8): Delete → 204 → the re-read reads the person live (restored in between): the page stays theirs, Delete person offered, and "has since been restored"', async () => {
+    const calls = stubFetch([empty(204), json(200, user())]);
+    const u = userEvent.setup();
+    show();
+    await deleteIt(u);
+    expect(await screen.findByText('Ada Lovelace was deleted, and has since been restored.')).toBeInTheDocument();
+    expect(screen.queryByText(/archived people/)).toBeNull();
+    expect(screen.queryByText(/This person was deleted on/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Delete person' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE /bff/api/users/${ID}`, `GET /bff/api/users/${ID}`]);
+  });
+
   // FE-R1 L-1 (fe-r1-red.md): both failure kinds the region error shows — a 500 and a thrown fetch (unreachable).
   it.each([
     ['server error', () => json(500, {}), 'Something went wrong on our side.'],

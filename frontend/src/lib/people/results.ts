@@ -17,7 +17,14 @@ export type DeleteTakeover = 'forbidden' | 'not-found' | 'unreachable' | 'server
  * FE-D1b) — the component then neither focuses the page `<h1>` nor speaks before the page has. The failure travels in
  * the result, so nothing has to be recorded on the side and handed over later (fe-r1-red.md L-2).
  */
-export type DeletePersonResult = { kind: 'deleted'; pageTookOver?: DeleteTakeover } | PersonActionFailure;
+export type DeletePersonResult =
+  | {
+      kind: 'deleted';
+      /** The person the delete's re-read committed; absent when that re-read failed or ended the session (FE-R8). */
+      person?: User;
+      pageTookOver?: DeleteTakeover;
+    }
+  | PersonActionFailure;
 
 /** `POST /api/v1/users/{id}/restoration` → 200 + the person (`RestoreUser`, API-21 branch 5). */
 export type RestorePersonResult = { kind: 'restored'; person: User } | PersonActionFailure;
