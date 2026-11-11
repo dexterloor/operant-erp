@@ -102,6 +102,16 @@ export const DELETE_LOCATION = {
   cancel: 'Cancel',
   close: 'Close',
   after: (code: string) => `${code} was deleted. It's now in this warehouse's archived locations.`,
+  /**
+   * fe-r8-s3-ux.md "Revision 1 — FINAL" (FE-R8, location half; NEW): replaces `after` once the view re-read shows the row
+   * is live (restored in between), and only while the page's region still holds this delete's `after`.
+   */
+  afterRestored: (code: string) => `${code} was deleted, and has since been restored.`,
+  /**
+   * The same rule, after a failed view re-read (unreachable, server error, not found, or the re-read deadline). The second
+   * sentence is `WAITING.listStale` word for word; the whole text lives here because components never join copy.
+   */
+  afterListStale: (code: string) => `${code} was deleted. It's now in this warehouse's archived locations. We couldn't load the list again, so it may be out of date.`,
   interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete location to try again.`,
 } as const;
 

@@ -59,6 +59,26 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const router = useRouter();
   const timeZone = useViewerTimeZone();
   const region = useLiveRegion();
+  // FE-R8 location half (s3-fer8-final-red.md F-3): every write to this page's region goes through `announce`, which
+  // counts it and returns the count. A late correction (`replaceIfCurrent`) is written only while nothing has written the
+  // region since the write it corrects, by anyone: the Locations section, the warehouse form, Restore warehouse, Delete
+  // warehouse, the arrival message. Decided by the count, never by the text: the same sentence can be written twice.
+  const regionWrites = useRef(0);
+  const { announce: writeRegion } = region;
+  const announce = useCallback(
+    (text: string) => {
+      regionWrites.current += 1;
+      writeRegion(text);
+      return regionWrites.current;
+    },
+    [writeRegion],
+  );
+  const replaceIfCurrent = useCallback(
+    (gen: number, text: string) => {
+      if (regionWrites.current === gen) announce(text);
+    },
+    [announce],
+  );
   const [warehouse, setCommitted] = useCommittedState(initial);
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
@@ -108,7 +128,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
   // After a create (§2 step 4.3): the create page left *"{code} was created."* for this address (A-19 item 7, S-5).
-  useArrivalMessage(`/warehouses/${id}`, region.announce);
+  useArrivalMessage(`/warehouses/${id}`, announce);
 
   const failed = useCallback((f: ReadFailure, asOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
@@ -149,7 +169,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       // dropped may clear it. A re-read that reads the warehouse live (restored in between) leaves the page live.
       h1.current?.focus();
       // S-2: a re-read that committed a live warehouse means it was restored in between.
-      region.announce(committedArchived.current ? DELETE_WAREHOUSE.after(committedCode.current) : DELETE_WAREHOUSE.afterRestored(committedCode.current));
+      announce(committedArchived.current ? DELETE_WAREHOUSE.after(committedCode.current) : DELETE_WAREHOUSE.afterRestored(committedCode.current));
       router.refresh();
       return;
     }
@@ -223,13 +243,13 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
           restore={restore}
           restoreCode={gateCode('RestoreWarehouse')}
           timeZone={timeZone}
-          announce={region.announce}
+          announce={announce}
           fallbackFocusRef={h1}
           onRestored={onSaved}
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} />
+        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} />
       ) : (
         <dl className={styles.fields}>
           <dt>{WAREHOUSE_PAGE.code}</dt>
@@ -242,7 +262,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       )}
       {locations !== null ? (
         <div className={styles.locations}>
-          <LocationsSection warehouseId={id} warehouseCode={warehouse.code} initial={locations.initial} warehouseArchived={actionsArchived} canEdit={locations.canEdit} canRestore={locations.canRestore} canCreate={locations.canCreate} canDelete={locations.canDelete ?? false} announce={region.announce} />
+          <LocationsSection warehouseId={id} warehouseCode={warehouse.code} initial={locations.initial} warehouseArchived={actionsArchived} canEdit={locations.canEdit} canRestore={locations.canRestore} canCreate={locations.canCreate} canDelete={locations.canDelete ?? false} announce={announce} replaceIfCurrent={replaceIfCurrent} />
         </div>
       ) : null}
       {deleting ? (

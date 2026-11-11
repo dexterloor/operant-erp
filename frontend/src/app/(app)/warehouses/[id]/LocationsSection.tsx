@@ -20,7 +20,7 @@ import { loadLocations, type LocationsLoad } from '@/lib/warehouses/load';
 import type { RestoreLocationResult } from '@/lib/warehouses/results';
 import { locationCreate, locationDelete, locationRestore, locationSave } from '@/lib/warehouses/wired';
 import { useApiCaller } from '../../BffProvider';
-import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type Column, type EmptyState, type HeaderView, type ListLoad } from '../../ArchivableList';
+import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type Column, type EmptyState, type HeaderView, type ListLoad, type RereadResult } from '../../ArchivableList';
 
 const HEADING_ID = 'locations-heading';
 /** B-5: ordered as served (by code), no caption; archived rows struck through (ST-9b). */
@@ -42,6 +42,39 @@ export const locationsEmpty =
   ({ archived }) =>
     archived ? { heading: LOCATIONS_SECTION.noneArchived } : add !== null ? { heading: LOCATIONS_SECTION.noneLive, actions: add } : { heading: LOCATIONS_SECTION.noneLive };
 
+/** The view answer a re-read last committed: which view was read, and its rows. */
+interface Answer {
+  archived: boolean;
+  items: readonly StorageLocation[];
+}
+
+/**
+ * FE-R8 location half (fe-r8-s3-ux.md "Revision 1 — FINAL"; first RED H-2; s3-fer8-final-red.md L-7, L-9): what replaces
+ * `DELETE_LOCATION.after` once the delete's view re-read has resolved, or `null` to leave the region as it is. "Restored"
+ * is said when the re-read shows the row is live: the live view holds its id (named by the code on screen now), or the
+ * whole Archived view does not (the mirror arm, named by the code deleted: a rename in between is not seen). The mirror arm
+ * rests on nothing hard-deleting a location; revisit it at the first DELETE grant on `storage_location`, or the first
+ * purge of archived locations. A failed re-read adds the stale sentence; a 403 (the list shows its denied state) and an
+ * ended session leave the region.
+ */
+function correctionAfterDelete(l: StorageLocation, r: RereadResult, answer: Answer | null): string | null {
+  switch (r.kind) {
+    case 'ok': {
+      if (answer === null) return null;
+      const row = answer.items.find((x) => x.id === l.id);
+      if (!answer.archived) return row !== undefined ? DELETE_LOCATION.afterRestored(row.code) : null;
+      return row === undefined ? DELETE_LOCATION.afterRestored(l.code) : null;
+    }
+    case 'unreachable':
+    case 'server-error':
+    case 'not-found':
+      return DELETE_LOCATION.afterListStale(l.code);
+    case 'forbidden':
+    case 'session-ended':
+      return null;
+  }
+}
+
 export interface LocationsSectionProps {
   warehouseId: string;
   /** The warehouse's code, for Add location's title. */
@@ -58,8 +91,13 @@ export interface LocationsSectionProps {
   canCreate: boolean;
   /** Holds `DeleteStorageLocation`'s codes: **Delete** on a live row of a live warehouse (§2 step 4.6). */
   canDelete?: boolean;
-  /** Writes the page's status region (row-action messages; the section's own region speaks only its switches). */
-  announce: (text: string) => void;
+  /**
+   * Writes the page's status region (row-action messages; the section's own region speaks only its switches). Returns the
+   * write's number: the page counts every write to its region, whoever makes it (s3-fer8-final-red.md F-3).
+   */
+  announce: (text: string) => number;
+  /** Writes `text` only while write number `gen` is still the region's last (FE-R8: a late correction never overwrites a later sentence). */
+  replaceIfCurrent: (gen: number, text: string) => void;
 }
 
 interface Notice {
@@ -78,7 +116,7 @@ interface Notice {
  * for a `DeleteStorageLocation` holder on a live warehouse; after it the row is in the Archived view, where Restore
  * location brings it back.
  */
-export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, canDelete = false, announce }: LocationsSectionProps) {
+export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, canDelete = false, announce, replaceIfCurrent }: LocationsSectionProps) {
   const caller = useApiCaller();
   const list = useRef<ArchivableListHandle>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -93,7 +131,18 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   const create = useMemo(() => locationCreate(caller, warehouseId), [caller, warehouseId]);
   const remove = useMemo(() => locationDelete(caller, warehouseId), [caller, warehouseId]);
   const mayAdd = canCreate && !warehouseArchived;
-  const load = useCallback(async (read: Read, archived: boolean, signal: AbortSignal) => asLocationList(await loadLocations(read, warehouseId, archived, signal)), [warehouseId]);
+  // FE-R8 location half (first RED M-5 option (i), no change to the list core): every answered view is recorded here, so
+  // the delete can read what its own re-read answered. `reread()` resolves once its read has committed, and the list's
+  // queue starts no later read before the awaiting caller resumes, so after an `ok` this holds that re-read's answer.
+  const lastAnswer = useRef<Answer | null>(null);
+  const load = useCallback(
+    async (read: Read, archived: boolean, signal: AbortSignal) => {
+      const r = asLocationList(await loadLocations(read, warehouseId, archived, signal));
+      if (r.kind === 'ok') lastAnswer.current = { archived, items: r.items };
+      return r;
+    },
+    [warehouseId],
+  );
 
   const noticeId = notice?.id ?? null;
   useLayoutEffect(() => {
@@ -187,13 +236,20 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
     // FE-D1: commit the close. On a 204 the row (and its Delete button) leaves the live view, so focus the section
     // heading, speak B-7's "After", then re-read. Any other close after an answer re-reads too (the delete may have
     // committed, or the row was archived elsewhere: L7), with focus returned to the opener by the dialog.
+    // FE-R8 location half (ruling (a)): the 204's "After" is spoken at once, as shipped; when the re-read resolves it is
+    // replaced only by `correctionAfterDelete`'s sentence, and only if nothing has written the page's region since.
     flushSync(() => setDeleting(null));
+    let said: number | null = null;
     if (deleted) {
       setNotice(null);
       heading.current?.focus();
-      announce(DELETE_LOCATION.after(l.code));
+      said = announce(DELETE_LOCATION.after(l.code));
     }
-    if (reread) await list.current?.reread();
+    if (!reread) return;
+    const r = await list.current?.reread();
+    if (said === null || r === undefined) return;
+    const correction = correctionAfterDelete(l, r, lastAnswer.current);
+    if (correction !== null) replaceIfCurrent(said, correction);
   };
 
   const addButton = (size?: 'sm') => (

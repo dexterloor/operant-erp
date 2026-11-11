@@ -6,7 +6,7 @@ const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
-import { empty, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
+import { empty, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Revision 7 §2 step 4.6, warehouses-ux-copy.md B-7 and STATES.md ST-9b: Delete warehouse (page action, live only) and
 // Delete location (live row action). Danger dialog, initial focus Cancel. A refusal shows under "Not deleted" as sent,
@@ -683,6 +683,217 @@ describe('/warehouses/[id] — Delete location (B-7, step 4.6)', () => {
     await u.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Delete A1' })).toHaveFocus());
     expect(calls).toEqual([]);
+  });
+});
+
+// FE-R8, location half (fe-r8-s3-ux.md "Revision 1 — FINAL" ruling (a); s3-fer8-final-red.md F-3, L-8): the 204 still
+// speaks `after` at once (M10 above, unmoved). When the view re-read resolves, the page's region is replaced only if it
+// has not been written since, by anyone, and only when the re-read shows the row is live (`afterRestored`) or the re-read
+// failed (`afterListStale`). Which view was read decides with the presence of the id (H-2): the live view holding it, or
+// the Archived view not holding it (the mirror arm), means restored in between.
+describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 location half)', () => {
+  const AFTER = "A1 was deleted. It's now in this warehouse's archived locations.";
+  const RESTORED = 'A1 was deleted, and has since been restored.';
+  const STALE = "A1 was deleted. It's now in this warehouse's archived locations. We couldn't load the list again, so it may be out of date.";
+  const A1_ARCHIVED = { ...A1, archived_at: '2026-11-12T00:00:00Z' };
+  const settle = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  const deleteA1 = async (u: ReturnType<typeof userEvent.setup>) => {
+    await u.click(screen.getByRole('button', { name: 'Delete A1' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+  };
+
+  // Mutation M1 (never replace) → red.
+  it('restored in between: the live view\'s re-read holds the row → the region becomes "…and has since been restored."', async () => {
+    const reread = held();
+    stubFetch([empty(204), reread.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    reread.release(json(200, coll([A1, Q1])));
+    await waitFor(() => expect(region().textContent).toBe(RESTORED));
+  });
+
+  // L-8. Mutation M4 (`l.code` in the live arm) → red: the sentence names the row on screen now.
+  it('restored and renamed in between: "afterRestored" names the re-read row\'s code', async () => {
+    stubFetch([empty(204), json(200, coll([{ ...A1, code: 'A1-NEW' }, Q1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe('A1-NEW was deleted, and has since been restored.'));
+  });
+
+  // RED H-2. Mutation M2 (decide on presence alone) → red.
+  it('a view switch commits behind the dialog, so the re-read reads the Archived view holding the row → "after" stands', async () => {
+    const toArchived = held();
+    const calls = stubFetch([toArchived.reply, empty(204), json(200, coll([A1_ARCHIVED, B1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await u.click(screen.getByRole('button', { name: 'Delete A1' }));
+    toArchived.release(json(200, coll([B1])));
+    // Behind the modal (aria-hidden), so `hidden: true`.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Archived locations', hidden: true })).toBeInTheDocument());
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]!.url).toContain('archived=true');
+    await waitFor(() => expect(within(section()).getByText('A1')).toBeInTheDocument());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  // RED H-2's mirror arm (L-8, L-9). Mutation M3 (drop the mirror arm) → red.
+  it('the same interleaving, but the Archived view does not hold the row (restored in between) → "afterRestored", by the code deleted', async () => {
+    const toArchived = held();
+    const reread = held();
+    const calls = stubFetch([toArchived.reply, empty(204), reread.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await u.click(screen.getByRole('button', { name: 'Delete A1' }));
+    toArchived.release(json(200, coll([B1])));
+    // Behind the modal (aria-hidden), so `hidden: true`.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Archived locations', hidden: true })).toBeInTheDocument());
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]!.url).toContain('archived=true');
+    expect(region().textContent).toBe(AFTER);
+    reread.release(json(200, coll([B1])));
+    await waitFor(() => expect(region().textContent).toBe(RESTORED));
+  });
+
+  it('the live view\'s re-read without the row → "after" stands', async () => {
+    const reread = held();
+    stubFetch([empty(204), reread.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    reread.release(json(200, coll([Q1])));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete A1' })).toBeNull());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  // Mutation M8 (only some failures count) → red on the case it drops.
+  for (const [what, reply] of [
+    ['server-error (503)', () => json(503, {})],
+    ['not-found (404)', () => problem(404, 'not-found')],
+  ] as const) {
+    it(`a re-read that fails with ${what} → "afterListStale"`, async () => {
+      stubFetch([empty(204), reply()]);
+      const u = userEvent.setup();
+      showSection();
+      await deleteA1(u);
+      await waitFor(() => expect(region().textContent).toBe(STALE));
+    });
+  }
+
+  it('a re-read still out at the 30 s deadline → "afterListStale" (not before)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      stubFetch([empty(204), 'hang']);
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      showSection();
+      await deleteA1(u);
+      await waitFor(() => expect(region().textContent).toBe(AFTER));
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(region().textContent).toBe(AFTER);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(region().textContent).toBe(STALE));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // L-8. Mutation M7 (forbidden → stale) → red.
+  it('a re-read answered 403 (the list is replaced by its denied state) → "after" stands', async () => {
+    stubFetch([empty(204), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Q1' })).toBeNull());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  // Superseded (FINAL list). Mutation M1′ (always replace, no generation check) → red.
+  it('a second delete speaks its own "after" before the first re-read resolves → the second sentence stays', async () => {
+    const first = held();
+    const calls = stubFetch([empty(204), first.reply, empty(204), json(200, coll([A1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    await u.click(screen.getByRole('button', { name: 'Delete Q1' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+    await waitFor(() => expect(region().textContent).toBe("Q1 was deleted. It's now in this warehouse's archived locations."));
+    first.release(json(200, coll([A1, Q1])));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Q1' })).toBeNull());
+    await settle();
+    expect(region().textContent).toBe("Q1 was deleted. It's now in this warehouse's archived locations.");
+  });
+
+  // s3-fer8-final-red.md F-3 "Superseded by the page". Mutation M5 (a section-local counter) → red.
+  it('a warehouse Save speaks "… was saved." in the window → the restored re-read leaves the Save sentence', async () => {
+    const reread = held();
+    const calls = stubFetch([empty(204), reread.reply, json(200, { ...MAIN, name: 'Main 2' }), json(200, { ...MAIN, name: 'Main 2' })]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true };
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore={false} locations={locations} />);
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    await u.clear(name);
+    await u.type(name, 'Main 2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(region().textContent).toBe('MAIN was saved.'));
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'PATCH', 'GET']);
+    reread.release(json(200, coll([A1, Q1])));
+    await settle();
+    await settle();
+    expect(region().textContent).toBe('MAIN was saved.');
+  });
+
+  // Every page writer goes through the page's wrapper (F-3): Delete warehouse too. Mutation M5′ (Delete warehouse writes
+  // the region directly) → red.
+  it('a Delete warehouse in the window speaks its own "after" → the location re-read leaves it', async () => {
+    const reread = held();
+    stubFetch([empty(204), reread.reply, empty(204), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region().textContent).toBe("MAIN was deleted. It's now in the archived warehouses."));
+    reread.release(json(200, coll([A1, Q1])));
+    await settle();
+    await settle();
+    expect(region().textContent).toBe("MAIN was deleted. It's now in the archived warehouses.");
+  });
+
+  // s3-fer8-final-red.md F-3 "Same text". Mutation M6 (compare the region's text, not a generation) → red.
+  it('the same row deleted twice in the window (restored, then deleted again): the first re-read reading it live does not say "restored"', async () => {
+    const first = held();
+    const calls = stubFetch([empty(204), first.reply, empty(204), json(200, coll([Q1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    // The row stays on screen until the re-read commits; someone restored A1 meanwhile, so the second delete is a 204.
+    await deleteA1(u);
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    first.release(json(200, coll([A1, Q1])));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete A1' })).toBeNull());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
   });
 });
 
