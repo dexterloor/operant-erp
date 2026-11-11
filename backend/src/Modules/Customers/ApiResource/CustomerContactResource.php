@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
@@ -102,6 +103,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CustomerContactResource
 {
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $name,
         public ?string $email,

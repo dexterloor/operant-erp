@@ -180,6 +180,7 @@ final class PurchaseOrderLineResource
      * @param string $quantityOutstanding numeric(19,6), derived — see below
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('line_number')]
         public int $lineNumber,

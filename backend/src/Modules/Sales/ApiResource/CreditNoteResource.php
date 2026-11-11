@@ -152,6 +152,7 @@ final class CreditNoteResource
      * @param list<CreditNoteLineView> $lines
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('credit_note_number')]
         public string $creditNoteNumber,

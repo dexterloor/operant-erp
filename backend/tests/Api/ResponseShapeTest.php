@@ -11,6 +11,7 @@ use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Attribute\Ignore;
 use Symfony\Component\Serializer\Attribute\SerializedName;
+use Symfony\Component\Uid\Uuid;
 
 /**
  * API-23 and API-23a (`docs/API.md` §4.4.3) — the anti-vacuity probe §15 item 11
@@ -692,6 +693,31 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * Owner: BE-LEAD. Trigger to revisit: the first expansion or field that carries
      * a tenant-scoped id under another key — then also walk values for the
      * fixture tenants' uuids, with the token allow-listed.
+     *
+     * **BK-18 R18-a — the same walk also holds every served row id to a canonical
+     * uuid** (lower-case RFC 9562 text; the v4 nibble stays D-12's CHECK and
+     * `IdentifierGenerationTest`). An operation DECLARES a row id when its 2xx JSON
+     * schema in the regenerated spec has `properties.id` (its `body.id` is checked)
+     * or its `properties.items.items` — a `$ref` or inline — has `properties.id`
+     * (every `body.items[*].id` is checked). Keyed on the presence of `id`, never on
+     * `format`, so this half does not lean on
+     * {@see OpenApiContractTest::everyResourceRootTypesItsIdAsAUuid}. Folded in here so
+     * the registry is not driven a fourth time.
+     *
+     * Controls: (i) the registry's names are exactly the spec's operationIds; (ii) the
+     * predicate rejects planted `''`, an upper-case, a braced and the nil uuid and a
+     * 35-character string, and accepts one `Uuid::v4()`; (iii) PER OPERATION: the
+     * driven bodies in which at least one id was checked, together with
+     * {@see self::LIST_PAGES_EMPTY_BY_RECIPE}, are exactly the declaring operations
+     * plus the ` (limit=1)` twin of each declaring list that pages — so a list page
+     * that came back empty is red, never silently skipped.
+     *
+     * Assertion order: P-6's assertions first and unchanged, then the id failures,
+     * then control (iii). The two halves share one method, so a P-6 failure masks the
+     * id half until it is fixed, and vice versa; run the method again after fixing
+     * either. Ids inside nested references (`customer.id` …) are out of scope here:
+     * `OpenApiContractTest::everyReferenceTypesItsIdAsAUuid` types them and
+     * `everyReferenceIsExpanded` checks their shape.
      */
     #[Test]
     public function noResponseCarriesATenantIdentifier(): void
@@ -705,7 +731,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         $found = [];
         $cursors = 0;
         $walked = 0;
-        foreach ($this->drivenBodies() as $name => $body) {
+        $bodies = $this->drivenBodies();
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('booted'));
+        $declared = self::operationsDeclaringARowId($spec);
+        $idFailures = [];
+        $checked = [];
+        foreach ($bodies as $name => $body) {
             if (null === $body) {
                 continue;
             }
@@ -715,11 +746,121 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             foreach ($keys as $where) {
                 $found[] = $name.' at '.$where;
             }
+
+            // BK-18 R18-a: every row id this operation declares is a canonical uuid.
+            $kind = $declared[(string) preg_replace('/ \(limit=1\)$/', '', (string) $name)] ?? null;
+            $ids = [];
+            if ('object' === $kind) {
+                $ids['$.id'] = $body['id'] ?? null;
+            } elseif ('ref-list' === $kind || 'inline-list' === $kind) {
+                foreach ((array) ($body['items'] ?? []) as $index => $item) {
+                    $ids['$.items['.$index.'].id'] = \is_array($item) ? ($item['id'] ?? null) : null;
+                }
+            }
+            foreach ($ids as $where => $value) {
+                if (!self::isCanonicalUuid($value)) {
+                    $idFailures[] = $name.' at '.$where.': '.var_export($value, true);
+                }
+            }
+            if ([] !== $ids) {
+                $checked[] = (string) $name;
+            }
         }
 
         self::assertGreaterThan(0, $walked, 'No response body was walked.');
         self::assertGreaterThan(0, $cursors, 'No cursor was decoded, so the inside-a-cursor half had no subject.');
         self::assertSame([], $found, 'P-6: a response carries a tenant identifier.');
+
+        // BK-18 R18-a, control (ii): the predicate on planted values.
+        $v4 = Uuid::v4()->toRfc4122();
+        foreach (['', strtoupper($v4), '{'.$v4.'}', '00000000-0000-0000-0000-000000000000', substr($v4, 0, 35)] as $bad) {
+            self::assertFalse(self::isCanonicalUuid($bad), 'The uuid predicate accepted '.var_export($bad, true).'.');
+        }
+        self::assertTrue(self::isCanonicalUuid($v4), 'The uuid predicate refused a freshly minted v4 uuid.');
+
+        // Control (i): the registry is the spec's operations, so no declaring operation can go undriven.
+        $registry = TransactionBoundaryTest::contractOperations();
+        $registryNames = array_keys($registry);
+        sort($registryNames);
+        $specIds = array_map(static fn (array $data): string => (string) ($data['operation']['operationId'] ?? ''), array_values(GeneratedSpec::operations($spec)));
+        sort($specIds);
+        self::assertSame($registryNames, $specIds, 'The registry\'s operations are not the spec\'s operationIds.');
+
+        self::assertSame([], $idFailures, "A served row id is not a canonical uuid:\n".implode("\n", $idFailures));
+
+        // Control (iii), per operation: every declaring operation and each paging list's limit=1 twin had an id checked.
+        $expected = array_keys($declared);
+        foreach ($declared as $operationId => $kind) {
+            if ('object' !== $kind && isset($registry[$operationId]) && 'GET' === $registry[$operationId]->getMethod()
+                && (bool) $registry[$operationId]->getParameters()?->has('limit')) {
+                $expected[] = $operationId.' (limit=1)';
+            }
+        }
+        $pinFailures = [];
+        foreach (self::LIST_PAGES_EMPTY_BY_RECIPE as $key) {
+            if (!\in_array($key, $expected, true)) {
+                $pinFailures[] = $key.' is pinned in LIST_PAGES_EMPTY_BY_RECIPE but declares no row id';
+            } elseif ([] !== ($bodies[$key]['items'] ?? null)) {
+                $pinFailures[] = $key.' is pinned in LIST_PAGES_EMPTY_BY_RECIPE but its page was not empty';
+            }
+        }
+        self::assertSame([], $pinFailures, implode("\n", $pinFailures));
+        $observed = array_values(array_unique(array_merge($checked, self::LIST_PAGES_EMPTY_BY_RECIPE)));
+        sort($observed);
+        sort($expected);
+        self::assertSame($expected, $observed, "The operations declaring a row id (expected) and those whose body had one checked (actual):\n"
+            .'never checked: '.implode(', ', array_diff($expected, $observed))."\nchecked but not declared: ".implode(', ', array_diff($observed, $expected)));
+    }
+
+    /**
+     * BK-18 R18-a control (iii)'s exceptions: driven bodies whose page is empty by recipe, each with its reason. Keyed by
+     * driven-body name, so an empty paging list needs both `ListX` and `ListX (limit=1)`; each entry must be a declaring
+     * key whose body's `items` is `[]`. Expected empty: a recipe that seeds a row is the fix, an entry the exception.
+     *
+     * @var list<string>
+     */
+    private const LIST_PAGES_EMPTY_BY_RECIPE = [];
+
+    /**
+     * @param array<mixed> $spec
+     *
+     * @return array<string, 'object'|'ref-list'|'inline-list'> operationId => where its 2xx JSON body declares a row id
+     */
+    private static function operationsDeclaringARowId(array $spec): array
+    {
+        $schemas = $spec['components']['schemas'] ?? [];
+        $resolve = static function (mixed $node) use ($schemas): array {
+            $ref = \is_array($node) ? ($node['$ref'] ?? null) : null;
+            if (\is_string($ref)) {
+                return (array) ($schemas[substr($ref, (int) strrpos($ref, '/') + 1)] ?? []);
+            }
+
+            return \is_array($node) ? $node : [];
+        };
+        $declared = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            foreach ($data['operation']['responses'] ?? [] as $status => $response) {
+                if ((int) $status < 200 || (int) $status > 299 || !isset($response['content']['application/json']['schema'])) {
+                    continue;
+                }
+                $schema = $resolve($response['content']['application/json']['schema']);
+                $items = $schema['properties']['items']['items'] ?? null;
+                if (\array_key_exists('id', $schema['properties'] ?? [])) {
+                    $declared[(string) $data['operation']['operationId']] = 'object';
+                } elseif (null !== $items && \array_key_exists('id', $resolve($items)['properties'] ?? [])) {
+                    $declared[(string) $data['operation']['operationId']] = isset($items['$ref']) ? 'ref-list' : 'inline-list';
+                }
+            }
+        }
+        ksort($declared);
+
+        return $declared;
+    }
+
+    /** Canonical lower-case RFC 9562 uuid text; the version nibble 1–8 and variant 8–b. */
+    private static function isCanonicalUuid(mixed $value): bool
+    {
+        return \is_string($value) && 1 === preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $value);
     }
 
     /**

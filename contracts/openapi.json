@@ -338,6 +338,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "invoice": {
@@ -684,6 +685,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "permission_codes": {
@@ -732,6 +734,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
@@ -818,6 +821,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "kind": {
@@ -965,6 +969,7 @@
                         ]
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "is_primary": {
@@ -1140,6 +1145,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "lines": {
@@ -1317,6 +1323,7 @@
             "GoodsReceipt": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "lines": {
@@ -1538,6 +1545,7 @@
                         "type": "object"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "invoice_number": {
@@ -1795,6 +1803,7 @@
                         "type": "boolean"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
@@ -2219,6 +2228,7 @@
                         "type": "object"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "lines": {
@@ -2464,6 +2474,7 @@
                         ]
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "order_number": {
@@ -2627,6 +2638,7 @@
                         ]
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "inventory_item": {
@@ -2875,6 +2887,7 @@
                         "type": "integer"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "is_system": {
@@ -2997,6 +3010,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "is_expired": {
@@ -3181,6 +3195,7 @@
                         "$ref": "#/components/schemas/SalesNamedReference"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "order_number": {
@@ -3341,6 +3356,7 @@
                         ]
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "inventory_item": {
@@ -3488,6 +3504,7 @@
                         "type": "object"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "invoice": {
@@ -3990,6 +4007,7 @@
             "StockMovement": {
                 "properties": {
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "inventory_item": {
@@ -4143,6 +4161,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "kind": {
@@ -4247,6 +4266,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {
@@ -4376,6 +4396,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "inventory_item": {
@@ -4542,6 +4563,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "is_active": {
@@ -4653,6 +4675,7 @@
                         "type": "string"
                     },
                     "id": {
+                        "format": "uuid",
                         "type": "string"
                     },
                     "name": {

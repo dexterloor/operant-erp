@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
@@ -255,6 +256,7 @@ final class PurchaseOrderResource
      * @param string $totalAmount numeric(19,4) — money, carried as a decimal string
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public NamedReference $supplier,
         public NamedReference $warehouse,

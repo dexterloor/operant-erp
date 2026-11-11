@@ -140,6 +140,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class InvoiceResource
 {
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('invoice_number')]
         public string $invoiceNumber,

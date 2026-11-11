@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Link;
@@ -169,6 +170,7 @@ final class SalesOrderLineResource
      * @param string $quantityOutstanding numeric(19,6), derived — see `SalesOrderLineRow`
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('line_number')]
         public int $lineNumber,

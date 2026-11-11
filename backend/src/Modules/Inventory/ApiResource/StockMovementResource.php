@@ -102,6 +102,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class StockMovementResource
 {
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $quantity,
         #[SerializedName('occurred_at')]
