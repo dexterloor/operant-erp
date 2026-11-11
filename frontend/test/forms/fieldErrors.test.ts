@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { changedFields, fieldErrorsFrom } from '@/lib/forms/fieldErrors';
+import { changedFields, fieldErrorsFrom, marksAnyField } from '@/lib/forms/fieldErrors';
 import type { FieldErrors, Violation } from '@/lib/results';
 
 // Revision 7 A-19 item 4: a 422's violations onto a form's fields, and a PATCH body of only what changed.
@@ -20,6 +20,18 @@ describe('fieldErrorsFrom', () => {
       fieldErrors: { name: 'Enter a name.' },
       formErrors: [],
     });
+  });
+
+  it('the first NON-EMPTY message wins: an empty sentence first does not hide a real one after it', () => {
+    expect(fieldErrorsFrom([v('/name', ''), v('/name', 'Real')], FIELDS)).toEqual({ fieldErrors: { name: 'Real' }, formErrors: [] });
+    // A real sentence first still wins over a later empty one.
+    expect(fieldErrorsFrom([v('/name', 'Real'), v('/name', '')], FIELDS)).toEqual({ fieldErrors: { name: 'Real' }, formErrors: [] });
+  });
+
+  it('a field whose only sentences are empty keeps the empty string (shown as no error: a stated residual) and adds nothing to formErrors', () => {
+    const got = fieldErrorsFrom([v('/name', ''), v('/name', '')], FIELDS);
+    expect(got).toEqual({ fieldErrors: { name: '' }, formErrors: [] });
+    expect(marksAnyField(got.fieldErrors)).toBe(false);
   });
 
   it('anything else (empty pointer, a query parameter, an unknown or nested field) goes to formErrors verbatim, in order', () => {
