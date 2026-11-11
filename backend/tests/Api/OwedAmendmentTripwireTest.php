@@ -1382,9 +1382,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * references exactly `{id, code}` and `{id, name}`. A marker field arriving on the row (or a `kind` on the
      * shared location reference) turns this red in that backend commit, so the closing design starts there.
      *
-     * **Where it runs.** Merge-time backstop. Its frontend twin is owed next on the frontend track (FE-LEAD), in
-     * `frontend/test/architecture.test.ts`; until it lands, the rule is enforced only when frontend work merges into
-     * main, and the frontend gate runs only locally.
+     * **Where it runs.** Merge-time backstop. Its frontend twin is the G-47 block of
+     * `frontend/test/architecture.test.ts` (FE-LEAD), so the rule also runs on every frontend gate; that gate runs
+     * only locally.
      *
      * **Controls, same test:** planted trees, each isolating ONE rule (page trees carry no sources; token trees carry
      * `(app)/admin/page.tsx` as their only page); planted implication trees (each token dropped, one import level
@@ -1765,9 +1765,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * (a)/(b)/(d) are what catch a real screen, which must name the operation or its path to call it; a source behind a
      * symlinked directory is not read.
      *
-     * **Where it runs.** Merge-time backstop, the canonical text: the backend writes it first, and `FE-LEAD` ports it
-     * byte-identical into `frontend/test/architecture.test.ts` with Items I-3 (the G-47 order). Until then the rule is
-     * enforced only when frontend work merges into main.
+     * **Where it runs.** Merge-time backstop, the canonical text: the backend writes it first, and `FE-LEAD` ported it
+     * byte-identical into `frontend/test/architecture.test.ts` with Items I-3 (the G-47 order), where a parity test
+     * holds the two messages equal; from then the rule runs on every frontend gate too.
      *
      * **Controls, same test:** planted trees, one rule per tree, for each arm firing and for each near miss (the
      * movements read named or wired, both operations and both paths only in generated code, a word-boundary miss, a
