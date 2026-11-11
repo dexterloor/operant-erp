@@ -86,6 +86,7 @@ final class PickListResource
      * @param list<PickListLineView> $lines live lines only, by `line_number`
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('order_number')]
         public string $orderNumber,

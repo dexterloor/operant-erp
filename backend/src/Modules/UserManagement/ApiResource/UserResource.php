@@ -127,6 +127,7 @@ final class UserResource
      * @param list<RoleReference> $roles
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $email,
         #[SerializedName('display_name')]

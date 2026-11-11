@@ -106,6 +106,7 @@ final class GoodsReceiptResource
      * @param list<GoodsReceiptLineView> $lines
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('receipt_number')]
         public string $receiptNumber,

@@ -144,6 +144,7 @@ final class RoleGrantProposalResource
      * @param list<string> $permissionCodes codes, sorted ascending
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         /** PC-16 field 1: the person the role would be given to. */
         public UserDisplayReference $user,

@@ -681,8 +681,9 @@ final class OpenApiContractTest extends ApiTestCase
      * reference written by hand under a resource root is held too. A hand-written member whose PHP type is a scalar is
      * served that scalar's JSON type.
      *
-     * Resource root components stay keys-only: that they list no `required` and give `id` no `format` is BK-18, not this
-     * test.
+     * Resource root components are otherwise keys-only: they list no `required` (BK-18 R18-c, not this test). Their `id` is
+     * held to `{type: string, format: uuid}` by `everyResourceRootTypesItsIdAsAUuid` (BK-18 R18-a); because each root's
+     * `id` carries its own `#[ApiProperty(schema:)]`, this walk also holds that it admits no null and is served a string.
      *
      * Anti-vacuity, two-way: the components the walk reached through a `$ref` and described == every component that is not
      * a resource, not an input and not API Platform's own. It fails on a reference component the walk never reaches, and on
@@ -790,6 +791,165 @@ final class OpenApiContractTest extends ApiTestCase
         }
         unset($schema);
         self::assertSame(self::canonical($wire), self::canonical($component));
+    }
+
+    /**
+     * BK-18 R18-a. Every resource root serves its `id` as `{type: string, format: uuid}`.
+     *
+     * A RESOURCE ROOT is the component an `#[ApiResource]` class serves under its short name when that class has an `id`.
+     * Two derivations, held equal:
+     * - A, from PHP reflection and independent of the spec: every `#[ApiResource]` class with a public non-static property
+     *   named `id`, or one serialized as `id`, by its short name. The "serialized as `id`" branch has no subject in `src/`
+     *   today; it is kept deliberately, because without it such a class would read as A ≠ B — which fails loudly, not
+     *   silently, but under the wrong cause.
+     * - B, from the spec: the named components that are a 2xx response schema, or the `$ref` of a 2xx response's
+     *   `items.items`, and that have `properties.id`.
+     * For each name in A the component must exist and have `properties.id` (else "serves its id under another key or not
+     * at all"), and `properties.id` must be exactly `{type: string, format: uuid}` (else "is not a uuid"), unless the name
+     * is pinned in {@see self::ROOTS_WHOSE_ID_IS_NOT_A_UUID}. The per-name failures are asserted BEFORE A == B, so a root
+     * that serves its id under another key is named rather than hidden behind the set difference.
+     *
+     * Positive control, in this test: the same predicate over a copy of the spec in which one passing root's `format` is
+     * removed reports exactly that root.
+     *
+     * Not covered:
+     * - Path parameters (`{id}`, `{lineId}` …) stay `{type: string}`: BK-18 R18-d, due before 2b — not this test.
+     * - A root that drops `id` entirely shrinks both derivations; ResponseShapeTest's derivation holds that.
+     * - Whether the served VALUES are canonical uuids: {@see ResponseShapeTest::noResponseCarriesATenantIdentifier}.
+     * - That roots list no `required`: BK-18 R18-c.
+     */
+    #[Test]
+    public function everyResourceRootTypesItsIdAsAUuid(): void
+    {
+        $spec = $this->regenerate();
+        $a = self::resourceRootsByReflection();
+        $b = self::resourceRootsInTheSpec($spec);
+
+        $failures = [];
+        foreach ($a as $name) {
+            if (!\is_array($spec['components']['schemas'][$name]['properties']['id'] ?? null)) {
+                $failures[] = $name.' serves its id under another key or not at all';
+            }
+        }
+        $notUuid = self::rootsWhoseIdIsNotAUuid($spec, $a);
+        foreach ($notUuid as $name) {
+            if (!\in_array($name, self::ROOTS_WHOSE_ID_IS_NOT_A_UUID, true)) {
+                $failures[] = $name.'.id is not a uuid: '.json_encode($spec['components']['schemas'][$name]['properties']['id']);
+            }
+        }
+        foreach (self::ROOTS_WHOSE_ID_IS_NOT_A_UUID as $name) {
+            if (!\in_array($name, $a, true)) {
+                $failures[] = $name.' is pinned in ROOTS_WHOSE_ID_IS_NOT_A_UUID but is not a resource root';
+            } elseif (!\in_array($name, $notUuid, true)) {
+                $failures[] = $name.' is pinned in ROOTS_WHOSE_ID_IS_NOT_A_UUID but serves its id as a uuid';
+            }
+        }
+
+        self::assertNotSame([], $a, 'Anti-vacuity: no #[ApiResource] class has an id, so this test had no subject.');
+
+        // Positive control: a predicate that cannot fail cannot pass.
+        $control = null;
+        foreach ($a as $name) {
+            if (!\in_array($name, $notUuid, true) && \is_array($spec['components']['schemas'][$name]['properties']['id'] ?? null)) {
+                $control = $name;
+                break;
+            }
+        }
+        self::assertNotNull($control, 'No resource root passes, so the positive control has nothing to plant on.');
+        $planted = $spec;
+        unset($planted['components']['schemas'][$control]['properties']['id']['format']);
+        self::assertSame([$control], array_values(array_diff(self::rootsWhoseIdIsNotAUuid($planted, $a), $notUuid)),
+            'The positive control: removing '.$control.'.id\'s format was not reported.');
+
+        self::assertSame([], $failures, "A resource root does not serve its id as {type: string, format: uuid}:\n".implode("\n", $failures));
+        self::assertSame($a, $b, "The resource roots by reflection (expected) and in the spec (actual) differ:\n"
+            .'reflection only: '.implode(', ', array_diff($a, $b))."\nspec only: ".implode(', ', array_diff($b, $a)));
+    }
+
+    /**
+     * BK-18 R18-a: resource roots whose `id` is deliberately not served as a uuid, each with its reason. Pinned two-way
+     * (each listed name is a root and fails the uuid check; every failing root is listed). Expected empty: every served
+     * root id is a row uuid. A new entry is a decision, not a pin to move.
+     *
+     * @var list<string>
+     */
+    private const ROOTS_WHOSE_ID_IS_NOT_A_UUID = [];
+
+    /** @return list<string> the short names of the `#[ApiResource]` classes with an `id`, sorted */
+    private static function resourceRootsByReflection(): array
+    {
+        $roots = [];
+        foreach (self::apiResourceClasses() as $class => $shortName) {
+            foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                if ($property->isStatic()) {
+                    continue;
+                }
+                $serialized = $property->getAttributes(SerializedName::class)[0] ?? null;
+                if ('id' === $property->getName() || (null !== $serialized && 'id' === $serialized->newInstance()->serializedName)) {
+                    $roots[] = $shortName;
+                    break;
+                }
+            }
+        }
+        $roots = array_values(array_unique($roots));
+        sort($roots);
+
+        return $roots;
+    }
+
+    /**
+     * @param array<mixed> $spec
+     *
+     * @return list<string> the named components served as a 2xx body or as a 2xx list's `items.items` that have an `id`
+     */
+    private static function resourceRootsInTheSpec(array $spec): array
+    {
+        $schemas = $spec['components']['schemas'] ?? [];
+        $roots = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            foreach ($data['operation']['responses'] ?? [] as $status => $response) {
+                if ((int) $status < 200 || (int) $status > 299) {
+                    continue;
+                }
+                foreach ($response['content'] ?? [] as $content) {
+                    $ref = $content['schema']['$ref'] ?? null;
+                    if (!\is_string($ref)) {
+                        continue;
+                    }
+                    $name = self::componentNameOf($ref);
+                    if (\array_key_exists('id', $schemas[$name]['properties'] ?? [])) {
+                        $roots[] = $name;
+                    }
+                    $itemRef = $schemas[$name]['properties']['items']['items']['$ref'] ?? null;
+                    if (\is_string($itemRef) && \array_key_exists('id', $schemas[self::componentNameOf($itemRef)]['properties'] ?? [])) {
+                        $roots[] = self::componentNameOf($itemRef);
+                    }
+                }
+            }
+        }
+        $roots = array_values(array_unique($roots));
+        sort($roots);
+
+        return $roots;
+    }
+
+    /**
+     * @param array<mixed> $spec
+     * @param list<string> $roots
+     *
+     * @return list<string> the roots that have `properties.id` and do not serve it as exactly `{type: string, format: uuid}`
+     */
+    private static function rootsWhoseIdIsNotAUuid(array $spec, array $roots): array
+    {
+        $notUuid = [];
+        foreach ($roots as $name) {
+            $id = $spec['components']['schemas'][$name]['properties']['id'] ?? null;
+            if (\is_array($id) && ['type' => 'string', 'format' => 'uuid'] !== self::sortedKeys($id)) {
+                $notUuid[] = $name;
+            }
+        }
+
+        return $notUuid;
     }
 
     /** A class not served as a resource, with an `id`, whose every public member is a non-nullable `string`. */

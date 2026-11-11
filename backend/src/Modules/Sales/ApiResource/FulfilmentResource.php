@@ -99,6 +99,7 @@ final class FulfilmentResource
      * @param list<FulfilmentLineView> $lines
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('fulfilment_number')]
         public string $fulfilmentNumber,

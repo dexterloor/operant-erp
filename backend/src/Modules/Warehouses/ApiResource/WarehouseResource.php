@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Warehouses\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
@@ -127,6 +128,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class WarehouseResource
 {
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $code,
         public string $name,

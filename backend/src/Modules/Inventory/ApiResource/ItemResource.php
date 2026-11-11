@@ -188,6 +188,7 @@ final class ItemResource
      * @param string $safetyStock     numeric(19,6)
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $sku,
         public string $name,

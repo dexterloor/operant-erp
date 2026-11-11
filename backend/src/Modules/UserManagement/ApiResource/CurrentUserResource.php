@@ -81,6 +81,7 @@ final class CurrentUserResource
      * @param list<string>        $permissionCodes the caller's effective set, flattened across live roles — the set the API enforces, see the class docblock
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $email,
         #[SerializedName('display_name')]

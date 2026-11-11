@@ -158,6 +158,7 @@ final class SalesReturnResource
      * @param list<SalesReturnLineView> $lines
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         #[SerializedName('sales_return_number')]
         public string $salesReturnNumber,

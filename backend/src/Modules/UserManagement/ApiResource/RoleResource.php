@@ -197,6 +197,7 @@ final class RoleResource
      * @param list<string> $permissionCodes codes, not references (nothing here is an `_id`), sorted ascending
      */
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $name,
         public string $description,

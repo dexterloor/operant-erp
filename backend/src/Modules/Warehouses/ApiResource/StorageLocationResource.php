@@ -149,6 +149,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class StorageLocationResource
 {
     public function __construct(
+        #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $code,
         /** One of {@see LocationKinds::ALL}, served as that enum (BK-19). */
