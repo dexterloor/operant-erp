@@ -416,6 +416,8 @@ describe.each([
     else {
       expect(unit()).toHaveValue('KG');
       expectSuffix('KG');
+      // The item is still EA and the draft is KG: nothing was committed, so Save is still offered (commit RED L-1).
+      expect(screen.getByRole('button', { name: 'Save' })).not.toHaveAttribute('aria-disabled');
     }
   };
   const editThenRefused = async (answer: Response | (() => Response), closeWith: 'Close' | 'Cancel' | 'Escape') => {
@@ -487,6 +489,7 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     const calls = stubFetch([json(200, { ...BOLT, name: 'Boltx' }), saveReread.reply, empty(204), deleteReread]);
     const u = userEvent.setup();
     show();
+    const spoken = textsOf(region());
     await u.type(field('Name')!, 'x');
     await u.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls).toHaveLength(2));
@@ -497,10 +500,12 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     saveReread.release(json(200, { ...BOLT, name: 'Boltx' }));
     await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
     await tick(20);
+    spoken.stop();
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'DELETE', 'GET']);
-    // UX M-3 (I-4): the Save was sent before the person's own 204, so its "saved" sentence is not spoken; the refresh
-    // above stays. The region keeps the delete's sentence.
+    // UX M-3 (I-4): the Save was sent before the person's own 204, so its "saved" sentence is never spoken; the refresh
+    // above stays. The region keeps the delete's sentence, and held nothing else.
     expect(region().textContent).toBe(AFTER);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
   };
 
   it('an older Save re-read landing after a 204 does not turn the page live: archived banner stays, no Delete item, no form (I-A)', async () => {
@@ -524,6 +529,7 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     const calls = stubFetch([patch.reply, empty(204), json(200, ARCHIVED), json(503, {})]);
     const u = userEvent.setup();
     show();
+    const spoken = textsOf(region());
     await u.type(field('Name')!, 'x');
     await u.click(screen.getByRole('button', { name: 'Save' }));
     await openAndConfirm(u);
@@ -531,12 +537,14 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     patch.release(json(200, { ...BOLT, name: 'Boltx' }));
     await tick();
     await tick();
+    spoken.stop();
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
     expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
     expect(deleteButton()).toBeNull();
     expect(field('Name')).toBeNull();
-    // UX M-3 (I-4): this Save answered after the person's own 204, so "A-1 was saved." is not spoken over the delete.
+    // UX M-3 (I-4): this Save answered after the person's own 204, so "A-1 was saved." is never spoken over the delete.
     expect(region().textContent).toBe(AFTER);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
   });
 
   it("…and the same when the Save answers while the delete's re-read is in flight (H-1)", async () => {
@@ -545,6 +553,7 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     const calls = stubFetch([patch.reply, empty(204), reread.reply, json(503, {})]);
     const u = userEvent.setup();
     show();
+    const spoken = textsOf(region());
     await u.type(field('Name')!, 'x');
     await u.click(screen.getByRole('button', { name: 'Save' }));
     await openAndConfirm(u);
@@ -553,10 +562,14 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await tick();
     reread.release(json(200, ARCHIVED));
     await tick();
+    spoken.stop();
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
     expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
     expect(deleteButton()).toBeNull();
-    expect(field('Name')).toBeNull();    expect(region().textContent).toBe(AFTER);
+    expect(field('Name')).toBeNull();
+    // UX M-3 (I-4): the 200 came after the 204, so "A-1 was saved." is never spoken, even though the delete's sentence
+    // is written last here (commit RED M-1: the final text alone cannot show it).
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
   });
 
   // i3-0a0b RED L-2, item twin: Restore takes its stamp when it sends its re-read. A Retry pressed during the Restore
@@ -643,6 +656,8 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
       else {
         expect(unit()).toHaveValue('KG');
         expectSuffix('KG');
+        // "Nothing to save" holds only when the committed item is KG (commit RED L-1): the save's reading was committed.
+        expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true');
       }
     };
     const cancelThenSave = async () => {

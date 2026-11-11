@@ -92,9 +92,11 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   // dropped when a 204 arrived after that write was sent: it describes the item before the delete. The 204 fact
   // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
   // one. A Save's refusal is dropped the same way when a 204 arrived after that Save was sent: it describes the item
-  // before the delete (UX T-17 ruling); so is its "saved" sentence (UX M-3), though its refresh stays. Known limit: when
-  // that re-read fails, the write's answer body describes the moment of the write but carries the re-read's stamp, so it
-  // can overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it.
+  // before the delete (UX T-17 ruling); so is its "saved" sentence (UX M-3), though its refresh stays. That `sentAsOf`
+  // is compared only with the 204 floor, never with the commit stamp: a Save's own re-read always commits above it.
+  // Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
+  // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
+  // reading corrects it.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
