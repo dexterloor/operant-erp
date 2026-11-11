@@ -101,6 +101,10 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
   const committedSku = useRef(initial.sku);
+  // S-2 (items-i4-red.md L-4): whether the reading last committed is archived, for the delete's after-sentence and for
+  // the stale-refusal rule (FE-R7). Decided from what was committed, never from the render the dialog was opened in. A
+  // 204 sets it too: the delete is a fact even when its re-read fails, until a later commit says otherwise.
+  const committedArchived = useRef(initial.archived_at !== null);
   const stamp = useCallback(() => ++stamps.current, []);
   const failed = useCallback((f: ReadFailure, asOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
@@ -119,6 +123,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
       if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
       committedSku.current = i.sku;
+      committedArchived.current = i.archived_at !== null;
       setDeletedHere(false);
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
@@ -136,6 +141,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const onDeleted = useCallback((s: number) => {
     if (s > committedAsOf.current) committedAsOf.current = s;
     deletedAsOf.current = s;
+    committedArchived.current = true;
     setDeletedHere(true);
     // T-17: the item is archived by the person's own act; a stale Save refusal describes an edit they can no longer make.
     setStaleRefusal(null);
@@ -144,6 +150,9 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const onSaved = useCallback(() => router.refresh(), [router]);
   const onRefusedArchived = useCallback((message: string, sentAsOf: number) => {
     if (sentAsOf < deletedAsOf.current) return;
+    // FE-R7: the page is live (a restore committed after this Save's archived reading was asked for, so that reading was
+    // dropped): the refusal describes nothing on screen and is not kept for a later archived reading.
+    if (!committedArchived.current) return;
     setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message }));
   }, []);
   const speak = region.announce;
@@ -189,7 +198,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
     flushSync(() => setDeleting(false));
     if (deleted) {
       h1.current?.focus();
-      region.announce(DELETE_ITEM.after(committedSku.current));
+      // S-2: a re-read that committed a live item means it was restored in between; "now in the archived items" would be false.
+      region.announce(committedArchived.current ? DELETE_ITEM.after(committedSku.current) : DELETE_ITEM.afterRestored(committedSku.current));
       router.refresh();
       return;
     }

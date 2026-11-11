@@ -85,6 +85,11 @@ export const DELETE_WAREHOUSE = {
   /** ST-9b: after a refusal other than P1 the Delete button is removed and only this remains. */
   close: 'Close',
   after: (code: string) => `${code} was deleted. It's now in the archived warehouses.`,
+  /**
+   * items-i4-ux.md "S-2 sentences" (U4-26, NEW): after a 204 whose re-read commits a LIVE warehouse (restored in
+   * between). REPLACES `after` for that case only; the normal and the failed re-read cases keep `after`.
+   */
+  afterRestored: (code: string) => `${code} was deleted, and has since been restored.`,
   interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete warehouse to try again.`,
 } as const;
 

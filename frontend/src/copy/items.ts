@@ -185,6 +185,11 @@ export const DELETE_ITEM = {
   /** ST-9b: after a refusal other than P1, a 403 or an interrupted press, the Delete button is removed and only this remains. */
   close: 'Close',
   after: (sku: string) => `${sku} was deleted. It's now in the archived items.`,
+  /**
+   * items-i4-ux.md "S-2 sentences" (U4-24, NEW): after a 204 whose re-read commits a LIVE item (restored in between).
+   * REPLACES `after` for that case only; the normal and the failed re-read cases keep `after`.
+   */
+  afterRestored: (sku: string) => `${sku} was deleted, and has since been restored.`,
   interrupted: (sku: string) => `We can't tell whether ${sku} was deleted. Press Delete item to try again.`,
 } as const;
 

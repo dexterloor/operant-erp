@@ -87,6 +87,10 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // The code last committed, for the "After" sentence (i3-c1 fix-RED L-4): the render that opened the dialog may be older
   // than a reading committed since (renamed elsewhere, or by a Save that landed while the delete was in flight).
   const committedCode = useRef(initial.code);
+  // S-2 (items-i4-red.md L-4): whether the reading last committed is archived, for the delete's after-sentence; decided
+  // from what was committed, never from the render the dialog was opened in. A 204 sets it too (the delete is a fact
+  // even when its re-read fails), until a later commit says otherwise.
+  const committedArchived = useRef(initial.archived_at !== null);
   const stamp = useCallback(() => ++stamps.current, []);
   const setWarehouse = useCallback(
     async (w: Warehouse, asOf: number, sentAsOf?: number) => {
@@ -94,6 +98,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
       committedCode.current = w.code;
+      committedArchived.current = w.archived_at !== null;
       setDeletedHere(false);
       setRereadError(null);
       await setCommitted(w);
@@ -125,6 +130,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const onDeleted = useCallback((s: number) => {
     committedAsOf.current = Math.max(committedAsOf.current, s);
     deletedAsOf.current = s;
+    committedArchived.current = true;
     setDeletedHere(true);
   }, []);
   const remove = useCallback(() => warehouseDelete({ caller, id, stamp, setWarehouse, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, setWarehouse, failed, onDeleted]);
@@ -141,7 +147,8 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       // No `setDeletedHere(true)` here: `onDeleted` already set it before the re-read, and only a commit that is not
       // dropped may clear it. A re-read that reads the warehouse live (restored in between) leaves the page live.
       h1.current?.focus();
-      region.announce(DELETE_WAREHOUSE.after(committedCode.current));
+      // S-2: a re-read that committed a live warehouse means it was restored in between.
+      region.announce(committedArchived.current ? DELETE_WAREHOUSE.after(committedCode.current) : DELETE_WAREHOUSE.afterRestored(committedCode.current));
       router.refresh();
       return;
     }

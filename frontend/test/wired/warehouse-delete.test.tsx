@@ -6,7 +6,7 @@ const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
-import { empty, json, problem, refused, renderWired, stubFetch } from './harness';
+import { empty, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Revision 7 §2 step 4.6, warehouses-ux-copy.md B-7 and STATES.md ST-9b: Delete warehouse (page action, live only) and
 // Delete location (live row action). Danger dialog, initial focus Cancel. A refusal shows under "Not deleted" as sent,
@@ -448,13 +448,17 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
 
   // The warehouse twin of i3-c1 RED L-3 (a shipped defect): someone restores the warehouse between the 204 and the
   // page's re-read. The re-read is committed (it is not dropped) and clears the 204 fact; the close must not set it again.
-  it('a 204 whose re-read reads the warehouse live (restored in between): the page is live and offers its actions', async () => {
+  it('a 204 whose re-read reads the warehouse live (restored in between): the page is live, offers its actions, and says it has since been restored (S-2)', async () => {
     stubFetch([empty(204), json(200, MAIN)]);
     const u = userEvent.setup();
     renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: true, canDelete: true }} />);
+    const spoken = textsOf(region());
     await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
     await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
-    await waitFor(() => expect(region()).toHaveTextContent("MAIN was deleted. It's now in the archived warehouses."));
+    // S-2 (items-i4-ux.md "S-2 sentences", U4-26; moved deliberately from the archived "After").
+    await waitFor(() => expect(region().textContent).toBe('MAIN was deleted, and has since been restored.'));
+    spoken.stop();
+    expect(spoken.texts.filter((t) => t !== '')).toEqual(['MAIN was deleted, and has since been restored.']);
     await act(async () => {
       await new Promise((t) => setTimeout(t, 50));
     });

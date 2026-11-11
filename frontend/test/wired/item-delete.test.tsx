@@ -58,6 +58,8 @@ const BODY =
 /** items-i3-ux.md Revision 1 — FINAL F-1 stock line (L-2 as amended; the final RED §G chose it). */
 const HOLDS = 'This item still holds stock in at least one location. Stock in quarantine is included.';
 const AFTER = "A-1 was deleted. It's now in the archived items.";
+/** items-i4-ux.md "S-2 sentences" (`DELETE_ITEM.afterRestored`, U4-24): a 204 whose re-read commits a live item. */
+const AFTER_RESTORED = 'A-1 was deleted, and has since been restored.';
 const INTERRUPTED = "We can't tell whether A-1 was deleted. Press Delete item to try again.";
 const I3 = "This item is already archived. It's in the archived items.";
 /** `TransactionContention::MESSAGE` (backend/src/Platform/Http/Problem/TransactionContention.php), 4.6 L-4. */
@@ -380,12 +382,17 @@ describe('/items/[id] — Delete item: answers (F-2)', () => {
     expect(region().textContent).toBe("A-2 was deleted. It's now in the archived items.");
   });
 
-  it('a 204 whose re-read reads the item live (restored in between): the page is live and offers its actions (RED L-3)', async () => {
+  it('a 204 whose re-read reads the item live (restored in between): the page is live, offers its actions, and says it has since been restored (RED L-3; S-2)', async () => {
     stubFetch([empty(204), json(200, BOLT)]);
     const u = userEvent.setup();
     show();
+    const spoken = textsOf(region());
     await openAndConfirm(u);
-    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    // S-2 (moved deliberately from AFTER, items-i4-red.md L-4): the reading after the 204 is live, so "now in the
+    // archived items" would be false.
+    await waitFor(() => expect(region().textContent).toBe(AFTER_RESTORED));
+    spoken.stop();
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER_RESTORED]);
     await tick();
     expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
     expect(deleteButton()).toBeInTheDocument();
@@ -758,7 +765,8 @@ describe('/items/[id] — I-4: own Delete during a unit Save (T-16, T-17)', () =
     show();
     await u.selectOptions(unit()!, 'KG');
     await openAndConfirm(u);
-    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    // S-2: the reading after the 204 is live, so the sentence is the restored one (moved deliberately from AFTER).
+    await waitFor(() => expect(region().textContent).toBe(AFTER_RESTORED));
     await tick();
     expect(unit()).toHaveValue('EA');
     expectSuffix('EA');
@@ -842,6 +850,48 @@ describe('/items/[id] — I-4: own Delete during a unit Save (T-16, T-17)', () =
     await waitFor(() => expect(screen.getByText('Not saved')).toHaveFocus());
     expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'POST', 'GET', 'PATCH', 'GET']);
     expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+  });
+});
+
+// S-2 (frontend-residuals.md FE-R7, items-i4-commit-red.md L-2): a Save refused while the person restored the item is
+// dropped when the page it lands on is live (its archived reading is older than the restore's and is not committed), so
+// it cannot come back, out of date, the next time the page turns archived.
+describe('/items/[id] — S-2: a refusal that waited across the person\'s own Restore (FE-R7)', () => {
+  it('Save held → I3 Close turns the page archived → the Save is refused, its re-read held → Restore → the old reading answers → a later archived reading shows no "Not saved"', async () => {
+    const patch = held();
+    const saveReread = held();
+    const calls = stubFetch([
+      patch.reply,
+      refused('inventory_item.is_archived', I3),
+      json(200, ARCHIVED),
+      saveReread.reply,
+      json(200, BOLT),
+      json(200, BOLT),
+      refused('inventory_item.is_archived', I3),
+      json(200, ARCHIVED),
+    ]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit()!, 'KG');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    patch.release(refused('inventory_item.unit_in_use', IN_USE));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await u.click(screen.getByRole('button', { name: 'Restore item' }));
+    await waitFor(() => expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull());
+    saveReread.release(json(200, ARCHIVED));
+    await tick();
+    // Live: the old archived reading was dropped, and its refusal is not kept for later.
+    expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
+    await openAndConfirm(u);
+    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    await tick();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET', 'POST', 'GET', 'DELETE', 'GET']);
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.queryByText(IN_USE)).toBeNull();
   });
 });
 
